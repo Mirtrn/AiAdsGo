@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+function normalizeCurrency(value: unknown): string {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  return normalized || 'USD'
+}
+
 /**
  * GET /api/campaigns/trends
  *
@@ -21,6 +26,7 @@ export async function GET(request: NextRequest) {
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const requestedCurrency = normalizeCurrency(searchParams.get('currency'))
 
     const db = await getDatabase()
 
@@ -33,7 +39,33 @@ export async function GET(request: NextRequest) {
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
-    // 3. 查询每日趋势数据（修复：使用正确的加权计算而非简单平均）
+    // 3. 计算币种列表：默认选花费最高的币种，避免多币种混合汇总
+    const currencyRows = await db.query<any>(
+      `
+      SELECT
+        COALESCE(currency, 'USD') as currency,
+        SUM(cost) as cost
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+      GROUP BY COALESCE(currency, 'USD')
+      ORDER BY cost DESC
+      `,
+      [userId, startDateStr, endDateStr]
+    )
+
+    const currencies = currencyRows
+      .map((r) => normalizeCurrency(r.currency))
+      .filter((v, idx, arr) => arr.indexOf(v) === idx)
+
+    const hasMixedCurrency = currencies.length > 1
+    const reportingCurrency =
+      currencies.includes(requestedCurrency)
+        ? requestedCurrency
+        : (currencies[0] || 'USD')
+
+    // 4. 查询每日趋势数据（按币种过滤，避免混币种汇总）
     const trends = await db.query<any>(
       `
       SELECT
@@ -46,13 +78,14 @@ export async function GET(request: NextRequest) {
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
+        AND COALESCE(currency, 'USD') = ?
       GROUP BY DATE(date)
       ORDER BY date ASC
       `,
-      [userId, startDateStr, endDateStr]
+      [userId, startDateStr, endDateStr, reportingCurrency]
     )
 
-    // 4. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
+    // 5. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
     const formattedTrends = trends.map((row) => {
       const impressions = Number(row.impressions) || 0
       const clicks = Number(row.clicks) || 0
@@ -76,7 +109,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // 5. 返回结果
+    // 6. 返回结果
     return NextResponse.json({
       success: true,
       trends: formattedTrends,
@@ -84,6 +117,11 @@ export async function GET(request: NextRequest) {
         start: startDateStr,
         end: endDateStr,
         days: daysBack,
+      },
+      summary: {
+        currency: reportingCurrency,
+        currencies,
+        hasMixedCurrency,
       },
     })
   } catch (error: any) {

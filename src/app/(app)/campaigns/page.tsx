@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -121,6 +121,8 @@ export default function CampaignsPage() {
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
   const [trendsLoading, setTrendsLoading] = useState(false)
   const [trendsError, setTrendsError] = useState<string | null>(null)
+  const [trendsCurrencies, setTrendsCurrencies] = useState<string[]>([])
+  const [trendsCurrency, setTrendsCurrency] = useState<string>('')
 
   // Batch delete states
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
@@ -141,6 +143,8 @@ export default function CampaignsPage() {
   const defaultCurrency = currencySet.size >= 1 ? Array.from(currencySet)[0] : 'USD'
   const formatMoney = (value: number, currencyCode: string = defaultCurrency) =>
     formatCurrency(value, currencyCode)
+  const trendsCurrencyValue = trendsCurrency || trendsCurrencies[0] || defaultCurrency
+  const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -287,10 +291,12 @@ export default function CampaignsPage() {
     }
   }
 
-  const fetchTrends = async () => {
+  const fetchTrends = async (currencyOverride?: string) => {
     try {
       setTrendsLoading(true)
-      const response = await fetch(`/api/campaigns/trends?daysBack=${timeRange}`, {
+      const currencyParam = currencyOverride || trendsCurrency
+      const currencyQuery = currencyParam ? `&currency=${encodeURIComponent(currencyParam)}` : ''
+      const response = await fetch(`/api/campaigns/trends?daysBack=${timeRange}${currencyQuery}`, {
         credentials: 'include',
       })
 
@@ -306,6 +312,11 @@ export default function CampaignsPage() {
 
       const data = await response.json()
       setTrendsData(data.trends)
+      const nextCurrencies = Array.isArray(data.summary?.currencies) ? data.summary.currencies : []
+      setTrendsCurrencies(nextCurrencies)
+      if (!trendsCurrency && data.summary?.currency) {
+        setTrendsCurrency(String(data.summary.currency))
+      }
       setTrendsError(null)
     } catch (err: any) {
       setTrendsError(err.message || '加载趋势数据失败')
@@ -631,7 +642,7 @@ export default function CampaignsPage() {
                     )}
                   </div>
                   <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-orange-600" />
+                    <Coins className="w-6 h-6 text-orange-600" />
                   </div>
                 </div>
               </CardContent>
@@ -661,6 +672,29 @@ export default function CampaignsPage() {
                   </button>
                 ))}
               </div>
+              {trendsCurrencies.length > 1 && (
+                <div className="flex items-center gap-2 ml-2">
+                  <span className="text-sm text-gray-500">币种:</span>
+                  <Select
+                    value={trendsCurrencyValue}
+                    onValueChange={(v) => {
+                      setTrendsCurrency(v)
+                      fetchTrends(v)
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[110px]">
+                      <SelectValue placeholder="币种" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {trendsCurrencies.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -691,9 +725,9 @@ export default function CampaignsPage() {
               <TrendChart
                 data={trendsData}
                 metrics={[
-                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'left' },
-                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'right' },
-                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'right' },
+                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left' },
+                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
+                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
                 ]}
                 title="成本趋势"
                 description="花费(左轴) / CPC·CPA(右轴)"
@@ -1009,11 +1043,11 @@ export default function CampaignsPage() {
 	                            }
 	                            aria-label={
 	                              !googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC'
-	                              : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
+	                            : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
 	                                : '调整CPC出价'
 	                            }
 	                          >
-	                            <DollarSign className="w-4 h-4" />
+	                            <Coins className="w-4 h-4" />
 	                          </Button>
 
                           {/* Delete Button */}

@@ -22,6 +22,7 @@ import {
   Calendar
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { formatCurrency } from '@/lib/currency'
 
 interface TrendData {
   date: string
@@ -40,6 +41,9 @@ interface TrendSummary {
   totalConversions: number
   avgCTR: number
   avgCPC: number
+  currency?: string
+  currencies?: string[]
+  hasMixedCurrency?: boolean
 }
 
 /**
@@ -52,20 +56,42 @@ export default function TrendsPage() {
   const [days, setDays] = useState('7')
   const [trends, setTrends] = useState<TrendData[]>([])
   const [summary, setSummary] = useState<TrendSummary | null>(null)
+  const [currencyInfo, setCurrencyInfo] = useState<{ currency: string; currencies: string[]; hasMixedCurrency: boolean } | null>(null)
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || summary?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? summary?.currencies ?? []
+  const formatMoney = (value: number, currencyCode: string = selectedCurrency) =>
+    formatCurrency(value, currencyCode)
 
   useEffect(() => {
     fetchTrendsData()
-  }, [days])
+  }, [days, reportCurrency])
+
+  useEffect(() => {
+    if (!currencyInfo?.currency || !Array.isArray(currencyInfo.currencies)) return
+    if (!reportCurrency || !currencyInfo.currencies.includes(reportCurrency)) {
+      setReportCurrency(currencyInfo.currency)
+    }
+  }, [currencyInfo?.currency, currencyInfo?.currencies, reportCurrency])
 
   const fetchTrendsData = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/dashboard/trends?days=${days}`)
+      const currencyParam = reportCurrency ? `&currency=${encodeURIComponent(reportCurrency)}` : ''
+      const response = await fetch(`/api/dashboard/trends?days=${days}${currencyParam}`)
       if (response.ok) {
         const result = await response.json()
         if (result.success) {
           setTrends(result.data.trends || [])
           setSummary(result.data.summary || null)
+          if (result.data?.summary?.currency && Array.isArray(result.data?.summary?.currencies)) {
+            setCurrencyInfo({
+              currency: String(result.data.summary.currency || 'USD'),
+              currencies: result.data.summary.currencies,
+              hasMixedCurrency: Boolean(result.data.summary.hasMixedCurrency),
+            })
+          }
         }
       } else {
         toast.error('获取趋势数据失败')
@@ -90,8 +116,6 @@ export default function TrendsPage() {
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
     return num.toFixed(0)
   }
-
-  const formatCurrency = (num: number) => `$${num.toFixed(2)}`
 
   // 计算趋势变化
   const calculateTrend = (data: TrendData[], key: keyof TrendData) => {
@@ -133,6 +157,18 @@ export default function TrendsPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {availableCurrencies.length > 1 && (
+            <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+              <SelectTrigger className="w-[100px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableCurrencies.map((c: string) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={days} onValueChange={setDays}>
             <SelectTrigger className="w-[140px]">
               <Calendar className="w-4 h-4 mr-2" />
@@ -213,7 +249,7 @@ export default function TrendsPage() {
               <div>
                 <p className="text-sm text-slate-500">平均CPC</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {formatCurrency(summary?.avgCPC || 0)}
+                  {formatMoney(summary?.avgCPC || 0)}
                 </p>
               </div>
               <div className={`flex items-center gap-1 text-sm ${!cpcTrend.isUp ? 'text-green-600' : 'text-red-600'}`}>
@@ -253,8 +289,8 @@ export default function TrendsPage() {
                       <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatNumber(row.impressions)}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatNumber(row.clicks)}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 text-right">{row.ctr.toFixed(2)}%</td>
-                      <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatCurrency(row.cost)}</td>
-                      <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatCurrency(row.cpc)}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatMoney(row.cost)}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600 text-right">{formatMoney(row.cpc)}</td>
                       <td className="py-3 px-4 text-sm text-slate-600 text-right">{row.conversions}</td>
                     </tr>
                   ))}

@@ -20,31 +20,43 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const days = parseInt(searchParams.get('days') || '7', 10)
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     // 计算日期范围
     const endDate = new Date()
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
+    const startDateStr = startDate.toISOString().split('T')[0]
+    const endDateStr = endDate.toISOString().split('T')[0]
 
     // 获取数据库实例
     const db = await getDatabase()
 
-    // 🔧 修复(2025-12-30): 查询货币信息以支持多货币账户
-    const currencyQuery = `
-      SELECT DISTINCT currency
+    // 查询货币分布（按花费排序，避免默认选择一个随机币种）
+    const currencyRows = await db.query<any>(`
+      SELECT
+        COALESCE(currency, 'USD') as currency,
+        COALESCE(SUM(cost), 0) as total_cost
       FROM campaign_performance
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
-    `
-    const currencies = await db.query(currencyQuery, [
-      userId,
-      startDate.toISOString().split('T')[0],
-      endDate.toISOString().split('T')[0]
-    ]) as Array<{ currency: string }>
+      GROUP BY COALESCE(currency, 'USD')
+      ORDER BY total_cost DESC
+    `, [userId, startDateStr, endDateStr])
 
-    const uniqueCurrencies = currencies.map(c => c.currency).filter(Boolean)
-    const mainCurrency = uniqueCurrencies.length === 1 ? uniqueCurrencies[0] : (uniqueCurrencies.length > 1 ? 'MIXED' : 'USD')
+    const currencies = Array.from(new Set(
+      (currencyRows || [])
+        .map((r: any) => String(r.currency || '').trim().toUpperCase())
+        .filter(Boolean)
+    ))
+
+    const defaultCurrency = currencies.length > 0 ? currencies[0] : 'USD'
+    const reportingCurrency = requestedCurrency && currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : defaultCurrency
+    const hasMixedCurrency = currencies.length > 1
 
     // 查询每日表现数据
     const query = `
@@ -58,14 +70,16 @@ export async function GET(request: NextRequest) {
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
+        AND COALESCE(currency, 'USD') = ?
       GROUP BY DATE(date)
       ORDER BY date ASC
     `
 
     const rows = await db.query(query, [
       userId,
-      startDate.toISOString().split('T')[0],
-      endDate.toISOString().split('T')[0]
+      startDateStr,
+      endDateStr,
+      reportingCurrency
     ]) as Array<{
       date: string
       impressions: number
@@ -93,7 +107,9 @@ export async function GET(request: NextRequest) {
       totalConversions: rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0),
       avgCTR: 0,
       avgCPC: 0,
-      currency: mainCurrency, // 🔧 新增(2025-12-30): 货币代码
+      currency: reportingCurrency,
+      currencies,
+      hasMixedCurrency,
     }
 
     // 计算平均CTR和CPC

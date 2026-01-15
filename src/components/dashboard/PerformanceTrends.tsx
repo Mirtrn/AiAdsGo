@@ -19,6 +19,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import { safeToFixed, formatCurrency } from '@/lib/utils'
+import { CURRENCY_SYMBOLS } from '@/lib/currency'
 
 interface TrendData {
   date: string
@@ -333,7 +334,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   strokeWidth={2}
                   dot={{ r: 4 }}
                   activeDot={{ r: 6 }}
-                  name={`CPC (${data.summary?.currency === 'CNY' ? '¥' : data.summary?.currency === 'EUR' ? '€' : '$'})`}
+                  name={`CPC (${CURRENCY_SYMBOLS[String(data.summary?.currency || 'USD').toUpperCase()] || data.summary?.currency || 'USD'})`}
                 />
               </LineChart>
             </ChartContainer>
