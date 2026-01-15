@@ -69,9 +69,9 @@ interface KeywordWithVolume {
 }
 
 interface Sitelink {
-  text: string
-  url: string
-  description?: string
+  text: unknown
+  url: unknown
+  description?: unknown
 }
 
 interface Creative {
@@ -82,7 +82,7 @@ interface Creative {
   descriptions: string[]
   keywords: string[]
   keywordsWithVolume?: KeywordWithVolume[]
-  callouts: string[]
+  callouts: unknown[]
   sitelinks: Sitelink[]
   finalUrl: string
   path1: string | null
@@ -1184,7 +1184,7 @@ export default function CreativesPage() {
                   <div className="flex flex-wrap gap-2">
                     {selectedCreative.callouts.map((callout, index) => (
                       <Badge key={index} variant="secondary" className="bg-green-100 text-green-800">
-                        {callout}
+                        {getTextContent(callout)}
                       </Badge>
                     ))}
                   </div>
@@ -1198,10 +1198,10 @@ export default function CreativesPage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {selectedCreative.sitelinks.map((sitelink, index) => (
                       <div key={index} className="bg-white p-3 rounded border border-purple-200">
-                        <p className="text-sm font-medium text-purple-700">{sitelink.text}</p>
-                        <p className="text-xs text-gray-500 truncate">{sitelink.url}</p>
-                        {sitelink.description && (
-                          <p className="text-xs text-gray-600 mt-1">{sitelink.description}</p>
+                        <p className="text-sm font-medium text-purple-700">{getTextContent(sitelink.text)}</p>
+                        <p className="text-xs text-gray-500 truncate">{String(sitelink.url ?? '')}</p>
+                        {getTextContent(sitelink.description).trim() && (
+                          <p className="text-xs text-gray-600 mt-1">{getTextContent(sitelink.description)}</p>
                         )}
                       </div>
                     ))}

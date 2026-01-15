@@ -393,13 +393,33 @@ function parseAdCreativeRow(row: any): AdCreative {
     keywords: JSON.parse(row.keywords),
     keywordsWithVolume: row.keywords_with_volume ? JSON.parse(row.keywords_with_volume) : undefined,
     negativeKeywords: row.negative_keywords ? JSON.parse(row.negative_keywords) : undefined,  // 🎯 新增：解析否定关键词
-    callouts: row.callouts ? JSON.parse(row.callouts) : undefined,
+    callouts: row.callouts ? normalizeCallouts(JSON.parse(row.callouts)) : undefined,
     // 兼容：历史/AI不稳定输出可能产生 description1/description_1 等字段
     sitelinks: row.sitelinks ? normalizeSitelinks(JSON.parse(row.sitelinks), row.final_url) : undefined,
     score_breakdown: JSON.parse(row.score_breakdown),
     // 🔧 解析完整的 Ad Strength 评估数据（7维度）
     adStrength: row.ad_strength_data ? JSON.parse(row.ad_strength_data) : undefined,
   }
+}
+
+export function normalizeCallouts(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined
+
+  const normalized = input
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') {
+        if ('text' in item) return String((item as any).text ?? '')
+        if ('value' in item) return String((item as any).value ?? '')
+        if ('name' in item) return String((item as any).name ?? '')
+      }
+      return String(item ?? '')
+    })
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+    .map((v) => v.substring(0, 25)) // Callout text max length
+
+  return normalized.length > 0 ? normalized : undefined
 }
 
 /**

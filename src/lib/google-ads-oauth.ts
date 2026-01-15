@@ -94,8 +94,20 @@ export async function saveGoogleAdsCredentials(
 ): Promise<GoogleAdsCredentials> {
   const db = await getDatabase()
 
+  // 🔧 修复(2026-01-15): 清理凭证中的前后空格/换行
+  // 避免出现 "The developer token is not valid." 这类由多余空白字符触发的错误
+  const cleanedCredentials = {
+    client_id: String(credentials.client_id ?? '').trim(),
+    client_secret: String(credentials.client_secret ?? '').trim(),
+    refresh_token: String(credentials.refresh_token ?? '').trim(),
+    developer_token: String(credentials.developer_token ?? '').trim(),
+    login_customer_id: String(credentials.login_customer_id ?? '').trim(),
+    access_token: credentials.access_token ? String(credentials.access_token).trim() : undefined,
+    access_token_expires_at: credentials.access_token_expires_at,
+  }
+
   // 🔧 修复(2025-12-26): 验证并格式化 login_customer_id
-  const formattedLoginCustomerId = formatAndValidateLoginCustomerId(credentials.login_customer_id, 'login_customer_id')
+  const formattedLoginCustomerId = formatAndValidateLoginCustomerId(cleanedCredentials.login_customer_id, 'login_customer_id')
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -124,13 +136,13 @@ export async function saveGoogleAdsCredentials(
           updated_at = ${nowFunc}
       WHERE user_id = ?
     `, [
-      credentials.client_id,
-      credentials.client_secret,
-      credentials.refresh_token,         // 🔧 修复：正确的参数顺序
-      credentials.developer_token,       // 🔧 修复：正确的参数顺序
+      cleanedCredentials.client_id,
+      cleanedCredentials.client_secret,
+      cleanedCredentials.refresh_token,         // 🔧 修复：正确的参数顺序
+      cleanedCredentials.developer_token,       // 🔧 修复：正确的参数顺序
       formattedLoginCustomerId,          // 🔧 修复：正确的参数顺序
-      credentials.access_token || null,
-      credentials.access_token_expires_at || null,
+      cleanedCredentials.access_token || null,
+      cleanedCredentials.access_token_expires_at || null,
       isActiveValue,
       userId
     ])
@@ -144,13 +156,13 @@ export async function saveGoogleAdsCredentials(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
     `, [
       userId,
-      credentials.client_id,
-      credentials.client_secret,
-      credentials.refresh_token,
-      credentials.developer_token,
+      cleanedCredentials.client_id,
+      cleanedCredentials.client_secret,
+      cleanedCredentials.refresh_token,
+      cleanedCredentials.developer_token,
       formattedLoginCustomerId,  // 使用格式化后的值
-      credentials.access_token || null,
-      credentials.access_token_expires_at || null
+      cleanedCredentials.access_token || null,
+      cleanedCredentials.access_token_expires_at || null
     ])
   }
 

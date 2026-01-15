@@ -192,7 +192,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
               </div>
               <div className="text-xs text-gray-500">/ {(today.quotaLimit ?? 0).toLocaleString('en-US')}</div>
               <div className={`text-xs font-medium mt-0.5 ${getStatusColor()}`}>
-                {safeToFixed((usagePercent ?? 0) * 100, 1)}%
+                {safeToFixed(usagePercent ?? 0, 1)}%
               </div>
             </div>
           </div>

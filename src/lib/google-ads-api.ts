@@ -76,6 +76,8 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
   login_customer_id: string
   useServiceAccount: boolean
 }> {
+  const clean = (value: unknown): string => String(value ?? '').trim()
+
   // 优先从 google_ads_credentials 读取（当前生产环境实际存储位置）
   const db = await getDatabase()
   const isActiveCondition = boolCondition('is_active', true, db.type)
@@ -118,10 +120,11 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
 
   const useServiceAccount = String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true'
 
-  const clientId = oauthCredentials?.client_id || clientIdSetting?.value || ''
-  const clientSecret = oauthCredentials?.client_secret || clientSecretSetting?.value || ''
-  const developerToken = oauthCredentials?.developer_token || developerTokenSetting?.value || ''
-  const loginCustomerId = oauthCredentials?.login_customer_id || loginCustomerIdSetting?.value || ''
+  // 🔧 修复(2026-01-15): 去除凭证前后空白，避免无效 token
+  const clientId = clean(oauthCredentials?.client_id || clientIdSetting?.value)
+  const clientSecret = clean(oauthCredentials?.client_secret || clientSecretSetting?.value)
+  const developerToken = clean(oauthCredentials?.developer_token || developerTokenSetting?.value)
+  const loginCustomerId = clean(oauthCredentials?.login_customer_id || loginCustomerIdSetting?.value)
 
   // 🔧 修复(2025-12-25): 服务账号模式不需要login_customer_id
   if (!clientId || !clientSecret || !developerToken) {
@@ -207,9 +210,9 @@ export function getGoogleAdsClient(credentials: {
 
   // 每次都创建新的客户端实例,支持多用户隔离
   return new GoogleAdsApi({
-    client_id: credentials.client_id,
-    client_secret: credentials.client_secret,
-    developer_token: credentials.developer_token,
+    client_id: String(credentials.client_id ?? '').trim(),
+    client_secret: String(credentials.client_secret ?? '').trim(),
+    developer_token: String(credentials.developer_token ?? '').trim(),
   })
 }
 

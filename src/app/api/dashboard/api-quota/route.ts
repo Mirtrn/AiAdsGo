@@ -70,13 +70,16 @@ export async function GET(request: NextRequest) {
     // 检查配额限制
     const quotaCheck = await checkQuotaLimit(currentUserId, 0.8)
 
+    // 🔧 友好化：提取当天最常见的失败原因，给出更具体的建议
+    const topFailureMessage = await getTopFailureMessageForToday(currentUserId)
+
     return NextResponse.json({
       success: true,
       data: {
         today: todayStats,
         trend,
         quotaCheck,
-        recommendations: generateRecommendations(todayStats, quotaCheck),
+        recommendations: generateRecommendations(todayStats, quotaCheck, topFailureMessage),
         hasCredentials: true
       }
     })
@@ -95,7 +98,7 @@ export async function GET(request: NextRequest) {
 /**
  * 根据使用情况生成建议
  */
-function generateRecommendations(stats: any, check: any): string[] {
+function generateRecommendations(stats: any, check: any, topFailureMessage?: string | null): string[] {
   const recommendations: string[] = []
 
   if (check.isOverLimit) {
@@ -107,7 +110,14 @@ function generateRecommendations(stats: any, check: any): string[] {
   // 改进：只有当样本量足够大（>=5次）且失败率超过20%时才提示
   // 避免小样本量时的误报警
   if (stats.totalOperations >= 5 && stats.failedOperations > stats.totalOperations * 0.2) {
-    recommendations.push('💡 失败操作较多，建议检查API调用参数和权限')
+    const msg = (topFailureMessage || '').toLowerCase()
+    if (msg.includes('developer token') && msg.includes('not valid')) {
+      recommendations.push('💡 Developer Token 无效：检查是否包含多余空格/换行，并确认 Token 属于当前 GCP 项目')
+    } else if (msg.includes('developer_token_not_approved') || msg.includes('only approved for use with test accounts') || (msg.includes('developer token') && msg.includes('not approved'))) {
+      recommendations.push('💡 Developer Token 仍为测试权限（Test access）/未通过生产审核：只能访问测试账号，请先升级 Token 权限')
+    } else {
+      recommendations.push('💡 失败操作较多，建议检查API调用参数和权限')
+    }
   }
 
   if (stats.avgResponseTimeMs && stats.avgResponseTimeMs > 2000) {
@@ -118,4 +128,32 @@ function generateRecommendations(stats: any, check: any): string[] {
   // 如果没有任何警告或建议，返回空数组（不显示Alert组件）
 
   return recommendations
+}
+
+async function getTopFailureMessageForToday(userId: number): Promise<string | null> {
+  try {
+    const db = await getDatabase()
+    const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD (UTC)
+    const isFailureCondition = db.type === 'postgres' ? 'is_success = false' : 'is_success = 0'
+
+    const row = await db.queryOne(
+      `
+        SELECT error_message, COUNT(*) as cnt
+        FROM google_ads_api_usage
+        WHERE user_id = ?
+          AND date = ?
+          AND ${isFailureCondition}
+          AND error_message IS NOT NULL
+          AND TRIM(error_message) != ''
+        GROUP BY error_message
+        ORDER BY cnt DESC
+        LIMIT 1
+      `,
+      [userId, today]
+    ) as { error_message?: string | null } | undefined
+
+    return row?.error_message ? String(row.error_message) : null
+  } catch {
+    return null
+  }
 }
