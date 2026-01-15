@@ -656,22 +656,6 @@ export default function CampaignsPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">性能趋势</h3>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">时间范围:</span>
-              <div className="flex gap-1">
-                {[7, 30, 90].map((days) => (
-                  <button
-                    key={days}
-                    onClick={() => setTimeRange(days.toString())}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      timeRange === days.toString()
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {days}天
-                  </button>
-                ))}
-              </div>
               {trendsCurrencies.length > 1 && (
                 <div className="flex items-center gap-2 ml-2 flex-nowrap">
                   <span className="text-sm text-gray-500 whitespace-nowrap shrink-0">币种</span>
@@ -695,6 +679,22 @@ export default function CampaignsPage() {
                   </Select>
                 </div>
               )}
+              <span className="text-sm text-gray-500">时间范围:</span>
+              <div className="flex gap-1">
+                {[7, 30, 90].map((days) => (
+                  <button
+                    key={days}
+                    onClick={() => setTimeRange(days.toString())}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      timeRange === days.toString()
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {days}天
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
