@@ -91,13 +91,37 @@ function truncateByEffectiveLength(text: string, maxLen: number): string {
 
 export function sanitizeGoogleAdsAdText(text: string, maxLen: number): string {
   const original = String(text ?? '')
-  const replaced = original.replace(/±/g, '+/-').replace(/\s+/g, ' ').trim()
+  const replaced = original
+    .replace(/±/g, '+/-')
+    // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
+    .replace(/[~～]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (getGoogleAdsTextEffectiveLength(replaced) <= maxLen) return replaced
 
   // 如果替换导致超长，回退为移除该符号，优先保证长度合规
-  const removed = original.replace(/±/g, '').replace(/\s+/g, ' ').trim()
+  const removed = original
+    .replace(/±/g, '')
+    .replace(/[~～]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (getGoogleAdsTextEffectiveLength(removed) <= maxLen) return removed
 
   // 🔧 兜底：自动截断，避免发布失败（包含CJK字符权重 & DKI token 保护）
   return truncateByEffectiveLength(replaced, maxLen)
+}
+
+export function sanitizeGoogleAdsPath(text: string, maxLen: number = 15): string {
+  const original = String(text ?? '')
+  const collapsed = original
+    .replace(/[~～]/g, '')
+    .replace(/\s+/g, '-')
+    .trim()
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+
+  if (collapsed.length <= maxLen) return collapsed
+
+  const chars = Array.from(collapsed)
+  return chars.slice(0, maxLen).join('')
 }

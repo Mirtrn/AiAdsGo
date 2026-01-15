@@ -138,6 +138,9 @@ def sanitize_keyword(keyword: str) -> str:
 PROHIBITED_AD_TEXT_REPLACEMENTS: Dict[str, str] = {
     # Google Ads policy: SYMBOLS (PROHIBITED) evidence: "±"
     "±": "+/-",
+    # Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
+    "~": " ",
+    "～": " ",
 }
 
 
@@ -204,6 +207,22 @@ def find_prohibited_ad_text_chars(text: str) -> List[str]:
         return []
     found = sorted({ch for ch in PROHIBITED_AD_TEXT_CHARS if ch in text})
     return found
+
+
+def sanitize_rsa_path(path: str, *, max_len: int = 15) -> str:
+    """
+    清理 RSA Display Path（path1/path2）。
+    - 移除已知会触发 SYMBOLS policy 的字符（如 ~）
+    - 空白转为连字符，避免 API 参数错误
+    - 截断到最大长度（Google Ads: 15）
+    """
+    if path is None:
+        return ""
+    cleaned = str(path)
+    for ch in PROHIBITED_AD_TEXT_REPLACEMENTS.keys():
+        cleaned = cleaned.replace(ch, "")
+    cleaned = re.sub(r"\s+", "-", cleaned).strip("-")
+    return cleaned[:max_len].strip("-")
 
 
 def validate_login_customer_id(v: str) -> str:
@@ -1024,9 +1043,13 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
             ad_group_ad.ad.final_url_suffix = request.final_url_suffix
 
         if request.path1:
-            rsa.path1 = request.path1
+            p1 = sanitize_rsa_path(request.path1, max_len=15)
+            if p1:
+                rsa.path1 = p1
         if request.path2:
-            rsa.path2 = request.path2
+            p2 = sanitize_rsa_path(request.path2, max_len=15)
+            if p2:
+                rsa.path2 = p2
 
         response = ad_group_ad_service.mutate_ad_group_ads(
             customer_id=request.customer_id, operations=[operation]

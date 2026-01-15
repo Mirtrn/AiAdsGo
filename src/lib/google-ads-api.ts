@@ -6,7 +6,7 @@ import { getUserOnlySetting } from './settings'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
-import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from './google-ads-ad-text'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText, sanitizeGoogleAdsPath } from './google-ads-ad-text'
 import { getGoogleAdsGeoTargetId } from './language-country-codes'
 
 /**
@@ -1626,6 +1626,17 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 
   const sanitizedHeadlines = params.headlines.map(h => sanitizeGoogleAdsAdText(h, 30))
   const sanitizedDescriptions = params.descriptions.map(d => sanitizeGoogleAdsAdText(d, 90))
+  const sanitizedPath1 = params.path1 ? sanitizeGoogleAdsPath(params.path1, 15) : undefined
+  const sanitizedPath2 = params.path2 ? sanitizeGoogleAdsPath(params.path2, 15) : undefined
+
+  const emptyHeadlineIndex = sanitizedHeadlines.findIndex(h => !h.trim())
+  if (emptyHeadlineIndex >= 0) {
+    throw new Error(`标题${emptyHeadlineIndex + 1}清洗后为空（可能仅包含不允许的符号），请修改后重试`)
+  }
+  const emptyDescriptionIndex = sanitizedDescriptions.findIndex(d => !d.trim())
+  if (emptyDescriptionIndex >= 0) {
+    throw new Error(`描述${emptyDescriptionIndex + 1}清洗后为空（可能仅包含不允许的符号），请修改后重试`)
+  }
 
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
@@ -1641,8 +1652,8 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
       descriptions: sanitizedDescriptions,
       finalUrls: params.finalUrls,
       finalUrlSuffix: params.finalUrlSuffix,
-      path1: params.path1,
-      path2: params.path2,
+      path1: sanitizedPath1,
+      path2: sanitizedPath2,
     })
 
     const adId = adResourceName.split('/').pop() || ''
@@ -1699,11 +1710,11 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   }
 
   // Add display path fields if provided
-  if (params.path1) {
-    ad.ad.responsive_search_ad.path1 = params.path1
+  if (sanitizedPath1) {
+    ad.ad.responsive_search_ad.path1 = sanitizedPath1
   }
-  if (params.path2) {
-    ad.ad.responsive_search_ad.path2 = params.path2
+  if (sanitizedPath2) {
+    ad.ad.responsive_search_ad.path2 = sanitizedPath2
   }
 
   const response = await trackOAuthApiCall(

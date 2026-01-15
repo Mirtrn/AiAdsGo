@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from '../google-ads-ad-text'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText, sanitizeGoogleAdsPath } from '../google-ads-ad-text'
 
 describe('google-ads-ad-text', () => {
   it('counts DKI token as defaultText only', () => {
@@ -20,6 +20,15 @@ describe('google-ads-ad-text', () => {
   it('sanitizes prohibited ± symbol without breaking length constraints', () => {
     const text = '±0,02 mm Maßtoleranz'
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('+/-0,02 mm Maßtoleranz')
+  })
+
+  it('sanitizes prohibited ~ symbol without breaking readability', () => {
+    const text = 'Save ~30% Today'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Save 30% Today')
+  })
+
+  it('sanitizes rsa path values', () => {
+    expect(sanitizeGoogleAdsPath('Best ~ Deals', 15)).toBe('Best-Deals')
   })
 
   it('truncates text that is still too long after sanitization', () => {
