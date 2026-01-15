@@ -485,6 +485,39 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
     throw new Error('Offer不存在或无权访问')
   }
 
+  const nextBrand = input.brand !== undefined ? input.brand : existing.brand
+  const nextTargetCountry = input.target_country !== undefined ? input.target_country : existing.target_country
+  const brandChanged = input.brand !== undefined && input.brand !== existing.brand
+  const targetCountryChanged = input.target_country !== undefined && input.target_country !== existing.target_country
+
+  // 需求：当用户手动修改 brand/target_country 时，同步更新“产品标识”offer_name（以及目标语言）
+  // - offer_name 格式：品牌_国家_序号
+  // - 优先复用现有序号，若冲突则重新生成唯一名称
+  let derivedOfferName: string | null = null
+  let derivedTargetLanguage: string | null = null
+
+  if (brandChanged || targetCountryChanged) {
+    const brandForName = typeof nextBrand === 'string' ? nextBrand.trim() : ''
+
+    if (targetCountryChanged) {
+      derivedTargetLanguage = getTargetLanguage(nextTargetCountry)
+    }
+
+    if (brandForName) {
+      if (existing.offer_name) {
+        const parts = existing.offer_name.split('_')
+        const sequenceNumber = parts.length >= 3 ? (parts[parts.length - 1] || '01') : '01'
+        const proposedOfferName = `${brandForName}_${nextTargetCountry}_${sequenceNumber}`
+        const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
+        derivedOfferName = isUnique
+          ? proposedOfferName
+          : await generateOfferName(brandForName, nextTargetCountry, userId)
+      } else {
+        derivedOfferName = await generateOfferName(brandForName, nextTargetCountry, userId)
+      }
+    }
+  }
+
   // 构建UPDATE语句
   const updates: string[] = []
   const params: any[] = []
@@ -497,6 +530,10 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
     updates.push('brand = ?')
     params.push(input.brand)
   }
+  if (derivedOfferName) {
+    updates.push('offer_name = ?')
+    params.push(derivedOfferName)
+  }
   if (input.category !== undefined) {
     updates.push('category = ?')
     params.push(input.category)
@@ -504,6 +541,10 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   if (input.target_country !== undefined) {
     updates.push('target_country = ?')
     params.push(input.target_country)
+  }
+  if (derivedTargetLanguage) {
+    updates.push('target_language = ?')
+    params.push(derivedTargetLanguage)
   }
   if (input.affiliate_link !== undefined) {
     updates.push('affiliate_link = ?')

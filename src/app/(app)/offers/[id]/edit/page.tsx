@@ -25,6 +25,7 @@ export default function EditOfferPage() {
   const [targetAudience, setTargetAudience] = useState('')
   const [productPrice, setProductPrice] = useState('')
   const [commissionPayout, setCommissionPayout] = useState('')
+  const [offerNameSequence, setOfferNameSequence] = useState('01')
 
   // 加载Offer数据
   useEffect(() => {
@@ -53,6 +54,11 @@ export default function EditOfferPage() {
         setTargetAudience(offer.targetAudience || '')
         setProductPrice(offer.productPrice || '')
         setCommissionPayout(offer.commissionPayout || '')
+        if (typeof offer.offerName === 'string' && offer.offerName.trim()) {
+          const parts = offer.offerName.split('_')
+          const sequence = parts.length >= 3 ? (parts[parts.length - 1] || '01') : '01'
+          setOfferNameSequence(sequence)
+        }
       } catch (err: any) {
         setError(err.message || '加载Offer失败')
       } finally {
@@ -71,8 +77,8 @@ export default function EditOfferPage() {
   // 自动生成Offer预览名称
   const offerNamePreview = useMemo(() => {
     if (!brand.trim() || !targetCountry) return '请先填写品牌名称和国家'
-    return `${brand.trim()}_${targetCountry}_01`
-  }, [brand, targetCountry])
+    return `${brand.trim()}_${targetCountry}_${offerNameSequence}`
+  }, [brand, targetCountry, offerNameSequence])
 
   // 自动推导推广语言
   const targetLanguagePreview = useMemo(() => {
