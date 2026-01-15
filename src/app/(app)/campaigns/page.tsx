@@ -673,8 +673,8 @@ export default function CampaignsPage() {
                 ))}
               </div>
               {trendsCurrencies.length > 1 && (
-                <div className="flex items-center gap-2 ml-2">
-                  <span className="text-sm text-gray-500">币种:</span>
+                <div className="flex items-center gap-2 ml-2 flex-nowrap">
+                  <span className="text-sm text-gray-500 whitespace-nowrap shrink-0">币种</span>
                   <Select
                     value={trendsCurrencyValue}
                     onValueChange={(v) => {
