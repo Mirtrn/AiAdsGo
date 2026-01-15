@@ -93,10 +93,16 @@ export async function GET(request: NextRequest) {
       )
     )
     const hasMixedCurrency = currencies.length > 1
-    const reportingCurrency =
-      requestedCurrency && currencies.includes(requestedCurrency)
-        ? requestedCurrency
-        : (currencies[0] || 'USD')
+    const reportingCurrency = requestedCurrency && currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : null
+
+    const costs = (currencyRows || [])
+      .map((r: any) => ({
+        currency: normalizeCurrency(r.currency),
+        amount: Number(r.total_cost) || 0,
+      }))
+      .filter((c: any) => c.currency && Number.isFinite(c.amount))
 
     // 3. Query base campaigns (no performance aggregation)
     // 🔧 修复: 不过滤is_deleted，保留历史删除的campaigns用于展示
@@ -268,6 +274,33 @@ export async function GET(request: NextRequest) {
     }})
 
     // 5. Calculate current/previous period totals（按每条campaign选中的币种聚合，避免混币种相加）
+    const queryTotalsAll = async (params: {
+      start: string
+      end: string
+    }): Promise<Agg> => {
+      const row = await db.queryOne<any>(
+        `
+          SELECT
+            COALESCE(SUM(impressions), 0) as impressions,
+            COALESCE(SUM(clicks), 0) as clicks,
+            COALESCE(SUM(conversions), 0) as conversions,
+            COALESCE(SUM(cost), 0) as cost
+          FROM campaign_performance
+          WHERE user_id = ?
+            AND date >= ?
+            AND date <= ?
+        `,
+        [userId, params.start, params.end]
+      )
+
+      return {
+        impressions: Number(row?.impressions) || 0,
+        clicks: Number(row?.clicks) || 0,
+        conversions: Number(row?.conversions) || 0,
+        cost: Number(row?.cost) || 0,
+      }
+    }
+
     const queryTotals = async (params: {
       start: string
       end: string
@@ -297,17 +330,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const currentTotals = await queryTotals({
-      start: startDateStr,
-      end: endDate,
-      currency: reportingCurrency,
-    })
+    const isFilteredByCurrency = Boolean(reportingCurrency)
 
-    const prevTotals = await queryTotals({
-      start: prevStartDateStr,
-      end: prevEndDateStr,
-      currency: reportingCurrency,
-    })
+    const currentTotals = isFilteredByCurrency
+      ? await queryTotals({
+          start: startDateStr,
+          end: endDate,
+          currency: String(reportingCurrency),
+        })
+      : await queryTotalsAll({
+          start: startDateStr,
+          end: endDate,
+        })
+
+    const prevTotals = isFilteredByCurrency
+      ? await queryTotals({
+          start: prevStartDateStr,
+          end: prevEndDateStr,
+          currency: String(reportingCurrency),
+        })
+      : await queryTotalsAll({
+          start: prevStartDateStr,
+          end: prevEndDateStr,
+        })
 
     // 7. Calculate percentage changes (环比增长)
     const calcChange = (current: number, previous: number): number | null => {
@@ -319,7 +364,7 @@ export async function GET(request: NextRequest) {
       impressions: calcChange(currentTotals.impressions, prevTotals.impressions),
       clicks: calcChange(currentTotals.clicks, prevTotals.clicks),
       conversions: calcChange(currentTotals.conversions, prevTotals.conversions),
-      cost: calcChange(currentTotals.cost, prevTotals.cost)
+      cost: isFilteredByCurrency ? calcChange(currentTotals.cost, prevTotals.cost) : null
     }
 
     return NextResponse.json({
@@ -332,9 +377,10 @@ export async function GET(request: NextRequest) {
         totalClicks: currentTotals.clicks,
         totalConversions: currentTotals.conversions,
         totalCostUsd: currentTotals.cost,
-        currency: reportingCurrency,
+        currency: hasMixedCurrency && !isFilteredByCurrency ? 'MIXED' : (reportingCurrency || currencies[0] || 'USD'),
         currencies,
         hasMixedCurrency,
+        costs: hasMixedCurrency && !isFilteredByCurrency ? costs : undefined,
         // 环比增长数据
         changes: {
           impressions: changes.impressions,

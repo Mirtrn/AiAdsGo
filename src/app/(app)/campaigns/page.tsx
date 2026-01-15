@@ -40,6 +40,7 @@ import {
   getCampaignStatusLabel,
 } from '@/lib/i18n-constants'
 import { formatCurrency } from '@/lib/currency'
+import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
 
 interface Campaign {
   id: number
@@ -88,6 +89,7 @@ interface PerformanceSummary {
   currency?: string
   currencies?: string[]
   hasMixedCurrency?: boolean
+  costs?: Array<{ currency: string; amount: number }>
   // 环比增长数据
   changes?: {
     impressions: number | null
@@ -168,6 +170,11 @@ export default function CampaignsPage() {
     fetchCampaigns()
     fetchTrends()
   }, [timeRange])
+
+  useEffect(() => {
+    if (!trendsCurrency) return
+    fetchCampaigns(trendsCurrency)
+  }, [trendsCurrency])
 
   useEffect(() => {
     let result = campaigns
@@ -291,7 +298,7 @@ export default function CampaignsPage() {
       if (Array.isArray(data.summary?.currencies)) {
         setTrendsCurrencies(data.summary.currencies)
       }
-      if (!trendsCurrency && data.summary?.currency) {
+      if (!trendsCurrency && data.summary?.currency && data.summary.currency !== 'MIXED') {
         setTrendsCurrency(String(data.summary.currency))
       }
     } catch (err: any) {
@@ -641,10 +648,12 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {formatCurrency(
-                        Number(summary.totalCostUsd ?? 0),
-                        String(summary.currency || trendsCurrencyValue || defaultCurrency)
-                      )}
+                      {summary?.currency === 'MIXED' && Array.isArray(summary.costs) && summary.costs.length > 0
+                        ? formatMultiCurrency(summary.costs)
+                        : formatCurrencyDashboard(
+                            Number(summary?.totalCostUsd ?? 0),
+                            String(summary?.currency || trendsCurrencyValue || defaultCurrency)
+                          )}
                     </p>
                     {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
