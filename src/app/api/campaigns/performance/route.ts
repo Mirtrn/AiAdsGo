@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
         gaa.id as ads_account_id,
         gaa.is_active as ads_account_is_active,
         gaa.is_deleted as ads_account_is_deleted,
+        COALESCE(gaa.currency, 'USD') as ads_account_currency,
         o.brand as offer_brand,
         o.url as offer_url,
         o.is_deleted as offer_is_deleted,
@@ -107,13 +108,14 @@ export async function GET(request: NextRequest) {
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND cp.date >= ?
         AND cp.date <= ?
+        AND COALESCE(cp.currency, gaa.currency, 'USD') = COALESCE(gaa.currency, 'USD')
       WHERE c.user_id = ?
       GROUP BY
         c.id, c.campaign_id, c.campaign_name, c.offer_id, c.status,
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
         c.budget_type, c.creation_status, c.creation_error, c.last_sync_at,
         c.created_at, c.published_at, c.is_deleted, c.deleted_at,
-        gaa.id, gaa.is_active, gaa.is_deleted,
+        gaa.id, gaa.is_active, gaa.is_deleted, gaa.currency,
         o.brand, o.url, o.is_deleted
       ORDER BY c.created_at DESC
     `, [startDateStr, endDate, userId]) as any[]
@@ -141,6 +143,7 @@ export async function GET(request: NextRequest) {
       // 投放日期：以“成功发布到 Ads 账号”的时间为准（published_at）；旧数据兜底为 created_at
       servingStartDate: formatAsYmd(c.published_at ?? c.created_at),
       adsAccountAvailable,
+      adsAccountCurrency: String(c.ads_account_currency || 'USD').trim().toUpperCase(),
       // 🔧 修复(2025-12-29): 确保预算金额是数字类型
       budgetAmount: Number(c.budget_amount) || 0,
       budgetType: c.budget_type,
