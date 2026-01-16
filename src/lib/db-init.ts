@@ -12,6 +12,7 @@
 
 import { getDatabase } from './db'
 import { hashPassword } from './crypto'
+import { splitSqlStatements } from './sql-splitter'
 import fs from 'fs'
 import path from 'path'
 
@@ -1028,106 +1029,6 @@ async function recordMigration(name: string, fileHash: string): Promise<void> {
       [name, fileHash]
     )
   }
-}
-
-/**
- * 分割 SQL 语句（支持 PostgreSQL DO $$ ... END $$; 语法块）
- *
- * 处理逻辑：
- * 1. 检测 DO $$ 开始的语法块，将整个块作为一条语句
- * 2. 普通语句按分号分割
- * 3. 移除单行注释（以 -- 开头的行）
- */
-function splitSqlStatements(sql: string): string[] {
-  // 移除单行注释（整行注释，但保留行内注释）
-  const lines = sql.split('\n')
-  const cleanedLines: string[] = []
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    // 跳过纯注释行
-    if (trimmed.startsWith('--')) {
-      continue
-    }
-    cleanedLines.push(line)
-  }
-
-  const cleanedSql = cleanedLines.join('\n')
-
-  const statements: string[] = []
-  let currentStatement = ''
-  let inDollarBlock = false
-  let dollarTag = ''
-
-  // 逐字符扫描，处理 $$ 语法块
-  let i = 0
-  while (i < cleanedSql.length) {
-    const char = cleanedSql[i]
-
-    // 检测 dollar quoting 开始/结束
-    if (char === '$') {
-      // 查找完整的 dollar tag (如 $$, $tag$)
-      let tag = '$'
-      let j = i + 1
-      while (j < cleanedSql.length && (cleanedSql[j].match(/[a-zA-Z0-9_]/) || cleanedSql[j] === '$')) {
-        tag += cleanedSql[j]
-        if (cleanedSql[j] === '$') {
-          j++
-          break
-        }
-        j++
-      }
-
-      // 如果找到有效的 dollar tag (以 $ 结尾)
-      if (tag.endsWith('$') && tag.length >= 2) {
-        if (!inDollarBlock) {
-          // 开始 dollar block
-          inDollarBlock = true
-          dollarTag = tag
-          currentStatement += tag
-          i = j
-          continue
-        } else if (tag === dollarTag) {
-          // 结束 dollar block
-          inDollarBlock = false
-          currentStatement += tag
-          i = j
-          dollarTag = ''
-          continue
-        }
-      }
-    }
-
-    // 在 dollar block 内，所有字符都保留（包括分号）
-    if (inDollarBlock) {
-      currentStatement += char
-      i++
-      continue
-    }
-
-    // 普通语句：按分号分割
-    if (char === ';') {
-      currentStatement += char
-      const trimmed = currentStatement.trim()
-      if (trimmed && trimmed !== ';') {
-        statements.push(trimmed)
-      }
-      currentStatement = ''
-      i++
-      continue
-    }
-
-    currentStatement += char
-    i++
-  }
-
-  // 处理最后一条语句（可能没有分号结尾）
-  const trimmed = currentStatement.trim()
-  if (trimmed && trimmed !== ';') {
-    statements.push(trimmed)
-  }
-
-  return statements
 }
 
 // 全局标记：是否需要恢复队列任务（声明在全局作用域）
