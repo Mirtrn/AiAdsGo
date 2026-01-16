@@ -942,7 +942,8 @@ async function executeMigration(name: string, sql: string): Promise<void> {
     // 注意：部分迁移会临时关闭 foreign_keys。若迁移失败且未恢复，会影响后续迁移与运行期行为。
     // 这里在 finally 中强制恢复，避免“失败后 foreign_keys 仍为 OFF”的隐性状态。
     try {
-      for (const stmt of statements) {
+      for (let stmtIndex = 0; stmtIndex < statements.length; stmtIndex++) {
+        const stmt = statements[stmtIndex]
         const trimmedStmt = stmt.trim()
         if (trimmedStmt) {
           try {
@@ -978,7 +979,13 @@ async function executeMigration(name: string, sql: string): Promise<void> {
               errorMsg.includes('already exists') ||
               isPromptVersionsUniqueConflict
 
-            if (!isIdempotentError) throw error
+            if (!isIdempotentError) {
+              const context =
+                `${name}: statement ${stmtIndex + 1}/${statements.length} failed\n` +
+                `${trimmedStmt.substring(0, 500)}${trimmedStmt.length > 500 ? '...' : ''}\n` +
+                `Error: ${errorMsg}`
+              throw new Error(context)
+            }
 
             const reason = isPromptVersionsUniqueConflict ? 'prompt version already exists' : 'already exists'
             console.log(`   ⏭️  Skipped (${reason}): ${stmt.substring(0, 60)}...`)
