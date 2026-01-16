@@ -9,6 +9,10 @@ UPDATE prompt_versions
 SET is_active = FALSE
 WHERE prompt_id = 'keyword_intent_clustering';
 
+-- 幂等性：避免重复执行时 v4.18 已存在导致唯一约束失败
+DELETE FROM prompt_versions
+WHERE prompt_id = 'keyword_intent_clustering' AND version = 'v4.18';
+
 -- 插入新版本 v4.18
 INSERT INTO prompt_versions (
   prompt_id,

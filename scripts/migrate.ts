@@ -190,10 +190,27 @@ async function migratePostgres() {
 
       try {
         const sqlContent = fs.readFileSync(path.join(migrationsPath, file), 'utf-8')
+        const statements = splitSqlStatements(sqlContent)
 
         // 在事务中执行迁移
         await sql.begin(async tx => {
-          await tx.unsafe(sqlContent)
+          for (const stmt of statements) {
+            const trimmed = stmt.trim()
+            if (!trimmed) continue
+            try {
+              await tx.unsafe(trimmed)
+            } catch (error: any) {
+              const errorMsg = error?.message ? String(error.message) : String(error)
+              if (
+                errorMsg.includes('already exists') ||
+                errorMsg.includes('duplicate key value violates unique constraint')
+              ) {
+                console.log(`   ⏭️  Skipped (already exists): ${trimmed.substring(0, 60)}...`)
+                continue
+              }
+              throw error
+            }
+          }
           await tx`INSERT INTO migration_history (migration_name) VALUES (${migrationName})`
         })
 
