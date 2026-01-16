@@ -59,8 +59,37 @@ class SQLiteAdapter implements DatabaseAdapter {
 
   async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
     const normalizedSql = normalizeSqliteSql(sql)
-    const stmt = this.db.prepare(normalizedSql)
     const normalizedParams = normalizeSqliteParams(params)
+
+    // better-sqlite3 `prepare().run()` cannot reliably handle statements that internally contain
+    // semicolons (e.g. `CREATE TRIGGER ... BEGIN ...; END;`). For no-param statements, fall back
+    // to `db.exec()` which supports trigger bodies and multi-statement SQL.
+    if (normalizedParams.length === 0) {
+      try {
+        const stmt = this.db.prepare(normalizedSql)
+        const info = stmt.run()
+        return Promise.resolve({
+          changes: info.changes,
+          lastInsertRowid: Number(info.lastInsertRowid)
+        })
+      } catch {
+        this.db.exec(normalizedSql)
+
+        const meta = this.db
+          .prepare('SELECT changes() AS changes, last_insert_rowid() AS lastInsertRowid')
+          .get() as { changes: number; lastInsertRowid: number }
+
+        const isInsertLike = /^\s*(?:INSERT|REPLACE)\b/i.test(normalizedSql)
+        const lastInsertRowid = isInsertLike && meta.changes > 0 ? Number(meta.lastInsertRowid) : undefined
+
+        return Promise.resolve({
+          changes: Number(meta.changes),
+          ...(lastInsertRowid !== undefined ? { lastInsertRowid } : {})
+        })
+      }
+    }
+
+    const stmt = this.db.prepare(normalizedSql)
     const info = stmt.run(...normalizedParams)
     return Promise.resolve({
       changes: info.changes,
