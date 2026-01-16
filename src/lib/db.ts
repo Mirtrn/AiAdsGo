@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import postgres from 'postgres'
 import path from 'path'
 import { normalizeSqliteParams } from './sqlite-params'
+import { normalizeSqliteSql } from './sqlite-sql'
 
 // 数据库类型枚举
 export type DatabaseType = 'sqlite' | 'postgres'
@@ -45,17 +46,20 @@ class SQLiteAdapter implements DatabaseAdapter {
   }
 
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const normalizedSql = normalizeSqliteSql(sql)
     const normalizedParams = normalizeSqliteParams(params)
-    return Promise.resolve(this.db.prepare(sql).all(...normalizedParams) as T[])
+    return Promise.resolve(this.db.prepare(normalizedSql).all(...normalizedParams) as T[])
   }
 
   async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+    const normalizedSql = normalizeSqliteSql(sql)
     const normalizedParams = normalizeSqliteParams(params)
-    return Promise.resolve(this.db.prepare(sql).get(...normalizedParams) as T | undefined)
+    return Promise.resolve(this.db.prepare(normalizedSql).get(...normalizedParams) as T | undefined)
   }
 
   async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
-    const stmt = this.db.prepare(sql)
+    const normalizedSql = normalizeSqliteSql(sql)
+    const stmt = this.db.prepare(normalizedSql)
     const normalizedParams = normalizeSqliteParams(params)
     const info = stmt.run(...normalizedParams)
     return Promise.resolve({
