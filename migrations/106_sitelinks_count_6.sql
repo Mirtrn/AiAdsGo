@@ -20,6 +20,10 @@ UPDATE prompt_versions
 SET is_active = 0
 WHERE prompt_id = 'ad_creative_generation' AND is_active = 1;
 
+-- 幂等性：避免重复执行时 v4.17_p2 已存在导致唯一约束失败
+DELETE FROM prompt_versions
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.17_p2';
+
 -- 2. 插入新版本 v4.17_p2 (Patch 2: 明确要求6个Sitelinks)
 INSERT INTO prompt_versions (
   prompt_id,

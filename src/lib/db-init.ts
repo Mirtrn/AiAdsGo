@@ -939,41 +939,51 @@ async function executeMigration(name: string, sql: string): Promise<void> {
 
   if (db.type === 'sqlite') {
     // SQLite: 逐条执行
-    for (const stmt of statements) {
-      if (stmt.trim()) {
-        try {
-          const trimmedStmt = stmt.trim()
-          // SQLite：区分“返回结果的查询”与“无返回的语句”
-          // - SELECT 一定返回结果集（可能为空）
-          // - PRAGMA 既可能返回结果（如 PRAGMA table_info），也可能仅设置参数（如 PRAGMA foreign_keys=ON）
-          if (/^SELECT\b/i.test(trimmedStmt)) {
-            await db.query(trimmedStmt)
-          } else if (/^PRAGMA\b/i.test(trimmedStmt)) {
-            try {
+    // 注意：部分迁移会临时关闭 foreign_keys。若迁移失败且未恢复，会影响后续迁移与运行期行为。
+    // 这里在 finally 中强制恢复，避免“失败后 foreign_keys 仍为 OFF”的隐性状态。
+    try {
+      for (const stmt of statements) {
+        if (stmt.trim()) {
+          try {
+            const trimmedStmt = stmt.trim()
+            // SQLite：区分“返回结果的查询”与“无返回的语句”
+            // - SELECT 一定返回结果集（可能为空）
+            // - PRAGMA 既可能返回结果（如 PRAGMA table_info），也可能仅设置参数（如 PRAGMA foreign_keys=ON）
+            if (/^SELECT\b/i.test(trimmedStmt)) {
               await db.query(trimmedStmt)
-            } catch (pragmaError) {
-              const pragmaMsg = pragmaError instanceof Error ? pragmaError.message : String(pragmaError)
-              if (pragmaMsg.includes('does not return data')) {
-                await db.exec(trimmedStmt)
-              } else {
-                throw pragmaError
+            } else if (/^PRAGMA\b/i.test(trimmedStmt)) {
+              try {
+                await db.query(trimmedStmt)
+              } catch (pragmaError) {
+                const pragmaMsg = pragmaError instanceof Error ? pragmaError.message : String(pragmaError)
+                if (pragmaMsg.includes('does not return data')) {
+                  await db.exec(trimmedStmt)
+                } else {
+                  throw pragmaError
+                }
               }
+            } else {
+              await db.exec(trimmedStmt)
             }
-          } else {
-            await db.exec(trimmedStmt)
-          }
-        } catch (error) {
-          // 忽略 "column already exists" 等幂等性错误
-          const errorMsg = error instanceof Error ? error.message : String(error)
-          if (
-            errorMsg.includes('duplicate column name') ||
-            errorMsg.includes('already exists')
-          ) {
-            console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
-          } else {
-            throw error
+          } catch (error) {
+            // 忽略 "column already exists" 等幂等性错误
+            const errorMsg = error instanceof Error ? error.message : String(error)
+            if (
+              errorMsg.includes('duplicate column name') ||
+              errorMsg.includes('already exists')
+            ) {
+              console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
+            } else {
+              throw error
+            }
           }
         }
+      }
+    } finally {
+      try {
+        await db.exec('PRAGMA foreign_keys = ON')
+      } catch {
+        // ignore
       }
     }
   } else {

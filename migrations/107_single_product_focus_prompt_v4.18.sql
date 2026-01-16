@@ -22,6 +22,10 @@ UPDATE prompt_versions
 SET is_active = 0
 WHERE prompt_id = 'ad_creative_generation' AND is_active = 1;
 
+-- 幂等性：避免重复执行时 v4.18 已存在导致唯一约束失败
+DELETE FROM prompt_versions
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.18';
+
 -- 步骤2：插入新版本 v4.18（包含单品聚焦规则）
 INSERT INTO prompt_versions (
   prompt_id,

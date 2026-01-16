@@ -5,6 +5,17 @@
 
 PRAGMA foreign_keys = OFF;
 
+-- 🛡️ Defensive: this migration may be re-run when the file changes.
+-- Ensure legacy DBs (or partially-migrated DBs) have all columns referenced by the copy step.
+-- The migration runner skips "duplicate column" errors, so these are safe to execute repeatedly.
+ALTER TABLE ad_creatives ADD COLUMN negative_keywords_match_type TEXT DEFAULT '{}';
+ALTER TABLE ad_creatives ADD COLUMN ad_strength_data TEXT DEFAULT NULL;
+ALTER TABLE ad_creatives ADD COLUMN path1 TEXT DEFAULT NULL;
+ALTER TABLE ad_creatives ADD COLUMN path2 TEXT DEFAULT NULL;
+ALTER TABLE ad_creatives ADD COLUMN keyword_bucket TEXT;
+ALTER TABLE ad_creatives ADD COLUMN keyword_pool_id INTEGER;
+ALTER TABLE ad_creatives ADD COLUMN bucket_intent TEXT;
+
 DROP TABLE IF EXISTS ad_creatives_new;
 
 -- 1. 创建新表（包含更新后的CHECK约束）

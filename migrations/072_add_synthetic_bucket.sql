@@ -9,6 +9,11 @@ PRAGMA foreign_keys = OFF;
 -- 防御：避免重复执行时残留临时表导致失败
 DROP TABLE IF EXISTS ad_creatives_new;
 
+-- 0) 兼容旧 schema：先补齐本迁移复制阶段会读取的列（避免 "no such column"）
+ALTER TABLE ad_creatives ADD COLUMN ad_strength_data TEXT DEFAULT NULL;
+ALTER TABLE ad_creatives ADD COLUMN path1 TEXT DEFAULT NULL;
+ALTER TABLE ad_creatives ADD COLUMN path2 TEXT DEFAULT NULL;
+
 -- 1. 创建新表（包含更新后的CHECK约束）
 CREATE TABLE ad_creatives_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

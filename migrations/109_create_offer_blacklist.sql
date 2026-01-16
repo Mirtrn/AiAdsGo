@@ -14,5 +14,5 @@ CREATE TABLE IF NOT EXISTS offer_blacklist (
   UNIQUE(user_id, brand, target_country)
 );
 
-CREATE INDEX idx_offer_blacklist_user ON offer_blacklist(user_id);
-CREATE INDEX idx_offer_blacklist_brand_country ON offer_blacklist(brand, target_country);
+CREATE INDEX IF NOT EXISTS idx_offer_blacklist_user ON offer_blacklist(user_id);
+CREATE INDEX IF NOT EXISTS idx_offer_blacklist_brand_country ON offer_blacklist(brand, target_country);

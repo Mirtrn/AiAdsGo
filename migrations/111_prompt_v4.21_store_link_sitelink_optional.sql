@@ -20,6 +20,10 @@ UPDATE prompt_versions
 SET is_active = 0
 WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.20';
 
+-- 幂等性：避免重复执行时 v4.21 已存在导致唯一约束失败
+DELETE FROM prompt_versions
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.21';
+
 -- 步骤2：插入v4.21
 INSERT INTO prompt_versions (
   prompt_id,
