@@ -31,6 +31,28 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_browser ON login_attempts(browser)
 -- 2. 完善 audit_logs 表 - 确保字段完整性
 -- ============================================================================
 
+-- 防御：某些旧库可能缺少 audit_logs（例如上游迁移失败/跳过）。
+-- 先确保基础表存在，再做后续 ALTER（重复执行时由迁移系统忽略重复列错误）。
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  event_type TEXT NOT NULL,
+  ip_address TEXT NOT NULL,
+  user_agent TEXT NOT NULL,
+  details TEXT, -- JSON format
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+  -- 扩展字段（本迁移后续也会尝试 ALTER 添加；这里提前放入以便缺表场景一次到位）
+  operator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  operator_username TEXT,
+  target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  target_username TEXT,
+  status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failure')),
+  error_message TEXT,
+
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- audit_logs 表已经存在完整字段，只需确保索引优化
 -- 已有字段：id, user_id, event_type, ip_address, user_agent, details, created_at
 
