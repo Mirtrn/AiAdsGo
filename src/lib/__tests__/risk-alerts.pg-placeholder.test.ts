@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type StubDb = {
+  type: 'postgres'
   queryOne: ReturnType<typeof vi.fn>
+  query: ReturnType<typeof vi.fn>
   exec: ReturnType<typeof vi.fn>
 }
 
 const stubDb: StubDb = {
+  type: 'postgres',
   queryOne: vi.fn(),
+  query: vi.fn(),
   exec: vi.fn(),
 }
 
@@ -15,6 +19,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { createRiskAlert } from '@/lib/risk-alerts'
+import { getRiskStatistics } from '@/lib/risk-alerts'
 import { saveQueueConfig } from '@/lib/queue-config'
 
 describe('PostgreSQL placeholder type inference guards', () => {
@@ -49,6 +54,7 @@ describe('PostgreSQL placeholder type inference guards', () => {
     expect(id).toBe(123)
     expect(selectSql).toContain('resource_id IS NULL')
     expect(selectSql).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(selectSql).toContain('created_at::timestamp')
     expect(selectParams).toEqual([1, 'oauth_token_expired'])
   })
 
@@ -78,7 +84,32 @@ describe('PostgreSQL placeholder type inference guards', () => {
     expect(id).toBe(456)
     expect(selectSql).toContain('resource_id = ?')
     expect(selectSql).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(selectSql).toContain('created_at::timestamp')
     expect(selectParams).toEqual([2, 'link_check_failed', 99])
+  })
+
+  it('getRiskStatistics: postgres should cast created_at text to timestamp in cutoff filter', async () => {
+    let statsSql = ''
+    let statsParams: any[] = []
+
+    stubDb.query.mockImplementation(async (sql: string, params: any[]) => {
+      statsSql = sql
+      statsParams = params
+      return []
+    })
+
+    const stats = await getRiskStatistics(7)
+    expect(stats).toEqual({
+      total: 0,
+      active: 0,
+      critical: 0,
+      warning: 0,
+      info: 0,
+      byType: {},
+    })
+    expect(statsSql).toContain('FROM risk_alerts')
+    expect(statsSql).toContain('created_at::timestamp')
+    expect(statsParams).toEqual([7])
   })
 
   it('saveQueueConfig: delete SQL should not use placeholder-only "? IS NULL" checks', async () => {
@@ -109,4 +140,3 @@ describe('PostgreSQL placeholder type inference guards', () => {
     expect(deleteParamsList[0]).toEqual(['per_user_concurrency', 7])
   })
 })
-

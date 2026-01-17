@@ -189,6 +189,7 @@ export async function createRiskAlert(
 ): Promise<number> {
   const db = await getDatabase()
   const recentCutoffExpr = dateMinusDays(1, db.type)
+  const createdAtExpr = db.type === 'postgres' ? `created_at::timestamp` : 'created_at'
 
   // 检查是否已存在相同的活跃提示（避免重复）
   const resourceId = options?.resourceId ?? null
@@ -197,7 +198,7 @@ export async function createRiskAlert(
     WHERE user_id = ?
       AND alert_type = ?
       AND status = 'active'
-      AND created_at >= ${recentCutoffExpr}
+      AND ${createdAtExpr} >= ${recentCutoffExpr}
   `
 
   const existingParams: any[] = [userId, alertType]
@@ -722,6 +723,7 @@ export async function getRiskStatistics(userId: number): Promise<{
 }> {
   const db = await getDatabase()
   const recentCutoffExpr = dateMinusDays(30, db.type)
+  const createdAtExpr = db.type === 'postgres' ? `created_at::timestamp` : 'created_at'
 
   const rows = await db.query(
     `
@@ -735,7 +737,7 @@ export async function getRiskStatistics(userId: number): Promise<{
       COUNT(*) as type_count
     FROM risk_alerts
     WHERE user_id = ?
-      AND created_at >= ${recentCutoffExpr}
+      AND ${createdAtExpr} >= ${recentCutoffExpr}
     GROUP BY alert_type
   `,
     [userId]
