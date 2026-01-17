@@ -344,8 +344,17 @@ export class ProxyPoolManager {
     try {
       const axios = (await import('axios')).default
       const { HttpsProxyAgent } = await import('https-proxy-agent')
+      const { ProxyProviderRegistry } = await import('./proxy/providers/provider-registry')
 
-      const agent = new HttpsProxyAgent(proxyUrl)
+      // 支持“代理provider URL”（如 IPRocket API URL），先解析成真实代理IP再创建 agent
+      let effectiveProxyUrl = proxyUrl
+      if (ProxyProviderRegistry.isSupported(proxyUrl)) {
+        const { getProxyIp } = await import('./proxy/fetch-proxy-ip')
+        const creds = await getProxyIp(proxyUrl, false)
+        effectiveProxyUrl = `http://${creds.username}:${creds.password}@${creds.host}:${creds.port}`
+      }
+
+      const agent = new HttpsProxyAgent(effectiveProxyUrl)
       const testUrl = 'https://www.amazon.com' // 使用Amazon作为测试目标
 
       const startTime = Date.now()
