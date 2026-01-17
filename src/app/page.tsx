@@ -10,6 +10,7 @@ import { ComparisonChart } from "@/components/marketing/ComparisonChart";
 import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
 import { ClickFarmHighlight } from "@/components/marketing/ClickFarmHighlight";
 import { UrlSwapHighlight } from "@/components/marketing/UrlSwapHighlight";
+import { ConsultCustomerDialogTrigger } from "@/components/marketing/ConsultCustomerDialogTrigger";
 
 export const metadata = pageMetadata.home;
 
@@ -330,9 +331,9 @@ export default function MarketingHome() {
                   </li>
                 ))}
               </ul>
-              <a href="/login" className="block w-full py-3 px-4 bg-blue-50 text-blue-700 font-semibold rounded-xl text-center hover:bg-blue-100 transition-colors">
+              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-blue-50 text-blue-700 font-semibold rounded-xl text-center hover:bg-blue-100 transition-colors">
                 立即开始
-              </a>
+              </ConsultCustomerDialogTrigger>
             </div>
 
             {/* Lifetime Plan */}
@@ -354,9 +355,9 @@ export default function MarketingHome() {
                   </li>
                 ))}
               </ul>
-              <a href="/login" className="block w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl text-center hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/50">
+              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl text-center hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/50">
                 获取终身权限
-              </a>
+              </ConsultCustomerDialogTrigger>
             </div>
 
             {/* Enterprise Plan */}
@@ -375,9 +376,9 @@ export default function MarketingHome() {
                   </li>
                 ))}
               </ul>
-              <a href="/login" className="block w-full py-3 px-4 bg-white text-slate-900 border border-slate-200 font-semibold rounded-xl text-center hover:bg-slate-50 transition-colors">
+              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-white text-slate-900 border border-slate-200 font-semibold rounded-xl text-center hover:bg-slate-50 transition-colors">
                 联系销售
-              </a>
+              </ConsultCustomerDialogTrigger>
             </div>
           </div>
         </div>
