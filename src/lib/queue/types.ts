@@ -107,6 +107,11 @@ export interface QueueStats {
     running: number
     completed: number
     failed: number
+    // 🔥 按“核心/非核心”细分完成/失败（用于管理台快速判断SLA风险）
+    coreCompleted?: number
+    backgroundCompleted?: number
+    coreFailed?: number
+    backgroundFailed?: number
   }>
 }
 

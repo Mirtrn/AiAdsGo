@@ -6,6 +6,7 @@ import type {
   QueueStorageAdapter,
   PendingEligibilityStats
 } from './types'
+import { isBackgroundTaskType } from './task-category'
 
 /**
  * 内存队列存储适配器
@@ -179,9 +180,25 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
 
       // 按用户统计
       if (!byUser[task.userId]) {
-        byUser[task.userId] = { pending: 0, running: 0, completed: 0, failed: 0 }
+        byUser[task.userId] = {
+          pending: 0,
+          running: 0,
+          completed: 0,
+          failed: 0,
+          coreCompleted: 0,
+          backgroundCompleted: 0,
+          coreFailed: 0,
+          backgroundFailed: 0,
+        }
       }
       byUser[task.userId][task.status]++
+      if (task.status === 'completed') {
+        if (isBackgroundTaskType(task.type)) byUser[task.userId].backgroundCompleted++
+        else byUser[task.userId].coreCompleted++
+      } else if (task.status === 'failed') {
+        if (isBackgroundTaskType(task.type)) byUser[task.userId].backgroundFailed++
+        else byUser[task.userId].coreFailed++
+      }
 
       // 全局状态统计（与用户统计使用相同逻辑）
       if (task.status === 'pending') totalPending++

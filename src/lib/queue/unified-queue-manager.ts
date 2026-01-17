@@ -15,6 +15,7 @@ import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
 import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
+import { isBackgroundTaskType } from './task-category'
 import { logger } from '@/lib/structured-logger'
 import { runWithLogContext } from '@/lib/log-context'
 
@@ -107,7 +108,7 @@ export class UnifiedQueueManager {
   }
 
   private isBackgroundTaskType(type: TaskType): boolean {
-    return type === 'click-farm' || type === 'url-swap'
+    return isBackgroundTaskType(type)
   }
 
   private getCoreGlobalRunningCount(): number {

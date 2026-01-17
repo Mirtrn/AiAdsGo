@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import { fetchWithRetry } from '@/lib/api-error-handler'
 
@@ -33,6 +34,10 @@ interface QueueStats {
     queued: number
     completed: number
     failed: number
+    coreCompleted?: number
+    backgroundCompleted?: number
+    coreFailed?: number
+    backgroundFailed?: number
   }>
   config: {
     globalConcurrency: number
@@ -676,6 +681,7 @@ export default function QueueManagementPage() {
   const totalTasks = stats.global.running + stats.global.queued + stats.global.completed + stats.global.failed
 
   return (
+    <TooltipProvider>
     <div className="p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -1143,6 +1149,10 @@ export default function QueueManagementPage() {
                       return paginatedUsers.map((userStat) => {
                         const coreRunningForUser = userStat.coreRunning ?? userStat.running
                         const backgroundRunningForUser = userStat.backgroundRunning ?? 0
+                        const coreCompletedForUser = userStat.coreCompleted ?? userStat.completed
+                        const backgroundCompletedForUser = userStat.backgroundCompleted ?? 0
+                        const coreFailedForUser = userStat.coreFailed ?? userStat.failed
+                        const backgroundFailedForUser = userStat.backgroundFailed ?? 0
                         const userUtilization = stats.config.perUserConcurrency > 0
                           ? Math.round((coreRunningForUser / stats.config.perUserConcurrency) * 100)
                           : 0
@@ -1180,14 +1190,49 @@ export default function QueueManagementPage() {
                               </span>
                             </td>
                             <td className="text-center py-3 px-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                {userStat.completed}
-                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="inline-flex flex-col items-center gap-1 cursor-default">
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      {userStat.completed}
+                                    </span>
+                                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                                      核心 {coreCompletedForUser} · 非核 {backgroundCompletedForUser}
+                                    </span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs leading-5">
+                                  <div>核心：已完成 {coreCompletedForUser} / 失败 {coreFailedForUser}</div>
+                                  <div>非核心：已完成 {backgroundCompletedForUser} / 失败 {backgroundFailedForUser}</div>
+                                </TooltipContent>
+                              </Tooltip>
                             </td>
                             <td className="text-center py-3 px-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                {userStat.failed}
-                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="inline-flex flex-col items-center gap-1 cursor-default">
+                                    <span
+                                      className={[
+                                        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                        coreFailedForUser > 0 ? 'bg-red-200 text-red-900 ring-1 ring-red-300' : 'bg-red-100 text-red-800',
+                                      ].join(' ')}
+                                    >
+                                      {userStat.failed}
+                                    </span>
+                                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                                      <span className={coreFailedForUser > 0 ? 'text-red-700 font-semibold' : ''}>
+                                        核心 {coreFailedForUser}
+                                      </span>
+                                      {' · '}
+                                      非核 {backgroundFailedForUser}
+                                    </span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs leading-5">
+                                  <div>核心：已完成 {coreCompletedForUser} / 失败 {coreFailedForUser}</div>
+                                  <div>非核心：已完成 {backgroundCompletedForUser} / 失败 {backgroundFailedForUser}</div>
+                                </TooltipContent>
+                              </Tooltip>
                             </td>
                             <td className="text-center py-3 px-4">
                               <div className="flex flex-col items-center space-y-1">
@@ -1569,5 +1614,6 @@ export default function QueueManagementPage() {
         </div>
       )}
     </div>
+    </TooltipProvider>
   )
 }

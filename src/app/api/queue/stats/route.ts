@@ -9,8 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getQueueManager } from '@/lib/queue'
-
-const isBackgroundTaskType = (type: string) => type === 'click-farm' || type === 'url-swap'
+import { isBackgroundTaskType } from '@/lib/queue/task-category'
 
 export async function GET(request: NextRequest) {
   try {
@@ -133,7 +132,11 @@ export async function GET(request: NextRequest) {
             runningByType: runningBreakdown?.byType ?? {},
             queued: userStats.pending,
             completed: userStats.completed,
-            failed: userStats.failed
+            failed: userStats.failed,
+            coreCompleted: userStats.coreCompleted ?? 0,
+            backgroundCompleted: userStats.backgroundCompleted ?? 0,
+            coreFailed: userStats.coreFailed ?? 0,
+            backgroundFailed: userStats.backgroundFailed ?? 0,
           }
         }),
         byType: stats.byType,
