@@ -3,6 +3,7 @@ import postgres from 'postgres'
 import path from 'path'
 import { normalizeSqliteParams } from './sqlite-params'
 import { normalizeSqliteSql } from './sqlite-sql'
+import { parseDbDateTimeAsUtc } from './db-datetime'
 
 // 数据库类型枚举
 export type DatabaseType = 'sqlite' | 'postgres'
@@ -125,6 +126,17 @@ class PostgresAdapter implements DatabaseAdapter {
       max: 10, // 最大连接数
       idle_timeout: 20, // 空闲超时（秒）
       connect_timeout: 10, // 连接超时（秒）
+      // 🔧 关键修复：postgres.js 默认将 timestamp/date 解析为本地时区 Date，
+      // 这会在生产环境设置 TZ=Asia/Shanghai 等情况下导致固定时差偏移（例如 -8h）。
+      // 我们将无时区的时间字符串按 UTC 解析，确保数据库中的 UTC 时间语义不被破坏。
+      types: {
+        date: {
+          to: 1184,
+          from: [1082, 1114, 1184],
+          serialize: (x: any) => (x instanceof Date ? x : new Date(x)).toISOString(),
+          parse: (x: string) => parseDbDateTimeAsUtc(x),
+        }
+      }
     })
   }
 

@@ -5,6 +5,7 @@ import { getDatabase } from './db';
 import { generateNextRunAt } from './click-farm/scheduler';
 import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './timezone-utils';
 import { estimateTraffic } from './click-farm/distribution';
+import { normalizeDateOnly, normalizeTimestampToIso } from './db-datetime';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -838,12 +839,12 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     start_time: safeParseTime(row.start_time, '06:00'),
     end_time: safeParseTime(row.end_time, '24:00'),
     duration_days: row.duration_days,
-    scheduled_start_date: row.scheduled_start_date,
+    scheduled_start_date: normalizeDateOnly(row.scheduled_start_date) || new Date().toISOString().split('T')[0],
     hourly_distribution: safeParse(row.hourly_distribution, []),
     status: row.status,
     pause_reason: row.pause_reason,
     pause_message: row.pause_message,
-    paused_at: row.paused_at,
+    paused_at: normalizeTimestampToIso(row.paused_at),
     progress: calculatedProgress,  // 🔧 使用动态计算的值
     total_clicks: row.total_clicks,
     success_clicks: row.success_clicks,
@@ -852,12 +853,12 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     timezone: row.timezone,
     referer_config: refererConfig,
     is_deleted: Boolean(row.is_deleted),
-    deleted_at: row.deleted_at,
-    started_at: row.started_at,
-    completed_at: row.completed_at,
-    next_run_at: row.next_run_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at
+    deleted_at: normalizeTimestampToIso(row.deleted_at),
+    started_at: normalizeTimestampToIso(row.started_at),
+    completed_at: normalizeTimestampToIso(row.completed_at),
+    next_run_at: normalizeTimestampToIso(row.next_run_at),
+    created_at: normalizeTimestampToIso(row.created_at) || new Date().toISOString(),
+    updated_at: normalizeTimestampToIso(row.updated_at) || new Date().toISOString()
   } as ClickFarmTaskListItem;
 
   // 如果有target_country字段（从JOIN查询返回），保留它用于前端显示
