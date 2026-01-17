@@ -58,6 +58,22 @@ export default function TaskDetailPage() {
 
   const [details, setDetails] = useState<TaskDetails | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const getTodayProgressInfo = (task: any): { percent: number; actual: number; target: number } | null => {
+    try {
+      if (!task?.timezone) return null;
+      const today = getDateInTimezone(new Date(), task.timezone);
+      const entry = Array.isArray(task.daily_history)
+        ? task.daily_history.find((e: any) => e?.date === today)
+        : null;
+      const target = Number(entry?.target ?? task.daily_click_count ?? 0) || 0;
+      const actual = Number(entry?.actual ?? 0) || 0;
+      const percent = target > 0 ? Math.min(100, Math.floor((actual / target) * 100)) : 0;
+      return { percent, actual, target };
+    } catch {
+      return null;
+    }
+  };
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -370,7 +386,14 @@ export default function TaskDetailPage() {
                     : '未开始'}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  进度 {task.progress}%
+                  {task.duration_days === -1
+                    ? (() => {
+                        const info = getTodayProgressInfo(task);
+                        return info
+                          ? `今日完成度 ${info.percent}%（${info.actual}/${info.target}）`
+                          : '今日完成度 -';
+                      })()
+                    : `进度 ${task.progress}%`}
                 </p>
               </div>
               <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center shrink-0">

@@ -40,6 +40,7 @@ import {
   Trash
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getDateInTimezone } from '@/lib/timezone-utils';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
 import type { ClickFarmTaskListItem, ClickFarmStats } from '@/lib/click-farm-types';
@@ -153,6 +154,22 @@ export default function ClickFarmPage() {
       return dateValue.split('T')[0];
     }
     return String(dateValue);
+  };
+
+  const getTodayProgressInfo = (task: any): { percent: number; actual: number; target: number } | null => {
+    try {
+      if (!task?.timezone) return null;
+      const today = getDateInTimezone(new Date(), task.timezone);
+      const entry = Array.isArray(task.daily_history)
+        ? task.daily_history.find((e: any) => e?.date === today)
+        : null;
+      const target = Number(entry?.target ?? task.daily_click_count ?? 0) || 0;
+      const actual = Number(entry?.actual ?? 0) || 0;
+      const percent = target > 0 ? Math.min(100, Math.floor((actual / target) * 100)) : 0;
+      return { percent, actual, target };
+    } catch {
+      return null;
+    }
   };
 
   const handleStopTask = async (taskId: string) => {
@@ -654,13 +671,33 @@ export default function ClickFarmPage() {
                       <TableCell>{task.daily_click_count}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          <div className="w-12 bg-gray-200 rounded-full h-1.5">
-                            <div
-                              className="bg-blue-600 h-1.5 rounded-full"
-                              style={{ width: `${task.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs">{task.progress}%</span>
+                          {(() => {
+                            const todayInfo = task.duration_days === -1 ? getTodayProgressInfo(task) : null;
+                            const progressValue =
+                              task.duration_days === -1
+                                ? (todayInfo?.percent ?? 0)
+                                : (Number(task.progress) || 0);
+                            const progressLabel =
+                              task.duration_days === -1
+                                ? `今日 ${progressValue}%`
+                                : `${progressValue}%`;
+                            const title =
+                              task.duration_days === -1 && todayInfo
+                                ? `不限期任务：显示今日完成度（${todayInfo.actual}/${todayInfo.target}）`
+                                : undefined;
+
+                            return (
+                              <>
+                                <div className="w-12 bg-gray-200 rounded-full h-1.5" title={title}>
+                                  <div
+                                    className="bg-blue-600 h-1.5 rounded-full"
+                                    style={{ width: `${progressValue}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs" title={title}>{progressLabel}</span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell>
