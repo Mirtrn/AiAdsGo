@@ -262,6 +262,7 @@ interface CachedProxy {
 }
 
 const proxyCache = new Map<string, CachedProxy>()
+const proxyInFlight = new Map<string, Promise<ProxyCredentials>>()
 const CACHE_DURATION = 5 * 60 * 1000 // 5分钟
 
 /**
@@ -379,19 +380,38 @@ export async function getProxyIp(
       console.log(`使用缓存的代理IP: ${cached.credentials.fullAddress}`)
       return cached.credentials
     }
+
+    // 🔥 防止并发“打爆”同一个provider：同一proxyUrl只允许一个在飞请求
+    const inflight = proxyInFlight.get(proxyUrl)
+    if (inflight) {
+      return await inflight
+    }
   }
 
-  // 获取新IP
-  const credentials = await fetchProxyIp(proxyUrl)
+  const fetchPromise = (async () => {
+    // 获取新IP
+    const credentials = await fetchProxyIp(proxyUrl)
 
-  // 更新缓存
-  proxyCache.set(proxyUrl, {
-    credentials,
-    fetchedAt: now,
-    expiresAt: now + CACHE_DURATION,
-  })
+    // 更新缓存
+    proxyCache.set(proxyUrl, {
+      credentials,
+      fetchedAt: now,
+      expiresAt: now + CACHE_DURATION,
+    })
 
-  return credentials
+    return credentials
+  })()
+
+  if (!forceRefresh) {
+    proxyInFlight.set(proxyUrl, fetchPromise)
+    try {
+      return await fetchPromise
+    } finally {
+      proxyInFlight.delete(proxyUrl)
+    }
+  }
+
+  return await fetchPromise
 }
 
 /**
@@ -402,10 +422,12 @@ export async function getProxyIp(
 export function clearProxyCache(proxyUrl?: string): void {
   if (proxyUrl) {
     proxyCache.delete(proxyUrl)
+    proxyInFlight.delete(proxyUrl)
     console.log(`已清除代理缓存: ${maskProxyUrl(proxyUrl)}`)
   } else {
     const size = proxyCache.size
     proxyCache.clear()
+    proxyInFlight.clear()
     console.log(`已清除所有代理缓存 (${size}个)`)
   }
 }

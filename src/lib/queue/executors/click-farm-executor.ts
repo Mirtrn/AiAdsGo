@@ -8,6 +8,9 @@ import { updateTaskStats } from '@/lib/click-farm';
 import { getHourInTimezone } from '@/lib/timezone-utils';
 import { getDatabase } from '@/lib/db';
 import { getAllProxyUrls } from '@/lib/settings';
+import { getProxyIp } from '@/lib/proxy/fetch-proxy-ip';
+import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry';
+import { maskProxyUrl } from '@/lib/proxy/validate-url';
 
 /**
  * 补点击任务数据结构
@@ -78,6 +81,23 @@ function getProxyAgent(proxyAddress: string): HttpsProxyAgent<string> {
     if (oldestKey) proxyAgentCache.delete(oldestKey)
   }
   return agent
+}
+
+async function resolveProxyAddress(proxyUrl: string): Promise<string | null> {
+  const trimmed = proxyUrl.trim()
+  if (!trimmed) return null
+
+  // 优先支持“代理provider URL”（如 IPRocket API / Oxylabs / Abcproxy 等），统一解析成真实代理IP再使用。
+  if (ProxyProviderRegistry.isSupported(trimmed)) {
+    const creds = await getProxyIp(trimmed, false)
+    return `http://${creds.username}:${creds.password}@${creds.host}:${creds.port}`
+  }
+
+  const parsed = parseProxyUrl(trimmed)
+  if (!parsed) return null
+  return parsed.auth
+    ? `http://${parsed.auth.username}:${parsed.auth.password}@${parsed.host}:${parsed.port}`
+    : `http://${parsed.host}:${parsed.port}`
 }
 
 type ReleaseFn = () => void
@@ -291,10 +311,15 @@ export async function executeClickFarmTask(
   }
 
   try {
-    // 🔧 修复：使用HttpsProxyAgent（与offer爬取一致）
-    const proxyParsed = parseProxyUrl(proxyUrl);
-    if (!proxyParsed) {
-      console.error(`[ClickFarm] 代理URL解析失败: ${proxyUrl}`);
+    // 🔧 关键修复：支持 IPRocket 这类“provider URL”，先解析出真实代理IP再使用
+    let proxyAddress: string | null = null
+    try {
+      proxyAddress = await resolveProxyAddress(proxyUrl)
+    } catch (e: any) {
+      console.error(`[ClickFarm] 代理解析失败: ${maskProxyUrl(proxyUrl)} - ${e?.message || String(e)}`)
+    }
+    if (!proxyAddress) {
+      console.error(`[ClickFarm] 代理URL解析失败: ${maskProxyUrl(proxyUrl)}`);
       await updateTaskStats(taskId, false);
       return { success: false, traffic: 0 };
     }
@@ -307,11 +332,6 @@ export async function executeClickFarmTask(
       released = true
       release()
     }
-
-    // 构建代理URL格式: http://user:pass@host:port
-    const proxyAddress = proxyParsed.auth
-      ? `http://${proxyParsed.auth.username}:${proxyParsed.auth.password}@${proxyParsed.host}:${proxyParsed.port}`
-      : `http://${proxyParsed.host}:${proxyParsed.port}`;
 
     const proxyAgent = getProxyAgent(proxyAddress)
 

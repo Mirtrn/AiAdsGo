@@ -2,6 +2,7 @@ import type { ProxyProvider } from './base-provider'
 import type { ProxyCredentials } from '../types'
 import type { ValidationResult } from './base-provider'
 import { validateProxyUrl } from '../validate-url'
+import axios from 'axios'
 
 /**
  * IPRocket代理提供商
@@ -26,7 +27,49 @@ export class IPRocketProvider implements ProxyProvider {
       throw new Error(`IPRocket URL验证失败:\n${validation.errors.join('\n')}`)
     }
 
-    // 使用Playwright获取代理IP
+    // 优先使用轻量 HTTP 请求获取代理IP（更快、且不依赖 Playwright 浏览器安装）。
+    // 响应格式: host:port:username:password (文本)
+    try {
+      const resp = await axios.get(url, {
+        timeout: 15000,
+        responseType: 'text',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+          'Accept': 'text/plain,*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        validateStatus: () => true,
+      })
+
+      if (resp.status !== 200) {
+        throw new Error(`HTTP ${resp.status}`)
+      }
+
+      const text = typeof resp.data === 'string' ? resp.data : String(resp.data ?? '')
+      const firstLine = text.trim().split('\n')[0]?.trim()
+      if (!firstLine) {
+        throw new Error('empty response')
+      }
+
+      const parts = firstLine.split(':')
+      if (parts.length !== 4) {
+        throw new Error(`invalid proxy format (${parts.length} parts)`)
+      }
+
+      const [host, portStr, username, password] = parts
+      const port = parseInt(portStr, 10)
+      if (!host || host.length < 7) throw new Error(`invalid host: ${host}`)
+      if (Number.isNaN(port) || port < 1 || port > 65535) throw new Error(`invalid port: ${portStr}`)
+      if (!username) throw new Error('missing username')
+      if (!password) throw new Error('missing password')
+
+      return { host, port, username, password, fullAddress: `${host}:${port}` }
+    } catch (error: any) {
+      // HTTP 获取失败再回退到 Playwright（用于应对 provider 的反爬/挑战页）。
+      console.warn(`[IPRocket] HTTP 获取失败，回退到 Playwright: ${error?.message || String(error)}`)
+    }
+
+    // 使用Playwright获取代理IP（兜底）
     const { chromium } = await import('playwright')
 
     let browser
