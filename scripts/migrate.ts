@@ -98,9 +98,10 @@ async function migrateSQLite() {
   let executedCount = 0
 
   for (const file of migrationFiles) {
-    const migrationName = file.replace('.sql', '')
+    const migrationName = file
+    const legacyMigrationName = file.replace(/\.sql$/i, '')
 
-    if (appliedMigrations.has(migrationName)) {
+    if (appliedMigrations.has(migrationName) || appliedMigrations.has(legacyMigrationName)) {
       console.log(`⏭️  跳过: ${file} (已执行)`)
       continue
     }
@@ -179,9 +180,10 @@ async function migratePostgres() {
     let executedCount = 0
 
     for (const file of migrationFiles) {
-      const migrationName = file.replace('.pg.sql', '')
+      const migrationName = file
+      const legacyMigrationName = file.replace(/\.pg\.sql$/i, '')
 
-      if (appliedMigrations.has(migrationName)) {
+      if (appliedMigrations.has(migrationName) || appliedMigrations.has(legacyMigrationName)) {
         console.log(`⏭️  跳过: ${file} (已执行)`)
         continue
       }

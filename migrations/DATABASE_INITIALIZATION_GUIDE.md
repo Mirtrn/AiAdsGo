@@ -34,6 +34,9 @@ mkdir -p data
 # 4. 初始化SQLite数据库
 sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql
 
+# 4.1 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
+npm run db:migrate
+
 # 5. 验证初始化
 npm run validate-schema
 
@@ -205,6 +208,9 @@ GRANT ALL PRIVILEGES ON DATABASE autoads TO autoads_user;
 # 使用psql初始化
 psql postgresql://autoads_user:password@localhost:5432/autoads \
   < pg-migrations/000_init_schema_consolidated.pg.sql
+
+# 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
+DATABASE_URL="postgresql://autoads_user:password@localhost:5432/autoads" npm run db:migrate
 
 # 或者使用管道
 cat pg-migrations/000_init_schema_consolidated.pg.sql | \

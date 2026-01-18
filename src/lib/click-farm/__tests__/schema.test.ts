@@ -10,12 +10,12 @@ import path from 'path';
 describe('ClickFarm Database Schema', () => {
   describe('SQLite Migration File', () => {
     it('迁移文件118应该存在', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       expect(fs.existsSync(migrationPath)).toBe(true);
     });
 
     it('SQLite迁移文件应该包含正确的表名', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('CREATE TABLE IF NOT EXISTS click_farm_tasks');
@@ -23,7 +23,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('SQLite迁移文件应该包含所有必要字段', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       // 任务配置字段
@@ -65,7 +65,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('SQLite迁移文件应该包含所有必要的索引', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('idx_cft_user_status');
@@ -77,7 +77,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('SQLite迁移文件应该使用正确的SQLite语法', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       // 使用INTEGER作为BOOLEAN
@@ -94,7 +94,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('SQLite迁移文件应该包含hourly_breakdown注释', () => {
-      const migrationPath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('hourly_breakdown');
@@ -103,19 +103,19 @@ describe('ClickFarm Database Schema', () => {
 
   describe('PostgreSQL Migration File', () => {
     it('PostgreSQL迁移文件118应该存在', () => {
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const migrationPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       expect(fs.existsSync(migrationPath)).toBe(true);
     });
 
     it('PostgreSQL迁移文件应该包含正确的表名', () => {
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const migrationPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('CREATE TABLE IF NOT EXISTS click_farm_tasks');
     });
 
     it('PostgreSQL迁移文件应该使用正确的PostgreSQL语法', () => {
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const migrationPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       // 使用UUID
@@ -137,7 +137,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('PostgreSQL迁移文件应该使用外键约束语法', () => {
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const migrationPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('CONSTRAINT');
@@ -146,7 +146,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('PostgreSQL迁移文件应该包含GIN索引用于JSONB', () => {
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const migrationPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       const content = fs.readFileSync(migrationPath, 'utf-8');
 
       expect(content).toContain('USING GIN');
@@ -156,8 +156,8 @@ describe('ClickFarm Database Schema', () => {
 
   describe('SQLite vs PostgreSQL Differences', () => {
     it('两个迁移文件应该包含相同的业务逻辑字段', () => {
-      const sqlitePath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
-      const pgPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const sqlitePath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
+      const pgPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
 
       const sqliteContent = fs.readFileSync(sqlitePath, 'utf-8');
       const pgContent = fs.readFileSync(pgPath, 'utf-8');
@@ -188,7 +188,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('PostgreSQL文件不应该包含SQLite特定语法', () => {
-      const pgPath = path.join(process.cwd(), 'pg-migrations', '118_click_farm_tasks.pg.sql');
+      const pgPath = path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '118_click_farm_tasks.pg.sql');
       const content = fs.readFileSync(pgPath, 'utf-8');
 
       // PostgreSQL不应该使用randomblob
@@ -199,7 +199,7 @@ describe('ClickFarm Database Schema', () => {
     });
 
     it('SQLite文件不应该包含PostgreSQL特定语法', () => {
-      const sqlitePath = path.join(process.cwd(), 'migrations', '118_click_farm_tasks.sql');
+      const sqlitePath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '118_click_farm_tasks.sql');
       const content = fs.readFileSync(sqlitePath, 'utf-8');
 
       // SQLite不应该使用gen_random_uuid

@@ -7,7 +7,7 @@
  *
  * 可选：
  *   --task-id <uuid>        查看指定任务概要（不输出敏感token）
- *   --apply-134             执行 pg-migrations/134_fix_url_swap_offer_unique_soft_delete.pg.sql（会写库，谨慎）
+ *   --apply-134             执行 134_fix_url_swap_offer_unique_soft_delete（会写库，谨慎；迁移文件在 pg-migrations/ 或 pg-migrations/archive/v2/）
  *
  * 注意：
  * - 不会打印 DATABASE_URL
@@ -161,9 +161,13 @@ async function main() {
         throw new Error('检测到“未删除且未完成”的重复 offer_id 记录，创建部分唯一索引可能失败；请先人工清理再执行。')
       }
 
-      const migrationPath = path.join(process.cwd(), 'pg-migrations', '134_fix_url_swap_offer_unique_soft_delete.pg.sql')
-      if (!fs.existsSync(migrationPath)) {
-        throw new Error(`找不到迁移文件: ${migrationPath}`)
+      const possiblePaths = [
+        path.join(process.cwd(), 'pg-migrations', '134_fix_url_swap_offer_unique_soft_delete.pg.sql'),
+        path.join(process.cwd(), 'pg-migrations', 'archive', 'v2', '134_fix_url_swap_offer_unique_soft_delete.pg.sql'),
+      ]
+      const migrationPath = possiblePaths.find(p => fs.existsSync(p))
+      if (!migrationPath) {
+        throw new Error(`找不到迁移文件，尝试过:\n${possiblePaths.join('\n')}`)
       }
       const migrationSql = fs.readFileSync(migrationPath, 'utf-8')
 
@@ -195,4 +199,3 @@ main().catch(err => {
   console.error(`\n❌ 预检失败: ${err instanceof Error ? err.message : String(err)}`)
   process.exit(1)
 })
-

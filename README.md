@@ -123,6 +123,9 @@ npm run db:init
 # 方式2：手动初始化
 mkdir -p data
 sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql
+
+# 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
+npm run db:migrate
 ```
 
 #### 验证初始化
@@ -159,6 +162,9 @@ psql postgres -c "CREATE DATABASE autoads;"
 ```bash
 # 使用整合Schema初始化
 psql autoads < pg-migrations/000_init_schema_consolidated.pg.sql
+
+# 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
+DATABASE_URL="postgresql://username:password@host:5432/autoads" npm run db:migrate
 ```
 
 #### 配置连接

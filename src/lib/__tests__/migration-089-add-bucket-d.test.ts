@@ -3,7 +3,7 @@ import path from 'path'
 
 describe('Migration 089 (SQLite) robustness', () => {
   it('includes defensive ADD COLUMNs for re-runs / schema drift', () => {
-    const migrationPath = path.join(process.cwd(), 'migrations', '089_add_bucket_d_to_ad_creatives.sql')
+    const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '089_add_bucket_d_to_ad_creatives.sql')
     const content = fs.readFileSync(migrationPath, 'utf-8')
 
     expect(content).toContain("ALTER TABLE ad_creatives ADD COLUMN negative_keywords_match_type TEXT DEFAULT '{}';")
@@ -16,7 +16,7 @@ describe('Migration 089 (SQLite) robustness', () => {
   })
 
   it("updates keyword_bucket CHECK to include 'D'", () => {
-    const migrationPath = path.join(process.cwd(), 'migrations', '089_add_bucket_d_to_ad_creatives.sql')
+    const migrationPath = path.join(process.cwd(), 'migrations', 'archive', 'v2', '089_add_bucket_d_to_ad_creatives.sql')
     const content = fs.readFileSync(migrationPath, 'utf-8')
 
     expect(content).toContain("keyword_bucket IN ('A', 'B', 'C', 'D', 'S')")

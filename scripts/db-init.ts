@@ -112,9 +112,14 @@ async function checkDatabaseInitialized(sql: ReturnType<typeof postgres>): Promi
 async function initializeDatabase(sql: ReturnType<typeof postgres>): Promise<void> {
   // 支持本地开发和 Docker 容器两种路径
   const possiblePaths = [
-    resolve('/app/pg-migrations/000_init_schema_v2.pg.sql'),  // Docker 容器
-    resolve(__dirname, '../pg-migrations/000_init_schema_v2.pg.sql'),  // 本地开发
-    resolve(process.cwd(), 'pg-migrations/000_init_schema_v2.pg.sql'),  // 当前目录
+    resolve('/app/pg-migrations/000_init_schema_consolidated.pg.sql'),  // Docker 容器（推荐）
+    resolve(__dirname, '../pg-migrations/000_init_schema_consolidated.pg.sql'),  // 本地开发（推荐）
+    resolve(process.cwd(), 'pg-migrations/000_init_schema_consolidated.pg.sql'),  // 当前目录（推荐）
+
+    // 兼容旧版本文件名
+    resolve('/app/pg-migrations/000_init_schema_v2.pg.sql'),
+    resolve(__dirname, '../pg-migrations/000_init_schema_v2.pg.sql'),
+    resolve(process.cwd(), 'pg-migrations/000_init_schema_v2.pg.sql'),
   ];
 
   let migrationPath = '';
@@ -133,10 +138,10 @@ async function initializeDatabase(sql: ReturnType<typeof postgres>): Promise<voi
 
   const migration = readFileSync(migrationPath, 'utf8');
 
-  // 🔥 FIX: 添加SQL执行超时保护（60秒）
-  console.log('⏳ 执行数据库初始化SQL（最多60秒）...');
+  // 🔥 FIX: 添加SQL执行超时保护（5分钟）
+  console.log('⏳ 执行数据库初始化SQL（最多5分钟）...');
   const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('SQL execution timeout after 60s')), 60000)
+    setTimeout(() => reject(new Error('SQL execution timeout after 5m')), 300000)
   );
 
   await Promise.race([sql.unsafe(migration), timeoutPromise]);

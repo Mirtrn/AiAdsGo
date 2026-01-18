@@ -239,7 +239,7 @@ async function main() {
   } else {
     // SQLite 初始化
     const dbPath = path.join(process.cwd(), 'data', 'autoads.db')
-    const schemaPath = path.join(process.cwd(), 'migrations', '000_init_schema_v2.sql')
+    const schemaPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
 
     const initialized = await checkSQLiteInitialized(dbPath)
 

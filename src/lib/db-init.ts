@@ -104,7 +104,7 @@ async function initializeSQLite(): Promise<void> {
   // 因为 better-sqlite3 的 exec 方法可以执行多条 SQL 语句
   const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
   const dataDir = path.dirname(dbPath)
-  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_v2.sql')
+  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
 
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
@@ -130,7 +130,7 @@ async function initializePostgreSQL(): Promise<void> {
 
   try {
     // 1. 从生成的SQL文件创建表结构
-    const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_v2.pg.sql')
+    const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_consolidated.pg.sql')
     if (!fs.existsSync(sqlPath)) {
       throw new Error(`PostgreSQL schema file not found: ${sqlPath}`)
     }
@@ -140,10 +140,9 @@ async function initializePostgreSQL(): Promise<void> {
     const sql = (db as any).getRawConnection()
 
     console.log('\n📋 Creating database tables...')
-    await sql.begin(async (tx: any) => {
-      await tx.unsafe(sqlContent)
-    })
-    console.log('✅ Schema created from pg-migrations/000_init_schema_v2.pg.sql')
+    // 注意：整合初始化脚本可能包含自身的 BEGIN/COMMIT（历史迁移保留），因此不要再包一层事务
+    await sql.unsafe(sqlContent)
+    console.log('✅ Schema created from pg-migrations/000_init_schema_consolidated.pg.sql')
 
     // 2. 创建默认管理员账号
     await createDefaultAdmin()

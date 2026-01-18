@@ -8,7 +8,7 @@
  *
  * 行为：
  * - 备份现有 DB / WAL / SHM 文件（同目录 .bak-时间戳 后缀）
- * - 用 migrations/000_init_schema_v2.sql 重建基础表结构
+ * - 用 migrations/000_init_schema_consolidated.sqlite.sql 重建基础表结构
  * - 使用 better-sqlite3 直接执行增量迁移（migrations/ 下除 000_ 外的 .sql）
  */
 
@@ -168,7 +168,7 @@ function splitSqlStatements(sql: string): string[] {
 async function main() {
   const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
   const dataDir = path.dirname(dbPath)
-  const schemaPath = path.join(process.cwd(), 'migrations', '000_init_schema_v2.sql')
+  const schemaPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
   const migrationsDir = path.join(process.cwd(), 'migrations')
 
   if (!fs.existsSync(schemaPath)) {
@@ -232,7 +232,7 @@ async function main() {
       executed_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `)
-  // 兼容：000_init_schema_v2.sql 里的 migration_history 可能缺少 file_hash 列
+  // 兼容：旧 schema 里的 migration_history 可能缺少 file_hash 列
   const mhCols = db.prepare(`PRAGMA table_info(migration_history)`).all() as Array<{ name: string }>
   const hasFileHash = mhCols.some(col => col.name === 'file_hash')
   if (!hasFileHash) {
