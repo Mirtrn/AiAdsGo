@@ -246,8 +246,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
   const initialNaming = generateInitialNaming()
 
-  const [config, setConfig] = useState<CampaignConfig>(
-    initialConfig || {
+  const [config, setConfig] = useState<CampaignConfig>(() => (
+    initialConfig
+      ? {
+          ...initialConfig,
+          // 🔧 兼容：历史/AI不稳定输出可能生成超出Google Ads限制的数量（>15 headlines 或 >4 descriptions）
+          headlines: Array.isArray(initialConfig.headlines) ? initialConfig.headlines.slice(0, 15) : [],
+          descriptions: Array.isArray(initialConfig.descriptions) ? initialConfig.descriptions.slice(0, 4) : [],
+        }
+      : {
       // Campaign Level - 使用统一命名规范
       campaignName: initialNaming.campaignName,
       budgetAmount: getDefaultBudget(accountCurrency),  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
@@ -297,8 +304,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
       // Ad Level - 使用统一命名规范
       adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
-      headlines: selectedCreative?.headlines || [],
-      descriptions: selectedCreative?.descriptions || [],
+      headlines: (selectedCreative?.headlines || []).slice(0, 15),
+      descriptions: (selectedCreative?.descriptions || []).slice(0, 4),
       // 🔧 修复(2025-12-11): API已统一返回camelCase，移除snake_case fallback
       finalUrls: [selectedCreative?.finalUrl || offer.finalUrl || offer.url],
 
@@ -306,7 +313,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       callouts: selectedCreative?.callouts || [],
       sitelinks: selectedCreative?.sitelinks || []
     }
-  )
+  ))
 
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
@@ -361,8 +368,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
       // Ad Level - 使用统一命名规范
       adName: naming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
-      headlines: selectedCreative?.headlines || [],
-      descriptions: selectedCreative?.descriptions || [],
+      headlines: (selectedCreative?.headlines || []).slice(0, 15),
+      descriptions: (selectedCreative?.descriptions || []).slice(0, 4),
       finalUrls: [selectedCreative?.finalUrl || offer.finalUrl || offer.url],
 
       // Extensions

@@ -69,5 +69,26 @@ describe('buildEffectiveCreative', () => {
     expect(result.finalUrl).toBe('https://db.final')
     expect(result.finalUrlSuffix).toBe('db_suffix')
   })
-})
 
+  it('clamps RSA asset counts to Google Ads limits', () => {
+    const headlines = Array.from({ length: 16 }, (_, i) => `H${i + 1}`)
+    const descriptions = Array.from({ length: 5 }, (_, i) => `D${i + 1}`)
+
+    const result = buildEffectiveCreative({
+      dbCreative: {
+        headlines: JSON.stringify(headlines),
+        descriptions: JSON.stringify(descriptions),
+        keywords: JSON.stringify(['db kw']),
+        negativeKeywords: JSON.stringify([]),
+        callouts: JSON.stringify([]),
+        sitelinks: JSON.stringify([]),
+        finalUrl: 'https://db.final',
+        finalUrlSuffix: 'db_suffix',
+      },
+      campaignConfig: {},
+    })
+
+    expect(result.headlines).toEqual(headlines.slice(0, 15))
+    expect(result.descriptions).toEqual(descriptions.slice(0, 4))
+  })
+})

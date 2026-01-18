@@ -2553,6 +2553,25 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     }
 
     // ============================================================================
+    // Google Ads RSA 数量上限防御（Headlines ≤15, Descriptions ≤4）
+    // ============================================================================
+    if (headlinesArray.length > 15) {
+      console.warn(`⚠️ headlines 超过15个（${headlinesArray.length}），已截断为15个`)
+      headlinesArray = headlinesArray.slice(0, 15)
+      if (headlinesWithMetadata) {
+        headlinesWithMetadata = headlinesWithMetadata.slice(0, 15)
+      }
+    }
+
+    if (descriptionsArray.length > 4) {
+      console.warn(`⚠️ descriptions 超过4个（${descriptionsArray.length}），已截断为4个`)
+      descriptionsArray = descriptionsArray.slice(0, 4)
+      if (descriptionsWithMetadata) {
+        descriptionsWithMetadata = descriptionsWithMetadata.slice(0, 4)
+      }
+    }
+
+    // ============================================================================
     // 验证 Callouts 长度 (≤25 字符)
     // ============================================================================
     let calloutsArray = Array.isArray(data.callouts) ? data.callouts : []

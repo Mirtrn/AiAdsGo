@@ -36,5 +36,26 @@ describe('ad-creative-generator.parseAIResponse', () => {
     expect(result.sitelinks.length).toBeGreaterThanOrEqual(1)
     expect(result.headlines[0]).toContain('Colijoy')
   })
-})
 
+  it('clamps RSA asset counts (≤15 headlines, ≤4 descriptions)', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const payload = {
+      responsive_search_ads: {
+        headlines: Array.from({ length: 16 }, (_, i) => ({ group: 'Test', text: `Headline ${i + 1}` })),
+        descriptions: Array.from({ length: 5 }, (_, i) => ({ group: 'Test', text: `Description ${i + 1}` })),
+        keywords: ['kw1', 'kw2'],
+        callouts: ['Callout 1'],
+        sitelinks: [{ text: 'Sitelink 1', url: 'https://example.com', description: 'Desc' }],
+      },
+    }
+
+    const aiText = `\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``
+
+    const result = parseAIResponse(aiText)
+    expect(result.headlines).toHaveLength(15)
+    expect(result.descriptions).toHaveLength(4)
+  })
+})

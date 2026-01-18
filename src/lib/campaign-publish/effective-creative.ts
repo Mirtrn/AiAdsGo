@@ -118,9 +118,13 @@ export function buildEffectiveCreative(input: EffectiveCreativeInput): Effective
       ? campaignConfig.finalUrlSuffix
       : (typeof dbCreative.finalUrlSuffix === 'string' ? dbCreative.finalUrlSuffix : undefined)
 
+  // Google Ads RSA 限制：Headlines ≤15, Descriptions ≤4
+  const effectiveHeadlines = (overrideHeadlines.length > 0 ? overrideHeadlines : dbHeadlines).slice(0, 15)
+  const effectiveDescriptions = (overrideDescriptions.length > 0 ? overrideDescriptions : dbDescriptions).slice(0, 4)
+
   return {
-    headlines: overrideHeadlines.length > 0 ? overrideHeadlines : dbHeadlines,
-    descriptions: overrideDescriptions.length > 0 ? overrideDescriptions : dbDescriptions,
+    headlines: effectiveHeadlines,
+    descriptions: effectiveDescriptions,
     keywords: overrideKeywords.length > 0 ? overrideKeywords : dbKeywords,
     negativeKeywords: overrideNegativeKeywords.length > 0 ? overrideNegativeKeywords : dbNegativeKeywords,
     callouts: (overrideCallouts && overrideCallouts.length > 0) ? overrideCallouts : dbCallouts,
