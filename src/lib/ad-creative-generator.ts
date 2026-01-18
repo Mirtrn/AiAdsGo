@@ -2357,8 +2357,8 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
   // 1. 移除尾部逗号（数组和对象中）
   jsonText = jsonText.replace(/,\s*([}\]])/g, '$1')
   // 2. 修复智能引号（替换为标准ASCII引号）
-  jsonText = jsonText.replace(/[""]/g, '"')  // 花引号 " " → 直引号 "
-  jsonText = jsonText.replace(/['']/g, "'")  // 花单引号 ' ' → 直单引号 '
+  jsonText = jsonText.replace(/[“”]/g, '"') // 花引号 “ ” → 直引号 "
+  jsonText = jsonText.replace(/[‘’]/g, "'") // 花单引号 ‘ ’ → 直单引号 '
   // 3. 移除JSON中的非法标识符行（如 LAGGS_CALLOUTS 等调试输出）
   jsonText = jsonText.replace(/],\s*[A-Z_]+\s*\n\s*"/g, '],\n  "')
   // 4. 移除JSON字符串值中的换行符（保留结构性换行）
@@ -2383,10 +2383,6 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
   jsonText = jsonText.replace(/=\s*:/g, ':')  // Fix =: to :
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
-
-  // 临时调试：将JSON写入stderr以便检查
-  console.error('🐛 JSON前1000字符:', jsonText.substring(0, 1000))
-  console.error('🐛 JSON后500字符:', jsonText.substring(Math.max(0, jsonText.length - 500)))
 
   try {
     const raw = JSON.parse(jsonText)
@@ -2748,6 +2744,8 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
   } catch (error) {
     console.error('解析AI响应失败:', error)
     console.error('原始响应前500字符:', text.substring(0, 500))
+    console.error('提取JSON前1000字符:', jsonText.substring(0, 1000))
+    console.error('提取JSON后500字符:', jsonText.substring(Math.max(0, jsonText.length - 500)))
     throw new Error(`AI响应解析失败: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 }
