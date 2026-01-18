@@ -9,6 +9,7 @@ import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
 import { extractCustomerIdFromResourceName } from '@/lib/google-ads-resource-name'
 import { getUserOnlySetting } from '@/lib/settings'
+import { withPerformanceMonitoring } from '@/lib/api-performance'
 
 // 该接口返回用户私有数据（账号列表/关联Offer），必须禁用任何层面的静态缓存
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,11 @@ const CustomerStatusMap: Record<number | string, string> = {
   'CLOSED': 'CLOSED',
 }
 
+const DEBUG_GOOGLE_ADS_ACCOUNTS = process.env.DEBUG_GOOGLE_ADS_ACCOUNTS === '1'
+function debugLog(...args: any[]) {
+  if (DEBUG_GOOGLE_ADS_ACCOUNTS) console.log(...args)
+}
+
 function looksLikeOAuthClientId(value: string): boolean {
   return value.includes('.apps.googleusercontent.com')
 }
@@ -61,13 +67,13 @@ function looksLikeOAuthAccessToken(value: string): boolean {
 
 function parseStatus(status: any): string {
   if (status === undefined || status === null) {
-    console.log('[DEBUG] parseStatus: status is undefined or null')
+    debugLog('[DEBUG] parseStatus: status is undefined or null')
     return 'UNKNOWN'
   }
 
   // 如果是对象，尝试获取枚举值
   if (typeof status === 'object') {
-    console.log('[DEBUG] parseStatus: status is object:', JSON.stringify(status))
+    debugLog('[DEBUG] parseStatus: status is object:', JSON.stringify(status))
     // Google Ads API 可能返回 { value: number, name: string } 格式
     if ('value' in status) {
       status = status.value
@@ -76,18 +82,18 @@ function parseStatus(status: any): string {
     }
   }
 
-  console.log('[DEBUG] parseStatus: processing status:', status, 'type:', typeof status)
+  debugLog('[DEBUG] parseStatus: processing status:', status, 'type:', typeof status)
 
   // 尝试映射
   const mapped = CustomerStatusMap[status]
   if (mapped) {
-    console.log('[DEBUG] parseStatus: mapped to:', mapped)
+    debugLog('[DEBUG] parseStatus: mapped to:', mapped)
     return mapped
   }
 
   // 如果是字符串且已经是有效状态，直接返回
   const statusStr = String(status).toUpperCase()
-  console.log('[DEBUG] parseStatus: fallback to string:', statusStr)
+  debugLog('[DEBUG] parseStatus: fallback to string:', statusStr)
   return statusStr
 }
 
@@ -142,6 +148,8 @@ function formatErrorMessage(value: unknown): string {
     return String(value)
   }
 }
+
+export const GET = withPerformanceMonitoring<any>(get, { path: '/api/google-ads/credentials/accounts' })
 
 function extractGoogleAdsFailureMessages(error: any): string[] {
   const messages: string[] = []
@@ -963,9 +971,9 @@ async function syncAccountsFromAPI(
       if (accountInfo && accountInfo.length > 0) {
         const account = accountInfo[0]
         // rawStatus 已经在上面的 try-catch 中查询并赋值了
-        console.log(`[DEBUG] Account ${customerId} raw status:`, rawStatus, 'type:', typeof rawStatus)
+        debugLog(`[DEBUG] Account ${customerId} raw status:`, rawStatus, 'type:', typeof rawStatus)
         const parsedStatus = parseStatus(rawStatus)
-        console.log(`[DEBUG] Account ${customerId} parsed status:`, parsedStatus)
+        debugLog(`[DEBUG] Account ${customerId} parsed status:`, parsedStatus)
 
         // 查询账户预算信息获取余额
         let accountBalance: number | null = null
@@ -1097,9 +1105,9 @@ async function syncAccountsFromAPI(
 
               if (childId && !processedIds.has(childId)) {
                 const rawChildStatus = child.customer_client?.status
-                console.log(`[DEBUG] Child Account ${childId} raw status:`, rawChildStatus, 'type:', typeof rawChildStatus)
+                debugLog(`[DEBUG] Child Account ${childId} raw status:`, rawChildStatus, 'type:', typeof rawChildStatus)
                 const parsedChildStatus = parseStatus(rawChildStatus)
-                console.log(`[DEBUG] Child Account ${childId} parsed status:`, parsedChildStatus)
+                debugLog(`[DEBUG] Child Account ${childId} parsed status:`, parsedChildStatus)
 
                 const isChildManager = child.customer_client?.manager || false
 
@@ -1322,7 +1330,7 @@ async function syncAccountsFromAPI(
  * - auth_type=oauth|service_account: 认证方式（默认oauth）
  * - service_account_id=string: 服务账号ID（当auth_type=service_account时必需）
  */
-export async function GET(request: NextRequest) {
+async function get(request: NextRequest) {
   try {
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {

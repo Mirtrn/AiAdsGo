@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
+import { withPerformanceMonitoring } from '@/lib/api-performance'
 import {
   getUserRiskAlerts,
   getRiskStatistics,
@@ -14,19 +15,22 @@ import {
 /**
  * GET - 获取风险提示列表
  */
-export async function GET(request: NextRequest) {
+async function get(request: NextRequest) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
     }
+    const userId = auth.user.userId
 
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status') as any
+    const limitRaw = searchParams.get('limit')
+    const limit = limitRaw ? parseInt(limitRaw, 10) : undefined
 
     // 验证status参数
     if (status && !['active', 'acknowledged', 'resolved'].includes(status)) {
@@ -36,14 +40,16 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 获取提示列表
-    const alerts = getUserRiskAlerts(auth.user!.userId, status)
+    const [alerts, statistics] = await Promise.all([
+      getUserRiskAlerts(userId, status),
+      getRiskStatistics(userId),
+    ])
 
-    // 获取统计信息
-    const statistics = getRiskStatistics(auth.user!.userId)
+    const normalizedLimit = limit && Number.isFinite(limit) ? Math.max(1, Math.min(limit, 50)) : undefined
+    const limitedAlerts = normalizedLimit ? alerts.slice(0, normalizedLimit) : alerts
 
     return NextResponse.json({
-      alerts,
+      alerts: limitedAlerts,
       statistics
     })
 
@@ -59,10 +65,10 @@ export async function GET(request: NextRequest) {
 /**
  * POST - 手动检查所有链接
  */
-export async function POST(request: NextRequest) {
+async function post(request: NextRequest) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -70,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 检查所有链接
-    const result = await checkAllUserLinks(auth.user!.userId)
+    const result = await checkAllUserLinks(auth.user.userId)
 
     return NextResponse.json({
       success: true,
@@ -85,3 +91,6 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
+export const GET = withPerformanceMonitoring<any>(get, { path: '/api/risk-alerts' })
+export const POST = withPerformanceMonitoring<any>(post, { path: '/api/risk-alerts' })

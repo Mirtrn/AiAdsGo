@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
+import { withPerformanceMonitoring } from '@/lib/api-performance'
 
 /**
  * KPI数据响应
@@ -44,6 +45,10 @@ interface KPIData {
  * - days: 统计天数（默认7天）
  */
 export async function GET(request: NextRequest) {
+  return getHandler(request)
+}
+
+const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) => {
   try {
     // 验证用户身份
     const authResult = await verifyAuth(request)
@@ -56,12 +61,15 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '7', 10)
+    const refresh = searchParams.get('refresh') === 'true' || searchParams.get('noCache') === 'true'
 
-    // 尝试从缓存获取
+    // 尝试从缓存获取（支持 refresh/noCache 旁路，避免牺牲数据实时性）
     const cacheKey = generateCacheKey('kpis', userId, { days })
-    const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
-    if (cached) {
-      return NextResponse.json(cached)
+    if (!refresh) {
+      const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
     }
 
     // 计算日期范围
@@ -248,7 +256,7 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+}, { path: '/api/dashboard/kpis' })
 
 /**
  * 格式化日期为 YYYY-MM-DD

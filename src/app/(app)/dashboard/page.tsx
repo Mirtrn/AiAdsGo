@@ -82,7 +82,7 @@ export default function DashboardPage() {
 
     try {
       const [kpiRes, riskRes, offerRes] = await Promise.all([
-        fetch(`/api/dashboard/kpis?days=${days}`, { credentials: 'include', cache: 'no-store' }),
+        fetch(`/api/dashboard/kpis?days=${days}${showRefresh ? '&refresh=true' : ''}`, { credentials: 'include', cache: 'no-store' }),
         fetch('/api/risk-alerts?limit=3', { credentials: 'include', cache: 'no-store' }),
         fetch('/api/offers?summary=true', { credentials: 'include', cache: 'no-store' })
       ])
@@ -107,13 +107,22 @@ export default function DashboardPage() {
 
       if (offerRes.ok) {
         const offer = await offerRes.json()
-        // 确保offers是数组类型
-        const offersArray = Array.isArray(offer.offers) ? offer.offers : []
-        setOfferSummary({
-          total: offersArray.length,
-          active: offersArray.filter((o: any) => o.isActive).length,
-          pendingScrape: offersArray.filter((o: any) => o.scrapeStatus === 'pending').length
-        })
+        // ✅ summary模式：后端直接返回聚合统计，避免拉取完整Offer列表
+        if (offer?.summary) {
+          setOfferSummary({
+            total: offer.summary.total || 0,
+            active: offer.summary.active || 0,
+            pendingScrape: offer.summary.pendingScrape || 0
+          })
+        } else {
+          // 兼容旧结构（返回完整offers数组）
+          const offersArray = Array.isArray(offer.offers) ? offer.offers : []
+          setOfferSummary({
+            total: offersArray.length,
+            active: offersArray.filter((o: any) => o.isActive).length,
+            pendingScrape: offersArray.filter((o: any) => o.scrapeStatus === 'pending').length
+          })
+        }
       }
     } catch (err) {
       console.error('Dashboard数据加载失败:', err)

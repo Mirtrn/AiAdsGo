@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createOffer, listOffers, updateOfferScrapeStatus } from '@/lib/offers'
+import { getDatabase } from '@/lib/db'
+import { boolCondition } from '@/lib/db-helpers'
+import { toNumber } from '@/lib/utils'
 import { z } from 'zod'
 import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
 import { triggerOfferScraping, OfferScrapingPriority } from '@/lib/offer-scraping'
+import { withPerformanceMonitoring } from '@/lib/api-performance'
 
 const createOfferSchema = z.object({
   url: z.string().url('无效的URL格式'),
@@ -36,7 +40,7 @@ const createOfferSchema = z.object({
  * POST /api/offers
  * 创建新Offer
  */
-export async function POST(request: NextRequest) {
+async function post(request: NextRequest) {
   try {
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
@@ -148,7 +152,7 @@ export async function POST(request: NextRequest) {
  * GET /api/offers?limit=10&offset=0&isActive=true&targetCountry=US&search=brand
  * 获取Offer列表
  */
-export async function GET(request: NextRequest) {
+async function get(request: NextRequest) {
   try {
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
@@ -159,6 +163,7 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const idsParam = searchParams.get('ids') // 批量查询特定ID的Offers
+    const summary = searchParams.get('summary') === 'true' // Dashboard等轻量场景仅需概要统计
     const noCache = searchParams.get('noCache') === 'true' || searchParams.get('refresh') === 'true'
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : undefined
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!, 10) : undefined
@@ -191,6 +196,42 @@ export async function GET(request: NextRequest) {
           targetCountry: offer.target_country,
         })),
         total: offers.length,
+      })
+    }
+
+    // Dashboard等场景：只需要概要统计，避免拉取完整Offer列表
+    if (summary) {
+      const db = await getDatabase()
+      const userIdNum = parseInt(userId, 10)
+      const notDeletedCondition = db.type === 'postgres'
+        ? '(is_deleted = false OR is_deleted IS NULL)'
+        : '(is_deleted = 0 OR is_deleted IS NULL)'
+      const isActiveCondition = boolCondition('is_active', true, db.type)
+
+      const row = await db.queryOne<{
+        total: number
+        active: number
+        pendingScrape: number
+      }>(
+        `
+          SELECT
+            COUNT(*) as total,
+            COALESCE(SUM(CASE WHEN ${isActiveCondition} THEN 1 ELSE 0 END), 0) as active,
+            COALESCE(SUM(CASE WHEN scrape_status = 'pending' THEN 1 ELSE 0 END), 0) as pendingScrape
+          FROM offers
+          WHERE user_id = ?
+            AND ${notDeletedCondition}
+        `,
+        [userIdNum]
+      )
+
+      return NextResponse.json({
+        success: true,
+        summary: {
+          total: toNumber(row?.total),
+          active: toNumber(row?.active),
+          pendingScrape: toNumber(row?.pendingScrape),
+        },
       })
     }
 
@@ -274,3 +315,6 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
+export const POST = withPerformanceMonitoring<any>(post, { path: '/api/offers' })
+export const GET = withPerformanceMonitoring<any>(get, { path: '/api/offers' })

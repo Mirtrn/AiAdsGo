@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { toNumber } from '@/lib/utils'
+import { withPerformanceMonitoring } from '@/lib/api-performance'
 
 /**
  * Campaign性能数据
@@ -36,6 +37,10 @@ interface CampaignPerformance {
  * - search: 搜索关键词（可选）
  */
 export async function GET(request: NextRequest) {
+  return getHandler(request)
+}
+
+const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) => {
   try {
     // 验证用户身份
     const authResult = await verifyAuth(request)
@@ -49,9 +54,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '7', 10)
     const sortBy = searchParams.get('sortBy') || 'cost'
-    const sortOrder = searchParams.get('sortOrder') || 'desc'
-    const page = parseInt(searchParams.get('page') || '1', 10)
-    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10)
+    const sortOrderRaw = (searchParams.get('sortOrder') || 'desc').toLowerCase()
+    const sortOrder = sortOrderRaw === 'asc' ? 'asc' : 'desc'
+    const pageRaw = parseInt(searchParams.get('page') || '1', 10)
+    const pageSizeRaw = parseInt(searchParams.get('pageSize') || '10', 10)
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1
+    const pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw > 0 ? Math.min(pageSizeRaw, 100) : 10
     const statusFilter = searchParams.get('status')
     const searchQuery = searchParams.get('search')
 
@@ -68,6 +76,8 @@ export async function GET(request: NextRequest) {
     const endDate = new Date()
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
+    const startDateStr = formatDate(startDate)
+    const endDateStr = formatDate(endDate)
 
     const db = await getDatabase()
 
@@ -87,8 +97,22 @@ export async function GET(request: NextRequest) {
 
     const whereClause = conditions.join(' AND ')
 
-    // 🔧 修复(2025-12-30): 查询Campaign及其聚合性能数据（增加currency字段）
-    const query = `
+    const sortFieldSqlMap: Record<string, string> = {
+      cost: 'cost',
+      clicks: 'clicks',
+      conversions: 'conversions',
+      impressions: 'impressions',
+      ctr: 'ctr',
+      cpc: 'cpc',
+    }
+    const sortFieldSql = sortFieldSqlMap[sortBy] || 'cost'
+    const sortDirectionSql = sortOrder === 'asc' ? 'ASC' : 'DESC'
+
+    const offset = (page - 1) * pageSize
+
+    // 📌 性能优化：下推排序/分页到数据库，避免全量加载后在内存排序
+    // 🔧 修复(2025-12-30): 增加currency字段支持多货币
+    const pageQuery = `
       SELECT
         c.id as campaignId,
         c.campaign_name as campaignName,
@@ -99,90 +123,159 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.cost), 0) as cost,
         COALESCE(SUM(cp.conversions), 0) as conversions,
-        (SELECT DISTINCT cp2.currency FROM campaign_performance cp2
-         WHERE cp2.campaign_id = c.id AND cp2.date >= ? AND cp2.date <= ? LIMIT 1) as currency
+        COALESCE(cpcur.currency, 'USD') as currency,
+        ROUND(
+          CASE
+            WHEN COALESCE(SUM(cp.impressions), 0) > 0
+              THEN (COALESCE(SUM(cp.clicks), 0) * 1.0 / COALESCE(SUM(cp.impressions), 0)) * 100
+            ELSE 0
+          END,
+          2
+        ) as ctr,
+        ROUND(
+          CASE
+            WHEN COALESCE(SUM(cp.clicks), 0) > 0
+              THEN COALESCE(SUM(cp.cost), 0) * 1.0 / COALESCE(SUM(cp.clicks), 0)
+            ELSE 0
+          END,
+          2
+        ) as cpc,
+        ROUND(
+          CASE
+            WHEN COALESCE(SUM(cp.clicks), 0) > 0
+              THEN COALESCE(SUM(cp.conversions), 0) * 1.0 / COALESCE(SUM(cp.clicks), 0) * 100
+            ELSE 0
+          END,
+          2
+        ) as conversionRate
       FROM campaigns c
       LEFT JOIN offers o ON c.offer_id = o.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND cp.date >= ?
         AND cp.date <= ?
+      LEFT JOIN (
+        SELECT
+          campaign_id,
+          MAX(COALESCE(currency, 'USD')) as currency
+        FROM campaign_performance
+        WHERE user_id = ?
+          AND date >= ?
+          AND date <= ?
+        GROUP BY campaign_id
+      ) cpcur ON cpcur.campaign_id = c.id
       WHERE ${whereClause}
-      GROUP BY c.id, c.campaign_name, c.status, o.brand, c.created_at
+      GROUP BY c.id, c.campaign_name, c.status, o.brand, c.created_at, cpcur.currency
+      ORDER BY ${sortFieldSql} ${sortDirectionSql}
+      LIMIT ?
+      OFFSET ?
     `
 
-    // 🔧 修复(2025-12-30): 参数顺序需要匹配子查询中的2次日期使用 + 主查询的2次日期使用
-    params.unshift(formatDate(startDate), formatDate(endDate), formatDate(startDate), formatDate(endDate))
+    const summaryQuery = `
+      SELECT
+        COUNT(*) as totalCampaigns,
+        COALESCE(SUM(CASE WHEN c.status = 'ENABLED' THEN 1 ELSE 0 END), 0) as activeCampaigns,
+        COALESCE(SUM(CASE WHEN c.status = 'PAUSED' THEN 1 ELSE 0 END), 0) as pausedCampaigns,
+        COALESCE(SUM(COALESCE(cpAgg.impressions, 0)), 0) as totalImpressions,
+        COALESCE(SUM(COALESCE(cpAgg.clicks, 0)), 0) as totalClicks,
+        COALESCE(SUM(COALESCE(cpAgg.cost, 0)), 0) as totalCost,
+        COALESCE(SUM(COALESCE(cpAgg.conversions, 0)), 0) as totalConversions
+      FROM campaigns c
+      LEFT JOIN offers o ON c.offer_id = o.id
+      LEFT JOIN (
+        SELECT
+          campaign_id,
+          SUM(impressions) as impressions,
+          SUM(clicks) as clicks,
+          SUM(cost) as cost,
+          SUM(conversions) as conversions
+        FROM campaign_performance
+        WHERE user_id = ?
+          AND date >= ?
+          AND date <= ?
+        GROUP BY campaign_id
+      ) cpAgg ON cpAgg.campaign_id = c.id
+      WHERE ${whereClause}
+    `
 
-    const rawData = await db.query(query, [...params]) as Array<{
-      campaignId: number
-      campaignName: string
-      status: string
-      offerBrand: string
-      createdAt: string
-      impressions: number
-      clicks: number
-      cost: number
-      conversions: number
-      currency?: string // 🔧 新增: 货币代码
-    }>
+    const [rawRows, rawSummary] = await Promise.all([
+      db.query(pageQuery, [
+        startDateStr,
+        endDateStr,
+        userId,
+        startDateStr,
+        endDateStr,
+        ...params,
+        pageSize,
+        offset,
+      ]) as Promise<
+        Array<{
+          campaignId: number
+          campaignName: string
+          status: string
+          offerBrand: string
+          createdAt: string
+          impressions: number
+          clicks: number
+          cost: number
+          conversions: number
+          currency?: string
+          ctr: number
+          cpc: number
+          conversionRate: number
+        }>
+      >,
+      db.queryOne(summaryQuery, [
+        userId,
+        startDateStr,
+        endDateStr,
+        ...params,
+      ]) as Promise<
+        | {
+            totalCampaigns: number
+            activeCampaigns: number
+            pausedCampaigns: number
+            totalImpressions: number
+            totalClicks: number
+            totalCost: number
+            totalConversions: number
+          }
+        | undefined
+      >,
+    ])
 
-    // 计算派生指标
-    const campaigns: CampaignPerformance[] = rawData.map((row) => {
-      const impressions = toNumber(row.impressions)
-      const clicks = toNumber(row.clicks)
-      const cost = toNumber(row.cost)
-      const conversions = toNumber(row.conversions)
+    const campaigns: CampaignPerformance[] = (rawRows || []).map((row) => ({
+      campaignId: row.campaignId,
+      campaignName: row.campaignName,
+      status: row.status,
+      offerBrand: row.offerBrand,
+      createdAt: row.createdAt,
+      impressions: toNumber(row.impressions),
+      clicks: toNumber(row.clicks),
+      cost: toNumber(row.cost),
+      conversions: toNumber(row.conversions),
+      ctr: toNumber(row.ctr),
+      cpc: toNumber(row.cpc),
+      conversionRate: toNumber(row.conversionRate),
+      currency: row.currency || 'USD',
+    }))
 
-      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
-      const cpc = clicks > 0 ? cost / clicks : 0
-      const conversionRate = clicks > 0 ? (conversions / clicks) * 100 : 0
-
-      return {
-        ...row,
-        impressions,
-        clicks,
-        cost,
-        conversions,
-        ctr: parseFloat(ctr.toFixed(2)),
-        cpc: parseFloat(cpc.toFixed(2)),
-        conversionRate: parseFloat(conversionRate.toFixed(2)),
-        currency: row.currency || 'USD', // 🔧 新增: 默认USD
-      }
-    })
-
-    // 排序
-    campaigns.sort((a, b) => {
-      const aVal = a[sortBy as keyof CampaignPerformance] as number
-      const bVal = b[sortBy as keyof CampaignPerformance] as number
-
-      if (sortOrder === 'asc') {
-        return aVal - bVal
-      } else {
-        return bVal - aVal
-      }
-    })
-
-    // 分页
-    const total = campaigns.length
-    const totalPages = Math.ceil(total / pageSize)
-    const offset = (page - 1) * pageSize
-    const paginatedCampaigns = campaigns.slice(offset, offset + pageSize)
-
-    // 计算汇总统计
     const summary = {
-      totalCampaigns: total,
-      activeCampaigns: campaigns.filter((c) => c.status === 'ENABLED').length,
-      pausedCampaigns: campaigns.filter((c) => c.status === 'PAUSED').length,
-      totalImpressions: campaigns.reduce((sum, c) => sum + toNumber(c.impressions), 0),
-      totalClicks: campaigns.reduce((sum, c) => sum + toNumber(c.clicks), 0),
-      totalCost: campaigns.reduce((sum, c) => sum + toNumber(c.cost), 0),
-      totalConversions: campaigns.reduce((sum, c) => sum + toNumber(c.conversions), 0),
+      totalCampaigns: toNumber(rawSummary?.totalCampaigns),
+      activeCampaigns: toNumber(rawSummary?.activeCampaigns),
+      pausedCampaigns: toNumber(rawSummary?.pausedCampaigns),
+      totalImpressions: toNumber(rawSummary?.totalImpressions),
+      totalClicks: toNumber(rawSummary?.totalClicks),
+      totalCost: toNumber(rawSummary?.totalCost),
+      totalConversions: toNumber(rawSummary?.totalConversions),
     }
+
+    const total = summary.totalCampaigns
+    const totalPages = Math.ceil(total / pageSize)
 
     return NextResponse.json({
       success: true,
       data: {
-        campaigns: paginatedCampaigns,
+        campaigns,
         summary,
         pagination: {
           page,
@@ -211,7 +304,7 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+}, { path: '/api/dashboard/campaigns' })
 
 /**
  * 格式化日期为 YYYY-MM-DD
