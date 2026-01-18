@@ -8,8 +8,83 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getQueueManager } from '@/lib/queue'
+import { getBackgroundQueueManager, getQueueManager, isBackgroundQueueSplitEnabled } from '@/lib/queue'
 import { isBackgroundTaskType } from '@/lib/queue/task-category'
+
+type QueueStats = Awaited<ReturnType<ReturnType<typeof getQueueManager>['getStats']>>
+type PendingEligibilityStats = NonNullable<Awaited<ReturnType<ReturnType<typeof getQueueManager>['getPendingEligibilityStats']>>>
+
+function mergeQueueStats(a: QueueStats, b: QueueStats): QueueStats {
+  const byType: Record<string, number> = { ...(a.byType || {}) }
+  for (const [type, count] of Object.entries(b.byType || {})) {
+    byType[type] = (byType[type] || 0) + (count || 0)
+  }
+
+  const byTypeRunning: Record<string, number> = { ...(a.byTypeRunning || {}) }
+  for (const [type, count] of Object.entries(b.byTypeRunning || {})) {
+    byTypeRunning[type] = (byTypeRunning[type] || 0) + (count || 0)
+  }
+
+  const byUser: QueueStats['byUser'] = { ...(a.byUser || {}) }
+  for (const [userId, stats] of Object.entries(b.byUser || {})) {
+    const uid = Number(userId)
+    const current = byUser[uid] || {
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      coreCompleted: 0,
+      backgroundCompleted: 0,
+      coreFailed: 0,
+      backgroundFailed: 0,
+    }
+
+    byUser[uid] = {
+      pending: (current.pending || 0) + (stats.pending || 0),
+      running: (current.running || 0) + (stats.running || 0),
+      completed: (current.completed || 0) + (stats.completed || 0),
+      failed: (current.failed || 0) + (stats.failed || 0),
+      coreCompleted: (current.coreCompleted || 0) + (stats.coreCompleted || 0),
+      backgroundCompleted: (current.backgroundCompleted || 0) + (stats.backgroundCompleted || 0),
+      coreFailed: (current.coreFailed || 0) + (stats.coreFailed || 0),
+      backgroundFailed: (current.backgroundFailed || 0) + (stats.backgroundFailed || 0),
+    }
+  }
+
+  return {
+    total: (a.total || 0) + (b.total || 0),
+    pending: (a.pending || 0) + (b.pending || 0),
+    running: (a.running || 0) + (b.running || 0),
+    completed: (a.completed || 0) + (b.completed || 0),
+    failed: (a.failed || 0) + (b.failed || 0),
+    byType: byType as any,
+    byTypeRunning: byTypeRunning as any,
+    byUser,
+  }
+}
+
+function mergePendingEligibilityStats(
+  a: PendingEligibilityStats | null,
+  b: PendingEligibilityStats | null
+): PendingEligibilityStats | null {
+  if (!a && !b) return null
+  if (!a) return b
+  if (!b) return a
+
+  const nextEligibleAt =
+    a.nextEligibleAt === undefined
+      ? b.nextEligibleAt
+      : b.nextEligibleAt === undefined
+        ? a.nextEligibleAt
+        : Math.min(a.nextEligibleAt, b.nextEligibleAt)
+
+  return {
+    pendingTotal: (a.pendingTotal || 0) + (b.pendingTotal || 0),
+    eligiblePending: (a.eligiblePending || 0) + (b.eligiblePending || 0),
+    delayedPending: (a.delayedPending || 0) + (b.delayedPending || 0),
+    nextEligibleAt,
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,12 +98,32 @@ export async function GET(request: NextRequest) {
     const isAdmin = authResult.user.role === 'admin'
 
     // 获取统一队列管理器
-    const queueManager = getQueueManager()
-    const proxyStats = queueManager.getProxyStats()
-    const [stats, pendingEligibility] = await Promise.all([
-      queueManager.getStats(),
-      queueManager.getPendingEligibilityStats()
+    const coreQueueManager = getQueueManager()
+    const proxyStats = coreQueueManager.getProxyStats()
+
+    const backgroundSplitEnabled = isBackgroundQueueSplitEnabled()
+    const backgroundQueueManager = backgroundSplitEnabled ? getBackgroundQueueManager() : null
+
+    const [coreStats, corePendingEligibility] = await Promise.all([
+      coreQueueManager.getStats(),
+      coreQueueManager.getPendingEligibilityStats()
     ])
+
+    const [backgroundStats, backgroundPendingEligibility] = backgroundQueueManager
+      ? await (async () => {
+        await backgroundQueueManager.ensureInitialized()
+        const [s, p] = await Promise.all([
+          backgroundQueueManager.getStats(),
+          backgroundQueueManager.getPendingEligibilityStats()
+        ])
+        return [s, p] as const
+      })()
+      : [null, null]
+
+    const stats = backgroundStats ? mergeQueueStats(coreStats, backgroundStats) : coreStats
+    const pendingEligibility = backgroundPendingEligibility
+      ? mergePendingEligibilityStats(corePendingEligibility, backgroundPendingEligibility)
+      : corePendingEligibility
 
     // 如果是普通用户，只返回该用户的数据
     if (!isAdmin) {
@@ -54,7 +149,16 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const runningTasksPromise = stats.running > 0 ? queueManager.getRunningTasks() : Promise.resolve([])
+    const runningTasksPromise = stats.running > 0 ? (async () => {
+      const [coreRunning, backgroundRunning] = await Promise.all([
+        coreStats.running > 0 ? coreQueueManager.getRunningTasks() : Promise.resolve([]),
+        backgroundQueueManager && backgroundStats && backgroundStats.running > 0
+          ? backgroundQueueManager.getRunningTasks()
+          : Promise.resolve([]),
+      ])
+      return [...coreRunning, ...backgroundRunning]
+    })() : Promise.resolve([])
+
     const runningByUser: Record<
       number,
       { coreRunning: number; backgroundRunning: number; byType: Record<string, number> }
@@ -63,7 +167,7 @@ export async function GET(request: NextRequest) {
     let globalBackgroundRunning = 0
 
     // 🔥 获取当前配置（从队列管理器内存中读取）
-    const currentConfig = queueManager.getConfig()
+    const currentConfig = coreQueueManager.getConfig()
 
     const userMapPromise = (async () => {
       // 🔥 获取用户信息（用于显示用户名）
@@ -155,6 +259,9 @@ export async function GET(request: NextRequest) {
         }),
         byType: stats.byType,
         byTypeRunning: stats.byTypeRunning,
+        backgroundQueue: {
+          enabled: backgroundSplitEnabled,
+        },
         proxy: {
           total: proxyStats.length,
           available: proxyStats.filter((p) => p.available).length,

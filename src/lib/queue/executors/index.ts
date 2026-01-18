@@ -67,6 +67,16 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('url-swap', executeUrlSwapTask)
 }
 
+/**
+ * 注册后台任务执行器（非核心任务）
+ *
+ * 用于独立 background worker：只加载必要执行器，减少内存占用并降低对核心任务的干扰。
+ */
+export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
+  queue.registerExecutor('click-farm', createClickFarmExecutor())
+  queue.registerExecutor('url-swap', executeUrlSwapTask)
+}
+
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'
 export { createSyncExecutor } from './sync-executor'
 export { createAIAnalysisExecutor } from './ai-analysis-executor'
@@ -87,4 +97,3 @@ export type { AdCreativeTaskData } from './ad-creative-executor'
 export type { CampaignPublishTaskData } from './campaign-publish-executor'
 export type { ClickFarmTaskData } from './click-farm-executor'
 export type { UrlSwapTaskData } from './url-swap-executor'
-

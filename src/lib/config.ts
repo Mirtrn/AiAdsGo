@@ -75,6 +75,8 @@ export const REDIS_URL = getOptionalEnvVar('REDIS_URL', 'redis://localhost:6379'
 // 🔥 Redis前缀配置（结构化，2025-12-10优化为方案3）
 export const REDIS_PREFIX_CONFIG = {
   queue: `autoads:${NODE_ENV}:queue:`,
+  // 🔥 非核心任务队列（click-farm/url-swap 等）独立前缀，避免与核心任务互相争抢资源
+  queueBackground: `autoads:${NODE_ENV}:queue:bg:`,
   cache: `autoads:${NODE_ENV}:cache:`,
 } as const
 

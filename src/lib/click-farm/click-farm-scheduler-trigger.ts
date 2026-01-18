@@ -6,7 +6,7 @@
 import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory, parseClickFarmTask } from '@/lib/click-farm';
 import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange, generateSubTasks } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
-import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
+import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getDatabase } from '@/lib/db';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
@@ -167,7 +167,7 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   );
 
   // 获取队列管理器并加入队列
-  const queueManager = await getOrCreateQueueManager();
+  const queueManager = getQueueManagerForTaskType('click-farm');
   let queued = 0;
 
   // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
@@ -235,7 +235,7 @@ export async function triggerAllPendingTasks(): Promise<{
   skipped: number;
 }> {
   const tasks = await getPendingTasks();
-  const queueManager = await getOrCreateQueueManager();
+  const queueManager = getQueueManagerForTaskType('click-farm');
   const db = getDatabase();
 
   // 🔧 添加调试日志

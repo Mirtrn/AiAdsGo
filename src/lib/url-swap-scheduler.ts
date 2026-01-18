@@ -12,7 +12,7 @@ import { getPendingTasks, updateTaskStatus, setTaskError, getOfferById, getUrlSw
 import { shouldCompleteTask } from './click-farm/scheduler'
 import { getProxyPool } from './url-resolver-enhanced'
 import { initializeProxyPool } from './offer-utils'
-import { getOrCreateQueueManager } from './queue/init-queue'
+import { getQueueManagerForTaskType } from './queue'
 import type { UrlSwapTaskData, TriggerResult } from './url-swap-types'
 
 /**
@@ -29,7 +29,7 @@ export async function triggerAllUrlSwapTasks(): Promise<{
 
   const tasks = await getPendingTasks()
   const results = { processed: 0, executed: 0, skipped: 0, errors: 0 }
-  const queueManager = await getOrCreateQueueManager()
+  const queueManager = getQueueManagerForTaskType('url-swap')
 
   for (const task of tasks) {
     try {
@@ -144,7 +144,7 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
   }
 
   // 复用统一队列入队
-  const queueManager = await getOrCreateQueueManager()
+  const queueManager = getQueueManagerForTaskType('url-swap')
   const taskData: UrlSwapTaskData = {
     taskId: task.id,
     offerId: task.offer_id,

@@ -37,6 +37,37 @@ async function buildScheduler() {
   }
 }
 
+async function buildBackgroundWorker() {
+  console.log('📦 开始打包后台队列Worker...')
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(__dirname, 'src', 'background-worker.ts')],
+      bundle: true,
+      platform: 'node',
+      target: 'node20',
+      outfile: path.join(__dirname, 'dist', 'background-worker.js'),
+      external: [
+        // 排除需要原生模块的依赖
+        'better-sqlite3',
+        'bcrypt',
+        // 排除Playwright相关依赖（避免打包问题）
+        'playwright',
+        'playwright-core',
+        'chromium-bidi',
+      ],
+      minify: false, // 保持可读性，便于调试
+      sourcemap: false,
+      logLevel: 'info',
+    })
+
+    console.log('✅ 后台队列Worker打包完成: dist/background-worker.js')
+  } catch (error) {
+    console.error('❌ 后台队列Worker打包失败:', error)
+    process.exit(1)
+  }
+}
+
 async function buildDbInit() {
   console.log('📦 开始打包数据库初始化脚本...')
 
@@ -66,6 +97,7 @@ async function buildDbInit() {
 
 async function main() {
   await buildScheduler()
+  await buildBackgroundWorker()
   await buildDbInit()
   console.log('')
   console.log('🎉 所有脚本打包完成！')

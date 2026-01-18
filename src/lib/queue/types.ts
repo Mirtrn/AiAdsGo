@@ -142,6 +142,14 @@ export interface QueueConfig {
   perUserConcurrency: number     // 单用户最大并发
   perTypeConcurrency: Record<TaskType, number>  // 单类型最大并发
 
+  /**
+   * 是否在 enqueue 时自动启动队列处理循环（并自动注册执行器）。
+   *
+   * - `true`（默认）：保持旧行为，任何调用 enqueue 的进程都会启动处理循环（适用于单进程/简化部署）。
+   * - `false`：仅连接存储并写入 pending；由独立 worker 进程负责 start() 与执行（适用于拆分 worker）。
+   */
+  autoStartOnEnqueue?: boolean
+
   // 队列限制
   maxQueueSize: number           // 最大队列长度
   taskTimeout: number            // 任务超时时间(ms)

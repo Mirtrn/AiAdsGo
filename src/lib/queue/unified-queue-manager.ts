@@ -72,6 +72,7 @@ export class UnifiedQueueManager {
 
     // 合并默认配置
     this.config = {
+      autoStartOnEnqueue: config.autoStartOnEnqueue !== false,
       globalConcurrency: config.globalConcurrency || 999,    // 🔥 全局并发提升至999（补点击需求）
       perUserConcurrency: config.perUserConcurrency || 999,  // 🔥 单用户并发提升至999（补点击需求）
       perTypeConcurrency: config.perTypeConcurrency || {
@@ -289,6 +290,7 @@ export class UnifiedQueueManager {
    * 可用于手动初始化队列系统
    */
   async ensureInitialized(): Promise<void> {
+    if (this.initialized) return
     await this.initialize()
   }
 
@@ -345,8 +347,13 @@ export class UnifiedQueueManager {
       parentRequestId?: string  // 可选：关联上游HTTP请求
     } = {}
   ): Promise<string> {
-    // 自动确保队列已启动并注册执行器
-    await this.ensureStarted()
+    // 兼容：默认保持旧行为（enqueue 时自动启动 worker）
+    // 拆分 worker 场景：允许仅连接存储并写入 pending，由独立 worker 负责执行
+    if (this.config.autoStartOnEnqueue) {
+      await this.ensureStarted()
+    } else {
+      await this.ensureInitialized()
+    }
 
     const taskId = options.taskId || randomUUID()
     const parentRequestId = options.parentRequestId
@@ -1394,6 +1401,7 @@ export class UnifiedQueueManager {
 // 与 db.ts 保持一致的单例模式
 declare global {
   var __queueManager: UnifiedQueueManager | undefined
+  var __backgroundQueueManager: UnifiedQueueManager | undefined
 }
 
 /**
@@ -1406,4 +1414,29 @@ export function getQueueManager(config?: Partial<QueueConfig>): UnifiedQueueMana
     globalThis.__queueManager = new UnifiedQueueManager(config)
   }
   return globalThis.__queueManager
+}
+
+/**
+ * 获取后台任务队列管理器单例（click-farm / url-swap 等）
+ *
+ * 通过独立 redisKeyPrefix 隔离存储与消费，便于用独立 worker 进程执行，降低对核心业务请求的影响。
+ */
+export function getBackgroundQueueManager(config?: Partial<QueueConfig>): UnifiedQueueManager {
+  if (!globalThis.__backgroundQueueManager) {
+    console.log('🚀 创建后台队列管理器单例...')
+    const defaultBackgroundRedisKeyPrefix =
+      process.env.REDIS_KEY_PREFIX_BACKGROUND ||
+      `autoads:${process.env.NODE_ENV || 'development'}:queue:bg:`
+
+    globalThis.__backgroundQueueManager = new UnifiedQueueManager({
+      ...config,
+      // 默认使用独立前缀（可用环境变量覆盖）
+      redisKeyPrefix: config?.redisKeyPrefix || defaultBackgroundRedisKeyPrefix,
+      // 默认：非 worker 进程不自动启动处理循环，避免 Web/Scheduler 抢跑后台任务
+      autoStartOnEnqueue:
+        config?.autoStartOnEnqueue ??
+        (process.env.QUEUE_BACKGROUND_WORKER === '1' || process.env.QUEUE_BACKGROUND_WORKER === 'true')
+    })
+  }
+  return globalThis.__backgroundQueueManager
 }
