@@ -9,6 +9,7 @@ import { getDatabase } from './db'
 import { resolveAffiliateLink } from './url-resolver-enhanced'
 import { calculateNextSwapAt } from './url-swap-time'
 import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
+import { boolParam } from './db-helpers'
 import type {
   UrlSwapTask,
   UrlSwapTaskStatus,
@@ -472,17 +473,34 @@ export async function updateTaskStatus(
 export async function getPendingTasks(): Promise<UrlSwapTask[]> {
   const db = await getDatabase()
 
-  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(ust.is_deleted = FALSE OR ust.is_deleted IS NULL)'
+    : '(ust.is_deleted = 0 OR ust.is_deleted IS NULL)'
   const nowCondition = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : "datetime('now')"
 
-  const tasks = await db.query<any>(`
-    SELECT * FROM url_swap_tasks
-    WHERE status = 'enabled'
-      AND next_swap_at <= ${nowCondition}
-      AND started_at <= ${nowCondition}
+  // 🔒 用户禁用/过期后不再调度其任务（避免继续入队）
+  const rows = await db.query<any>(`
+    SELECT
+      ust.*,
+      u.package_expires_at as user_package_expires_at
+    FROM url_swap_tasks ust
+    INNER JOIN users u ON u.id = ust.user_id
+    WHERE ust.status = 'enabled'
+      AND ust.next_swap_at <= ${nowCondition}
+      AND ust.started_at <= ${nowCondition}
       AND ${isDeletedCondition}
-    ORDER BY next_swap_at ASC
-  `)
+      AND u.is_active = ?
+    ORDER BY ust.next_swap_at ASC
+  `, [boolParam(true, db.type)])
+
+  const now = Date.now()
+  const tasks = rows.filter((row: any) => {
+    const expiresAt = row.user_package_expires_at as string | null | undefined
+    if (!expiresAt) return true
+    const expiry = new Date(expiresAt)
+    if (!Number.isFinite(expiry.getTime())) return false
+    return expiry.getTime() >= now
+  })
 
   return tasks.map(parseUrlSwapTask)
 }

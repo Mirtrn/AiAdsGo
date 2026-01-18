@@ -237,6 +237,10 @@ export interface QueueStorageAdapter {
   // 🔥 批量任务取消支持（可选）
   getAllPendingTasks?(): Promise<Task[]>
   removeTask?(taskId: string): Promise<void>
+  removePendingTasksByUserAndTypes?(
+    userId: number,
+    types: TaskType[]
+  ): Promise<{ removedCount: number; removedTaskIds: string[] }>
 
   /**
    * 🔥 pending 可执行性统计（可选）

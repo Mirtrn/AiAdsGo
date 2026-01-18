@@ -775,6 +775,67 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     return tasks
   }
 
+  async removePendingTasksByUserAndTypes(
+    userId: number,
+    types: TaskType[]
+  ): Promise<{ removedCount: number; removedTaskIds: string[] }> {
+    if (!this.client) {
+      return { removedCount: 0, removedTaskIds: [] }
+    }
+
+    const typeSet = new Set(types)
+    const userPendingKey = this.getKey(`user:${userId}:pending`)
+    const taskIds = await this.client.zrange(userPendingKey, 0, -1)
+
+    if (!taskIds || taskIds.length === 0) {
+      return { removedCount: 0, removedTaskIds: [] }
+    }
+
+    const taskJsons = await this.client.hmget(this.getKey('tasks'), ...taskIds)
+    const toRemove: Array<{ id: string; type: TaskType }> = []
+
+    for (let i = 0; i < taskIds.length; i++) {
+      const taskJson = taskJsons[i]
+      if (!taskJson) continue
+      try {
+        const task = JSON.parse(taskJson) as Task
+        if (task.userId === userId && typeSet.has(task.type)) {
+          toRemove.push({ id: task.id, type: task.type })
+        }
+      } catch {
+        // ignore corrupted task JSON
+      }
+    }
+
+    if (toRemove.length === 0) {
+      return { removedCount: 0, removedTaskIds: [] }
+    }
+
+    const removedTaskIds: string[] = []
+    const BATCH_SIZE = 500
+
+    for (let i = 0; i < toRemove.length; i += BATCH_SIZE) {
+      const batch = toRemove.slice(i, i + BATCH_SIZE)
+      const pipeline = this.client.pipeline()
+
+      for (const item of batch) {
+        pipeline.hdel(this.getKey('tasks'), item.id)
+        pipeline.zrem(this.getKey('pending:all'), item.id)
+        pipeline.zrem(this.getKey(`pending:${item.type}`), item.id)
+        pipeline.zrem(userPendingKey, item.id)
+      }
+
+      await pipeline.exec()
+      removedTaskIds.push(...batch.map((b) => b.id))
+    }
+
+    if (removedTaskIds.length > 0) {
+      console.log(`🗑️ 已从Redis队列移除任务: userId=${userId}, removed=${removedTaskIds.length}`)
+    }
+
+    return { removedCount: removedTaskIds.length, removedTaskIds }
+  }
+
   async getPendingEligibilityStats(): Promise<PendingEligibilityStats> {
     if (!this.client) {
       return { pendingTotal: 0, eligiblePending: 0, delayedPending: 0 }

@@ -8,6 +8,7 @@
  * 3. 每天凌晨2点备份数据库
  * 4. 每天凌晨3点清理90天前的数据
  * 5. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
+ * 6. 每天定时暂停禁用/过期用户的后台任务（补点击/换链接）
  * 6. [已禁用] A/B测试监控 - 当前业务场景未使用，暂时禁用以减少日志噪音
  */
 
@@ -173,6 +174,32 @@ async function cleanupOldDataTask() {
 }
 
 /**
+ * 任务5: 禁用/过期用户后台任务暂停
+ * 频率：每天一次（可配置）
+ *
+ * 策略：
+ * - click-farm：标记为 stopped
+ * - url-swap：标记为 disabled
+ * - 清理队列中已入队但未执行的 click-farm/url-swap 任务（pending/delayed）
+ *
+ * 注意：任务不会在用户重新启用/续费后自动恢复，需用户手动重新开启。
+ */
+async function suspendInactiveOrExpiredUserTasksTask() {
+  log('⛔️ 开始检查禁用/过期用户，并暂停补点击/换链接任务...')
+
+  try {
+    const { suspendBackgroundTasksForInactiveOrExpiredUsers } = await import('./lib/background-task-suspension')
+    const result = await suspendBackgroundTasksForInactiveOrExpiredUsers({ purgeQueue: true })
+
+    log(
+      `⛔️ 完成 - affectedUsers=${result.affectedUserIds.length}, stoppedClickFarm=${result.clickFarmStopped}, disabledUrlSwap=${result.urlSwapDisabled}, purgedQueue=${result.queuePurged}`
+    )
+  } catch (error) {
+    logError('❌ 禁用/过期用户任务暂停执行失败:', error)
+  }
+}
+
+/**
  * 清理旧备份文件
  */
 async function cleanupOldBackups(daysToKeep: number) {
@@ -293,6 +320,7 @@ function startScheduler() {
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 数据清理: 每天凌晨3点')
+  log('  - 禁用/过期用户任务暂停: 每天一次 (默认凌晨4点)')
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
 
   // 任务0: 每小时整点执行补点击任务调度
@@ -346,6 +374,23 @@ function startScheduler() {
     scheduled: true,
     timezone: 'Asia/Shanghai'
   })
+
+  // 任务5: 每天定时暂停禁用/过期用户的后台任务（补点击/换链接）
+  // 可通过环境变量控制启用与 Cron 表达式
+  const userTaskSweepEnabled = process.env.USER_TASK_SWEEP_ENABLED !== 'false'
+  const userTaskSweepCron = process.env.USER_TASK_SWEEP_CRON || '0 4 * * *'
+
+  if (userTaskSweepEnabled) {
+    cron.schedule(userTaskSweepCron, async () => {
+      await suspendInactiveOrExpiredUserTasksTask()
+    }, {
+      scheduled: true,
+      timezone: 'Asia/Shanghai'
+    })
+    log(`✅ 禁用/过期用户任务暂停已启动 (cron: ${userTaskSweepCron})`)
+  } else {
+    log('⏸️  禁用/过期用户任务暂停已禁用 (USER_TASK_SWEEP_ENABLED=false)')
+  }
 
   // [已禁用] 任务5: A/B测试监控
   // 原因：当前业务场景未使用A/B测试功能，数据库中无测试记录

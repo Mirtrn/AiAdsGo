@@ -353,6 +353,35 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
   }
 
   /**
+   * 🔥 按 user + types 批量移除 pending 任务
+   */
+  async removePendingTasksByUserAndTypes(
+    userId: number,
+    types: TaskType[]
+  ): Promise<{ removedCount: number; removedTaskIds: string[] }> {
+    if (!this.connected) return { removedCount: 0, removedTaskIds: [] }
+
+    const typeSet = new Set(types)
+    const removedTaskIds: string[] = []
+
+    this.pendingQueue = this.pendingQueue.filter((task) => {
+      if (task.userId === userId && typeSet.has(task.type)) {
+        removedTaskIds.push(task.id)
+        this.tasks.delete(task.id)
+        this.runningTasks.delete(task.id)
+        return false
+      }
+      return true
+    })
+
+    if (removedTaskIds.length > 0) {
+      console.log(`🗑️ 已从内存队列移除任务: userId=${userId}, removed=${removedTaskIds.length}`)
+    }
+
+    return { removedCount: removedTaskIds.length, removedTaskIds }
+  }
+
+  /**
    * 🔥 从队列中移除指定任务（用于批量任务取消）
    */
   async removeTask(taskId: string): Promise<void> {

@@ -6,6 +6,7 @@ import { generateNextRunAt } from './click-farm/scheduler';
 import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './timezone-utils';
 import { estimateTraffic } from './click-farm/distribution';
 import { normalizeDateOnly, normalizeTimestampToIso } from './db-datetime';
+import { boolParam } from './db-helpers';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -1109,14 +1110,29 @@ export async function updateTaskStatus(
 export async function getPendingTasks(): Promise<ClickFarmTask[]> {
   const db = await getDatabase();
 
-  const tasks = await db.query<any>(`
-    SELECT * FROM click_farm_tasks
-    WHERE status IN ('pending', 'running')
-      AND IS_DELETED_FALSE
-      AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
-    ORDER BY created_at ASC
+  // 🔒 用户禁用/过期后不再调度其任务（避免继续入队）
+  const rows = await db.query<any>(`
+    SELECT
+      cft.*,
+      u.package_expires_at as user_package_expires_at
+    FROM click_farm_tasks cft
+    INNER JOIN users u ON u.id = cft.user_id
+    WHERE cft.status IN ('pending', 'running')
+      AND cft.IS_DELETED_FALSE
+      AND (cft.next_run_at IS NULL OR cft.next_run_at <= datetime('now'))
+      AND u.is_active = ?
+    ORDER BY cft.created_at ASC
     LIMIT 100
-  `, []);
+  `, [boolParam(true, db.type)]);
+
+  const now = Date.now();
+  const tasks = rows.filter((row: any) => {
+    const expiresAt = row.user_package_expires_at as string | null | undefined;
+    if (!expiresAt) return true;
+    const expiry = new Date(expiresAt);
+    if (!Number.isFinite(expiry.getTime())) return false;
+    return expiry.getTime() >= now;
+  });
 
   // 🔧 添加调试日志
   if (process.env.DEBUG_CLICK_FARM === 'true') {

@@ -137,6 +137,15 @@ export async function PATCH(
         await logUserEnabled(auditContext)
       } else if (wasActive && !isNowActive) {
         await logUserDisabled(auditContext)
+
+        // 🔒 用户被禁用后：停止该用户的补点击任务 + 暂停换链接任务，并清理队列中已入队的 pending/delayed 任务
+        // 任务保持停止/暂停状态，后续启用用户后由用户手动重新开启
+        try {
+          const { suspendUserBackgroundTasks } = await import('@/lib/background-task-suspension')
+          await suspendUserBackgroundTasks(userId, { reason: 'manual_disable', purgeQueue: true })
+        } catch (e: any) {
+          console.warn('[Admin] suspendUserBackgroundTasks failed:', e?.message || String(e))
+        }
       }
     }
 

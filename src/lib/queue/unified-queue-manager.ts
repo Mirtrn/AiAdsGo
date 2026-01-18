@@ -1395,6 +1395,41 @@ export class UnifiedQueueManager {
       return false
     }
   }
+
+  /**
+   * 🔥 按 user + types 批量移除 pending 任务（用于用户禁用/过期等场景的“队列止血”）
+   *
+   * 仅移除 pending（含 delayed notBefore）任务；不处理 running 中的任务。
+   * 不会自动启动队列处理循环（只需 ensureInitialized 连接存储）。
+   */
+  async purgePendingTasksByUserAndTypes(
+    userId: number,
+    types: TaskType[]
+  ): Promise<{ removedCount: number; removedTaskIds: string[] }> {
+    if (!Array.isArray(types) || types.length === 0) {
+      return { removedCount: 0, removedTaskIds: [] }
+    }
+
+    await this.ensureInitialized()
+
+    if (this.adapter.removePendingTasksByUserAndTypes) {
+      return await this.adapter.removePendingTasksByUserAndTypes(userId, types)
+    }
+
+    if (!this.adapter.removeTask) {
+      return { removedCount: 0, removedTaskIds: [] }
+    }
+
+    const typeSet = new Set(types)
+    const pending = await this.adapter.getPendingTasks()
+    const toRemove = pending.filter((t) => t.userId === userId && typeSet.has(t.type)).map((t) => t.id)
+
+    for (const taskId of toRemove) {
+      await this.adapter.removeTask(taskId)
+    }
+
+    return { removedCount: toRemove.length, removedTaskIds: toRemove }
+  }
 }
 
 // 使用 globalThis 防止 Next.js 热重载时重置单例
