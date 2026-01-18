@@ -325,10 +325,11 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     }
 
     // 🔥 修复：统一从任务详情计算统计，确保全局和用户统计一致
-    const allTaskIds = await this.client.hkeys(this.getKey('tasks'))
+    // 性能关键：避免对每个任务做一次 HGET（N+1 round-trips），改为一次性取回所有值
+    const taskJsons = await this.client.hvals(this.getKey('tasks'))
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
     const byTypeRunning: Record<TaskType, number> = {} as Record<TaskType, number>
-    const byUser: Record<number, any> = {}
+    const byUser: QueueStats['byUser'] = {}
 
     // 状态计数器
     let totalPending = 0
@@ -336,11 +337,14 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     let totalCompleted = 0
     let totalFailed = 0
 
-    for (const taskId of allTaskIds) {
-      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+    for (const taskJson of taskJsons) {
       if (!taskJson) continue
-
-      const task: Task = JSON.parse(taskJson)
+      let task: Task
+      try {
+        task = JSON.parse(taskJson)
+      } catch {
+        continue
+      }
 
       // 🔥 过滤无效用户ID（userId <= 0 是无效的）
       // 无效用户的任务不计入任何统计
@@ -355,8 +359,10 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       }
 
       // 按用户统计
-      if (!byUser[task.userId]) {
-        byUser[task.userId] = {
+      const uid = task.userId
+      let userStats = byUser[uid]
+      if (!userStats) {
+        userStats = byUser[uid] = {
           pending: 0,
           running: 0,
           completed: 0,
@@ -367,13 +373,13 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
           backgroundFailed: 0,
         }
       }
-      byUser[task.userId][task.status]++
+      userStats[task.status]++
       if (task.status === 'completed') {
-        if (isBackgroundTaskType(task.type)) byUser[task.userId].backgroundCompleted++
-        else byUser[task.userId].coreCompleted++
+        if (isBackgroundTaskType(task.type)) userStats.backgroundCompleted = (userStats.backgroundCompleted ?? 0) + 1
+        else userStats.coreCompleted = (userStats.coreCompleted ?? 0) + 1
       } else if (task.status === 'failed') {
-        if (isBackgroundTaskType(task.type)) byUser[task.userId].backgroundFailed++
-        else byUser[task.userId].coreFailed++
+        if (isBackgroundTaskType(task.type)) userStats.backgroundFailed = (userStats.backgroundFailed ?? 0) + 1
+        else userStats.coreFailed = (userStats.coreFailed ?? 0) + 1
       }
 
       // 全局状态统计（与用户统计使用相同逻辑）
@@ -399,12 +405,17 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     if (!this.client) return []
 
     const taskIds = await this.client.smembers(this.getKey('running'))
+    if (!taskIds || taskIds.length === 0) return []
+
+    const taskJsons = await this.client.hmget(this.getKey('tasks'), ...taskIds)
     const tasks: Task[] = []
 
-    for (const taskId of taskIds) {
-      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
-      if (taskJson) {
+    for (const taskJson of taskJsons) {
+      if (!taskJson) continue
+      try {
         tasks.push(JSON.parse(taskJson))
+      } catch {
+        // ignore corrupted task JSON
       }
     }
 

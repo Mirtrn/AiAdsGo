@@ -24,9 +24,11 @@ export async function GET(request: NextRequest) {
 
     // 获取统一队列管理器
     const queueManager = getQueueManager()
-    const stats = await queueManager.getStats()
     const proxyStats = queueManager.getProxyStats()
-    const pendingEligibility = await queueManager.getPendingEligibilityStats()
+    const [stats, pendingEligibility] = await Promise.all([
+      queueManager.getStats(),
+      queueManager.getPendingEligibilityStats()
+    ])
 
     // 如果是普通用户，只返回该用户的数据
     if (!isAdmin) {
@@ -52,13 +54,48 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const runningTasks = await queueManager.getRunningTasks()
+    const runningTasksPromise = stats.running > 0 ? queueManager.getRunningTasks() : Promise.resolve([])
     const runningByUser: Record<
       number,
       { coreRunning: number; backgroundRunning: number; byType: Record<string, number> }
     > = {}
     let globalCoreRunning = 0
     let globalBackgroundRunning = 0
+
+    // 🔥 获取当前配置（从队列管理器内存中读取）
+    const currentConfig = queueManager.getConfig()
+
+    const userMapPromise = (async () => {
+      // 🔥 获取用户信息（用于显示用户名）
+      const { getDatabase } = await import('@/lib/db')
+      const db = await getDatabase()
+
+      const userIds = Object.keys(stats.byUser).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id))
+      const userMap: Record<number, { username: string; email: string; packageType: string }> = {}
+
+      if (userIds.length > 0) {
+        const CHUNK_SIZE = 500
+        for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
+          const chunk = userIds.slice(i, i + CHUNK_SIZE)
+          const placeholders = chunk.map(() => '?').join(',')
+          const users = await db.query<{ id: number; username: string; email: string; package_type: string }>(
+            `SELECT id, username, email, package_type FROM users WHERE id IN (${placeholders})`,
+            chunk
+          )
+          users.forEach((user) => {
+            userMap[user.id] = {
+              username: user.username,
+              email: user.email,
+              packageType: user.package_type || 'trial',
+            }
+          })
+        }
+      }
+
+      return userMap
+    })()
+
+    const [runningTasks, userMap] = await Promise.all([runningTasksPromise, userMapPromise])
 
     for (const task of runningTasks) {
       // 防御：running 索引可能因并发退回/重试等原因暂时与 tasks 状态不一致
@@ -77,29 +114,6 @@ export async function GET(request: NextRequest) {
         runningByUser[task.userId].coreRunning++
         globalCoreRunning++
       }
-    }
-
-    // 🔥 获取当前配置（从队列管理器内存中读取）
-    const currentConfig = queueManager.getConfig()
-
-    // 🔥 获取用户信息（用于显示用户名）
-    const { getDatabase } = await import('@/lib/db')
-    const db = await getDatabase()
-
-    const userIds = Object.keys(stats.byUser).map(id => parseInt(id))
-    const userMap: Record<number, { username: string; email: string; packageType: string }> = {}
-
-    if (userIds.length > 0) {
-      const users = await db.query<{ id: number; username: string; email: string; package_type: string }>(
-        `SELECT id, username, email, package_type FROM users WHERE id IN (${userIds.join(',')})`
-      )
-      users.forEach(user => {
-        userMap[user.id] = {
-          username: user.username,
-          email: user.email,
-          packageType: user.package_type || 'trial',
-        }
-      })
     }
 
     // 管理员返回全局统计（兼容旧格式）
