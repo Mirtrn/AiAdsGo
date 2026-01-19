@@ -1,7 +1,7 @@
 import Link from 'next/link'
 
-// Force dynamic rendering to avoid SSR context issues
-export const dynamic = 'force-dynamic';
+// Enable static generation for 404 page optimization
+export const dynamic = 'force-static';
 
 export default function NotFound() {
   return (
