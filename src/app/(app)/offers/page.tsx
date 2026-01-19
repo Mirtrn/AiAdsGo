@@ -56,7 +56,7 @@ import UrlSwapTaskModal from '@/components/UrlSwapTaskModal'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, RotateCw } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, RotateCw, Wand2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -70,6 +70,7 @@ import {
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
+import { showError, showSuccess } from '@/lib/toast-utils'
 import type { OfferListItem, UnlinkTarget } from './types'
 
 // 使用类型别名保持兼容性
@@ -105,6 +106,9 @@ export default function OffersPage() {
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
+  const [isBatchCreativeDialogOpen, setIsBatchCreativeDialogOpen] = useState(false)
+  const [batchCreatingCreatives, setBatchCreatingCreatives] = useState(false)
+  const MAX_BATCH_CREATIVE_OFFERS = 50
 
   // 分页状态 - 使用统一的usePagination Hook
   const {
@@ -483,6 +487,62 @@ export default function OffersPage() {
     }
   }
 
+  // 批量创建广告创意处理函数（每个Offer生成下一步类型，最多1个/Offer）
+  const handleBatchCreateCreatives = async () => {
+    const offerIds = Array.from(selectedOfferIds)
+    if (offerIds.length === 0) return
+
+    if (offerIds.length > MAX_BATCH_CREATIVE_OFFERS) {
+      showError('选择数量超限', `单次最多支持${MAX_BATCH_CREATIVE_OFFERS}个Offer`)
+      return
+    }
+
+    try {
+      setBatchCreatingCreatives(true)
+
+      const response = await fetch('/api/offers/batch/generate-creatives-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ offerIds }),
+      })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      let data: any = null
+      try {
+        data = await response.json()
+      } catch {
+        data = {}
+      }
+
+      if (!response.ok) {
+        const message = data?.message || data?.error || '批量创建广告创意失败'
+        const details = data?.details && typeof data.details === 'string' ? data.details : undefined
+        showError('批量创建失败', details ? `${message}\n${details}` : message)
+        return
+      }
+
+      const enqueuedCount = Number(data?.enqueuedCount || 0)
+      const skippedCount = Number(data?.skippedCount || 0)
+      const failedCount = Number(data?.failedCount || 0)
+      const summaryParts = [`已入队 ${enqueuedCount} 个`]
+      if (skippedCount > 0) summaryParts.push(`跳过 ${skippedCount} 个`)
+      if (failedCount > 0) summaryParts.push(`失败 ${failedCount} 个`)
+
+      showSuccess('已提交批量生成任务', summaryParts.join('，'))
+      setIsBatchCreativeDialogOpen(false)
+    } catch (err: any) {
+      showError('批量创建失败', err?.message || '网络错误')
+    } finally {
+      setBatchCreatingCreatives(false)
+    }
+  }
+
   // 全选/取消全选
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -655,18 +715,36 @@ export default function OffersPage() {
             </div>
 
             {/* 右侧操作按钮 */}
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {/* 批量删除按钮 - 有选中项时显示 */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              {/* 批量操作按钮 - 有选中项时显示 */}
               {selectedOfferIds.size > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setIsBatchDeleteDialogOpen(true)}
-                  className="flex-shrink-0"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  删除 ({selectedOfferIds.size})
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsBatchCreativeDialogOpen(true)}
+                    disabled={batchCreatingCreatives || selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS}
+                    className="flex-shrink-0"
+                    title={
+                      selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS
+                        ? `单次最多支持${MAX_BATCH_CREATIVE_OFFERS}个Offer`
+                        : '为每个Offer生成下一步创意类型（A→B→D），每次最多1个/Offer'
+                    }
+                  >
+                    <Wand2 className="w-4 h-4 mr-2" />
+                    批量创建广告创意 ({selectedOfferIds.size})
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setIsBatchDeleteDialogOpen(true)}
+                    className="flex-shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    删除 ({selectedOfferIds.size})
+                  </Button>
+                </>
               )}
 
               <Button
@@ -1350,6 +1428,52 @@ export default function OffersPage() {
               variant="destructive"
             >
               {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Creative Generation Confirmation Dialog */}
+      <AlertDialog open={isBatchCreativeDialogOpen} onOpenChange={setIsBatchCreativeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量创建广告创意</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  将为选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer提交创意生成任务：
+                  每个Offer仅创建 <strong className="text-gray-900">1</strong> 个创意，生成下一步类型（A→B→D）。
+                </p>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-body-sm text-gray-700">
+                  <p className="font-medium mb-1">跳过规则：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>Offer未完成抓取（pending/in_progress/failed）</li>
+                    <li>该Offer已存在生成中的任务（pending/running）</li>
+                    <li>该Offer已生成满3种类型创意（A/B/D）</li>
+                  </ul>
+                </div>
+                {selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
+                    单次最多支持 <strong>{MAX_BATCH_CREATIVE_OFFERS}</strong> 个Offer，请减少选择后再提交。
+                  </div>
+                )}
+                <div className="text-body-sm text-gray-500">
+                  提交后无需等待执行结果，可稍后进入对应Offer的发布流程查看生成进度。
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchCreatingCreatives}>取消</AlertDialogCancel>
+            <Button
+              onClick={handleBatchCreateCreatives}
+              disabled={
+                batchCreatingCreatives ||
+                selectedOfferIds.size === 0 ||
+                selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS
+              }
+            >
+              {batchCreatingCreatives ? '提交中...' : '确认提交'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
