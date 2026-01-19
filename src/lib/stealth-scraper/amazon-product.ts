@@ -1332,19 +1332,23 @@ function extractBrandName(
     candidates.push({ value: dataBrand, source: 'data-brand', confidence: 5 })
   }
 
-  // ========== 渠道4: technicalDetails.Brand / Marke / etc. (置信度: 5) ==========
+  // ========== 渠道4: technicalDetails.Brand / Marke / Manufacturer / etc. (置信度: 5) ==========
+  // 🔥 2025-01-19修复：添加 Manufacturer 作为备选，解决 offer 1929 品牌名错误识别问题
+  // Amazon 部分商品页面没有 Brand 字段，但有 Manufacturer 字段（如 HIKMICRO）
   const technicalBrand =
     technicalDetails.Brand ??
     technicalDetails.Marke ??
     technicalDetails.Marca ??
     technicalDetails.Marque ??
     technicalDetails.Merk ??
-    technicalDetails.Marka
+    technicalDetails.Marka ??
+    technicalDetails.Manufacturer  // 🔥 新增：Manufacturer 作为最后备选
 
   if (technicalBrand) {
     const techBrand = technicalBrand.toString().trim()
       .replace(/^‎/, '')
       .replace(/^Brand:\s*/i, '')
+      .replace(/^Manufacturer:\s*/i, '')  // 🔥 新增：清理 Manufacturer 前缀
     if (techBrand && techBrand.length > 1 && techBrand.length < 50) {
       candidates.push({ value: techBrand, source: 'technical-details', confidence: 5 })
     }
