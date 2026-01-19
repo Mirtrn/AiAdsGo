@@ -13,7 +13,7 @@ export interface KeywordWithVolume {
   searchVolume: number // 精确搜索量（来自Historical Metrics API）
   competition?: string
   competitionIndex?: number
-  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' | 'KEYWORD_POOL' // 数据来源标记 (2026-01-19: 添加 KEYWORD_POOL)
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
 }
 

@@ -1615,29 +1615,8 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   }
   variables.extracted_elements_section = extracted_elements_section
 
-  // ✅ Headline #2 主关键词（优先：高意图 + 高搜索量的非品牌关键词）
-  // 来源：合并后的关键词（包含桶关键词/增强关键词/提取关键词），并严格排除品牌词
-  // 🔧 修复(2026-01-15): 当关键词池几乎全是品牌词时，Headline #2 会退化为“泛词/不稳定输出”
-  // 这里加入 ai_keywords 作为非品牌候选，提升“主关键词”稳定性（Headline #2 会在后处理强制用主关键词的DKI格式）
-  const aiKeywordsForHeadline2 = safeParseJson((offer as any).ai_keywords, [])
-  const headline2Candidates: Array<{ keyword: string; searchVolume?: number }> = [
-    ...((extractedElements?.keywords || []) as Array<{ keyword: string; searchVolume?: number }>),
-    ...(Array.isArray(aiKeywordsForHeadline2)
-      ? aiKeywordsForHeadline2
-          .filter((k: any) => typeof k === 'string' && k.trim().length > 0)
-          .map((k: string) => ({ keyword: k.trim(), searchVolume: 0 }))
-      : [])
-  ]
-
-  variables.primary_keyword = selectPrimaryKeywordForHeadline2(
-    headline2Candidates,
-    offer.brand,
-    [
-      offer.category,
-      offer.product_name || offer.product_title || offer.name || offer.title,
-      offer.product_title || offer.name || offer.title
-    ].filter(Boolean)
-  )
+  // 🔧 v4.36: 移除了 primary_keyword 变量设置
+  // 原因：已取消强制Headline #2使用DKI格式，此变量不再需要
 
   // 🔧 P0修复（2025-12-08）：添加缺失的section变量赋值
   variables.enhanced_features_section = enhanced_features_section
@@ -3376,33 +3355,9 @@ export async function generateAdCreative(
     }
   }
 
-  // ✅ KISS-3类型优化：强制 Headline #2 使用“高购买意图主关键词”的 DKI 格式
-  const primaryKeywordForHeadline2 = selectPrimaryKeywordForHeadline2(
-    filteredKeywords,
-    brandName,
-    [
-      (offer as any).category,
-      (offer as any).product_name || (offer as any).product_title || (offer as any).name || (offer as any).title,
-      (offer as any).product_title || (offer as any).name || (offer as any).title
-    ].filter(Boolean)
-  )
-
-  if (primaryKeywordForHeadline2 && result.headlines.length >= 2) {
-    const headline2Keyword = normalizeBrandFreeText(primaryKeywordForHeadline2, brandName)
-    const finalSecondHeadline = buildDkiKeywordHeadline(headline2Keyword || primaryKeywordForHeadline2, HEADLINE_MAX_LENGTH)
-
-    if (result.headlines[1] !== finalSecondHeadline) {
-      console.log(`🔧 强制Headline #2为主关键词DKI: "${result.headlines[1]}" → "${finalSecondHeadline}"`)
-      result.headlines[1] = finalSecondHeadline
-      if (result.headlinesWithMetadata && result.headlinesWithMetadata.length > 1) {
-        result.headlinesWithMetadata[1] = {
-          ...result.headlinesWithMetadata[1],
-          text: finalSecondHeadline,
-          length: finalSecondHeadline.length
-        }
-      }
-    }
-  }
+  // 🔧 v4.36: 移除强制Headline #2使用DKI格式的限制
+  // 原因：效果不佳，让AI自由生成更多样化的标题
+  // 保留Headline #1的品牌DKI格式不变
 
   console.log('✅ 广告创意生成成功')
   console.log(`   - Headlines: ${result.headlines.length}个`)
@@ -3482,6 +3437,14 @@ export async function generateAdCreative(
   const brandNameForFilter = (offer as { brand?: string }).brand || ''
   const brandNameLower = brandNameForFilter.toLowerCase()
 
+  // 🔧 修复(2026-01-19): 检查是否所有关键词搜索量都为0
+  // 不管是OAuth模式还是服务账号模式，只要所有关键词搜索量为0，就跳过搜索量过滤
+  // 可能原因：1. 服务账号无法获取搜索量 2. Keyword Planner API 配额用尽 3. 关键词池未获取到搜索量
+  const allSearchVolumesZero = keywordsWithVolume.every(kw => kw.searchVolume === 0)
+  if (allSearchVolumesZero && keywordsWithVolume.length > 0) {
+    console.log(`⚠️ 所有关键词搜索量为0，跳过搜索量过滤（保留所有关键词）`)
+  }
+
   const validKeywords = keywordsWithVolume.filter(kw => {
     const keywordLower = kw.keyword.toLowerCase()
     const isBrandKeyword = keywordLower.includes(brandNameLower)
@@ -3491,22 +3454,9 @@ export async function generateAdCreative(
       return true
     }
 
-    // ✅ 规则2: 过滤掉搜索量 < 500 的非品牌词
-    // 🔧 修复(2025-12-27): 服务账号模式下无法获取搜索量，智能筛选核心关键词
-    if (kw.searchVolume === 0) {
-      // 搜索量为0可能是服务账号模式，智能筛选核心关键词
-      const keywordLower = kw.keyword.toLowerCase()
-
-      // 保留核心关键词：品牌词、产品型号词、核心功能词
-      const isCoreKeyword =
-        isBrandKeyword ||  // 包含品牌名
-        /\d{2,}/.test(kw.keyword) ||  // 包含数字（可能是产品型号，如 "S16", "J15"）
-        /(vacuum|robot|clean|mop|suction|brush|filter|station|auto|automatic)/i.test(keywordLower)  // 核心品类/功能词
-
-      if (!isCoreKeyword) {
-        console.log(`🔧 过滤非核心关键词（搜索量0）: "${kw.keyword}"`)
-      }
-      return isCoreKeyword
+    // 🔧 修复(2026-01-19): 如果所有关键词搜索量都为0，保留所有关键词（不区分认证模式）
+    if (allSearchVolumesZero) {
+      return true
     }
 
     if (kw.searchVolume < 500) {
