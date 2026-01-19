@@ -22,8 +22,8 @@ export const GEMINI_PROVIDERS = {
   },
   relay: {
     name: '第三方中转',
-    endpoint: 'https://cc.thunderrelay.com/gemini',
-    apiKeyUrl: 'https://cc.thunderrelay.com/user-register?ref=4K5GVEY2',
+    endpoint: 'https://aicode.cat',
+    apiKeyUrl: 'https://aicode.cat/register?ref=T6S73C2U',
     description: '通过国内中转服务访问（更快更稳定）',
     icon: '⚡',
   },
@@ -49,7 +49,7 @@ export type GeminiProvider = keyof typeof GEMINI_PROVIDERS
  *
  * @example
  * getGeminiEndpoint('official') // 'https://generativelanguage.googleapis.com'
- * getGeminiEndpoint('relay') // 'https://cc.thunderrelay.com/gemini'
+ * getGeminiEndpoint('relay') // 'https://aicode.cat'
  */
 export function getGeminiEndpoint(provider: GeminiProvider): string {
   return GEMINI_PROVIDERS[provider]?.endpoint || GEMINI_PROVIDERS.official.endpoint
@@ -63,7 +63,7 @@ export function getGeminiEndpoint(provider: GeminiProvider): string {
  *
  * @example
  * getGeminiApiKeyUrl('official') // 'https://aistudio.google.com/app/api-keys'
- * getGeminiApiKeyUrl('relay') // 'https://cc.thunderrelay.com/user-register?ref=4K5GVEY2'
+ * getGeminiApiKeyUrl('relay') // 'https://aicode.cat/register?ref=T6S73C2U'
  * getGeminiApiKeyUrl('vertex') // null
  */
 export function getGeminiApiKeyUrl(provider: GeminiProvider): string | null {

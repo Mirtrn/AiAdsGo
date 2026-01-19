@@ -150,8 +150,8 @@ export async function createGeminiAxiosClient(userId: number, provider?: GeminiP
 
   // 🔧 relay 服务商需要额外的浏览器特征 headers 绕过 Cloudflare
   if (isRelayProvider) {
-    headers['Origin'] = 'https://cc.thunderrelay.com'
-    headers['Referer'] = 'https://cc.thunderrelay.com/'
+    headers['Origin'] = 'https://aicode.cat'
+    headers['Referer'] = 'https://aicode.cat/'
     headers['sec-fetch-dest'] = 'empty'
     headers['sec-fetch-mode'] = 'cors'
     headers['sec-fetch-site'] = 'same-origin'
@@ -415,9 +415,9 @@ export async function generateContent(params: {
           `- 计费模式: ${errorData?.billing?.mode || 'payg'} (按量付费)\n` +
           `\n` +
           `解决方案：\n` +
-          `1. 登录ThunderRelay平台 (https://cc.thunderrelay.com)\n` +
+          `1. 登录中转服务平台 (https://aicode.cat)\n` +
           `2. 前往账户设置，绑定Gemini专属账户\n` +
-          `3. 或联系ThunderRelay管理员配置账户绑定\n` +
+          `3. 或联系服务商管理员配置账户绑定\n` +
           `4. 配置完成后重新验证API Key\n`
         )
       }

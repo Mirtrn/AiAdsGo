@@ -218,7 +218,7 @@ const SETTING_METADATA: Record<string, {
     label: '第三方中转 API Key',
     description: '第三方中转服务 API 密钥，适合国内用户访问',
     placeholder: '输入中转服务 API Key',
-    helpLink: 'https://cc.thunderrelay.com/user-register?ref=4K5GVEY2'
+    helpLink: 'https://aicode.cat/register?ref=T6S73C2U'
   },
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
@@ -620,7 +620,7 @@ export default function SettingsPage() {
       if (category === 'ai' && key === 'gemini_provider') {
         const endpointMap: Record<string, string> = {
           'official': 'https://generativelanguage.googleapis.com',
-          'relay': 'https://cc.thunderrelay.com/gemini',
+          'relay': 'https://aicode.cat',
           'vertex': 'vertex',
         }
         updated.ai = {
