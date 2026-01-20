@@ -31,6 +31,7 @@ import { setCampaignPageViewGoalWithCredentials } from '@/lib/google-ads-convers
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
 import { invalidateOfferCache } from '@/lib/api-cache'
+import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 
 /**
  * 广告系列发布任务数据接口
@@ -805,17 +806,11 @@ export async function executeCampaignPublish(
   } catch (error: any) {
     apiSuccess = false
 
-    // 🔧 改善错误信息提取（处理Google Ads API错误格式）
-    if (error.errors && Array.isArray(error.errors) && error.errors.length > 0) {
-      // Google Ads API错误格式
-      const firstError = error.errors[0]
-      apiErrorMessage = firstError.message || error.message || String(error)
-      console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
-      console.error(`   错误代码:`, firstError.error_code)
+    apiErrorMessage = formatGoogleAdsApiError(error)
+    console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
+    if (error?.errors && Array.isArray(error.errors) && error.errors.length > 0) {
+      console.error(`   错误代码:`, error.errors[0]?.error_code)
       console.error(`   请求ID: ${error.request_id || 'N/A'}`)
-    } else {
-      apiErrorMessage = error.message || String(error)
-      console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
     }
     console.error('完整错误对象:', safeJsonStringify(buildErrorLogObject(error), 2))
 

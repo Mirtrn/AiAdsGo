@@ -320,12 +320,51 @@ export default function Step4PublishSummary({
       .filter(([_, s]) => s.status === 'success')
       .map(([id]) => Number(id))
 
+    const failedDetails = failedIds.map((campaignId) => ({
+      campaignId,
+      error: campaignStatuses[campaignId]?.error,
+    }))
+
     const warnings = Object.values(campaignStatuses)
       .filter(s => s.status === 'success' && s.error?.includes('[警告]'))
       .map(s => s.error!)
       .filter(Boolean)
 
-    return { campaignStatuses, pendingIds, failedIds, successIds, warnings, elapsedMs: Date.now() - startedAt }
+    return { campaignStatuses, pendingIds, failedIds, failedDetails, successIds, warnings, elapsedMs: Date.now() - startedAt }
+  }
+
+  const addCampaignPublishFailureDetails = (
+    failedDetails: Array<{ campaignId: number; error?: string }>,
+    opts?: { maxDetails?: number }
+  ) => {
+    const maxDetails = typeof opts?.maxDetails === 'number' ? opts.maxDetails : 5
+    const detailsToShow = failedDetails.slice(0, maxDetails)
+
+    for (const detail of detailsToShow) {
+      const errorText = (detail.error || '未知错误').trim()
+      addPublishStep(
+        `failed_campaign_${detail.campaignId}`,
+        `Campaign ${detail.campaignId} 发布失败：${errorText}`,
+        'failed'
+      )
+    }
+
+    if (failedDetails.length > maxDetails) {
+      addPublishStep(
+        'failed_more',
+        `还有 ${failedDetails.length - maxDetails} 个广告系列失败；可在 Campaign 列表中查看每个 Campaign 的失败原因（creation_error）。`,
+        'warning'
+      )
+    }
+
+    const hasPolicyViolation = failedDetails.some(d => typeof d.error === 'string' && d.error.includes('政策违规'))
+    if (hasPolicyViolation) {
+      addPublishStep(
+        'failed_policy_hint',
+        '建议：删除/替换触发政策的关键词或文案；如有相关授权/资质，请在 Google Ads 提交豁免/申诉后再重试发布。',
+        'warning'
+      )
+    }
   }
 
   // 🔥 新增：重置发布状态（用于"返回修改"）- 现在会直接跳转到第3步
@@ -437,10 +476,11 @@ export default function Step4PublishSummary({
           return
         }
 
-        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        const { pendingIds, failedIds, failedDetails, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
         if (failedIds.length > 0) {
           const errorMsg = `${failedIds.length}个广告系列发布失败`
           addPublishStep('syncing', errorMsg, 'failed')
+          addCampaignPublishFailureDetails(failedDetails)
           setPublishStatus({ step: 'failed', message: errorMsg, success: false })
           setPublishing(false)
           return
@@ -737,12 +777,13 @@ export default function Step4PublishSummary({
           return
         }
 
-        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        const { pendingIds, failedIds, failedDetails, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
 
         if (failedIds.length > 0) {
           const errorMsg = `${failedIds.length}个广告系列发布失败`
           console.error(`❌ ${errorMsg}`)
           addPublishStep('syncing', errorMsg, 'failed')
+          addCampaignPublishFailureDetails(failedDetails)
           setPublishStatus({ step: 'failed', message: errorMsg, success: false })
           setPublishing(false)
           return
@@ -917,10 +958,11 @@ export default function Step4PublishSummary({
           return
         }
 
-        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        const { pendingIds, failedIds, failedDetails, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
         if (failedIds.length > 0) {
           const errorMsg = `${failedIds.length}个广告系列发布失败`
           addPublishStep('syncing', errorMsg, 'failed')
+          addCampaignPublishFailureDetails(failedDetails)
           setPublishStatus({ step: 'failed', message: errorMsg, success: false })
           setPublishing(false)
           return
@@ -1093,10 +1135,11 @@ export default function Step4PublishSummary({
           return
         }
 
-        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        const { pendingIds, failedIds, failedDetails, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
         if (failedIds.length > 0) {
           const errorMsg = `${failedIds.length}个广告系列发布失败`
           addPublishStep('syncing', errorMsg, 'failed')
+          addCampaignPublishFailureDetails(failedDetails)
           setPublishStatus({ step: 'failed', message: errorMsg, success: false })
           setPublishing(false)
           return
@@ -1379,11 +1422,12 @@ export default function Step4PublishSummary({
                                     addPublishStep('syncing', '重新检查同步状态...(轮询中)', 'running')
                                     setPublishStatus({ step: 'syncing', message: '正在重新检查发布状态...', success: false })
 
-                                    const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(lastPublishCampaignIds, { maxWaitMs: 120_000 })
+                                    const { pendingIds, failedIds, failedDetails, successIds, warnings } = await pollCampaignCreationStatus(lastPublishCampaignIds, { maxWaitMs: 120_000 })
 
                                     if (failedIds.length > 0) {
                                       const errorMsg = `${failedIds.length}个广告系列发布失败`
                                       addPublishStep('syncing', errorMsg, 'failed')
+                                      addCampaignPublishFailureDetails(failedDetails)
                                       setPublishStatus({ step: 'failed', message: errorMsg, success: false })
                                       return
                                     }
