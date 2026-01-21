@@ -2870,19 +2870,14 @@ export async function generateAdCreative(
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
   const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offerBrand)
   const pureBrandKeywordsList = getPureBrandKeywords(offerBrand)
-  const brandTokens = canonicalBrandKeyword.split(' ').filter(Boolean)
-  const titleBrandPrefixes = new Set([
-    'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
-  ])
-  const shouldForceFullBrandPhrase =
-    brandTokens.length > 1 && titleBrandPrefixes.has(brandTokens[0])
+  const brandTokensToMatch =
+    pureBrandKeywordsList.length > 0
+      ? pureBrandKeywordsList
+      : (canonicalBrandKeyword ? [canonicalBrandKeyword] : [])
+  const mustContainBrand = brandTokensToMatch.length > 0
 
   const containsBrand = (keyword: string): boolean => {
-    const tokensToMatch =
-      shouldForceFullBrandPhrase && canonicalBrandKeyword
-        ? [canonicalBrandKeyword]
-        : pureBrandKeywordsList
-    return containsPureBrand(keyword, tokensToMatch)
+    return containsPureBrand(keyword, brandTokensToMatch)
   }
 
   // 🎯 需求34: 读取已提取的广告元素（从爬虫阶段保存的数据）
@@ -2966,7 +2961,7 @@ export async function generateAdCreative(
 
 	      // 🔥 2025-12-28: 关键词质量过滤
 	      // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
-	      // 🔧 修复：不强制 mustContainBrand，允许通用品类词进入关键词池（避免关键词过少）
+	      // 🔒 强制：只保留包含“纯品牌词”的关键词（不拼接造词）
 	      const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
 	        brandName: offerBrand,
 	        category: offer.category || undefined,
@@ -2976,7 +2971,7 @@ export async function generateAdCreative(
 	        productUrl: offer.final_url || offer.url || undefined,
 	        minWordCount: 1,
 	        maxWordCount: 8,
-	        mustContainBrand: shouldForceFullBrandPhrase,
+	        mustContainBrand,
 	        // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
 	        minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
 	          pageType: (offer as any).page_type || null
@@ -3022,7 +3017,7 @@ export async function generateAdCreative(
 
 	        // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
 	        // 只有当 keywords 存在且非空时才进行过滤
-	        // 🔧 修复：不强制 mustContainBrand，避免误杀通用品类词
+	        // 🔒 强制：只保留包含“纯品牌词”的关键词（不拼接造词）
 	        if (extractedElements.keywords && extractedElements.keywords.length > 0) {
 	          const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
 	            brandName: offerBrand,
@@ -3033,7 +3028,7 @@ export async function generateAdCreative(
 	            productUrl: offer.final_url || offer.url || undefined,
 	            minWordCount: 1,
 	            maxWordCount: 8,
-	            mustContainBrand: shouldForceFullBrandPhrase,
+	            mustContainBrand,
 	            minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
 	              pageType: (offer as any).page_type || null
 	            }),
@@ -3188,7 +3183,7 @@ export async function generateAdCreative(
 
   // 🔥 2025-12-28: 最终关键词质量过滤
   // 确保所有来源的关键词都经过过滤，移除品牌变体词和语义查询词
-  // 🔧 修复：对“前缀型多词品牌”强制只保留包含完整纯品牌短语的关键词
+  // 🔒 强制：最终只保留包含“纯品牌词”的关键词（不拼接造词）
   const finalKeywordFilter = filterKeywordQuality(uniqueKeywords, {
     brandName: offerBrand,
     category: offer.category || undefined,
@@ -3196,7 +3191,7 @@ export async function generateAdCreative(
     targetLanguage: offer.target_language || undefined,
     minWordCount: 1,
     maxWordCount: 8,
-    mustContainBrand: shouldForceFullBrandPhrase,
+    mustContainBrand,
   })
 
   if (finalKeywordFilter.removed.length > 0) {
@@ -3321,8 +3316,8 @@ export async function generateAdCreative(
       brandName,
       minWordCount: 1,
       maxWordCount: 8,
-      // 对“Dr./Mr./The + 名字”这类前缀型多词品牌，强制只保留包含完整纯品牌短语的关键词
-      mustContainBrand: shouldForceFullBrandPhrase,
+      // 🔒 强制：AI生成关键词也必须包含纯品牌词（不拼接造词）
+      mustContainBrand,
     })
 
     if (filtered.removed.length > 0) {
@@ -3451,51 +3446,15 @@ export async function generateAdCreative(
   }
   console.timeEnd('⏱️ 获取关键词搜索量')
 
-  // 🎯 新的过滤规则：
-  // 1. 保留品牌词（不管搜索量）
-  // 2. 过滤掉搜索量 < 500 的非品牌词
-  const originalKeywordCount = result.keywords.length
-
-  // 🔧 修复(2026-01-19): 检查是否所有关键词搜索量都为0
-  // 不管是OAuth模式还是服务账号模式，只要所有关键词搜索量为0，就跳过搜索量过滤
-  // 可能原因：1. 服务账号无法获取搜索量 2. Keyword Planner API 配额用尽 3. 关键词池未获取到搜索量
-  const allSearchVolumesZero = keywordsWithVolume.every(kw => kw.searchVolume === 0)
-  if (allSearchVolumesZero && keywordsWithVolume.length > 0) {
-    console.log(`⚠️ 所有关键词搜索量为0，跳过搜索量过滤（保留所有关键词）`)
-  }
-
-  const validKeywords = keywordsWithVolume.filter(kw => {
-    const isBrandKeyword = containsBrand(kw.keyword)
-
-    // ✅ 规则1: 保留品牌词（不管搜索量）
-    if (isBrandKeyword) {
-      return true
-    }
-
-    // 🔒 严格品牌模式：不保留任何不含纯品牌短语的关键词（避免非品牌流量）
-    if (shouldForceFullBrandPhrase) {
-      return false
-    }
-
-    // 🔧 修复(2026-01-19): 如果所有关键词搜索量都为0，保留所有关键词（不区分认证模式）
-    if (allSearchVolumesZero) {
-      return true
-    }
-
-    if (kw.searchVolume < 500) {
-      console.log(`🔧 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
-      return false
-    }
-
-    // ✅ 保留搜索量 >= 500 的关键词
-    return true
-  })
+  // 🔒 强制：只保留包含“纯品牌词”的关键词（不拼接造词）
+  const originalKeywordCount = keywordsWithVolume.length
+  const validKeywords = keywordsWithVolume.filter(kw => containsBrand(kw.keyword))
 
   // 更新关键词列表
   const removedCount = originalKeywordCount - validKeywords.length
 
   if (removedCount > 0) {
-    console.log(`🔧 已过滤 ${removedCount} 个低搜索量关键词 (< 500/月)`)
+    console.log(`🔧 已过滤 ${removedCount} 个不含纯品牌词的关键词`)
     console.log(`📊 剩余关键词: ${validKeywords.length}/${originalKeywordCount}`)
   }
 
@@ -3758,7 +3717,7 @@ export async function generateAdCreative(
   const brandKeywordLower = canonicalBrandKeyword || offerBrand.toLowerCase().trim()
 
   // 🔥 2026-01-02: 获取完整纯品牌词列表
-  // pureBrandKeywordsList / containsBrand / shouldForceFullBrandPhrase 由函数顶部统一计算
+  // pureBrandKeywordsList / containsBrand / mustContainBrand 由函数顶部统一计算
 
   // 第1步：分离品牌词、品牌相关词和非品牌词
   // 🔧 修复(2025-12-16): 品牌相关词（包含品牌名）也应该被保留，不受搜索量过滤
@@ -4071,11 +4030,12 @@ export async function generateAdCreative(
   const removedByIntent = beforeIntentFilter - finalKeywords.length
   console.log(`   ✅ 意图过滤完成: 移除 ${removedByIntent} 个低意图词，保留 ${finalKeywords.length} 个`)
 
-  // 🔒 严格品牌模式：只保留真实包含纯品牌短语的关键词（不做拼接/造词）
-  if (shouldForceFullBrandPhrase && canonicalBrandKeyword) {
-    console.log(`\n🔒 强制约束: 只保留包含纯品牌 "${canonicalBrandKeyword}" 的关键词`)
+  // 🔒 强制约束：最终关键词必须包含“纯品牌词”（不拼接造词）
+  if (mustContainBrand) {
+    const preview = brandTokensToMatch.slice(0, 3).join(', ')
+    console.log(`\n🔒 强制约束: 只保留包含纯品牌词的关键词 (tokens: [${preview}${brandTokensToMatch.length > 3 ? '...' : ''}])`)
     const before = finalKeywords.length
-    finalKeywords = finalKeywords.filter(kw => containsPureBrand(kw.keyword, [canonicalBrandKeyword]))
+    finalKeywords = finalKeywords.filter(kw => containsBrand(kw.keyword))
     console.log(`   ✅ 品牌强制过滤完成: ${before} → ${finalKeywords.length}`)
   }
 
@@ -4089,40 +4049,14 @@ export async function generateAdCreative(
   // 🔥 2026-01-02: 移除品类过滤 - 避免误杀有效关键词
   // 依赖Google Ads自动优化机制（质量得分、智能出价）淘汰不相关关键词
 
-  // 🎯 第7步：品牌词优先排序 + 比例控制
-  // 优化(2025-12-15): 确保品牌词至少占50%，避免被高搜索量通用词淹没
-  console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少50%）`)
+  // 🎯 第7步：关键词排序（100% 品牌包含）
+  console.log(`\n📊 关键词排序规则: 100%品牌包含 + 搜索量优先`)
+  finalKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
 
-  // 7.1 分离品牌词和非品牌词（包含品牌名的关键词 vs 不包含的）
-  const brandRelatedKws = finalKeywords.filter(kw => containsBrand(kw.keyword))
-  const genericKws = finalKeywords.filter(kw => !containsBrand(kw.keyword))
-
-  // 7.2 各自按搜索量排序
-  brandRelatedKws.sort((a, b) => b.searchVolume - a.searchVolume)
-  genericKws.sort((a, b) => b.searchVolume - a.searchVolume)
-
-  // 7.3 品牌词比例控制（至少50%，最少15个）
-  const totalCount = finalKeywords.length
-  const targetBrandRatio = 0.50  // 品牌词目标比例50%
-  const minBrandCount = 15       // 最少品牌词数量
-  const targetBrandCount = Math.max(minBrandCount, Math.ceil(totalCount * targetBrandRatio))
-  const actualBrandCount = Math.min(brandRelatedKws.length, targetBrandCount)
-  const genericCount = Math.max(0, totalCount - actualBrandCount)
-
-  console.log(`   🏷️ 品牌词: ${brandRelatedKws.length}个可用, 目标${targetBrandCount}个, 实际选取${actualBrandCount}个`)
-  console.log(`   📦 通用词: ${genericKws.length}个可用, 选取${Math.min(genericKws.length, genericCount)}个`)
-
-  // 7.4 组合最终关键词列表：品牌词在前，通用词在后
-  finalKeywords = [
-    ...brandRelatedKws.slice(0, actualBrandCount),
-    ...genericKws.slice(0, genericCount)
-  ]
-
-  // 7.5 输出品牌词详情
-  if (actualBrandCount > 0) {
-    console.log(`\n   🏷️ 已选品牌词 TOP 5:`)
-    brandRelatedKws.slice(0, Math.min(5, actualBrandCount)).forEach((kw, i) => {
-      console.log(`      ${i + 1}. "${kw.keyword}" (${kw.searchVolume.toLocaleString()}/月)`)
+  if (finalKeywords.length > 0) {
+    console.log(`\n   🏷️ 品牌相关关键词 TOP 5:`)
+    finalKeywords.slice(0, 5).forEach((kw, i) => {
+      console.log(`      ${i + 1}. "${kw.keyword}" (${(kw.searchVolume || 0).toLocaleString()}/月)`)
     })
   }
 

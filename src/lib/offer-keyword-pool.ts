@@ -21,7 +21,7 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
-import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
+import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
@@ -252,12 +252,19 @@ export interface BucketCreativeOptions {
 export function isPureBrandKeyword(keyword: string, brandName: string): boolean {
   if (!keyword || !brandName) return false
 
-  const keywordNormalized = normalizeGoogleAdsKeyword(keyword)
-  const brandNormalized = normalizeGoogleAdsKeyword(brandName)
-  if (!keywordNormalized || !brandNormalized) return false
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  if (pureBrandKeywords.length === 0) return false
 
-  if (keywordNormalized === brandNormalized) return true
-  return keywordNormalized.replace(/\s+/g, '') === brandNormalized.replace(/\s+/g, '')
+  const kwNorm = normalizeGoogleAdsKeyword(keyword)
+  if (!kwNorm) return false
+  const kwCompact = kwNorm.replace(/\s+/g, '')
+
+  return pureBrandKeywords.some(brand => {
+    const brandNorm = normalizeGoogleAdsKeyword(brand || '')
+    if (!brandNorm) return false
+    if (kwNorm === brandNorm) return true
+    return kwCompact === brandNorm.replace(/\s+/g, '')
+  })
 }
 
 /**
@@ -2224,13 +2231,7 @@ export async function generateOfferKeywordPool(
   // 🆕 2025-12-27: 关键词质量过滤
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
   const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
-  const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offer.brand || '')
-  const brandTokens = canonicalBrandKeyword.split(' ').filter(Boolean)
-  const titleBrandPrefixes = new Set([
-    'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
-  ])
-  const shouldForceFullBrandPhrase =
-    brandTokens.length > 1 && titleBrandPrefixes.has(brandTokens[0])
+  const pureBrandKeywordsForFilter = getPureBrandKeywords(offer.brand || '')
 
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
@@ -2241,8 +2242,8 @@ export async function generateOfferKeywordPool(
     productUrl: offer.final_url || offer.url || undefined,
     minWordCount: 1,
     maxWordCount: 8,
-    // 对“Dr./Mr./The + 名字”这类前缀型多词品牌，强制只保留包含完整纯品牌短语的关键词
-    mustContainBrand: shouldForceFullBrandPhrase,
+    // 🔒 全量强制：最终关键词必须包含“纯品牌词”（不拼接造词）
+    mustContainBrand: pureBrandKeywordsForFilter.length > 0,
     // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
     minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
       pageType: pageTypeForContextFilter

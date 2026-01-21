@@ -182,10 +182,12 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
   // ✅ Always seed with the canonical pure-brand keyword to avoid empty brand bucket
   // when Keyword Planner doesn't return the seed itself (e.g. "Dr. Mercola" → "dr mercola").
-  const canonicalBrand = normalizeGoogleAdsKeyword(brandName)
-  if (canonicalBrand) {
-    allKeywords.set(canonicalBrand, {
-      keyword: canonicalBrand,
+  for (const token of pureBrandKeywords) {
+    const canonical = normalizeGoogleAdsKeyword(token)
+    if (!canonical) continue
+    if (allKeywords.has(canonical)) continue
+    allKeywords.set(canonical, {
+      keyword: canonical,
       searchVolume: 0,
       competition: 'UNKNOWN',
       competitionIndex: 0,
@@ -217,13 +219,13 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     return fallbackKeywords
   }
 
-  // 初始化种子词
-  let seedKeywords = initialKeywords.map(kw => kw.keyword)
-
-  // 如果没有初始关键词，使用纯品牌词
-  if (seedKeywords.length === 0) {
-    seedKeywords = pureBrandKeywords
-  }
+  // 初始化种子词：强制包含纯品牌词，避免种子漂移到通用品类词
+  const initialBrandSeeds = initialKeywords
+    .map(kw => normalizeGoogleAdsKeyword(kw.keyword))
+    .filter(Boolean)
+    .filter(kw => containsPureBrand(kw, pureBrandKeywords))
+  const seedKeywordsSet = new Set<string>([...pureBrandKeywords, ...initialBrandSeeds])
+  let seedKeywords = Array.from(seedKeywordsSet)
 
   console.log(`   初始种子词: ${seedKeywords.length}个`)
 
@@ -252,10 +254,10 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
       console.log(`      返回 ${results.length} 个关键词`)
 
-      // 处理结果：保留品牌词 + 通用品类词（竞品过滤由 unified-keyword-service 白名单负责）
+      // 处理结果：只保留包含“纯品牌词”的关键词（不拼接造词）
       let newCount = 0
       let brandRelatedAdded = 0
-      let genericAdded = 0
+      let genericSkipped = 0
       for (const kw of results) {
         const keywordText = normalizeGoogleAdsKeyword(kw.keyword)
 
@@ -263,6 +265,10 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
         if (!allKeywords.has(keywordText)) {
           const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords)
+          if (!isBrandRelated) {
+            genericSkipped++
+            continue
+          }
           allKeywords.set(keywordText, {
             keyword: keywordText,
             searchVolume: kw.searchVolume,
@@ -276,24 +282,48 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           })
           newCount++
           if (isBrandRelated) brandRelatedAdded++
-          else genericAdded++
         }
       }
 
-      console.log(`      新增 ${newCount} 个关键词 (品牌相关: ${brandRelatedAdded}, 通用: ${genericAdded})`)
+      console.log(`      新增 ${newCount} 个关键词 (品牌相关: ${brandRelatedAdded}, 跳过非品牌: ${genericSkipped})`)
 
-      // 准备下一轮种子词（按搜索量排序，取Top20）
-      const sortedKeywords = Array.from(allKeywords.values())
-        .sort((a, b) => b.searchVolume - a.searchVolume)
-        .slice(0, topN)
-
-      // 如果种子词不再变化，提前结束
-      if (sortedKeywords.length < topN) {
-        console.log(`      种子词数量不足，结束迭代`)
+      if (newCount === 0) {
+        console.log(`      本轮未新增关键词，结束迭代`)
         break
       }
 
-      seedKeywords = sortedKeywords.map(kw => kw.keyword)
+      // 准备下一轮种子词：始终包含纯品牌词，并优先使用高搜索量的品牌相关词
+      const brandCandidates = Array.from(allKeywords.values())
+        .filter(kw => containsPureBrand(kw.keyword, pureBrandKeywords))
+        .sort((a, b) => b.searchVolume - a.searchVolume)
+
+      const nextSeedSet = new Set<string>()
+      for (const token of pureBrandKeywords) {
+        if (nextSeedSet.size >= topN) break
+        nextSeedSet.add(token)
+      }
+      for (const kw of brandCandidates) {
+        if (nextSeedSet.size >= topN) break
+        nextSeedSet.add(kw.keyword)
+      }
+
+      const nextSeeds = Array.from(nextSeedSet)
+      if (nextSeeds.length === 0) {
+        console.log(`      种子词为空，结束迭代`)
+        break
+      }
+
+      const currentSeedSet = new Set(seedKeywords)
+      const seedsUnchanged =
+        currentSeedSet.size === nextSeedSet.size &&
+        nextSeeds.every(s => currentSeedSet.has(s))
+
+      seedKeywords = nextSeeds
+
+      if (seedsUnchanged) {
+        console.log(`      种子词未变化，结束迭代`)
+        break
+      }
     }
 
     console.log(`\n   📊 Keyword Planner 迭代完成: ${allKeywords.size} 个关键词`)
@@ -432,11 +462,13 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
   const allKeywords = new Map<string, PoolKeywordData>()
 
   try {
-    // ✅ Seed canonical pure-brand keyword (avoid empty brand bucket)
-    const canonicalBrand = normalizeGoogleAdsKeyword(brandName)
-    if (canonicalBrand) {
-      allKeywords.set(canonicalBrand, {
-        keyword: canonicalBrand,
+    // ✅ Seed pure-brand keywords (avoid empty brand bucket)
+    for (const token of pureBrandKeywords) {
+      const canonical = normalizeGoogleAdsKeyword(token)
+      if (!canonical) continue
+      if (allKeywords.has(canonical)) continue
+      allKeywords.set(canonical, {
+        keyword: canonical,
         searchVolume: 0,
         competition: 'UNKNOWN',
         competitionIndex: 0,
@@ -474,6 +506,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const text of filteredSuggest) {
         const canonical = normalizeGoogleAdsKeyword(text)
         if (!canonical) continue
+        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -518,6 +551,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const kw of enhancedKeywords) {
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
+        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -552,6 +586,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const kw of trendsKeywords) {
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
+        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -815,101 +850,17 @@ export function filterKeywords(
   productName?: string | null
 ): PoolKeywordData[] {
   // 获取纯品牌词列表
-  // 示例：brandName="eufy security" → ["eufy", "eufy security"]
   const pureBrandKeywords = getPureBrandKeywords(brandName)
 
-  const normalizeTokens = (input: string): string[] => {
-    const cleaned = input
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, ' ')
-      .replace(/[-_]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    if (!cleaned) return []
-
-    const stop = new Set([
-      'the', 'a', 'an', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'by',
-      'official', 'store', 'shop', 'website', 'site', 'online',
-    ])
-
-    return Array.from(
-      new Set(
-        cleaned
-          .split(' ')
-          .map(t => t.trim())
-          .filter(Boolean)
-          .filter(t => t.length >= 3)
-          .filter(t => !stop.has(t))
-      )
-    )
-  }
-
-  // 用“类目/产品名”构建相关性 token，用于过滤明显不相关的高流量泛词
-  // 目标：不误杀真实类目词（命中token则允许），但避免因品牌形似导致的完全无关泛词（如 betta fish）
-  const brandTokens = new Set(normalizeTokens(brandName))
-  const relevanceTokens = Array.from(
-    new Set([
-      ...normalizeTokens(category || ''),
-      ...normalizeTokens(productName || ''),
-    ])
-  ).filter(t => !brandTokens.has(t))
-
   let geoFilteredCount = 0
-  let pureBrandKeptCount = 0      // 纯品牌词保留数
-  let brandRelatedKeptCount = 0   // 品牌相关词保留数
-  let highVolumeCategoryKeptCount = 0  // 头部品类词保留数
-  let genericCategoryCandidateCount = 0  // 高流量但无相关性信号的品类词候选
+  let nonBrandRemovedCount = 0
 
   const kept: PoolKeywordData[] = []
-  const genericCandidates: PoolKeywordData[] = []
 
   for (const kw of keywords) {
-    const kwLower = kw.keyword.toLowerCase()
-    const isPureBrand = containsPureBrand(kw.keyword, pureBrandKeywords)
-
-    // ✅ 纯品牌词：100%豁免（无搜索量限制）
-    // 例如："eufy", "eufy security", "eureka" 等
-    if (isPureBrand) {
-      pureBrandKeptCount++
-      console.log(`   ✅ 保留纯品牌词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
-      // 纯品牌词不参与后续过滤，直接通过
-      kept.push(kw)
-      continue
-    }
-
-    // ✅ 品牌相关词：包含品牌名但不是纯品牌词（如 "eufy camera", "eureka j15"）
-    const coreBrandLower = brandName.split(' ')[0].toLowerCase()
-    const hasBrand = kwLower.includes(coreBrandLower)
-
-    if (hasBrand) {
-      // 品牌相关词：保留所有有效搜索量（≥10）
-      // 理由：品牌词高购买意图（80-90%），高转化率（15-25%），低CPC（$1-3）
-      const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
-      if (hasSearchVolumeData && kw.searchVolume < 10) {
-        continue  // 只过滤极低搜索量（拼写错误、超长尾）
-      }
-      brandRelatedKeptCount++
-      kept.push(kw)
-      continue
-    }
-
-    // ✅ 品类词：只保留头部词（≥10000）
-    // 理由：品类词低购买意图（20-40%），低转化率（2-8%），高CPC（$5-15）
-    //       只保留头部词用于品牌曝光，中低搜索量品类词ROI不确定
-    const isHighVolumeCategoryKeyword = kw.searchVolume >= 10000
-    if (!isHighVolumeCategoryKeyword) {
-      continue
-    }
-
-    // 如果能提取到相关性token，则要求至少命中一个token；否则视为“高流量泛词候选”
-    const hasRelevanceSignal = relevanceTokens.length === 0
-      ? false
-      : relevanceTokens.some(t => kwLower.includes(t))
-
-    if (!hasRelevanceSignal) {
-      genericCategoryCandidateCount++
-      genericCandidates.push(kw)
+    // 🔒 全量强制：只保留包含“纯品牌词”的关键词（不拼接造词）
+    if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
+      nonBrandRemovedCount++
       continue
     }
 
@@ -918,51 +869,19 @@ export function filterKeywords(
       const detectedCountries = detectCountryInKeyword(kw.keyword)
       if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
         geoFilteredCount++
-        console.log(`   ⊗ 地理过滤: "${kw.keyword}" (检测到: ${detectedCountries.join(',')}, 目标: ${targetCountry})`)
         continue
       }
     }
 
-    highVolumeCategoryKeptCount++
-    console.log(`   ✅ 保留头部品类词(相关): "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
     kept.push(kw)
   }
 
-  // 对“高流量但无相关性信号”的泛品类词做配额控制（避免污染创意）
-  // 当我们已经有明确的类目/产品 token 时，默认不保留泛词（0配额）。
-  const MAX_GENERIC_CATEGORY = relevanceTokens.length > 0 ? 0 : 3
-  const selectedGeneric = genericCandidates
-    .sort((a, b) => (b.searchVolume || 0) - (a.searchVolume || 0))
-    .slice(0, MAX_GENERIC_CATEGORY)
-
-  for (const kw of selectedGeneric) {
-    if (targetCountry) {
-      const detectedCountries = detectCountryInKeyword(kw.keyword)
-      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
-        geoFilteredCount++
-        continue
-      }
-    }
-
-    highVolumeCategoryKeptCount++
-    console.log(`   ✅ 保留头部品类词(泛词配额): "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
-    kept.push(kw)
-  }
-
-  const filtered = kept
-
-  console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
-  console.log(`      纯品牌词保留(100%豁免): ${pureBrandKeptCount}`)
-  console.log(`      品牌相关词保留(≥10): ${brandRelatedKeptCount}`)
-  console.log(`      头部品类词保留(≥10000): ${highVolumeCategoryKeptCount}`)
-  if (relevanceTokens.length > 0) {
-    console.log(`      品类相关性token: ${relevanceTokens.slice(0, 8).join(', ')}${relevanceTokens.length > 8 ? '...' : ''}`)
-    console.log(`      泛品类候选(无token命中): ${genericCategoryCandidateCount}，配额保留: ${selectedGeneric.length}/${MAX_GENERIC_CATEGORY}`)
-  }
+  console.log(`   过滤: ${keywords.length} → ${kept.length}`)
+  console.log(`      移除非品牌: ${nonBrandRemovedCount}`)
   console.log(`      地理过滤: ${geoFilteredCount}`)
-  console.log(`      策略: A-保守（纯品牌词豁免，品牌词为主）`)
+  console.log(`      策略: 100%品牌包含`)
 
-  return filtered
+  return kept
 }
 
 // ============================================

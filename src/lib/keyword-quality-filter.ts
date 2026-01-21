@@ -63,6 +63,11 @@ export function getPureBrandKeywords(brandName: string): string[] {
     const first = words[0]
     if (first && !GENERIC_BRAND_PREFIXES.has(first)) {
       pureBrandKeywords.push(first)
+    } else if (first && TITLE_BRAND_PREFIXES.has(first)) {
+      // For prefix/title-style brands, the meaningful brand token is usually the next word.
+      // e.g. "dr mercola" → "mercola" (NOT "dr")
+      const meaningful = words.find((w, idx) => idx > 0 && !GENERIC_BRAND_PREFIXES.has(w))
+      if (meaningful) pureBrandKeywords.push(meaningful)
     } else if (first && DETERMINER_BRAND_PREFIXES.has(first) && words.length > 2) {
       // For brands like "The North Face", users often search without the determiner.
       pureBrandKeywords.push(words.slice(1).join(' '))

@@ -421,8 +421,9 @@ describe('OfferKeywordPool', () => {
     it('should normalize punctuation and avoid generic prefixes (Dr. Mercola)', () => {
       const result = getPureBrandKeywords('Dr. Mercola')
       expect(result).toContain('dr mercola')
+      expect(result).toContain('mercola')
       expect(result).not.toContain('dr')
-      expect(result).toHaveLength(1)
+      expect(result).toHaveLength(2)
     })
 
     it('should treat leading determiners as optional for 3+ word brands (The North Face)', () => {
@@ -469,6 +470,8 @@ describe('OfferKeywordPool', () => {
       expect(containsPureBrand('dr. mercola supplements', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('dr_mercola supplements', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('dr-mercola supplements', pureBrandKeywords)).toBe(true)
+      // 纯品牌词可为“mercola”（不要求包含前缀 Dr）
+      expect(containsPureBrand('mercola supplements', pureBrandKeywords)).toBe(true)
     })
 
     it('should return false for non-brand keywords', () => {
