@@ -727,6 +727,7 @@ export async function clusterKeywordsByIntent(
 
       // 过滤掉搜索量为0的关键词（API未返回数据）
       // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+      // 🔧 修复(2026-01-21): 区分"API限制"和"关键词本身无搜索量"，避免保留无效的模板化关键词
       const disableSearchVolumeFilter = metricsResults.some((kw: any) =>
         kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
         kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
@@ -735,23 +736,27 @@ export async function clusterKeywordsByIntent(
       let validKeywords: string[]
 
       if (disableSearchVolumeFilter) {
+        // API 明确返回了不可用原因（服务账号/开发者token限制），保留所有关键词
         validKeywords = highIntentKeywords
         console.log('⚠️ 搜索量数据不可用（可能是服务账号或 developer token 无 Basic/Standard access），保留所有关键词')
       } else if (hasAnyVolume) {
+        // API 正常返回，只保留有搜索量的关键词
         validKeywords = metricsResults
           .filter((kw: any) => kw.avgMonthlySearches > 0)
           .map((kw: any) => kw.keyword)
         console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
       } else {
-        validKeywords = highIntentKeywords
-        console.log(`⚠️ 所有高购买意图词搜索量为0（可能是服务账号模式），保留所有关键词`)
+        // 🔧 修复(2026-01-21): API正常返回但所有关键词搜索量为0
+        // 这说明这些模板化关键词组合没有真实搜索量（小众品牌常见情况）
+        // 不应保留这些无效关键词，而是返回空列表
+        validKeywords = []
+        console.log(`ℹ️ 所有高购买意图词搜索量为0（模板化关键词无真实搜索量），不使用这些关键词`)
       }
 
-      // 只保留有搜索量的关键词
-      if (validKeywords.length > 0) {
-        highIntentKeywordsWithVolume = validKeywords
-      } else {
-        console.warn(`⚠️ 所有高购买意图词搜索量为0，保留原始关键词`)
+      // 更新高意图关键词列表
+      highIntentKeywordsWithVolume = validKeywords
+      if (validKeywords.length === 0) {
+        console.log(`ℹ️ 无有效高购买意图词，将仅使用原始关键词进行聚类`)
       }
     } catch (error: any) {
       console.warn(`⚠️ 高购买意图词搜索量查询失败: ${error.message}，使用原始关键词`)
@@ -2277,21 +2282,28 @@ export async function generateOfferKeywordPool(
     const storeBuckets = buckets as StoreKeywordBuckets
 
     // 7. 将 PoolKeywordData 映射到桶中
-    const storeBucketAData = storeBuckets.bucketA.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const storeBucketBData = storeBuckets.bucketB.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const storeBucketCData = storeBuckets.bucketC.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const storeBucketDData = storeBuckets.bucketD.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const storeBucketSData = storeBuckets.bucketS.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
+    // 🔧 修复(2026-01-21): 只保留在 nonBrandKeywordsData 中有搜索量数据的关键词
+    const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
+      return kwList
+        .map(kw => nonBrandKeywordsData.find(k => k.keyword === kw))
+        .filter((kw): kw is PoolKeywordData => kw !== undefined)
+    }
+
+    const storeBucketAData = mapAndFilterKeywords(storeBuckets.bucketA.keywords)
+    const storeBucketBData = mapAndFilterKeywords(storeBuckets.bucketB.keywords)
+    const storeBucketCData = mapAndFilterKeywords(storeBuckets.bucketC.keywords)
+    const storeBucketDData = mapAndFilterKeywords(storeBuckets.bucketD.keywords)
+    const storeBucketSData = mapAndFilterKeywords(storeBuckets.bucketS.keywords)
+
+    // 记录过滤掉的关键词数量
+    const originalCount = storeBuckets.bucketA.keywords.length + storeBuckets.bucketB.keywords.length +
+                          storeBuckets.bucketC.keywords.length + storeBuckets.bucketD.keywords.length +
+                          storeBuckets.bucketS.keywords.length
+    const filteredCount = storeBucketAData.length + storeBucketBData.length + storeBucketCData.length +
+                          storeBucketDData.length + storeBucketSData.length
+    if (originalCount !== filteredCount) {
+      console.log(`ℹ️ 店铺关键词映射过滤: ${originalCount} → ${filteredCount} (过滤掉 ${originalCount - filteredCount} 个无搜索量数据的关键词)`)
+    }
 
     // 8. 保存到数据库（包含店铺分桶）
     const pool = await saveKeywordPoolWithData(
@@ -2315,18 +2327,26 @@ export async function generateOfferKeywordPool(
     const productBuckets = buckets as KeywordBuckets
 
     // 7. 将 PoolKeywordData 映射到桶中
-    const bucketAData = productBuckets.bucketA.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const bucketBData = productBuckets.bucketB.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const bucketCData = productBuckets.bucketC.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
-    const bucketDData = productBuckets.bucketD.keywords.map(kw =>
-      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-    )
+    // 🔧 修复(2026-01-21): 只保留在 nonBrandKeywordsData 中有搜索量数据的关键词
+    // 避免保留 AI 生成但无真实搜索量的模板化关键词
+    const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
+      return kwList
+        .map(kw => nonBrandKeywordsData.find(k => k.keyword === kw))
+        .filter((kw): kw is PoolKeywordData => kw !== undefined)
+    }
+
+    const bucketAData = mapAndFilterKeywords(productBuckets.bucketA.keywords)
+    const bucketBData = mapAndFilterKeywords(productBuckets.bucketB.keywords)
+    const bucketCData = mapAndFilterKeywords(productBuckets.bucketC.keywords)
+    const bucketDData = mapAndFilterKeywords(productBuckets.bucketD.keywords)
+
+    // 记录过滤掉的关键词数量
+    const originalCount = productBuckets.bucketA.keywords.length + productBuckets.bucketB.keywords.length +
+                          productBuckets.bucketC.keywords.length + productBuckets.bucketD.keywords.length
+    const filteredCount = bucketAData.length + bucketBData.length + bucketCData.length + bucketDData.length
+    if (originalCount !== filteredCount) {
+      console.log(`ℹ️ 关键词映射过滤: ${originalCount} → ${filteredCount} (过滤掉 ${originalCount - filteredCount} 个无搜索量数据的关键词)`)
+    }
 
     // 8. 保存到数据库
     const pool = await saveKeywordPoolWithData(
