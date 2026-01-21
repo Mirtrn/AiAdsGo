@@ -37,7 +37,10 @@ import {
   FileText,
   TrendingUp,
   AlertCircle,
-  Trash
+  Trash,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getDateInTimezone } from '@/lib/timezone-utils';
@@ -75,13 +78,19 @@ export default function ClickFarmPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // Sorting states
+  type SortField = 'id' | 'offer' | 'status' | 'country' | 'dailyClicks' | 'progress' | 'successRate' | 'startDate';
+  type SortDirection = 'asc' | 'desc' | null;
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
@@ -122,6 +131,85 @@ export default function ClickFarmPage() {
     // Status filter
     if (statusFilter !== 'all') {
       result = result.filter(t => t.status === statusFilter);
+    }
+
+    // Sorting
+    if (sortField && sortDirection) {
+      const statusOrder: Record<string, number> = {
+        pending: 1,
+        running: 2,
+        paused: 3,
+        stopped: 4,
+        completed: 5,
+      };
+
+      const getSortableValue = (task: ClickFarmTaskListItem): string | number | null => {
+        switch (sortField) {
+          case 'id':
+            return task.id || null;
+          case 'offer': {
+            const offerName = String(task.offer_name || '').trim();
+            return offerName ? offerName.toLowerCase() : task.offer_id;
+          }
+          case 'status':
+            return statusOrder[task.status] ?? 999;
+          case 'country': {
+            const country = String(task.target_country || '').trim();
+            return country ? country.toUpperCase() : null;
+          }
+          case 'dailyClicks':
+            return Number.isFinite(task.daily_click_count) ? task.daily_click_count : null;
+          case 'progress': {
+            if (task.duration_days === -1) {
+              const todayInfo = getTodayProgressInfo(task);
+              return Number.isFinite(todayInfo?.percent) ? todayInfo!.percent : null;
+            }
+            return Number.isFinite(task.progress) ? task.progress : null;
+          }
+          case 'successRate': {
+            if (task.total_clicks > 0) {
+              const rate = task.success_clicks / task.total_clicks;
+              return Number.isFinite(rate) ? rate : null;
+            }
+            return null;
+          }
+          case 'startDate': {
+            const dateValue: any = (task as any).scheduled_start_date;
+            if (dateValue instanceof Date) return dateValue.getTime();
+            if (typeof dateValue === 'string') {
+              const ts = Date.parse(dateValue);
+              return Number.isFinite(ts) ? ts : null;
+            }
+            return null;
+          }
+          default:
+            return null;
+        }
+      };
+
+      const isMissing = (value: string | number | null | undefined): boolean => {
+        if (value === null || value === undefined) return true;
+        if (typeof value === 'number') return !Number.isFinite(value);
+        return value.trim().length === 0;
+      };
+
+      const compareValues = (a: string | number | null, b: string | number | null): number => {
+        const aMissing = isMissing(a);
+        const bMissing = isMissing(b);
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1; // missing always last
+        if (bMissing) return -1;
+
+        if (typeof a === 'number' && typeof b === 'number') return a - b;
+        return String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
+      };
+
+      const items = result.map((task) => ({ task, key: getSortableValue(task) }));
+      items.sort((a, b) => {
+        const base = compareValues(a.key, b.key);
+        return sortDirection === 'asc' ? base : -base;
+      });
+      result = items.map((item) => item.task);
     }
 
     setFilteredTasks(result);
@@ -357,6 +445,40 @@ export default function ClickFarmPage() {
       <Badge variant={config.variant} className={config.className}>
         {config.label}
       </Badge>
+    );
+  };
+
+  // 排序处理函数
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null);
+        setSortField(null);
+      } else {
+        setSortDirection('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // 可排序表头组件
+  const SortableHeader = ({ field, children, className = '' }: { field: SortField; children: React.ReactNode; className?: string }) => {
+    const isActive = sortField === field;
+    return (
+      <TableHead className={`cursor-pointer select-none hover:bg-gray-50 ${className}`} onClick={() => handleSort(field)}>
+        <div className="flex items-center gap-1">
+          {children}
+          {isActive ? (
+            sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+          ) : (
+            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </TableHead>
     );
   };
 
@@ -613,14 +735,14 @@ export default function ClickFarmPage() {
                         aria-label="全选"
                       />
                     </TableHead>
-                    <TableHead className="w-[60px]">ID</TableHead>
-                    <TableHead className="w-[80px]">Offer</TableHead>
-                    <TableHead className="w-[100px]">状态</TableHead>
-                    <TableHead className="w-[120px]">国家/时区</TableHead>
-                    <TableHead className="w-[100px]">每日点击</TableHead>
-                    <TableHead className="w-[80px]">进度</TableHead>
-                    <TableHead className="w-[100px]">成功率</TableHead>
-                    <TableHead className="w-[150px]">开始日期</TableHead>
+                    <SortableHeader field="id" className="w-[60px]">ID</SortableHeader>
+                    <SortableHeader field="offer" className="w-[80px]">Offer</SortableHeader>
+                    <SortableHeader field="status" className="w-[100px]">状态</SortableHeader>
+                    <SortableHeader field="country" className="w-[120px]">国家/时区</SortableHeader>
+                    <SortableHeader field="dailyClicks" className="w-[100px]">每日点击</SortableHeader>
+                    <SortableHeader field="progress" className="w-[80px]">进度</SortableHeader>
+                    <SortableHeader field="successRate" className="w-[100px]">成功率</SortableHeader>
+                    <SortableHeader field="startDate" className="w-[150px]">开始日期</SortableHeader>
                     <TableHead className="w-[120px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>

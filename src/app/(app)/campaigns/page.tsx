@@ -141,6 +141,9 @@ export default function CampaignsPage() {
 
   // Toggle status states
   const [statusUpdatingIds, setStatusUpdatingIds] = useState<Set<number>>(new Set())
+  const [isToggleStatusDialogOpen, setIsToggleStatusDialogOpen] = useState(false)
+  const [toggleStatusTarget, setToggleStatusTarget] = useState<Campaign | null>(null)
+  const [toggleStatusNextStatus, setToggleStatusNextStatus] = useState<'PAUSED' | 'ENABLED' | null>(null)
 
   const currencySet = new Set(
     campaigns
@@ -378,7 +381,7 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleToggleStatus = async (campaign: Campaign) => {
+  const openToggleStatusConfirm = (campaign: Campaign) => {
     const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
     const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
     const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
@@ -410,6 +413,54 @@ export default function CampaignsPage() {
       showError('无法操作', `当前状态(${campaign.status})不支持暂停/启用`)
       return
     }
+
+    setToggleStatusTarget(campaign)
+    setToggleStatusNextStatus(nextStatus)
+    setIsToggleStatusDialogOpen(true)
+  }
+
+  const confirmToggleStatus = async () => {
+    if (!toggleStatusTarget || !toggleStatusNextStatus) return
+    const campaign = toggleStatusTarget
+    const nextStatus = toggleStatusNextStatus
+
+    setIsToggleStatusDialogOpen(false)
+    setToggleStatusTarget(null)
+    setToggleStatusNextStatus(null)
+
+    await handleToggleStatus(campaign, nextStatus)
+  }
+
+  const handleToggleStatus = async (
+    campaign: Campaign,
+    nextStatusOverride?: 'PAUSED' | 'ENABLED'
+  ) => {
+    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+
+    if (isDeleted || offerDeleted) {
+      showError('无法操作', '该广告系列已删除')
+      return
+    }
+
+    if (!googleCampaignId) {
+      showError('无法操作', '该广告系列尚未发布到Google Ads')
+      return
+    }
+
+    if (campaign.adsAccountAvailable === false) {
+      showError('无法操作', '关联的Ads账号不可用（可能已解绑或停用）')
+      return
+    }
+
+    const currentStatus = String(campaign.status || '').toUpperCase()
+    if (currentStatus !== 'ENABLED' && currentStatus !== 'PAUSED') {
+      showError('无法操作', `当前状态(${campaign.status})不支持暂停/启用`)
+      return
+    }
+
+    const nextStatus = nextStatusOverride || (currentStatus === 'ENABLED' ? 'PAUSED' : 'ENABLED')
 
     setStatusUpdatingIds((prev) => {
       const next = new Set(prev)
@@ -452,10 +503,7 @@ export default function CampaignsPage() {
         )
       )
 
-      showSuccess(
-        nextStatus === 'PAUSED' ? '已暂停' : '已启用',
-        campaign.campaignName
-      )
+      showSuccess(nextStatus === 'PAUSED' ? '已暂停' : '已启用', campaign.campaignName)
     } catch (err: any) {
       showError('操作失败', err?.message || '网络错误')
     } finally {
@@ -1164,7 +1212,7 @@ export default function CampaignsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => void handleToggleStatus(campaign)}
+                            onClick={() => void openToggleStatusConfirm(campaign)}
                             disabled={
                               isStatusUpdating ||
                               !googleCampaignId ||
@@ -1262,6 +1310,70 @@ export default function CampaignsPage() {
 	          campaignName={adjustCpcTarget.campaignName}
 	        />
 	      )}
+
+        {/* Toggle Status Confirmation Dialog */}
+        <AlertDialog
+          open={isToggleStatusDialogOpen}
+          onOpenChange={(open) => {
+            setIsToggleStatusDialogOpen(open)
+            if (!open) {
+              setToggleStatusTarget(null)
+              setToggleStatusNextStatus(null)
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {toggleStatusNextStatus === 'PAUSED' ? '确认暂停广告系列' : '确认启用广告系列'}
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>
+                    确认要将广告系列{' '}
+                    <strong className="text-gray-900">{toggleStatusTarget?.campaignName || '-'}</strong>{' '}
+                    {toggleStatusNextStatus
+                      ? `切换为「${getCampaignStatusLabel(toggleStatusNextStatus)}」吗？`
+                      : '进行状态切换吗？'}
+                  </p>
+
+                  {toggleStatusNextStatus === 'PAUSED' ? (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                      <p className="font-medium mb-1">暂停后将会：</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>停止在 Google Ads 的投放</li>
+                        <li>避免继续产生花费</li>
+                        <li>可随时重新启用恢复投放</li>
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                      <p className="font-medium mb-1">启用后将会：</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>恢复在 Google Ads 的投放</li>
+                        <li>可能立即开始产生花费</li>
+                        <li>请确认预算与出价设置无误</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <Button
+                onClick={() => void confirmToggleStatus()}
+                className={
+                  toggleStatusNextStatus === 'PAUSED'
+                    ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-600'
+                    : 'bg-green-600 hover:bg-green-700 focus:ring-green-600'
+                }
+              >
+                {toggleStatusNextStatus === 'PAUSED' ? '确认暂停' : '确认启用'}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
 	      {/* Batch Delete Confirmation Dialog */}
 	      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {

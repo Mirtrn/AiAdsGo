@@ -38,6 +38,9 @@ import {
   XCircle,
   AlertTriangle,
   Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
@@ -71,13 +74,19 @@ export default function UrlSwapPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // Sorting states
+  type SortField = 'id' | 'offer' | 'status' | 'interval' | 'nextRun' | 'successRate' | 'createdAt';
+  type SortDirection = 'asc' | 'desc' | null;
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
@@ -119,6 +128,73 @@ export default function UrlSwapPage() {
     // Status filter
     if (statusFilter !== 'all') {
       result = result.filter(t => t.status === statusFilter);
+    }
+
+    // Sorting
+    if (sortField && sortDirection) {
+      const statusOrder: Record<string, number> = {
+        enabled: 1,
+        disabled: 2,
+        error: 3,
+        completed: 4,
+      };
+
+      const getSortableValue = (task: UrlSwapTaskListItem): string | number | null => {
+        switch (sortField) {
+          case 'id':
+            return task.id || null;
+          case 'offer': {
+            const offerName = String(task.offer_name || '').trim();
+            return offerName ? offerName.toLowerCase() : task.offer_id;
+          }
+          case 'status':
+            return statusOrder[task.status] ?? 999;
+          case 'interval':
+            return Number.isFinite(task.swap_interval_minutes) ? task.swap_interval_minutes : null;
+          case 'nextRun': {
+            if (!task.next_swap_at) return null;
+            const ts = Date.parse(task.next_swap_at);
+            return Number.isFinite(ts) ? ts : null;
+          }
+          case 'successRate': {
+            if (task.total_swaps > 0) {
+              const rate = task.success_swaps / task.total_swaps;
+              return Number.isFinite(rate) ? rate : null;
+            }
+            return null;
+          }
+          case 'createdAt': {
+            const ts = Date.parse(task.created_at);
+            return Number.isFinite(ts) ? ts : null;
+          }
+          default:
+            return null;
+        }
+      };
+
+      const isMissing = (value: string | number | null | undefined): boolean => {
+        if (value === null || value === undefined) return true;
+        if (typeof value === 'number') return !Number.isFinite(value);
+        return value.trim().length === 0;
+      };
+
+      const compareValues = (a: string | number | null, b: string | number | null): number => {
+        const aMissing = isMissing(a);
+        const bMissing = isMissing(b);
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1; // missing always last
+        if (bMissing) return -1;
+
+        if (typeof a === 'number' && typeof b === 'number') return a - b;
+        return String(a).localeCompare(String(b), 'zh-CN', { numeric: true });
+      };
+
+      const items = result.map((task) => ({ task, key: getSortableValue(task) }));
+      items.sort((a, b) => {
+        const base = compareValues(a.key, b.key);
+        return sortDirection === 'asc' ? base : -base;
+      });
+      result = items.map((item) => item.task);
     }
 
     setFilteredTasks(result);
@@ -239,6 +315,40 @@ export default function UrlSwapPage() {
       <Badge variant={config.variant} className={config.className}>
         {config.label}
       </Badge>
+    );
+  };
+
+  // 排序处理函数
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null);
+        setSortField(null);
+      } else {
+        setSortDirection('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // 可排序表头组件
+  const SortableHeader = ({ field, children, className = '' }: { field: SortField; children: React.ReactNode; className?: string }) => {
+    const isActive = sortField === field;
+    return (
+      <TableHead className={`cursor-pointer select-none hover:bg-gray-50 ${className}`} onClick={() => handleSort(field)}>
+        <div className="flex items-center gap-1">
+          {children}
+          {isActive ? (
+            sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+          ) : (
+            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </TableHead>
     );
   };
 
@@ -427,13 +537,13 @@ export default function UrlSwapPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[60px]">ID</TableHead>
-                    <TableHead className="w-[80px]">Offer</TableHead>
-                    <TableHead className="w-[100px]">状态</TableHead>
-                    <TableHead className="w-[100px]">间隔(分钟)</TableHead>
-                    <TableHead className="w-[120px]">下次执行</TableHead>
-                    <TableHead className="w-[100px]">成功/总计</TableHead>
-                    <TableHead className="w-[120px]">创建时间</TableHead>
+                    <SortableHeader field="id" className="w-[60px]">ID</SortableHeader>
+                    <SortableHeader field="offer" className="w-[80px]">Offer</SortableHeader>
+                    <SortableHeader field="status" className="w-[100px]">状态</SortableHeader>
+                    <SortableHeader field="interval" className="w-[100px]">间隔(分钟)</SortableHeader>
+                    <SortableHeader field="nextRun" className="w-[120px]">下次执行</SortableHeader>
+                    <SortableHeader field="successRate" className="w-[100px]">成功/总计</SortableHeader>
+                    <SortableHeader field="createdAt" className="w-[120px]">创建时间</SortableHeader>
                     <TableHead className="w-[160px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
