@@ -31,7 +31,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'product_analysis_single',
   'v4.17',
-  'Product Analysis',
+  '产品分析',
   '单品产品分析v4.17',
   '修复 productDescription 生成逻辑，确保输出品牌描述而非产品特性列表',
   'src/lib/prompts/product-analysis-single-v4.17.txt',
