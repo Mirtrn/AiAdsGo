@@ -78,6 +78,12 @@ describe('OfferKeywordPool', () => {
       expect(isPureBrandKeyword('ringalarm', 'Ring-Alarm')).toBe(true) // 去连字符变体
     })
 
+    it('should handle brand names with periods (Google Ads normalization)', () => {
+      expect(isPureBrandKeyword('dr mercola', 'Dr. Mercola')).toBe(true)
+      expect(isPureBrandKeyword('dr. mercola', 'Dr. Mercola')).toBe(true)
+      expect(isPureBrandKeyword('dr.mercola', 'Dr. Mercola')).toBe(true)
+    })
+
     it('should handle edge cases', () => {
       expect(isPureBrandKeyword('', 'Eufy')).toBe(false)
       expect(isPureBrandKeyword('eufy', '')).toBe(false)
@@ -411,6 +417,13 @@ describe('OfferKeywordPool', () => {
       expect(result).toContain('eufy security')
       expect(result).toContain('eufy')
     })
+
+    it('should normalize punctuation and avoid generic prefixes (Dr. Mercola)', () => {
+      const result = getPureBrandKeywords('Dr. Mercola')
+      expect(result).toContain('dr mercola')
+      expect(result).not.toContain('dr')
+      expect(result).toHaveLength(1)
+    })
   })
 
   describe('containsPureBrand - 品牌包含检查', () => {
@@ -441,6 +454,13 @@ describe('OfferKeywordPool', () => {
       expect(containsPureBrand('eufycam', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('eufycam2', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('eufy2', pureBrandKeywords)).toBe(true)
+    })
+
+    it('should match punctuation variants after Google Ads normalization (Dr. Mercola)', () => {
+      const pureBrandKeywords = getPureBrandKeywords('Dr. Mercola')
+      expect(containsPureBrand('dr. mercola supplements', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('dr_mercola supplements', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('dr-mercola supplements', pureBrandKeywords)).toBe(true)
     })
 
     it('should return false for non-brand keywords', () => {
@@ -487,6 +507,14 @@ describe('OfferKeywordPool', () => {
       expect(isExactPureBrandKeyword('wahl', pureBrandKeywords)).toBe(true)
       expect(isExactPureBrandKeyword('wahl professional', pureBrandKeywords)).toBe(true)
       expect(isExactPureBrandKeyword('wahl professional hair clipper', pureBrandKeywords)).toBe(false)
+    })
+
+    it('should treat dot variants as exact pure brand (Dr. Mercola)', () => {
+      const pureBrandKeywords = getPureBrandKeywords('Dr. Mercola')
+      expect(isExactPureBrandKeyword('dr mercola', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('dr. mercola', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('dr.mercola', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('dr mercola probiotics', pureBrandKeywords)).toBe(false)
     })
   })
 

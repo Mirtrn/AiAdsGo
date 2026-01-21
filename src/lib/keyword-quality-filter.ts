@@ -16,10 +16,18 @@
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
 // ============================================
 // 纯品牌词检测（🔥 2025-12-29 新增）
 // ============================================
+
+const GENERIC_BRAND_PREFIXES = new Set([
+  // Honorifics / titles
+  'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
+  // Common determiners / filler
+  'the', 'a', 'an',
+])
 
 /**
  * 获取品牌的纯品牌词列表
@@ -37,24 +45,22 @@ import type { PoolKeywordData } from './offer-keyword-pool'
  * getPureBrandKeywords("Wahl Professional") → ["wahl", "wahl professional"]
  */
 export function getPureBrandKeywords(brandName: string): string[] {
-  if (!brandName || !brandName.trim()) {
-    return []
+  const normalizedFull = normalizeGoogleAdsKeyword(brandName || '')
+  if (!normalizedFull) return []
+
+  const words = normalizedFull.split(/\s+/).filter(Boolean)
+  const pureBrandKeywords: string[] = [normalizedFull]
+
+  // Add a short brand token for multi-word brands (e.g. "wahl professional" → "wahl"),
+  // but avoid generic prefixes like "dr" (e.g. "dr mercola" should not yield "dr").
+  if (words.length > 1) {
+    const first = words[0]
+    if (first && !GENERIC_BRAND_PREFIXES.has(first)) {
+      pureBrandKeywords.push(first)
+    }
   }
 
-  // 先trim再split，避免空字符串
-  const trimmed = brandName.trim()
-  const words = trimmed.split(/\s+/)
-  const pureBrandKeywords: string[] = []
-
-  // 添加品牌全名
-  pureBrandKeywords.push(trimmed.toLowerCase())
-
-  // 添加品牌首词（如果品牌名超过一个词）
-  if (words.length > 1 && words[0]) {
-    pureBrandKeywords.push(words[0].toLowerCase())
-  }
-
-  return [...new Set(pureBrandKeywords)]
+  return Array.from(new Set(pureBrandKeywords))
 }
 
 /**
@@ -76,47 +82,39 @@ export function containsPureBrand(keyword: string, pureBrandKeywords: string[]):
     return false
   }
 
-  const normalizedKeyword = keyword.toLowerCase().normalize('NFKC')
-  const keywordTokens = normalizedKeyword
-    .split(/[^\p{L}\p{N}]+/u)
-    .map(t => t.trim())
-    .filter(Boolean)
+  const normalizedKeyword = normalizeGoogleAdsKeyword(keyword)
+  if (!normalizedKeyword) return false
 
-  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const keywordTokens = normalizedKeyword.split(' ').filter(Boolean)
+  const haystack = ` ${normalizedKeyword} `
 
-  const containsBrandWithBoundaries = (normalizedBrand: string): boolean => {
-    const brandWords = normalizedBrand
-      .trim()
-      .split(/\s+/)
-      .map(w => w.trim())
-      .filter(Boolean)
+  // 1) Preferred: whole-word / whole-phrase matching (Google Ads normalized).
+  for (const brand of pureBrandKeywords) {
+    const normalizedBrand = normalizeGoogleAdsKeyword(brand || '')
+    if (!normalizedBrand) continue
 
-    if (brandWords.length === 0) return false
+    if (haystack.includes(` ${normalizedBrand} `)) return true
 
-    // Allow separators between brand words: space / hyphen / punctuation.
-    const phrasePattern = brandWords.map(escapeRegExp).join('[^\\p{L}\\p{N}]+')
-    const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${phrasePattern}(?:$|[^\\p{L}\\p{N}])`, 'iu')
-    return re.test(normalizedKeyword)
+    // Also allow the fully concatenated form as a whole token (e.g. "reo link" → "reolink").
+    const concatenatedBrand = normalizedBrand.replace(/\s+/g, '')
+    if (concatenatedBrand && concatenatedBrand !== normalizedBrand) {
+      if (haystack.includes(` ${concatenatedBrand} `)) return true
+    }
   }
 
-  // 1) Preferred: whole-word / whole-phrase matching to avoid "rove" matching "rover".
+  // 2) Fallback: allow common concatenations (brand+model / brand+product word).
+  // This preserves cases like "eufycam" or "eurekaj15" while still rejecting unrelated words.
   for (const brand of pureBrandKeywords) {
-    const normalizedBrand = (brand || '').toLowerCase().normalize('NFKC').trim()
+    const normalizedBrand = normalizeGoogleAdsKeyword(brand || '')
     if (!normalizedBrand) continue
-    if (containsBrandWithBoundaries(normalizedBrand)) return true
-  }
 
-  // 2) Fallback: allow some common concatenations (brand+model/brand+product word).
-  // This preserves cases like "eufycam" or "eurekaj15" while still rejecting "rover".
-  for (const brand of pureBrandKeywords) {
-    const normalizedBrand = (brand || '').toLowerCase().normalize('NFKC').trim()
-    if (!normalizedBrand) continue
-    if (normalizedBrand.includes(' ')) continue
+    const brandNoSpace = normalizedBrand.replace(/\s+/g, '')
+    if (!brandNoSpace) continue
 
     for (const token of keywordTokens) {
-      if (!token.startsWith(normalizedBrand) || token.length <= normalizedBrand.length) continue
+      if (!token.startsWith(brandNoSpace) || token.length <= brandNoSpace.length) continue
 
-      const suffix = token.slice(normalizedBrand.length)
+      const suffix = token.slice(brandNoSpace.length)
       if (!suffix) continue
 
       // Brand + model number (e.g. "eurekaJ15", "eufy2")
@@ -156,10 +154,17 @@ export function isPureBrandKeyword(keyword: string, pureBrandKeywords: string[])
     return false
   }
 
-  const kwLower = keyword.toLowerCase().trim()
-  return pureBrandKeywords.some(brand =>
-    kwLower === brand.toLowerCase().trim()
-  )
+  const kwNorm = normalizeGoogleAdsKeyword(keyword)
+  if (!kwNorm) return false
+
+  const kwCompact = kwNorm.replace(/\s+/g, '')
+
+  return pureBrandKeywords.some(brand => {
+    const brandNorm = normalizeGoogleAdsKeyword(brand || '')
+    if (!brandNorm) return false
+    if (kwNorm === brandNorm) return true
+    return kwCompact === brandNorm.replace(/\s+/g, '')
+  })
 }
 
 // ============================================

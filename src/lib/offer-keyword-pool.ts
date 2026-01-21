@@ -23,6 +23,7 @@ import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
 import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
 // ============================================
 // 类型定义
@@ -251,17 +252,12 @@ export interface BucketCreativeOptions {
 export function isPureBrandKeyword(keyword: string, brandName: string): boolean {
   if (!keyword || !brandName) return false
 
-  const normalized = keyword.toLowerCase().trim()
-  const brand = brandName.toLowerCase().trim()
+  const keywordNormalized = normalizeGoogleAdsKeyword(keyword)
+  const brandNormalized = normalizeGoogleAdsKeyword(brandName)
+  if (!keywordNormalized || !brandNormalized) return false
 
-  // 纯品牌词：仅品牌名本身（可能有常见变体）
-  const pureBrandPatterns = [
-    brand,                          // eufy
-    brand.replace(/\s+/g, ''),      // 去空格版本
-    brand.replace(/-/g, ''),        // 去连字符版本
-  ]
-
-  return pureBrandPatterns.includes(normalized)
+  if (keywordNormalized === brandNormalized) return true
+  return keywordNormalized.replace(/\s+/g, '') === brandNormalized.replace(/\s+/g, '')
 }
 
 /**
@@ -2254,11 +2250,33 @@ export async function generateOfferKeywordPool(
 
   // 5. 分离纯品牌词和非品牌词
   const keywordStrings = finalFilteredKeywords.map(kw => kw.keyword)
-  const { brandKeywords: brandKwStrings, nonBrandKeywords: nonBrandKwStrings } = separateBrandKeywords(keywordStrings, offer.brand)
+  let { brandKeywords: brandKwStrings, nonBrandKeywords: nonBrandKwStrings } = separateBrandKeywords(keywordStrings, offer.brand)
+
+  // 🔧 防御性兜底：如果未识别到任何纯品牌词，强制注入标准化后的品牌词
+  // 典型场景：Keyword Planner 不返回 seed 本身，且品牌含标点（如 "Dr. Mercola" → "dr mercola"）
+  if (brandKwStrings.length === 0) {
+    const canonicalBrand = normalizeGoogleAdsKeyword(offer.brand || '')
+    if (canonicalBrand) {
+      console.warn(`⚠️ 未识别到纯品牌词，自动注入: "${canonicalBrand}"`)
+      brandKwStrings = [canonicalBrand]
+      nonBrandKwStrings = nonBrandKwStrings.filter(k => normalizeGoogleAdsKeyword(k) !== canonicalBrand)
+    }
+  }
 
   // 转换回 PoolKeywordData[]
-  const brandKeywordsData = finalFilteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
+  let brandKeywordsData = finalFilteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
   const nonBrandKeywordsData = finalFilteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
+
+  // 如果注入的品牌词不在 finalFilteredKeywords 中，补一个最小元数据对象，保证 brand_keywords 不为空
+  if (brandKeywordsData.length === 0 && brandKwStrings.length > 0) {
+    brandKeywordsData = brandKwStrings.map(keyword => ({
+      keyword,
+      searchVolume: 0,
+      source: 'BRAND_SEED',
+      matchType: 'EXACT' as const,
+      isPureBrand: true,
+    }))
+  }
 
   // 🆕 v4.16: 确定页面类型
   const pageType = (offer.page_type as 'product' | 'store') || 'product'
@@ -2283,9 +2301,24 @@ export async function generateOfferKeywordPool(
 
     // 7. 将 PoolKeywordData 映射到桶中
     // 🔧 修复(2026-01-21): 只保留在 nonBrandKeywordsData 中有搜索量数据的关键词
+    const nonBrandMap = new Map<string, PoolKeywordData>()
+    for (const k of nonBrandKeywordsData) {
+      const key = normalizeGoogleAdsKeyword(k.keyword)
+      if (!key) continue
+      const existing = nonBrandMap.get(key)
+      const existingVol = existing?.searchVolume || 0
+      const currentVol = k.searchVolume || 0
+      if (!existing || currentVol > existingVol) {
+        nonBrandMap.set(key, k)
+      }
+    }
+
     const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
       return kwList
-        .map(kw => nonBrandKeywordsData.find(k => k.keyword === kw))
+        .map(kw => {
+          const key = normalizeGoogleAdsKeyword(kw)
+          return key ? nonBrandMap.get(key) : undefined
+        })
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
     }
 
@@ -2329,9 +2362,24 @@ export async function generateOfferKeywordPool(
     // 7. 将 PoolKeywordData 映射到桶中
     // 🔧 修复(2026-01-21): 只保留在 nonBrandKeywordsData 中有搜索量数据的关键词
     // 避免保留 AI 生成但无真实搜索量的模板化关键词
+    const nonBrandMap = new Map<string, PoolKeywordData>()
+    for (const k of nonBrandKeywordsData) {
+      const key = normalizeGoogleAdsKeyword(k.keyword)
+      if (!key) continue
+      const existing = nonBrandMap.get(key)
+      const existingVol = existing?.searchVolume || 0
+      const currentVol = k.searchVolume || 0
+      if (!existing || currentVol > existingVol) {
+        nonBrandMap.set(key, k)
+      }
+    }
+
     const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
       return kwList
-        .map(kw => nonBrandKeywordsData.find(k => k.keyword === kw))
+        .map(kw => {
+          const key = normalizeGoogleAdsKeyword(kw)
+          return key ? nonBrandMap.get(key) : undefined
+        })
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
     }
 

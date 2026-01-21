@@ -13,6 +13,7 @@ import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
 import { normalizeLanguageCode } from './language-country-codes'
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import {
   detectCountryInKeyword,
   filterLowIntentKeywords,
@@ -179,6 +180,23 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   const maxRounds = 3
   const topN = 20
 
+  // ✅ Always seed with the canonical pure-brand keyword to avoid empty brand bucket
+  // when Keyword Planner doesn't return the seed itself (e.g. "Dr. Mercola" → "dr mercola").
+  const canonicalBrand = normalizeGoogleAdsKeyword(brandName)
+  if (canonicalBrand) {
+    allKeywords.set(canonicalBrand, {
+      keyword: canonicalBrand,
+      searchVolume: 0,
+      competition: 'UNKNOWN',
+      competitionIndex: 0,
+      lowTopPageBid: 0,
+      highTopPageBid: 0,
+      source: 'BRAND_SEED',
+      matchType: 'EXACT',
+      isPureBrand: true,
+    })
+  }
+
   const fallbackKeywords: PoolKeywordData[] = (() => {
     if (initialKeywords.length > 0) return initialKeywords
     if (pureBrandKeywords.length > 0) {
@@ -239,15 +257,14 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       let brandRelatedAdded = 0
       let genericAdded = 0
       for (const kw of results) {
-        const kwLower = kw.keyword.toLowerCase()
-        const keywordText = kwLower.trim()
+        const keywordText = normalizeGoogleAdsKeyword(kw.keyword)
 
         if (!keywordText) continue
 
         if (!allKeywords.has(keywordText)) {
-          const isBrandRelated = containsPureBrand(kw.keyword, pureBrandKeywords)
+          const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords)
           allKeywords.set(keywordText, {
-            keyword: kw.keyword,
+            keyword: keywordText,
             searchVolume: kw.searchVolume,
             competition: kw.competition,
             competitionIndex: kw.competitionIndex,
@@ -255,7 +272,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
             highTopPageBid: kw.highTopPageBid,
             source: 'KEYWORD_PLANNER',
             matchType: kw.matchType,
-            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+            isPureBrand: isPureBrandKeyword(keywordText, pureBrandKeywords)
           })
           newCount++
           if (isBrandRelated) brandRelatedAdded++
@@ -415,6 +432,22 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
   const allKeywords = new Map<string, PoolKeywordData>()
 
   try {
+    // ✅ Seed canonical pure-brand keyword (avoid empty brand bucket)
+    const canonicalBrand = normalizeGoogleAdsKeyword(brandName)
+    if (canonicalBrand) {
+      allKeywords.set(canonicalBrand, {
+        keyword: canonicalBrand,
+        searchVolume: 0,
+        competition: 'UNKNOWN',
+        competitionIndex: 0,
+        lowTopPageBid: 0,
+        highTopPageBid: 0,
+        source: 'BRAND_SEED',
+        matchType: 'EXACT',
+        isPureBrand: true,
+      })
+    }
+
     // ========== 阶段1: Google下拉词 ==========
     console.log(`\n   📊 阶段1: Google下拉词`)
 
@@ -439,12 +472,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       console.log(`      Google下拉词: ${filteredSuggest.length} 个`)
 
       for (const text of filteredSuggest) {
-        const kwLower = text.toLowerCase().trim()
-        if (!kwLower) continue
+        const canonical = normalizeGoogleAdsKeyword(text)
+        if (!canonical) continue
 
-        if (!allKeywords.has(kwLower)) {
-          allKeywords.set(kwLower, {
-            keyword: text,
+        if (!allKeywords.has(canonical)) {
+          allKeywords.set(canonical, {
+            keyword: canonical,
             searchVolume: 0,
             competition: 'UNKNOWN',
             competitionIndex: 0,
@@ -452,7 +485,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             highTopPageBid: 0,
             source: 'GOOGLE_SUGGEST',
             matchType: 'BROAD',
-            isPureBrand: isPureBrandKeyword(text, pureBrandKeywords)
+            isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }
       }
@@ -483,12 +516,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       console.log(`      增强提取: ${enhancedKeywords.length} 个`)
 
       for (const kw of enhancedKeywords) {
-        const kwLower = kw.keyword.toLowerCase().trim()
-        if (!kwLower) continue
+        const canonical = normalizeGoogleAdsKeyword(kw.keyword)
+        if (!canonical) continue
 
-        if (!allKeywords.has(kwLower)) {
-          allKeywords.set(kwLower, {
-            keyword: kw.keyword,
+        if (!allKeywords.has(canonical)) {
+          allKeywords.set(canonical, {
+            keyword: canonical,
             searchVolume: 0,
             competition: kw.competition || 'UNKNOWN',
             competitionIndex: 0,
@@ -496,7 +529,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             highTopPageBid: 0,
             source: 'ENHANCED_EXTRACT',
             matchType: 'BROAD',
-            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+            isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }
       }
@@ -517,12 +550,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       console.log(`      Trends扩展: ${trendsKeywords.length} 个`)
 
       for (const kw of trendsKeywords) {
-        const kwLower = kw.keyword.toLowerCase().trim()
-        if (!kwLower) continue
+        const canonical = normalizeGoogleAdsKeyword(kw.keyword)
+        if (!canonical) continue
 
-        if (!allKeywords.has(kwLower)) {
-          allKeywords.set(kwLower, {
-            keyword: kw.keyword,
+        if (!allKeywords.has(canonical)) {
+          allKeywords.set(canonical, {
+            keyword: canonical,
             searchVolume: kw.searchVolume || 0,
             competition: kw.competition || 'UNKNOWN',
             competitionIndex: kw.competitionIndex || 0,
@@ -530,7 +563,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             highTopPageBid: kw.highTopPageBid || 0,
             source: 'GOOGLE_TRENDS',
             matchType: 'BROAD',
-            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+            isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }
       }
