@@ -333,7 +333,8 @@ export async function triggerOfferExtraction(
       brand: normalizedBrandName,
       final_url: result.data!.finalUrl,
       final_url_suffix: result.data!.finalUrlSuffix,
-      brand_description: result.data!.productDescription || undefined,
+      // 🔥 注意：不直接使用 productDescription 作为 brand_description
+      // 等待 AI 分析将其转换为合理的品牌描述
     }
 
     // 如果有AI分析结果，添加到更新数据中
