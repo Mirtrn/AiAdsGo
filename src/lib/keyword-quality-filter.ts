@@ -22,11 +22,17 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 // 纯品牌词检测（🔥 2025-12-29 新增）
 // ============================================
 
-const GENERIC_BRAND_PREFIXES = new Set([
-  // Honorifics / titles
+const TITLE_BRAND_PREFIXES = new Set([
   'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
-  // Common determiners / filler
+])
+
+const DETERMINER_BRAND_PREFIXES = new Set([
   'the', 'a', 'an',
+])
+
+const GENERIC_BRAND_PREFIXES = new Set([
+  ...TITLE_BRAND_PREFIXES,
+  ...DETERMINER_BRAND_PREFIXES,
 ])
 
 /**
@@ -52,11 +58,14 @@ export function getPureBrandKeywords(brandName: string): string[] {
   const pureBrandKeywords: string[] = [normalizedFull]
 
   // Add a short brand token for multi-word brands (e.g. "wahl professional" → "wahl"),
-  // but avoid generic prefixes like "dr" (e.g. "dr mercola" should not yield "dr").
+  // but avoid generic prefixes like "dr" / "the" (e.g. "dr mercola" should not yield "dr").
   if (words.length > 1) {
     const first = words[0]
     if (first && !GENERIC_BRAND_PREFIXES.has(first)) {
       pureBrandKeywords.push(first)
+    } else if (first && DETERMINER_BRAND_PREFIXES.has(first) && words.length > 2) {
+      // For brands like "The North Face", users often search without the determiner.
+      pureBrandKeywords.push(words.slice(1).join(' '))
     }
   }
 

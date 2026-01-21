@@ -424,6 +424,14 @@ describe('OfferKeywordPool', () => {
       expect(result).not.toContain('dr')
       expect(result).toHaveLength(1)
     })
+
+    it('should treat leading determiners as optional for 3+ word brands (The North Face)', () => {
+      const result = getPureBrandKeywords('The North Face')
+      expect(result).toContain('the north face')
+      expect(result).toContain('north face')
+      expect(result).not.toContain('the')
+      expect(result).toHaveLength(2)
+    })
   })
 
   describe('containsPureBrand - 品牌包含检查', () => {

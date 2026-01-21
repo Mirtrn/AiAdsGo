@@ -2870,11 +2870,12 @@ export async function generateAdCreative(
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
   const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offerBrand)
   const pureBrandKeywordsList = getPureBrandKeywords(offerBrand)
+  const brandTokens = canonicalBrandKeyword.split(' ').filter(Boolean)
+  const titleBrandPrefixes = new Set([
+    'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
+  ])
   const shouldForceFullBrandPhrase =
-    Boolean(canonicalBrandKeyword) &&
-    canonicalBrandKeyword.includes(' ') &&
-    pureBrandKeywordsList.length === 1 &&
-    pureBrandKeywordsList[0] === canonicalBrandKeyword
+    brandTokens.length > 1 && titleBrandPrefixes.has(brandTokens[0])
 
   const containsBrand = (keyword: string): boolean => {
     const tokensToMatch =

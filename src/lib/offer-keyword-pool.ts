@@ -21,7 +21,7 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
-import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords } from './keyword-quality-filter'
+import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
@@ -2225,12 +2225,12 @@ export async function generateOfferKeywordPool(
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
   const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
   const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offer.brand || '')
-  const pureBrandKeywordsList = getPureBrandKeywords(offer.brand || '')
+  const brandTokens = canonicalBrandKeyword.split(' ').filter(Boolean)
+  const titleBrandPrefixes = new Set([
+    'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
+  ])
   const shouldForceFullBrandPhrase =
-    Boolean(canonicalBrandKeyword) &&
-    canonicalBrandKeyword.includes(' ') &&
-    pureBrandKeywordsList.length === 1 &&
-    pureBrandKeywordsList[0] === canonicalBrandKeyword
+    brandTokens.length > 1 && titleBrandPrefixes.has(brandTokens[0])
 
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
