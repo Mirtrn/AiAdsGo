@@ -335,10 +335,20 @@ export async function getKeywordSearchVolumes(
     const dbVolumes = new Map<string, KeywordVolume>()
 
     try {
+      const { normalizeGoogleAdsKeyword } = await import('./google-ads-keyword-normalizer')
+
       const languageCandidates = Array.from(new Set([effectiveLanguage, language].filter(Boolean)))
       const placeholders = uncachedKeywords.map(() => '?').join(',')
       const langPlaceholders = languageCandidates.map(() => '?').join(',')
       const recentCutoffExpr = dateMinusDays(7, db.type)
+
+      // 🔧 修复(2026-01-21): 使用规范化的关键词查询，解决标点符号匹配问题
+      // 例如: "dr. mercola" 和 "dr mercola" 应该匹配同一条记录
+      const normalizedKeywords = uncachedKeywords.map(k => normalizeGoogleAdsKeyword(k))
+      const keywordMapping = new Map<string, string>() // normalized -> original
+      uncachedKeywords.forEach(k => {
+        keywordMapping.set(normalizeGoogleAdsKeyword(k), k)
+      })
 
       const rows = await db.query(`
         SELECT keyword, search_volume, competition_level, avg_cpc_micros
@@ -348,7 +358,7 @@ export async function getKeywordSearchVolumes(
           AND language IN (${langPlaceholders})
           AND created_at > ${recentCutoffExpr}
       `, [
-        ...uncachedKeywords.map(k => k.toLowerCase()),
+        ...normalizedKeywords,
         effectiveCountry,
         ...languageCandidates
       ]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
@@ -356,8 +366,11 @@ export async function getKeywordSearchVolumes(
       rows.forEach(row => {
         // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
         const avgCpc = (row.avg_cpc_micros || 0) / 1_000_000
-        dbVolumes.set(row.keyword.toLowerCase(), {
-          keyword: row.keyword,
+        const normalizedDbKeyword = normalizeGoogleAdsKeyword(row.keyword)
+        const originalKeyword = keywordMapping.get(normalizedDbKeyword) || row.keyword
+
+        dbVolumes.set(originalKeyword.toLowerCase(), {
+          keyword: originalKeyword,
           avgMonthlySearches: row.search_volume,
           competition: row.competition_level || 'UNKNOWN',
           competitionIndex: 0,
@@ -781,6 +794,10 @@ async function saveToGlobalKeywords(
   avgCpcMicros?: number
 ): Promise<void> {
   try {
+    const { normalizeGoogleAdsKeyword } = await import('./google-ads-keyword-normalizer')
+    // 🔧 修复(2026-01-21): 存储规范化的关键词，解决标点符号匹配问题
+    const normalizedKeyword = normalizeGoogleAdsKeyword(keyword)
+
     const db = await getDatabase()
     await db.exec(`
       INSERT INTO global_keywords (keyword, country, language, search_volume, competition_level, avg_cpc_micros, cached_at, created_at)
@@ -796,7 +813,7 @@ async function saveToGlobalKeywords(
           THEN datetime('now')
           ELSE global_keywords.created_at
         END
-    `, [keyword.toLowerCase(), country, language, volume, competitionLevel || null, avgCpcMicros || null])
+    `, [normalizedKeyword, country, language, volume, competitionLevel || null, avgCpcMicros || null])
   } catch {
     // Table might not exist yet
   }
