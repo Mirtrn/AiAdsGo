@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2 } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -138,6 +138,9 @@ export default function CampaignsPage() {
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
   const [adjustCpcTarget, setAdjustCpcTarget] = useState<{ googleCampaignId: string; campaignName: string } | null>(null)
+
+  // Toggle status states
+  const [statusUpdatingIds, setStatusUpdatingIds] = useState<Set<number>>(new Set())
 
   const currencySet = new Set(
     campaigns
@@ -372,6 +375,95 @@ export default function CampaignsPage() {
       fetchCampaigns()
     } catch (err: any) {
       showError('删除失败', err.message)
+    }
+  }
+
+  const handleToggleStatus = async (campaign: Campaign) => {
+    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+
+    if (isDeleted || offerDeleted) {
+      showError('无法操作', '该广告系列已删除')
+      return
+    }
+
+    if (!googleCampaignId) {
+      showError('无法操作', '该广告系列尚未发布到Google Ads')
+      return
+    }
+
+    if (campaign.adsAccountAvailable === false) {
+      showError('无法操作', '关联的Ads账号不可用（可能已解绑或停用）')
+      return
+    }
+
+    const currentStatus = String(campaign.status || '').toUpperCase()
+    const nextStatus =
+      currentStatus === 'ENABLED'
+        ? 'PAUSED'
+        : currentStatus === 'PAUSED'
+          ? 'ENABLED'
+          : null
+
+    if (!nextStatus) {
+      showError('无法操作', `当前状态(${campaign.status})不支持暂停/启用`)
+      return
+    }
+
+    setStatusUpdatingIds((prev) => {
+      const next = new Set(prev)
+      next.add(campaign.id)
+      return next
+    })
+
+    try {
+      const response = await fetch(`/api/campaigns/${campaign.id}/toggle-status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: nextStatus }),
+      })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const message = data?.error || data?.message || '操作失败'
+        if (data?.needsReauth) {
+          showError('Google Ads 授权已过期', message)
+        } else {
+          showError('操作失败', message)
+        }
+        return
+      }
+
+      // 本地更新状态（避免整页重刷）
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaign.id
+            ? { ...c, status: data?.status || nextStatus }
+            : c
+        )
+      )
+
+      showSuccess(
+        nextStatus === 'PAUSED' ? '已暂停' : '已启用',
+        campaign.campaignName
+      )
+    } catch (err: any) {
+      showError('操作失败', err?.message || '网络错误')
+    } finally {
+      setStatusUpdatingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(campaign.id)
+        return next
+      })
     }
   }
 
@@ -938,14 +1030,15 @@ export default function CampaignsPage() {
                     </TableRow>
                   </TableHeader>
                 <TableBody>
-	                  {paginatedCampaigns.map((campaign) => {
-	                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
-	                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
-	                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-	                    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
-	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
+		                  {paginatedCampaigns.map((campaign) => {
+		                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
+		                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+		                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+		                    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+                        const isStatusUpdating = statusUpdatingIds.has(campaign.id)
+		                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
 
-	                    return (
+		                    return (
 	                    <TableRow
                       key={campaign.id}
                       className={`hover:bg-gray-50/50 ${isDeleted || offerDeleted ? 'opacity-60 bg-gray-50' : ''}`}
@@ -1041,10 +1134,10 @@ export default function CampaignsPage() {
 	                            <Package className="w-4 h-4" />
 	                          </Button>
 
-	                          {/* Adjust CPC */}
-	                          <Button
-	                            size="sm"
-	                            variant="ghost"
+		                          {/* Adjust CPC */}
+		                          <Button
+		                            size="sm"
+		                            variant="ghost"
 	                            onClick={() => {
 	                              if (!googleCampaignId) return
 	                              if (campaign.adsAccountAvailable === false) return
@@ -1064,12 +1157,64 @@ export default function CampaignsPage() {
 	                                : '调整CPC出价'
 	                            }
 	                          >
-	                            <Coins className="w-4 h-4" />
-	                          </Button>
+		                            <Coins className="w-4 h-4" />
+		                          </Button>
 
-                          {/* Delete Button */}
-                          {campaign.creationStatus === 'draft' && (
-                            <Button
+                          {/* Pause / Enable */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void handleToggleStatus(campaign)}
+                            disabled={
+                              isStatusUpdating ||
+                              !googleCampaignId ||
+                              isDeleted ||
+                              offerDeleted ||
+                              campaign.adsAccountAvailable === false ||
+                              (campaign.status !== 'ENABLED' && campaign.status !== 'PAUSED')
+                            }
+                            className={
+                              campaign.status === 'ENABLED'
+                                ? 'text-yellow-600 hover:text-yellow-800'
+                                : 'text-green-600 hover:text-green-800'
+                            }
+                            title={
+                              isStatusUpdating
+                                ? '操作中...'
+                                : !googleCampaignId
+                                  ? '该广告系列尚未发布到Google Ads，无法暂停/启用'
+                                  : (campaign.adsAccountAvailable === false)
+                                    ? 'Ads账号已解绑，无法暂停/启用'
+                                    : isDeleted
+                                      ? '该广告系列已删除，无法暂停/启用'
+                                      : offerDeleted
+                                        ? '关联Offer已删除，无法暂停/启用'
+                                        : (campaign.status !== 'ENABLED' && campaign.status !== 'PAUSED')
+                                          ? `当前状态(${campaign.status})不支持暂停/启用`
+                                          : (campaign.status === 'ENABLED')
+                                            ? '暂停广告系列'
+                                            : '启用广告系列'
+                            }
+                            aria-label={
+                              isStatusUpdating
+                                ? '操作中...'
+                                : (campaign.status === 'ENABLED')
+                                  ? '暂停广告系列'
+                                  : '启用广告系列'
+                            }
+                          >
+                            {isStatusUpdating ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              campaign.status === 'ENABLED'
+                                ? <PauseCircle className="w-4 h-4" />
+                                : <PlayCircle className="w-4 h-4" />
+                            )}
+                          </Button>
+
+	                          {/* Delete Button */}
+	                          {campaign.creationStatus === 'draft' && (
+	                            <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => handleDelete(campaign.id, campaign.campaignName)}
