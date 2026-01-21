@@ -30,6 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import { deleteKeywordPool } from '@/lib/offer-keyword-pool'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 
 export const maxDuration = 120
@@ -108,7 +109,18 @@ export async function POST(
       )
     }
 
-    // 4. 创建offer_tasks记录（关联到原有offer_id）
+    // 4. 🔧 修复(2026-01-21): 删除旧的关键词池
+    // 重建 Offer 会更新 ai_keywords 等数据，旧关键词池不再准确
+    // 下次生成广告创意时会自动创建新的关键词池
+    try {
+      await deleteKeywordPool(offerId)
+      console.log(`🗑️ 已删除 Offer ${offerId} 的旧关键词池`)
+    } catch (err: any) {
+      // 关键词池可能不存在，忽略错误
+      console.log(`ℹ️ Offer ${offerId} 无需删除关键词池: ${err.message}`)
+    }
+
+    // 5. 创建offer_tasks记录（关联到原有offer_id）
     const taskId = crypto.randomUUID()
 
     // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
@@ -141,7 +153,7 @@ export async function POST(
 
     console.log(`📝 重建Offer任务已创建: taskId=${taskId}, offerId=${offerId}`)
 
-    // 5. 将任务加入队列（强制跳过缓存）
+    // 6. 将任务加入队列（强制跳过缓存）
     const taskData: OfferExtractionTaskData = {
       affiliateLink: offer.affiliate_link,
       targetCountry: offer.target_country,
@@ -166,7 +178,7 @@ export async function POST(
 
     console.log(`🚀 重建Offer任务已加入队列: taskId=${taskId}`)
 
-    // 6. 返回taskId供前端订阅进度
+    // 7. 返回taskId供前端订阅进度
     return NextResponse.json({
       success: true,
       taskId,
