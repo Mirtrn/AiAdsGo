@@ -12,6 +12,7 @@ import { expandKeywordsWithSeeds } from './unified-keyword-service'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
+import { normalizeLanguageCode } from './language-country-codes'
 import {
   detectCountryInKeyword,
   filterLowIntentKeywords,
@@ -233,20 +234,18 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
       console.log(`      返回 ${results.length} 个关键词`)
 
-      // 处理结果：只保留包含品牌词的关键词
+      // 处理结果：保留品牌词 + 通用品类词（竞品过滤由 unified-keyword-service 白名单负责）
       let newCount = 0
+      let brandRelatedAdded = 0
+      let genericAdded = 0
       for (const kw of results) {
         const kwLower = kw.keyword.toLowerCase()
         const keywordText = kwLower.trim()
 
         if (!keywordText) continue
 
-        // 只保留包含品牌词的关键词
-        if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
-          continue
-        }
-
         if (!allKeywords.has(keywordText)) {
+          const isBrandRelated = containsPureBrand(kw.keyword, pureBrandKeywords)
           allKeywords.set(keywordText, {
             keyword: kw.keyword,
             searchVolume: kw.searchVolume,
@@ -259,10 +258,12 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
             isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
           })
           newCount++
+          if (isBrandRelated) brandRelatedAdded++
+          else genericAdded++
         }
       }
 
-      console.log(`      新增 ${newCount} 个品牌关键词`)
+      console.log(`      新增 ${newCount} 个关键词 (品牌相关: ${brandRelatedAdded}, 通用: ${genericAdded})`)
 
       // 准备下一轮种子词（按搜索量排序，取Top20）
       const sortedKeywords = Array.from(allKeywords.values())
@@ -441,11 +442,6 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         const kwLower = text.toLowerCase().trim()
         if (!kwLower) continue
 
-        // 只保留包含品牌词的关键词
-        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
-          continue
-        }
-
         if (!allKeywords.has(kwLower)) {
           allKeywords.set(kwLower, {
             keyword: text,
@@ -490,11 +486,6 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         const kwLower = kw.keyword.toLowerCase().trim()
         if (!kwLower) continue
 
-        // 只保留包含品牌词的关键词
-        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
-          continue
-        }
-
         if (!allKeywords.has(kwLower)) {
           allKeywords.set(kwLower, {
             keyword: kw.keyword,
@@ -528,11 +519,6 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const kw of trendsKeywords) {
         const kwLower = kw.keyword.toLowerCase().trim()
         if (!kwLower) continue
-
-        // 只保留包含品牌词的关键词
-        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
-          continue
-        }
 
         if (!allKeywords.has(kwLower)) {
           allKeywords.set(kwLower, {
@@ -644,18 +630,7 @@ function qualityFilterServiceAccount(
  * 将语言名称转换为语言代码
  */
 function getLanguageCode(language: string): string {
-  const languageMap: Record<string, string> = {
-    English: 'en',
-    German: 'de',
-    French: 'fr',
-    Spanish: 'es',
-    Italian: 'it',
-    Portuguese: 'pt',
-    Japanese: 'ja',
-    Korean: 'ko',
-    Chinese: 'zh',
-  }
-  return languageMap[language] || 'en'
+  return normalizeLanguageCode(language)
 }
 
 /**

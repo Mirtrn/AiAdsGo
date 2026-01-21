@@ -305,11 +305,18 @@ export async function getKeywordSearchVolumes(
     // 1. Check Redis cache first
     const cachedVolumes = await getBatchCachedVolumes(keywords, effectiveCountry, effectiveLanguage)
     const uncachedKeywords = keywords.filter(kw => !cachedVolumes.has(kw.toLowerCase()))
+    // 🔧 重要：Redis 中 volume=0 可能来自历史错误/不可用降级，不能直接当作“命中最终值”
+    // 仍然允许走 DB cache 覆盖（避免“全是0搜索量”的严重退化）。
+    const zeroCachedKeywords = keywords.filter(kw => {
+      const cached = cachedVolumes.get(kw.toLowerCase())
+      return cached !== undefined && (cached.volume || 0) === 0
+    })
+    const dbLookupKeywords = [...uncachedKeywords, ...zeroCachedKeywords]
 
     console.log(`[KeywordPlanner] Redis缓存命中: ${cachedVolumes.size}/${keywords.length} 个关键词`)
 
     // If all cached, return from cache
-    if (uncachedKeywords.length === 0) {
+    if (uncachedKeywords.length === 0 && zeroCachedKeywords.length === 0) {
       console.log(`[KeywordPlanner] 全部命中Redis缓存，无需API调用`)
       return keywords.map(kw => {
         const cached = cachedVolumes.get(kw.toLowerCase())
@@ -338,53 +345,75 @@ export async function getKeywordSearchVolumes(
       const { normalizeGoogleAdsKeyword } = await import('./google-ads-keyword-normalizer')
 
       const languageCandidates = Array.from(new Set([effectiveLanguage, language].filter(Boolean)))
-      const placeholders = uncachedKeywords.map(() => '?').join(',')
       const langPlaceholders = languageCandidates.map(() => '?').join(',')
       const recentCutoffExpr = dateMinusDays(7, db.type)
 
       // 🔧 修复(2026-01-21): 使用规范化的关键词查询，解决标点符号匹配问题
       // 例如: "dr. mercola" 和 "dr mercola" 应该匹配同一条记录
-      const normalizedKeywords = uncachedKeywords.map(k => normalizeGoogleAdsKeyword(k))
-      const keywordMapping = new Map<string, string>() // normalized -> original
-      uncachedKeywords.forEach(k => {
-        keywordMapping.set(normalizeGoogleAdsKeyword(k), k)
-      })
+      const normalizedToOriginals = new Map<string, Set<string>>() // normalized -> originals[]
+      for (const original of dbLookupKeywords) {
+        const normalized = normalizeGoogleAdsKeyword(original)
+        if (!normalized) continue
 
-      const rows = await db.query(`
-        SELECT keyword, search_volume, competition_level, avg_cpc_micros
-        FROM global_keywords
-        WHERE keyword IN (${placeholders})
-          AND country = ?
-          AND language IN (${langPlaceholders})
-          AND created_at > ${recentCutoffExpr}
-      `, [
-        ...normalizedKeywords,
-        effectiveCountry,
-        ...languageCandidates
-      ]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
+        // 兼容历史版本：部分旧数据可能把空格也移除（如 "dr mercola" -> "drmercola"）
+        // 这里同时写入两种key，确保缓存命中稳定。
+        const normalizedKeys = new Set<string>([normalized])
+        const compact = normalized.replace(/\s+/g, '')
+        if (compact && compact !== normalized) normalizedKeys.add(compact)
 
-      rows.forEach(row => {
-        // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
-        const avgCpc = (row.avg_cpc_micros || 0) / 1_000_000
-        const normalizedDbKeyword = normalizeGoogleAdsKeyword(row.keyword)
-        const originalKeyword = keywordMapping.get(normalizedDbKeyword) || row.keyword
+        for (const key of normalizedKeys) {
+          if (!normalizedToOriginals.has(key)) {
+            normalizedToOriginals.set(key, new Set())
+          }
+          normalizedToOriginals.get(key)!.add(original)
+        }
+      }
 
-        dbVolumes.set(originalKeyword.toLowerCase(), {
-          keyword: originalKeyword,
-          avgMonthlySearches: row.search_volume,
-          competition: row.competition_level || 'UNKNOWN',
-          competitionIndex: 0,
-          lowTopPageBid: avgCpc,
-          highTopPageBid: avgCpc,
-          requestedCountry,
+      const normalizedKeywords = Array.from(normalizedToOriginals.keys())
+      if (normalizedKeywords.length === 0) {
+        console.log(`[KeywordPlanner] 数据库缓存命中: 0/${dbLookupKeywords.length} 个关键词`)
+      } else {
+        const placeholders = normalizedKeywords.map(() => '?').join(',')
+
+        const rows = await db.query(`
+          SELECT keyword, search_volume, competition_level, avg_cpc_micros
+          FROM global_keywords
+          WHERE keyword IN (${placeholders})
+            AND country = ?
+            AND language IN (${langPlaceholders})
+            AND created_at > ${recentCutoffExpr}
+        `, [
+          ...normalizedKeywords,
           effectiveCountry,
-          usedProxyGeo,
-          requestedLanguage,
-          effectiveLanguage,
-          usedFallbackLanguage,
+          ...languageCandidates
+        ]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
+
+        rows.forEach(row => {
+          // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
+          const avgCpc = (row.avg_cpc_micros || 0) / 1_000_000
+          const normalizedDbKeyword = normalizeGoogleAdsKeyword(row.keyword)
+          const originals = normalizedToOriginals.get(normalizedDbKeyword)
+          const targetKeywords = originals ? Array.from(originals) : [row.keyword]
+
+          for (const originalKeyword of targetKeywords) {
+            dbVolumes.set(originalKeyword.toLowerCase(), {
+              keyword: originalKeyword,
+              avgMonthlySearches: row.search_volume,
+              competition: row.competition_level || 'UNKNOWN',
+              competitionIndex: 0,
+              lowTopPageBid: avgCpc,
+              highTopPageBid: avgCpc,
+              requestedCountry,
+              effectiveCountry,
+              usedProxyGeo,
+              requestedLanguage,
+              effectiveLanguage,
+              usedFallbackLanguage,
+            })
+          }
         })
-      })
-      console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${uncachedKeywords.length} 个关键词`)
+        console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${dbLookupKeywords.length} 个关键词`)
+      }
     } catch (error) {
       // Table might not exist yet or query failed
       console.error(`[KeywordPlanner] 数据库缓存查询失败:`, error instanceof Error ? error.message : String(error))
@@ -725,12 +754,14 @@ export async function getKeywordSearchVolumes(
 
       // Check API result first
       if (apiVolumes.has(kwLower)) {
-        return apiVolumes.get(kwLower)!
+        const hit = apiVolumes.get(kwLower)!
+        return { ...hit, keyword: kw }
       }
 
       // Then DB (now with competition data)
       if (dbVolumes.has(kwLower)) {
-        return dbVolumes.get(kwLower)!
+        const hit = dbVolumes.get(kwLower)!
+        return { ...hit, keyword: kw }
       }
 
       // Then cache

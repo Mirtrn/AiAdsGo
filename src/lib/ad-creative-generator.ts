@@ -22,6 +22,7 @@ import {
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
+import { normalizeLanguageCode } from './language-country-codes'
 
 /**
  * 🔧 安全解析JSON字段
@@ -183,7 +184,7 @@ export interface KeywordWithVolume {
   competitionIndex?: number
   lowTopPageBid?: number // 页首最低出价（用于动态CPC）
   highTopPageBid?: number // 页首最高出价（用于动态CPC）
-  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' | 'KEYWORD_POOL' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
   intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
 }
@@ -2943,9 +2944,9 @@ export async function generateAdCreative(
         priority: kw.priority || 'HIGH'
       }))
 
-      // 🔥 2025-12-28: 关键词质量过滤
-      // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
-      // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
+	      // 🔥 2025-12-28: 关键词质量过滤
+	      // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
+	      // 🔧 修复：不强制 mustContainBrand，允许通用品类词进入关键词池（避免关键词过少）
 	      const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
 	        brandName: offer.brand,
 	        category: offer.category || undefined,
@@ -2955,7 +2956,7 @@ export async function generateAdCreative(
 	        productUrl: offer.final_url || offer.url || undefined,
 	        minWordCount: 1,
 	        maxWordCount: 8,
-	        mustContainBrand: true,
+	        mustContainBrand: false,
 	        // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
 	        minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
 	          pageType: (offer as any).page_type || null
@@ -2999,10 +3000,10 @@ export async function generateAdCreative(
           console.warn(`⚠️ extracted_keywords格式未知，跳过`)
         }
 
-        // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
-        // 只有当 keywords 存在且非空时才进行过滤
-        // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
-        if (extractedElements.keywords && extractedElements.keywords.length > 0) {
+	        // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
+	        // 只有当 keywords 存在且非空时才进行过滤
+	        // 🔧 修复：不强制 mustContainBrand，避免误杀通用品类词
+	        if (extractedElements.keywords && extractedElements.keywords.length > 0) {
 	          const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
 	            brandName: offer.brand,
 	            category: offer.category || undefined,
@@ -3012,7 +3013,7 @@ export async function generateAdCreative(
 	            productUrl: offer.final_url || offer.url || undefined,
 	            minWordCount: 1,
 	            maxWordCount: 8,
-	            mustContainBrand: true,
+	            mustContainBrand: false,
 	            minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
 	              pageType: (offer as any).page_type || null
 	            }),
@@ -3167,7 +3168,7 @@ export async function generateAdCreative(
 
   // 🔥 2025-12-28: 最终关键词质量过滤
   // 确保所有来源的关键词都经过过滤，移除品牌变体词和语义查询词
-  // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
+  // 🔧 修复：不强制 mustContainBrand，允许通用品类词进入最终候选
   const finalKeywordFilter = filterKeywordQuality(uniqueKeywords, {
     brandName: offer.brand,
     category: offer.category || undefined,
@@ -3175,7 +3176,7 @@ export async function generateAdCreative(
     targetLanguage: offer.target_language || undefined,
     minWordCount: 1,
     maxWordCount: 8,
-    mustContainBrand: true,
+    mustContainBrand: false,
   })
 
   if (finalKeywordFilter.removed.length > 0) {
@@ -3300,7 +3301,7 @@ export async function generateAdCreative(
       brandName,
       minWordCount: 1,
       maxWordCount: 8,
-      mustContainBrand: true,  // 🔧 修复：保留包含品牌名的关键词
+      mustContainBrand: false,  // 🔧 修复：不强制包含品牌名，保留高搜索量通用品类词
     })
 
     if (filtered.removed.length > 0) {
@@ -3371,8 +3372,7 @@ export async function generateAdCreative(
   // 🔧 修复(2025-12-24): 提取到外层作用域，供后续clusterKeywordsByIntent使用
   const targetCountry = (offer as { target_country?: string }).target_country || 'US'
   const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-  const lang = targetLanguage.toLowerCase().substring(0, 2)
-  const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
+  const language = normalizeLanguageCode(targetLanguage)
 
   try {
     console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${targetCountry}, 语言=${language} (${targetLanguage})`)
@@ -3519,8 +3519,7 @@ export async function generateAdCreative(
         if (config) {
           const country = (offer as { target_country?: string }).target_country || 'US'
           const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-          const lang = targetLanguage.toLowerCase().substring(0, 2)
-          const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
+          const language = normalizeLanguageCode(targetLanguage)
 
           console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
 

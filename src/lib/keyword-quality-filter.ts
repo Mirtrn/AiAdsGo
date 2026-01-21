@@ -890,7 +890,7 @@ export function filterKeywordQuality(
     productName,
     minWordCount = 1,
     maxWordCount = 8,
-    mustContainBrand = true,
+    mustContainBrand = false,
     productUrl,  // 🔥 新增：用于平台冲突检测
     minContextTokenMatches = 0,
   } = options

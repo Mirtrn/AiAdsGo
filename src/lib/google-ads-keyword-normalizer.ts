@@ -4,18 +4,18 @@
  * Google Ads会自动标准化关键词，规则包括：
  * 1. 去除前导和尾随空格
  * 2. 去除多余的内部空格（多个空格变一个）
- * 3. 去除特殊字符（+、-、_、.等）
- * 4. 转换为小写
- * 5. 去除标点符号
+ * 3. 将常见分隔符（-、_、.、/ 等）归一为空格
+ * 4. 去除标点/符号（保留字母、数字和空格）
+ * 5. 转换为小写
  *
  * 例如：
- * - "anker power bank" → "ankerpowerbank"
- * - "anker-power_bank" → "ankerpowerbank"
- * - "anker.power.bank" → "ankerpowerbank"
+ * - "dr. mercola" → "dr mercola"
+ * - "dr_mercola" → "dr mercola"
+ * - "  Dr.-Mercola  " → "dr mercola"
  */
 
 /**
- * 标准化关键词（模拟Google Ads行为）
+ * 标准化关键词（用于去重/缓存键归一）
  *
  * @param keyword - 原始关键词
  * @returns 标准化后的关键词
@@ -26,10 +26,16 @@ export function normalizeGoogleAdsKeyword(keyword: string): string {
   }
 
   return keyword
-    .trim() // 去除前后空格
-    .toLowerCase() // 转换为小写
-    .replace(/[\s\-_\.]+/g, '') // 去除空格、破折号、下划线、点号
-    .replace(/[^\w]/g, '') // 去除其他特殊字符（保留字母、数字、下划线）
+    .trim()
+    .toLowerCase()
+    .normalize('NFKC')
+    // 常见分隔符统一为空格（避免 "dr.mercola" / "dr-mercola" / "dr_mercola" 不命中）
+    .replace(/[._\-\/]+/g, ' ')
+    // 其他符号也替换为空格（保留字母/数字/空格）
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    // 多空格归一
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /**
