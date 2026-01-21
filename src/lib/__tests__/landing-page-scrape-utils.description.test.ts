@@ -21,6 +21,19 @@ describe('extractLandingDescription', () => {
     )
   })
 
+  it('filters blocked-page descriptions (Access Denied)', () => {
+    const html = `
+      <html>
+        <head>
+          <meta name="description" content="Access Denied - You don't have permission to access this page on this server." />
+        </head>
+        <body></body>
+      </html>
+    `
+    const $ = load(html)
+    expect(extractLandingDescription({ $, productName: 'BJs' })).toBeNull()
+  })
+
   it('falls back to a meaningful body block and filters navigation/account menus', () => {
     const html = `
       <html>
@@ -50,4 +63,3 @@ describe('extractLandingDescription', () => {
     expect(extractLandingDescription({ $, productName: 'Boscovs' })).toBeNull()
   })
 })
-

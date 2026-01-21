@@ -430,9 +430,23 @@ export async function scrapeIndependentProduct(
 
         if (!response) throw new Error('No response received')
 
+        const httpStatus = response.status()
+        // 🔥 防御：403/401等常见阻断，必须换代理重试，避免把阻断页标题/内容当作产品信息
+        if (httpStatus === 429) {
+          throw new Error('HTTP 429: Rate limit, need retry with new proxy')
+        }
+        if (httpStatus === 401 || httpStatus === 403 || httpStatus === 407) {
+          throw new Error(`HTTP ${httpStatus}: Access denied, need retry with new proxy`)
+        }
+
         // Wait for content
         await smartWaitForLoad(page, url, { maxWaitTime: 12000 }).catch(() => {})
         await randomDelay(1000, 2000)
+
+        const title = await page.title().catch(() => '')
+        if (isLikelyBlockedTitle(title)) {
+          throw new Error(`Blocked page title detected: ${title}`)
+        }
 
         // Scroll to trigger lazy loading (including reviews section)
         for (let i = 0; i < 5; i++) {
@@ -506,6 +520,10 @@ export async function scrapeIndependentProduct(
 
         // Parse product data
         const productData = await parseIndependentProductHtml(html, url)
+
+        if (isLikelyBlockedTitle(productData.productName)) {
+          throw new Error(`Blocked productName detected: ${productData.productName}`)
+        }
 
         return productData
       } finally {

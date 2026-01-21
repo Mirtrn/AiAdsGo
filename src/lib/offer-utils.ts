@@ -246,6 +246,17 @@ export function normalizeBrandName(brand: string): string {
   const trimmed = brand.trim()
   if (!trimmed) return trimmed
 
+  const normalizedApostrophe = trimmed.replace(/’/g, '\'')
+  const normalizedKey = normalizedApostrophe.toLowerCase()
+  const specialCases = new Map<string, string>([
+    // BJ's Wholesale Club → prefer a stable, punctuation-free short brand token
+    ['bjs', 'BJs'],
+    [`bj's`, 'BJs'],
+  ])
+
+  const directSpecial = specialCases.get(normalizedKey)
+  if (directSpecial) return directSpecial
+
   // 常见全大写缩写列表（保持大写）
   const ABBREVIATIONS = new Set([
     'IBM', 'HP', 'LG', 'BMW', 'ASUS', 'DELL', 'AMD', 'AT&T',
@@ -264,6 +275,10 @@ export function normalizeBrandName(brand: string): string {
     .split(/\s+/)
     .map(word => {
       if (!word) return word
+
+      const wordKey = word.replace(/’/g, '\'').toLowerCase()
+      const specialWord = specialCases.get(wordKey)
+      if (specialWord) return specialWord
 
       // 检查是否是缩写
       if (ABBREVIATIONS.has(word.toUpperCase())) {

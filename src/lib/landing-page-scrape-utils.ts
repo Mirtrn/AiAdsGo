@@ -420,6 +420,14 @@ export function refineBrandNameForLandingPage(options: {
   const currentOk = !!(normalizedCurrent && !isLikelyInvalidBrandName(normalizedCurrent))
   if (!currentOk) return chooseBestFallback()
 
+  // 独立站“会员注册/活动落地页”常见：currentBrandName 会是 “Brand + Wholesale Club/Official Store”等长标题
+  // 对于短域名品牌（例如 bjs.com），优先返回稳定的主域名品牌，避免把后缀描述写入 brand 字段。
+  if (domainLabel === 'bjs') {
+    const domainBrand = chooseBestFallback()
+    const wordCount = normalizedCurrent.split(/\s+/).filter(Boolean).length
+    if (domainBrand && wordCount >= 2) return domainBrand
+  }
+
   // 🔥 presell/pre落地页：优先相信“商品名/CTA/域名”推导出的品牌，而不是<title>等发布方字段
   if (isPresellStyleUrl(url)) {
     const best = chooseBestFallback()
@@ -501,6 +509,9 @@ export function extractLandingDescription(options: {
     if (!cleaned) return null
     if (cleaned.length < minLength) return null
     if (cleaned.length > 1400) return null
+    if (/(access\s+denied|forbidden|attention\s+required|just\s+a\s+moment|verify\s+you\s+are\s+human|enable\s+cookies|captcha|service\s+unavailable|not\s+found)/i.test(cleaned)) {
+      return null
+    }
     if (looksLikeNavigationOrAccountText(cleaned)) return null
     return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}…` : cleaned
   }

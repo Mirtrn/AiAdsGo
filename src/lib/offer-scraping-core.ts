@@ -15,6 +15,7 @@ import { SeoData } from './redis'
 import { getDatabase } from './db'
 import { getLanguageCodeForCountry } from './language-country-codes'
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
+import { normalizeBrandName } from './offer-utils'
 
 /**
  * 🔥 根据目标国家获取对应的Amazon域名
@@ -1007,10 +1008,10 @@ export async function performScrapeAndAnalysis(
       }
     }
 
-    // 🎯 品牌名清理和标准化（去除冠词、型号、格式化）
-    if (extractedBrand && extractedBrand.length > 0) {
-      // 1. 去除开头的冠词 (英语: The/A/An, 德语: Der/Die/Das, 法语: Le/La/Les, 西班牙语: El/La/Los/Las)
-      extractedBrand = extractedBrand.replace(/^(The|A|An|Der|Die|Das|Le|La|Les|El|Los|Las)\s+/i, '')
+	    // 🎯 品牌名清理和标准化（去除冠词、型号、格式化）
+	    if (extractedBrand && extractedBrand.length > 0) {
+	      // 1. 去除开头的冠词 (英语: The/A/An, 德语: Der/Die/Das, 法语: Le/La/Les, 西班牙语: El/La/Los/Las)
+	      extractedBrand = extractedBrand.replace(/^(The|A|An|Der|Die|Das|Le|La|Les|El|Los|Las)\s+/i, '')
 
       // 2. 提取品牌核心名称（第一个有效单词，去除产品型号）
       // 产品型号特征：包含连续大写字母+数字+连字符的组合，如 "RLK16-1200D8-A"
@@ -1023,15 +1024,15 @@ export async function performScrapeAndAnalysis(
         return isValidBrandWord && !isProductModel
       })
 
-      if (brandCore) {
-        extractedBrand = brandCore
-        console.log(`🔧 品牌名清理: 提取核心名称 "${extractedBrand}"`)
-      }
+	      if (brandCore) {
+	        extractedBrand = brandCore
+	        console.log(`🔧 品牌名清理: 提取核心名称 "${extractedBrand}"`)
+	      }
 
-      // 3. 标准化格式：首字母大写 + 其余小写
-      extractedBrand = extractedBrand.charAt(0).toUpperCase() + extractedBrand.slice(1).toLowerCase()
-      console.log(`✨ 品牌名标准化: "${extractedBrand}"`)
-    }
+	      // 3. 标准化格式：使用全局统一normalizeBrandName（保留常见缩写 / 特殊品牌写法）
+	      extractedBrand = normalizeBrandName(extractedBrand)
+	      console.log(`✨ 品牌名标准化: "${extractedBrand}"`)
+	    }
 
     // 🎯 新增: 品牌名智能提取fallback - 当品牌名为"提取中..."或无效时
     const isInvalidBrand = !extractedBrand ||
