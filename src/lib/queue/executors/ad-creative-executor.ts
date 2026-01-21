@@ -167,6 +167,47 @@ export async function executeAdCreativeGeneration(
         }
       )
 
+      // 🔧 修复(2026-01-21): 强制将创意关键词同步为桶关键词
+      // 背景：generateAdCreative 内部会对关键词做多轮过滤，极端情况下会导致仅保留 1-3 个关键词
+      // 但 KISS-3 类型创意必须使用关键词池桶的完整关键词集合，确保投放配置稳定一致
+      const generatedKeywordsForExclusion: string[] = Array.isArray(creative.keywords)
+        ? creative.keywords.slice()
+        : []
+
+      if (bucketInfo?.keywords && bucketInfo.keywords.length > 0) {
+        const bucketKeywordsWithVolume = bucketInfo.keywords
+          .map((kw: any) => {
+            const keywordRaw = typeof kw === 'string' ? kw : kw?.keyword
+            const keyword = typeof keywordRaw === 'string' ? keywordRaw.trim() : ''
+            if (!keyword) return null
+
+            if (typeof kw === 'string') {
+              return {
+                keyword,
+                searchVolume: 0,
+                matchType: 'PHRASE' as const,
+                source: 'KEYWORD_POOL' as const
+              }
+            }
+
+            return {
+              keyword,
+              searchVolume: typeof kw.searchVolume === 'number' ? kw.searchVolume : Number(kw.searchVolume) || 0,
+              competition: kw.competition,
+              competitionIndex: kw.competitionIndex,
+              lowTopPageBid: kw.lowTopPageBid,
+              highTopPageBid: kw.highTopPageBid,
+              matchType: (kw.matchType as 'EXACT' | 'PHRASE' | 'BROAD' | undefined) || ('PHRASE' as const),
+              source: 'KEYWORD_POOL' as const
+            }
+          })
+          .filter((v): v is NonNullable<typeof v> => v !== null)
+          .slice(0, 30)
+
+        creative.keywords = bucketKeywordsWithVolume.map((kw: any) => kw.keyword)
+        creative.keywordsWithVolume = bucketKeywordsWithVolume
+      }
+
       // 更新进度：评估中
       await db.exec(`
         UPDATE creative_tasks
@@ -215,8 +256,8 @@ export async function executeAdCreativeGeneration(
       }
 
       // 收集已使用关键词
-      if (creative.keywords && creative.keywords.length > 0) {
-        const nonBrandKeywords = creative.keywords.filter(kw => {
+      if (generatedKeywordsForExclusion.length > 0) {
+        const nonBrandKeywords = generatedKeywordsForExclusion.filter(kw => {
           if (!kw || typeof kw !== 'string') return false
           const kwLower = kw.toLowerCase()
           return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
