@@ -2,6 +2,7 @@ import { validateProxyUrl, maskProxyUrl } from './validate-url'
 import { ProxyProviderRegistry } from './providers/provider-registry'
 import type { ProxyCredentials } from './types'
 import axios from 'axios'
+import { shouldRetry, getRetryDelay, ProxyError, ProxyHealthCheckError } from './proxy-errors'
 
 /**
  * 代理凭证信息
@@ -211,7 +212,7 @@ export async function fetchProxyIp(
 
   console.log(`✅ 使用${provider.name} Provider处理URL: ${maskProxyUrl(proxyUrl)}`)
 
-  // Step 2: 带重试的获取代理凭证
+  // Step 2: 带智能重试的获取代理凭证
   let lastError: Error | null = null
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -226,7 +227,10 @@ export async function fetchProxyIp(
         const healthCheck = await testProxyHealth(credentials, 10000)
         if (!healthCheck.healthy) {
           console.warn(`⚠️ 代理IP健康检查失败: ${credentials.fullAddress} (${healthCheck.error || '响应过慢'})`)
-          throw new Error(`代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`)
+          throw new ProxyHealthCheckError(
+            `代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`,
+            credentials.fullAddress
+          )
         }
         console.log(`✅ [${provider.name}] ${credentials.fullAddress} 健康检查通过 (${healthCheck.responseTime}ms)`)
       } else {
@@ -236,11 +240,31 @@ export async function fetchProxyIp(
       return credentials
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('未知错误')
-      console.error(`❌ [${provider.name} ${attempt}/${maxRetries}] ${lastError.message}`)
+
+      // 🎯 智能重试判断
+      const canRetry = shouldRetry(error)
+      const isLastAttempt = attempt >= maxRetries
+
+      if (error instanceof ProxyError) {
+        console.error(
+          `❌ [${provider.name} ${attempt}/${maxRetries}] ${error.name}: ${error.message} (code: ${error.code}, retryable: ${error.retryable})`
+        )
+      } else {
+        console.error(`❌ [${provider.name} ${attempt}/${maxRetries}] ${lastError.message}`)
+      }
+
+      // 如果不可重试，直接抛出错误
+      if (!canRetry) {
+        console.error(`🚫 错误不可重试，终止获取代理`)
+        throw lastError
+      }
 
       // 如果不是最后一次尝试，等待后重试
-      if (attempt < maxRetries) {
-        const waitTime = attempt * 1000
+      if (!isLastAttempt) {
+        const waitTime = error instanceof ProxyError
+          ? getRetryDelay(attempt, error)
+          : attempt * 1000
+
         console.log(`⏳ 等待 ${waitTime}ms 后重试...`)
         await new Promise((resolve) => setTimeout(resolve, waitTime))
       }

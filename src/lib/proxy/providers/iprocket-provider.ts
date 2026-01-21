@@ -3,6 +3,12 @@ import type { ProxyCredentials } from '../types'
 import type { ValidationResult } from './base-provider'
 import { validateProxyUrl } from '../validate-url'
 import axios from 'axios'
+import {
+  ProxyFormatError,
+  ProxyHttpError,
+  ProxyNetworkError,
+  analyzeProxyError,
+} from '../proxy-errors'
 
 /**
  * IPRocket代理提供商
@@ -42,7 +48,7 @@ export class IPRocketProvider implements ProxyProvider {
       })
 
       if (resp.status !== 200) {
-        throw new Error(`HTTP ${resp.status}`)
+        throw new ProxyHttpError(resp.status)
       }
 
       const text = typeof resp.data === 'string' ? resp.data : String(resp.data ?? '')
@@ -54,7 +60,7 @@ export class IPRocketProvider implements ProxyProvider {
 
       const firstLine = text.trim().split('\n')[0]?.trim()
       if (!firstLine) {
-        throw new Error('empty response')
+        throw new ProxyNetworkError('empty response')
       }
 
       const parts = firstLine.split(':')
@@ -65,7 +71,13 @@ export class IPRocketProvider implements ProxyProvider {
         console.error(`  实际字段数: ${parts.length}`)
         console.error(`  原始响应首行: ${firstLine}`)
         console.error(`  各字段内容: ${JSON.stringify(parts)}`)
-        throw new Error(`invalid proxy format (${parts.length} parts)`)
+
+        // 智能分析错误类型
+        const analyzedError = analyzeProxyError(
+          new Error(`invalid proxy format (${parts.length} parts)`),
+          firstLine
+        )
+        throw analyzedError
       }
 
       const [host, portStr, username, password] = parts
@@ -152,12 +164,13 @@ export class IPRocketProvider implements ProxyProvider {
       })
 
       if (!response || response.status() !== 200) {
-        throw new Error(`获取代理IP失败: HTTP ${response?.status() || 'unknown'}`)
+        const status = response?.status() || 0
+        throw new ProxyHttpError(status, `获取代理IP失败: HTTP ${status || 'unknown'}`)
       }
 
       const text = await page.textContent('body')
       if (!text) {
-        throw new Error('代理IP响应为空')
+        throw new ProxyNetworkError('代理IP响应为空')
       }
 
       // 🔍 记录响应内容用于诊断（如果看起来不正常）
@@ -176,9 +189,13 @@ export class IPRocketProvider implements ProxyProvider {
         console.error(`  实际字段数: ${parts.length}`)
         console.error(`  原始响应首行: ${firstLine}`)
         console.error(`  各字段内容: ${JSON.stringify(parts)}`)
-        throw new Error(
-          `代理IP格式错误: 期望4个字段，实际${parts.length}个字段`
+
+        // 智能分析错误类型
+        const analyzedError = analyzeProxyError(
+          new Error(`代理IP格式错误: 期望4个字段，实际${parts.length}个字段`),
+          firstLine
         )
+        throw analyzedError
       }
 
       const [host, portStr, username, password] = parts
