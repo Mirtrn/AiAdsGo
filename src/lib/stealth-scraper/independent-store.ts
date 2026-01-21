@@ -52,6 +52,39 @@ function shouldRetryWithNewProxy(error: any): boolean {
   return false
 }
 
+function cleanText(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/[\u00A0\u200B]/g, ' ').trim()
+}
+
+function extractLeadingBrandToken(text: string): string | null {
+  const cleaned = cleanText(text)
+  if (!cleaned) return null
+
+  const firstTokenRaw = cleaned.split(/\s+/).find(Boolean) || ''
+  const firstToken = firstTokenRaw
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .replace(/[^A-Za-z0-9&'’\.\-]+$/, '')
+    .trim()
+
+  if (!firstToken) return null
+
+  // Reject obvious boilerplate tokens that show up on store/home titles.
+  const lower = firstToken.toLowerCase().replace(/\.$/, '')
+  const rejected = new Set(['home', 'shop', 'store', 'official', 'website', 'online'])
+  if (rejected.has(lower)) return null
+
+  return firstToken
+}
+
+function normalizeBrandToken(token: string): string {
+  // Normalize apostrophes and remove possessive `'s` so "Boscov’s" -> "Boscovs"
+  const normalizedApostrophe = token.replace(/’/g, '\'')
+  return normalizedApostrophe
+    .replace(/'s\b/gi, 's')
+    .replace(/[™®©]/g, '')
+    .trim()
+}
+
 /**
  * Scrape independent e-commerce store page
  * Extracts brand info and product listings for AI creative generation
@@ -880,11 +913,41 @@ async function parseIndependentStoreHtml(html: string, finalUrl: string): Promis
   console.log(`🔍 检测到平台: ${platform || 'generic'}`)
 
   // Extract store name
-  const storeName = $('meta[property="og:site_name"]').attr('content') ||
-                    $('meta[name="application-name"]').attr('content') ||
-                    $('title').text().split(/[|\-–]/).pop()?.trim() ||
-                    $('h1').first().text().trim() ||
-                    null
+  const domainLabel = getRegistrableDomainLabelFromUrl(finalUrl)
+  const domainBrand = domainLabel ? normalizeBrandName(domainLabel) : null
+
+  const storeNameCandidates = [
+    $('meta[property="og:site_name"]').attr('content'),
+    $('meta[name="application-name"]').attr('content'),
+    $('meta[property="og:title"]').attr('content'),
+    $('title').text(),
+    $('h1').first().text(),
+  ]
+    .map((v) => (typeof v === 'string' ? cleanText(v) : ''))
+    .filter(Boolean)
+
+  const resolvedStoreName = (() => {
+    for (const candidate of storeNameCandidates) {
+      // Guard against navigation-leak titles like "back to topMenuHelp..." etc.
+      if (candidate.length < 2) continue
+      if (candidate.length > 80) continue
+
+      const token = extractLeadingBrandToken(candidate)
+      if (!token) continue
+
+      const normalized = normalizeBrandToken(token)
+      if (!normalized) continue
+
+      // If we have a domain-derived brand, prefer it when it matches (stable + no punctuation).
+      if (domainBrand && normalizeBrandName(normalized) === domainBrand) {
+        return domainBrand
+      }
+
+      return normalizeBrandName(normalized)
+    }
+
+    return domainBrand
+  })()
 
   // Extract store description
   const storeDescription = $('meta[property="og:description"]').attr('content') ||
@@ -901,7 +964,7 @@ async function parseIndependentStoreHtml(html: string, finalUrl: string): Promis
   const products = extractProducts($, finalUrl, platform)
 
   return {
-    storeName: storeName ? normalizeBrandName(storeName) : null,
+    storeName: resolvedStoreName || null,
     storeDescription,
     logoUrl,
     products,

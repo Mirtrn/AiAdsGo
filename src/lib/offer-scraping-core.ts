@@ -985,8 +985,13 @@ export async function performScrapeAndAnalysis(
       throw new Error(brandError)
     }
 
-    if (rawScrapedData && rawScrapedData.brandName && rawScrapedData.brandName !== 'Unknown' && rawScrapedData.brandName.trim() !== '') {
-      extractedBrand = rawScrapedData.brandName
+    const scrapedBrandFromData =
+      (rawScrapedData && typeof rawScrapedData.brandName === 'string' && rawScrapedData.brandName) ||
+      (pageType === 'store' && rawScrapedData && typeof rawScrapedData.storeName === 'string' && rawScrapedData.storeName) ||
+      null
+
+    if (scrapedBrandFromData && scrapedBrandFromData !== 'Unknown' && scrapedBrandFromData.trim() !== '') {
+      extractedBrand = scrapedBrandFromData
       console.log(`✅ 使用原始爬虫数据的品牌名: ${extractedBrand}`)
     } else if (productInfo.brandDescription) {
       // 2. 降级方案：从AI的brandDescription中提取品牌名
