@@ -2011,13 +2011,44 @@ export async function generateOfferKeywordPool(
   // 2. 提取初始关键词（保留 searchVolume）
   let initialKeywords: PoolKeywordData[]
   if (allKeywords) {
-    // 如果提供了关键词列表，转换为 PoolKeywordData[]
-    initialKeywords = allKeywords.map(kw => ({
-      keyword: kw,
-      searchVolume: 0,
-      source: 'PROVIDED',
-      matchType: 'BROAD'
-    }))
+    // 🔧 修复(2026-01-21): 如果提供了关键词列表，查询搜索量而不是硬编码为 0
+    console.log(`📊 查询 ${allKeywords.length} 个提供的关键词的搜索量...`)
+    const { getKeywordSearchVolumes } = await import('./keyword-planner')
+    const auth = await getUserAuthType(userId)
+
+    try {
+      const volumes = await getKeywordSearchVolumes(
+        allKeywords,
+        offer.target_country,
+        offer.target_language || 'en',
+        userId,
+        auth.authType,
+        auth.serviceAccountId
+      )
+
+      initialKeywords = volumes.map(v => ({
+        keyword: v.keyword,
+        searchVolume: v.avgMonthlySearches || 0,
+        competition: v.competition,
+        competitionIndex: v.competitionIndex,
+        lowTopPageBid: v.lowTopPageBid,
+        highTopPageBid: v.highTopPageBid,
+        source: 'PROVIDED',
+        matchType: 'BROAD'
+      }))
+
+      const withVolume = initialKeywords.filter(kw => kw.searchVolume > 0).length
+      console.log(`✅ 搜索量查询完成: ${withVolume}/${allKeywords.length} 个关键词有搜索量`)
+    } catch (error) {
+      console.warn(`⚠️ 搜索量查询失败，使用默认值 0: ${error}`)
+      // 降级处理：使用默认值
+      initialKeywords = allKeywords.map(kw => ({
+        keyword: kw,
+        searchVolume: 0,
+        source: 'PROVIDED',
+        matchType: 'BROAD'
+      }))
+    }
   } else {
     initialKeywords = await extractKeywordsFromOffer(offerId, userId)
   }
