@@ -910,9 +910,15 @@ export function filterKeywordQuality(
 
     let removeReason: string | null = null
 
+    // 🔧 修复(2026-01-21): 过滤搜索量为0且来源为CLUSTERED的关键词
+    // 这些是模板化生成的关键词，没有真实搜索���
+    // 注意：isPureBrand 标记的纯品牌词豁免此过滤（品牌词可能搜索量为0但仍需保留）
+    if (kw.searchVolume === 0 && kw.source === 'CLUSTERED' && !kw.isPureBrand) {
+      removeReason = `无搜索量的模板化关键词: "${keyword}" (source: CLUSTERED)`
+    }
     // 1. 检查是否必须包含纯品牌词（使用策略函数）
     // 🔥 2026-01-05 使用 shouldKeepByBrand 策略函数，明确用途
-    if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords)) {
+    else if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords)) {
       removeReason = `不含纯品牌词: "${keyword}"`
     }
     // 2. 检查品牌变体词

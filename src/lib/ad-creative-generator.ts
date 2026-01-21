@@ -2937,11 +2937,13 @@ export async function generateAdCreative(
       }
 
       // 转换为extractedElements格式
+      // 🔧 修复(2026-01-21): 保留原始 source 字段，用于后续过滤 CLUSTERED 关键词
       extractedElements.keywords = poolKeywords.map(kw => ({
         keyword: kw.keyword,
         searchVolume: kw.searchVolume || 0,
-        source: 'KEYWORD_POOL',
-        priority: kw.priority || 'HIGH'
+        source: kw.source || 'KEYWORD_POOL',  // 保留原始 source（CLUSTERED/KEYWORD_PLANNER）
+        priority: kw.priority || 'HIGH',
+        isPureBrand: kw.isPureBrand  // 🔧 保留纯品牌词标记
       }))
 
 	      // 🔥 2025-12-28: 关键词质量过滤
