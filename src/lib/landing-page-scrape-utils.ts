@@ -449,31 +449,176 @@ export function extractLandingDescription(options: {
   const { $, productName } = options
   const maxLength = typeof options.maxLength === 'number' ? options.maxLength : 420
 
-  const metaDesc =
-    $('meta[property="og:description"]').attr('content') ||
-    $('meta[name="description"]').attr('content') ||
-    null
+  const navNoisePhrases = [
+    'about me',
+    'saved addresses',
+    'order history',
+    'my account',
+    'sign in',
+    'log in',
+    'login',
+    'register',
+    'wishlist',
+    'wish list',
+    'shopping bag',
+    'order status',
+    'track order',
+    'returns',
+    'customer service',
+    'help',
+    'back to top',
+  ]
 
-  const cleanedMeta = metaDesc ? cleanText(metaDesc) : null
+  const looksLikeNavigationOrAccountText = (text: string): boolean => {
+    const cleaned = cleanText(text)
+    if (!cleaned) return false
+    const lower = cleaned.toLowerCase()
 
-  const bodyCandidates: string[] = []
+    let hits = 0
+    for (const phrase of navNoisePhrases) {
+      if (lower.includes(phrase)) hits++
+    }
+
+    if (hits >= 2) return true
+
+    const pipeSegments = cleaned.split('|').map(s => s.trim()).filter(Boolean)
+    if (pipeSegments.length >= 4) {
+      const shortSegments = pipeSegments.filter(s => s.length > 0 && s.length <= 32).length
+      if (shortSegments / pipeSegments.length >= 0.75) return true
+    }
+
+    if (hits >= 1 && (cleaned.includes('|') || cleaned.includes('•'))) return true
+
+    return false
+  }
+
+  const sanitizeDescriptionCandidate = (input: unknown, minLength: number): string | null => {
+    if (typeof input !== 'string') return null
+    const cleaned = cleanText(input)
+      .replace(/^[\s"'“”‘’]+/, '')
+      .replace(/[\s"'“”‘’]+$/, '')
+      .trim()
+    if (!cleaned) return null
+    if (cleaned.length < minLength) return null
+    if (cleaned.length > 1400) return null
+    if (looksLikeNavigationOrAccountText(cleaned)) return null
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}…` : cleaned
+  }
+
+  const extractJsonLdDescription = (): string | null => {
+    try {
+      const scripts = $('script[type="application/ld+json"]')
+      for (let i = 0; i < scripts.length; i++) {
+        const text = scripts.eq(i).html()
+        if (!text) continue
+        try {
+          const parsed = JSON.parse(text)
+          const candidates = Array.isArray(parsed) ? parsed : [parsed]
+          for (const item of candidates) {
+            if (!item) continue
+
+            const readNode = (node: any): string | null => {
+              if (!node || typeof node !== 'object') return null
+              const type = node['@type']
+              if (type === 'Product' || type === 'Organization' || type === 'WebSite') {
+                if (typeof node.description === 'string' && node.description.trim()) return node.description.trim()
+              }
+              return null
+            }
+
+            const direct = readNode(item)
+            if (direct) return direct
+
+            if (Array.isArray(item['@graph'])) {
+              for (const node of item['@graph']) {
+                const desc = readNode(node)
+                if (desc) return desc
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null
+  }
+
+  // Prefer SEO meta descriptions first (stable + less noisy than body text).
+  const metaCandidates = [
+    $('meta[property="og:description"]').attr('content'),
+    $('meta[name="description"]').attr('content'),
+    $('meta[name="twitter:description"]').attr('content'),
+  ]
+
+  for (const candidate of metaCandidates) {
+    const cleaned = sanitizeDescriptionCandidate(candidate, 20)
+    if (cleaned) return cleaned
+  }
+
+  const jsonLdCandidate = sanitizeDescriptionCandidate(extractJsonLdDescription(), 20)
+  if (jsonLdCandidate) return jsonLdCandidate
+
+  // Fallback: find a meaningful body block (but aggressively filter out navigation/account menus).
   const needle = productName ? productName.toLowerCase() : null
 
-  $('p, div').each((_: any, el: any) => {
-    const text = cleanText($(el).text() || '')
-    if (!text) return
-    if (text.length < 60) return
-    if (text.length > 800) return
-    if (needle && !text.toLowerCase().includes(needle)) return
-    bodyCandidates.push(text)
-    if (bodyCandidates.length >= 10) return false
+  const scopeSelectors = [
+    'main',
+    '[role="main"]',
+    '#main',
+    '#content',
+    '.main',
+    '.main-content',
+    '.content',
+    '.product',
+    '.product-detail',
+  ]
+
+  let scope = $('body')
+  for (const selector of scopeSelectors) {
+    const candidate = $(selector).first()
+    if (candidate.length > 0) {
+      const text = cleanText(candidate.text() || '')
+      if (text.length >= 80) {
+        scope = candidate
+        break
+      }
+    }
+  }
+
+  const bodyCandidates: Array<{ text: string; score: number }> = []
+
+  scope.find('p, div').each((_: any, el: any) => {
+    if ($(el).closest('nav, header, footer, aside, form').length > 0) return
+
+    const rawText = $(el)
+      .clone()
+      .find('script, style, svg, noscript')
+      .remove()
+      .end()
+      .text()
+
+    const cleanedText = cleanText(rawText || '')
+    if (!cleanedText) return
+    if (cleanedText.length < 60) return
+    if (cleanedText.length > 800) return
+    if (needle && !cleanedText.toLowerCase().includes(needle)) return
+
+    const sanitized = sanitizeDescriptionCandidate(cleanedText, 60)
+    if (!sanitized) return
+
+    const lower = sanitized.toLowerCase()
+    const occurrences = needle ? countOccurrences(lower, needle) : 0
+    const score = occurrences * 100 + sanitized.length
+    bodyCandidates.push({ text: sanitized, score })
+
+    if (bodyCandidates.length >= 12) return false
   })
 
-  const bestBody = bodyCandidates[0] || null
-  const description = bestBody || cleanedMeta || null
-  if (!description) return null
-
-  return description.length > maxLength ? `${description.slice(0, maxLength - 1).trim()}…` : description
+  bodyCandidates.sort((a, b) => b.score - a.score)
+  return bodyCandidates[0]?.text || null
 }
 
 export function extractLandingImages($: any, baseUrl: string, maxImages: number = 5): string[] {
