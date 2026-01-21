@@ -2539,7 +2539,59 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
     }
   }
 
-  return Array.from(keywordMap.values())
+  const keywords = Array.from(keywordMap.values())
+
+  // 🔧 修复(2026-01-21): 查询提取关键词的搜索量
+  if (keywords.length > 0) {
+    console.log(`📊 查询 ${keywords.length} 个提取关键词的搜索量...`)
+
+    try {
+      const { getKeywordSearchVolumes } = await import('./keyword-planner')
+      const { getUserAuthType } = await import('./google-ads-oauth')
+      const auth = await getUserAuthType(userId)
+
+      // 获取 offer 信息（用于获取 target_country 和 target_language）
+      const offer = await db.queryOne<{
+        target_country: string
+        target_language: string | null
+      }>(
+        'SELECT target_country, target_language FROM offers WHERE id = ? AND user_id = ?',
+        [offerId, userId]
+      )
+
+      if (offer) {
+        const volumes = await getKeywordSearchVolumes(
+          keywords.map(k => k.keyword),
+          offer.target_country,
+          offer.target_language || 'en',
+          userId,
+          auth.authType,
+          auth.serviceAccountId
+        )
+
+        // 更新搜索量
+        const volumeMap = new Map(volumes.map(v => [v.keyword.toLowerCase(), v]))
+        for (const kw of keywords) {
+          const volume = volumeMap.get(kw.keyword.toLowerCase())
+          if (volume) {
+            kw.searchVolume = volume.avgMonthlySearches || 0
+            kw.competition = volume.competition
+            kw.competitionIndex = volume.competitionIndex
+            kw.lowTopPageBid = volume.lowTopPageBid
+            kw.highTopPageBid = volume.highTopPageBid
+          }
+        }
+
+        const withVolume = keywords.filter(k => k.searchVolume > 0).length
+        console.log(`✅ 搜索量查询完成: ${withVolume}/${keywords.length} 个关键词有搜索量`)
+      }
+    } catch (error) {
+      console.warn(`⚠️ 查询搜索量失败: ${error}`)
+      // 降级处理：保留原有的 searchVolume: 0
+    }
+  }
+
+  return keywords
 }
 
 // ============================================
