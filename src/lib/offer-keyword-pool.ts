@@ -21,7 +21,7 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
-import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
+import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
@@ -2224,6 +2224,14 @@ export async function generateOfferKeywordPool(
   // 🆕 2025-12-27: 关键词质量过滤
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
   const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
+  const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offer.brand || '')
+  const pureBrandKeywordsList = getPureBrandKeywords(offer.brand || '')
+  const shouldForceFullBrandPhrase =
+    Boolean(canonicalBrandKeyword) &&
+    canonicalBrandKeyword.includes(' ') &&
+    pureBrandKeywordsList.length === 1 &&
+    pureBrandKeywordsList[0] === canonicalBrandKeyword
+
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
     category: offer.category || undefined,
@@ -2233,6 +2241,8 @@ export async function generateOfferKeywordPool(
     productUrl: offer.final_url || offer.url || undefined,
     minWordCount: 1,
     maxWordCount: 8,
+    // 对“Dr./Mr./The + 名字”这类前缀型多词品牌，强制只保留包含完整纯品牌短语的关键词
+    mustContainBrand: shouldForceFullBrandPhrase,
     // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
     minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
       pageType: pageTypeForContextFilter
