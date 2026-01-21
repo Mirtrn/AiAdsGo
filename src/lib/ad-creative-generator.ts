@@ -20,7 +20,7 @@ import {
   deduplicateKeywordsWithPriority,
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
-import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
+import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
 
@@ -3735,10 +3735,22 @@ export async function generateAdCreative(
   const beforeFilterCount = keywordsWithVolume.length
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
   // targetCountry 已在外层作用域定义 (line 2767)
-  const brandKeywordLower = offerBrand.toLowerCase()
+  const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offerBrand)
+  const brandKeywordLower = canonicalBrandKeyword || offerBrand.toLowerCase().trim()
 
   // 🔥 2026-01-02: 获取完整纯品牌词列表
   const pureBrandKeywordsList = getPureBrandKeywords(offerBrand)
+  const shouldForceFullBrandPhrase =
+    canonicalBrandKeyword.includes(' ') &&
+    pureBrandKeywordsList.length === 1 &&
+    pureBrandKeywordsList[0] === canonicalBrandKeyword
+
+  const containsBrand = (keyword: string): boolean => {
+    const tokensToMatch = shouldForceFullBrandPhrase
+      ? [canonicalBrandKeyword]
+      : pureBrandKeywordsList
+    return containsPureBrand(keyword, tokensToMatch)
+  }
 
   // 第1步：分离品牌词、品牌相关词和非品牌词
   // 🔧 修复(2025-12-16): 品牌相关词（包含品牌名）也应该被保留，不受搜索量过滤
@@ -3750,10 +3762,9 @@ export async function generateAdCreative(
   const nonBrandKeywords: typeof keywordsWithVolume = []       // 不含品牌名
 
   keywordsWithVolume.forEach(kw => {
-    const kwLower = kw.keyword.toLowerCase()
     // 使用策略函数：判断是否应该使用 EXACT 匹配
     const isPureBrand = shouldUseExactMatch(kw.keyword, pureBrandKeywordsList)
-    const isBrandRelated = !isPureBrand && kwLower.includes(brandKeywordLower)
+    const isBrandRelated = !isPureBrand && containsBrand(kw.keyword)
 
     if (isPureBrand) {
       pureBrandKeywords.push(kw)
@@ -4047,6 +4058,40 @@ export async function generateAdCreative(
   const removedByIntent = beforeIntentFilter - finalKeywords.length
   console.log(`   ✅ 意图过滤完成: 移除 ${removedByIntent} 个低意图词，保留 ${finalKeywords.length} 个`)
 
+  // 🔒 兜底策略：对“标题型前缀”多词品牌（如 Dr. X / Mr. X）强制所有关键词都包含完整纯品牌短语
+  // 避免只命中“dr/mr”等弱品牌token导致的广泛流量
+  if (shouldForceFullBrandPhrase && canonicalBrandKeyword) {
+    console.log(`\n🔒 强制约束: 所有关键词必须包含纯品牌 "${canonicalBrandKeyword}"`)
+    const enforced: typeof finalKeywords = []
+    const seen = new Set<string>()
+
+    for (const kw of finalKeywords) {
+      const normalized = normalizeGoogleAdsKeyword(kw.keyword)
+      if (!normalized) continue
+
+      let enforcedKeyword = normalized
+      if (!containsPureBrand(enforcedKeyword, [canonicalBrandKeyword])) {
+        enforcedKeyword = normalizeGoogleAdsKeyword(`${canonicalBrandKeyword} ${normalized}`)
+      }
+
+      if (!enforcedKeyword) continue
+      if (!containsPureBrand(enforcedKeyword, [canonicalBrandKeyword])) continue
+      if (enforcedKeyword.split(' ').length > 10) continue
+      if (seen.has(enforcedKeyword)) continue
+      seen.add(enforcedKeyword)
+
+      const next = { ...kw, keyword: enforcedKeyword }
+      if (enforcedKeyword === canonicalBrandKeyword) {
+        next.matchType = 'EXACT'
+      }
+      enforced.push(next)
+    }
+
+    const before = finalKeywords.length
+    finalKeywords = enforced
+    console.log(`   ✅ 品牌强制约束完成: ${before} → ${finalKeywords.length}`)
+  }
+
   // 🔥 2025-01-01: 最终品类过滤 - 确保所有关键词都经过品类过滤
   // 在所有关键词来源合并后应用品类过滤，覆盖以下场景：
   // 1. 关键词池 (keywordPool) - 行 2625
@@ -4062,12 +4107,8 @@ export async function generateAdCreative(
   console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少50%）`)
 
   // 7.1 分离品牌词和非品牌词（包含品牌名的关键词 vs 不包含的）
-  const brandRelatedKws = finalKeywords.filter(kw =>
-    kw.keyword.toLowerCase().includes(brandKeywordLower)
-  )
-  const genericKws = finalKeywords.filter(kw =>
-    !kw.keyword.toLowerCase().includes(brandKeywordLower)
-  )
+  const brandRelatedKws = finalKeywords.filter(kw => containsBrand(kw.keyword))
+  const genericKws = finalKeywords.filter(kw => !containsBrand(kw.keyword))
 
   // 7.2 各自按搜索量排序
   brandRelatedKws.sort((a, b) => b.searchVolume - a.searchVolume)
@@ -4103,9 +4144,7 @@ export async function generateAdCreative(
   const filteredOutCount = beforeFilterCount - afterFilterCount
 
   // 计算最终品牌词比例
-  const finalBrandCount = keywordsWithVolume.filter(kw =>
-    kw.keyword.toLowerCase().includes(brandKeywordLower)
-  ).length
+  const finalBrandCount = keywordsWithVolume.filter(kw => containsBrand(kw.keyword)).length
   const brandRatio = afterFilterCount > 0 ? Math.round(finalBrandCount / afterFilterCount * 100) : 0
 
   console.log(`\n✅ 过滤完成:`)
@@ -4148,7 +4187,9 @@ export async function generateAdCreative(
   // 最终验证 - 确保所有关键词都有搜索量
   const finalKeywordCount = result.keywords.length
   const allHaveVolume = keywordsWithVolume.every(kw => kw.searchVolume > 0)
-  const hasBrandKeyword = keywordsWithVolume.some(kw => kw.keyword.toLowerCase() === brandKeywordLower && kw.searchVolume > 0)
+  const hasBrandKeyword = canonicalBrandKeyword
+    ? keywordsWithVolume.some(kw => normalizeGoogleAdsKeyword(kw.keyword) === canonicalBrandKeyword && kw.searchVolume > 0)
+    : keywordsWithVolume.some(kw => kw.keyword.toLowerCase() === brandKeywordLower && kw.searchVolume > 0)
 
   console.log(`\n🎯 最终验证:`)
   console.log(`   ✅ 关键词总数: ${finalKeywordCount} 个`)
