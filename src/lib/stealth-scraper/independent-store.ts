@@ -67,10 +67,12 @@ function extractLeadingBrandToken(text: string): string | null {
     .trim()
 
   if (!firstToken) return null
+  if (firstToken.length < 2) return null
+  if (!/[A-Za-z]/.test(firstToken)) return null
 
   // Reject obvious boilerplate tokens that show up on store/home titles.
   const lower = firstToken.toLowerCase().replace(/\.$/, '')
-  const rejected = new Set(['home', 'shop', 'store', 'official', 'website', 'online'])
+  const rejected = new Set(['the', 'a', 'an', 'home', 'shop', 'store', 'official', 'website', 'online'])
   if (rejected.has(lower)) return null
 
   return firstToken
