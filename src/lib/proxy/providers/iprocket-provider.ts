@@ -46,6 +46,12 @@ export class IPRocketProvider implements ProxyProvider {
       }
 
       const text = typeof resp.data === 'string' ? resp.data : String(resp.data ?? '')
+
+      // 🔍 记录响应内容用于诊断（如果看起来不正常）
+      if (text.length > 200 || !text.includes(':')) {
+        console.warn(`[IPRocket] 响应内容异常（前200字符）: ${text.substring(0, 200)}`)
+      }
+
       const firstLine = text.trim().split('\n')[0]?.trim()
       if (!firstLine) {
         throw new Error('empty response')
@@ -53,6 +59,12 @@ export class IPRocketProvider implements ProxyProvider {
 
       const parts = firstLine.split(':')
       if (parts.length !== 4) {
+        // 🔍 记录详细错误信息用于诊断
+        console.error(`[IPRocket] 代理格式错误详情:`)
+        console.error(`  期望格式: host:port:username:password (4个字段)`)
+        console.error(`  实际字段数: ${parts.length}`)
+        console.error(`  原始响应首行: ${firstLine}`)
+        console.error(`  各字段内容: ${JSON.stringify(parts)}`)
         throw new Error(`invalid proxy format (${parts.length} parts)`)
       }
 
@@ -148,11 +160,22 @@ export class IPRocketProvider implements ProxyProvider {
         throw new Error('代理IP响应为空')
       }
 
+      // 🔍 记录响应内容用于诊断（如果看起来不正常）
+      if (text.length > 200 || !text.includes(':')) {
+        console.warn(`[IPRocket Playwright] 响应内容异常（前200字符）: ${text.substring(0, 200)}`)
+      }
+
       // 解析代理字符串 (格式: host:port:username:password)
       const firstLine = text.trim().split('\n')[0].trim()
       const parts = firstLine.split(':')
 
       if (parts.length !== 4) {
+        // 🔍 记录详细错误信息用于诊断
+        console.error(`[IPRocket Playwright] 代理格式错误详情:`)
+        console.error(`  期望格式: host:port:username:password (4个字段)`)
+        console.error(`  实际字段数: ${parts.length}`)
+        console.error(`  原始响应首行: ${firstLine}`)
+        console.error(`  各字段内容: ${JSON.stringify(parts)}`)
         throw new Error(
           `代理IP格式错误: 期望4个字段，实际${parts.length}个字段`
         )
