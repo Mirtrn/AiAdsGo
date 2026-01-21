@@ -15,6 +15,7 @@ import { getTargetLanguage } from '@/lib/offer-utils'
 import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
 import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
 import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
+import { filterNavigationLabels } from '@/lib/scrape-text-filters'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -89,6 +90,14 @@ function deriveFallbackProductInfoFromExtractData(extractData: any): {
 } {
   if (!extractData || typeof extractData !== 'object') return {}
 
+  const isStorePage = (() => {
+    if (extractData.pageType === 'store') return true
+    const productsLen = Array.isArray(extractData.products) ? extractData.products.length : 0
+    const hasStoreName = typeof extractData.storeName === 'string' && extractData.storeName.trim().length > 0
+    const hasDeep = !!extractData.deepScrapeResults
+    return hasStoreName || hasDeep || productsLen >= 2
+  })()
+
   const brandDescription = pickNonEmptyString(
     extractData.productDescription,
     extractData.storeDescription,
@@ -99,9 +108,61 @@ function deriveFallbackProductInfoFromExtractData(extractData: any): {
     ? extractData.deepScrapeResults.topProducts
     : []
 
-  const deepFeatures = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
-  const uniqueSellingPoints = pickTopUniqueLines(deepFeatures, 4).join('\n') || undefined
-  const productHighlights = pickTopUniqueLines(deepFeatures, 3).join('\n') || undefined
+  const deepFeaturesRaw = deepTopProducts.flatMap((t: any) =>
+    Array.isArray(t?.productData?.features) ? t.productData.features : []
+  )
+  const deepFeatures = filterNavigationLabels(deepFeaturesRaw).filter((line) => line.length <= 200)
+
+  const storeCatalogCandidatesRaw: unknown[] = []
+  const primaryCategories = Array.isArray(extractData?.productCategories?.primaryCategories)
+    ? extractData.productCategories.primaryCategories
+    : []
+  for (const c of primaryCategories) {
+    if (typeof c?.name === 'string') storeCatalogCandidatesRaw.push(c.name)
+  }
+  const products = Array.isArray(extractData?.products) ? extractData.products : []
+  for (const p of products) {
+    if (typeof p?.name === 'string') storeCatalogCandidatesRaw.push(p.name)
+  }
+  for (const t of deepTopProducts) {
+    const name = (t as any)?.productData?.productName
+    if (typeof name === 'string') storeCatalogCandidatesRaw.push(name)
+    const category = (t as any)?.productData?.category
+    if (typeof category === 'string') storeCatalogCandidatesRaw.push(category)
+  }
+  const storeCatalogCandidates = filterNavigationLabels(storeCatalogCandidatesRaw).filter((line) => line.length <= 120)
+  const storeCatalogLines = pickTopUniqueLines(storeCatalogCandidates, 8)
+
+  const valueLine = (() => {
+    const desc = pickNonEmptyString(extractData.storeDescription, extractData.productDescription, extractData.metaDescription)
+    if (!desc) return null
+    const lower = desc.toLowerCase()
+    if (lower.includes('great value')) return 'Great value across key departments.'
+    if (lower.includes('great values')) return 'Great values across key departments.'
+    if (lower.includes('discount')) return 'Discount-friendly shopping across popular categories.'
+    return null
+  })()
+
+  const catalogSummaryLine = (() => {
+    if (!isStorePage) return null
+    if (storeCatalogLines.length === 0) return null
+    const items = storeCatalogLines.slice(0, 5)
+    const label = items.length > 3 ? items.slice(0, 4).join(', ') : items.join(', ')
+    return `Popular categories: ${label}.`
+  })()
+
+  const uniqueSellingPointsLines = [
+    ...(valueLine ? [valueLine] : []),
+    ...(catalogSummaryLine ? [catalogSummaryLine] : []),
+    ...pickTopUniqueLines(deepFeatures, 4),
+  ]
+  const uniqueSellingPoints = uniqueSellingPointsLines.slice(0, 4).join('\n') || undefined
+
+  const productHighlightsLines = [
+    ...pickTopUniqueLines(deepFeatures, 3),
+    ...(isStorePage ? storeCatalogLines.slice(0, 5) : []),
+  ]
+  const productHighlights = productHighlightsLines.slice(0, 5).join('\n') || undefined
 
   const category = deriveCategoryFromScrapedData(JSON.stringify(extractData)) || undefined
 
@@ -115,6 +176,8 @@ function deriveFallbackProductInfoFromExtractData(extractData: any): {
       targetAudience = 'Usuarios domésticos y familias que buscan protección de ciberseguridad.'
     } else if (s.includes('empresa')) {
       targetAudience = 'Empresas que buscan protección de ciberseguridad.'
+    } else if (s.includes('entire family') || s.includes('whole family') || s.includes('for the family')) {
+      targetAudience = 'Families shopping for everyday essentials.'
     }
   }
 

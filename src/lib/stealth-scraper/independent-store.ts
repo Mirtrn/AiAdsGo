@@ -33,6 +33,7 @@ import {
   getRegistrableDomainLabelFromUrl,
   refineBrandNameForLandingPage,
 } from '../landing-page-scrape-utils'
+import { isLikelyNavigationLabel, normalizeScrapedTextLine } from '../scrape-text-filters'
 
 const PROXY_URL = process.env.PROXY_URL || ''
 
@@ -702,6 +703,28 @@ function calculateDiscount(currentPrice: string | null, originalPrice: string | 
 function extractFeatures($: ReturnType<typeof import('cheerio').load>): string[] {
   const features: string[] = []
 
+  const isInNavigationContext = (el: any): boolean => {
+    try {
+      const $el = $(el)
+      return $el.closest(
+        [
+          'nav',
+          'header',
+          'footer',
+          '.my-account-details',
+          '.sign-in-dropdown',
+          '[class*="account"]',
+          '[id*="account"]',
+          '[class*="utilitynav"]',
+          '[class*="breadcrumb"]',
+          '[class*="navbar"]',
+        ].join(', ')
+      ).length > 0
+    } catch {
+      return false
+    }
+  }
+
   // Try different feature selectors
   const featureSelectors = [
     '[class*="product-feature"] li',
@@ -713,10 +736,16 @@ function extractFeatures($: ReturnType<typeof import('cheerio').load>): string[]
 
   for (const selector of featureSelectors) {
     $(selector).each((i, el) => {
-      const text = $(el).text().trim()
-      if (text && text.length > 5 && text.length < 500 && !features.includes(text)) {
-        features.push(text)
-      }
+      const text = normalizeScrapedTextLine($(el).text())
+      if (!text) return
+      if (text.length <= 5 || text.length >= 500) return
+      if (isLikelyNavigationLabel(text)) return
+      if (isInNavigationContext(el)) return
+
+      // Case-insensitive dedupe
+      const key = text.toLowerCase()
+      if (features.some((f) => f.toLowerCase() === key)) return
+      features.push(text)
     })
     if (features.length >= 10) break
   }

@@ -3,6 +3,7 @@ import { findOfferById, updateOffer, deleteOffer } from '@/lib/offers'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { z } from 'zod'
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from '@/lib/offer-category'
+import { filterNavigationLabels } from '@/lib/scrape-text-filters'
 
 function safeParseJson<T>(input: unknown): T | null {
   if (typeof input !== 'string' || !input.trim()) return null
@@ -145,10 +146,38 @@ function buildStoreDescriptionFromScrapedData(scrapedData: any): {
     })
     .filter((v: any): v is string => typeof v === 'string' && v.trim().length > 0)
 
-  const features = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
+  const featuresRaw = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
+  const features = filterNavigationLabels(featuresRaw)
   const rawFeatureLines = pickTopLines(features, 20)
   const uniqueSellingPointsLines = pickTopLines(rawFeatureLines.map(featureHeading), 4)
   const productHighlightsLines = pickTopLines(rawFeatureLines.map(featureDetail), 3)
+
+  // 店铺页兜底：若没有可用features，则从“分类/产品名”拼一个可读的亮点列表
+  if (productHighlightsLines.length === 0) {
+    const catalogCandidatesRaw: unknown[] = []
+    const primaryCategories = Array.isArray(scrapedData?.productCategories?.primaryCategories)
+      ? scrapedData.productCategories.primaryCategories
+      : []
+    for (const c of primaryCategories) {
+      if (typeof c?.name === 'string') catalogCandidatesRaw.push(c.name)
+    }
+    const products = Array.isArray(scrapedData?.products) ? scrapedData.products : []
+    for (const p of products) {
+      if (typeof p?.name === 'string') catalogCandidatesRaw.push(p.name)
+    }
+    for (const t of deepTopProducts) {
+      const name = t?.productData?.productName
+      if (typeof name === 'string') catalogCandidatesRaw.push(name)
+    }
+    const catalogCandidates = filterNavigationLabels(catalogCandidatesRaw)
+    const topCatalogLines = pickTopLines(catalogCandidates, 5)
+    if (topCatalogLines.length > 0) {
+      productHighlightsLines.push(...topCatalogLines.slice(0, 3))
+      if (uniqueSellingPointsLines.length === 0) {
+        uniqueSellingPointsLines.push(`Popular categories: ${topCatalogLines.slice(0, 4).join(', ')}.`)
+      }
+    }
+  }
 
   const brandParts: string[] = []
   if (storeDescription) {

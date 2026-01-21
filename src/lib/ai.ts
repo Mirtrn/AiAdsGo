@@ -85,6 +85,30 @@ export interface ProductInfo {
   pageType?: 'store' | 'product'
 }
 
+function ensureStorePromptHasOutputSchema(prompt: string): string {
+  const hasCoreFields =
+    /"brandDescription"\s*:/.test(prompt) &&
+    /"uniqueSellingPoints"\s*:/.test(prompt) &&
+    /"productHighlights"\s*:/.test(prompt) &&
+    /"targetAudience"\s*:/.test(prompt)
+
+  if (hasCoreFields) return prompt
+
+  return `${prompt}
+
+=== REQUIRED OUTPUT JSON SCHEMA (MUST FOLLOW) ===
+Return a SINGLE JSON object with these fields:
+{
+  "brandDescription": "1-3 paragraphs summarizing the brand/store value proposition",
+  "uniqueSellingPoints": ["3-6 bullets", "specific, non-navigation", "customer-facing"],
+  "productHighlights": ["3-6 bullets", "top categories / flagship products / key benefits"],
+  "targetAudience": "1-2 sentences describing ideal customers",
+  "category": "ONE category in {{langName}} (examples: {{categoryExamples}})",
+  "keywords": ["12-25 high-intent keywords"],
+  "pageType": "store"
+}`
+}
+
 /**
  * 使用Gemini AI分析网页内容，提取产品信息
  */
@@ -155,6 +179,39 @@ export async function analyzeProductPage(
       const pageDataDescription = pageData.description
       const pageDataText = pageData.text.slice(0, 10000)
 
+      // 🔥 2026-01-21：店铺prompt也可能引用增强数据占位符（例如 v4.16）
+      // 生产环境中若不替换，会让模型看到原样 {{reviews}} 等占位符，导致输出不稳定。
+      const reviewsText = pageData.reviews && pageData.reviews.length > 0
+        ? pageData.reviews.slice(0, 10).map((r, i) =>
+            `Review ${i + 1}:\n` +
+            `  Rating: ${r.rating}/5\n` +
+            `  Author: ${r.author} ${r.verifiedBuyer ? '(Verified)' : ''}\n` +
+            `  Date: ${r.date}\n` +
+            `  Title: ${r.title}\n` +
+            `  Body: ${r.body.substring(0, 200)}${r.body.length > 200 ? '...' : ''}`
+          ).join('\n\n')
+        : 'Not available (store page)'
+
+      const faqsText = pageData.faqs && pageData.faqs.length > 0
+        ? pageData.faqs.slice(0, 10).map((faq, i) =>
+            `Q${i + 1}: ${faq.question}\nA${i + 1}: ${faq.answer}`
+          ).join('\n\n')
+        : 'Not available (store page)'
+
+      const specificationsText = pageData.specifications && Object.keys(pageData.specifications).length > 0
+        ? Object.entries(pageData.specifications)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n')
+        : 'Not available (store page)'
+
+      const socialProofText = pageData.socialProof && pageData.socialProof.length > 0
+        ? pageData.socialProof.map(sp => `${sp.metric}: ${sp.value}`).join('\n')
+        : 'Not available (store page)'
+
+      const coreFeaturesText = pageData.coreFeatures && pageData.coreFeatures.length > 0
+        ? '- ' + pageData.coreFeatures.join('\n- ')
+        : 'Not available (store page)'
+
       // 🎯 P1优化: 格式化technicalDetails和reviewHighlights供AI使用（店铺页面通常无单品数据）
       const technicalDetailsText = pageData.technicalDetails && Object.keys(pageData.technicalDetails).length > 0
         ? Object.entries(pageData.technicalDetails)
@@ -167,7 +224,7 @@ export async function analyzeProductPage(
         : 'Not available (store page)'
 
       // 🎨 插值替换模板变量
-      prompt = promptTemplate
+      prompt = ensureStorePromptHasOutputSchema(promptTemplate)
         .replace(/\{\{pageData\.url\}\}/g, pageDataUrl)
         .replace(/\{\{pageData\.brand\}\}/g, pageDataBrand)
         .replace('{{pageData.title}}', pageDataTitle)
@@ -175,6 +232,11 @@ export async function analyzeProductPage(
         .replace('{{pageData.text}}', pageDataText)
         .replace('{{technicalDetails}}', technicalDetailsText)
         .replace('{{reviewHighlights}}', reviewHighlightsText)
+        .replace('{{reviews}}', reviewsText)
+        .replace('{{faqs}}', faqsText)
+        .replace('{{specifications}}', specificationsText)
+        .replace('{{socialProof}}', socialProofText)
+        .replace('{{coreFeatures}}', coreFeaturesText)
         .replace(/\{\{langName\}\}/g, langName)
         .replace(/\{\{categoryExamples\}\}/g, categoryExamples)
     } else {
@@ -1311,4 +1373,3 @@ export async function extractBrandFromContent(
     throw new Error(`AI品牌提取失败: ${error.message}`)
   }
 }
-
