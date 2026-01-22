@@ -8,15 +8,14 @@
 -- SQLite syntax
 BEGIN TRANSACTION;
 
--- 1. 停用旧版本 v4.16
+-- 1) 取消当前激活版本（确保只保留一个 active）
 UPDATE prompt_versions
 SET is_active = 0
-WHERE prompt_id = 'product_analysis_single'
-  AND version = 'v4.16'
-  AND is_active = 1;
+WHERE prompt_id = 'product_analysis_single' AND is_active = 1;
 
--- 2. 插入新版本 v4.17
-INSERT INTO prompt_versions (
+-- 2) 幂等写入新版本（若已存在则更新内容）
+INSERT OR REPLACE INTO prompt_versions (
+  id,
   prompt_id,
   version,
   category,
@@ -26,10 +25,12 @@ INSERT INTO prompt_versions (
   function_name,
   prompt_content,
   language,
+  created_by,
   is_active,
   change_notes,
   created_at
 ) VALUES (
+  (SELECT id FROM prompt_versions WHERE prompt_id = 'product_analysis_single' AND version = 'v4.17'),
   'product_analysis_single',
   'v4.17',
   '产品分析',
@@ -140,6 +141,7 @@ Return COMPLETE JSON:
 - 🔥 Leverage User Reviews, FAQs, and Social Proof data for deeper insights
 - 🔥 Prioritize customer-validated features over marketing claims',
   'English',
+  NULL,
   1,
   'v4.17 修复内容:
 1. 🔥 修复 productDescription 字段说明：从 "Detailed description emphasizing technical specs and reviews" 改为明确的品牌故事描述

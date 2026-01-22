@@ -6,16 +6,12 @@
 -- 修复：明确 productDescription 应该是品牌故事，而非产品特性列表
 
 -- PostgreSQL syntax
-BEGIN;
-
--- 1. 停用旧版本 v4.16
+-- 1) 取消当前激活版本（确保只保留一个 active）
 UPDATE prompt_versions
-SET is_active = false
-WHERE prompt_id = 'product_analysis_single'
-  AND version = 'v4.16'
-  AND is_active = true;
+SET is_active = FALSE
+WHERE prompt_id = 'product_analysis_single' AND is_active = TRUE;
 
--- 2. 插入新版本 v4.17
+-- 2) 幂等写入新版本（若已存在则更新内容）
 INSERT INTO prompt_versions (
   prompt_id,
   version,
@@ -152,18 +148,19 @@ $PROMPT$,
 - 受影响表：prompt_versions
 - 影响的offer字段：brand_description (通过 AI 分析生成)
 - 已知问题：39个offers的brand_description包含"About this item"内容（可通过重新分析修复）'
-);
+)
+ON CONFLICT (prompt_id, version) DO UPDATE SET
+  category = EXCLUDED.category,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  file_path = EXCLUDED.file_path,
+  function_name = EXCLUDED.function_name,
+  prompt_content = EXCLUDED.prompt_content,
+  language = EXCLUDED.language,
+  change_notes = EXCLUDED.change_notes,
+  is_active = EXCLUDED.is_active;
 
--- 3. 验证迁移结果
-SELECT
-  prompt_id,
-  version,
-  name,
-  is_active,
-  LEFT(change_notes, 100) as notes_preview
-FROM prompt_versions
-WHERE prompt_id = 'product_analysis_single'
-  AND version IN ('v4.16', 'v4.17')
-ORDER BY version DESC;
-
-COMMIT;
+-- 3) 激活新版本
+UPDATE prompt_versions
+SET is_active = TRUE
+WHERE prompt_id = 'product_analysis_single' AND version = 'v4.17';
