@@ -1829,6 +1829,9 @@ export async function expandKeywordsWithSeeds(params: {
     console.log(`   📊 准备查询 ${totalKeywords} 个关键词的精确搜索量`)
 
     let disableSearchVolumeFilter = false
+    // 🔧 修复(2026-01-22): 跟踪已验证的关键词，防止使用 Keyword Ideas 的估算值
+    const verifiedKeywords = new Set<string>()
+
     if (totalKeywords > 0) {
       // 分批处理，每批最多1000个关键词
       for (let i = 0; i < results.length; i += BATCH_SIZE) {
@@ -1856,6 +1859,8 @@ export async function expandKeywordsWithSeeds(params: {
             const canonical = vol.keyword.toLowerCase().trim()
             const existing = keywordMap.get(canonical)
             if (existing) {
+              // 🔧 修复(2026-01-22): 标记为已验证
+              verifiedKeywords.add(canonical)
               keywordMap.set(canonical, {
                 ...existing,
                 searchVolume: vol.avgMonthlySearches,
@@ -1872,6 +1877,24 @@ export async function expandKeywordsWithSeeds(params: {
       }
 
       console.log(`   ✅ 所有关键词搜索量查询完成`)
+
+      // 🔧 修复(2026-01-22): 对于未被验证的关键词，将搜索量设为 0
+      // 这些关键词使用的是 Keyword Ideas 的估算值，而非 Historical Metrics 的真实值
+      if (!disableSearchVolumeFilter) {
+        let unverifiedCount = 0
+        for (const [canonical, kw] of keywordMap) {
+          if (!verifiedKeywords.has(canonical) && kw.searchVolume > 0) {
+            keywordMap.set(canonical, {
+              ...kw,
+              searchVolume: 0,  // 重置为 0，因为没有真实搜索量数据
+            })
+            unverifiedCount++
+          }
+        }
+        if (unverifiedCount > 0) {
+          console.log(`   ⚠️ 重置了 ${unverifiedCount} 个未验证关键词的搜索量（Keyword Ideas 估算值 → 0）`)
+        }
+      }
 
       // 重新生成数组，确保更新后的搜索量生效
       results = Array.from(keywordMap.values())

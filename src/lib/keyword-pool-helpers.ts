@@ -9,6 +9,7 @@
 
 import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
+import { getKeywordSearchVolumes } from './keyword-planner'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
@@ -327,6 +328,46 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     }
 
     console.log(`\n   📊 Keyword Planner 迭代完成: ${allKeywords.size} 个关键词`)
+
+    // 🔧 修复(2026-01-22): 查询品牌词的真实搜索量
+    // 品牌词以 BRAND_SEED 来源初始化时 searchVolume=0，需要查询真实搜索量
+    const brandSeedKeywords = Array.from(allKeywords.values())
+      .filter(kw => kw.source === 'BRAND_SEED' && kw.searchVolume === 0)
+
+    if (brandSeedKeywords.length > 0 && userId) {
+      console.log(`\n   📊 查询 ${brandSeedKeywords.length} 个品牌词的真实搜索量...`)
+      try {
+        const brandVolumes = await getKeywordSearchVolumes(
+          brandSeedKeywords.map(kw => kw.keyword),
+          targetCountry,
+          targetLanguage,
+          userId
+        )
+
+        // 更新品牌词搜索量
+        let updatedCount = 0
+        for (const vol of brandVolumes) {
+          const canonical = normalizeGoogleAdsKeyword(vol.keyword)
+          if (canonical && allKeywords.has(canonical)) {
+            const existing = allKeywords.get(canonical)!
+            if (vol.avgMonthlySearches > 0) {
+              allKeywords.set(canonical, {
+                ...existing,
+                searchVolume: vol.avgMonthlySearches,
+                competition: vol.competition || existing.competition,
+                competitionIndex: vol.competitionIndex || existing.competitionIndex,
+                lowTopPageBid: vol.lowTopPageBid || existing.lowTopPageBid,
+                highTopPageBid: vol.highTopPageBid || existing.highTopPageBid,
+              })
+              updatedCount++
+            }
+          }
+        }
+        console.log(`      ✅ 更新了 ${updatedCount}/${brandSeedKeywords.length} 个品牌词的搜索量`)
+      } catch (error: any) {
+        console.warn(`      ⚠️ 品牌词搜索量查询失败: ${error.message}`)
+      }
+    }
 
     if (allKeywords.size === 0) {
       console.warn(`   ⚠️ Keyword Planner 未返回可用关键词，回退到初始关键词(${fallbackKeywords.length}个)`)
