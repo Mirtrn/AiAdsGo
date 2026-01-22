@@ -24,13 +24,30 @@ type GoogleAdsPolicyViolationDetails = {
   }
 }
 
+type GoogleAdsPolicyTopicEntry = {
+  topic?: string
+  type?: string
+  evidences?: unknown[]
+  constraints?: unknown[]
+}
+
+type GoogleAdsPolicyFindingDetails = {
+  policy_topic_entries?: GoogleAdsPolicyTopicEntry[]
+  policyTopicEntries?: GoogleAdsPolicyTopicEntry[]
+}
+
 type GoogleAdsError = {
   message?: string
   error_code?: Record<string, unknown>
   errorCode?: Record<string, unknown>
   trigger?: { string_value?: string; stringValue?: string }
   location?: GoogleAdsLocation
-  details?: { policy_violation_details?: GoogleAdsPolicyViolationDetails }
+  details?: {
+    policy_violation_details?: GoogleAdsPolicyViolationDetails
+    policyViolationDetails?: GoogleAdsPolicyViolationDetails
+    policy_finding_details?: GoogleAdsPolicyFindingDetails
+    policyFindingDetails?: GoogleAdsPolicyFindingDetails
+  }
 }
 
 type GoogleAdsFailure = {
@@ -50,6 +67,40 @@ function uniq<T>(items: T[]): T[] {
 function truncateList(items: string[], maxItems: number): string[] {
   if (items.length <= maxItems) return items
   return [...items.slice(0, maxItems), `+${items.length - maxItems}`]
+}
+
+function extractEvidenceTexts(evidences: unknown): string[] {
+  const results: string[] = []
+  const maxDepth = 6
+  const maxItems = 24
+  const keyRegex = /(text|url|website|domain|keyword|query|phrase|product|brand)/i
+
+  const visit = (value: unknown, keyHint: string | null, depth: number) => {
+    if (results.length >= maxItems || depth > maxDepth) return
+    if (typeof value === 'string') {
+      if (!keyHint || !keyRegex.test(keyHint)) return
+      const cleaned = normalizeWhitespace(value)
+      if (!cleaned || cleaned.length > 200) return
+      results.push(cleaned)
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item, keyHint, depth + 1)
+        if (results.length >= maxItems) break
+      }
+      return
+    }
+    if (value && typeof value === 'object') {
+      for (const [key, val] of Object.entries(value)) {
+        visit(val, key, depth + 1)
+        if (results.length >= maxItems) break
+      }
+    }
+  }
+
+  visit(evidences, null, 0)
+  return uniq(results)
 }
 
 function getFieldPath(location: GoogleAdsLocation | undefined): string | undefined {
@@ -94,7 +145,7 @@ export function formatGoogleAdsApiError(
 
   const policyViolations = errors
     .map((e) => {
-      const details = e.details?.policy_violation_details
+      const details = e.details?.policy_violation_details ?? e.details?.policyViolationDetails
       if (!details) return null
       const key = details.key || {}
       const violatingText =
@@ -159,6 +210,56 @@ export function formatGoogleAdsApiError(
     return `Google Ads 政策违规：${groupSummaries.join('；')}${reqPart}`
   }
 
+  const policyFindings = errors
+    .map((e) => {
+      const details = e.details?.policy_finding_details ?? e.details?.policyFindingDetails
+      const entries = details?.policy_topic_entries ?? details?.policyTopicEntries
+      if (!entries || !Array.isArray(entries)) return []
+      return entries.map((entry) => ({
+        topic: typeof entry?.topic === 'string' ? normalizeWhitespace(entry.topic) : undefined,
+        type: typeof entry?.type === 'string' ? normalizeWhitespace(entry.type) : undefined,
+        evidences: extractEvidenceTexts(entry?.evidences),
+        fieldPath: getFieldPath(e.location),
+      }))
+    })
+    .flat()
+
+  if (policyFindings.length > 0) {
+    const grouped = new Map<string, typeof policyFindings>()
+    for (const finding of policyFindings) {
+      const groupKey = `${finding.topic || ''}|${finding.type || ''}`
+      const existing = grouped.get(groupKey)
+      if (existing) existing.push(finding)
+      else grouped.set(groupKey, [finding])
+    }
+
+    const groupSummaries = Array.from(grouped.values()).map((group) => {
+      const first = group[0]
+      const topicLabel = first.topic || 'Policy topic'
+      const typeSuffix = first.type ? ` (类型: ${first.type})` : ''
+      const evidenceTexts = truncateList(
+        uniq(group.flatMap(item => item.evidences || [])),
+        maxViolatingTexts
+      )
+      const fieldPaths = truncateList(
+        uniq(group.map(item => item.fieldPath).filter((p): p is string => Boolean(p))),
+        3
+      )
+
+      const parts: string[] = []
+      parts.push(`${topicLabel}${typeSuffix}`)
+      if (evidenceTexts.length > 0) {
+        parts.push(`触发文本: ${evidenceTexts.join(', ')}`)
+      } else if (fieldPaths.length > 0) {
+        parts.push(`触发字段: ${fieldPaths.join(', ')}`)
+      }
+      return parts.join('；')
+    })
+
+    const reqPart = requestId ? `；RequestId=${requestId}` : ''
+    return `Google Ads 政策审核未通过：${groupSummaries.join('；')}${reqPart}`
+  }
+
   const messages = uniq(
     errors
       .map(e => (typeof e.message === 'string' ? normalizeWhitespace(e.message) : ''))
@@ -172,4 +273,3 @@ export function formatGoogleAdsApiError(
 
   return requestId ? `${fallbackMessage}；RequestId=${requestId}` : fallbackMessage
 }
-

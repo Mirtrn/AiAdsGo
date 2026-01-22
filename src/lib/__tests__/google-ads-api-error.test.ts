@@ -71,9 +71,45 @@ describe('formatGoogleAdsApiError', () => {
     expect(message).toContain('RequestId=req-123')
   })
 
+  it('formats policy_finding_details with policy topics', () => {
+    const message = formatGoogleAdsApiError({
+      request_id: 'Yp-jcEUbWe0fuQvm-GceSA',
+      errors: [
+        {
+          message:
+            'The resource has been disapproved since the policy summary includes policy topics of type PROHIBITED.',
+          error_code: { policy_finding_error: 2 },
+          location: {
+            field_path_elements: [
+              { field_name: 'operations', index: 0 },
+              { field_name: 'create' },
+              { field_name: 'ad' },
+            ],
+          },
+          details: {
+            policy_finding_details: {
+              policy_topic_entries: [
+                {
+                  topic: 'Misrepresentation',
+                  type: 'PROHIBITED',
+                  evidences: [{ text_list: { texts: ['dr mercola liposomal vitamin c'] } }],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    })
+
+    expect(message).toContain('Google Ads 政策审核未通过')
+    expect(message).toContain('Misrepresentation')
+    expect(message).toContain('类型: PROHIBITED')
+    expect(message).toContain('dr mercola liposomal vitamin c')
+    expect(message).toContain('RequestId=Yp-jcEUbWe0fuQvm-GceSA')
+  })
+
   it('handles non-object errors', () => {
     expect(formatGoogleAdsApiError('bad')).toBe('bad')
     expect(formatGoogleAdsApiError(new Error('boom'))).toBe('boom')
   })
 })
-
