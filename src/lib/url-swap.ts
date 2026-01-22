@@ -13,6 +13,7 @@ import { boolParam } from './db-helpers'
 import type {
   UrlSwapTask,
   UrlSwapTaskStatus,
+  UrlSwapMode,
   CreateUrlSwapTaskRequest,
   UpdateUrlSwapTaskRequest,
   SwapHistoryEntry,
@@ -31,6 +32,15 @@ export async function createUrlSwapTask(
   const db = await getDatabase()
   const now = new Date().toISOString()
 
+  const swapMode: UrlSwapMode = normalizeUrlSwapMode(input.swap_mode)
+  const manualSuffixes = swapMode === 'manual'
+    ? normalizeManualFinalUrlSuffixes(input.manual_final_url_suffixes)
+    : []
+
+  if (swapMode === 'manual' && manualSuffixes.length === 0) {
+    throw new Error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）')
+  }
+
   // 1. 验证任务配置
   const intervalMinutes = input.swap_interval_minutes ?? 60
   const durationDays = input.duration_days ?? 7
@@ -45,22 +55,37 @@ export async function createUrlSwapTask(
     throw new Error('Offer不存在或已被删除')
   }
 
-  // 3. 验证代理配置
-  const validation = await validateUrlSwapTask(input.offer_id)
-  if (!validation.valid) {
-    throw new Error(validation.error)
+  if (swapMode === 'auto') {
+    if (!offer.affiliate_link) {
+      throw new Error('Offer未配置联盟推广链接，无法创建换链任务')
+    }
+
+    // 3. 验证代理配置（方式一必须）
+    const validation = await validateUrlSwapTask(input.offer_id)
+    if (!validation.valid) {
+      throw new Error(validation.error)
+    }
   }
 
-  // 4. 解析推广链接（首次解析，禁用缓存）
-  const resolved = await resolveAffiliateLink(offer.affiliate_link, {
-    targetCountry: offer.target_country,
-    skipCache: true
-  })
+  // 4. 初始化当前URL（方式一：首次解析；方式二：使用Offer已保存的final_url/final_url_suffix）
+  const resolved: { finalUrl: string | null; finalUrlSuffix: string | null } = swapMode === 'auto'
+    ? await resolveAffiliateLink(offer.affiliate_link, {
+        targetCountry: offer.target_country,
+        skipCache: true
+      })
+    : {
+        finalUrl: offer.final_url || null,
+        finalUrlSuffix: offer.final_url_suffix || null,
+      }
 
   // 5. 获取关联的Campaign
   const campaign = await getCampaignByOfferId(input.offer_id, userId)
-  const googleCustomerId = input.google_customer_id ?? campaign?.customer_id ?? null
-  const googleCampaignId = input.google_campaign_id ?? campaign?.campaign_id ?? null
+  const googleCustomerId = normalizeNullableString(input.google_customer_id) ?? campaign?.customer_id ?? null
+  const googleCampaignId = normalizeNullableString(input.google_campaign_id) ?? campaign?.campaign_id ?? null
+
+  if (!googleCustomerId || !googleCampaignId) {
+    throw new Error('缺少 Customer ID 或 Campaign ID，无法创建换链任务（请先完成Campaign发布并关联到Offer）')
+  }
 
   // 6. 生成任务ID
   const taskId = crypto.randomUUID().toLowerCase()
@@ -68,18 +93,29 @@ export async function createUrlSwapTask(
   // 7. 计算首次执行时间
   const nextSwapAt = calculateNextSwapAt(intervalMinutes)
 
+  // 手动模式：根据当前suffix定位下一次游标，避免第一次执行重复写入当前值
+  let manualSuffixCursor = 0
+  if (swapMode === 'manual' && manualSuffixes.length > 0) {
+    const currentSuffix = (resolved.finalUrlSuffix || '').trim()
+    if (currentSuffix) {
+      const idx = manualSuffixes.findIndex(s => s === currentSuffix)
+      if (idx >= 0) manualSuffixCursor = (idx + 1) % manualSuffixes.length
+    }
+  }
+
   // 8. 创建任务
   await db.exec(`
     INSERT INTO url_swap_tasks (
       id, user_id, offer_id,
       swap_interval_minutes, enabled, duration_days,
+      swap_mode, manual_final_url_suffixes, manual_suffix_cursor,
       google_customer_id, google_campaign_id,
       current_final_url, current_final_url_suffix,
       progress, total_swaps, success_swaps, failed_swaps, url_changed_count,
       swap_history,
       status, started_at, next_swap_at,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     taskId,
     userId,
@@ -87,6 +123,9 @@ export async function createUrlSwapTask(
     intervalMinutes,
     true,  // enabled
     durationDays,
+    swapMode,
+    JSON.stringify(manualSuffixes),
+    manualSuffixCursor,
     googleCustomerId,
     googleCampaignId,
     resolved.finalUrl,
@@ -241,6 +280,18 @@ export async function updateUrlSwapTask(
     ? null
     : updates.google_campaign_id
 
+  const swapModeAfter: UrlSwapMode = updates.swap_mode !== undefined
+    ? normalizeUrlSwapMode(updates.swap_mode)
+    : existingTask.swap_mode
+
+  const manualSuffixesAfter = updates.manual_final_url_suffixes !== undefined
+    ? normalizeManualFinalUrlSuffixes(updates.manual_final_url_suffixes)
+    : existingTask.manual_final_url_suffixes
+
+  if (swapModeAfter === 'manual' && manualSuffixesAfter.length === 0) {
+    throw new Error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）')
+  }
+
   // 验证更新字段（用“更新后”的配置进行验证，避免仅更新单字段时误用默认值）
   if (updates.swap_interval_minutes !== undefined || updates.duration_days !== undefined) {
     const interval = updates.swap_interval_minutes ?? existingTask.swap_interval_minutes
@@ -272,6 +323,28 @@ export async function updateUrlSwapTask(
   if (updates.google_campaign_id !== undefined) {
     fields.push('google_campaign_id = ?')
     values.push(normalizedGoogleCampaignId)
+  }
+
+  if (updates.swap_mode !== undefined) {
+    fields.push('swap_mode = ?')
+    values.push(swapModeAfter)
+  }
+
+  if (updates.manual_final_url_suffixes !== undefined) {
+    fields.push('manual_final_url_suffixes = ?')
+    values.push(JSON.stringify(manualSuffixesAfter))
+  }
+
+  // 手动模式：当切换模式或更新suffix列表时，重算游标（从“当前suffix”的下一个开始）
+  if (
+    swapModeAfter === 'manual' &&
+    (updates.swap_mode !== undefined || updates.manual_final_url_suffixes !== undefined)
+  ) {
+    const currentSuffix = (existingTask.current_final_url_suffix || '').trim()
+    const idx = manualSuffixesAfter.findIndex(s => s === currentSuffix)
+    const nextCursor = idx >= 0 ? (idx + 1) % manualSuffixesAfter.length : 0
+    fields.push('manual_suffix_cursor = ?')
+    values.push(nextCursor)
   }
 
   // 从 error 状态编辑更新，视为用户已干预：清理错误并恢复为 enabled
@@ -537,8 +610,11 @@ export async function recordSwapHistory(
  */
 export async function updateTaskAfterSwap(
   taskId: string,
-  newFinalUrl: string,
-  newFinalUrlSuffix: string
+  newFinalUrl: string | null,
+  newFinalUrlSuffix: string,
+  options?: {
+    manualSuffixCursor?: number
+  }
 ): Promise<void> {
   const db = await getDatabase()
   const task = await getUrlSwapTaskById(taskId, 0)
@@ -547,9 +623,16 @@ export async function updateTaskAfterSwap(
   const now = new Date().toISOString()
   const nextSwapAt = calculateNextSwapAt(task.swap_interval_minutes)
 
+  const extraFields: string[] = []
+  const extraValues: any[] = []
+  if (options?.manualSuffixCursor !== undefined) {
+    extraFields.push('manual_suffix_cursor = ?')
+    extraValues.push(options.manualSuffixCursor)
+  }
+
   await db.exec(`
     UPDATE url_swap_tasks
-    SET current_final_url = ?,
+    SET current_final_url = COALESCE(?, current_final_url),
         current_final_url_suffix = ?,
         total_swaps = total_swaps + 1,
         success_swaps = success_swaps + 1,
@@ -557,12 +640,36 @@ export async function updateTaskAfterSwap(
         consecutive_failures = 0,
         error_message = NULL,
         error_at = NULL,
+        ${extraFields.length > 0 ? `${extraFields.join(', ')},` : ''}
         next_swap_at = ?,
         updated_at = ?
     WHERE id = ?
-  `, [newFinalUrl, newFinalUrlSuffix, nextSwapAt.toISOString(), now, taskId])
+  `, [newFinalUrl, newFinalUrlSuffix, ...extraValues, nextSwapAt.toISOString(), now, taskId])
 
   console.log(`[url-swap] 换链成功更新: ${taskId}`)
+}
+
+/**
+ * 手动模式：执行成功但suffix未变化（仍需前进游标）
+ */
+export async function updateTaskAfterManualAdvance(
+  taskId: string,
+  nextCursor: number
+): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET total_swaps = total_swaps + 1,
+        success_swaps = success_swaps + 1,
+        consecutive_failures = 0,
+        error_message = NULL,
+        error_at = NULL,
+        manual_suffix_cursor = ?,
+        updated_at = ?
+    WHERE id = ?
+  `, [nextCursor, now, taskId])
 }
 
 /**
@@ -753,6 +860,13 @@ function calculateUrlSwapProgress(row: any): number {
 }
 
 function parseUrlSwapTask(row: any): UrlSwapTask {
+  const swapMode = normalizeUrlSwapMode(row.swap_mode)
+  const manualSuffixes = parseStringArrayJson(row.manual_final_url_suffixes)
+  const manualCursorRaw = row.manual_suffix_cursor
+  const manualSuffixCursor = typeof manualCursorRaw === 'number'
+    ? manualCursorRaw
+    : parseInt(String(manualCursorRaw ?? '0'), 10)
+
   return {
     id: row.id,
     user_id: row.user_id,
@@ -760,6 +874,9 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     swap_interval_minutes: row.swap_interval_minutes,
     enabled: Boolean(row.enabled),
     duration_days: row.duration_days,
+    swap_mode: swapMode,
+    manual_final_url_suffixes: manualSuffixes,
+    manual_suffix_cursor: Number.isFinite(manualSuffixCursor) && manualSuffixCursor >= 0 ? manualSuffixCursor : 0,
     google_customer_id: row.google_customer_id,
     google_campaign_id: row.google_campaign_id,
     current_final_url: row.current_final_url,
@@ -783,6 +900,67 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     deleted_at: row.deleted_at,
     created_at: row.created_at,
     updated_at: row.updated_at
+  }
+}
+
+function normalizeNullableString(input: unknown): string | null {
+  if (input === null || input === undefined) return null
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeUrlSwapMode(input: unknown): UrlSwapMode {
+  return input === 'manual' ? 'manual' : 'auto'
+}
+
+function normalizeManualFinalUrlSuffixes(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  for (const item of input) {
+    if (typeof item !== 'string') continue
+    let value = item.trim()
+    if (!value) continue
+
+    // 支持用户误填完整URL：自动提取 ? 后部分
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const url = new URL(value)
+        value = url.search.startsWith('?') ? url.search.slice(1) : ''
+      } catch {
+        // ignore
+      }
+    }
+
+    if (value.startsWith('?')) value = value.slice(1)
+    value = value.trim()
+    if (!value) continue
+
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+
+  return out
+}
+
+function parseStringArrayJson(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  }
+
+  if (typeof input !== 'string' || !input.trim()) return []
+
+  try {
+    const parsed = JSON.parse(input)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  } catch {
+    return []
   }
 }
 

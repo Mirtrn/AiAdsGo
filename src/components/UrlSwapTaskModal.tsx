@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
+import { Textarea } from '@/components/ui/textarea';
 import { Loader2, AlertCircle, Link, Clock, Globe, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { UrlSwapTask } from '@/lib/url-swap-types';
@@ -68,6 +69,8 @@ export default function UrlSwapTaskModal({
   const [durationDays, setDurationDays] = useState(30);
   const [googleCustomerId, setGoogleCustomerId] = useState('');
   const [googleCampaignId, setGoogleCampaignId] = useState('');
+  const [swapMode, setSwapMode] = useState<'auto' | 'manual'>('auto');
+  const [manualSuffixesText, setManualSuffixesText] = useState('');
 
   const isEditMode = !!editTaskId;
 
@@ -96,6 +99,8 @@ export default function UrlSwapTaskModal({
       setDurationDays(task.duration_days);
       setGoogleCustomerId(task.google_customer_id || '');
       setGoogleCampaignId(task.google_campaign_id || '');
+      setSwapMode((task as any).swap_mode === 'manual' ? 'manual' : 'auto');
+      setManualSuffixesText(Array.isArray((task as any).manual_final_url_suffixes) ? (task as any).manual_final_url_suffixes.join('\n') : '');
 
       // 加载关联的Offer信息
       if (task.offer_id) {
@@ -185,13 +190,47 @@ export default function UrlSwapTaskModal({
     }
 
     if (!offer.affiliateLink) {
-      toast.error('Offer未配置联盟推广链接，无法创建换链任务');
+      if (swapMode === 'auto') {
+        toast.error('Offer未配置联盟推广链接，无法创建换链任务');
+        return;
+      }
+    }
+
+    if (swapMode === 'auto' && proxyWarning) {
+      toast.error('请先配置代理');
       return;
     }
 
-    if (proxyWarning) {
-      toast.error('请先配置代理');
+    // 缺少Customer/Campaign ID会导致任务执行失败（无法更新Google Ads）
+    if (!googleCustomerId.trim() || !googleCampaignId.trim()) {
+      toast.error('请填写 Customer ID 与 Campaign ID（用于更新 Google Ads Final URL suffix）');
       return;
+    }
+
+    let manualFinalUrlSuffixes: string[] = [];
+    if (swapMode === 'manual') {
+      manualFinalUrlSuffixes = manualSuffixesText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          if (/^https?:\/\//i.test(line)) {
+            try {
+              const url = new URL(line);
+              return url.search.startsWith('?') ? url.search.slice(1) : '';
+            } catch {
+              return line;
+            }
+          }
+          return line.startsWith('?') ? line.slice(1) : line;
+        })
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (manualFinalUrlSuffixes.length === 0) {
+        toast.error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）');
+        return;
+      }
     }
 
     const validIntervals = [...URL_SWAP_ALLOWED_INTERVALS_MINUTES];
@@ -214,6 +253,8 @@ export default function UrlSwapTaskModal({
         duration_days: durationDays === -1 ? -1 : durationDays,
         google_customer_id: googleCustomerId || null,
         google_campaign_id: googleCampaignId || null,
+        swap_mode: swapMode,
+        manual_final_url_suffixes: swapMode === 'manual' ? manualFinalUrlSuffixes : undefined,
       };
 
       const url = isEditMode
@@ -248,6 +289,8 @@ export default function UrlSwapTaskModal({
     setDurationDays(30);
     setGoogleCustomerId('');
     setGoogleCampaignId('');
+    setSwapMode('auto');
+    setManualSuffixesText('');
     setProxyWarning('');
     setTaskData(null);
   };
@@ -267,7 +310,7 @@ export default function UrlSwapTaskModal({
         <DialogHeader>
           <DialogTitle>{isEditMode ? '编辑换链任务' : '创建换链任务'}</DialogTitle>
           <DialogDescription>
-            配置自动监控Offer链接变更并更新广告链接的任务
+            支持两种换链方式：自动解析推广链接（方式一）或手动轮询 Final URL suffix（方式二）
           </DialogDescription>
         </DialogHeader>
 
@@ -324,8 +367,8 @@ export default function UrlSwapTaskModal({
             )}
           </div>
 
-          {/* Proxy Warning */}
-          {proxyWarning && (
+          {/* Proxy Warning（仅方式一需要） */}
+          {swapMode === 'auto' && proxyWarning && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <div className="ml-2">
@@ -342,6 +385,31 @@ export default function UrlSwapTaskModal({
               </div>
             </Alert>
           )}
+
+          {/* Swap Mode */}
+          <div className="space-y-2">
+            <Label htmlFor="swapMode">换链方式 *</Label>
+            <Select
+              id="swapMode"
+              value={swapMode}
+              onValueChange={(value) => setSwapMode(value === 'manual' ? 'manual' : 'auto')}
+              required
+            >
+              <SelectContent>
+                <SelectItem value="auto">方式一：自动访问推广链接解析</SelectItem>
+                <SelectItem value="manual">方式二：手动轮询 Final URL suffix</SelectItem>
+              </SelectContent>
+            </Select>
+            {swapMode === 'auto' ? (
+              <p className="text-xs text-muted-foreground">
+                适用于：推广链接会跳转且参数会变化（系统需要自动获取最新 suffix）。需要配置对应国家代理。
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                适用于：最终链接固定/推广链接本身就是最终链接，或同一Offer不同联盟账号需要切换追踪参数。无需访问推广链接，不依赖代理。
+              </p>
+            )}
+          </div>
 
           {/* Task Configuration */}
           <div className="grid grid-cols-2 gap-4">
@@ -385,6 +453,24 @@ export default function UrlSwapTaskModal({
             </div>
           </div>
 
+          {/* Manual suffix list */}
+          {swapMode === 'manual' && (
+            <div className="space-y-2 pt-2 border-t">
+              <Label htmlFor="manualSuffixes">Final URL suffix 列表 *</Label>
+              <Textarea
+                id="manualSuffixes"
+                value={manualSuffixesText}
+                onChange={(e) => setManualSuffixesText(e.target.value)}
+                placeholder={`一行一个，不包含 ?\n示例：utm_source=FOSHO&utm_campaign=38096&utm_medium=affiliate&uid=2118`}
+                className="min-h-[120px]"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                系统会按顺序轮询替换（到末尾后回到第一条）。可直接粘贴完整URL，系统会自动提取 ? 后的参数部分；也支持只粘贴 ? 后面的部分。
+              </p>
+            </div>
+          )}
+
           {/* Google Ads Configuration */}
           <div className="space-y-3 pt-2 border-t">
             <Label className="flex items-center gap-2">
@@ -393,13 +479,13 @@ export default function UrlSwapTaskModal({
               {offer?.googleCustomerId || offer?.googleCampaignId ? (
                 <Badge variant="secondary" className="ml-2">已关联</Badge>
               ) : (
-                <span className="text-xs text-muted-foreground font-normal">（可选）</span>
+                <span className="text-xs text-muted-foreground font-normal">（必填）</span>
               )}
             </Label>
             <p className="text-xs text-muted-foreground">
               {offer?.googleCustomerId || offer?.googleCampaignId
                 ? '从关联的Campaign自动获取，如需修改请前往Campaign管理页面'
-                : '配置后可在广告账户中查看关联的换链任务'
+                : '用于更新Campaign层级 Final URL suffix（缺失将导致任务执行失败）'
               }
             </p>
             <div className="grid grid-cols-2 gap-4">
@@ -438,7 +524,7 @@ export default function UrlSwapTaskModal({
             >
               取消
             </Button>
-            <Button type="submit" disabled={loading || !!proxyWarning}>
+            <Button type="submit" disabled={loading || (swapMode === 'auto' && !!proxyWarning)}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isEditMode ? '更新任务' : '创建任务'}
             </Button>

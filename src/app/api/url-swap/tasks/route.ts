@@ -107,13 +107,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证代理配置
-    const validation = await validateUrlSwapTask(body.offer_id);
-    if (!validation.valid) {
-      return NextResponse.json(
-        { error: 'validation_error', message: validation.error },
-        { status: 400 }
-      );
+    const swapMode = body.swap_mode === 'manual' ? 'manual' : 'auto'
+
+    // 方式二：手动suffix列表必填
+    if (swapMode === 'manual') {
+      const rawList = (body as any).manual_final_url_suffixes
+      const hasAtLeastOne = Array.isArray(rawList) && rawList.some((v: any) => typeof v === 'string' && v.trim().length > 0)
+      if (!hasAtLeastOne) {
+        return NextResponse.json(
+          { error: 'validation_error', message: '方式二需要至少配置 1 个 Final URL suffix（不包含 ?）' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // 方式一：验证代理配置
+      const validation = await validateUrlSwapTask(body.offer_id);
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: 'validation_error', message: validation.error },
+          { status: 400 }
+        );
+      }
     }
 
     // 创建任务

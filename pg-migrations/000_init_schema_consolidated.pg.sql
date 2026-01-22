@@ -16529,6 +16529,11 @@ CREATE TABLE IF NOT EXISTS url_swap_tasks (
   enabled BOOLEAN DEFAULT TRUE,             -- 是否启用
   duration_days INTEGER NOT NULL DEFAULT 7, -- 持续天数：-1表示无限期
 
+  -- === 换链方式（方式一/方式二） ===
+  swap_mode TEXT NOT NULL DEFAULT 'auto', -- auto=自动解析推广链接；manual=用户配置suffix列表轮询
+  manual_final_url_suffixes JSONB NOT NULL DEFAULT '[]'::jsonb, -- JSON数组，字符串不含?
+  manual_suffix_cursor INTEGER NOT NULL DEFAULT 0, -- 下一次要使用的suffix索引
+
   -- === Google Ads关联 ===
   google_customer_id TEXT,
   google_campaign_id TEXT,

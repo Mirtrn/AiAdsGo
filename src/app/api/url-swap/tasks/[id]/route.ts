@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUrlSwapTaskById, getUrlSwapTaskStats, updateUrlSwapTask } from '@/lib/url-swap';
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { getDatabase } from '@/lib/db';
+import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -105,6 +106,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // 更新任务
     const task = await updateUrlSwapTask(id, parseInt(userId), body);
+
+    // 及时生效：若任务仍为 enabled，立即触发一次调度（使用最新配置入队）
+    // - disabled/completed 任务不会被触发（triggerUrlSwapScheduling 内部会 skipped）
+    try {
+      await triggerUrlSwapScheduling(task.id)
+    } catch (scheduleError) {
+      console.warn('[url-swap] 更新后触发调度失败（不影响更新结果）:', scheduleError)
+    }
 
     console.log(`[url-swap] 更新任务成功: ${id}`);
 

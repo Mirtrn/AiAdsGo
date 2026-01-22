@@ -16,6 +16,13 @@ export type UrlSwapTaskStatus =
   | 'completed'; // 已完成（duration_days到期）
 
 /**
+ * 换链方式
+ * - auto：方式一，自动访问推广链接解析suffix
+ * - manual：方式二，用户配置suffix列表轮询
+ */
+export type UrlSwapMode = 'auto' | 'manual'
+
+/**
  * 调度结果状态
  */
 export type TriggerResultStatus =
@@ -37,6 +44,11 @@ export interface UrlSwapTask {
   swap_interval_minutes: number; // 换链间隔（分钟）：5, 10, 15, 30, 60, 120, 240, 360, 480, 720, 1440
   enabled: boolean;        // 是否启用
   duration_days: number;   // 任务持续天数：-1表示无限期
+
+  // === 换链方式（方式一/方式二） ===
+  swap_mode: UrlSwapMode;  // 换链方式：auto/manual
+  manual_final_url_suffixes: string[]; // 手动模式：Final URL suffix列表（不含?）
+  manual_suffix_cursor: number; // 手动模式：轮询游标（下一次要使用的suffix索引）
 
   // === Google Ads关联 ===
   google_customer_id: string | null;   // Google Ads Customer ID
@@ -129,6 +141,8 @@ export interface CreateUrlSwapTaskRequest {
   duration_days?: number;          // 可选，默认7
   google_customer_id?: string | null;
   google_campaign_id?: string | null;
+  swap_mode?: UrlSwapMode;         // 可选，默认auto
+  manual_final_url_suffixes?: string[]; // 手动模式：Final URL suffix列表（不含?）
 }
 
 /**
@@ -139,6 +153,8 @@ export interface UpdateUrlSwapTaskRequest {
   duration_days?: number;
   google_customer_id?: string | null;
   google_campaign_id?: string | null;
+  swap_mode?: UrlSwapMode;
+  manual_final_url_suffixes?: string[];
 }
 
 /**

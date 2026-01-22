@@ -49,27 +49,30 @@ export async function triggerAllUrlSwapTasks(): Promise<{
         continue
       }
 
-      // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
-      try {
-        await initializeProxyPool(task.user_id, offer.target_country)
-      } catch (e: any) {
-        await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
-        results.skipped++
-        continue
-      }
+      const swapMode = task.swap_mode === 'manual' ? 'manual' : 'auto'
+      if (swapMode === 'auto') {
+        // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
+        try {
+          await initializeProxyPool(task.user_id, offer.target_country)
+        } catch (e: any) {
+          await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
+          results.skipped++
+          continue
+        }
 
-      const proxyPool = getProxyPool()
-      if (!proxyPool.hasProxyForCountry(offer.target_country)) {
-        await setTaskError(task.id, `缺少 ${offer.target_country} 国家的代理配置`)
-        results.skipped++
-        continue
+        const proxyPool = getProxyPool()
+        if (!proxyPool.hasProxyForCountry(offer.target_country)) {
+          await setTaskError(task.id, `缺少 ${offer.target_country} 国家的代理配置`)
+          results.skipped++
+          continue
+        }
       }
 
       // 3. 构建任务数据并加入队列
       const taskData: UrlSwapTaskData = {
         taskId: task.id,
         offerId: task.offer_id,
-        affiliateLink: offer.affiliate_link,
+        affiliateLink: offer.affiliate_link || '',
         targetCountry: offer.target_country,
         googleCustomerId: task.google_customer_id,
         googleCampaignId: task.google_campaign_id,
@@ -129,18 +132,21 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
     return { taskId, status: 'error', message: 'Offer不存在' }
   }
 
-  // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
-  try {
-    await initializeProxyPool(task.user_id, offer.target_country)
-  } catch (e: any) {
-    await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
-    return { taskId, status: 'error', message: '代理配置缺失' }
-  }
+  const swapMode = task.swap_mode === 'manual' ? 'manual' : 'auto'
+  if (swapMode === 'auto') {
+    // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
+    try {
+      await initializeProxyPool(task.user_id, offer.target_country)
+    } catch (e: any) {
+      await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
+      return { taskId, status: 'error', message: '代理配置缺失' }
+    }
 
-  const proxyPool = getProxyPool()
-  if (!proxyPool.hasProxyForCountry(offer.target_country)) {
-    await setTaskError(task.id, `缺少 ${offer.target_country} 国家的代理配置`)
-    return { taskId, status: 'error', message: '代理配置缺失' }
+    const proxyPool = getProxyPool()
+    if (!proxyPool.hasProxyForCountry(offer.target_country)) {
+      await setTaskError(task.id, `缺少 ${offer.target_country} 国家的代理配置`)
+      return { taskId, status: 'error', message: '代理配置缺失' }
+    }
   }
 
   // 复用统一队列入队
@@ -148,7 +154,7 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
   const taskData: UrlSwapTaskData = {
     taskId: task.id,
     offerId: task.offer_id,
-    affiliateLink: offer.affiliate_link,
+    affiliateLink: offer.affiliate_link || '',
     targetCountry: offer.target_country,
     googleCustomerId: task.google_customer_id,
     googleCampaignId: task.google_campaign_id,

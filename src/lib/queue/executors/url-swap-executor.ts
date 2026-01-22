@@ -11,7 +11,7 @@
 
 import type { Task } from '../types'
 import { resolveAffiliateLink } from '@/lib/url-resolver-enhanced'
-import { updateTaskAfterSwap, recordSwapHistory, setTaskError, type UrlSwapErrorType } from '@/lib/url-swap'
+import { updateTaskAfterManualAdvance, updateTaskAfterSwap, recordSwapHistory, setTaskError, type UrlSwapErrorType } from '@/lib/url-swap'
 import type { UrlSwapTaskData } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
@@ -56,6 +56,20 @@ function isOAuthInvalidGrantError(message: string): boolean {
  */
 export type { UrlSwapTaskData }
 
+function parseStringArrayJson(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  }
+  if (typeof input !== 'string' || !input.trim()) return []
+  try {
+    const parsed = JSON.parse(input)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
 /**
  * 执行换链接任务
  */
@@ -67,6 +81,171 @@ export async function executeUrlSwapTask(
   console.log(`[url-swap-executor] 开始执行任务: ${taskId}, offer: ${offerId}`)
 
   try {
+    // 读取任务最新配置（用于方式二/以及避免队列数据过期）
+    const db = await getDatabase()
+    const taskRow = await db.queryOne<any>(`
+      SELECT
+        swap_mode,
+        manual_final_url_suffixes,
+        manual_suffix_cursor,
+        current_final_url,
+        current_final_url_suffix,
+        google_customer_id,
+        google_campaign_id
+      FROM url_swap_tasks
+      WHERE id = ?
+    `, [taskId])
+
+    if (!taskRow) {
+      throw new Error('任务不存在或已被删除')
+    }
+
+    const swapMode = taskRow.swap_mode === 'manual' ? 'manual' : 'auto'
+    const effectiveCustomerId = (taskRow.google_customer_id ?? googleCustomerId) as string | null
+    const effectiveCampaignId = (taskRow.google_campaign_id ?? googleCampaignId) as string | null
+
+    // =========================
+    // 方式二：手动轮询suffix列表
+    // =========================
+    if (swapMode === 'manual') {
+      const suffixes = parseStringArrayJson(taskRow.manual_final_url_suffixes)
+      if (suffixes.length === 0) {
+        throw new Error('方式二未配置 Final URL suffix 列表，请在任务设置中添加至少 1 个')
+      }
+
+      const cursorRaw = taskRow.manual_suffix_cursor
+      const cursor = typeof cursorRaw === 'number' ? cursorRaw : parseInt(String(cursorRaw ?? '0'), 10)
+      const safeCursor = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0
+
+      const selectedSuffix = suffixes[safeCursor % suffixes.length]
+      const nextCursor = (safeCursor + 1) % suffixes.length
+
+      const currentUrlFromDb = typeof taskRow.current_final_url === 'string' ? taskRow.current_final_url : ''
+      const currentSuffixFromDb = typeof taskRow.current_final_url_suffix === 'string' ? taskRow.current_final_url_suffix : ''
+
+      if (!effectiveCustomerId || !effectiveCampaignId) {
+        const message =
+          '缺少 Customer ID 或 Campaign ID，无法更新 Google Ads Final URL suffix。\n' +
+          '请在换链任务中填写正确的 Customer/Campaign ID（或先完成Campaign发布并关联到Offer），然后重新启用任务。'
+
+        await recordSwapHistory(taskId, {
+          swapped_at: new Date().toISOString(),
+          previous_final_url: currentUrlFromDb,
+          previous_final_url_suffix: currentSuffixFromDb,
+          new_final_url: currentUrlFromDb,
+          new_final_url_suffix: selectedSuffix,
+          success: false,
+          error_message: message
+        })
+
+        await updateTaskStats(taskId, false, false)
+        await setTaskError(taskId, message, 'google_ads_api')
+        return { success: false, changed: false }
+      }
+
+      const suffixChanged = selectedSuffix !== currentSuffixFromDb
+
+      if (suffixChanged) {
+        console.log(`[url-swap-executor]（manual）更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
+
+        let adsApiError: Error | null = null
+
+        try {
+          const credentials = await getGoogleAdsCredentials(task.userId)
+          const auth = await getUserAuthType(task.userId)
+
+          const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+          const serviceAccount = await db.queryOne(`
+            SELECT id FROM google_ads_service_accounts
+            WHERE user_id = ? AND ${isActiveCondition}
+            ORDER BY created_at DESC LIMIT 1
+          `, [task.userId]) as { id: string } | undefined
+
+          if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+            throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
+          }
+
+          const refreshToken = credentials?.refresh_token || ''
+
+          try {
+            await updateCampaignFinalUrlSuffix({
+              customerId: effectiveCustomerId,
+              refreshToken,
+              campaignId: effectiveCampaignId,
+              finalUrlSuffix: selectedSuffix,
+              userId: task.userId,
+              authType: auth.authType,
+              serviceAccountId: auth.serviceAccountId,
+            })
+          } catch (firstError: any) {
+            const message = firstError?.message || String(firstError)
+            if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
+              console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
+              await updateCampaignFinalUrlSuffix({
+                customerId: effectiveCustomerId,
+                refreshToken: '',
+                campaignId: effectiveCampaignId,
+                finalUrlSuffix: selectedSuffix,
+                userId: task.userId,
+                authType: 'service_account',
+                serviceAccountId: serviceAccount.id,
+              })
+            } else {
+              throw firstError
+            }
+          }
+        } catch (adsError: any) {
+          const message = adsError?.message || String(adsError)
+          adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
+        }
+
+        if (adsApiError) {
+          throw adsApiError
+        }
+      }
+
+      if (suffixChanged) {
+        await recordSwapHistory(taskId, {
+          swapped_at: new Date().toISOString(),
+          previous_final_url: currentUrlFromDb,
+          previous_final_url_suffix: currentSuffixFromDb,
+          new_final_url: currentUrlFromDb,
+          new_final_url_suffix: selectedSuffix,
+          success: true
+        })
+
+        await updateTaskAfterSwap(taskId, null, selectedSuffix, { manualSuffixCursor: nextCursor })
+      } else {
+        await updateTaskAfterManualAdvance(taskId, nextCursor)
+      }
+
+      console.log(`[url-swap-executor]（manual）换链执行完成: ${taskId}, changed=${suffixChanged}`)
+      return { success: true, changed: suffixChanged }
+    }
+
+    // =========================
+    // 方式一：自动解析推广链接
+    // =========================
+    if (!effectiveCustomerId || !effectiveCampaignId) {
+      const message =
+        '缺少 Customer ID 或 Campaign ID，无法更新 Google Ads Final URL suffix。\n' +
+        '请在换链任务中填写正确的 Customer/Campaign ID（或先完成Campaign发布并关联到Offer），然后重新启用任务。'
+
+      await recordSwapHistory(taskId, {
+        swapped_at: new Date().toISOString(),
+        previous_final_url: currentFinalUrl || '',
+        previous_final_url_suffix: currentFinalUrlSuffix || '',
+        new_final_url: '',
+        new_final_url_suffix: '',
+        success: false,
+        error_message: message
+      })
+
+      await updateTaskStats(taskId, false, false)
+      await setTaskError(taskId, message, 'google_ads_api')
+      return { success: false, changed: false }
+    }
+
     // 确保代理池已按该用户的设置加载（executor 运行在队列进程中，不能假设已初始化）
     await initializeProxyPool(task.userId, targetCountry)
 
@@ -102,9 +281,9 @@ export async function executeUrlSwapTask(
       }
     }
 
-    // 4. 调用Google Ads API更新（如有配置）
-    if (googleCustomerId && googleCampaignId) {
-      console.log(`[url-swap-executor] 更新Google Ads: customer=${googleCustomerId}, campaign=${googleCampaignId}`)
+    // 4. 调用Google Ads API更新
+    if (effectiveCustomerId && effectiveCampaignId) {
+      console.log(`[url-swap-executor] 更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
 
       let adsApiError: Error | null = null
 
@@ -131,9 +310,9 @@ export async function executeUrlSwapTask(
         // 调用Google Ads API更新Final URL Suffix
         try {
           await updateCampaignFinalUrlSuffix({
-            customerId: googleCustomerId,
+            customerId: effectiveCustomerId,
             refreshToken,
-            campaignId: googleCampaignId,
+            campaignId: effectiveCampaignId,
             finalUrlSuffix: resolved.finalUrlSuffix,
             userId: task.userId,
             authType: auth.authType,
@@ -145,9 +324,9 @@ export async function executeUrlSwapTask(
           if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
             console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
             await updateCampaignFinalUrlSuffix({
-              customerId: googleCustomerId,
+              customerId: effectiveCustomerId,
               refreshToken: '',
-              campaignId: googleCampaignId,
+              campaignId: effectiveCampaignId,
               finalUrlSuffix: resolved.finalUrlSuffix,
               userId: task.userId,
               authType: 'service_account',

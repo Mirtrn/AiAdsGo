@@ -1152,25 +1152,30 @@ CREATE TABLE IF NOT EXISTS "risk_alerts" (
   FOREIGN KEY (resolved_by) REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS "url_swap_tasks" (
-  
+
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   user_id INTEGER NOT NULL,
   offer_id INTEGER NOT NULL,
 
-  
+
   swap_interval_minutes INTEGER NOT NULL DEFAULT 5,
   enabled BOOLEAN DEFAULT TRUE,
   duration_days INTEGER NOT NULL DEFAULT 7,
 
-  
+
+  swap_mode TEXT NOT NULL DEFAULT 'auto',
+  manual_final_url_suffixes TEXT NOT NULL DEFAULT '[]',
+  manual_suffix_cursor INTEGER NOT NULL DEFAULT 0,
+
+
   google_customer_id TEXT,
   google_campaign_id TEXT,
 
-  
+
   current_final_url TEXT,
   current_final_url_suffix TEXT,
 
-  
+
   progress INTEGER DEFAULT 0,
   total_swaps INTEGER DEFAULT 0,
   success_swaps INTEGER DEFAULT 0,
