@@ -433,6 +433,21 @@ describe('OfferKeywordPool', () => {
       expect(result).not.toContain('the')
       expect(result).toHaveLength(2)
     })
+
+    it('should avoid broad first-word tokens (Real Relax)', () => {
+      const result = getPureBrandKeywords('Real Relax')
+      expect(result).toContain('real relax')
+      expect(result).not.toContain('real')
+      expect(result).toHaveLength(1)
+    })
+
+    it('should avoid connector-based short tokens (Bob And Brad)', () => {
+      const result = getPureBrandKeywords('Bob And Brad')
+      expect(result).toContain('bob and brad')
+      expect(result).not.toContain('bob')
+      expect(result).not.toContain('brad')
+      expect(result).toHaveLength(1)
+    })
   })
 
   describe('containsPureBrand - 品牌包含检查', () => {

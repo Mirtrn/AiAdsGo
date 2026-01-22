@@ -15,6 +15,8 @@ import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getUserAuthType } from './google-ads-oauth'
 import { getHighIntentKeywords } from './google-suggestions'
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
+import { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword } from './brand-keyword-utils'
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
 import { loadPrompt } from './prompt-loader'
 import type { AmazonProductData, AmazonStoreData } from './stealth-scraper'
@@ -480,6 +482,7 @@ async function extractFromSingleProduct(
     rating: product.rating,
     reviewCount: product.reviewCount
   }
+  const pureBrandKeywords = getPureBrandKeywords(brand)
 
   // 1. 提取关键字候选词
   const keywordCandidates: string[] = []
@@ -542,6 +545,23 @@ async function extractFromSingleProduct(
   keywordCandidates.push(...brandVariants)
   console.log(`  ✓ 品牌变体关键字: ${brandVariants.length}个（已智能过滤${allBrandVariants.length - brandVariants.length}个重复）`)
 
+  // ✅ 强制补齐纯品牌词（避免被后续过滤误删）
+  if (pureBrandKeywords.length > 0) {
+    let addedPureBrand = 0
+    for (const token of pureBrandKeywords) {
+      const tokenNorm = normalizeGoogleAdsKeyword(token)
+      if (!tokenNorm) continue
+      const exists = keywordCandidates.some(kw => normalizeGoogleAdsKeyword(kw) === tokenNorm)
+      if (!exists) {
+        keywordCandidates.push(token)
+        addedPureBrand++
+      }
+    }
+    if (addedPureBrand > 0) {
+      console.log(`  ✓ 补充纯品牌词: ${addedPureBrand}个`)
+    }
+  }
+
   // 🔥 P1优化：去重关键词候选（大小写不敏感）
   const keywordCountBeforeDedup = keywordCandidates.length
   const uniqueKeywordsMap = new Map<string, string>()
@@ -564,6 +584,17 @@ async function extractFromSingleProduct(
   // 更新keywordCandidates为去重后的列表
   keywordCandidates.length = 0
   keywordCandidates.push(...deduplicatedKeywords)
+
+  // 🔒 强制：最终关键词必须包含纯品牌词
+  if (pureBrandKeywords.length > 0) {
+    const beforeBrandFilter = keywordCandidates.length
+    const brandFiltered = keywordCandidates.filter(kw => containsPureBrand(kw, pureBrandKeywords))
+    if (beforeBrandFilter !== brandFiltered.length) {
+      console.log(`  🔒 品牌强制过滤: ${beforeBrandFilter} → ${brandFiltered.length}`)
+    }
+    keywordCandidates.length = 0
+    keywordCandidates.push(...brandFiltered)
+  }
 
   // 2. 查询搜索量并过滤
   console.log(`\n🔍 查询${keywordCandidates.length}个关键字的搜索量...`)
@@ -619,22 +650,33 @@ async function extractFromSingleProduct(
       }
     })
 
-    // 过滤搜索量过低的关键字（但保留搜索量为0的关键字，因为可能是API未返回数据）
+    const metricsUnavailable = volumeData.some((vol: any) =>
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+    )
+
+    // 过滤搜索量过低的关键字（纯品牌词豁免）
     // ⚠️ 重要：不能过滤到“0个关键词”，否则后续关键词池与创意生成会被阻断
     const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
-    const filteredKeywordsCandidate = hasAnyVolume
-      ? keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume || k.searchVolume === 0)
-      : keywordsWithVolume // 如果所有关键词都是0，保留全部（API数据缺失）
+    const filteredKeywordsCandidate = metricsUnavailable
+      ? keywordsWithVolume
+      : keywordsWithVolume.filter(k =>
+          k.searchVolume >= minSearchVolume ||
+          isPureBrandKeyword(k.keyword, pureBrandKeywords)
+        )
 
     const filteredKeywords = filteredKeywordsCandidate.length > 0
       ? filteredKeywordsCandidate
       : keywordsWithVolume
 
-    if (filteredKeywordsCandidate.length === 0 && keywordsWithVolume.length > 0) {
+    if (!metricsUnavailable && filteredKeywordsCandidate.length === 0 && keywordsWithVolume.length > 0) {
       console.warn(`  ⚠️ 所有关键词搜索量均低于阈值(${minSearchVolume})，保留全部${keywordsWithVolume.length}个关键词以保证流程可用`)
     }
 
-    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${!hasAnyVolume ? '，API未返回数据' : ''}）`)
+    const volumeNote = metricsUnavailable
+      ? '，搜索量不可用'
+      : (!hasAnyVolume ? '，搜索量全为0' : '')
+    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${volumeNote}）`)
 
     // 按优先级和搜索量排序
     filteredKeywords.sort((a, b) => {
@@ -695,6 +737,7 @@ async function extractFromStore(
   userId: number
 ): Promise<ExtractedAdElements> {
   console.log(`🏪 店铺场景：从${products.length}个热销商品提取广告元素...`)
+  const pureBrandKeywords = getPureBrandKeywords(brand)
 
   // 按热销分数排序，取前5个
   const topProducts = products
@@ -739,6 +782,34 @@ async function extractFromStore(
     console.log(`  ✓ Google下拉词: ${googleKeywords.length}个`)
   } catch (error: any) {
     console.warn('  ⚠️ Google下拉词获取失败:', error.message)
+  }
+
+  // ✅ 强制补齐纯品牌词（避免被后续过滤误删）
+  if (pureBrandKeywords.length > 0) {
+    let addedPureBrand = 0
+    for (const token of pureBrandKeywords) {
+      const tokenNorm = normalizeGoogleAdsKeyword(token)
+      if (!tokenNorm) continue
+      const exists = keywordCandidates.some(kw => normalizeGoogleAdsKeyword(kw) === tokenNorm)
+      if (!exists) {
+        keywordCandidates.push(token)
+        addedPureBrand++
+      }
+    }
+    if (addedPureBrand > 0) {
+      console.log(`  ✓ 补充纯品牌词: ${addedPureBrand}个`)
+    }
+  }
+
+  // 🔒 强制：最终关键词必须包含纯品牌词
+  if (pureBrandKeywords.length > 0) {
+    const beforeBrandFilter = keywordCandidates.length
+    const brandFiltered = keywordCandidates.filter(kw => containsPureBrand(kw, pureBrandKeywords))
+    if (beforeBrandFilter !== brandFiltered.length) {
+      console.log(`  🔒 品牌强制过滤: ${beforeBrandFilter} → ${brandFiltered.length}`)
+    }
+    keywordCandidates.length = 0
+    keywordCandidates.push(...brandFiltered)
   }
 
   // 2. 查询搜索量并过滤
@@ -798,11 +869,21 @@ async function extractFromStore(
       }
     })
 
+    const metricsUnavailable = volumeData.some((vol: any) =>
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+    )
     const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
-    const filteredKeywords = hasAnyVolume
-      ? keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume || k.searchVolume === 0)
-      : keywordsWithVolume
-    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${!hasAnyVolume ? '，API未返回数据' : ''}）`)
+    const filteredKeywords = metricsUnavailable
+      ? keywordsWithVolume
+      : keywordsWithVolume.filter(k =>
+          k.searchVolume >= minSearchVolume ||
+          isPureBrandKeyword(k.keyword, pureBrandKeywords)
+        )
+    const volumeNote = metricsUnavailable
+      ? '，搜索量不可用'
+      : (!hasAnyVolume ? '，搜索量全为0' : '')
+    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${volumeNote}）`)
 
     // 排序
     filteredKeywords.sort((a, b) => {

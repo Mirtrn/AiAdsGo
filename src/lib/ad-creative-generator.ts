@@ -3998,12 +3998,16 @@ export async function generateAdCreative(
     intentScore: calculateIntentScore(kw.keyword, brandName),  // 🔧 修复：传入brandName
     intentLevel: getIntentLevel(calculateIntentScore(kw.keyword, brandName))  // 🔧 修复：传入brandName
   }))
+  const isPureBrandInFinal = (kw: { keyword: string }) => {
+    const normalized = normalizeGoogleAdsKeyword(kw.keyword)
+    return normalized ? pureBrandKeywordNormalized.has(normalized) : false
+  }
 
   // 分类统计
   const highIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 80)
   const mediumIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 50 && kw.intentScore < 80)
   const lowIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 20 && kw.intentScore < 50)
-  const infoIntentKws = keywordsWithIntent.filter(kw => kw.intentScore < 20)
+  const infoIntentKws = keywordsWithIntent.filter(kw => kw.intentScore < 20 && !isPureBrandInFinal(kw))
 
   console.log(`   📊 意图分布统计:`)
   console.log(`      🟢 高购买意图 (≥80): ${highIntentKws.length} 个`)
@@ -4024,7 +4028,7 @@ export async function generateAdCreative(
 
   // 应用过滤：移除信息查询类关键词
   finalKeywords = keywordsWithIntent
-    .filter(kw => kw.intentScore >= MIN_INTENT_SCORE)
+    .filter(kw => isPureBrandInFinal(kw) || kw.intentScore >= MIN_INTENT_SCORE)
     .map(({ intentScore, intentLevel, ...rest }) => rest)  // 移除临时属性
 
   const removedByIntent = beforeIntentFilter - finalKeywords.length

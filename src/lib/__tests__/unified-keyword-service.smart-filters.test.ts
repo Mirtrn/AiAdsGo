@@ -30,5 +30,15 @@ describe('applySmartFilters', () => {
     const disabledOut = applySmartFilters([...high, ...low], 500, 15, { disableSearchVolumeFilter: true })
     expect(disabledOut).toHaveLength(40)
   })
-})
 
+  it('keeps pure brand keywords regardless of volume thresholds', () => {
+    const out = applySmartFilters(
+      [kw('eufy', 10), kw('eufy review', 1000), kw('camera', 1000)],
+      500,
+      15,
+      { pureBrandKeywords: ['eufy'] }
+    )
+
+    expect(out.map(k => k.keyword)).toEqual(['eufy', 'camera'])
+  })
+})

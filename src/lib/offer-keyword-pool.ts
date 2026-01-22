@@ -3150,11 +3150,19 @@ export async function getKeywords(
     }
   }
 
-  // 5. 按搜索量过滤
+  // 5. 按搜索量过滤（纯品牌词豁免）
   // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
   const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
   if (hasAnyVolume) {
-    keywords = keywords.filter(kw => kw.searchVolume >= minSearchVolume)
+    const pureBrandSet = new Set(
+      keywordPool.brandKeywords
+        .map(kw => normalizeGoogleAdsKeyword(kw.keyword))
+        .filter(Boolean)
+    )
+    keywords = keywords.filter(kw => {
+      const normalized = normalizeGoogleAdsKeyword(kw.keyword)
+      return kw.searchVolume >= minSearchVolume || (normalized && pureBrandSet.has(normalized))
+    })
   } else {
     console.log('⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
   }

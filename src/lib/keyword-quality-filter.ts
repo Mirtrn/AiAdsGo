@@ -16,170 +16,14 @@
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
-import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
+import {
+  containsPureBrand,
+  getPureBrandKeywords,
+  isPureBrandKeyword,
+  PRODUCT_WORD_PATTERNS,
+} from './brand-keyword-utils'
 
-// ============================================
-// 纯品牌词检测（🔥 2025-12-29 新增）
-// ============================================
-
-const TITLE_BRAND_PREFIXES = new Set([
-  'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
-])
-
-const DETERMINER_BRAND_PREFIXES = new Set([
-  'the', 'a', 'an',
-])
-
-const GENERIC_BRAND_PREFIXES = new Set([
-  ...TITLE_BRAND_PREFIXES,
-  ...DETERMINER_BRAND_PREFIXES,
-])
-
-/**
- * 获取品牌的纯品牌词列表
- *
- * 对于多单词品牌名称，纯品牌词包含：
- * - 品牌全名（如 "eufy security"）
- * - 品牌首词（如 "eufy"）
- *
- * @param brandName - 品牌名称
- * @returns 纯品牌词数组
- *
- * @example
- * getPureBrandKeywords("eufy security") → ["eufy", "eufy security"]
- * getPureBrandKeywords("eureka") → ["eureka"]
- * getPureBrandKeywords("Wahl Professional") → ["wahl", "wahl professional"]
- */
-export function getPureBrandKeywords(brandName: string): string[] {
-  const normalizedFull = normalizeGoogleAdsKeyword(brandName || '')
-  if (!normalizedFull) return []
-
-  const words = normalizedFull.split(/\s+/).filter(Boolean)
-  const pureBrandKeywords: string[] = [normalizedFull]
-
-  // Add a short brand token for multi-word brands (e.g. "wahl professional" → "wahl"),
-  // but avoid generic prefixes like "dr" / "the" (e.g. "dr mercola" should not yield "dr").
-  if (words.length > 1) {
-    const first = words[0]
-    if (first && !GENERIC_BRAND_PREFIXES.has(first)) {
-      pureBrandKeywords.push(first)
-    } else if (first && TITLE_BRAND_PREFIXES.has(first)) {
-      // For prefix/title-style brands, the meaningful brand token is usually the next word.
-      // e.g. "dr mercola" → "mercola" (NOT "dr")
-      const meaningful = words.find((w, idx) => idx > 0 && !GENERIC_BRAND_PREFIXES.has(w))
-      if (meaningful) pureBrandKeywords.push(meaningful)
-    } else if (first && DETERMINER_BRAND_PREFIXES.has(first) && words.length > 2) {
-      // For brands like "The North Face", users often search without the determiner.
-      pureBrandKeywords.push(words.slice(1).join(' '))
-    }
-  }
-
-  return Array.from(new Set(pureBrandKeywords))
-}
-
-/**
- * 检测关键词是否包含纯品牌词（部分匹配）
- *
- * 用于过滤场景：只保留包含品牌词的关键词
- * 注意：精确匹配请使用 isPureBrandKeyword
- *
- * @param keyword - 要检测的关键词
- * @param pureBrandKeywords - 纯品牌词列表
- * @returns 是否包含纯品牌词（部分匹配）
- *
- * @example
- * containsPureBrand("eufy security camera", ["eufy", "eufy security"]) → true
- * containsPureBrand("security camera", ["eufy", "eufy security"]) → false
- */
-export function containsPureBrand(keyword: string, pureBrandKeywords: string[]): boolean {
-  if (!keyword || !pureBrandKeywords || pureBrandKeywords.length === 0) {
-    return false
-  }
-
-  const normalizedKeyword = normalizeGoogleAdsKeyword(keyword)
-  if (!normalizedKeyword) return false
-
-  const keywordTokens = normalizedKeyword.split(' ').filter(Boolean)
-  const haystack = ` ${normalizedKeyword} `
-
-  // 1) Preferred: whole-word / whole-phrase matching (Google Ads normalized).
-  for (const brand of pureBrandKeywords) {
-    const normalizedBrand = normalizeGoogleAdsKeyword(brand || '')
-    if (!normalizedBrand) continue
-
-    if (haystack.includes(` ${normalizedBrand} `)) return true
-
-    // Also allow the fully concatenated form as a whole token (e.g. "reo link" → "reolink").
-    const concatenatedBrand = normalizedBrand.replace(/\s+/g, '')
-    if (concatenatedBrand && concatenatedBrand !== normalizedBrand) {
-      if (haystack.includes(` ${concatenatedBrand} `)) return true
-    }
-  }
-
-  // 2) Fallback: allow common concatenations (brand+model / brand+product word).
-  // This preserves cases like "eufycam" or "eurekaj15" while still rejecting unrelated words.
-  for (const brand of pureBrandKeywords) {
-    const normalizedBrand = normalizeGoogleAdsKeyword(brand || '')
-    if (!normalizedBrand) continue
-
-    const brandNoSpace = normalizedBrand.replace(/\s+/g, '')
-    if (!brandNoSpace) continue
-
-    for (const token of keywordTokens) {
-      if (!token.startsWith(brandNoSpace) || token.length <= brandNoSpace.length) continue
-
-      const suffix = token.slice(brandNoSpace.length)
-      if (!suffix) continue
-
-      // Brand + model number (e.g. "eurekaJ15", "eufy2")
-      if (/\d/.test(suffix)) return true
-
-      // Brand + common product word (e.g. "eufycam", "eufysecurity")
-      if (PRODUCT_WORD_PATTERNS.includes(suffix)) return true
-
-      // Brand + product word + digits (e.g. "eufycam2")
-      if (PRODUCT_WORD_PATTERNS.some(word => suffix.startsWith(word) && /\d/.test(suffix.slice(word.length)))) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
-
-/**
- * 检测关键词是否为纯品牌词本身
- *
- * 纯品牌词定义：
- * - 品牌全名（如 "eufy security"）
- * - 品牌首词（如 "eufy"）
- *
- * @param keyword - 要检测的关键词
- * @param pureBrandKeywords - 纯品牌词列表
- * @returns 是否为纯品牌词本身
- *
- * @example
- * isPureBrandKeyword("eufy", ["eufy", "eufy security"]) → true
- * isPureBrandKeyword("eufy security", ["eufy", "eufy security"]) → true
- * isPureBrandKeyword("eufy camera", ["eufy", "eufy security"]) → false
- */
-export function isPureBrandKeyword(keyword: string, pureBrandKeywords: string[]): boolean {
-  if (!keyword || !pureBrandKeywords || pureBrandKeywords.length === 0) {
-    return false
-  }
-
-  const kwNorm = normalizeGoogleAdsKeyword(keyword)
-  if (!kwNorm) return false
-
-  const kwCompact = kwNorm.replace(/\s+/g, '')
-
-  return pureBrandKeywords.some(brand => {
-    const brandNorm = normalizeGoogleAdsKeyword(brand || '')
-    if (!brandNorm) return false
-    if (kwNorm === brandNorm) return true
-    return kwCompact === brandNorm.replace(/\s+/g, '')
-  })
-}
+export { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword }
 
 // ============================================
 // 品牌词匹配策略（🔥 2026-01-05 新增：明确用途，避免混用）
@@ -423,18 +267,6 @@ export function isPlatformMismatch(keyword: string, productUrl: string): boolean
 // ============================================
 // 品牌变体词检测
 // ============================================
-
-/**
- * 常见产品词列表（后缀包含这些词时不认为是品牌变体词）
- */
-const PRODUCT_WORD_PATTERNS = [
-  'pro', 'max', 'ultra', 'plus', 'mini', 'lite', 'air', 's',
-  'se', 'x', 'c', 'e', 'a', 'v', 't',
-  'edition', 'version', 'gen', 'generation',
-  'camera', 'cam', 'vacuum', 'robot', 'cleaner',
-  'doorbell', 'security', 'tracker', 'sensor',
-  'starter', 'bundle', 'kit', 'set', 'pack'
-]
 
 /**
  * 检测是否为品牌变体词

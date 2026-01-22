@@ -106,6 +106,7 @@ export async function expandAllKeywords(
       targetCountry,
       targetLanguage,
       pageUrl: offer ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true }) : undefined,
+      offer,
       userId,
       customerId,
       refreshToken,
@@ -141,6 +142,7 @@ interface OAuthExpandParams {
   targetCountry: string
   targetLanguage: string
   pageUrl?: string
+  offer?: Offer
   userId?: number
   customerId?: string
   refreshToken?: string
@@ -167,6 +169,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     targetCountry,
     targetLanguage,
     pageUrl,
+    offer,
     userId,
     customerId,
     refreshToken,
@@ -180,6 +183,36 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   const allKeywords = new Map<string, PoolKeywordData>()
   const maxRounds = 3
   const topN = 20
+  let keywordPlannerReturned = false
+
+  const fallbackKeywords: PoolKeywordData[] = (() => {
+    if (initialKeywords.length > 0) return initialKeywords
+    if (pureBrandKeywords.length > 0) {
+      return pureBrandKeywords.map(keyword => ({
+        keyword,
+        searchVolume: 0,
+        source: 'PROVIDED',
+        matchType: 'BROAD',
+        isPureBrand: true,
+      }))
+    }
+    return []
+  })()
+
+  const expandFallback = async (): Promise<PoolKeywordData[]> => {
+    if (offer && userId) {
+      return expandForServiceAccount({
+        initialKeywords,
+        brandName,
+        category,
+        targetCountry,
+        targetLanguage,
+        offer,
+        userId
+      })
+    }
+    return fallbackKeywords
+  }
 
   // ✅ Always seed with the canonical pure-brand keyword to avoid empty brand bucket
   // when Keyword Planner doesn't return the seed itself (e.g. "Dr. Mercola" → "dr mercola").
@@ -200,24 +233,10 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     })
   }
 
-  const fallbackKeywords: PoolKeywordData[] = (() => {
-    if (initialKeywords.length > 0) return initialKeywords
-    if (pureBrandKeywords.length > 0) {
-      return pureBrandKeywords.map(keyword => ({
-        keyword,
-        searchVolume: 0,
-        source: 'PROVIDED',
-        matchType: 'BROAD',
-        isPureBrand: true,
-      }))
-    }
-    return []
-  })()
-
   // 🔧 兜底：缺少 OAuth 必要信息时，不生成“空关键词池”
   if (!customerId || !userId) {
     console.warn(`   ⚠️ 缺少 customerId 或 userId，跳过Keyword Planner查询，回退到初始关键词(${fallbackKeywords.length}个)`)
-    return fallbackKeywords
+    return expandFallback()
   }
 
   // 初始化种子词：强制包含纯品牌词，避免种子漂移到通用品类词
@@ -254,6 +273,9 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       })
 
       console.log(`      返回 ${results.length} 个关键词`)
+      if (results.length > 0) {
+        keywordPlannerReturned = true
+      }
 
       // 处理结果：只保留包含“纯品牌词”的关键词（不拼接造词）
       let newCount = 0
@@ -369,6 +391,20 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       }
     }
 
+    if (!keywordPlannerReturned) {
+      const fallbackExpanded = await expandFallback()
+      if (fallbackExpanded.length > 0) {
+        for (const kw of fallbackExpanded) {
+          const canonical = normalizeGoogleAdsKeyword(kw.keyword)
+          if (!canonical || allKeywords.has(canonical)) continue
+          allKeywords.set(canonical, {
+            ...kw,
+            keyword: canonical,
+          })
+        }
+      }
+    }
+
     if (allKeywords.size === 0) {
       console.warn(`   ⚠️ Keyword Planner 未返回可用关键词，回退到初始关键词(${fallbackKeywords.length}个)`)
       return fallbackKeywords
@@ -388,7 +424,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
   } catch (error: any) {
     console.error(`   ⚠️ OAuth模式关键词扩展失败: ${error.message}`)
-    return fallbackKeywords
+    return expandFallback()
   }
 }
 
@@ -402,6 +438,7 @@ function qualityFilterOAuth(
 ): PoolKeywordData[] {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
   const dynamicThreshold = calculateDynamicThreshold(keywords)
+  const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
 
   console.log(`      动态搜索量阈值: ${dynamicThreshold}`)
 
@@ -445,7 +482,7 @@ function qualityFilterOAuth(
     }
 
     // 5. 搜索量过滤（纯品牌词豁免）
-    if (!isPureBrand && kw.searchVolume > 0 && kw.searchVolume < dynamicThreshold) {
+    if (hasAnyVolume && !isPureBrand && kw.searchVolume < dynamicThreshold) {
       volumeRemoved++
       return false
     }
@@ -519,6 +556,21 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         matchType: 'EXACT',
         isPureBrand: true,
       })
+    }
+
+    for (const kw of initialKeywords) {
+      const canonical = normalizeGoogleAdsKeyword(kw.keyword)
+      if (!canonical) continue
+      if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+      if (!allKeywords.has(canonical)) {
+        allKeywords.set(canonical, {
+          ...kw,
+          keyword: canonical,
+          source: kw.source || 'PROVIDED',
+          matchType: kw.matchType || 'PHRASE',
+          isPureBrand: kw.isPureBrand || isPureBrandKeyword(canonical, pureBrandKeywords)
+        })
+      }
     }
 
     // ========== 阶段1: Google下拉词 ==========
