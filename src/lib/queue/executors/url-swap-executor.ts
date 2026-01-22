@@ -16,6 +16,7 @@ import type { UrlSwapTaskData } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
+import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { initializeProxyPool } from '@/lib/offer-utils'
 
 /**
@@ -49,6 +50,13 @@ function isOAuthInvalidGrantError(message: string): boolean {
     message.includes('Token has been revoked') ||
     message.includes('Token has been expired or revoked')
   )
+}
+
+function formatGoogleAdsError(error: unknown): string {
+  const responseData = (error as any)?.response?.data
+  const formatted = formatGoogleAdsApiError(responseData ?? error)
+  if (formatted && formatted !== 'Google Ads API error') return formatted
+  return formatGoogleAdsApiError(error)
 }
 
 /**
@@ -231,7 +239,7 @@ export async function executeUrlSwapTask(
             }
           }
         } catch (adsError: any) {
-          const message = adsError?.message || String(adsError)
+          const message = formatGoogleAdsError(adsError)
           adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
         }
 
@@ -375,8 +383,8 @@ export async function executeUrlSwapTask(
 
         console.log(`[url-swap-executor] Google Ads更新成功: ${taskId}`)
       } catch (adsError: any) {
-        console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, adsError.message)
-        const message = adsError?.message || String(adsError)
+        const message = formatGoogleAdsError(adsError)
+        console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, message)
         adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
       }
 
@@ -403,43 +411,47 @@ export async function executeUrlSwapTask(
     return { success: true, changed: true }
 
   } catch (error: any) {
-    console.error(`[url-swap-executor] 执行失败: ${taskId}`, error.message)
+    const rawMessage = error?.message || String(error)
+    console.error(`[url-swap-executor] 执行失败: ${taskId}`, rawMessage)
 
     // 检测错误类型
     let errorType: UrlSwapErrorType = 'other'
-    let enhancedMessage = error.message
+    let enhancedMessage = rawMessage
 
     // 检测推广链接解析失败
     if (
-      error.message.includes('resolve') ||
-      error.message.includes('affiliate') ||
-      error.message.includes('推广链接格式') ||
-      error.message.includes('无法访问') ||
-      error.message.includes('Failed to fetch') ||
-      error.message.includes('timeout') ||
-      error.message.includes('ENOTFOUND') ||
-      error.message.includes('ECONNREFUSED') ||
-      error.message.includes('network')
+      rawMessage.includes('resolve') ||
+      rawMessage.includes('affiliate') ||
+      rawMessage.includes('推广链接格式') ||
+      rawMessage.includes('无法访问') ||
+      rawMessage.includes('Failed to fetch') ||
+      rawMessage.includes('timeout') ||
+      rawMessage.includes('ENOTFOUND') ||
+      rawMessage.includes('ECONNREFUSED') ||
+      rawMessage.includes('network')
     ) {
       errorType = 'link_resolution'
-      enhancedMessage = `推广链接解析失败: ${error.message}`
+      enhancedMessage = `推广链接解析失败: ${rawMessage}`
     }
     // 检测Google Ads API失败
     else if (
-      error.message.includes('Google Ads') ||
-      error.message.includes('google_ads') ||
-      error.message.includes('campaign') ||
-      error.message.includes('Customer') ||
-      error.message.includes('authentication') ||
-      error.message.includes('authorization') ||
-      error.message.includes('OAuth') ||
-      error.message.includes('refresh_token') ||
-      error.message.includes('quota') ||
-      error.message.includes('API')
+      rawMessage.includes('Google Ads') ||
+      rawMessage.includes('google_ads') ||
+      rawMessage.includes('campaign') ||
+      rawMessage.includes('Customer') ||
+      rawMessage.includes('authentication') ||
+      rawMessage.includes('authorization') ||
+      rawMessage.includes('OAuth') ||
+      rawMessage.includes('refresh_token') ||
+      rawMessage.includes('quota') ||
+      rawMessage.includes('API')
     ) {
       errorType = 'google_ads_api'
-      const message = error?.message || String(error)
-      if (isOAuthInvalidGrantError(message)) {
+      const formattedMessage = formatGoogleAdsError(error)
+      const message = formattedMessage && formattedMessage !== 'Google Ads API error'
+        ? formattedMessage
+        : rawMessage
+      if (isOAuthInvalidGrantError(rawMessage)) {
         enhancedMessage =
           `Google OAuth 授权已过期或被撤销（invalid_grant），无法更新 Google Ads。\n` +
           `请前往设置页面重新授权，然后重新启用该任务。\n\n` +
