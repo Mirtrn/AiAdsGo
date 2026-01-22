@@ -80,6 +80,9 @@ export async function executeUrlSwapTask(
 
   console.log(`[url-swap-executor] 开始执行任务: ${taskId}, offer: ${offerId}`)
 
+  let effectiveCurrentFinalUrl: string | null = currentFinalUrl
+  let effectiveCurrentFinalUrlSuffix: string | null = currentFinalUrlSuffix
+
   try {
     // 读取任务最新配置（用于方式二/以及避免队列数据过期）
     const db = await getDatabase()
@@ -103,6 +106,8 @@ export async function executeUrlSwapTask(
     const swapMode = taskRow.swap_mode === 'manual' ? 'manual' : 'auto'
     const effectiveCustomerId = (taskRow.google_customer_id ?? googleCustomerId) as string | null
     const effectiveCampaignId = (taskRow.google_campaign_id ?? googleCampaignId) as string | null
+    effectiveCurrentFinalUrl = (typeof taskRow.current_final_url === 'string' ? taskRow.current_final_url : currentFinalUrl) as string | null
+    effectiveCurrentFinalUrlSuffix = (typeof taskRow.current_final_url_suffix === 'string' ? taskRow.current_final_url_suffix : currentFinalUrlSuffix) as string | null
 
     // =========================
     // 方式二：手动轮询suffix列表
@@ -233,8 +238,8 @@ export async function executeUrlSwapTask(
 
       await recordSwapHistory(taskId, {
         swapped_at: new Date().toISOString(),
-        previous_final_url: currentFinalUrl || '',
-        previous_final_url_suffix: currentFinalUrlSuffix || '',
+        previous_final_url: effectiveCurrentFinalUrl || '',
+        previous_final_url_suffix: effectiveCurrentFinalUrlSuffix || '',
         new_final_url: '',
         new_final_url_suffix: '',
         success: false,
@@ -259,21 +264,21 @@ export async function executeUrlSwapTask(
     console.log(`[url-swap-executor] 解析结果: finalUrl=${resolved.finalUrl}, suffix=${resolved.finalUrlSuffix}`)
 
     // 2. 对比是否发生变化
-    const urlChanged = resolved.finalUrl !== currentFinalUrl ||
-                       resolved.finalUrlSuffix !== currentFinalUrlSuffix
+    const urlChanged = resolved.finalUrl !== effectiveCurrentFinalUrl ||
+                       resolved.finalUrlSuffix !== effectiveCurrentFinalUrlSuffix
 
     if (!urlChanged) {
       // URL未变化，只更新统计（不算作URL变化）
       console.log(`[url-swap-executor] URL未变化: ${taskId}`)
-      await updateTaskStats(taskId, false, false)
+      await updateTaskStats(taskId, true, false)
       return { success: true, changed: false }
     }
 
     console.log(`[url-swap-executor] 检测到URL变化: ${taskId}`)
 
     // 3. 验证域名一致性（防止盗链）
-    if (currentFinalUrl) {
-      const validation = validateUrlDomainChange(currentFinalUrl, resolved.finalUrl)
+    if (effectiveCurrentFinalUrl) {
+      const validation = validateUrlDomainChange(effectiveCurrentFinalUrl, resolved.finalUrl)
       if (!validation.valid) {
         console.error(`[url-swap-executor] 域名变更警告: ${taskId} - ${validation.error}`)
         await setTaskError(taskId, validation.error!)
@@ -353,8 +358,8 @@ export async function executeUrlSwapTask(
     // 5. 记录换链历史
     await recordSwapHistory(taskId, {
       swapped_at: new Date().toISOString(),
-      previous_final_url: currentFinalUrl || '',
-      previous_final_url_suffix: currentFinalUrlSuffix || '',
+      previous_final_url: effectiveCurrentFinalUrl || '',
+      previous_final_url_suffix: effectiveCurrentFinalUrlSuffix || '',
       new_final_url: resolved.finalUrl,
       new_final_url_suffix: resolved.finalUrlSuffix,
       success: true
@@ -415,8 +420,8 @@ export async function executeUrlSwapTask(
     // 记录错误历史
     await recordSwapHistory(taskId, {
       swapped_at: new Date().toISOString(),
-      previous_final_url: currentFinalUrl || '',
-      previous_final_url_suffix: currentFinalUrlSuffix || '',
+      previous_final_url: effectiveCurrentFinalUrl || '',
+      previous_final_url_suffix: effectiveCurrentFinalUrlSuffix || '',
       new_final_url: '',
       new_final_url_suffix: '',
       success: false,
