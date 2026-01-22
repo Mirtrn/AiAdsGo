@@ -94,7 +94,7 @@ interface Creative {
   // 🆕 关键词分桶字段 (v4.10)
   // 🔥 2025-12-22: 添加桶D(高购买意图)支持
   keywordBucket?: 'A' | 'B' | 'C' | 'D' | 'S'  // 关键词桶标识: A=品牌, B=场景, C=功能, D=高购买意图, S=综合
-  bucketIntent?: string            // 创意类型说明（KISS-3：A=品牌/信任，B=场景+功能，D=转化/价值）
+  bucketIntent?: string            // 创意类型说明（KISS-3：A=品牌/信任，B=场景+功能，D=转化/价值·全量关键词）
   isSynthetic?: boolean            // 是否为综合创意
 
   // AD_STRENGTH新增字段
@@ -1079,7 +1079,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
           <AlertCircle className="h-4 w-4 text-amber-600" />
           <AlertDescription className="text-amber-700">
             <span className="font-medium">已达到生成上限：</span>
-            <>已生成3个创意类型（A:品牌/信任，B:场景+功能，D:转化/价值）。如需重新生成，请先删除对应类型创意。</>
+            <>已生成3个创意类型（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。如需重新生成，请先删除对应类型创意。</>
           </AlertDescription>
         </Alert>
       )}
@@ -1425,7 +1425,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           const labelMap: Record<string, string> = {
                             A: '品牌/信任导向',
                             B: '场景+功能导向',
-                            D: '转化/价值导向'
+                            D: '转化/价值导向·全量关键词'
                           }
 
                           return normalized ? labelMap[normalized] : '创意'

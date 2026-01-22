@@ -19,13 +19,13 @@ interface CreativeTypeProgressProps {
 const PRODUCT_BUCKETS = [
   { key: 'A', label: '品牌/信任', description: '强调官方、正品与可信（证据内）', color: 'bg-blue-500' },
   { key: 'B', label: '场景+功能', description: '用场景痛点引入，用功能给出解法', color: 'bg-green-500' },
-  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA', color: 'bg-amber-500' },
+  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA（全量关键词覆盖）', color: 'bg-amber-500' },
 ]
 
 const STORE_BUCKETS = [
   { key: 'A', label: '品牌/信任', description: '强调官方、正品与可信（证据内）', color: 'bg-blue-500' },
   { key: 'B', label: '场景+功能', description: '用场景痛点引入，用功能给出解法', color: 'bg-green-500' },
-  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA', color: 'bg-amber-500' },
+  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA（全量关键词覆盖）', color: 'bg-amber-500' },
 ]
 
 export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypeProgressProps) {
