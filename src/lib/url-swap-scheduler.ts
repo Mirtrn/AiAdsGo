@@ -50,7 +50,7 @@ export async function triggerAllUrlSwapTasks(): Promise<{
       }
 
       const swapMode = task.swap_mode === 'manual' ? 'manual' : 'auto'
-      if (swapMode === 'auto') {
+      if (swapMode === 'auto' || swapMode === 'manual') {
         // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
         try {
           await initializeProxyPool(task.user_id, offer.target_country)
@@ -133,7 +133,7 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
   }
 
   const swapMode = task.swap_mode === 'manual' ? 'manual' : 'auto'
-  if (swapMode === 'auto') {
+  if (swapMode === 'auto' || swapMode === 'manual') {
     // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
     try {
       await initializeProxyPool(task.user_id, offer.target_country)

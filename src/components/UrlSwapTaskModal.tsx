@@ -70,7 +70,7 @@ export default function UrlSwapTaskModal({
   const [googleCustomerId, setGoogleCustomerId] = useState('');
   const [googleCampaignId, setGoogleCampaignId] = useState('');
   const [swapMode, setSwapMode] = useState<'auto' | 'manual'>('auto');
-  const [manualSuffixesText, setManualSuffixesText] = useState('');
+  const [manualLinksText, setManualLinksText] = useState('');
 
   const isEditMode = !!editTaskId;
 
@@ -100,7 +100,7 @@ export default function UrlSwapTaskModal({
       setGoogleCustomerId(task.google_customer_id || '');
       setGoogleCampaignId(task.google_campaign_id || '');
       setSwapMode((task as any).swap_mode === 'manual' ? 'manual' : 'auto');
-      setManualSuffixesText(Array.isArray((task as any).manual_final_url_suffixes) ? (task as any).manual_final_url_suffixes.join('\n') : '');
+      setManualLinksText(Array.isArray((task as any).manual_final_url_suffixes) ? (task as any).manual_final_url_suffixes.join('\n') : '');
 
       // 加载关联的Offer信息
       if (task.offer_id) {
@@ -196,7 +196,7 @@ export default function UrlSwapTaskModal({
       }
     }
 
-    if (swapMode === 'auto' && proxyWarning) {
+    if (proxyWarning) {
       toast.error('请先配置代理');
       return;
     }
@@ -207,28 +207,21 @@ export default function UrlSwapTaskModal({
       return;
     }
 
-    let manualFinalUrlSuffixes: string[] = [];
+    let manualAffiliateLinks: string[] = [];
     if (swapMode === 'manual') {
-      manualFinalUrlSuffixes = manualSuffixesText
+      manualAffiliateLinks = manualLinksText
         .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          if (/^https?:\/\//i.test(line)) {
-            try {
-              const url = new URL(line);
-              return url.search.startsWith('?') ? url.search.slice(1) : '';
-            } catch {
-              return line;
-            }
-          }
-          return line.startsWith('?') ? line.slice(1) : line;
-        })
         .map((line) => line.trim())
         .filter(Boolean);
 
-      if (manualFinalUrlSuffixes.length === 0) {
-        toast.error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）');
+      if (manualAffiliateLinks.length === 0) {
+        toast.error('方式二需要至少配置 1 个推广链接');
+        return;
+      }
+
+      const invalidLinks = manualAffiliateLinks.filter((link) => !/^https?:\/\//i.test(link));
+      if (invalidLinks.length > 0) {
+        toast.error('推广链接需包含 http/https 协议，请检查输入');
         return;
       }
     }
@@ -254,7 +247,7 @@ export default function UrlSwapTaskModal({
         google_customer_id: googleCustomerId || null,
         google_campaign_id: googleCampaignId || null,
         swap_mode: swapMode,
-        manual_final_url_suffixes: swapMode === 'manual' ? manualFinalUrlSuffixes : undefined,
+        manual_final_url_suffixes: swapMode === 'manual' ? manualAffiliateLinks : undefined,
       };
 
       const url = isEditMode
@@ -290,7 +283,7 @@ export default function UrlSwapTaskModal({
     setGoogleCustomerId('');
     setGoogleCampaignId('');
     setSwapMode('auto');
-    setManualSuffixesText('');
+    setManualLinksText('');
     setProxyWarning('');
     setTaskData(null);
   };
@@ -310,7 +303,7 @@ export default function UrlSwapTaskModal({
         <DialogHeader>
           <DialogTitle>{isEditMode ? '编辑换链任务' : '创建换链任务'}</DialogTitle>
           <DialogDescription>
-            支持两种换链方式：自动解析推广链接（方式一）或手动轮询 Final URL suffix（方式二）
+            支持两种换链方式：自动访问推广链接解析（方式一）或轮询推广链接列表解析（方式二）
           </DialogDescription>
         </DialogHeader>
 
@@ -367,8 +360,8 @@ export default function UrlSwapTaskModal({
             )}
           </div>
 
-          {/* Proxy Warning（仅方式一需要） */}
-          {swapMode === 'auto' && proxyWarning && (
+          {/* Proxy Warning */}
+          {proxyWarning && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <div className="ml-2">
@@ -397,16 +390,16 @@ export default function UrlSwapTaskModal({
             >
               <SelectContent>
                 <SelectItem value="auto">方式一：自动访问推广链接解析</SelectItem>
-                <SelectItem value="manual">方式二：手动轮询 Final URL suffix</SelectItem>
+                <SelectItem value="manual">方式二：轮询推广链接列表（不同账号）</SelectItem>
               </SelectContent>
             </Select>
             {swapMode === 'auto' ? (
               <p className="text-xs text-muted-foreground">
-                适用于：推广链接会跳转且参数会变化（系统需要自动获取最新 suffix）。需要配置对应国家代理。
+                适用于：同一个推广链接多次访问最终参数会变化或联盟更换链接。系统自动访问当前推广链接获取最新 Final URL/Suffix，需要配置对应国家代理。
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                适用于：最终链接固定/推广链接本身就是最终链接，或同一Offer不同联盟账号需要切换追踪参数。无需访问推广链接，不依赖代理。
+                适用于：同一Offer不同联盟账号有不同推广链接，需要在账号间轮换。系统会按顺序访问列表中的推广链接并提取 Final URL/Suffix，需要配置代理。
               </p>
             )}
           </div>
@@ -453,20 +446,20 @@ export default function UrlSwapTaskModal({
             </div>
           </div>
 
-          {/* Manual suffix list */}
+          {/* Manual promotion link list */}
           {swapMode === 'manual' && (
             <div className="space-y-2 pt-2 border-t">
-              <Label htmlFor="manualSuffixes">Final URL suffix 列表 *</Label>
+              <Label htmlFor="manualSuffixes">推广链接列表 *</Label>
               <Textarea
                 id="manualSuffixes"
-                value={manualSuffixesText}
-                onChange={(e) => setManualSuffixesText(e.target.value)}
-                placeholder={`一行一个，不包含 ?\n示例：utm_source=FOSHO&utm_campaign=38096&utm_medium=affiliate&uid=2118`}
+                value={manualLinksText}
+                onChange={(e) => setManualLinksText(e.target.value)}
+                placeholder={`一行一个完整推广链接\n示例：https://link.foshotech.com/49Q2NF1\nhttps://www.belk.com/?cm_mmc=...`}
                 className="min-h-[120px]"
                 required
               />
               <p className="text-xs text-muted-foreground">
-                系统会按顺序轮询替换（到末尾后回到第一条）。可直接粘贴完整URL，系统会自动提取 ? 后的参数部分；也支持只粘贴 ? 后面的部分。
+                系统会按顺序轮询访问（到末尾后回到第一条），自动提取 Final URL 和 Final URL Suffix 用于更新Campaign追踪参数。
               </p>
             </div>
           )}

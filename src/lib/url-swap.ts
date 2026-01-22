@@ -33,12 +33,12 @@ export async function createUrlSwapTask(
   const now = new Date().toISOString()
 
   const swapMode: UrlSwapMode = normalizeUrlSwapMode(input.swap_mode)
-  const manualSuffixes = swapMode === 'manual'
-    ? normalizeManualFinalUrlSuffixes(input.manual_final_url_suffixes)
+  const manualAffiliateLinks = swapMode === 'manual'
+    ? normalizeManualAffiliateLinks(input.manual_final_url_suffixes)
     : []
 
-  if (swapMode === 'manual' && manualSuffixes.length === 0) {
-    throw new Error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）')
+  if (swapMode === 'manual' && manualAffiliateLinks.length === 0) {
+    throw new Error('方式二需要至少配置 1 个推广链接')
   }
 
   // 1. 验证任务配置
@@ -59,8 +59,10 @@ export async function createUrlSwapTask(
     if (!offer.affiliate_link) {
       throw new Error('Offer未配置联盟推广链接，无法创建换链任务')
     }
+  }
 
-    // 3. 验证代理配置（方式一必须）
+  // 3. 验证代理配置（方式一/方式二均需要）
+  if (swapMode === 'auto' || swapMode === 'manual') {
     const validation = await validateUrlSwapTask(input.offer_id)
     if (!validation.valid) {
       throw new Error(validation.error)
@@ -93,13 +95,13 @@ export async function createUrlSwapTask(
   // 7. 计算首次执行时间
   const nextSwapAt = calculateNextSwapAt(intervalMinutes)
 
-  // 手动模式：根据当前suffix定位下一次游标，避免第一次执行重复写入当前值
+  // 手动模式：suffix列表延续旧逻辑，推广链接列表从头开始轮询
   let manualSuffixCursor = 0
-  if (swapMode === 'manual' && manualSuffixes.length > 0) {
+  if (swapMode === 'manual' && manualAffiliateLinks.length > 0 && !hasHttpUrl(manualAffiliateLinks)) {
     const currentSuffix = (resolved.finalUrlSuffix || '').trim()
     if (currentSuffix) {
-      const idx = manualSuffixes.findIndex(s => s === currentSuffix)
-      if (idx >= 0) manualSuffixCursor = (idx + 1) % manualSuffixes.length
+      const idx = manualAffiliateLinks.findIndex(s => s === currentSuffix)
+      if (idx >= 0) manualSuffixCursor = (idx + 1) % manualAffiliateLinks.length
     }
   }
 
@@ -124,7 +126,7 @@ export async function createUrlSwapTask(
     true,  // enabled
     durationDays,
     swapMode,
-    JSON.stringify(manualSuffixes),
+    JSON.stringify(manualAffiliateLinks),
     manualSuffixCursor,
     googleCustomerId,
     googleCampaignId,
@@ -284,12 +286,12 @@ export async function updateUrlSwapTask(
     ? normalizeUrlSwapMode(updates.swap_mode)
     : existingTask.swap_mode
 
-  const manualSuffixesAfter = updates.manual_final_url_suffixes !== undefined
-    ? normalizeManualFinalUrlSuffixes(updates.manual_final_url_suffixes)
+  const manualAffiliateLinksAfter = updates.manual_final_url_suffixes !== undefined
+    ? normalizeManualAffiliateLinks(updates.manual_final_url_suffixes)
     : existingTask.manual_final_url_suffixes
 
-  if (swapModeAfter === 'manual' && manualSuffixesAfter.length === 0) {
-    throw new Error('方式二需要至少配置 1 个 Final URL suffix（不包含 ?）')
+  if (swapModeAfter === 'manual' && manualAffiliateLinksAfter.length === 0) {
+    throw new Error('方式二需要至少配置 1 个推广链接')
   }
 
   // 验证更新字段（用“更新后”的配置进行验证，避免仅更新单字段时误用默认值）
@@ -332,17 +334,20 @@ export async function updateUrlSwapTask(
 
   if (updates.manual_final_url_suffixes !== undefined) {
     fields.push('manual_final_url_suffixes = ?')
-    values.push(JSON.stringify(manualSuffixesAfter))
+    values.push(JSON.stringify(manualAffiliateLinksAfter))
   }
 
-  // 手动模式：当切换模式或更新suffix列表时，重算游标（从“当前suffix”的下一个开始）
+  // 手动模式：当切换模式或更新列表时，重算游标（suffix列表沿用旧逻辑，推广链接列表从头开始）
   if (
     swapModeAfter === 'manual' &&
     (updates.swap_mode !== undefined || updates.manual_final_url_suffixes !== undefined)
   ) {
-    const currentSuffix = (existingTask.current_final_url_suffix || '').trim()
-    const idx = manualSuffixesAfter.findIndex(s => s === currentSuffix)
-    const nextCursor = idx >= 0 ? (idx + 1) % manualSuffixesAfter.length : 0
+    let nextCursor = 0
+    if (!hasHttpUrl(manualAffiliateLinksAfter)) {
+      const currentSuffix = (existingTask.current_final_url_suffix || '').trim()
+      const idx = manualAffiliateLinksAfter.findIndex(s => s === currentSuffix)
+      nextCursor = idx >= 0 ? (idx + 1) % manualAffiliateLinksAfter.length : 0
+    }
     fields.push('manual_suffix_cursor = ?')
     values.push(nextCursor)
   }
@@ -914,7 +919,7 @@ function normalizeUrlSwapMode(input: unknown): UrlSwapMode {
   return input === 'manual' ? 'manual' : 'auto'
 }
 
-function normalizeManualFinalUrlSuffixes(input: unknown): string[] {
+function normalizeManualAffiliateLinks(input: unknown): string[] {
   if (!Array.isArray(input)) return []
 
   const out: string[] = []
@@ -925,27 +930,25 @@ function normalizeManualFinalUrlSuffixes(input: unknown): string[] {
     let value = item.trim()
     if (!value) continue
 
-    // 支持用户误填完整URL：自动提取 ? 后部分
-    if (/^https?:\/\//i.test(value)) {
-      try {
-        const url = new URL(value)
-        value = url.search.startsWith('?') ? url.search.slice(1) : ''
-      } catch {
-        // ignore
-      }
-    }
-
     if (value.startsWith('?')) value = value.slice(1)
     value = value.trim()
     if (!value) continue
 
-    const key = value.toLowerCase()
+    const key = value
     if (seen.has(key)) continue
     seen.add(key)
     out.push(value)
   }
 
   return out
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value)
+}
+
+function hasHttpUrl(values: string[]): boolean {
+  return values.some(isHttpUrl)
 }
 
 function parseStringArrayJson(input: unknown): string[] {

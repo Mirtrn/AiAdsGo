@@ -18,7 +18,7 @@ export type UrlSwapTaskStatus =
 /**
  * 换链方式
  * - auto：方式一，自动访问推广链接解析suffix
- * - manual：方式二，用户配置suffix列表轮询
+ * - manual：方式二，用户配置推广链接列表轮询并解析
  */
 export type UrlSwapMode = 'auto' | 'manual'
 
@@ -47,8 +47,8 @@ export interface UrlSwapTask {
 
   // === 换链方式（方式一/方式二） ===
   swap_mode: UrlSwapMode;  // 换链方式：auto/manual
-  manual_final_url_suffixes: string[]; // 手动模式：Final URL suffix列表（不含?）
-  manual_suffix_cursor: number; // 手动模式：轮询游标（下一次要使用的suffix索引）
+  manual_final_url_suffixes: string[]; // 手动模式：推广链接列表（完整URL，兼容旧字段名）
+  manual_suffix_cursor: number; // 手动模式：轮询游标（下一次要使用的列表索引）
 
   // === Google Ads关联 ===
   google_customer_id: string | null;   // Google Ads Customer ID
@@ -142,7 +142,7 @@ export interface CreateUrlSwapTaskRequest {
   google_customer_id?: string | null;
   google_campaign_id?: string | null;
   swap_mode?: UrlSwapMode;         // 可选，默认auto
-  manual_final_url_suffixes?: string[]; // 手动模式：Final URL suffix列表（不含?）
+  manual_final_url_suffixes?: string[]; // 手动模式：推广链接列表（完整URL）
 }
 
 /**
