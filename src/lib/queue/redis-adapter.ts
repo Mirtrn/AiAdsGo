@@ -340,8 +340,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     }
 
     // 🔥 修复：统一从任务详情计算统计，确保全局和用户统计一致
-    // 性能关键：避免对每个任务做一次 HGET（N+1 round-trips），改为一次性取回所有值
-    const taskJsons = await this.client.hvals(this.getKey('tasks'))
+    // 🔧 内存优化：使用 HSCAN 分批处理，避免 hvals() 在高任务量时占用巨量内存
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
     const byTypeRunning: Record<TaskType, number> = {} as Record<TaskType, number>
     const byUser: QueueStats['byUser'] = {}
@@ -352,57 +351,67 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     let totalCompleted = 0
     let totalFailed = 0
 
-    for (const taskJson of taskJsons) {
-      if (!taskJson) continue
-      let task: Task
-      try {
-        task = JSON.parse(taskJson)
-      } catch {
-        continue
-      }
+    const tasksKey = this.getKey('tasks')
+    const scanCount = 1000
+    let cursor = '0'
+    do {
+      const result = await this.client.hscan(tasksKey, cursor, 'COUNT', String(scanCount))
+      cursor = Array.isArray(result) ? String(result[0]) : '0'
+      const entries = Array.isArray(result) ? (result[1] as string[]) : []
 
-      // 🔥 过滤无效用户ID（userId <= 0 是无效的）
-      // 无效用户的任务不计入任何统计
-      if (!task.userId || task.userId <= 0) {
-        continue
-      }
-
-      // 按类型统计
-      byType[task.type] = (byType[task.type] || 0) + 1
-      if (task.status === 'running') {
-        byTypeRunning[task.type] = (byTypeRunning[task.type] || 0) + 1
-      }
-
-      // 按用户统计
-      const uid = task.userId
-      let userStats = byUser[uid]
-      if (!userStats) {
-        userStats = byUser[uid] = {
-          pending: 0,
-          running: 0,
-          completed: 0,
-          failed: 0,
-          coreCompleted: 0,
-          backgroundCompleted: 0,
-          coreFailed: 0,
-          backgroundFailed: 0,
+      for (let i = 1; i < entries.length; i += 2) {
+        const taskJson = entries[i]
+        if (!taskJson) continue
+        let task: Task
+        try {
+          task = JSON.parse(taskJson)
+        } catch {
+          continue
         }
-      }
-      userStats[task.status]++
-      if (task.status === 'completed') {
-        if (isBackgroundTaskType(task.type)) userStats.backgroundCompleted = (userStats.backgroundCompleted ?? 0) + 1
-        else userStats.coreCompleted = (userStats.coreCompleted ?? 0) + 1
-      } else if (task.status === 'failed') {
-        if (isBackgroundTaskType(task.type)) userStats.backgroundFailed = (userStats.backgroundFailed ?? 0) + 1
-        else userStats.coreFailed = (userStats.coreFailed ?? 0) + 1
-      }
 
-      // 全局状态统计（与用户统计使用相同逻辑）
-      if (task.status === 'pending') totalPending++
-      else if (task.status === 'running') totalRunning++
-      else if (task.status === 'completed') totalCompleted++
-      else if (task.status === 'failed') totalFailed++
-    }
+        // 🔥 过滤无效用户ID（userId <= 0 是无效的）
+        // 无效用户的任务不计入任何统计
+        if (!task.userId || task.userId <= 0) {
+          continue
+        }
+
+        // 按类型统计
+        byType[task.type] = (byType[task.type] || 0) + 1
+        if (task.status === 'running') {
+          byTypeRunning[task.type] = (byTypeRunning[task.type] || 0) + 1
+        }
+
+        // 按用户统计
+        const uid = task.userId
+        let userStats = byUser[uid]
+        if (!userStats) {
+          userStats = byUser[uid] = {
+            pending: 0,
+            running: 0,
+            completed: 0,
+            failed: 0,
+            coreCompleted: 0,
+            backgroundCompleted: 0,
+            coreFailed: 0,
+            backgroundFailed: 0,
+          }
+        }
+        userStats[task.status]++
+        if (task.status === 'completed') {
+          if (isBackgroundTaskType(task.type)) userStats.backgroundCompleted = (userStats.backgroundCompleted ?? 0) + 1
+          else userStats.coreCompleted = (userStats.coreCompleted ?? 0) + 1
+        } else if (task.status === 'failed') {
+          if (isBackgroundTaskType(task.type)) userStats.backgroundFailed = (userStats.backgroundFailed ?? 0) + 1
+          else userStats.coreFailed = (userStats.coreFailed ?? 0) + 1
+        }
+
+        // 全局状态统计（与用户统计使用相同逻辑）
+        if (task.status === 'pending') totalPending++
+        else if (task.status === 'running') totalRunning++
+        else if (task.status === 'completed') totalCompleted++
+        else if (task.status === 'failed') totalFailed++
+      }
+    } while (cursor !== '0')
 
     return {
       total: totalPending + totalRunning + totalCompleted + totalFailed,
