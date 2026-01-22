@@ -97,7 +97,7 @@ export async function executeUrlSwapTask(
     const taskRow = await db.queryOne<any>(`
       SELECT
         swap_mode,
-        manual_final_url_suffixes,
+        manual_affiliate_links,
         manual_suffix_cursor,
         current_final_url,
         current_final_url_suffix,
@@ -118,11 +118,11 @@ export async function executeUrlSwapTask(
     effectiveCurrentFinalUrlSuffix = (typeof taskRow.current_final_url_suffix === 'string' ? taskRow.current_final_url_suffix : currentFinalUrlSuffix) as string | null
 
     // =========================
-    // 方式二：手动轮询推广链接列表（兼容suffix列表）
+    // 方式二：手动轮询推广链接列表
     // =========================
     if (swapMode === 'manual') {
-      const manualEntries = parseStringArrayJson(taskRow.manual_final_url_suffixes)
-      if (manualEntries.length === 0) {
+      const manualAffiliateLinks = parseStringArrayJson(taskRow.manual_affiliate_links)
+      if (manualAffiliateLinks.length === 0) {
         throw new Error('方式二未配置推广链接列表，请在任务设置中添加至少 1 个')
       }
 
@@ -130,138 +130,27 @@ export async function executeUrlSwapTask(
       const cursor = typeof cursorRaw === 'number' ? cursorRaw : parseInt(String(cursorRaw ?? '0'), 10)
       const safeCursor = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0
 
-      const selectedEntry = manualEntries[safeCursor % manualEntries.length]
-      const nextCursor = (safeCursor + 1) % manualEntries.length
+      const selectedLink = manualAffiliateLinks[safeCursor % manualAffiliateLinks.length]
+      const nextCursor = (safeCursor + 1) % manualAffiliateLinks.length
+
+      if (!isHttpUrl(selectedLink)) {
+        throw new Error('推广链接格式错误（需http/https），请重新配置方式二列表')
+      }
 
       const currentUrlFromDb = typeof taskRow.current_final_url === 'string' ? taskRow.current_final_url : ''
       const currentSuffixFromDb = typeof taskRow.current_final_url_suffix === 'string' ? taskRow.current_final_url_suffix : ''
 
-      // 新模式：推广链接列表 → 解析得到Final URL/Suffix
-      if (isHttpUrl(selectedEntry)) {
-        // 确保代理池已按该用户的设置加载
-        await initializeProxyPool(task.userId, targetCountry)
+      // 确保代理池已按该用户的设置加载
+      await initializeProxyPool(task.userId, targetCountry)
 
-        console.log(`[url-swap-executor]（manual）解析推广链接: ${selectedEntry}`)
-        const resolved = await resolveAffiliateLink(selectedEntry, {
-          targetCountry,
-          skipCache: true
-        })
+      console.log(`[url-swap-executor]（manual）解析推广链接: ${selectedLink}`)
+      const resolved = await resolveAffiliateLink(selectedLink, {
+        targetCountry,
+        skipCache: true
+      })
 
-        const urlChanged = resolved.finalUrl !== currentUrlFromDb ||
-                           resolved.finalUrlSuffix !== currentSuffixFromDb
-
-        if (!effectiveCustomerId || !effectiveCampaignId) {
-          const message =
-            '缺少 Customer ID 或 Campaign ID，无法更新 Google Ads Final URL suffix。\n' +
-            '请在换链任务中填写正确的 Customer/Campaign ID（或先完成Campaign发布并关联到Offer），然后重新启用任务。'
-
-          await recordSwapHistory(taskId, {
-            swapped_at: new Date().toISOString(),
-            previous_final_url: currentUrlFromDb,
-            previous_final_url_suffix: currentSuffixFromDb,
-            new_final_url: resolved.finalUrl,
-            new_final_url_suffix: resolved.finalUrlSuffix,
-            success: false,
-            error_message: message
-          })
-
-          await updateTaskStats(taskId, false, false)
-          await setTaskError(taskId, message, 'google_ads_api')
-          return { success: false, changed: false }
-        }
-
-        if (urlChanged && currentUrlFromDb) {
-          const validation = validateUrlDomainChange(currentUrlFromDb, resolved.finalUrl)
-          if (!validation.valid) {
-            console.error(`[url-swap-executor] 域名变更警告: ${taskId} - ${validation.error}`)
-            await setTaskError(taskId, validation.error!)
-            return { success: false, changed: false }
-          }
-        }
-
-        if (urlChanged) {
-          console.log(`[url-swap-executor]（manual）更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
-
-          let adsApiError: Error | null = null
-
-          try {
-            const credentials = await getGoogleAdsCredentials(task.userId)
-            const auth = await getUserAuthType(task.userId)
-
-            const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-            const serviceAccount = await db.queryOne(`
-              SELECT id FROM google_ads_service_accounts
-              WHERE user_id = ? AND ${isActiveCondition}
-              ORDER BY created_at DESC LIMIT 1
-            `, [task.userId]) as { id: string } | undefined
-
-            if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
-              throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
-            }
-
-            const refreshToken = credentials?.refresh_token || ''
-
-            try {
-              await updateCampaignFinalUrlSuffix({
-                customerId: effectiveCustomerId,
-                refreshToken,
-                campaignId: effectiveCampaignId,
-                finalUrlSuffix: resolved.finalUrlSuffix,
-                userId: task.userId,
-                authType: auth.authType,
-                serviceAccountId: auth.serviceAccountId,
-              })
-            } catch (firstError: any) {
-              const message = firstError?.message || String(firstError)
-              if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
-                console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
-                await updateCampaignFinalUrlSuffix({
-                  customerId: effectiveCustomerId,
-                  refreshToken: '',
-                  campaignId: effectiveCampaignId,
-                  finalUrlSuffix: resolved.finalUrlSuffix,
-                  userId: task.userId,
-                  authType: 'service_account',
-                  serviceAccountId: serviceAccount.id,
-                })
-              } else {
-                throw firstError
-              }
-            }
-          } catch (adsError: any) {
-            const message = adsError?.message || String(adsError)
-            adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
-          }
-
-          if (adsApiError) {
-            throw adsApiError
-          }
-        }
-
-        if (urlChanged) {
-          await recordSwapHistory(taskId, {
-            swapped_at: new Date().toISOString(),
-            previous_final_url: currentUrlFromDb,
-            previous_final_url_suffix: currentSuffixFromDb,
-            new_final_url: resolved.finalUrl,
-            new_final_url_suffix: resolved.finalUrlSuffix,
-            success: true
-          })
-
-          await updateTaskAfterSwap(taskId, resolved.finalUrl, resolved.finalUrlSuffix, { manualSuffixCursor: nextCursor })
-        } else {
-          await updateTaskAfterManualAdvance(taskId, nextCursor)
-        }
-
-        console.log(`[url-swap-executor]（manual）换链执行完成: ${taskId}, changed=${urlChanged}`)
-        return { success: true, changed: urlChanged }
-      }
-
-      // 旧模式：suffix列表轮询（兼容历史配置）
-      const selectedSuffix = selectedEntry.replace(/^\?/, '').trim()
-      if (!selectedSuffix) {
-        throw new Error('方式二配置的Final URL suffix为空，请检查列表内容')
-      }
+      const urlChanged = resolved.finalUrl !== currentUrlFromDb ||
+                         resolved.finalUrlSuffix !== currentSuffixFromDb
 
       if (!effectiveCustomerId || !effectiveCampaignId) {
         const message =
@@ -272,8 +161,8 @@ export async function executeUrlSwapTask(
           swapped_at: new Date().toISOString(),
           previous_final_url: currentUrlFromDb,
           previous_final_url_suffix: currentSuffixFromDb,
-          new_final_url: currentUrlFromDb,
-          new_final_url_suffix: selectedSuffix,
+          new_final_url: resolved.finalUrl,
+          new_final_url_suffix: resolved.finalUrlSuffix,
           success: false,
           error_message: message
         })
@@ -283,9 +172,16 @@ export async function executeUrlSwapTask(
         return { success: false, changed: false }
       }
 
-      const suffixChanged = selectedSuffix !== currentSuffixFromDb
+      if (urlChanged && currentUrlFromDb) {
+        const validation = validateUrlDomainChange(currentUrlFromDb, resolved.finalUrl)
+        if (!validation.valid) {
+          console.error(`[url-swap-executor] 域名变更警告: ${taskId} - ${validation.error}`)
+          await setTaskError(taskId, validation.error!)
+          return { success: false, changed: false }
+        }
+      }
 
-      if (suffixChanged) {
+      if (urlChanged) {
         console.log(`[url-swap-executor]（manual）更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
 
         let adsApiError: Error | null = null
@@ -312,7 +208,7 @@ export async function executeUrlSwapTask(
               customerId: effectiveCustomerId,
               refreshToken,
               campaignId: effectiveCampaignId,
-              finalUrlSuffix: selectedSuffix,
+              finalUrlSuffix: resolved.finalUrlSuffix,
               userId: task.userId,
               authType: auth.authType,
               serviceAccountId: auth.serviceAccountId,
@@ -325,7 +221,7 @@ export async function executeUrlSwapTask(
                 customerId: effectiveCustomerId,
                 refreshToken: '',
                 campaignId: effectiveCampaignId,
-                finalUrlSuffix: selectedSuffix,
+                finalUrlSuffix: resolved.finalUrlSuffix,
                 userId: task.userId,
                 authType: 'service_account',
                 serviceAccountId: serviceAccount.id,
@@ -344,23 +240,23 @@ export async function executeUrlSwapTask(
         }
       }
 
-      if (suffixChanged) {
+      if (urlChanged) {
         await recordSwapHistory(taskId, {
           swapped_at: new Date().toISOString(),
           previous_final_url: currentUrlFromDb,
           previous_final_url_suffix: currentSuffixFromDb,
-          new_final_url: currentUrlFromDb,
-          new_final_url_suffix: selectedSuffix,
+          new_final_url: resolved.finalUrl,
+          new_final_url_suffix: resolved.finalUrlSuffix,
           success: true
         })
 
-        await updateTaskAfterSwap(taskId, null, selectedSuffix, { manualSuffixCursor: nextCursor })
+        await updateTaskAfterSwap(taskId, resolved.finalUrl, resolved.finalUrlSuffix, { manualSuffixCursor: nextCursor })
       } else {
         await updateTaskAfterManualAdvance(taskId, nextCursor)
       }
 
-      console.log(`[url-swap-executor]（manual）换链执行完成: ${taskId}, changed=${suffixChanged}`)
-      return { success: true, changed: suffixChanged }
+      console.log(`[url-swap-executor]（manual）换链执行完成: ${taskId}, changed=${urlChanged}`)
+      return { success: true, changed: urlChanged }
     }
 
     // =========================
@@ -517,6 +413,7 @@ export async function executeUrlSwapTask(
     if (
       error.message.includes('resolve') ||
       error.message.includes('affiliate') ||
+      error.message.includes('推广链接格式') ||
       error.message.includes('无法访问') ||
       error.message.includes('Failed to fetch') ||
       error.message.includes('timeout') ||

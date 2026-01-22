@@ -34,7 +34,7 @@ export async function createUrlSwapTask(
 
   const swapMode: UrlSwapMode = normalizeUrlSwapMode(input.swap_mode)
   const manualAffiliateLinks = swapMode === 'manual'
-    ? normalizeManualAffiliateLinks(input.manual_final_url_suffixes)
+    ? normalizeManualAffiliateLinks(input.manual_affiliate_links)
     : []
 
   if (swapMode === 'manual' && manualAffiliateLinks.length === 0) {
@@ -95,22 +95,15 @@ export async function createUrlSwapTask(
   // 7. 计算首次执行时间
   const nextSwapAt = calculateNextSwapAt(intervalMinutes)
 
-  // 手动模式：suffix列表延续旧逻辑，推广链接列表从头开始轮询
+  // 手动模式：推广链接列表从头开始轮询
   let manualSuffixCursor = 0
-  if (swapMode === 'manual' && manualAffiliateLinks.length > 0 && !hasHttpUrl(manualAffiliateLinks)) {
-    const currentSuffix = (resolved.finalUrlSuffix || '').trim()
-    if (currentSuffix) {
-      const idx = manualAffiliateLinks.findIndex(s => s === currentSuffix)
-      if (idx >= 0) manualSuffixCursor = (idx + 1) % manualAffiliateLinks.length
-    }
-  }
 
   // 8. 创建任务
   await db.exec(`
     INSERT INTO url_swap_tasks (
       id, user_id, offer_id,
       swap_interval_minutes, enabled, duration_days,
-      swap_mode, manual_final_url_suffixes, manual_suffix_cursor,
+      swap_mode, manual_affiliate_links, manual_suffix_cursor,
       google_customer_id, google_campaign_id,
       current_final_url, current_final_url_suffix,
       progress, total_swaps, success_swaps, failed_swaps, url_changed_count,
@@ -286,9 +279,9 @@ export async function updateUrlSwapTask(
     ? normalizeUrlSwapMode(updates.swap_mode)
     : existingTask.swap_mode
 
-  const manualAffiliateLinksAfter = updates.manual_final_url_suffixes !== undefined
-    ? normalizeManualAffiliateLinks(updates.manual_final_url_suffixes)
-    : existingTask.manual_final_url_suffixes
+  const manualAffiliateLinksAfter = updates.manual_affiliate_links !== undefined
+    ? normalizeManualAffiliateLinks(updates.manual_affiliate_links)
+    : existingTask.manual_affiliate_links
 
   if (swapModeAfter === 'manual' && manualAffiliateLinksAfter.length === 0) {
     throw new Error('方式二需要至少配置 1 个推广链接')
@@ -332,24 +325,18 @@ export async function updateUrlSwapTask(
     values.push(swapModeAfter)
   }
 
-  if (updates.manual_final_url_suffixes !== undefined) {
-    fields.push('manual_final_url_suffixes = ?')
+  if (updates.manual_affiliate_links !== undefined) {
+    fields.push('manual_affiliate_links = ?')
     values.push(JSON.stringify(manualAffiliateLinksAfter))
   }
 
-  // 手动模式：当切换模式或更新列表时，重算游标（suffix列表沿用旧逻辑，推广链接列表从头开始）
+  // 手动模式：当切换模式或更新列表时，重置游标（从头开始轮询）
   if (
     swapModeAfter === 'manual' &&
-    (updates.swap_mode !== undefined || updates.manual_final_url_suffixes !== undefined)
+    (updates.swap_mode !== undefined || updates.manual_affiliate_links !== undefined)
   ) {
-    let nextCursor = 0
-    if (!hasHttpUrl(manualAffiliateLinksAfter)) {
-      const currentSuffix = (existingTask.current_final_url_suffix || '').trim()
-      const idx = manualAffiliateLinksAfter.findIndex(s => s === currentSuffix)
-      nextCursor = idx >= 0 ? (idx + 1) % manualAffiliateLinksAfter.length : 0
-    }
     fields.push('manual_suffix_cursor = ?')
-    values.push(nextCursor)
+    values.push(0)
   }
 
   // 从 error 状态编辑更新，视为用户已干预：清理错误并恢复为 enabled
@@ -866,7 +853,7 @@ function calculateUrlSwapProgress(row: any): number {
 
 function parseUrlSwapTask(row: any): UrlSwapTask {
   const swapMode = normalizeUrlSwapMode(row.swap_mode)
-  const manualSuffixes = parseStringArrayJson(row.manual_final_url_suffixes)
+  const manualAffiliateLinks = parseStringArrayJson(row.manual_affiliate_links)
   const manualCursorRaw = row.manual_suffix_cursor
   const manualSuffixCursor = typeof manualCursorRaw === 'number'
     ? manualCursorRaw
@@ -880,7 +867,7 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     enabled: Boolean(row.enabled),
     duration_days: row.duration_days,
     swap_mode: swapMode,
-    manual_final_url_suffixes: manualSuffixes,
+    manual_affiliate_links: manualAffiliateLinks,
     manual_suffix_cursor: Number.isFinite(manualSuffixCursor) && manualSuffixCursor >= 0 ? manualSuffixCursor : 0,
     google_customer_id: row.google_customer_id,
     google_campaign_id: row.google_campaign_id,
@@ -927,28 +914,18 @@ function normalizeManualAffiliateLinks(input: unknown): string[] {
 
   for (const item of input) {
     if (typeof item !== 'string') continue
-    let value = item.trim()
+    const value = item.trim()
     if (!value) continue
+    if (!/^https?:\/\//i.test(value)) {
+      throw new Error('方式二推广链接需包含 http/https 协议')
+    }
 
-    if (value.startsWith('?')) value = value.slice(1)
-    value = value.trim()
-    if (!value) continue
-
-    const key = value
-    if (seen.has(key)) continue
-    seen.add(key)
+    if (seen.has(value)) continue
+    seen.add(value)
     out.push(value)
   }
 
   return out
-}
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value)
-}
-
-function hasHttpUrl(values: string[]): boolean {
-  return values.some(isHttpUrl)
 }
 
 function parseStringArrayJson(input: unknown): string[] {

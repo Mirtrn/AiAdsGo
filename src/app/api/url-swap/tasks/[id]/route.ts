@@ -104,6 +104,31 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const swapModeAfter = body.swap_mode !== undefined
+      ? (body.swap_mode === 'manual' ? 'manual' : 'auto')
+      : existingTask.swap_mode
+
+    if (swapModeAfter === 'manual') {
+      const rawList = (body as any).manual_affiliate_links ?? existingTask.manual_affiliate_links
+      const hasAtLeastOne = Array.isArray(rawList) && rawList.some((v: any) => typeof v === 'string' && v.trim().length > 0)
+      if (!hasAtLeastOne) {
+        return NextResponse.json(
+          { error: 'validation_error', message: '方式二需要至少配置 1 个推广链接' },
+          { status: 400 }
+        );
+      }
+
+      const invalidLinks = Array.isArray(rawList)
+        ? rawList.filter((v: any) => typeof v === 'string' && v.trim().length > 0 && !/^https?:\/\//i.test(v.trim()))
+        : []
+      if (invalidLinks.length > 0) {
+        return NextResponse.json(
+          { error: 'validation_error', message: '推广链接需包含 http/https 协议，请检查方式二列表' },
+          { status: 400 }
+        );
+      }
+    }
+
     // 更新任务
     const task = await updateUrlSwapTask(id, parseInt(userId), body);
 

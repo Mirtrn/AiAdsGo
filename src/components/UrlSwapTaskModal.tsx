@@ -100,7 +100,7 @@ export default function UrlSwapTaskModal({
       setGoogleCustomerId(task.google_customer_id || '');
       setGoogleCampaignId(task.google_campaign_id || '');
       setSwapMode((task as any).swap_mode === 'manual' ? 'manual' : 'auto');
-      setManualLinksText(Array.isArray((task as any).manual_final_url_suffixes) ? (task as any).manual_final_url_suffixes.join('\n') : '');
+      setManualLinksText(Array.isArray((task as any).manual_affiliate_links) ? (task as any).manual_affiliate_links.join('\n') : '');
 
       // 加载关联的Offer信息
       if (task.offer_id) {
@@ -247,7 +247,7 @@ export default function UrlSwapTaskModal({
         google_customer_id: googleCustomerId || null,
         google_campaign_id: googleCampaignId || null,
         swap_mode: swapMode,
-        manual_final_url_suffixes: swapMode === 'manual' ? manualAffiliateLinks : undefined,
+        manual_affiliate_links: swapMode === 'manual' ? manualAffiliateLinks : undefined,
       };
 
       const url = isEditMode

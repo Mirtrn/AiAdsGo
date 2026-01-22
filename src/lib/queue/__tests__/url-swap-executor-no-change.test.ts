@@ -57,7 +57,7 @@ describe('executeUrlSwapTask (auto)', () => {
   it('URL未变化时应计为成功，不应增加 failed_swaps', async () => {
     queryOne.mockResolvedValueOnce({
       swap_mode: 'auto',
-      manual_final_url_suffixes: '[]',
+      manual_affiliate_links: '[]',
       manual_suffix_cursor: 0,
       current_final_url: 'https://example.com/final',
       current_final_url_suffix: 'x=1',
@@ -104,4 +104,3 @@ describe('executeUrlSwapTask (auto)', () => {
     expect(sql).not.toContain('failed_swaps = failed_swaps + 1')
   })
 })
-
