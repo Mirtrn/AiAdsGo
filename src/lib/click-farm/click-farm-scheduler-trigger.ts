@@ -4,11 +4,11 @@
  */
 
 import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory, parseClickFarmTask } from '@/lib/click-farm';
-import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange, generateSubTasks } from '@/lib/click-farm/scheduler';
+import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getDatabase } from '@/lib/db';
-import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
+import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
@@ -24,6 +24,37 @@ interface TriggerResult {
   status: 'queued' | 'skipped' | 'paused' | 'completed' | 'error';
   clickCount?: number;
   message?: string;
+}
+
+const MAX_SAFE_CLICKS_PER_HOUR = 1000
+
+function toFiniteNumber(value: unknown): number | null {
+  const num = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+function getSafeHourlyClickCount(params: {
+  rawCount: unknown
+  dailyClickCount: unknown
+  taskId: string
+  hour: number
+}): number {
+  const { rawCount, dailyClickCount, taskId, hour } = params
+  const countNum = toFiniteNumber(rawCount)
+  if (!countNum || countNum <= 0) return 0
+
+  const dailyNum = toFiniteNumber(dailyClickCount)
+  const maxAllowed = Math.min(
+    MAX_SAFE_CLICKS_PER_HOUR,
+    dailyNum && dailyNum > 0 ? dailyNum : MAX_SAFE_CLICKS_PER_HOUR
+  )
+  const normalized = Math.min(Math.floor(countNum), maxAllowed)
+
+  if (normalized !== countNum) {
+    console.warn(`[Trigger] 任务 ${taskId} 小时${hour}点击数异常(${countNum})，已限制为 ${normalized}`)
+  }
+
+  return normalized
 }
 
 /**
@@ -142,7 +173,18 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   }
 
   // 获取该小时应该执行的点击数
-  const clickCount = task.hourly_distribution[currentHour] || 0;
+  const hourlyDistribution = task.hourly_distribution
+  const rawClickCount = Array.isArray(hourlyDistribution)
+    ? hourlyDistribution[currentHour]
+    : (hourlyDistribution && typeof hourlyDistribution === 'object')
+      ? (hourlyDistribution as Record<string, unknown>)[String(currentHour)]
+      : 0
+  const clickCount = getSafeHourlyClickCount({
+    rawCount: rawClickCount,
+    dailyClickCount: task.daily_click_count,
+    taskId: String(task.id),
+    hour: currentHour
+  })
 
   if (clickCount === 0) {
     // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
@@ -156,16 +198,6 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     ? task.referer_config
     : undefined;
 
-  // 🆕 使用 generateSubTasks 生成分散执行时间的子任务
-  // 这样点击会分散到当前小时内的不同时间点执行，而不是集中在一起
-  const subTasks = generateSubTasks(
-    task,
-    currentHour,
-    clickCount,
-    offer.affiliate_link,
-    offer.target_country
-  );
-
   // 获取队列管理器并加入队列
   const queueManager = getQueueManagerForTaskType('click-farm');
   let queued = 0;
@@ -175,15 +207,24 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   const BATCH_SIZE = 50;
   const BATCH_DELAY_MS = 50;
 
-  for (let i = 0; i < subTasks.length; i++) {
-    const subTask = subTasks[i];
+  const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
+  const hourStr = String(currentHour).padStart(2, '0')
+  for (let i = 0; i < clickCount; i++) {
+    const minute = Math.floor(Math.random() * 60)
+    const second = Math.floor(Math.random() * 60)
+    const scheduledAt = createDateInTimezone(
+      todayInTimezone,
+      `${hourStr}:${String(minute).padStart(2, '0')}`,
+      task.timezone,
+      second
+    )
     const taskData: ClickFarmTaskData = {
       taskId: task.id,
-      url: subTask.url,
+      url: offer.affiliate_link,
       proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
       offerId: task.offer_id,
       timezone: task.timezone,
-      scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间，实现时间分散
+      scheduledAt: scheduledAt.toISOString(),  // 🆕 传递计划执行时间，实现时间分散
       refererConfig  // 🆕 传递Referer配置
     };
 
@@ -302,7 +343,18 @@ export async function triggerAllPendingTasks(): Promise<{
       continue;
     }
 
-    const clickCount = task.hourly_distribution[currentHour] || 0;
+    const hourlyDistribution = task.hourly_distribution
+    const rawClickCount = Array.isArray(hourlyDistribution)
+      ? hourlyDistribution[currentHour]
+      : (hourlyDistribution && typeof hourlyDistribution === 'object')
+        ? (hourlyDistribution as Record<string, unknown>)[String(currentHour)]
+        : 0
+    const clickCount = getSafeHourlyClickCount({
+      rawCount: rawClickCount,
+      dailyClickCount: task.daily_click_count,
+      taskId: String(task.id),
+      hour: currentHour
+    })
     if (clickCount === 0) {
       // 🔧 修复：即使跳过任务，也要更新 next_run_at
       // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
@@ -317,31 +369,31 @@ export async function triggerAllPendingTasks(): Promise<{
       ? task.referer_config
       : undefined;
 
-    // 🆕 使用 generateSubTasks 生成分散执行时间的子任务
-    const subTasks = generateSubTasks(
-      task,
-      currentHour,
-      clickCount,
-      offer.affiliate_link,
-      offer.target_country
-    );
-
     // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
     const BATCH_SIZE = 100;
     const BATCH_DELAY_MS = 50;
 
     // 加入队列
     let queued = 0;
-    for (let i = 0; i < subTasks.length; i++) {
-      const subTask = subTasks[i];
+    const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
+    const hourStr = String(currentHour).padStart(2, '0')
+    for (let i = 0; i < clickCount; i++) {
+      const minute = Math.floor(Math.random() * 60)
+      const second = Math.floor(Math.random() * 60)
+      const scheduledAt = createDateInTimezone(
+        todayInTimezone,
+        `${hourStr}:${String(minute).padStart(2, '0')}`,
+        task.timezone,
+        second
+      )
       try {
         await queueManager.enqueue('click-farm', {
           taskId: task.id,
-          url: subTask.url,
+          url: offer.affiliate_link,
           proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
           offerId: task.offer_id,
           timezone: task.timezone,
-          scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间
+          scheduledAt: scheduledAt.toISOString(),  // 🆕 传递计划执行时间
           refererConfig  // 🆕 传递Referer配置
         }, task.user_id, { priority: 'normal', maxRetries: 0 });
         queued++;
