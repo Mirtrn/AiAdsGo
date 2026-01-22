@@ -53,6 +53,29 @@ export class IPRocketProvider implements ProxyProvider {
 
       const text = typeof resp.data === 'string' ? resp.data : String(resp.data ?? '')
 
+      // 检测IPRocket返回的JSON错误响应（HTTP 200但body是错误信息）
+      // 例如: {"msg":"Business abnormality, please contact customer service","code":500}
+      if (text.trim().startsWith('{') && text.includes('"code"')) {
+        try {
+          const jsonResp = JSON.parse(text)
+          if (jsonResp.code && jsonResp.code !== 200) {
+            const errorMsg = jsonResp.msg || jsonResp.message || 'Unknown API error'
+            console.error(`[IPRocket] API返回业务错误: code=${jsonResp.code}, msg=${errorMsg}`)
+            // 不要回退到Playwright，因为是API层面的错误（账户/配额问题）
+            throw new ProxyHttpError(jsonResp.code, `IPRocket API error: ${errorMsg}`)
+          }
+        } catch (parseErr) {
+          // 如果是ProxyHttpError，重新抛出（不要被当作JSON解析错误）
+          if (parseErr instanceof ProxyHttpError) {
+            throw parseErr
+          }
+          // 如果JSON解析失败但看起来像JSON，记录警告
+          if (text.trim().startsWith('{')) {
+            console.warn(`[IPRocket] 响应像JSON但解析失败: ${text.substring(0, 100)}`)
+          }
+        }
+      }
+
       // 🔍 记录响应内容用于诊断（如果看起来不正常）
       if (text.length > 200 || !text.includes(':')) {
         console.warn(`[IPRocket] 响应内容异常（前200字符）: ${text.substring(0, 200)}`)
@@ -171,6 +194,26 @@ export class IPRocketProvider implements ProxyProvider {
       const text = await page.textContent('body')
       if (!text) {
         throw new ProxyNetworkError('代理IP响应为空')
+      }
+
+      // 检测IPRocket返回的JSON错误响应（HTTP 200但body是错误信息）
+      if (text.trim().startsWith('{') && text.includes('"code"')) {
+        try {
+          const jsonResp = JSON.parse(text)
+          if (jsonResp.code && jsonResp.code !== 200) {
+            const errorMsg = jsonResp.msg || jsonResp.message || 'Unknown API error'
+            console.error(`[IPRocket Playwright] API返回业务错误: code=${jsonResp.code}, msg=${errorMsg}`)
+            throw new ProxyHttpError(jsonResp.code, `IPRocket API error: ${errorMsg}`)
+          }
+        } catch (parseErr) {
+          // 如果是ProxyHttpError，重新抛出
+          if (parseErr instanceof ProxyHttpError) {
+            throw parseErr
+          }
+          if (text.trim().startsWith('{')) {
+            console.warn(`[IPRocket Playwright] 响应像JSON但解析失败: ${text.substring(0, 100)}`)
+          }
+        }
       }
 
       // 🔍 记录响应内容用于诊断（如果看起来不正常）
