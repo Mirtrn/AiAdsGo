@@ -236,38 +236,6 @@ export interface BucketCreativeOptions {
 // ============================================
 
 /**
- * 判断是否为纯品牌词
- *
- * 纯品牌词定义：仅品牌名本身，不包含任何修饰词或品类词
- *
- * @param keyword - 关键词
- * @param brandName - 品牌名称
- * @returns 是否为纯品牌词
- *
- * @example
- * isPureBrandKeyword('eufy', 'Eufy')              // true
- * isPureBrandKeyword('eufy security', 'Eufy')    // false
- * isPureBrandKeyword('eufy camera', 'Eufy')      // false
- */
-export function isPureBrandKeyword(keyword: string, brandName: string): boolean {
-  if (!keyword || !brandName) return false
-
-  const pureBrandKeywords = getPureBrandKeywords(brandName)
-  if (pureBrandKeywords.length === 0) return false
-
-  const kwNorm = normalizeGoogleAdsKeyword(keyword)
-  if (!kwNorm) return false
-  const kwCompact = kwNorm.replace(/\s+/g, '')
-
-  return pureBrandKeywords.some(brand => {
-    const brandNorm = normalizeGoogleAdsKeyword(brand || '')
-    if (!brandNorm) return false
-    if (kwNorm === brandNorm) return true
-    return kwCompact === brandNorm.replace(/\s+/g, '')
-  })
-}
-
-/**
  * 分离纯品牌词和非品牌词
  *
  * @param keywords - 所有关键词列表
@@ -280,9 +248,10 @@ export function separateBrandKeywords(
 ): { brandKeywords: string[]; nonBrandKeywords: string[] } {
   const brandKeywords: string[] = []
   const nonBrandKeywords: string[] = []
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
 
   for (const keyword of keywords) {
-    if (isPureBrandKeyword(keyword, brandName)) {
+    if (isPureBrandKeyword(keyword, pureBrandKeywords)) {
       brandKeywords.push(keyword)
     } else {
       nonBrandKeywords.push(keyword)
@@ -1957,8 +1926,27 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
  */
 export async function deleteKeywordPool(offerId: number): Promise<void> {
   const db = await getDatabase()
-  await db.exec('DELETE FROM offer_keyword_pools WHERE offer_id = ?', [offerId])
-  console.log(`🗑️ 关键词池已删除: Offer #${offerId}`)
+  const existing = await db.queryOne<{ id: number }>(
+    'SELECT id FROM offer_keyword_pools WHERE offer_id = ?',
+    [offerId]
+  )
+
+  if (!existing) {
+    console.log(`ℹ️ 关键词池不存在: Offer #${offerId}`)
+    return
+  }
+
+  let cleared = 0
+  await db.transaction(async () => {
+    const clearResult = await db.exec(
+      'UPDATE ad_creatives SET keyword_pool_id = NULL WHERE offer_id = ? AND keyword_pool_id = ?',
+      [offerId, existing.id]
+    )
+    cleared = clearResult.changes
+    await db.exec('DELETE FROM offer_keyword_pools WHERE id = ?', [existing.id])
+  })
+
+  console.log(`🗑️ 关键词池已删除: Offer #${offerId} (清理创意引用: ${cleared})`)
 }
 
 // ============================================
