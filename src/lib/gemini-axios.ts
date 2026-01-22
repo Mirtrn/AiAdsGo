@@ -64,6 +64,36 @@ export interface GeminiAxiosGenerateResult {
   model: string
 }
 
+function extractCandidateText(candidate: GeminiResponse['candidates'][number]): string {
+  const parts = candidate?.content?.parts
+  if (!parts || parts.length === 0) return ''
+  return parts
+    .map(part => (typeof part?.text === 'string' ? part.text : ''))
+    .join('')
+}
+
+function logEmptyCandidate(response: GeminiResponse, candidate: GeminiResponse['candidates'][number]) {
+  const candidateAny = candidate as any
+  const responseAny = response as any
+  const parts = candidateAny?.content?.parts
+
+  console.error('   - finishReason:', candidateAny?.finishReason)
+  if (candidateAny?.safetyRatings) {
+    console.error('   - safetyRatings:', JSON.stringify(candidateAny.safetyRatings))
+  }
+  if (responseAny?.promptFeedback) {
+    console.error('   - promptFeedback:', JSON.stringify(responseAny.promptFeedback))
+  }
+  console.error('   - content存在:', !!candidateAny?.content)
+  console.error('   - parts存在:', !!parts)
+  console.error('   - parts长度:', Array.isArray(parts) ? parts.length : 0)
+  if (Array.isArray(parts)) {
+    console.error('   - parts字段:', parts.map(part => Object.keys(part || {})))
+  }
+  const responsePreview = JSON.stringify(responseAny, null, 2)
+  console.error(`   - 响应片段: ${responsePreview.substring(0, 800)}`)
+}
+
 /**
  * 根据用户配置获取对应的 Gemini API Key
  *
@@ -283,25 +313,26 @@ export async function generateContent(params: {
     const candidate = response.data.candidates[0]
 
     // 🔧 修复(2025-12-11): 检查finishReason，如果是MAX_TOKENS，说明输出被截断
-    if (candidate.finishReason === 'MAX_TOKENS') {
-      console.error('❌ Gemini API输出达到token限制被截断')
-      console.error('   - finishReason:', candidate.finishReason)
-      console.error('   - usageMetadata:', response.data.usageMetadata)
-      throw new Error('Gemini API 输出达到token限制被截断。请增加maxOutputTokens参数。')
+    if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+      console.warn(`⚠️ Gemini API finishReason: ${candidate.finishReason}`)
+      if (candidate.finishReason === 'MAX_TOKENS') {
+        console.error('❌ Gemini API输出达到token限制被截断')
+        console.error('   - finishReason:', candidate.finishReason)
+        console.error('   - usageMetadata:', response.data.usageMetadata)
+        throw new Error('Gemini API 输出达到token限制被截断。请增加maxOutputTokens参数。')
+      }
+      if ((candidate as any).safetyRatings) {
+        console.warn('   - safetyRatings:', JSON.stringify((candidate as any).safetyRatings))
+      }
     }
 
     // 提取响应文本
-    if (
-      !candidate.content ||
-      !candidate.content.parts ||
-      candidate.content.parts.length === 0 ||
-      !candidate.content.parts[0].text
-    ) {
+    const text = extractCandidateText(candidate)
+    if (!text) {
       console.error('❌ Gemini API响应异常: content.parts为空', { finishReason: candidate.finishReason })
+      logEmptyCandidate(response.data, candidate)
       throw new Error('Gemini API 返回了空响应（content.parts为空）')
     }
-
-    const text = candidate.content.parts[0].text
     console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
 
     // 记录token使用情况
@@ -437,12 +468,17 @@ export async function generateContent(params: {
       )
     }
 
-    // 如果是gemini-2.5-pro过载，或 relay 临时性失败，则降级到gemini-2.5-flash
-    if ((isOverloaded || isTransientFailureForRelay) && model === 'gemini-2.5-pro') {
-      console.warn(
-        `⚠️ ${model} 调用失败，自动降级到 gemini-2.5-flash` +
-        (isOverloaded ? '（模型过载）' : (isTransientFailureForRelay ? '（relay临时性失败）' : ''))
-      )
+    const isEmptyContentError =
+      error.message?.includes('content.parts为空') ||
+      error.message?.includes('没有candidates')
+
+    // 如果是gemini-2.5-pro过载/临时失败，或 gemini-3-flash-preview 返回空响应，则降级到gemini-2.5-flash
+    const canFallbackToFlash = model === 'gemini-2.5-pro' || model === 'gemini-3-flash-preview'
+    if ((isOverloaded || isTransientFailureForRelay || isEmptyContentError) && canFallbackToFlash) {
+      const fallbackReason = isOverloaded
+        ? '模型过载'
+        : (isTransientFailureForRelay ? 'relay临时性失败' : (isEmptyContentError ? '空响应' : '未知原因'))
+      console.warn(`⚠️ ${model} 调用失败，自动降级到 gemini-2.5-flash（${fallbackReason}）`)
 
       try {
         // 🔧 修复(2025-12-30): fallback也需要使用正确的API Key传递方式
@@ -480,20 +516,12 @@ export async function generateContent(params: {
           throw new Error('Gemini API (fallback) 输出达到token限制被截断')
         }
 
-        // 检查content.parts
-        if (
-          !fallbackCandidate.content ||
-          !fallbackCandidate.content.parts ||
-          fallbackCandidate.content.parts.length === 0 ||
-          !fallbackCandidate.content.parts[0].text
-        ) {
+        const text = extractCandidateText(fallbackCandidate)
+        if (!text) {
           console.error('Gemini API (fallback)响应结构异常: content.parts为空')
-          console.error('   - candidate:', fallbackCandidate)
-          console.error('   - 完整响应:', JSON.stringify(fallbackResponse.data, null, 2))
+          logEmptyCandidate(fallbackResponse.data, fallbackCandidate)
           throw new Error('Gemini API (fallback) 返回了空响应（content.parts为空）')
         }
-
-        const text = fallbackCandidate.content.parts[0].text
         console.log(`✓ Gemini API (fallback: gemini-2.5-flash) 调用成功，返回 ${text.length} 字符`)
 
         // 记录token使用情况

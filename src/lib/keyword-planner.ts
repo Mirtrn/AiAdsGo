@@ -101,6 +101,12 @@ function isDeveloperTokenTestOnlyAccessError(error: any): boolean {
   )
 }
 
+function isInvalidGrantMessage(message: string): boolean {
+  const msg = message.toLowerCase()
+  return msg.includes('invalid_grant') || msg.includes('token has been expired or revoked')
+}
+
+
 // Helper: Read user configs from system_settings
 async function readUserConfigs(db: any, userId: number): Promise<Record<string, string>> {
   const configs = await db.query(`
@@ -490,7 +496,14 @@ export async function getKeywordSearchVolumes(
               await refreshAccessToken(userId || 1)
               console.log('[KeywordPlanner] Access token refreshed successfully')
             } catch (refreshError: any) {
-              console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
+              const refreshMessage = refreshError?.message || String(refreshError)
+              if (isInvalidGrantMessage(refreshMessage)) {
+                throw new Error(
+                  `Google Ads OAuth 授权已过期或被撤销（invalid_grant）。` +
+                  `请重新授权后再试。原始错误: ${refreshMessage}`
+                )
+              }
+              console.warn('[KeywordPlanner] Token refresh warning:', refreshMessage)
               // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
             }
 
@@ -522,167 +535,173 @@ export async function getKeywordSearchVolumes(
 
               while (!success && retries <= maxRetries) {
                 try {
-                  // 🔧 修复(2025-12-24): 使用统一的服务访问方式
-                  const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
+                    // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+                    const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
 
-                  // 🔧 修复(2025-12-25): 确保customer_id格式正确（去掉横杠）
-                  const cleanCustomerId = config.customerId.replace(/-/g, '')
+                    // 🔧 修复(2025-12-25): 确保customer_id格式正确（去掉横杠）
+                    const cleanCustomerId = config.customerId.replace(/-/g, '')
 
-                  const requestParams = {
-                    customer_id: cleanCustomerId,
-                    keywords: batch,
-                    language: `languageConstants/${languageId}`,
-                    geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
-                    keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
-                  }
-
-                  console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${cleanCustomerId}, keywords=${batch.length}, authType=${config.authType}`)
-
-                  // OAuth 模式：使用 promise-based API
-                  const response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
-
-                  totalApiCalls++
-
-                  console.log(`[KeywordPlanner] API响应类型: ${typeof response}, 结构: ${Object.keys(response || {}).join(', ')}`)
-                  const results = (response as any).results || response || []
-                  console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
-
-                  // 🔧 修复(2025-12-17): generateKeywordHistoricalMetrics 返回字段可能是
-                  // snake_case (keyword_metrics) 或 camelCase (keywordMetrics)
-                  // 或者带下划线前缀 (_keyword_metrics) - protobuf 格式
-                  if (results.length > 0) {
-                    console.log(`[KeywordPlanner] 首个结果结构: ${Object.keys(results[0] || {}).join(', ')}`)
-                    // 🔍 调试：打印首个结果的完整内容
-                    console.log(`[KeywordPlanner] 首个结果详情: ${JSON.stringify(results[0], null, 2).slice(0, 800)}`)
-                  }
-
-                  for (const result of results) {
-                    // 兼容多种字段命名：snake_case, camelCase, 和 protobuf 下划线前缀
-                    const text = result.text || result._text
-                    const metrics = result.keyword_metrics
-                      || result.keywordMetrics
-                      || result._keyword_metrics
-                      || result._keywordMetrics
-
-                    if (text && metrics) {
-                      // 同样兼容多种命名风格（包括 protobuf 下划线前缀）
-                      const avgSearches = metrics.avg_monthly_searches
-                        ?? metrics.avgMonthlySearches
-                        ?? metrics._avg_monthly_searches
-                        ?? 0
-                      const comp = (metrics.competition ?? metrics._competition)?.toString() || 'UNKNOWN'
-                      const compIndex = metrics.competition_index
-                        ?? metrics.competitionIndex
-                        ?? metrics._competition_index
-                        ?? 0
-                      const lowBid = metrics.low_top_of_page_bid_micros
-                        ?? metrics.lowTopOfPageBidMicros
-                        ?? metrics._low_top_of_page_bid_micros
-                        ?? 0
-                      const highBid = metrics.high_top_of_page_bid_micros
-                        ?? metrics.highTopOfPageBidMicros
-                        ?? metrics._high_top_of_page_bid_micros
-                        ?? 0
-
-                      apiVolumes.set(text.toLowerCase(), {
-                        keyword: text,
-                        avgMonthlySearches: Number(avgSearches) || 0,
-                        competition: comp,
-                        competitionIndex: Number(compIndex) || 0,
-                        lowTopPageBid: Number(lowBid) / 1_000_000 || 0,
-                        highTopPageBid: Number(highBid) / 1_000_000 || 0,
-                        requestedCountry,
-                        effectiveCountry,
-                        usedProxyGeo,
-                        requestedLanguage,
-                        effectiveLanguage,
-                        usedFallbackLanguage,
-                      })
-                    } else if (text) {
-                      // 🔧 修复(2025-12-24): 有关键词但metrics为null时,返回0搜索量而不是丢弃关键词
-                      // 原因: 长尾词或不常见关键词可能没有metrics数据,但仍需要返回给调用方
-                      console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据，返回默认值(搜索量=0)`)
-                      console.log(`  - keyword_metrics: ${typeof result.keyword_metrics} = ${JSON.stringify(result.keyword_metrics)}`)
-                      console.log(`  - _keyword_metrics: ${typeof result._keyword_metrics} = ${JSON.stringify(result._keyword_metrics)}`)
-
-                      // ✅ 仍然添加到结果中,避免关键词丢失
-                      apiVolumes.set(text.toLowerCase(), {
-                        keyword: text,
-                        avgMonthlySearches: 0,
-                        competition: 'UNKNOWN',
-                        competitionIndex: 0,
-                        lowTopPageBid: 0,
-                        highTopPageBid: 0,
-                        requestedCountry,
-                        effectiveCountry,
-                        usedProxyGeo,
-                        requestedLanguage,
-                        effectiveLanguage,
-                        usedFallbackLanguage,
-                      })
-                    }
-                  }
-
-                  success = true
-                } catch (batchError: any) {
-                  if (isDeveloperTokenTestOnlyAccessError(batchError)) {
-                    const msg = getGoogleAdsErrorMessage(batchError)
-                    console.warn('[KeywordPlanner] Developer token 缺少 Basic/Standard access，Historical Metrics 不可用；本次返回默认搜索量=0（不写入缓存）')
-                    console.warn(`[KeywordPlanner] 原因: ${msg}`)
-
-                    for (const keyword of needApiKeywords) {
-                      apiVolumes.set(keyword.toLowerCase(), {
-                        keyword,
-                        avgMonthlySearches: 0,
-                        competition: 'UNKNOWN',
-                        competitionIndex: 0,
-                        lowTopPageBid: 0,
-                        highTopPageBid: 0,
-                        volumeUnavailableReason: 'DEV_TOKEN_TEST_ONLY',
-                        requestedCountry,
-                        effectiveCountry,
-                        usedProxyGeo,
-                        requestedLanguage,
-                        effectiveLanguage,
-                        usedFallbackLanguage,
-                      })
+                    const requestParams = {
+                      customer_id: cleanCustomerId,
+                      keywords: batch,
+                      language: `languageConstants/${languageId}`,
+                      geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
+                      keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
                     }
 
-                    skipCachingDueToUnavailable = true
-                    apiErrorMessage = msg
-                    stopProcessingBatches = true
+                    console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${cleanCustomerId}, keywords=${batch.length}, authType=${config.authType}`)
+
+                    // OAuth 模式：使用 promise-based API
+                    const response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
+
+                    totalApiCalls++
+
+                    console.log(`[KeywordPlanner] API响应类型: ${typeof response}, 结构: ${Object.keys(response || {}).join(', ')}`)
+                    const results = (response as any).results || response || []
+                    console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
+
+                    // 🔧 修复(2025-12-17): generateKeywordHistoricalMetrics 返回字段可能是
+                    // snake_case (keyword_metrics) 或 camelCase (keywordMetrics)
+                    // 或者带下划线前缀 (_keyword_metrics) - protobuf 格式
+                    if (results.length > 0) {
+                      console.log(`[KeywordPlanner] 首个结果结构: ${Object.keys(results[0] || {}).join(', ')}`)
+                      // 🔍 调试：打印首个结果的完整内容
+                      console.log(`[KeywordPlanner] 首个结果详情: ${JSON.stringify(results[0], null, 2).slice(0, 800)}`)
+                    }
+
+                    for (const result of results) {
+                      // 兼容多种字段命名：snake_case, camelCase, 和 protobuf 下划线前缀
+                      const text = result.text || result._text
+                      const metrics = result.keyword_metrics
+                        || result.keywordMetrics
+                        || result._keyword_metrics
+                        || result._keywordMetrics
+
+                      if (text && metrics) {
+                        // 同样兼容多种命名风格（包括 protobuf 下划线前缀）
+                        const avgSearches = metrics.avg_monthly_searches
+                          ?? metrics.avgMonthlySearches
+                          ?? metrics._avg_monthly_searches
+                          ?? 0
+                        const comp = (metrics.competition ?? metrics._competition)?.toString() || 'UNKNOWN'
+                        const compIndex = metrics.competition_index
+                          ?? metrics.competitionIndex
+                          ?? metrics._competition_index
+                          ?? 0
+                        const lowBid = metrics.low_top_of_page_bid_micros
+                          ?? metrics.lowTopOfPageBidMicros
+                          ?? metrics._low_top_of_page_bid_micros
+                          ?? 0
+                        const highBid = metrics.high_top_of_page_bid_micros
+                          ?? metrics.highTopOfPageBidMicros
+                          ?? metrics._high_top_of_page_bid_micros
+                          ?? 0
+
+                        apiVolumes.set(text.toLowerCase(), {
+                          keyword: text,
+                          avgMonthlySearches: Number(avgSearches) || 0,
+                          competition: comp,
+                          competitionIndex: Number(compIndex) || 0,
+                          lowTopPageBid: Number(lowBid) / 1_000_000 || 0,
+                          highTopPageBid: Number(highBid) / 1_000_000 || 0,
+                          requestedCountry,
+                          effectiveCountry,
+                          usedProxyGeo,
+                          requestedLanguage,
+                          effectiveLanguage,
+                          usedFallbackLanguage,
+                        })
+                      } else if (text) {
+                        // 🔧 修复(2025-12-24): 有关键词但metrics为null时,返回0搜索量而不是丢弃关键词
+                        // 原因: 长尾词或不常见关键词可能没有metrics数据,但仍需要返回给调用方
+                        console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据，返回默认值(搜索量=0)`)
+                        console.log(`  - keyword_metrics: ${typeof result.keyword_metrics} = ${JSON.stringify(result.keyword_metrics)}`)
+                        console.log(`  - _keyword_metrics: ${typeof result._keyword_metrics} = ${JSON.stringify(result._keyword_metrics)}`)
+
+                        // ✅ 仍然添加到结果中,避免关键词丢失
+                        apiVolumes.set(text.toLowerCase(), {
+                          keyword: text,
+                          avgMonthlySearches: 0,
+                          competition: 'UNKNOWN',
+                          competitionIndex: 0,
+                          lowTopPageBid: 0,
+                          highTopPageBid: 0,
+                          requestedCountry,
+                          effectiveCountry,
+                          usedProxyGeo,
+                          requestedLanguage,
+                          effectiveLanguage,
+                          usedFallbackLanguage,
+                        })
+                      }
+                    }
+
                     success = true
-                    break
-                  }
+                  } catch (batchError: any) {
+                    if (isDeveloperTokenTestOnlyAccessError(batchError)) {
+                      const msg = getGoogleAdsErrorMessage(batchError)
+                      console.warn('[KeywordPlanner] Developer token 缺少 Basic/Standard access，Historical Metrics 不可用；本次返回默认搜索量=0（不写入缓存）')
+                      console.warn(`[KeywordPlanner] 原因: ${msg}`)
 
-                  const errorMsg = batchError.errors?.[0]?.message || batchError.message || ''
-                  if (errorMsg.includes('Too many requests')) {
-                    retries++
-                    const waitTime = Math.min(5000 * Math.pow(2, retries - 1), 30000) // 5s, 10s, 20s, max 30s
-                    console.log(`[KeywordPlanner] Rate limit hit, retry ${retries}/${maxRetries} after ${waitTime}ms`)
-                    await new Promise(resolve => setTimeout(resolve, waitTime))
-                    continue
-                  }
+                      for (const keyword of needApiKeywords) {
+                        apiVolumes.set(keyword.toLowerCase(), {
+                          keyword,
+                          avgMonthlySearches: 0,
+                          competition: 'UNKNOWN',
+                          competitionIndex: 0,
+                          lowTopPageBid: 0,
+                          highTopPageBid: 0,
+                          volumeUnavailableReason: 'DEV_TOKEN_TEST_ONLY',
+                          requestedCountry,
+                          effectiveCountry,
+                          usedProxyGeo,
+                          requestedLanguage,
+                          effectiveLanguage,
+                          usedFallbackLanguage,
+                        })
+                      }
 
-                  const invalidFields = getInvalidPlannerFieldsFromGoogleAdsError(batchError)
-                  if (attempt === 0 && invalidFields.size > 0) {
-                    fallbackFields = invalidFields
-                    shouldRetry = true
-                    break
-                  }
+                      skipCachingDueToUnavailable = true
+                      apiErrorMessage = msg
+                      stopProcessingBatches = true
+                      success = true
+                      break
+                    }
 
-                  throw batchError
+                    const errorMsg = batchError.errors?.[0]?.message || batchError.message || ''
+                    if (isInvalidGrantMessage(errorMsg)) {
+                      throw new Error(
+                        `Google Ads OAuth 授权已过期或被撤销（invalid_grant）。` +
+                        `请重新授权后再试。原始错误: ${errorMsg}`
+                      )
+                    }
+                    if (errorMsg.includes('Too many requests')) {
+                      retries++
+                      const waitTime = Math.min(5000 * Math.pow(2, retries - 1), 30000) // 5s, 10s, 20s, max 30s
+                      console.log(`[KeywordPlanner] Rate limit hit, retry ${retries}/${maxRetries} after ${waitTime}ms`)
+                      await new Promise(resolve => setTimeout(resolve, waitTime))
+                      continue
+                    }
+
+                    const invalidFields = getInvalidPlannerFieldsFromGoogleAdsError(batchError)
+                    if (attempt === 0 && invalidFields.size > 0) {
+                      fallbackFields = invalidFields
+                      shouldRetry = true
+                      break
+                    }
+
+                    throw batchError
+                  }
+                }
+
+                if (shouldRetry) break
+                if (stopProcessingBatches) break
+
+                // Delay between batches
+                if (batchIndex < keywordBatches.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 2000))
                 }
               }
-
-              if (shouldRetry) break
-              if (stopProcessingBatches) break
-
-              // Delay between batches
-              if (batchIndex < keywordBatches.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 2000))
-              }
-            }
 
             if (!shouldRetry) {
               console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
@@ -726,6 +745,9 @@ export async function getKeywordSearchVolumes(
             || error.error?.message
             || (typeof error === 'string' ? error : JSON.stringify(error))
           console.error('[KeywordPlanner] API error:', error)
+          if (isInvalidGrantMessage(apiErrorMessage || '')) {
+            throw error
+          }
         } finally {
           // 记录API使用（仅在有userId时追踪）
           if (userId) {

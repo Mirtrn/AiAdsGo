@@ -3268,15 +3268,20 @@ export async function generateAdCreative(
   const aiMode = await getGeminiMode(userId)
   console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
 
-  console.time('⏱️ AI生成创意')
-  // 智能模型选择：广告创意生成使用Pro模型（核心创意任务）
-  const aiResponse = await generateContent({
-    operationType: 'ad_creative_generation_main',
-    prompt,
-    temperature: 0.9,
-    maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
-  }, userId)
-  console.timeEnd('⏱️ AI生成创意')
+  const timerLabel = `⏱️ AI生成创意 ${offerId}-${userId}-${Date.now()}`
+  console.time(timerLabel)
+  let aiResponse: Awaited<ReturnType<typeof generateContent>>
+  try {
+    // 智能模型选择：广告创意生成使用Pro模型（核心创意任务）
+    aiResponse = await generateContent({
+      operationType: 'ad_creative_generation_main',
+      prompt,
+      temperature: 0.9,
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
+    }, userId)
+  } finally {
+    console.timeEnd(timerLabel)
+  }
 
   // 记录token使用
   if (aiResponse.usage) {
