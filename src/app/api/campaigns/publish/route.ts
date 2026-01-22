@@ -26,7 +26,7 @@ import {
   type CreativeContentData,
   type CampaignConfigData
 } from '@/lib/launch-scores'
-import { generateNamingScheme } from '@/lib/naming-convention'
+import { generateNamingScheme, NAMING_CONFIG } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 
 function isOAuthTokenExpiredOrRevoked(err: any): boolean {
@@ -165,11 +165,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const normalizeName = (value: unknown): string => (
+      typeof value === 'string' ? value.trim() : ''
+    )
+
+    const appendVariantSuffix = (base: string, variantIndex: number, totalVariants: number): string => {
+      if (!base) return ''
+      const suffix = `_V${variantIndex}of${totalVariants}`
+      const maxLength = NAMING_CONFIG.MAX_LENGTH.CAMPAIGN
+      if (base.length + suffix.length <= maxLength) return `${base}${suffix}`
+      return `${base.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`
+    }
+
+    const baseCampaignName = normalizeName(_campaignConfig?.campaignName)
+    const baseAdGroupName = normalizeName(_campaignConfig?.adGroupName)
+    const baseAdName = normalizeName(_campaignConfig?.adName)
+
     const db = await getDatabase()
 
     // 4. 验证Offer归属
     const offer = await db.queryOne(`
-      SELECT id, url, brand, target_country, target_language, scrape_status
+      SELECT id, url, brand, target_country, target_language, scrape_status, category
       FROM offers
       WHERE id = ? AND user_id = ?
     `, [_offerId, userId]) as any
@@ -194,7 +210,7 @@ export async function POST(request: NextRequest) {
     if (_enableSmartOptimization) {
       // 智能优化模式：选择多个最优创意
       creatives = await db.query(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score, keywords_with_volume
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score, keywords_with_volume, theme
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
@@ -211,7 +227,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 单创意模式：验证指定的创意
       const creative = await db.queryOne(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected, keywords_with_volume
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected, keywords_with_volume, theme
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
       `, [_adCreativeId, _offerId, userId]) as any
@@ -782,7 +798,26 @@ export async function POST(request: NextRequest) {
         } : undefined
       })
 
-      console.log(`📝 生成命名: Campaign=${naming.campaignName}, AdGroup=${naming.adGroupName}, Ad=${naming.adName}`)
+      const variantCampaignName = _enableSmartOptimization
+        ? appendVariantSuffix(baseCampaignName, i + 1, creatives.length)
+        : baseCampaignName
+      const resolvedCampaignName = variantCampaignName || naming.campaignName
+      const resolvedAdGroupName = baseAdGroupName || naming.adGroupName
+      const resolvedAdName = baseAdName || naming.adName
+      const normalizedCampaignConfig = {
+        ...(typeof _campaignConfig === 'object' && _campaignConfig !== null ? _campaignConfig : {}),
+        campaignName: resolvedCampaignName,
+        adGroupName: resolvedAdGroupName,
+        ...(resolvedAdName ? { adName: resolvedAdName } : {})
+      }
+      const namingWithOverrides = {
+        ...naming,
+        campaignName: resolvedCampaignName,
+        adGroupName: resolvedAdGroupName,
+        adName: resolvedAdName || naming.adName
+      }
+
+      console.log(`📝 生成命名: Campaign=${resolvedCampaignName}, AdGroup=${resolvedAdGroupName}, Ad=${resolvedAdName || naming.adName}`)
 
       const campaignInsert = await db.exec(`
         INSERT INTO campaigns (
@@ -807,11 +842,11 @@ export async function POST(request: NextRequest) {
         userId,
         _offerId,
         _googleAdsAccountId,
-        naming.campaignName,  // 🔥 使用规范化的Campaign名称
+        resolvedCampaignName,  // 🔥 使用用户配置或规范化的Campaign名称
         variantBudget,
         _campaignConfig.budgetType,
         creative.id,
-        JSON.stringify(_campaignConfig),
+        JSON.stringify(normalizedCampaignConfig),
         _pauseOldCampaigns ? 1 : 0,
         _enableSmartOptimization ? 1 : 0,
         abTestId,
@@ -826,7 +861,7 @@ export async function POST(request: NextRequest) {
         creative,
         variantName,
         variantBudget,
-        naming  // 🔥 保存命名方案供后续使用
+        naming: namingWithOverrides  // 🔥 保存命名方案供后续使用
       })
     }
 
