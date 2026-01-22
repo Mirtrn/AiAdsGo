@@ -40,9 +40,22 @@ const mockKeywordPool: OfferKeywordPool = {
   bucketAKeywords: ['eufy camera', 'indoor camera', 'outdoor camera', 'doorbell cam', 'eufycam'],
   bucketBKeywords: ['home security', 'baby monitor', 'pet watching', 'garage cam', 'driveway security'],
   bucketCKeywords: ['wireless camera', 'night vision', '2k camera', 'motion detection', 'best camera'],
+  bucketDKeywords: ['eufy camera deal'],
   bucketAIntent: '品牌导向',
   bucketBIntent: '场景导向',
   bucketCIntent: '功能导向',
+  bucketDIntent: '高购买意图',
+  storeBucketAKeywords: [],
+  storeBucketBKeywords: [],
+  storeBucketCKeywords: [],
+  storeBucketDKeywords: [],
+  storeBucketSKeywords: [],
+  storeBucketAIntent: '品牌信任导向',
+  storeBucketBIntent: '场景解决导向',
+  storeBucketCIntent: '精选推荐导向',
+  storeBucketDIntent: '信任信号导向',
+  storeBucketSIntent: '店铺全景导向',
+  linkType: 'product',
   totalKeywords: 16,
   clusteringModel: 'gemini',
   clusteringPromptVersion: 'v1.0',
@@ -50,6 +63,9 @@ const mockKeywordPool: OfferKeywordPool = {
   createdAt: '2025-12-15T00:00:00Z',
   updatedAt: '2025-12-15T00:00:00Z'
 }
+
+const getKeywordTexts = (keywords: Array<{ keyword?: string } | string>) =>
+  keywords.map(kw => typeof kw === 'string' ? kw : (kw.keyword || ''))
 
 describe('OfferKeywordPool', () => {
   describe('isPureBrandKeyword', () => {
@@ -152,36 +168,39 @@ describe('OfferKeywordPool', () => {
   describe('getBucketInfo', () => {
     it('should return correct info for bucket A', () => {
       const info = getBucketInfo(mockKeywordPool, 'A')
+      const keywords = getKeywordTexts(info.keywords)
 
       expect(info.intent).toBe('品牌导向')
       expect(info.intentEn).toBe('Brand-Oriented')
-      expect(info.keywords).toContain('eufy')  // 品牌词
-      expect(info.keywords).toContain('eufy camera')  // 桶A关键词
-      expect(info.keywords).toHaveLength(6)  // 1 品牌词 + 5 桶A关键词
+      expect(keywords).toContain('eufy')  // 品牌词
+      expect(keywords).toContain('eufy camera')  // 桶A关键词
+      expect(keywords).toHaveLength(6)  // 1 品牌词 + 5 桶A关键词
     })
 
     it('should return correct info for bucket B', () => {
       const info = getBucketInfo(mockKeywordPool, 'B')
+      const keywords = getKeywordTexts(info.keywords)
 
       // ✅ KISS-3类型：B桶 = 场景+功能（合并B+C）
       expect(info.intent).toBe('场景+功能')
       expect(info.intentEn).toBe('Scenario + Feature')
-      expect(info.keywords).toContain('eufy')  // 品牌词
-      expect(info.keywords).toContain('home security')  // 桶B关键词
-      expect(info.keywords).toContain('wireless camera')  // 桶C关键词（合并进来）
-      expect(info.keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
+      expect(keywords).toContain('eufy')  // 品牌词
+      expect(keywords).toContain('home security')  // 桶B关键词
+      expect(keywords).toContain('wireless camera')  // 桶C关键词（合并进来）
+      expect(keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
     })
 
     it('should return correct info for bucket C', () => {
       const info = getBucketInfo(mockKeywordPool, 'C')
+      const keywords = getKeywordTexts(info.keywords)
 
       // 🔧 向后兼容：旧C桶在KISS-3类型方案中等价于B桶（场景+功能）
       expect(info.intent).toBe('场景+功能')
       expect(info.intentEn).toBe('Scenario + Feature')
-      expect(info.keywords).toContain('eufy')  // 品牌词
-      expect(info.keywords).toContain('wireless camera')  // 桶C关键词
-      expect(info.keywords).toContain('home security')  // 桶B关键词（合并进来）
-      expect(info.keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
+      expect(keywords).toContain('eufy')  // 品牌词
+      expect(keywords).toContain('wireless camera')  // 桶C关键词
+      expect(keywords).toContain('home security')  // 桶B关键词（合并进来）
+      expect(keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
     })
 
     it('should include brand keywords in all buckets', () => {
@@ -189,8 +208,21 @@ describe('OfferKeywordPool', () => {
 
       for (const bucket of buckets) {
         const info = getBucketInfo(mockKeywordPool, bucket)
-        expect(info.keywords).toContain('eufy')
+        const keywords = getKeywordTexts(info.keywords)
+        expect(keywords).toContain('eufy')
       }
+    })
+
+    it('should return full coverage for bucket D', () => {
+      const info = getBucketInfo(mockKeywordPool, 'D')
+      const keywords = getKeywordTexts(info.keywords)
+
+      expect(keywords).toContain('eufy')
+      expect(keywords).toContain('eufy camera')
+      expect(keywords).toContain('home security')
+      expect(keywords).toContain('wireless camera')
+      expect(keywords).toContain('eufy camera deal')
+      expect(keywords.length).toBeGreaterThanOrEqual(6)
     })
   })
 

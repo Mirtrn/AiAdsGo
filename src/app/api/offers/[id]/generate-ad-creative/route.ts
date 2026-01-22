@@ -267,6 +267,35 @@ export async function POST(
         bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
       })
 
+      // ✅ D桶要求全量覆盖：强制使用全部合格关键词
+      if (bucket === 'D') {
+        try {
+          const { getKeywordsByLinkTypeAndBucket } = await import('@/lib/offer-keyword-pool')
+          const bucketResult = await getKeywordsByLinkTypeAndBucket(
+            offerId,
+            linkType as 'product' | 'store',
+            'D'
+          )
+          const keywordStrings = bucketResult.keywords.map(kw => kw.keyword)
+
+          if (keywordStrings.length > 0) {
+            generatedData.keywords = keywordStrings
+            generatedData.keywordsWithVolume = bucketResult.keywords.map(kw => ({
+              keyword: kw.keyword,
+              searchVolume: kw.searchVolume || 0,
+              competition: kw.competition,
+              competitionIndex: kw.competitionIndex,
+              lowTopPageBid: kw.lowTopPageBid,
+              highTopPageBid: kw.highTopPageBid,
+              matchType: kw.matchType || 'PHRASE',
+              source: 'KEYWORD_POOL'
+            }))
+          }
+        } catch (error: any) {
+          console.warn(`⚠️ D桶全量关键词同步失败: ${error.message}`)
+        }
+      }
+
       // 确保有metadata，否则构造基础格式
       const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
         text,

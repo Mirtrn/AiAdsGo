@@ -21,7 +21,12 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
-import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, isPureBrandKeyword } from './keyword-quality-filter'
+import {
+  filterKeywordQuality,
+  generateFilterReport,
+  getPureBrandKeywords,
+  isPureBrandKeyword as isPureBrandKeywordInternal
+} from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
@@ -236,6 +241,15 @@ export interface BucketCreativeOptions {
 // ============================================
 
 /**
+ * 判断关键词是否为纯品牌词（基于品牌名生成纯品牌词集合）
+ */
+export function isPureBrandKeyword(keyword: string, brandName: string): boolean {
+  if (!keyword || !brandName) return false
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  return isPureBrandKeywordInternal(keyword, pureBrandKeywords)
+}
+
+/**
  * 分离纯品牌词和非品牌词
  *
  * @param keywords - 所有关键词列表
@@ -251,7 +265,7 @@ export function separateBrandKeywords(
   const pureBrandKeywords = getPureBrandKeywords(brandName)
 
   for (const keyword of keywords) {
-    if (isPureBrandKeyword(keyword, pureBrandKeywords)) {
+    if (isPureBrandKeywordInternal(keyword, pureBrandKeywords)) {
       brandKeywords.push(keyword)
     } else {
       nonBrandKeywords.push(keyword)
@@ -2250,7 +2264,7 @@ export async function generateOfferKeywordPool(
   if (hasAnyVolume) {
     const beforeVolumeFilter = finalFilteredKeywords.length
     finalFilteredKeywords = finalFilteredKeywords.filter(kw =>
-      kw.searchVolume > 0 || isPureBrandKeyword(kw.keyword, pureBrandKeywordsForFilter)
+      kw.searchVolume > 0 || isPureBrandKeywordInternal(kw.keyword, pureBrandKeywordsForFilter)
     )
     if (beforeVolumeFilter !== finalFilteredKeywords.length) {
       console.log(`📉 搜索量过滤(保留纯品牌): ${beforeVolumeFilter} → ${finalFilteredKeywords.length}`)
@@ -2776,6 +2790,75 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
 // 创意生成辅助
 // ============================================
 
+type KeywordItem = PoolKeywordData | string
+
+function normalizeKeywordItem(item: KeywordItem): PoolKeywordData | null {
+  if (typeof item === 'string') {
+    const keyword = item.trim()
+    if (!keyword) return null
+    return {
+      keyword,
+      searchVolume: 0,
+      source: 'LEGACY',
+      matchType: 'BROAD'
+    }
+  }
+  if (!item || typeof item !== 'object') return null
+  const keyword = String(item.keyword || '').trim()
+  if (!keyword) return null
+  return {
+    ...item,
+    keyword,
+    searchVolume: typeof item.searchVolume === 'number' ? item.searchVolume : Number(item.searchVolume) || 0,
+    source: item.source || 'LEGACY',
+    matchType: item.matchType || 'PHRASE'
+  }
+}
+
+function mergeKeywordDataLists(lists: Array<KeywordItem[]>): PoolKeywordData[] {
+  const merged = new Map<string, PoolKeywordData>()
+
+  for (const list of lists) {
+    for (const item of list || []) {
+      const normalized = normalizeKeywordItem(item)
+      if (!normalized) continue
+      const key = normalizeGoogleAdsKeyword(normalized.keyword) || normalized.keyword.toLowerCase()
+      if (!key) continue
+
+      const existing = merged.get(key)
+      if (!existing || normalized.searchVolume > (existing.searchVolume || 0)) {
+        merged.set(key, normalized)
+      }
+    }
+  }
+
+  return Array.from(merged.values())
+}
+
+function getComprehensiveKeywordsForPool(
+  pool: OfferKeywordPool,
+  linkType: 'product' | 'store'
+): PoolKeywordData[] {
+  if (linkType === 'store') {
+    return mergeKeywordDataLists([
+      pool.brandKeywords,
+      pool.storeBucketAKeywords,
+      pool.storeBucketBKeywords,
+      pool.storeBucketCKeywords,
+      pool.storeBucketDKeywords,
+      pool.storeBucketSKeywords
+    ])
+  }
+
+  return mergeKeywordDataLists([
+    pool.brandKeywords,
+    pool.bucketAKeywords,
+    pool.bucketBKeywords,
+    pool.bucketCKeywords,
+    pool.bucketDKeywords
+  ])
+}
+
 /**
  * 获取桶的关键词和意图信息
  *
@@ -2787,48 +2870,59 @@ export function getBucketInfo(
   pool: OfferKeywordPool,
   bucket: BucketType
 ): { keywords: PoolKeywordData[]; intent: string; intentEn: string } {
+  const linkType = pool.linkType === 'store' ? 'store' : 'product'
+  const isStore = linkType === 'store'
+
   switch (bucket) {
     case 'A':
       return {
-        keywords: [...pool.brandKeywords, ...pool.bucketAKeywords],
-        intent: pool.bucketAIntent,
-        intentEn: 'Brand-Oriented'
+        keywords: mergeKeywordDataLists([
+          pool.brandKeywords,
+          isStore ? pool.storeBucketAKeywords : pool.bucketAKeywords
+        ]),
+        intent: isStore ? pool.storeBucketAIntent : pool.bucketAIntent,
+        intentEn: isStore ? 'Brand-Trust' : 'Brand-Oriented'
       }
     case 'B':
       return {
         // ✅ KISS优化：B桶 = 场景 + 功能（合并B+C为一个创意类型，减少用户可见创意数量）
-        keywords: [...pool.brandKeywords, ...pool.bucketBKeywords, ...pool.bucketCKeywords],
-        intent: '场景+功能',
-        intentEn: 'Scenario + Feature'
+        keywords: mergeKeywordDataLists([
+          pool.brandKeywords,
+          isStore ? pool.storeBucketBKeywords : pool.bucketBKeywords,
+          isStore ? pool.storeBucketCKeywords : pool.bucketCKeywords
+        ]),
+        intent: isStore ? '场景+精选' : '场景+功能',
+        intentEn: isStore ? 'Scene + Collection' : 'Scenario + Feature'
       }
     case 'C':
       return {
         // 🔧 向后兼容：旧版C桶在KISS-3类型方案中等价于B桶（场景+功能合并）
-        keywords: [...pool.brandKeywords, ...pool.bucketBKeywords, ...pool.bucketCKeywords],
-        intent: '场景+功能',
-        intentEn: 'Scenario + Feature'
+        keywords: mergeKeywordDataLists([
+          pool.brandKeywords,
+          isStore ? pool.storeBucketBKeywords : pool.bucketBKeywords,
+          isStore ? pool.storeBucketCKeywords : pool.bucketCKeywords
+        ]),
+        intent: isStore ? '场景+精选' : '场景+功能',
+        intentEn: isStore ? 'Scene + Collection' : 'Scenario + Feature'
       }
     case 'S':
       // 🔧 向后兼容：旧版S桶在KISS-3类型方案中等价于D桶（转化/价值导向）
       return {
-        keywords: [...pool.brandKeywords, ...pool.bucketDKeywords],
-        intent: pool.bucketDIntent || '转化/价值',
-        intentEn: 'Value / Deal'
+        keywords: getComprehensiveKeywordsForPool(pool, linkType),
+        intent: isStore
+          ? (pool.storeBucketSIntent || pool.storeBucketDIntent || '转化/价值')
+          : (pool.bucketDIntent || '转化/价值'),
+        intentEn: isStore ? 'Store-Overview' : 'Value / Deal'
       }
     case 'D':
       // ✅ KISS优化：D桶 = 转化/价值导向
-      // 若D桶关键词不足，少量补充B/C高意图词，避免“D桶为空导致创意贫瘠”
-      {
-        const base = [...pool.brandKeywords, ...pool.bucketDKeywords]
-        const needsSupplement = pool.bucketDKeywords.length < 8
-        const supplement = needsSupplement
-          ? [...pool.bucketBKeywords, ...pool.bucketCKeywords].slice(0, 20)
-          : []
-        return {
-          keywords: [...base, ...supplement],
-          intent: pool.bucketDIntent || '转化/价值',
-          intentEn: 'Value / Deal'
-        }
+      // D桶用于“全量覆盖”创意，确保包含全部合格关键词
+      return {
+        keywords: getComprehensiveKeywordsForPool(pool, linkType),
+        intent: isStore
+          ? (pool.storeBucketSIntent || pool.storeBucketDIntent || '转化/价值')
+          : (pool.bucketDIntent || '转化/价值'),
+        intentEn: isStore ? 'Store-Overview' : 'Value / Deal'
       }
     default:
       throw new Error(`Invalid bucket type: ${bucket}`)
@@ -3330,39 +3424,41 @@ export async function getKeywordsByLinkTypeAndBucket(
     switch (bucket) {
       case 'A':
         return {
-          keywords: keywordPool.storeBucketAKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.storeBucketAKeywords]),
           intent: keywordPool.storeBucketAIntent,
           intentEn: 'Brand-Trust'
         }
       case 'B':
         return {
-          keywords: keywordPool.storeBucketBKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.storeBucketBKeywords]),
           intent: keywordPool.storeBucketBIntent,
           intentEn: 'Scene-Solution'
         }
       case 'C':
         return {
-          keywords: keywordPool.storeBucketCKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.storeBucketCKeywords]),
           intent: keywordPool.storeBucketCIntent,
           intentEn: 'Collection-Highlight'
         }
       case 'D':
         return {
-          keywords: keywordPool.storeBucketDKeywords,
-          intent: keywordPool.storeBucketDIntent,
-          intentEn: 'Trust-Signals'
+          keywords: getComprehensiveKeywordsForPool(keywordPool, 'store'),
+          intent: keywordPool.storeBucketSIntent || keywordPool.storeBucketDIntent || '转化/价值',
+          intentEn: 'Store-Overview'
         }
       case 'S':
         // S桶优先使用店铺全景桶（bucketS）的关键词；为空时回退为 A-D 的组合
         return {
-          keywords: (keywordPool.storeBucketSKeywords && keywordPool.storeBucketSKeywords.length > 0)
-            ? keywordPool.storeBucketSKeywords
-            : [
-              ...keywordPool.storeBucketAKeywords,
-              ...keywordPool.storeBucketBKeywords,
-              ...keywordPool.storeBucketCKeywords,
-              ...keywordPool.storeBucketDKeywords
-            ],
+          keywords: mergeKeywordDataLists([
+            (keywordPool.storeBucketSKeywords && keywordPool.storeBucketSKeywords.length > 0)
+              ? keywordPool.storeBucketSKeywords
+              : [
+                ...keywordPool.storeBucketAKeywords,
+                ...keywordPool.storeBucketBKeywords,
+                ...keywordPool.storeBucketCKeywords,
+                ...keywordPool.storeBucketDKeywords
+              ]
+          ]),
           intent: keywordPool.storeBucketSIntent,
           intentEn: 'Store-Overview'
         }
@@ -3372,37 +3468,32 @@ export async function getKeywordsByLinkTypeAndBucket(
     switch (bucket) {
       case 'A':
         return {
-          keywords: keywordPool.bucketAKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.bucketAKeywords]),
           intent: keywordPool.bucketAIntent,
           intentEn: 'Product-Specific'
         }
       case 'B':
         return {
-          keywords: keywordPool.bucketBKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.bucketBKeywords]),
           intent: keywordPool.bucketBIntent,
           intentEn: 'Purchase-Intent'
         }
       case 'C':
         return {
-          keywords: keywordPool.bucketCKeywords,
+          keywords: mergeKeywordDataLists([keywordPool.bucketCKeywords]),
           intent: keywordPool.bucketCIntent,
           intentEn: 'Feature-Focused'
         }
       case 'D':
         return {
-          keywords: keywordPool.bucketDKeywords,
-          intent: keywordPool.bucketDIntent,
-          intentEn: 'Urgency-Promo'
+          keywords: getComprehensiveKeywordsForPool(keywordPool, 'product'),
+          intent: keywordPool.bucketDIntent || '转化/价值',
+          intentEn: 'Value / Deal'
         }
       case 'S':
         // S桶使用所有产品桶的关键词组合
         return {
-          keywords: [
-            ...keywordPool.bucketAKeywords,
-            ...keywordPool.bucketBKeywords,
-            ...keywordPool.bucketCKeywords,
-            ...keywordPool.bucketDKeywords
-          ],
+          keywords: getComprehensiveKeywordsForPool(keywordPool, 'product'),
           intent: '综合推广',
           intentEn: 'Comprehensive'
         }

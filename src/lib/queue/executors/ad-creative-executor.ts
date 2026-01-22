@@ -202,10 +202,11 @@ export async function executeAdCreativeGeneration(
             }
           })
           .filter((v): v is NonNullable<typeof v> => v !== null)
-          .slice(0, 30)
+        const keywordLimit = selectedBucket === 'D' ? bucketKeywordsWithVolume.length : 30
+        const limitedBucketKeywords = bucketKeywordsWithVolume.slice(0, keywordLimit)
 
-        creative.keywords = bucketKeywordsWithVolume.map((kw: any) => kw.keyword)
-        creative.keywordsWithVolume = bucketKeywordsWithVolume
+        creative.keywords = limitedBucketKeywords.map((kw: any) => kw.keyword)
+        creative.keywordsWithVolume = limitedBucketKeywords
       }
 
       // 更新进度：评估中

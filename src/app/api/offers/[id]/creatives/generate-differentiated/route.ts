@@ -300,12 +300,13 @@ async function generateCreativeWithBucket(
       })
 
       // 确保创意关键词与桶关键词一致
-      creative.keywords = keywordStrings.slice(0, 30) // 最多 30 个关键词
+      const keywordLimit = bucket === 'D' ? keywordStrings.length : 30
+      creative.keywords = keywordStrings.slice(0, keywordLimit)
 
       // 🔧 修复(2026-01-19): 同步更新 keywordsWithVolume，确保与 keywords 一致
       // 问题原因：generateAdCreative 返回的 keywordsWithVolume 可能只有1-3个关键词（经过多重过滤）
       // 但我们需要使用完整的桶关键词
-      creative.keywordsWithVolume = bucketInfo.keywords.slice(0, 30).map(kw => ({
+      creative.keywordsWithVolume = bucketInfo.keywords.slice(0, keywordLimit).map(kw => ({
         keyword: typeof kw === 'string' ? kw : kw.keyword,
         searchVolume: typeof kw === 'string' ? 0 : (kw.searchVolume || 0),
         competition: typeof kw === 'string' ? undefined : kw.competition,
