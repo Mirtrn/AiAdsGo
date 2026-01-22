@@ -279,6 +279,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
       // 处理结果：只保留包含“纯品牌词”的关键词（不拼接造词）
       let newCount = 0
+      let updatedCount = 0
       let brandRelatedAdded = 0
       let genericSkipped = 0
       for (const kw of results) {
@@ -286,12 +287,17 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
         if (!keywordText) continue
 
-        if (!allKeywords.has(keywordText)) {
-          const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords)
-          if (!isBrandRelated) {
-            genericSkipped++
-            continue
-          }
+        const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords)
+        if (!isBrandRelated) {
+          genericSkipped++
+          continue
+        }
+
+        const existing = allKeywords.get(keywordText)
+        const isPureBrand = isPureBrandKeyword(keywordText, pureBrandKeywords)
+        const matchType = isPureBrand ? 'EXACT' : 'PHRASE'
+
+        if (!existing) {
           allKeywords.set(keywordText, {
             keyword: keywordText,
             searchVolume: kw.searchVolume,
@@ -300,15 +306,28 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
             lowTopPageBid: kw.lowTopPageBid,
             highTopPageBid: kw.highTopPageBid,
             source: 'KEYWORD_PLANNER',
-            matchType: kw.matchType,
-            isPureBrand: isPureBrandKeyword(keywordText, pureBrandKeywords)
+            matchType,
+            isPureBrand
           })
           newCount++
-          if (isBrandRelated) brandRelatedAdded++
+          brandRelatedAdded++
+        } else if (kw.searchVolume > (existing.searchVolume || 0)) {
+          allKeywords.set(keywordText, {
+            ...existing,
+            searchVolume: kw.searchVolume,
+            competition: kw.competition,
+            competitionIndex: kw.competitionIndex,
+            lowTopPageBid: kw.lowTopPageBid,
+            highTopPageBid: kw.highTopPageBid,
+            matchType,
+            isPureBrand,
+            source: existing.source === 'BRAND_SEED' ? 'KEYWORD_PLANNER' : existing.source
+          })
+          updatedCount++
         }
       }
 
-      console.log(`      新增 ${newCount} 个关键词 (品牌相关: ${brandRelatedAdded}, 跳过非品牌: ${genericSkipped})`)
+      console.log(`      新增 ${newCount} 个关键词 (品牌相关: ${brandRelatedAdded}, 跳过非品牌: ${genericSkipped}, 更新: ${updatedCount})`)
 
       if (newCount === 0) {
         console.log(`      本轮未新增关键词，结束迭代`)

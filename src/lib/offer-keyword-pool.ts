@@ -21,7 +21,7 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
-import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords } from './keyword-quality-filter'
+import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, isPureBrandKeyword } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
@@ -2255,13 +2255,52 @@ export async function generateOfferKeywordPool(
   console.log(filterReport)
 
   // 使用过滤后的关键词
-  const finalFilteredKeywords = qualityFiltered.filtered
+  let finalFilteredKeywords = qualityFiltered.filtered
+
+  // 🔒 有真实搜索量数据时，移除非纯品牌的0搜索量关键词
+  const hasAnyVolume = finalFilteredKeywords.some(kw => kw.searchVolume > 0)
+  if (hasAnyVolume) {
+    const beforeVolumeFilter = finalFilteredKeywords.length
+    finalFilteredKeywords = finalFilteredKeywords.filter(kw =>
+      kw.searchVolume > 0 || isPureBrandKeyword(kw.keyword, pureBrandKeywordsForFilter)
+    )
+    if (beforeVolumeFilter !== finalFilteredKeywords.length) {
+      console.log(`📉 搜索量过滤(保留纯品牌): ${beforeVolumeFilter} → ${finalFilteredKeywords.length}`)
+    }
+  }
 
   console.log(`📝 最终过滤后关键词数: ${finalFilteredKeywords.length}`)
 
   // 5. 分离纯品牌词和非品牌词
   const keywordStrings = finalFilteredKeywords.map(kw => kw.keyword)
   let { brandKeywords: brandKwStrings, nonBrandKeywords: nonBrandKwStrings } = separateBrandKeywords(keywordStrings, offer.brand)
+
+  // ✅ 确保所有纯品牌词都被纳入（如 "dr mercola" + "mercola"）
+  if (pureBrandKeywordsForFilter.length > 0) {
+    const brandKwNormalized = new Set(
+      brandKwStrings
+        .map(k => normalizeGoogleAdsKeyword(k))
+        .filter(Boolean)
+    )
+    const missingPureBrands = pureBrandKeywordsForFilter.filter(kw => {
+      const normalized = normalizeGoogleAdsKeyword(kw)
+      return normalized && !brandKwNormalized.has(normalized)
+    })
+
+    if (missingPureBrands.length > 0) {
+      brandKwStrings.push(...missingPureBrands)
+      const missingNormalized = new Set(
+        missingPureBrands
+          .map(k => normalizeGoogleAdsKeyword(k))
+          .filter(Boolean)
+      )
+      nonBrandKwStrings = nonBrandKwStrings.filter(k => {
+        const normalized = normalizeGoogleAdsKeyword(k)
+        return normalized ? !missingNormalized.has(normalized) : true
+      })
+      console.log(`✅ 补充纯品牌词: ${missingPureBrands.join(', ')}`)
+    }
+  }
 
   // 🔧 防御性兜底：如果未识别到任何纯品牌词，强制注入标准化后的品牌词
   // 典型场景：Keyword Planner 不返回 seed 本身，且品牌含标点（如 "Dr. Mercola" → "dr mercola"）
@@ -2287,6 +2326,78 @@ export async function generateOfferKeywordPool(
       matchType: 'EXACT' as const,
       isPureBrand: true,
     }))
+  }
+
+  // 🔧 强化：补齐/更新纯品牌词的真实搜索量（优先使用缓存/Keyword Planner）
+  if (pureBrandKeywordsForFilter.length > 0) {
+    const brandKeywordMap = new Map<string, PoolKeywordData>()
+    for (const kw of brandKeywordsData) {
+      const normalized = normalizeGoogleAdsKeyword(kw.keyword)
+      if (!normalized) continue
+      brandKeywordMap.set(normalized, kw)
+    }
+
+    const needsBrandVolume = pureBrandKeywordsForFilter.some(kw => {
+      const normalized = normalizeGoogleAdsKeyword(kw)
+      if (!normalized) return false
+      const existing = brandKeywordMap.get(normalized)
+      return !existing || (existing.searchVolume || 0) === 0
+    })
+
+    if (needsBrandVolume) {
+      try {
+        const { getKeywordSearchVolumes } = await import('./keyword-planner')
+        const auth = await getUserAuthType(userId)
+        const volumes = await getKeywordSearchVolumes(
+          pureBrandKeywordsForFilter,
+          offer.target_country,
+          offer.target_language || 'en',
+          userId,
+          auth.authType,
+          auth.serviceAccountId
+        )
+
+        volumes.forEach(vol => {
+          const normalized = normalizeGoogleAdsKeyword(vol.keyword)
+          if (!normalized) return
+          const existing = brandKeywordMap.get(normalized)
+          const nextVolume = vol.avgMonthlySearches > 0
+            ? vol.avgMonthlySearches
+            : (existing?.searchVolume || 0)
+
+          brandKeywordMap.set(normalized, {
+            keyword: normalized,
+            searchVolume: nextVolume,
+            competition: vol.competition || existing?.competition || 'UNKNOWN',
+            competitionIndex: vol.competitionIndex || existing?.competitionIndex || 0,
+            lowTopPageBid: vol.lowTopPageBid || existing?.lowTopPageBid || 0,
+            highTopPageBid: vol.highTopPageBid || existing?.highTopPageBid || 0,
+            source: existing?.source || 'BRAND_SEED',
+            matchType: 'EXACT',
+            isPureBrand: true,
+          })
+        })
+      } catch (error: any) {
+        console.warn(`⚠️ 纯品牌词搜索量查询失败: ${error.message}`)
+      }
+    }
+
+    // 确保缺失的纯品牌词也被注入（即使搜索量未知）
+    for (const kw of pureBrandKeywordsForFilter) {
+      const normalized = normalizeGoogleAdsKeyword(kw)
+      if (!normalized) continue
+      if (!brandKeywordMap.has(normalized)) {
+        brandKeywordMap.set(normalized, {
+          keyword: normalized,
+          searchVolume: 0,
+          source: 'BRAND_SEED',
+          matchType: 'EXACT',
+          isPureBrand: true,
+        })
+      }
+    }
+
+    brandKeywordsData = Array.from(brandKeywordMap.values())
   }
 
   // 🆕 v4.16: 确定页面类型
