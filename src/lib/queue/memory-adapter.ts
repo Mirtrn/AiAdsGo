@@ -131,6 +131,11 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     if (status === 'completed' || status === 'failed') {
       task.completedAt = Date.now()
       this.runningTasks.delete(taskId)
+      if (task.type === 'click-farm') {
+        // click-farm 为高频任务：完成即清理，避免内存队列膨胀
+        this.tasks.delete(taskId)
+        return
+      }
       this.recordFinished(taskId)
     }
 

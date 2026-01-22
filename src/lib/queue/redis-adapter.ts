@@ -286,16 +286,31 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
     const pipeline = this.client.pipeline()
 
-    // 1. 更新任务详情
-    pipeline.hset(this.getKey('tasks'), task.id, JSON.stringify(task))
+    const shouldPurgeEphemeral =
+      (status === 'completed' || status === 'failed') && task.type === 'click-farm'
+
+    if (!shouldPurgeEphemeral) {
+      // 1. 更新任务详情
+      pipeline.hset(this.getKey('tasks'), task.id, JSON.stringify(task))
+    }
 
     // 2. 从running集合移除
     if (status === 'completed' || status === 'failed') {
       pipeline.srem(this.getKey('running'), taskId)
 
       // 3. 添加到completed或failed集合
-      const targetSet = status === 'completed' ? 'completed' : 'failed'
-      pipeline.sadd(this.getKey(targetSet), taskId)
+      if (!shouldPurgeEphemeral) {
+        const targetSet = status === 'completed' ? 'completed' : 'failed'
+        pipeline.sadd(this.getKey(targetSet), taskId)
+      } else {
+        // click-farm 为高频任务：完成即清理，避免 tasks hash 膨胀导致统计 OOM
+        pipeline.hdel(this.getKey('tasks'), taskId)
+        pipeline.srem(this.getKey('completed'), taskId)
+        pipeline.srem(this.getKey('failed'), taskId)
+        pipeline.zrem(this.getKey('pending:all'), taskId)
+        pipeline.zrem(this.getKey(`pending:${task.type}`), taskId)
+        pipeline.zrem(this.getKey(`user:${task.userId}:pending`), taskId)
+      }
     }
 
     await pipeline.exec()
