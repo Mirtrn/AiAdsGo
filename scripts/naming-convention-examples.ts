@@ -14,6 +14,7 @@ const singleCreativeNaming = generateNamingScheme({
   offer: {
     id: 215,
     brand: 'Eufy',
+    offerName: 'Eufy_IT_01',
     category: 'Electronics'
   },
   config: {
@@ -41,6 +42,7 @@ for (let i = 1; i <= 3; i++) {
     offer: {
       id: 216,
       brand: 'Eufy',
+      offerName: 'Eufy_IT_01',
       category: 'Security'
     },
     config: {
@@ -82,6 +84,7 @@ strategies.forEach(strategy => {
     offer: {
       id: 300,
       brand: 'Nike',
+      offerName: 'Nike_US_01',
       category: 'Sports'
     },
     config: {
@@ -108,6 +111,7 @@ const specialCharsNaming = generateNamingScheme({
   offer: {
     id: 400,
     brand: 'L\'Oréal & Co.',  // 包含特殊字符
+    offerName: 'Loreal_FR_01',
     category: 'Beauty & Care'
   },
   config: {
@@ -133,7 +137,8 @@ console.log('=== 示例5: 无Category的情况 ===')
 const noCategoryNaming = generateNamingScheme({
   offer: {
     id: 500,
-    brand: 'Generic Brand'
+    brand: 'Generic Brand',
+    offerName: 'GenericBrand_DE_01'
     // 没有category
   },
   config: {

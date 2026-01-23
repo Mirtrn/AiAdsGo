@@ -2,7 +2,9 @@ import {
   generateCampaignName,
   generateAdGroupName,
   generateAdName,
+  parseAdGroupName,
   parseCampaignName,
+  validateAdGroupName,
   validateCampaignName,
   generateSmartOptimizationCampaignName,
   generateNamingScheme,
@@ -12,111 +14,73 @@ import {
 describe('Google Ads Naming Convention', () => {
   describe('generateCampaignName', () => {
     it('should generate standard campaign name with all parameters', () => {
+      const date = new Date(2025, 10, 27, 13, 14, 15, 234)
       const name = generateCampaignName({
-        brand: 'Eufy',
-        country: 'IT',
-        category: 'Electronics',
-        budgetAmount: 50,
-        budgetType: 'DAILY',
-        biddingStrategy: 'TARGET_CPA',
-        offerId: 215,
-        date: new Date('2025-11-27T00:00:00')
+        offerName: 'Ecomobi_US_01',
+        creativeId: 121,
+        date,
+        randomSuffix: 'ABC'
       })
 
-      // 验证名称格式: Brand_Country_Category_BudgetType_Strategy_DateTime_OfferId
-      expect(name).toMatch(/^Eufy_IT_Electronics_50D_TCPA_20251127\d{6}_O215$/)
+      expect(name).toBe('Ecomobi_US_01_CMP_121_20251127131415_234_ABC')
     })
 
-    it('should handle missing category', () => {
+    it('should sanitize special characters in offer name', () => {
+      const date = new Date(2025, 10, 27, 0, 0, 0, 5)
       const name = generateCampaignName({
-        brand: 'Eufy',
-        country: 'IT',
-        budgetAmount: 100,
-        budgetType: 'TOTAL',
-        biddingStrategy: 'MAXIMIZE_CONVERSIONS',
-        offerId: 216
+        offerName: 'Brand-Name & Co._US_01',
+        creativeId: 9,
+        date,
+        randomSuffix: 'XYZ'
       })
 
-      expect(name).toContain('_General_')
-      expect(name).toContain('100T')
-      expect(name).toContain('MAXCONV')
-      expect(name).toContain('O216')
-    })
-
-    it('should sanitize special characters in brand name', () => {
-      const name = generateCampaignName({
-        brand: 'Brand-Name & Co.',
-        country: 'US',
-        budgetAmount: 25,
-        budgetType: 'DAILY',
-        biddingStrategy: 'MANUAL_CPC',
-        offerId: 100
-      })
-
-      expect(name).toMatch(/^BrandName/)
+      expect(name).toBe('BrandNameCo_US_01_CMP_9_20251127000000_005_XYZ')
       expect(name).not.toContain('&')
       expect(name).not.toContain('.')
+      expect(name).not.toContain('-')
     })
 
     it('should truncate long names to max length', () => {
       const name = generateCampaignName({
-        brand: 'VeryLongBrandNameThatExceedsNormalLength',
-        country: 'IT',
-        category: 'ElectronicsAndGadgets',
-        budgetAmount: 999,
-        budgetType: 'DAILY',
-        biddingStrategy: 'TARGET_ROAS',
-        offerId: 12345
+        offerName: 'VeryLongOfferNameThatExceedsNormalLength_XX_99',
+        creativeId: 999999,
+        date: new Date(2025, 10, 27, 0, 0, 0, 999),
+        randomSuffix: 'AAA'
       })
 
       expect(name.length).toBeLessThanOrEqual(NAMING_CONFIG.MAX_LENGTH.CAMPAIGN)
-    })
-
-    it('should handle unknown bidding strategy', () => {
-      const name = generateCampaignName({
-        brand: 'Test',
-        country: 'US',
-        budgetAmount: 10,
-        budgetType: 'DAILY',
-        biddingStrategy: 'CUSTOM_STRATEGY_XYZ',
-        offerId: 1
-      })
-
-      expect(name).toContain('CUSTOM')
     })
   })
 
   describe('generateAdGroupName', () => {
     it('should generate standard ad group name', () => {
       const name = generateAdGroupName({
-        brand: 'Eufy',
-        country: 'IT',
-        theme: 'Cleaning',
-        maxCpcBid: 2.5
+        offerName: 'Eufy_IT_01',
+        creativeId: 121,
+        randomSuffix: 'ABC'
       })
 
-      expect(name).toBe('Eufy_IT_Cleaning_2.5CPC')
+      expect(name).toBe('Eufy_IT_01_AG_121_ABC')
     })
 
-    it('should handle missing theme and CPC', () => {
+    it('should handle missing offer name', () => {
       const name = generateAdGroupName({
-        brand: 'Eufy',
-        country: 'IT'
+        offerName: '',
+        creativeId: 0,
+        randomSuffix: 'XYZ'
       })
 
-      expect(name).toBe('Eufy_IT_Default')
+      expect(name).toBe('Offer_AG_0_XYZ')
     })
 
-    it('should include ad group ID if provided', () => {
+    it('should handle invalid creativeId', () => {
       const name = generateAdGroupName({
-        brand: 'Eufy',
-        country: 'IT',
-        theme: 'Security',
-        maxCpcBid: 1.8,
-        adGroupId: '12345'
+        offerName: 'Eufy_IT_01',
+        creativeId: Number.NaN,
+        randomSuffix: 'AAA'
       })
 
-      expect(name).toBe('Eufy_IT_Security_1.8CPC_AG12345')
+      expect(name).toBe('Eufy_IT_01_AG_0_AAA')
     })
   })
 
@@ -154,25 +118,15 @@ describe('Google Ads Naming Convention', () => {
 
   describe('parseCampaignName', () => {
     it('should parse valid campaign name correctly', () => {
-      const parsed = parseCampaignName('Eufy_IT_Electronics_50D_TCPA_20251127_O215')
+      const parsed = parseCampaignName('Ecomobi_US_01_CMP_121_20251127131415_234_ABC')
 
       expect(parsed).toEqual({
-        brand: 'Eufy',
-        country: 'IT',
-        category: 'Electronics',
-        budget: 50,
-        budgetType: 'DAILY',
-        strategy: 'TCPA',
-        date: '20251127',
-        offerId: 215
+        offerName: 'Ecomobi_US_01',
+        creativeId: 121,
+        dateTime: '20251127131415',
+        milliseconds: '234',
+        randomSuffix: 'ABC'
       })
-    })
-
-    it('should parse campaign with TOTAL budget', () => {
-      const parsed = parseCampaignName('Brand_US_General_100T_MAXCONV_20251127_O100')
-
-      expect(parsed?.budgetType).toBe('TOTAL')
-      expect(parsed?.budget).toBe(100)
     })
 
     it('should return null for invalid format', () => {
@@ -186,9 +140,26 @@ describe('Google Ads Naming Convention', () => {
     })
   })
 
+  describe('parseAdGroupName', () => {
+    it('should parse valid ad group name correctly', () => {
+      const parsed = parseAdGroupName('Ecomobi_US_01_AG_121_ABC')
+
+      expect(parsed).toEqual({
+        offerName: 'Ecomobi_US_01',
+        creativeId: 121,
+        randomSuffix: 'ABC'
+      })
+    })
+
+    it('should return null for invalid format', () => {
+      const parsed = parseAdGroupName('Invalid Ad Group')
+      expect(parsed).toBeNull()
+    })
+  })
+
   describe('validateCampaignName', () => {
     it('should validate correct campaign name', () => {
-      expect(validateCampaignName('Eufy_IT_Electronics_50D_TCPA_20251127_O215')).toBe(true)
+      expect(validateCampaignName('Ecomobi_US_01_CMP_121_20251127131415_234_ABC')).toBe(true)
     })
 
     it('should reject invalid campaign name', () => {
@@ -197,43 +168,45 @@ describe('Google Ads Naming Convention', () => {
     })
   })
 
+  describe('validateAdGroupName', () => {
+    it('should validate correct ad group name', () => {
+      expect(validateAdGroupName('Ecomobi_US_01_AG_121_ABC')).toBe(true)
+    })
+
+    it('should reject invalid ad group name', () => {
+      expect(validateAdGroupName('Random Name')).toBe(false)
+    })
+  })
+
   describe('generateSmartOptimizationCampaignName', () => {
-    it('should add variant suffix', () => {
+    it('should ignore variant suffix for campaign name', () => {
+      const date = new Date(2025, 10, 27, 0, 0, 0, 0)
       const name = generateSmartOptimizationCampaignName(
         {
-          brand: 'Eufy',
-          country: 'IT',
-          category: 'Electronics',
-          budgetAmount: 50,
-          budgetType: 'DAILY',
-          biddingStrategy: 'TARGET_CPA',
-          offerId: 215
+          offerName: 'Eufy_IT_01',
+          creativeId: 122,
+          date,
+          randomSuffix: 'ABC'
         },
         2,
         3
       )
 
-      expect(name).toContain('_V2of3')
-      expect(name).toContain('Eufy_IT')
+      expect(name).toBe('Eufy_IT_01_CMP_122_20251127000000_000_ABC')
+      expect(name).not.toContain('_V2of3')
     })
 
-    it('should respect max length with variant suffix', () => {
+    it('should respect max length', () => {
       const name = generateSmartOptimizationCampaignName(
         {
-          brand: 'VeryLongBrandNameThatExceedsNormalLength',
-          country: 'IT',
-          category: 'ElectronicsAndGadgets',
-          budgetAmount: 999,
-          budgetType: 'DAILY',
-          biddingStrategy: 'TARGET_ROAS',
-          offerId: 12345
+          offerName: 'VeryLongOfferNameThatExceedsNormalLength_XX_99',
+          creativeId: 999999
         },
         5,
         5
       )
 
       expect(name.length).toBeLessThanOrEqual(NAMING_CONFIG.MAX_LENGTH.CAMPAIGN)
-      expect(name).toContain('_V5of5')
     })
   })
 
@@ -243,6 +216,7 @@ describe('Google Ads Naming Convention', () => {
         offer: {
           id: 215,
           brand: 'Eufy',
+          offerName: 'Eufy_IT_01',
           category: 'Electronics'
         },
         config: {
@@ -258,8 +232,8 @@ describe('Google Ads Naming Convention', () => {
         }
       })
 
-      expect(scheme.campaignName).toContain('Eufy_IT_Electronics')
-      expect(scheme.adGroupName).toContain('Eufy_IT_Cleaning_2.5CPC')
+      expect(scheme.campaignName).toMatch(/^Eufy_IT_01_CMP_121_\d{14}_\d{3}_[A-Z0-9]{3}$/)
+      expect(scheme.adGroupName).toMatch(/^Eufy_IT_01_AG_121_[A-Za-z0-9]{3}$/)
       expect(scheme.adName).toBe('RSA_Cleaning_C121')
     })
 
@@ -268,6 +242,7 @@ describe('Google Ads Naming Convention', () => {
         offer: {
           id: 216,
           brand: 'Eufy',
+          offerName: 'Eufy_IT_01',
           category: 'Security'
         },
         config: {
@@ -288,8 +263,8 @@ describe('Google Ads Naming Convention', () => {
         }
       })
 
-      expect(scheme.campaignName).toContain('_V1of3')
-      expect(scheme.adGroupName).toContain('Eufy_IT_Safety')
+      expect(scheme.campaignName).toMatch(/^Eufy_IT_01_CMP_122_\d{14}_\d{3}_[A-Z0-9]{3}$/)
+      expect(scheme.adGroupName).toMatch(/^Eufy_IT_01_AG_122_[A-Za-z0-9]{3}$/)
       expect(scheme.adName).toContain('RSA_Safety_C122_V1')
     })
 
@@ -314,43 +289,28 @@ describe('Google Ads Naming Convention', () => {
   })
 
   describe('Edge Cases', () => {
-    it('should handle zero budget', () => {
+    it('should handle non-integer creativeId', () => {
+      const date = new Date(2025, 10, 27, 0, 0, 0, 10)
       const name = generateCampaignName({
-        brand: 'Test',
-        country: 'US',
-        budgetAmount: 0,
-        budgetType: 'DAILY',
-        biddingStrategy: 'MANUAL_CPC',
-        offerId: 1
+        offerName: 'Test_US_01',
+        creativeId: 12.9,
+        date,
+        randomSuffix: 'AAA'
       })
 
-      expect(name).toContain('0D')
+      expect(name).toBe('Test_US_01_CMP_12_20251127000000_010_AAA')
     })
 
-    it('should handle decimal budget amounts', () => {
+    it('should handle invalid creativeId', () => {
+      const date = new Date(2025, 10, 27, 0, 0, 0, 10)
       const name = generateCampaignName({
-        brand: 'Test',
-        country: 'US',
-        budgetAmount: 25.99,
-        budgetType: 'DAILY',
-        biddingStrategy: 'MANUAL_CPC',
-        offerId: 1
+        offerName: 'Test_US_01',
+        creativeId: Number.NaN,
+        date,
+        randomSuffix: 'AAA'
       })
 
-      expect(name).toContain('26D') // Should round
-    })
-
-    it('should handle lowercase country codes', () => {
-      const name = generateCampaignName({
-        brand: 'Test',
-        country: 'us',
-        budgetAmount: 10,
-        budgetType: 'DAILY',
-        biddingStrategy: 'MANUAL_CPC',
-        offerId: 1
-      })
-
-      expect(name).toContain('_US_')
+      expect(name).toBe('Test_US_01_CMP_0_20251127000000_010_AAA')
     })
   })
 })

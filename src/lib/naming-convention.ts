@@ -21,7 +21,7 @@ export const NAMING_CONFIG = {
   // 日期格式
   DATE_FORMAT: 'YYYYMMDD',
 
-  // 预算类型缩写
+ // 预算类型缩写
   BUDGET_TYPE: {
     DAILY: 'D',
     TOTAL: 'T'
@@ -62,6 +62,13 @@ function formatDateTime(date: Date = new Date()): string {
 }
 
 /**
+ * 格式化毫秒为三位数
+ */
+function formatMilliseconds(date: Date = new Date()): string {
+  return String(date.getMilliseconds()).padStart(3, '0')
+}
+
+/**
  * 清理字符串中的特殊字符（Google Ads只允许字母、数字、下划线）
  * 移除连字符、空格、特殊符号，只保留字母数字和下划线
  */
@@ -70,6 +77,29 @@ function sanitize(text: string): string {
     .replace(/[^a-zA-Z0-9_]/g, '') // 移除所有非字母数字下划线的字符
     .replace(/_{2,}/g, '_') // 合并多个下划线
     .replace(/^_|_$/g, '') // 移除首尾下划线
+}
+
+/**
+ * 生成短随机后缀（默认3位），用于增强唯一性
+ */
+function generateShortRandomSuffix(length: number = 3): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const bytes = new Uint8Array(length)
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+    cryptoObj.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256)
+    }
+  }
+
+  let result = ''
+  for (let i = 0; i < length; i += 1) {
+    result += chars[bytes[i] % chars.length]
+  }
+  return result
 }
 
 /**
@@ -133,40 +163,32 @@ function truncate(text: string, maxLength: number): string {
 /**
  * 生成Campaign名称
  *
- * 格式: {Brand}_{Country}_{Category}_{Budget}{BudgetType}_{Strategy}_{YYYYMMDD}_{OfferID}
+ * 格式: {OfferName}_CMP_{CreativeID}_{YYYYMMDDHHmmss}_{ms}_{Rand}
  *
- * 示例: Eufy_IT_Electronics_50D_TCPA_20251127_O215
+ * 示例: Ecomobi_US_01_CMP_121_20260122231319_234_X7Q
  */
 export function generateCampaignName(params: {
-  brand: string
-  country: string
-  category?: string
-  budgetAmount: number
-  budgetType: 'DAILY' | 'TOTAL'
-  biddingStrategy: string
-  offerId: number
+  offerName: string
+  creativeId: number
   date?: Date
+  randomSuffix?: string
 }): string {
   const {
-    brand,
-    country,
-    category,
-    budgetAmount,
-    budgetType,
-    biddingStrategy,
-    offerId,
-    date = new Date()
+    offerName,
+    creativeId,
+    date = new Date(),
+    randomSuffix
   } = params
 
-  // 构建各部分
+  const safeCreativeId = Number.isFinite(creativeId) ? Math.max(0, Math.floor(creativeId)) : 0
+  const safeOfferName = sanitize(offerName) || 'Offer'
   const parts = [
-    sanitize(brand),
-    sanitize(country.toUpperCase()),
-    simplifyCategory(category || ''),  // 🔧 修复(2025-12-16): 使用简化分类函数
-    `${Math.round(budgetAmount)}${NAMING_CONFIG.BUDGET_TYPE[budgetType]}`,
-    NAMING_CONFIG.BIDDING_STRATEGY[biddingStrategy as keyof typeof NAMING_CONFIG.BIDDING_STRATEGY] || sanitize(biddingStrategy.substring(0, 6).toUpperCase()),
-    formatDateTime(date), // 使用完整日期时间确保唯一性
-    `O${offerId}`
+    safeOfferName,
+    'CMP',
+    String(safeCreativeId),
+    formatDateTime(date),
+    formatMilliseconds(date),
+    randomSuffix || generateShortRandomSuffix(3)
   ]
 
   const name = parts.join(NAMING_CONFIG.SEPARATOR)
@@ -176,40 +198,29 @@ export function generateCampaignName(params: {
 /**
  * 生成Ad Group名称
  *
- * 格式: {Brand}_{Country}_{Theme}_{MaxCPC}_{AdGroupID}
+ * 格式: {OfferName}_AG_{CreativeID}_{Rand}
  *
- * 示例: Eufy_IT_Cleaning_2.5EUR_AG12345
+ * 示例: Ecomobi_US_01_AG_121_X7Q
  */
 export function generateAdGroupName(params: {
-  brand: string
-  country: string
-  theme?: string
-  maxCpcBid?: number
-  adGroupId?: string
+  offerName: string
+  creativeId: number
+  randomSuffix?: string
 }): string {
   const {
-    brand,
-    country,
-    theme,
-    maxCpcBid,
-    adGroupId
+    offerName,
+    creativeId,
+    randomSuffix
   } = params
 
+  const safeOfferName = sanitize(offerName) || 'Offer'
+  const safeCreativeId = Number.isFinite(creativeId) ? Math.max(0, Math.floor(creativeId)) : 0
   const parts = [
-    sanitize(brand),
-    sanitize(country.toUpperCase()),
-    simplifyTheme(theme || ''),  // 🔧 修复(2025-12-16): 使用简化主题函数
+    safeOfferName,
+    'AG',
+    String(safeCreativeId),
+    randomSuffix || generateShortRandomSuffix(3)
   ]
-
-  // 添加CPC（如果提供）
-  if (maxCpcBid !== undefined && maxCpcBid > 0) {
-    parts.push(`${maxCpcBid.toFixed(1)}CPC`)
-  }
-
-  // 添加Ad Group ID（如果提供）
-  if (adGroupId) {
-    parts.push(`AG${adGroupId}`)
-  }
 
   const name = parts.join(NAMING_CONFIG.SEPARATOR)
   return truncate(name, NAMING_CONFIG.MAX_LENGTH.AD_GROUP)
@@ -249,45 +260,55 @@ export function generateAdName(params: {
 }
 
 /**
+ * 解析Ad Group名称，提取关键信息
+ * 格式: {OfferName}_AG_{CreativeID}_{Rand}
+ */
+export function parseAdGroupName(name: string): {
+  offerName: string
+  creativeId: number
+  randomSuffix: string
+} | null {
+  const match = name.match(/^(.+)_AG_(\d+)_([A-Za-z0-9]{3})$/)
+  if (!match) return null
+
+  const [, offerName, creativeId, randomSuffix] = match
+  return {
+    offerName,
+    creativeId: parseInt(creativeId, 10),
+    randomSuffix
+  }
+}
+
+/**
+ * 验证Ad Group命名是否符合规范
+ */
+export function validateAdGroupName(name: string): boolean {
+  return parseAdGroupName(name) !== null
+}
+
+/**
  * 解析Campaign名称，提取关键信息
+ * 格式: {OfferName}_CMP_{CreativeID}_{YYYYMMDDHHmmss}_{ms}_{Rand}
  *
  * @returns 解析出的信息，如果格式不匹配返回null
  */
 export function parseCampaignName(name: string): {
-  brand: string
-  country: string
-  category: string
-  budget: number
-  budgetType: 'DAILY' | 'TOTAL'
-  strategy: string
-  date: string
-  offerId: number
+  offerName: string
+  creativeId: number
+  dateTime: string
+  milliseconds: string
+  randomSuffix: string
 } | null {
-  const parts = name.split(NAMING_CONFIG.SEPARATOR)
+  const match = name.match(/^(.+)_CMP_(\d+)_([0-9]{14})_([0-9]{3})_([A-Za-z0-9]{3})$/)
+  if (!match) return null
 
-  // 至少需要7个部分
-  if (parts.length < 7) return null
-
-  try {
-    const budgetPart = parts[3]
-    const budgetMatch = budgetPart.match(/^(\d+)([DT])$/)
-    if (!budgetMatch) return null
-
-    const offerIdMatch = parts[6].match(/^O(\d+)$/)
-    if (!offerIdMatch) return null
-
-    return {
-      brand: parts[0],
-      country: parts[1],
-      category: parts[2],
-      budget: parseInt(budgetMatch[1]),
-      budgetType: budgetMatch[2] === 'D' ? 'DAILY' : 'TOTAL',
-      strategy: parts[4],
-      date: parts[5],
-      offerId: parseInt(offerIdMatch[1])
-    }
-  } catch (error) {
-    return null
+  const [, offerName, creativeId, dateTime, milliseconds, randomSuffix] = match
+  return {
+    offerName,
+    creativeId: parseInt(creativeId, 10),
+    dateTime,
+    milliseconds,
+    randomSuffix
   }
 }
 
@@ -299,21 +320,16 @@ export function validateCampaignName(name: string): boolean {
 }
 
 /**
- * 生成智能优化模式的Campaign名称（带变体后缀）
+ * 生成智能优化模式的Campaign名称（不追加变体后缀）
  */
 export function generateSmartOptimizationCampaignName(
   baseParams: Parameters<typeof generateCampaignName>[0],
   variantIndex: number,
   totalVariants: number
 ): string {
-  const baseName = generateCampaignName(baseParams)
-  const variantSuffix = `_V${variantIndex}of${totalVariants}`
-
-  // 确保加上后缀后不超过最大长度
-  const maxBaseLength = NAMING_CONFIG.MAX_LENGTH.CAMPAIGN - variantSuffix.length
-  const truncatedBase = truncate(baseName, maxBaseLength)
-
-  return truncatedBase + variantSuffix
+  void variantIndex
+  void totalVariants
+  return generateCampaignName(baseParams)
 }
 
 /**
@@ -323,6 +339,7 @@ export function generateNamingScheme(params: {
   offer: {
     id: number
     brand: string
+    offerName?: string
     category?: string
   }
   config: {
@@ -344,15 +361,13 @@ export function generateNamingScheme(params: {
 }): NamingScheme {
   const { offer, config, creative, smartOptimization } = params
 
-  // 生成Campaign名称
+  const offerIdentifier = offer.offerName
+    ? sanitize(offer.offerName)
+    : sanitize(`${offer.brand}_${config.targetCountry}_01`)
+
   const baseCampaignParams = {
-    brand: offer.brand,
-    country: config.targetCountry,
-    category: offer.category,
-    budgetAmount: config.budgetAmount,
-    budgetType: config.budgetType,
-    biddingStrategy: config.biddingStrategy,
-    offerId: offer.id
+    offerName: offerIdentifier,
+    creativeId: creative?.id ?? 0
   }
 
   const campaignName = smartOptimization?.enabled
@@ -365,10 +380,8 @@ export function generateNamingScheme(params: {
 
   // 生成Ad Group名称
   const adGroupName = generateAdGroupName({
-    brand: offer.brand,
-    country: config.targetCountry,
-    theme: creative?.theme,
-    maxCpcBid: config.maxCpcBid
+    offerName: offerIdentifier,
+    creativeId: creative?.id ?? 0
   })
 
   // 生成Ad名称（如果提供了creative）

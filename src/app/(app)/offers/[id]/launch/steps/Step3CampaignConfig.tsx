@@ -228,6 +228,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       offer: {
         id: offer.id,
         brand: offer.brand || 'Brand',
+        offerName: offer.offerName || undefined,
         category: offer.category || undefined
       },
       config: {
@@ -666,7 +667,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               <Input
                 value={config.campaignName}
                 onChange={(e) => handleChange('campaignName', e.target.value)}
-                placeholder="例: Reolink - US Campaign"
+                placeholder="例: Ecomobi_US_01_CMP_121_20260122231319_234_X7Q"
               />
             </div>
 
@@ -830,7 +831,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               <Input
                 value={config.adGroupName}
                 onChange={(e) => handleChange('adGroupName', e.target.value)}
-                placeholder="例: Reolink - Security Cameras"
+                placeholder="例: Ecomobi_US_01_AG_121_X7Q"
               />
             </div>
 
