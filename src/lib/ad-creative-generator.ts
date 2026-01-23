@@ -187,6 +187,7 @@ export interface KeywordWithVolume {
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' | 'KEYWORD_POOL' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
   intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
+  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
 export function buildDkiFirstHeadline(brandName: string, maxLength = 30): string {
@@ -3427,6 +3428,7 @@ export async function generateAdCreative(
         competitionIndex: v.competitionIndex,
         lowTopPageBid: v.lowTopPageBid || 0,  // 🆕 添加页首最低出价
         highTopPageBid: v.highTopPageBid || 0, // 🆕 添加页首最高出价
+        volumeUnavailableReason: v.volumeUnavailableReason,
         matchType
       }
     })
@@ -3817,10 +3819,19 @@ export async function generateAdCreative(
 
   console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词 (matchType=PHRASE)`)
 
+  const volumeDataUnavailable = keywordsWithVolume.some(kw =>
+    kw.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+    kw.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+  )
+  if (volumeDataUnavailable) {
+    console.log(`   ⚠️ 搜索量数据不可用（developer token 无 Basic/Standard access 或 服务账号限制），跳过搜索量过滤`)
+  }
+
   // 第2.5步：过滤非品牌词（只保留搜索量 >= 500）
-  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  // 🔧 修复(2025-12-26): 服务账号/开发者token限制下无法获取搜索量，跳过过滤
   const hasAnyVolume = nonBrandKeywords.some(kw => kw.searchVolume > 0)
-  const filteredNonBrandKeywords = hasAnyVolume
+  const canUseVolumeFilter = hasAnyVolume && !volumeDataUnavailable
+  const filteredNonBrandKeywords = canUseVolumeFilter
     ? nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
     : nonBrandKeywords
 
@@ -3915,9 +3926,10 @@ export async function generateAdCreative(
   // 合并所有品牌词（纯品牌 + 品牌相关）和增强的非品牌词（包括高价值词）
   // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
   const hasAnyVolumeBrand = brandRelatedKeywords.some(kw => kw.searchVolume > 0)
+  const shouldFilterBrandByVolume = hasAnyVolumeBrand && !volumeDataUnavailable
   const allBrandKeywords = [
     ...pureBrandKeywords,
-    ...brandRelatedKeywords.filter(kw => hasAnyVolumeBrand ? kw.searchVolume > 0 : true)
+    ...brandRelatedKeywords.filter(kw => shouldFilterBrandByVolume ? kw.searchVolume > 0 : true)
   ]
   let finalKeywords = [...allBrandKeywords, ...enhancedNonBrandKeywords]
 
@@ -3928,14 +3940,15 @@ export async function generateAdCreative(
     const needMore = 10 - finalKeywords.length
     // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，允许searchVolume=0的关键词
     const hasAnyVolume = nonBrandKeywords.some(kw => kw.searchVolume > 0)
+    const enforceVolumeFilter = hasAnyVolume && !volumeDataUnavailable
     const supplementaryKeywords = nonBrandKeywords
       .filter(kw => !finalKeywords.some(fk => fk.keyword === kw.keyword))
-      .filter(kw => hasAnyVolume ? kw.searchVolume > 0 : true)  // 有搜索量数据时才过滤
+      .filter(kw => enforceVolumeFilter ? kw.searchVolume > 0 : true)  // 有搜索量数据时才过滤
       .sort((a, b) => b.searchVolume - a.searchVolume)
       .slice(0, needMore)
 
     if (supplementaryKeywords.length > 0) {
-      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个${hasAnyVolume ? '低��索量' : ''}关键词:`)
+      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个${enforceVolumeFilter ? '低��索量' : ''}关键词:`)
       supplementaryKeywords.forEach(kw => {
         // 🔥 新增(2025-12-18): 为补充关键词设置matchType（保持与原非品牌词一致）
         if (!kw.matchType) {
@@ -3945,7 +3958,7 @@ export async function generateAdCreative(
       })
       finalKeywords = [...finalKeywords, ...supplementaryKeywords]
     } else {
-      console.log(`   ℹ️ 没有更多${hasAnyVolume ? '有搜索量的' : ''}关键词可补充，当前关键词数: ${finalKeywords.length}`)
+      console.log(`   ℹ️ 没有更多${enforceVolumeFilter ? '有搜索量的' : ''}关键词可补充，当前关键词数: ${finalKeywords.length}`)
     }
   }
 
@@ -3964,7 +3977,7 @@ export async function generateAdCreative(
       .filter(Boolean)
   )
 
-  if (hasAnyVolumeData) {
+  if (hasAnyVolumeData && !volumeDataUnavailable) {
     finalKeywords = finalKeywords.filter(kw => {
       // 保留条件：有搜索量 OR 是纯品牌词
       const kwNorm = normalizeGoogleAdsKeyword(kw.keyword)
@@ -3976,7 +3989,11 @@ export async function generateAdCreative(
       console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词（保留品牌词）`)
     }
   } else {
-    console.log(`   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤`)
+    if (volumeDataUnavailable) {
+      console.log(`   ⚠️ 搜索量数据不可用（developer token 无 Basic/Standard access 或 服务账号限制），跳过搜索量过滤`)
+    } else {
+      console.log(`   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤`)
+    }
   }
   console.log(`   ✅ 最终保留 ${finalKeywords.length} 个关键词（含搜索量数据或品牌词）`)
 

@@ -35,6 +35,7 @@ export interface UnifiedKeywordData {
   highTopPageBid: number
   source: 'BRAND' | 'CATEGORY' | 'FEATURE' | 'EXPANSION'
   matchType: 'EXACT' | 'PHRASE' | 'BROAD'
+  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
 /**
@@ -1878,6 +1879,7 @@ export async function getKeywordVolumesForExisting(params: {
         competitionIndex: vol.competitionIndex,
         lowTopPageBid: vol.lowTopPageBid,
         highTopPageBid: vol.highTopPageBid,
+        volumeUnavailableReason: vol.volumeUnavailableReason,
         source: 'BRAND' as const,
         matchType,
       }
