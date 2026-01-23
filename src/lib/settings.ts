@@ -613,7 +613,7 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称
-  // 🔧 更新(2026-01-05): 允许 flash 模型（业务会在 Pro/Flash 间切换；relay 过载/失败也会降级到 flash）
+  // 🔧 更新(2026-01-05): 允许 flash 模型（业务会在 Pro/Flash 间切换）
   const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview']
   if (!validModels.includes(model)) {
     return {

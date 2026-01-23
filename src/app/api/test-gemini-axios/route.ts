@@ -1,5 +1,5 @@
 /**
- * 测试 Gemini API axios 代理调用（带自动降级）
+ * 测试 Gemini API axios 代理调用（不做自动降级）
  * GET /api/test-gemini-axios
  * GET /api/test-gemini-axios?model=gemini-2.5-flash (测试指定模型)
  *
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       requestedModel: model,
       method: 'axios + HttpsProxyAgent',
       duration: `${duration}ms`,
-      fallbackSupported: true,
+      fallbackSupported: false,
       timestamp: new Date().toISOString(),
     })
   } catch (error: any) {

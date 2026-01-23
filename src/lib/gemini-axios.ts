@@ -208,9 +208,9 @@ async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
 }
 
 /**
- * 调用 Gemini API 生成内容（带自动降级）
+ * 调用 Gemini API 生成内容（不做自动降级）
  *
- * 尝试使用 gemini-2.5-pro，如果遇到模型过载（503）则自动降级到 gemini-2.5-flash
+ * 不自动切换模型，错误直接抛出
  * 直接访问Google API，不使用代理
  *
  * 重要：API密钥从用户配置获取，不使用全局配置
@@ -425,30 +425,6 @@ export async function generateContent(params: {
       }
     }
 
-    // 检查是否是模型过载错误（503或overloaded消息）
-    const isOverloaded =
-      error.response?.status === 503 ||
-      error.message?.toLowerCase().includes('overload') ||
-      error.response?.data?.error?.message?.toLowerCase().includes('overload')
-
-    // 🔧 relay 额外降级策略：除过载外，遇到临时性失败也尝试降级到Flash
-    // 场景：用户选择 gemini-2.5-pro，但 relay 可能出现不稳定/网关类错误
-    const status = error.response?.status as number | undefined
-    const isTransientFailureForRelay =
-      provider === 'relay' &&
-      (
-        !status || // 网络错误/超时等（无HTTP状态）
-        status === 408 ||
-        status === 429 ||
-        status === 500 ||
-        status === 502 ||
-        status === 504 ||
-        status === 522 ||
-        status === 524 ||
-        error.code === 'ECONNABORTED' ||
-        error.code === 'ETIMEDOUT'
-      )
-
     // 🔧 修复(2025-12-30): 针对403错误给出更明确的提示
     if (error.response?.status === 403) {
       const providerName = GEMINI_PROVIDERS[provider]?.name || '当前服务商'
@@ -510,91 +486,7 @@ export async function generateContent(params: {
       )
     }
 
-    const isEmptyContentError =
-      error.message?.includes('content.parts为空') ||
-      error.message?.includes('没有candidates')
-    const isMaxTokensError =
-      error.code === 'MAX_TOKENS' ||
-      error.message?.includes('MAX_TOKENS') ||
-      error.message?.includes('token限制被截断')
-
-    // 如果是gemini-2.5-pro过载/临时失败，或 gemini-3-flash-preview 返回空响应，则降级到gemini-2.5-flash
-    const canFallbackToFlash = model === 'gemini-2.5-pro' || model === 'gemini-3-flash-preview'
-    if ((isOverloaded || isTransientFailureForRelay || isEmptyContentError || isMaxTokensError) && canFallbackToFlash) {
-      const fallbackReason = isOverloaded
-        ? '模型过载'
-        : (isTransientFailureForRelay ? 'relay临时性失败' : (isEmptyContentError ? '空响应' : (isMaxTokensError ? 'MAX_TOKENS' : '未知原因')))
-      console.warn(`⚠️ ${model} 调用失败，自动降级到 gemini-2.5-flash（${fallbackReason}）`)
-
-      try {
-        // 🔧 修复(2025-12-30): fallback也需要使用正确的API Key传递方式
-        const fallbackRequestConfig = provider === 'relay'
-          ? {
-              headers: {
-                'x-api-key': apiKey,
-              },
-            }
-          : {
-              params: {
-                key: apiKey,
-              },
-            }
-
-        const fallbackResponse = await client.post<GeminiResponse>(
-          `/v1beta/models/gemini-2.5-flash:generateContent`,
-          request,
-          fallbackRequestConfig
-        )
-
-        // 检查fallback响应基本结构
-        if (!fallbackResponse.data.candidates || fallbackResponse.data.candidates.length === 0) {
-          console.error('Gemini API (fallback)响应结构异常: 没有候选响应')
-          console.error('   - 完整响应:', JSON.stringify(fallbackResponse.data, null, 2))
-          throw new Error('Gemini API (fallback) 返回了空响应（没有candidates）')
-        }
-
-        const fallbackCandidate = fallbackResponse.data.candidates[0]
-
-        // 检查finishReason
-        if (fallbackCandidate.finishReason === 'MAX_TOKENS') {
-          console.error('❌ Gemini API (fallback) 输出达到token限制被截断')
-          console.error('   - finishReason:', fallbackCandidate.finishReason)
-          throw new Error('Gemini API (fallback) 输出达到token限制被截断')
-        }
-
-        const text = extractCandidateText(fallbackCandidate)
-        if (!text) {
-          console.error('Gemini API (fallback)响应结构异常: content.parts为空')
-          logEmptyCandidate(fallbackResponse.data, fallbackCandidate)
-          throw new Error('Gemini API (fallback) 返回了空响应（content.parts为空）')
-        }
-        console.log(`✓ Gemini API (fallback: gemini-2.5-flash) 调用成功，返回 ${text.length} 字符`)
-
-        // 记录token使用情况
-        let usage: GeminiAxiosGenerateResult['usage']
-        if (fallbackResponse.data.usageMetadata) {
-          usage = {
-            inputTokens: fallbackResponse.data.usageMetadata.promptTokenCount || 0,
-            outputTokens: fallbackResponse.data.usageMetadata.candidatesTokenCount || 0,
-            totalTokens: fallbackResponse.data.usageMetadata.totalTokenCount || 0
-          }
-        }
-
-        return {
-          text,
-          usage,
-          model: 'gemini-2.5-flash'
-        }
-      } catch (fallbackError: any) {
-        // 降级模型也失败，抛出原始错误和降级错误
-        throw new Error(
-          `Gemini API调用失败。主模型(${model})错误: ${error.message}。` +
-            `降级模型(gemini-2.5-flash)错误: ${fallbackError.message}`
-        )
-      }
-    }
-
-    // 其他错误（非过载或已经是flash模型），直接抛出
+    // 其他错误直接抛出
     // 🔧 修复(2025-12-11): 增加详细错误信息，便于排查400错误
     const errorDetails = error.response?.data?.error
     if (errorDetails) {
