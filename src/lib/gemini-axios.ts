@@ -48,6 +48,7 @@ export interface GeminiResponse {
     promptTokenCount: number
     candidatesTokenCount: number
     totalTokenCount: number
+    thoughtsTokenCount?: number
   }
 }
 
@@ -297,62 +298,103 @@ export async function generateContent(params: {
           },
         }
 
-    const response = await client.post<GeminiResponse>(
-      `/v1beta/models/${model}:generateContent`,
-      request,
-      requestConfig
-    )
+    const MAX_OUTPUT_TOKENS_CAP = 32768
+    const MAX_TOKENS_RETRY_BUMP = 8192
+    const MAX_TOKENS_RETRY_BUFFER = 2048
 
-    // 检查响应基本结构
-    if (!response.data.candidates || response.data.candidates.length === 0) {
-      console.error('❌ Gemini API响应异常: 没有candidates')
-      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
-      throw new Error('Gemini API 返回了空响应（没有candidates）')
-    }
+    const runRequest = async (overrideMaxOutputTokens?: number): Promise<GeminiAxiosGenerateResult> => {
+      const effectiveMaxOutputTokens = overrideMaxOutputTokens ?? maxOutputTokens
+      const requestToSend = overrideMaxOutputTokens
+        ? {
+            ...request,
+            generationConfig: {
+              ...generationConfig,
+              maxOutputTokens: effectiveMaxOutputTokens,
+            },
+          }
+        : request
 
-    const candidate = response.data.candidates[0]
-
-    // 🔧 修复(2025-12-11): 检查finishReason，如果是MAX_TOKENS，说明输出被截断
-    if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-      console.warn(`⚠️ Gemini API finishReason: ${candidate.finishReason}`)
-      if (candidate.finishReason === 'MAX_TOKENS') {
-        console.error('❌ Gemini API输出达到token限制被截断')
-        console.error('   - finishReason:', candidate.finishReason)
-        console.error('   - usageMetadata:', response.data.usageMetadata)
-        throw new Error('Gemini API 输出达到token限制被截断。请增加maxOutputTokens参数。')
+      if (overrideMaxOutputTokens) {
+        console.warn(`🔄 MAX_TOKENS重试: maxOutputTokens=${effectiveMaxOutputTokens}`)
       }
-      if ((candidate as any).safetyRatings) {
-        console.warn('   - safetyRatings:', JSON.stringify((candidate as any).safetyRatings))
+
+      const response = await client.post<GeminiResponse>(
+        `/v1beta/models/${model}:generateContent`,
+        requestToSend,
+        requestConfig
+      )
+
+      // 检查响应基本结构
+      if (!response.data.candidates || response.data.candidates.length === 0) {
+        console.error('❌ Gemini API响应异常: 没有candidates')
+        console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
+        throw new Error('Gemini API 返回了空响应（没有candidates）')
+      }
+
+      const candidate = response.data.candidates[0]
+
+      // 🔧 修复(2025-12-11): 检查finishReason，如果是MAX_TOKENS，说明输出被截断
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        console.warn(`⚠️ Gemini API finishReason: ${candidate.finishReason}`)
+        if (candidate.finishReason === 'MAX_TOKENS') {
+          console.error('❌ Gemini API输出达到token限制被截断')
+          console.error('   - finishReason:', candidate.finishReason)
+          console.error('   - usageMetadata:', response.data.usageMetadata)
+
+          const usage = response.data.usageMetadata
+          const thoughtsTokenCount = usage?.thoughtsTokenCount || 0
+          const retryMaxOutputTokens = Math.min(
+            MAX_OUTPUT_TOKENS_CAP,
+            Math.max(
+              effectiveMaxOutputTokens + MAX_TOKENS_RETRY_BUMP,
+              thoughtsTokenCount > 0 ? thoughtsTokenCount + MAX_TOKENS_RETRY_BUFFER : 0
+            )
+          )
+
+          if (!overrideMaxOutputTokens && retryMaxOutputTokens > effectiveMaxOutputTokens) {
+            console.warn(`   - 自动提升maxOutputTokens: ${effectiveMaxOutputTokens} → ${retryMaxOutputTokens}`)
+            return await runRequest(retryMaxOutputTokens)
+          }
+
+          const maxTokensError: any = new Error('Gemini API 输出达到token限制被截断。请增加maxOutputTokens参数。')
+          maxTokensError.code = 'MAX_TOKENS'
+          throw maxTokensError
+        }
+        if ((candidate as any).safetyRatings) {
+          console.warn('   - safetyRatings:', JSON.stringify((candidate as any).safetyRatings))
+        }
+      }
+
+      // 提取响应文本
+      const text = extractCandidateText(candidate)
+      if (!text) {
+        console.error('❌ Gemini API响应异常: content.parts为空', { finishReason: candidate.finishReason })
+        logEmptyCandidate(response.data, candidate)
+        throw new Error('Gemini API 返回了空响应（content.parts为空）')
+      }
+      console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
+
+      // 记录token使用情况
+      let usage: GeminiAxiosGenerateResult['usage']
+      if (response.data.usageMetadata) {
+        usage = {
+          inputTokens: response.data.usageMetadata.promptTokenCount || 0,
+          outputTokens: response.data.usageMetadata.candidatesTokenCount || 0,
+          totalTokens: response.data.usageMetadata.totalTokenCount || 0
+        }
+        console.log(`   Token使用: prompt=${usage.inputTokens}, ` +
+          `output=${usage.outputTokens}, ` +
+          `total=${usage.totalTokens}`)
+      }
+
+      return {
+        text,
+        usage,
+        model
       }
     }
 
-    // 提取响应文本
-    const text = extractCandidateText(candidate)
-    if (!text) {
-      console.error('❌ Gemini API响应异常: content.parts为空', { finishReason: candidate.finishReason })
-      logEmptyCandidate(response.data, candidate)
-      throw new Error('Gemini API 返回了空响应（content.parts为空）')
-    }
-    console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
-
-    // 记录token使用情况
-    let usage: GeminiAxiosGenerateResult['usage']
-    if (response.data.usageMetadata) {
-      usage = {
-        inputTokens: response.data.usageMetadata.promptTokenCount || 0,
-        outputTokens: response.data.usageMetadata.candidatesTokenCount || 0,
-        totalTokens: response.data.usageMetadata.totalTokenCount || 0
-      }
-      console.log(`   Token使用: prompt=${usage.inputTokens}, ` +
-        `output=${usage.outputTokens}, ` +
-        `total=${usage.totalTokens}`)
-    }
-
-    return {
-      text,
-      usage,
-      model
-    }
+    return await runRequest()
   } catch (error: any) {
     // 🔧 修复(2025-12-11): 对所有错误打印详细信息
     console.error(`❌ Gemini API调用失败:`)
@@ -471,13 +513,17 @@ export async function generateContent(params: {
     const isEmptyContentError =
       error.message?.includes('content.parts为空') ||
       error.message?.includes('没有candidates')
+    const isMaxTokensError =
+      error.code === 'MAX_TOKENS' ||
+      error.message?.includes('MAX_TOKENS') ||
+      error.message?.includes('token限制被截断')
 
     // 如果是gemini-2.5-pro过载/临时失败，或 gemini-3-flash-preview 返回空响应，则降级到gemini-2.5-flash
     const canFallbackToFlash = model === 'gemini-2.5-pro' || model === 'gemini-3-flash-preview'
-    if ((isOverloaded || isTransientFailureForRelay || isEmptyContentError) && canFallbackToFlash) {
+    if ((isOverloaded || isTransientFailureForRelay || isEmptyContentError || isMaxTokensError) && canFallbackToFlash) {
       const fallbackReason = isOverloaded
         ? '模型过载'
-        : (isTransientFailureForRelay ? 'relay临时性失败' : (isEmptyContentError ? '空响应' : '未知原因'))
+        : (isTransientFailureForRelay ? 'relay临时性失败' : (isEmptyContentError ? '空响应' : (isMaxTokensError ? 'MAX_TOKENS' : '未知原因')))
       console.warn(`⚠️ ${model} 调用失败，自动降级到 gemini-2.5-flash（${fallbackReason}）`)
 
       try {
