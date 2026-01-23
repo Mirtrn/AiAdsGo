@@ -42,7 +42,31 @@ export async function GET(
 
     // 查询该 Offer 关联的补点击任务（不包括已删除的任务）
     const task = await db.queryOne<any>(`
-      SELECT * FROM click_farm_tasks
+      SELECT
+        id,
+        user_id,
+        offer_id,
+        daily_click_count,
+        start_time,
+        end_time,
+        duration_days,
+        scheduled_start_date,
+        timezone,
+        status,
+        pause_reason,
+        pause_message,
+        paused_at,
+        total_clicks,
+        success_clicks,
+        failed_clicks,
+        is_deleted,
+        deleted_at,
+        started_at,
+        completed_at,
+        next_run_at,
+        created_at,
+        updated_at
+      FROM click_farm_tasks
       WHERE offer_id = ? AND user_id = ? AND IS_DELETED_FALSE
       ORDER BY created_at DESC
       LIMIT 1

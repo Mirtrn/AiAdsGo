@@ -6,7 +6,7 @@ import { generateNextRunAt } from './click-farm/scheduler';
 import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './timezone-utils';
 import { estimateTraffic } from './click-farm/distribution';
 import { normalizeDateOnly, normalizeTimestampToIso } from './db-datetime';
-import { boolParam } from './db-helpers';
+import { boolParam, datetimeMinusHours } from './db-helpers';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -348,6 +348,7 @@ export async function pauseClickFarmTask(
  */
 export async function getClickFarmStats(userId: number, daysBack: number | 'all' = 'all'): Promise<ClickFarmStats> {
   const db = await getDatabase();
+  const debug = process.env.CLICK_FARM_DEBUG === '1';
 
   // 构建日期过滤条件
   let dateFilter = '';
@@ -361,18 +362,17 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   // 🔧 修复：获取所有任务及其对应的timezone，在应用层按每个任务的timezone过滤今日数据
   // ⚠️ 注意：每个任务可能有不同的timezone（来自offer的target_country）
   // 必须按每个任务的timezone单独判断"today"，然后聚合统计
+  // 仅扫描最近更新的任务，避免解析大量历史任务导致内存暴涨
+  const recentCutoff = datetimeMinusHours(48, db.type);
   const allTasksQuery = `
-    SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks, daily_history
+    SELECT timezone, daily_history
     FROM click_farm_tasks
     WHERE user_id = ? AND IS_DELETED_FALSE AND started_at IS NOT NULL ${dateFilter}
+      AND updated_at >= ${recentCutoff}
   `;
 
   const allTasks = await db.query<{
     timezone: string;
-    started_at: string | null;
-    total_clicks: number;
-    success_clicks: number;
-    failed_clicks: number;
     daily_history: string | any[];
   }>(allTasksQuery, [userId]);
 
@@ -399,31 +399,41 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     if (history.length > 0 && task.timezone) {
       // 用任务的时区获取今天的日期
       const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
-      console.log('🔍 [click-farm] 任务时区:', task.timezone, '今日日期:', todayInTaskTimezone);
-      console.log('🔍 [click-farm] daily_history 前3条:', JSON.stringify(history.slice(0, 3)));
+      if (debug) {
+        console.log('🔍 [click-farm] 任务时区:', task.timezone, '今日日期:', todayInTaskTimezone);
+        console.log('🔍 [click-farm] daily_history 前3条:', JSON.stringify(history.slice(0, 3)));
+      }
 
       // 从 daily_history 中找今天的记录
       const todayEntry = history.find((entry: any) => entry.date === todayInTaskTimezone);
       if (todayEntry) {
-        console.log('🔍 [click-farm] 找到今日记录:', JSON.stringify(todayEntry));
+        if (debug) {
+          console.log('🔍 [click-farm] 找到今日记录:', JSON.stringify(todayEntry));
+        }
         todayClicks += (todayEntry.actual || 0);
         todaySuccessClicks += (todayEntry.success || 0);
         todayFailedClicks += (todayEntry.failed || 0);
       } else {
-        console.log('🔍 [click-farm] 未找到今日记录，尝试查找最近日期');
         const latestEntry = history[history.length - 1];
-        console.log('🔍 [click-farm] 最新记录:', JSON.stringify(latestEntry));
+        if (debug) {
+          console.log('🔍 [click-farm] 未找到今日记录，尝试查找最近日期');
+          console.log('🔍 [click-farm] 最新记录:', JSON.stringify(latestEntry));
+        }
       }
     } else {
-      console.log('🔍 [click-farm] 跳过任务: history.length=', history.length, 'timezone=', task.timezone);
+      if (debug) {
+        console.log('🔍 [click-farm] 跳过任务: history.length=', history.length, 'timezone=', task.timezone);
+      }
     }
   }
 
-  console.log('🔍 [click-farm] 今日统计（从daily_history）:', {
-    clicks: todayClicks,
-    successClicks: todaySuccessClicks,
-    failedClicks: todayFailedClicks
-  });
+  if (debug) {
+    console.log('🔍 [click-farm] 今日统计（从daily_history）:', {
+      clicks: todayClicks,
+      successClicks: todaySuccessClicks,
+      failedClicks: todayFailedClicks
+    });
+  }
 
   // 累计统计（不含已删除任务）
 
@@ -452,14 +462,16 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   `, cumulativeParams);
 
   // 🔧 调试日志：查看PostgreSQL返回的原始数据
-  console.log('🔍 [click-farm] cumulativeResult 原始数据:', JSON.stringify(cumulativeResult));
-  console.log('🔍 [click-farm] cumulativeResult 字段:', {
-    clicks: cumulativeResult?.clicks,
-    success_clicks: cumulativeResult?.success_clicks,
-    failed_clicks: cumulativeResult?.failed_clicks,
-    successClicks: cumulativeResult?.successClicks,
-    failedClicks: cumulativeResult?.failedClicks
-  });
+  if (debug) {
+    console.log('🔍 [click-farm] cumulativeResult 原始数据:', JSON.stringify(cumulativeResult));
+    console.log('🔍 [click-farm] cumulativeResult 字段:', {
+      clicks: cumulativeResult?.clicks,
+      success_clicks: cumulativeResult?.success_clicks,
+      failed_clicks: cumulativeResult?.failed_clicks,
+      successClicks: cumulativeResult?.successClicks,
+      failedClicks: cumulativeResult?.failedClicks
+    });
+  }
 
   // 🔧 修复: PostgreSQL 列名是小写的（success_clicks 而非 successClicks）
   // 确保所有字段都是数字类型（PostgreSQL numeric 类型可能返回字符串）
@@ -469,7 +481,9 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     failedClicks: parseFloat(String(cumulativeResult?.failed_clicks || 0)),
   };
 
-  console.log('🔍 [click-farm] cumulative 解析后:', cumulative);
+  if (debug) {
+    console.log('🔍 [click-farm] cumulative 解析后:', cumulative);
+  }
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? parseFloat(((cumulative.successClicks / cumulative.clicks) * 100).toFixed(1))
@@ -567,14 +581,16 @@ export async function getAdminClickFarmStats(): Promise<{
   // 2️⃣ 今日统计（按每个任务的timezone判断）
   // 🔧 修复：从每个任务的 daily_history 中提取今日数据
   // 而不是判断 started_at 是否为今天（started_at 是任务首次开始日期，可能是很久以前）
+  // 仅扫描最近更新的任务，避免解析大量历史任务导致内存暴涨
+  const recentCutoff = datetimeMinusHours(48, db.type);
   const allTasks = await db.query<{
     timezone: string;
-    started_at: string | null;
     daily_history: string | any[];
   }>(`
-    SELECT timezone, started_at, daily_history
+    SELECT timezone, daily_history
     FROM click_farm_tasks
     WHERE IS_DELETED_FALSE AND started_at IS NOT NULL
+      AND updated_at >= ${recentCutoff}
   `, []);
 
   // 从每个任务的 daily_history 中提取今日数据
