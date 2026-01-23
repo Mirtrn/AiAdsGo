@@ -10,6 +10,7 @@ import { resolveAffiliateLink } from './url-resolver-enhanced'
 import { calculateNextSwapAt } from './url-swap-time'
 import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
 import { boolParam } from './db-helpers'
+import { normalizeAffiliateLinksInput, findInvalidAffiliateLinks } from './url-swap-link-utils'
 import type {
   UrlSwapTask,
   UrlSwapTaskStatus,
@@ -907,19 +908,15 @@ function normalizeUrlSwapMode(input: unknown): UrlSwapMode {
 }
 
 function normalizeManualAffiliateLinks(input: unknown): string[] {
-  if (!Array.isArray(input)) return []
+  const normalized = normalizeAffiliateLinksInput(input)
+  const invalidLinks = findInvalidAffiliateLinks(normalized)
+  if (invalidLinks.length > 0) {
+    throw new Error('方式二推广链接需包含 http/https 协议')
+  }
 
   const out: string[] = []
   const seen = new Set<string>()
-
-  for (const item of input) {
-    if (typeof item !== 'string') continue
-    const value = item.trim()
-    if (!value) continue
-    if (!/^https?:\/\//i.test(value)) {
-      throw new Error('方式二推广链接需包含 http/https 协议')
-    }
-
+  for (const value of normalized) {
     if (seen.has(value)) continue
     seen.add(value)
     out.push(value)

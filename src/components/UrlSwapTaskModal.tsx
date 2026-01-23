@@ -20,6 +20,7 @@ import { Loader2, AlertCircle, Link, Clock, Globe, ExternalLink } from 'lucide-r
 import { toast } from 'sonner';
 import type { UrlSwapTask } from '@/lib/url-swap-types';
 import { URL_SWAP_INTERVAL_OPTIONS, URL_SWAP_ALLOWED_INTERVALS_MINUTES } from '@/lib/url-swap-intervals';
+import { parseAffiliateLinksText, findInvalidAffiliateLinks } from '@/lib/url-swap-link-utils';
 
 interface UrlSwapTaskModalProps {
   open: boolean;
@@ -209,17 +210,14 @@ export default function UrlSwapTaskModal({
 
     let manualAffiliateLinks: string[] = [];
     if (swapMode === 'manual') {
-      manualAffiliateLinks = manualLinksText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
+      manualAffiliateLinks = parseAffiliateLinksText(manualLinksText);
 
       if (manualAffiliateLinks.length === 0) {
         toast.error('方式二需要至少配置 1 个推广链接');
         return;
       }
 
-      const invalidLinks = manualAffiliateLinks.filter((link) => !/^https?:\/\//i.test(link));
+      const invalidLinks = findInvalidAffiliateLinks(manualAffiliateLinks);
       if (invalidLinks.length > 0) {
         toast.error('推广链接需包含 http/https 协议，请检查输入');
         return;

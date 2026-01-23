@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getUrlSwapTaskById, getUrlSwapTaskStats, updateUrlSwapTask } from '@/lib/url-swap';
+import { findInvalidAffiliateLinks, normalizeAffiliateLinksInput } from '@/lib/url-swap-link-utils';
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { getDatabase } from '@/lib/db';
 import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
@@ -110,7 +111,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     if (swapModeAfter === 'manual') {
       const rawList = (body as any).manual_affiliate_links ?? existingTask.manual_affiliate_links
-      const hasAtLeastOne = Array.isArray(rawList) && rawList.some((v: any) => typeof v === 'string' && v.trim().length > 0)
+      const normalizedList = normalizeAffiliateLinksInput(rawList)
+      const hasAtLeastOne = normalizedList.length > 0
       if (!hasAtLeastOne) {
         return NextResponse.json(
           { error: 'validation_error', message: '方式二需要至少配置 1 个推广链接' },
@@ -118,14 +120,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         );
       }
 
-      const invalidLinks = Array.isArray(rawList)
-        ? rawList.filter((v: any) => typeof v === 'string' && v.trim().length > 0 && !/^https?:\/\//i.test(v.trim()))
-        : []
+      const invalidLinks = findInvalidAffiliateLinks(normalizedList)
       if (invalidLinks.length > 0) {
         return NextResponse.json(
           { error: 'validation_error', message: '推广链接需包含 http/https 协议，请检查方式二列表' },
           { status: 400 }
         );
+      }
+
+      if (Array.isArray((body as any).manual_affiliate_links)) {
+        body.manual_affiliate_links = normalizedList
       }
     }
 
