@@ -17,6 +17,41 @@ export interface HttpResolvedUrl {
   statusCode: number
 }
 
+function normalizeHost(host: string): string {
+  return host.toLowerCase().replace(/^www\./, '')
+}
+
+function isSameDomain(a: string, b: string): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+  return a.endsWith(`.${b}`) || b.endsWith(`.${a}`)
+}
+
+function extractSuffixFromRedirectChain(redirectChain: string[], finalUrl: string): string {
+  let finalHost = ''
+  try {
+    finalHost = normalizeHost(new URL(finalUrl).hostname)
+  } catch {
+    return ''
+  }
+
+  for (let i = redirectChain.length - 1; i >= 0; i--) {
+    try {
+      const urlObj = new URL(redirectChain[i])
+      const suffix = urlObj.search.substring(1)
+      if (!suffix) continue
+      const host = normalizeHost(urlObj.hostname)
+      if (isSameDomain(host, finalHost)) {
+        return suffix
+      }
+    } catch {
+      // Ignore invalid URL in redirect chain.
+    }
+  }
+
+  return ''
+}
+
 function shouldAcceptServerErrorAsResolvedFinalUrl(url: string, statusCode: number): boolean {
   if (statusCode < 500) return false
   try {
@@ -424,13 +459,18 @@ export async function resolveAffiliateLinkWithHttp(
 
     const finalUrl = `${urlObj.origin}${urlObj.pathname}`
     const finalUrlSuffix = urlObj.search.substring(1)
+    const fallbackSuffix = finalUrlSuffix ? '' : extractSuffixFromRedirectChain(redirectChain, finalUrl)
+    const resolvedSuffix = finalUrlSuffix || fallbackSuffix
 
     console.log(`✅ HTTP解析完成: ${redirectCount}次重定向`)
     console.log(`   Final URL: ${finalUrl}`)
+    if (!finalUrlSuffix && fallbackSuffix) {
+      console.log(`   Final URL Suffix(redirect): ${fallbackSuffix.substring(0, 100)}${fallbackSuffix.length > 100 ? '...' : ''}`)
+    }
 
     return {
       finalUrl,
-      finalUrlSuffix,
+      finalUrlSuffix: resolvedSuffix,
       redirectChain,
       redirectCount,
       statusCode: finalStatusCode,
