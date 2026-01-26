@@ -1910,6 +1910,44 @@ async function saveKeywordPoolWithData(
   return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
 }
 
+function extractCategorySignalsFromScrapedData(scrapedData: string | null | undefined): string[] {
+  if (!scrapedData) return []
+
+  try {
+    const parsed = JSON.parse(scrapedData)
+    if (!parsed || typeof parsed !== 'object') return []
+
+    const candidates: string[] = []
+    const push = (value: unknown) => {
+      if (typeof value !== 'string') return
+      const trimmed = value.trim()
+      if (trimmed) candidates.push(trimmed)
+    }
+
+    push((parsed as any).productCategory)
+    push((parsed as any).category)
+
+    const primaryCategories = (parsed as any)?.productCategories?.primaryCategories
+    if (Array.isArray(primaryCategories)) {
+      for (const item of primaryCategories) {
+        push(item?.name)
+      }
+    }
+
+    const breadcrumbs = (parsed as any)?.breadcrumbs
+    if (Array.isArray(breadcrumbs)) {
+      for (const item of breadcrumbs) {
+        push(item)
+      }
+    }
+
+    if (candidates.length === 0) return []
+    return Array.from(new Set(candidates))
+  } catch {
+    return []
+  }
+}
+
 /**
  * 🆕 解析关键词数组（向后兼容）
  * 处理新格式 PoolKeywordData[] 和旧格式 string[]
@@ -2283,10 +2321,12 @@ export async function generateOfferKeywordPool(
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
   const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
   const pureBrandKeywordsForFilter = getPureBrandKeywords(offer.brand || '')
+  const categorySignals = extractCategorySignalsFromScrapedData(offer.scraped_data)
+  const categoryContext = [offer.category, ...categorySignals].filter(Boolean).join(' ')
 
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
-    category: offer.category || undefined,
+    category: categoryContext || undefined,
     productName: offer.product_name || undefined,
     targetCountry: offer.target_country || undefined,
     targetLanguage: offer.target_language || undefined,

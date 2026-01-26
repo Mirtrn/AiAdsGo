@@ -664,27 +664,6 @@ function normalizeRelevanceTokens(input: string): string[] {
   )
 }
 
-const CONTEXT_TOKEN_SYNONYMS: Record<string, string[]> = {
-  sneaker: ['sneakers', 'shoe', 'shoes'],
-  sneakers: ['sneaker', 'shoe', 'shoes'],
-  shoe: ['shoes', 'sneaker', 'sneakers'],
-  shoes: ['shoe', 'sneaker', 'sneakers'],
-  fashion: ['classic', 'retro', 'vintage'],
-}
-
-function expandContextTokens(tokens: string[]): string[] {
-  if (!tokens || tokens.length === 0) return []
-  const expanded = new Set(tokens)
-  for (const token of tokens) {
-    const synonyms = CONTEXT_TOKEN_SYNONYMS[token]
-    if (!synonyms) continue
-    for (const synonym of synonyms) {
-      expanded.add(synonym)
-    }
-  }
-  return Array.from(expanded)
-}
-
 function hasModelLikeToken(keywordTokens: string[]): boolean {
   for (const token of keywordTokens) {
     if (!token) continue
@@ -725,13 +704,12 @@ function isRelevantToOfferContext(params: {
     ...normalizeRelevanceTokens(category || ''),
     ...normalizeRelevanceTokens(productName || ''),
   ]
-  const expandedContextTokens = expandContextTokens(contextTokens)
 
   // Remove brand tokens from context to avoid tautology ("rove ..." always matches).
   const brandTokens = new Set(
     pureBrandKeywords.flatMap(b => normalizeRelevanceTokens(b))
   )
-  const usableContext = Array.from(new Set(expandedContextTokens)).filter(t => !brandTokens.has(t))
+  const usableContext = Array.from(new Set(contextTokens)).filter(t => !brandTokens.has(t))
 
   // If we don't have enough context to judge, don't filter to avoid false positives.
   if (usableContext.length < 3) return { ok: true }
@@ -769,11 +747,16 @@ export function filterKeywordQuality(
   } = options
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const brandGateKeywords = pureBrandKeywords.filter(kw => kw.trim().length >= 2)
+  const highVolumeBrandGate = 1000
   const removed: Array<{ keyword: PoolKeywordData; reason: string }> = []
   const filtered: PoolKeywordData[] = []
 
   for (const kw of keywords) {
     const keyword = typeof kw === 'string' ? kw : kw.keyword
+    const searchVolume = typeof kw.searchVolume === 'number'
+      ? kw.searchVolume
+      : Number(kw.searchVolume) || 0
     const wordCount = keyword.trim().split(/\s+/).length
 
     let removeReason: string | null = null
@@ -827,15 +810,21 @@ export function filterKeywordQuality(
     }
     // 7. 与商品/品类相关性过滤（可选，避免歧义品牌误入无关主题）
     else {
-      const relevance = isRelevantToOfferContext({
-        keyword,
-        pureBrandKeywords,
-        category,
-        productName,
-        minContextTokenMatches,
-      })
-      if (!relevance.ok) {
-        removeReason = relevance.reason || `与商品无关: "${keyword}"`
+      const bypassContextFilter = brandGateKeywords.length > 0 &&
+        shouldKeepByBrand(keyword, brandGateKeywords) &&
+        searchVolume >= highVolumeBrandGate
+
+      if (!bypassContextFilter) {
+        const relevance = isRelevantToOfferContext({
+          keyword,
+          pureBrandKeywords,
+          category,
+          productName,
+          minContextTokenMatches,
+        })
+        if (!relevance.ok) {
+          removeReason = relevance.reason || `与商品无关: "${keyword}"`
+        }
       }
     }
 
