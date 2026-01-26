@@ -95,6 +95,99 @@ const HEADLINE2_STOPWORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'from',
 ])
 
+/**
+ * 🔒 前置数据质量校验（2026-01-26）
+ * 在生成创意前检查 Offer 数据质量，防止使用错误数据生成创意
+ *
+ * @param offer - Offer 数据对象
+ * @returns 校验结果
+ */
+function validateOfferDataQuality(offer: {
+  id: number
+  brand?: string
+  category?: string
+  brand_description?: string
+  extracted_keywords?: string
+  scrape_status?: string
+  scrape_error?: string
+}): { isValid: boolean; issues: string[] } {
+  const issues: string[] = []
+
+  // 1. 检查 extracted_keywords 是否包含 "unknown" 模式
+  if (offer.extracted_keywords) {
+    try {
+      const keywords = JSON.parse(offer.extracted_keywords)
+      if (Array.isArray(keywords)) {
+        const unknownKeywords = keywords.filter((kw: any) => {
+          const kwStr = typeof kw === 'string' ? kw : kw?.keyword
+          return kwStr && /^unknown(\s|$)/i.test(kwStr.trim())
+        })
+        if (unknownKeywords.length > 3) {
+          issues.push(`关键词中包含过多 "unknown" 模式 (${unknownKeywords.length}个)，可能是抓取失败`)
+        }
+      }
+    } catch {
+      // 解析失败忽略
+    }
+  }
+
+  // 2. 检查品牌描述是否与品牌名一致
+  if (offer.brand && offer.brand_description) {
+    const brandLower = offer.brand.toLowerCase()
+    const descLower = offer.brand_description.toLowerCase()
+
+    // 已知的问题品牌名（从历史案例中提取）
+    const knownMismatchBrands = ['lilysilk', 'u-share', 'ushare']
+
+    for (const mismatchBrand of knownMismatchBrands) {
+      if (descLower.includes(mismatchBrand) && !brandLower.includes(mismatchBrand)) {
+        issues.push(`品牌描述中提到了 "${mismatchBrand}"，但录入品牌是 "${offer.brand}"`)
+      }
+    }
+
+    // 检查品牌描述是否以其他品牌名开头
+    const brandStartMatch = descLower.match(/^([a-z][a-z0-9\-\s]{1,20})\s+(is|specializes|focuses|offers|provides)/i)
+    if (brandStartMatch) {
+      const detectedBrand = brandStartMatch[1].trim()
+      if (detectedBrand !== brandLower && !brandLower.includes(detectedBrand) && !detectedBrand.includes(brandLower)) {
+        issues.push(`品牌描述以 "${detectedBrand}" 开头，但录入品牌是 "${offer.brand}"`)
+      }
+    }
+  }
+
+  // 3. 检查类别是否与电子产品品牌明显不匹配
+  const electronicsBrands = ['anker', 'reolink', 'eufy', 'soundcore', 'nebula', 'ecoflow', 'jackery']
+  const nonElectronicsCategories = [
+    'pajama', 'sleepwear', 'clothing', 'apparel',
+    'picture frame', 'photo frame', 'home decor', 'furniture',
+    'jewelry', 'cosmetics', 'beauty'
+  ]
+
+  if (offer.brand && offer.category) {
+    const brandLower = offer.brand.toLowerCase()
+    const categoryLower = offer.category.toLowerCase()
+
+    if (electronicsBrands.includes(brandLower)) {
+      for (const nonElecCat of nonElectronicsCategories) {
+        if (categoryLower.includes(nonElecCat)) {
+          issues.push(`电子产品品牌 "${offer.brand}" 的类别 "${offer.category}" 明显不匹配`)
+          break
+        }
+      }
+    }
+  }
+
+  // 4. 检查抓取状态
+  if (offer.scrape_status === 'failed' && offer.scrape_error) {
+    issues.push(`Offer 抓取失败: ${offer.scrape_error}`)
+  }
+
+  return {
+    isValid: issues.length === 0,
+    issues
+  }
+}
+
 export function selectPrimaryKeywordForHeadline2(
   keywords: Array<{ keyword: string; searchVolume?: number }> | null | undefined,
   brandName: string,
@@ -2866,6 +2959,14 @@ export async function generateAdCreative(
 
   if (!offer) {
     throw new Error('Offer不存在或无权访问')
+  }
+
+  // 🔒 前置数据质量校验（2026-01-26）：防止使用错误数据生成创意
+  const preGenerationValidation = validateOfferDataQuality(offer as any)
+  if (!preGenerationValidation.isValid) {
+    console.error(`[generateAdCreative] ❌ 前置校验失败，阻止创意生成:`)
+    preGenerationValidation.issues.forEach(issue => console.error(`   - ${issue}`))
+    throw new Error(`创意生成前置校验失败: ${preGenerationValidation.issues.join('; ')}`)
   }
 
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'

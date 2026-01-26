@@ -339,11 +339,31 @@ export async function triggerOfferExtraction(
 
     // 如果有AI分析结果，添加到更新数据中
     if (aiAnalysisResult?.aiAnalysisSuccess && aiAnalysisResult.aiProductInfo) {
-      updateData.brand_description = aiAnalysisResult.aiProductInfo.brandDescription || undefined
-      updateData.unique_selling_points = aiAnalysisResult.aiProductInfo.uniqueSellingPoints || undefined
-      updateData.product_highlights = aiAnalysisResult.aiProductInfo.productHighlights || undefined
-      updateData.target_audience = aiAnalysisResult.aiProductInfo.targetAudience || undefined
-      updateData.category = aiAnalysisResult.aiProductInfo.category || undefined
+      // 🔒 品牌一致性校验（2026-01-26）：防止AI分析返回错误品牌的信息
+      const brandConsistencyCheck = validateBrandConsistency(
+        normalizedBrandName,
+        aiAnalysisResult.aiProductInfo.brandDescription,
+        aiAnalysisResult.aiProductInfo.uniqueSellingPoints,
+        aiAnalysisResult.aiProductInfo.category
+      )
+
+      if (!brandConsistencyCheck.isConsistent) {
+        console.warn(`[OfferExtraction] #${offerId} ⚠️ 品牌一致性校验失败!`)
+        console.warn(`   录入品牌: "${normalizedBrandName}"`)
+        console.warn(`   检测到的品牌: "${brandConsistencyCheck.detectedBrand || 'unknown'}"`)
+        console.warn(`   问题描述: ${brandConsistencyCheck.reason}`)
+        console.warn(`   ❌ 跳过AI分析结果，避免污染数据`)
+
+        // 记录检测到的品牌不匹配，但不使用错误的AI结果
+        // 后续可考虑添加 detected_brand 字段存储
+      } else {
+        // 品牌一致，可以使用AI分析结果
+        updateData.brand_description = aiAnalysisResult.aiProductInfo.brandDescription || undefined
+        updateData.unique_selling_points = aiAnalysisResult.aiProductInfo.uniqueSellingPoints || undefined
+        updateData.product_highlights = aiAnalysisResult.aiProductInfo.productHighlights || undefined
+        updateData.target_audience = aiAnalysisResult.aiProductInfo.targetAudience || undefined
+        updateData.category = aiAnalysisResult.aiProductInfo.category || undefined
+      }
     }
 
     // 🎯 P0优化（2025-12-07）：保存AI返回的完整数据
@@ -509,6 +529,148 @@ export async function triggerOfferExtraction(
       console.error(`[OfferExtraction] #${offerId} 更新失败状态时出错:`, updateError)
     }
   }
+}
+
+/**
+ * 🔒 品牌一致性校验（2026-01-26）
+ * 检测AI分析结果中的品牌信息是否与用户录入的品牌一致
+ * 防止因抓取失败导致AI返回完全不相关品牌的信息
+ *
+ * @param inputBrand - 用户录入的品牌名称
+ * @param brandDescription - AI返回的品牌描述
+ * @param uniqueSellingPoints - AI返回的卖点
+ * @param category - AI返回的产品类别
+ * @returns 校验结果
+ */
+function validateBrandConsistency(
+  inputBrand: string,
+  brandDescription?: string,
+  uniqueSellingPoints?: string,
+  category?: string
+): { isConsistent: boolean; detectedBrand?: string; reason?: string } {
+  if (!inputBrand) {
+    return { isConsistent: true }
+  }
+
+  const inputBrandLower = inputBrand.toLowerCase().trim()
+
+  // 已知的不相关品牌列表（从实际问题案例中提取）
+  const knownOtherBrands = [
+    'lilysilk', 'u-share', 'ushare', 'u share',
+    'pajama', 'silk pajama', 'picture frame', 'photo frame'
+  ]
+
+  // 检查品牌描述中是否提到了其他品牌
+  if (brandDescription) {
+    const descLower = brandDescription.toLowerCase()
+
+    // 检测是否提到了已知的其他品牌
+    for (const otherBrand of knownOtherBrands) {
+      if (descLower.includes(otherBrand) && !inputBrandLower.includes(otherBrand)) {
+        return {
+          isConsistent: false,
+          detectedBrand: otherBrand,
+          reason: `品牌描述中提到了 "${otherBrand}"，但录入品牌是 "${inputBrand}"`
+        }
+      }
+    }
+
+    // 检测品牌描述是否以其他品牌名开头（常见模式："BrandX specializes in..."）
+    const brandStartMatch = descLower.match(/^([a-z][a-z0-9\-_\s]{1,20})\s+(is|specializes|focuses|offers|provides)/i)
+    if (brandStartMatch) {
+      const detectedBrand = brandStartMatch[1].trim()
+      // 检查检测到的品牌是否与录入品牌相似
+      if (!isBrandSimilar(inputBrandLower, detectedBrand)) {
+        return {
+          isConsistent: false,
+          detectedBrand,
+          reason: `品牌描述以 "${detectedBrand}" 开头，但录入品牌是 "${inputBrand}"`
+        }
+      }
+    }
+
+    // 检测品牌描述中是否完全没有提到录入的品牌
+    if (!descLower.includes(inputBrandLower) && brandDescription.length > 50) {
+      // 品牌描述超过50字符但完全没提到录入品牌，可能有问题
+      // 尝试提取描述中可能的品牌名（第一个大写词）
+      const possibleBrand = brandDescription.match(/^([A-Z][a-zA-Z0-9\-]+)/)?.[1]
+      if (possibleBrand && !isBrandSimilar(inputBrandLower, possibleBrand.toLowerCase())) {
+        return {
+          isConsistent: false,
+          detectedBrand: possibleBrand,
+          reason: `品牌描述未提及录入品牌 "${inputBrand}"，可能是 "${possibleBrand}" 的描述`
+        }
+      }
+    }
+  }
+
+  // 检查产品类别是否明显与品牌不匹配（针对已知电子产品品牌）
+  const electronicsbrands = ['anker', 'reolink', 'eufy', 'soundcore', 'nebula']
+  const nonElectronicsCategories = [
+    'pajama', 'sleepwear', 'clothing', 'apparel', 'fashion',
+    'picture frame', 'photo frame', 'home decor', 'furniture',
+    'jewelry', 'cosmetics', 'beauty', 'skincare'
+  ]
+
+  if (category && electronicsbrands.includes(inputBrandLower)) {
+    const categoryLower = category.toLowerCase()
+    for (const nonElecCat of nonElectronicsCategories) {
+      if (categoryLower.includes(nonElecCat)) {
+        return {
+          isConsistent: false,
+          reason: `电子产品品牌 "${inputBrand}" 的类别不应该是 "${category}"`
+        }
+      }
+    }
+  }
+
+  return { isConsistent: true }
+}
+
+/**
+ * 判断两个品牌名是否相似（考虑常见变体）
+ */
+function isBrandSimilar(brand1: string, brand2: string): boolean {
+  const b1 = brand1.toLowerCase().replace(/[\s\-_]/g, '')
+  const b2 = brand2.toLowerCase().replace(/[\s\-_]/g, '')
+
+  // 完全匹配
+  if (b1 === b2) return true
+
+  // 一个包含另一个
+  if (b1.includes(b2) || b2.includes(b1)) return true
+
+  // 编辑距离小于3（允许小的拼写差异）
+  if (b1.length > 3 && b2.length > 3) {
+    const distance = levenshteinDistance(b1, b2)
+    if (distance <= 2) return true
+  }
+
+  return false
+}
+
+/**
+ * 计算Levenshtein编辑距离
+ */
+function levenshteinDistance(s1: string, s2: string): number {
+  const m = s1.length
+  const n = s2.length
+  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0))
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (s1[i - 1] === s2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1]
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+      }
+    }
+  }
+
+  return dp[m][n]
 }
 
 /**

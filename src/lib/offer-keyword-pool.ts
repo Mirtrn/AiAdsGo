@@ -31,6 +31,55 @@ import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-cont
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
 // ============================================
+// 🔒 关键词质量校验（2026-01-26）
+// ============================================
+
+/**
+ * 无效关键词模式 - 这些关键词来自抓取失败时的回退逻辑
+ * 会产生完全不相关的广告创意
+ */
+const INVALID_KEYWORD_PATTERNS = [
+  // "unknown" 系列 - 来自抓取失败时使用 "unknown" 作为种子词扩展
+  /^unknown$/i,
+  /^unknown\s+/i,
+  /\s+unknown$/i,
+  /\bunknown\s+(caller|number|movie|pokemon|synonym|meaning|mother|amazon|charge)\b/i,
+
+  // 其他明显无效的模式
+  /^(test|testing|sample|example|placeholder)$/i,
+  /^(null|undefined|n\/a|na|none)$/i,
+
+  // 过于通用的单词
+  /^(the|a|an|and|or|of|to|for|with|in|on|at|by|from)$/i,
+]
+
+/**
+ * 检查关键词是否无效（应被过滤）
+ * @param keyword - 要检查的关键词
+ * @returns true 如果关键词无效，应被过滤
+ */
+function isInvalidKeyword(keyword: string): boolean {
+  if (!keyword || keyword.trim().length === 0) return true
+
+  const trimmed = keyword.trim().toLowerCase()
+
+  // 检查是否匹配任何无效模式
+  for (const pattern of INVALID_KEYWORD_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return true
+    }
+  }
+
+  // 检查关键词是否过短（单字符）
+  if (trimmed.length < 2) return true
+
+  // 检查关键词是否全是数字或特殊字符
+  if (/^[\d\W]+$/.test(trimmed)) return true
+
+  return false
+}
+
+// ============================================
 // 类型定义
 // ============================================
 
@@ -2583,6 +2632,11 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
   const addKeywordString = (keyword: string, source: string) => {
     const normalized = keyword?.trim()
     if (!normalized) return
+    // 🔒 关键词质量校验（2026-01-26）：过滤无效关键词
+    if (isInvalidKeyword(normalized)) {
+      console.warn(`[extractKeywordsFromOffer] ⚠️ 过滤无效关键词: "${normalized}" (source: ${source})`)
+      return
+    }
     addKeywordData({
       keyword: normalized,
       searchVolume: 0,
@@ -2614,6 +2668,11 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
       if (item && typeof item === 'object') {
         const keyword = (item as any).keyword || (item as any).text
         if (typeof keyword === 'string') {
+          // 🔒 关键词质量校验（2026-01-26）
+          if (isInvalidKeyword(keyword)) {
+            console.warn(`[extractKeywordsFromOffer] ⚠️ 过滤无效关键词: "${keyword}" (source: ${source})`)
+            continue
+          }
           addKeywordData({
             keyword,
             searchVolume: Number((item as any).searchVolume || (item as any).volume || 0) || 0,
