@@ -192,6 +192,24 @@ const getAdStrengthLabel = (rating: string) => {
 
 // 错误类型与解决方案映射
 const ERROR_SOLUTIONS: Record<string, { title: string; description: string; action?: string; actionLabel?: string }> = {
+  '前置校验失败': {
+    title: '数据质量问题',
+    description: 'Offer 的网站数据抓取可能失败，导致品牌或关键词信息不正确。建议返回 Offer 详情页重新抓取数据，或检查推广链接是否可正常访问。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  '品牌描述': {
+    title: '品牌信息不匹配',
+    description: '检测到品牌描述与录入品牌不一致，可能是网站抓取失败导致AI返回了错误的品牌信息。建议重新创建 Offer 或检查推广链接。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  'unknown': {
+    title: '关键词数据异常',
+    description: '检测到过多无效关键词，可能是网站抓取失败。建议返回 Offer 详情页检查数据，或重新创建 Offer。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
   '无可用关键词': {
     title: '关键词数据不足',
     description: '当前Offer还没有关键词数据，网站可能未能成功抓取到产品关键词。建议重新创建Offer并确保网站可以正常访问抓取。',
