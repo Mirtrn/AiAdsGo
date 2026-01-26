@@ -149,7 +149,11 @@ function validateOfferDataQuality(offer: {
     const brandStartMatch = descLower.match(/^([a-z][a-z0-9\-\s]{1,20})\s+(is|specializes|focuses|offers|provides)/i)
     if (brandStartMatch) {
       const detectedBrand = brandStartMatch[1].trim()
-      if (detectedBrand !== brandLower && !brandLower.includes(detectedBrand) && !detectedBrand.includes(brandLower)) {
+      // 标准化品牌名：统一连字符和空格，便于比较 "k-swiss" vs "k swiss"
+      const normalize = (s: string) => s.replace(/[-\s]+/g, '').toLowerCase()
+      const detectedNorm = normalize(detectedBrand)
+      const brandNorm = normalize(brandLower)
+      if (detectedNorm !== brandNorm && !brandNorm.includes(detectedNorm) && !detectedNorm.includes(brandNorm)) {
         issues.push(`品牌描述以 "${detectedBrand}" 开头，但录入品牌是 "${offer.brand}"`)
       }
     }
