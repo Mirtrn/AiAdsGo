@@ -664,6 +664,27 @@ function normalizeRelevanceTokens(input: string): string[] {
   )
 }
 
+const CONTEXT_TOKEN_SYNONYMS: Record<string, string[]> = {
+  sneaker: ['sneakers', 'shoe', 'shoes'],
+  sneakers: ['sneaker', 'shoe', 'shoes'],
+  shoe: ['shoes', 'sneaker', 'sneakers'],
+  shoes: ['shoe', 'sneaker', 'sneakers'],
+  fashion: ['classic', 'retro', 'vintage'],
+}
+
+function expandContextTokens(tokens: string[]): string[] {
+  if (!tokens || tokens.length === 0) return []
+  const expanded = new Set(tokens)
+  for (const token of tokens) {
+    const synonyms = CONTEXT_TOKEN_SYNONYMS[token]
+    if (!synonyms) continue
+    for (const synonym of synonyms) {
+      expanded.add(synonym)
+    }
+  }
+  return Array.from(expanded)
+}
+
 function hasModelLikeToken(keywordTokens: string[]): boolean {
   for (const token of keywordTokens) {
     if (!token) continue
@@ -704,12 +725,13 @@ function isRelevantToOfferContext(params: {
     ...normalizeRelevanceTokens(category || ''),
     ...normalizeRelevanceTokens(productName || ''),
   ]
+  const expandedContextTokens = expandContextTokens(contextTokens)
 
   // Remove brand tokens from context to avoid tautology ("rove ..." always matches).
   const brandTokens = new Set(
     pureBrandKeywords.flatMap(b => normalizeRelevanceTokens(b))
   )
-  const usableContext = Array.from(new Set(contextTokens)).filter(t => !brandTokens.has(t))
+  const usableContext = Array.from(new Set(expandedContextTokens)).filter(t => !brandTokens.has(t))
 
   // If we don't have enough context to judge, don't filter to avoid false positives.
   if (usableContext.length < 3) return { ok: true }
