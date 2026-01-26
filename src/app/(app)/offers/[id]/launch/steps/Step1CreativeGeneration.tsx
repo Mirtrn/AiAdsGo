@@ -873,22 +873,19 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 throw new Error(message)
               }
             } catch (parseError: any) {
-              // 🔧 修复(2025-12-27): SSE超时错误需要重新抛出，让外层catch处理
-              if (parseError?.message?.includes?.('SSE timeout')) {
-                console.warn('SSE超时，切换到轮询模式...')
+              // 🔧 修复(2026-01-26): 区分JSON解析错误和业务错误
+              // 只有真正的JSON解析错误才吞掉，业务错误（从SSE type:error抛出的）必须重新抛出
+              const isJsonParseError = parseError instanceof SyntaxError ||
+                parseError?.message?.includes?.('JSON') ||
+                parseError?.message?.includes?.('Unexpected token')
+
+              if (isJsonParseError) {
+                // JSON解析失败，可能是不完整的SSE数据，忽略
+                console.warn('解析SSE数据失败:', parseError)
+              } else {
+                // 业务错误（前置校验失败、SSE超时、网络错误等），重新抛出让外层处理
                 throw parseError
               }
-              // 🔧 修复(2025-12-27): 网络错误也需要重新抛出，让外层catch处理
-              const isNetworkError = !parseError?.message ||
-                parseError.message.includes('network') ||
-                parseError.message.includes('fetch') ||
-                parseError.message.includes('Failed to fetch') ||
-                parseError.message.includes('NetworkError')
-              if (isNetworkError && currentTaskId) {
-                console.warn('网络中断，切换到轮询模式...')
-                throw parseError
-              }
-              console.warn('解析SSE数据失败:', parseError)
             }
           }
         }
