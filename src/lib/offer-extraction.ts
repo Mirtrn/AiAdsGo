@@ -111,6 +111,20 @@ export async function triggerOfferExtraction(
 
     console.log(`[OfferExtraction] #${offerId} 提取完成: ${result.data!.finalUrl}`)
 
+    // 🔒 2026-01-26 新增：检测抓取失败，阻止AI分析
+    // 根因：HTTP 407代理认证失败时，AI分析会返回错误的品牌信息（如LILYSILK、U-SHARE）
+    const scrapingFailed = detectScrapingFailure(result.data!, offerId)
+    let effectiveAiEnabled = aiEnabled
+
+    if (scrapingFailed.failed) {
+      console.warn(`⚠️ [OfferExtraction] #${offerId} 抓取失败检测: ${scrapingFailed.reason}`)
+      // 抓取失败时强制禁用AI分析，防止返回错误的品牌信息
+      if (aiEnabled) {
+        console.warn(`⚠️ [OfferExtraction] #${offerId} 已禁用AI分析（抓取失败）`)
+        effectiveAiEnabled = false
+      }
+    }
+
     // 规范化品牌名称（首字母大写）
     const normalizedBrandName = result.data!.brand
       ? normalizeBrandName(result.data!.brand)
@@ -132,7 +146,7 @@ export async function triggerOfferExtraction(
     // 【P3优化】品牌识别
     let brandAnalysis: any = null
 
-    if (aiEnabled) {
+    if (effectiveAiEnabled) {
       try {
         console.log(`[OfferExtraction] #${offerId} 开始AI分析...`)
         const startTime = Date.now()
@@ -671,6 +685,67 @@ function levenshteinDistance(s1: string, s2: string): number {
   }
 
   return dp[m][n]
+}
+
+/**
+ * 🔒 抓取失败检测（2026-01-26 新增）
+ * 检测HTTP 407代理认证失败或其他抓取错误
+ * 根因：代理认证失败时AI分析会返回错误的品牌信息（如LILYSILK、U-SHARE）
+ *
+ * @param data - extractOffer返回的数据
+ * @param offerId - Offer ID（用于日志）
+ * @returns 检测结果
+ */
+function detectScrapingFailure(
+  data: NonNullable<import('./offer-extraction-core').ExtractOfferResult['data']>,
+  offerId: number
+): { failed: boolean; reason?: string } {
+  const debug = data.debug
+
+  // 检测代理认证失败（HTTP 407）
+  if (debug.scrapingError) {
+    const errorLower = debug.scrapingError.toLowerCase()
+
+    // HTTP 407 代理认证失败
+    if (errorLower.includes('407') || errorLower.includes('proxy authentication')) {
+      return {
+        failed: true,
+        reason: `HTTP 407 代理认证失败: ${debug.scrapingError.substring(0, 100)}`
+      }
+    }
+
+    // 其他代理连接错误
+    if (errorLower.includes('proxy connection') ||
+        errorLower.includes('err_proxy') ||
+        errorLower.includes('err_tunnel')) {
+      return {
+        failed: true,
+        reason: `代理连接错误: ${debug.scrapingError.substring(0, 100)}`
+      }
+    }
+
+    // ERR_EMPTY_RESPONSE 通常表示服务器拒绝代理
+    if (errorLower.includes('err_empty_response')) {
+      return {
+        failed: true,
+        reason: `服务器拒绝连接: ${debug.scrapingError.substring(0, 100)}`
+      }
+    }
+  }
+
+  // 检测Amazon产品页但未能提取产品数据
+  // 只在明确是Amazon产品页时检测（避免误判店铺页面）
+  if (debug.isAmazonProductPage && debug.amazonProductDataExtracted === false) {
+    // 额外检查：如果有scrapingError，说明确实抓取失败了
+    if (debug.scrapingError) {
+      return {
+        failed: true,
+        reason: `Amazon产品页抓取失败: amazonProductDataExtracted=false, error=${debug.scrapingError.substring(0, 100)}`
+      }
+    }
+  }
+
+  return { failed: false }
 }
 
 /**

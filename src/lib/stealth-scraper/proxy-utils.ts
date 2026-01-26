@@ -12,6 +12,13 @@ import { getPlaywrightPool } from '../playwright-pool'
 export function isProxyConnectionError(error: Error): boolean {
   const msg = error.message || ''
 
+  // 🔒 HTTP 407 代理认证失败（2026-01-26 新增）
+  // 这是代理凭证过期或无效的明确信号
+  if (msg.includes('407') || msg.includes('Proxy Authentication Required')) {
+    console.warn('⚠️ HTTP 407: 代理认证失败，凭证可能已过期')
+    return true
+  }
+
   // 明确的代理连接错误（保留）
   if (msg.includes('Proxy connection ended') ||
       msg.includes('net::ERR_PROXY') ||
