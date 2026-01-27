@@ -421,6 +421,8 @@ export async function generateContent(params: {
         throw error
       }
     }
+
+    throw new Error('Gemini API调用失败: 超过最大重试次数')
   } catch (error: any) {
     // 🔧 修复(2025-12-11): 对所有错误打印详细信息
     console.error(`❌ Gemini API调用失败:`)
