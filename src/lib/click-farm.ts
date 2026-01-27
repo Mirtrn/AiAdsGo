@@ -23,6 +23,193 @@ import type {
 const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
 const IS_DELETED_TRUE = 'IS_DELETED_TRUE'
 
+const CLICK_FARM_STATS_BATCH_SIZE = (() => {
+  const n = parseInt(process.env.CLICK_FARM_STATS_BATCH_SIZE || '20', 10)
+  return Number.isFinite(n) && n > 0 ? n : 20
+})()
+
+const CLICK_FARM_STATS_FLUSH_INTERVAL_MS = (() => {
+  const n = parseInt(process.env.CLICK_FARM_STATS_FLUSH_INTERVAL_MS || '2000', 10)
+  return Number.isFinite(n) && n >= 0 ? n : 2000
+})()
+
+const CLICK_FARM_MAX_HISTORY_DAYS = (() => {
+  const n = parseInt(process.env.CLICK_FARM_MAX_HISTORY_DAYS || '60', 10)
+  return Number.isFinite(n) && n > 0 ? n : 60
+})()
+
+type HourlyDelta = { actual: number; success: number; failed: number }
+
+type PendingStatsUpdate = {
+  total: number
+  success: number
+  failed: number
+  hourly: Map<number, HourlyDelta>
+  timer?: NodeJS.Timeout
+}
+
+const pendingStatsUpdates = new Map<string, PendingStatsUpdate>()
+const pendingFlushLocks = new Map<string, Promise<void>>()
+
+function shiftDateStr(dateStr: string, days: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().split('T')[0]
+}
+
+function pruneDailyHistoryByDays(history: DailyHistoryEntry[], todayStr: string): DailyHistoryEntry[] {
+  if (!CLICK_FARM_MAX_HISTORY_DAYS || CLICK_FARM_MAX_HISTORY_DAYS <= 0) return history
+  const cutoff = shiftDateStr(todayStr, -(CLICK_FARM_MAX_HISTORY_DAYS - 1))
+  return history.filter((entry) => entry?.date && entry.date >= cutoff)
+}
+
+function recordHourlyDelta(entry: PendingStatsUpdate, hour: number, success: boolean) {
+  const current = entry.hourly.get(hour) || { actual: 0, success: 0, failed: 0 }
+  current.actual += 1
+  if (success) current.success += 1
+  else current.failed += 1
+  entry.hourly.set(hour, current)
+}
+
+function scheduleStatsFlush(taskId: string, entry: PendingStatsUpdate) {
+  if (entry.timer || CLICK_FARM_STATS_FLUSH_INTERVAL_MS <= 0) return
+  entry.timer = setTimeout(() => {
+    void flushPendingStats(taskId).catch((error) => {
+      console.warn(`[click-farm] 批量统计刷新失败: ${taskId}`, error)
+    })
+  }, CLICK_FARM_STATS_FLUSH_INTERVAL_MS)
+  entry.timer.unref?.()
+}
+
+async function flushPendingStats(taskId: string): Promise<void> {
+  const existing = pendingFlushLocks.get(taskId)
+  if (existing) return existing
+
+  const flushPromise = (async () => {
+    const entry = pendingStatsUpdates.get(taskId)
+    if (!entry || entry.total <= 0) return
+
+    if (entry.timer) {
+      clearTimeout(entry.timer)
+      entry.timer = undefined
+    }
+
+    pendingStatsUpdates.delete(taskId)
+
+    const snapshot: PendingStatsUpdate = {
+      total: entry.total,
+      success: entry.success,
+      failed: entry.failed,
+      hourly: new Map(entry.hourly),
+    }
+
+    try {
+      const db = await getDatabase()
+      const taskRow = await db.queryOne<any>(`
+        SELECT id, daily_history, hourly_distribution, timezone, started_at
+        FROM click_farm_tasks
+        WHERE id = ?
+      `, [taskId])
+
+      if (!taskRow) {
+        return
+      }
+
+      const task = parseClickFarmTask(taskRow)
+      const todayInTaskTimezone = getTodayInTaskTimezone(task)
+
+      let dailyHistory: DailyHistoryEntry[] = task.daily_history && task.daily_history.length > 0
+        ? [...task.daily_history]
+        : []
+
+      let todayEntry = dailyHistory.find(entryItem => entryItem.date === todayInTaskTimezone)
+      if (!todayEntry) {
+        todayEntry = {
+          date: todayInTaskTimezone,
+          target: task.hourly_distribution.reduce((sum, count) => sum + count, 0),
+          actual: 0,
+          success: 0,
+          failed: 0,
+          hourly_breakdown: task.hourly_distribution.map(target => ({
+            target,
+            actual: 0,
+            success: 0,
+            failed: 0
+          }))
+        }
+        dailyHistory.push(todayEntry)
+      }
+
+      if (!todayEntry.hourly_breakdown || todayEntry.hourly_breakdown.length !== 24) {
+        todayEntry.hourly_breakdown = task.hourly_distribution.map(target => ({
+          target,
+          actual: 0,
+          success: 0,
+          failed: 0
+        }))
+      }
+
+      todayEntry.actual += snapshot.total
+      todayEntry.success += snapshot.success
+      todayEntry.failed += snapshot.failed
+
+      for (const [hour, delta] of snapshot.hourly.entries()) {
+        const hourEntry = todayEntry.hourly_breakdown[hour]
+        if (!hourEntry) continue
+        hourEntry.actual += delta.actual
+        hourEntry.success += delta.success
+        hourEntry.failed += delta.failed
+      }
+
+      dailyHistory = pruneDailyHistoryByDays(dailyHistory, todayInTaskTimezone)
+
+      await db.exec(`
+        UPDATE click_farm_tasks
+        SET total_clicks = total_clicks + ?,
+            success_clicks = success_clicks + ?,
+            failed_clicks = failed_clicks + ?,
+            daily_history = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `, [
+        snapshot.total,
+        snapshot.success,
+        snapshot.failed,
+        JSON.stringify(dailyHistory),
+        taskId
+      ])
+    } catch (error) {
+      const merged = pendingStatsUpdates.get(taskId) || {
+        total: 0,
+        success: 0,
+        failed: 0,
+        hourly: new Map()
+      }
+      merged.total += snapshot.total
+      merged.success += snapshot.success
+      merged.failed += snapshot.failed
+      for (const [hour, delta] of snapshot.hourly.entries()) {
+        const current = merged.hourly.get(hour) || { actual: 0, success: 0, failed: 0 }
+        current.actual += delta.actual
+        current.success += delta.success
+        current.failed += delta.failed
+        merged.hourly.set(hour, current)
+      }
+      pendingStatsUpdates.set(taskId, merged)
+      scheduleStatsFlush(taskId, merged)
+      throw error
+    }
+  })()
+
+  pendingFlushLocks.set(taskId, flushPromise)
+  try {
+    await flushPromise
+  } finally {
+    pendingFlushLocks.delete(taskId)
+  }
+}
+
 /**
  * 创建补点击任务
  */
@@ -1007,88 +1194,44 @@ function getTodayInTaskTimezone(task: ClickFarmTask): string {
  *
  * 🔧 修复P1-1：使用原子操作避免竞态条件
  * 🔧 修复P1-5：同时更新hourly_breakdown用于实际执行分布追踪
- * 原问题：先UPDATE全局统计，再SELECT + UPDATE每日历史，两步操作之间可能被其他并发操作覆盖
- * 解决方案：在单个UPDATE中同时更新global_stats、daily_history和hourly_breakdown
+ * 🆕 内存优化：批量累积统计，避免每次点击都读写daily_history
  */
 export async function updateTaskStats(
   id: number | string,
   success: boolean,
   currentHour?: number  // 可选：当前小时（用于更新hourly_breakdown）
 ): Promise<void> {
-  const db = await getDatabase();
+  const taskId = String(id)
+  const hour = Number.isFinite(currentHour) ? Number(currentHour) : undefined
 
-  // 先读取当前的daily_history和其他统计
-  const taskRow = await db.queryOne<any>(`
-    SELECT id, daily_history, hourly_distribution, timezone, started_at
-    FROM click_farm_tasks
-    WHERE id = ?
-  `, [id]);
-
-  if (!taskRow) {
-    return;
+  const entry = pendingStatsUpdates.get(taskId) || {
+    total: 0,
+    success: 0,
+    failed: 0,
+    hourly: new Map()
   }
 
-  const task = parseClickFarmTask(taskRow);
-  const todayInTaskTimezone = getTodayInTaskTimezone(task);
+  entry.total += 1
+  if (success) entry.success += 1
+  else entry.failed += 1
 
-  // 获取当前小时（如果没有传入的话）
-  let hour = currentHour;
-  if (hour === undefined) {
-    hour = getHourInTimezone(new Date(), task.timezone);
+  if (hour !== undefined && hour >= 0 && hour <= 23) {
+    recordHourlyDelta(entry, hour, success)
   }
 
-  // 更新每日历史
-  let dailyHistory: DailyHistoryEntry[] = task.daily_history && task.daily_history.length > 0
-    ? [...task.daily_history]
-    : [];
+  pendingStatsUpdates.set(taskId, entry)
 
-  let todayEntry = dailyHistory.find(entry => entry.date === todayInTaskTimezone);
-  if (!todayEntry) {
-    todayEntry = {
-      date: todayInTaskTimezone,
-      target: task.hourly_distribution.reduce((sum, count) => sum + count, 0),
-      actual: 0,
-      success: 0,
-      failed: 0,
-      hourly_breakdown: task.hourly_distribution.map(target => ({
-        target,
-        actual: 0,
-        success: 0,
-        failed: 0
-      }))
-    };
-    dailyHistory.push(todayEntry);
+  if (CLICK_FARM_STATS_BATCH_SIZE <= 1) {
+    await flushPendingStats(taskId)
+    return
   }
 
-  // 更新今天的统计
-  todayEntry.actual += 1;
-  if (success) {
-    todayEntry.success += 1;
-  } else {
-    todayEntry.failed += 1;
+  if (entry.total >= CLICK_FARM_STATS_BATCH_SIZE) {
+    await flushPendingStats(taskId)
+    return
   }
 
-  // 🆕 P1-5：同时更新该小时的hourly_breakdown
-  if (todayEntry.hourly_breakdown && todayEntry.hourly_breakdown[hour]) {
-    const hourEntry = todayEntry.hourly_breakdown[hour];
-    hourEntry.actual += 1;
-    if (success) {
-      hourEntry.success += 1;
-    } else {
-      hourEntry.failed += 1;
-    }
-  }
-
-  // 🔧 原子操作：同时更新全局统计和daily_history
-  // 这样避免了两步操作之间的竞态条件
-  await db.exec(`
-    UPDATE click_farm_tasks
-    SET total_clicks = total_clicks + 1,
-        ${success ? 'success_clicks = success_clicks + 1' : 'failed_clicks = failed_clicks + 1'},
-        daily_history = ?,
-        updated_at = datetime('now')
-    WHERE id = ?
-  `, [JSON.stringify(dailyHistory), id]);
+  scheduleStatsFlush(taskId, entry)
 }
 
 /**

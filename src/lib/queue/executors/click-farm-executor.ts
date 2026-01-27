@@ -399,10 +399,6 @@ export async function executeClickFarmTask(
     // 需求：只要“成功发起请求”就算成功；不等待访问结果
     // 这里将“发起成功”定义为：请求已被创建并进入发送流程（axios 调用不抛同步错误）。
     // 真实网络是否返回/是否成功不影响成功统计，但会影响 in-flight 释放。
-    void updateTaskStats(taskId, true, scheduledHour).catch(() => {
-      // ignore
-    })
-
     const requestPromise = axios.get(url, {
       httpAgent: proxyAgent,
       httpsAgent: proxyAgent,
@@ -434,6 +430,12 @@ export async function executeClickFarmTask(
         clearTimeout(hardReleaseTimer)
         safeRelease()
       })
+
+    try {
+      await updateTaskStats(taskId, true, scheduledHour)
+    } catch (error) {
+      console.warn(`[ClickFarm] 统计更新失败: ${taskId}`, error)
+    }
 
     console.log(
       `[ClickFarm] 请求已发起: ${url.substring(0, 50)}... [${Date.now() - startTime}ms]` +

@@ -754,12 +754,16 @@ export class UnifiedQueueManager {
     promise: Promise<T>,
     timeout: number
   ): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error('Task timeout')), timeout)
-      )
-    ])
+    let timeoutId: NodeJS.Timeout | null = null
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Task timeout')), timeout)
+    })
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    })
   }
 
   /**

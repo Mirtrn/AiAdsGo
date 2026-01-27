@@ -12,6 +12,7 @@ import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/li
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
+import { getHeapStatistics } from 'v8';
 
 // 🆕 扩展ClickFarmTask类型，支持referer_config
 // 🔧 修复(2025-12-31): ClickFarmTask 已包含 referer_config，不需要额外定义
@@ -27,6 +28,22 @@ interface TriggerResult {
 }
 
 const MAX_SAFE_CLICKS_PER_HOUR = 1000
+const CLICK_FARM_HEAP_PRESSURE_THRESHOLD = (() => {
+  const n = parseFloat(process.env.CLICK_FARM_HEAP_PRESSURE_PCT || '85')
+  return Number.isFinite(n) && n > 0 ? n : 85
+})()
+
+function isHeapPressureHigh(): boolean {
+  try {
+    const heapUsed = process.memoryUsage().heapUsed
+    const limit = getHeapStatistics().heap_size_limit
+    if (!limit || limit <= 0) return false
+    const pct = (heapUsed / limit) * 100
+    return pct >= CLICK_FARM_HEAP_PRESSURE_THRESHOLD
+  } catch {
+    return false
+  }
+}
 
 function toFiniteNumber(value: unknown): number | null {
   const num = typeof value === 'number' ? value : Number(value)
@@ -170,6 +187,11 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
       status: 'skipped',
       message: `当前时间 ${timeInTaskTimezone}（${task.timezone}）不在执行时间范围内`
     };
+  }
+
+  if (isHeapPressureHigh()) {
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
+    return { taskId, status: 'skipped', message: '服务器内存压力过高，已延后调度' }
   }
 
   // 获取该小时应该执行的点击数
@@ -341,6 +363,12 @@ export async function triggerAllPendingTasks(): Promise<{
       await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
       results.skipped++;
       continue;
+    }
+
+    if (isHeapPressureHigh()) {
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
+      results.skipped++
+      continue
     }
 
     const hourlyDistribution = task.hourly_distribution
