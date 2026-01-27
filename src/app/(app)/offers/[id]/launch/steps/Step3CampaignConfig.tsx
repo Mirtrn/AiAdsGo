@@ -11,13 +11,14 @@
  * 4. 移除重复的确认按钮，点击"下一步"时验证配置
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -320,6 +321,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const [showPreview, setShowPreview] = useState(false)
   // 🆕 P0-1优化：动态CPC出价开关
   const [enableDynamicCpc, setEnableDynamicCpc] = useState(false)
+  const [batchKeywordDialogOpen, setBatchKeywordDialogOpen] = useState(false)
+  const [batchKeywordInput, setBatchKeywordInput] = useState('')
 
   // 🔧 修复(2025-12-27): 当selectedCreative变化时，重新初始化配置
   // 解决用户在第1步切换创意后，第3步仍显示旧创意参数的问题
@@ -430,6 +433,34 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const handleRemoveKeyword = (index: number) => {
     const newKeywords = config.keywords.filter((_, i) => i !== index)
     handleChange('keywords', newKeywords)
+  }
+
+  const parseBatchKeywords = (input: string) => input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const handleBatchKeywordDialogChange = (open: boolean) => {
+    setBatchKeywordDialogOpen(open)
+    if (!open) {
+      setBatchKeywordInput('')
+    }
+  }
+
+  const handleBatchAddKeywords = () => {
+    const keywords = parseBatchKeywords(batchKeywordInput)
+    if (keywords.length === 0) {
+      showError('未检测到关键词', '请按一行一个关键词输入')
+      return
+    }
+
+    handleChange('keywords', [
+      ...config.keywords,
+      ...keywords.map((text) => ({ text, matchType: 'PHRASE' as const }))
+    ])
+    setBatchKeywordInput('')
+    setBatchKeywordDialogOpen(false)
+    showSuccess('批量添加成功', `已添加${keywords.length}个关键词（词组匹配）`)
   }
 
   const handleAddCallout = () => {
@@ -943,10 +974,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               <Label>
                 Keywords <Badge variant="destructive" className="ml-1">至少1个</Badge>
               </Label>
-              <Button onClick={handleAddKeyword} variant="outline" size="sm">
-                <Plus className="w-4 h-4 mr-1" />
-                添加关键词
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => setBatchKeywordDialogOpen(true)} variant="outline" size="sm">
+                  批量添加关键词
+                </Button>
+                <Button onClick={handleAddKeyword} variant="outline" size="sm">
+                  <Plus className="w-4 h-4 mr-1" />
+                  添加关键词
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -989,6 +1025,43 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={batchKeywordDialogOpen} onOpenChange={handleBatchKeywordDialogChange}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>批量添加关键词</DialogTitle>
+            <DialogDescription>
+              一行一个关键词，系统会自动按词组匹配添加，空行会被忽略
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="batch-keywords-input">关键词列表</Label>
+            <Textarea
+              id="batch-keywords-input"
+              value={batchKeywordInput}
+              onChange={(e) => setBatchKeywordInput(e.target.value)}
+              placeholder={`示例：\nrobot vacuum\nrobot vacuum cleaner\nbest robot vacuum`}
+              rows={8}
+            />
+            <p className="text-xs text-gray-500">
+              提示：默认采用「词组匹配」，如需广泛或精确匹配，可添加后在列表中单独调整
+            </p>
+            {parseBatchKeywords(batchKeywordInput).length > 0 && (
+              <div className="text-xs text-gray-600">
+                已识别 {parseBatchKeywords(batchKeywordInput).length} 个关键词
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setBatchKeywordDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleBatchAddKeywords} disabled={parseBatchKeywords(batchKeywordInput).length === 0}>
+              批量添加
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 3. Ad Settings - Headlines & Descriptions */}
       <Card>
