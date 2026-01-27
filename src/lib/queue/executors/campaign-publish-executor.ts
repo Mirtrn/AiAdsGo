@@ -54,7 +54,14 @@ export interface CampaignPublishTaskData {
     budgetAmount: number
     budgetType: 'DAILY' | 'TOTAL'
     maxCpcBid: number
-    keywords: string[]
+    keywords: Array<
+      | string
+      | {
+          text?: string
+          keyword?: string
+          matchType?: 'EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER'
+        }
+    >
     negativeKeywords?: string[]
   }
 
@@ -380,28 +387,45 @@ export async function executeCampaignPublish(
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
 
+    const normalizeMatchType = (value?: string): 'EXACT' | 'PHRASE' | 'BROAD' | null => {
+      if (!value) return null
+      const upper = value.toUpperCase()
+      if (upper === 'BROAD_MATCH_MODIFIER' || upper === 'BMM') return 'BROAD'
+      if (upper === 'BROAD' || upper === 'PHRASE' || upper === 'EXACT') {
+        return upper as 'BROAD' | 'PHRASE' | 'EXACT'
+      }
+      return null
+    }
+
     // 6. 构建关键词映射表
     const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
     if (creative.keywordsWithVolume) {
       creative.keywordsWithVolume.forEach(kw => {
         const rawKeyword = kw?.keyword
-        if (typeof rawKeyword === 'string' && rawKeyword.trim() && kw?.matchType) {
-          keywordMatchTypeMap.set(rawKeyword.trim().toLowerCase(), kw.matchType)
+        const normalizedMatchType = normalizeMatchType(kw?.matchType)
+        if (typeof rawKeyword === 'string' && rawKeyword.trim() && normalizedMatchType) {
+          keywordMatchTypeMap.set(rawKeyword.trim().toLowerCase(), normalizedMatchType)
         }
       })
     }
 
     // 7. 智能分配matchType的辅助函数
-    const getMatchType = (keyword: string): 'EXACT' | 'PHRASE' | 'BROAD' => {
+    const getMatchType = (keyword: string, explicitMatchType?: string): 'EXACT' | 'PHRASE' | 'BROAD' => {
       if (!keyword) return 'PHRASE'
 
-      // 1. 优先使用keywordsWithVolume中的matchType
-      const mappedType = keywordMatchTypeMap.get(keyword.toLowerCase())
+      // 1. 优先使用用户配置的matchType
+      const normalizedExplicit = normalizeMatchType(explicitMatchType)
+      if (normalizedExplicit) {
+        return normalizedExplicit
+      }
+
+      // 2. 使用keywordsWithVolume中的matchType
+      const mappedType = keywordMatchTypeMap.get(keyword.toLowerCase().trim())
       if (mappedType) {
         return mappedType
       }
 
-      // 2. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
+      // 3. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
       const keywordLower = keyword.toLowerCase()
       const brandLower = brandName?.toLowerCase() || ''
       const brandPrefix = brandLower.substring(0, 3)
@@ -494,11 +518,15 @@ export async function executeCampaignPublish(
     // 8. 准备关键词数据
     const keywordOperations = (campaignConfig.keywords || [])
       .map((keyword: any) => {
-        const keywordStr = typeof keyword === 'string' ? keyword : (keyword?.text || '')
-        if (!keywordStr) return null
+        const keywordStr = typeof keyword === 'string'
+          ? keyword
+          : (keyword?.text || keyword?.keyword || '')
+        const normalizedKeyword = keywordStr.trim()
+        if (!normalizedKeyword) return null
+        const explicitMatchType = typeof keyword === 'object' ? keyword?.matchType : undefined
         return {
-          keywordText: keywordStr,
-          matchType: getMatchType(keywordStr),
+          keywordText: normalizedKeyword,
+          matchType: getMatchType(normalizedKeyword, explicitMatchType),
           status: 'ENABLED' as const
         }
       })
@@ -627,7 +655,10 @@ export async function executeCampaignPublish(
     // 🔧 新增(2025-12-20): 优化标题，确保包含热门关键词
     console.log(`\n📝 优化广告标题，确保包含热门关键词...`)
     const originalHeadlines = creative.headlines.slice(0, 15)
-    const keywordsForOptimization = campaignConfig.keywords || []
+    const keywordsForOptimization = (campaignConfig.keywords || [])
+      .map((keyword: any) => typeof keyword === 'string' ? keyword : (keyword?.text || keyword?.keyword || ''))
+      .map((keyword: any) => String(keyword ?? '').trim())
+      .filter((keyword: string) => keyword.length > 0)
     const optimizedHeadlines = ensureKeywordsInHeadlines(
       originalHeadlines,
       keywordsForOptimization,
