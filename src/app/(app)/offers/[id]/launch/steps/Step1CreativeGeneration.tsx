@@ -306,6 +306,12 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'retry',
     actionLabel: '重新尝试'
   },
+  '超过最大重试次数': {
+    title: 'AI服务繁忙',
+    description: 'Gemini API 连续重试仍失败（超过最大重试次数）。可能是服务限流、网络波动或临时故障。建议稍后再试，必要时在设置中切换服务商或检查API Key。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
   'Gemini API调用失败': {
     title: 'AI 服务调用失败',
     description: 'AI 服务调用失败，请稍后重试；如果持续失败，可能是服务商临时故障或网络波动。',
