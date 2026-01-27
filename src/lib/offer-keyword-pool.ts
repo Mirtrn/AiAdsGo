@@ -16,6 +16,7 @@
 
 import { getDatabase } from './db'
 import { generateContent } from './gemini'
+import { repairJsonText } from './ai-json'
 import { loadPrompt } from './prompt-loader'
 import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
@@ -556,7 +557,8 @@ async function clusterBatchKeywords(
 
   let batchResult
   try {
-    batchResult = JSON.parse(jsonMatch[0])
+    const cleanedJson = repairJsonText(jsonMatch[0])
+    batchResult = JSON.parse(cleanedJson)
   } catch (parseError) {
     console.error('❌ JSON解析失败:', parseError)
     console.error('   原始响应:', aiResponse.text.slice(0, 500))
@@ -1055,7 +1057,8 @@ async function clusterKeywordsDirectly(
 
       let buckets: KeywordBuckets | StoreKeywordBuckets
       try {
-        buckets = JSON.parse(jsonMatch[0])
+        const cleanedJson = repairJsonText(jsonMatch[0])
+        buckets = JSON.parse(cleanedJson)
       } catch (parseError) {
         console.error('❌ JSON解析失败:', parseError)
         console.error('   原始响应:', aiResponse.text.slice(0, 500))

@@ -394,7 +394,33 @@ export async function generateContent(params: {
       }
     }
 
-    return await runRequest()
+    const maxRateLimitRetries = 3
+    for (let attempt = 1; attempt <= maxRateLimitRetries; attempt++) {
+      try {
+        return await runRequest()
+      } catch (error: any) {
+        if (error?.code === 'MAX_TOKENS') {
+          throw error
+        }
+
+        const status = error?.response?.status
+        const message = String(error?.message || '')
+        const isRateLimited = status === 429 ||
+          message.includes('concurrency slot') ||
+          message.includes('RESOURCE_EXHAUSTED')
+
+        if (isRateLimited && attempt < maxRateLimitRetries) {
+          const baseDelayMs = 2000 * Math.pow(2, attempt - 1)
+          const jitterMs = Math.floor(Math.random() * 1000)
+          const delayMs = Math.min(baseDelayMs + jitterMs, 20000)
+          console.warn(`⚠️ Gemini API限流/并发受限，${(delayMs / 1000).toFixed(1)}s 后重试 (${attempt}/${maxRateLimitRetries})`)
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          continue
+        }
+
+        throw error
+      }
+    }
   } catch (error: any) {
     // 🔧 修复(2025-12-11): 对所有错误打印详细信息
     console.error(`❌ Gemini API调用失败:`)

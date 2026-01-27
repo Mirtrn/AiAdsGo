@@ -23,6 +23,7 @@ import {
 import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
+import { repairJsonText } from './ai-json'
 
 /**
  * 🔧 安全解析JSON字段
@@ -2459,6 +2460,8 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
   // 8. 修复错误的赋值运算符（:= 或 == 改为 :）
   jsonText = jsonText.replace(/:\s*=/g, ':')  // Fix := to :
   jsonText = jsonText.replace(/=\s*:/g, ':')  // Fix =: to :
+
+  jsonText = repairJsonText(jsonText)
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
