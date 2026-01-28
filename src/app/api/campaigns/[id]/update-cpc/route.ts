@@ -124,7 +124,7 @@ export async function PUT(
     // 通过本地campaign映射找到对应的Ads账号（避免用“第一个账号”导致权限/账号不匹配）
     const db = await getDatabase()
     const linked = await db.queryOne(`
-      SELECT google_ads_account_id, offer_id
+      SELECT id as local_campaign_id, google_ads_account_id, offer_id
       FROM campaigns
       WHERE user_id = ?
         AND status != 'REMOVED'
@@ -132,7 +132,7 @@ export async function PUT(
         AND google_ads_account_id IS NOT NULL
       ORDER BY created_at DESC
       LIMIT 1
-    `, [numericUserId, String(campaignId)]) as { google_ads_account_id: number; offer_id: number | null } | undefined
+    `, [numericUserId, String(campaignId)]) as { local_campaign_id?: number | string | null; google_ads_account_id: number; offer_id: number | null } | undefined
 
     if (!linked?.google_ads_account_id) {
       return NextResponse.json(
@@ -148,6 +148,9 @@ export async function PUT(
     `, [linked.google_ads_account_id, numericUserId]) as any
 
     const offerId = linked.offer_id
+    const localCampaignIdRaw = linked.local_campaign_id
+    const localCampaignIdNum = Number(localCampaignIdRaw)
+    const localCampaignId = Number.isFinite(localCampaignIdNum) ? localCampaignIdNum : null
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
     const recordHistory = async (
       adjustmentType: string,
@@ -157,35 +160,70 @@ export async function PUT(
     ) => {
       if (!offerId) return
       try {
-        await db.exec(
-          `
-            INSERT INTO cpc_adjustment_history (
-              user_id,
-              offer_id,
-              campaign_id,
-              adjustment_type,
-              adjustment_value,
-              affected_campaign_count,
-              campaign_ids,
-              success_count,
-              failure_count,
-              error_message,
-              created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
-          `,
-          [
-            numericUserId,
-            offerId,
-            campaignIdNum,
-            adjustmentType,
-            newCpc,
-            1,
-            JSON.stringify([String(campaignIdNum)]),
-            successCount,
-            failureCount,
-            errorMessage || null,
-          ]
-        )
+        try {
+          await db.exec(
+            `
+              INSERT INTO cpc_adjustment_history (
+                user_id,
+                offer_id,
+                campaign_id,
+                adjustment_type,
+                adjustment_value,
+                affected_campaign_count,
+                campaign_ids,
+                success_count,
+                failure_count,
+                error_message,
+                created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
+            `,
+            [
+              numericUserId,
+              offerId,
+              localCampaignId,
+              adjustmentType,
+              newCpc,
+              1,
+              JSON.stringify([String(campaignIdNum)]),
+              successCount,
+              failureCount,
+              errorMessage || null,
+            ]
+          )
+        } catch (insertError: any) {
+          const message = String(insertError?.message || insertError || '')
+          if (message.includes('campaign_id')) {
+            await db.exec(
+              `
+                INSERT INTO cpc_adjustment_history (
+                  user_id,
+                  offer_id,
+                  adjustment_type,
+                  adjustment_value,
+                  affected_campaign_count,
+                  campaign_ids,
+                  success_count,
+                  failure_count,
+                  error_message,
+                  created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
+              `,
+              [
+                numericUserId,
+                offerId,
+                adjustmentType,
+                newCpc,
+                1,
+                JSON.stringify([String(campaignIdNum)]),
+                successCount,
+                failureCount,
+                errorMessage || null,
+              ]
+            )
+          } else {
+            throw insertError
+          }
+        }
         try {
           const { getRedisClient } = await import('@/lib/redis-client')
           const redis = getRedisClient()

@@ -68,6 +68,7 @@ export async function GET(
 
     const linked = await db.queryOne(`
       SELECT
+        c.id as local_campaign_id,
         c.google_ads_account_id,
         c.max_cpc,
         c.campaign_config,
@@ -87,6 +88,7 @@ export async function GET(
       ORDER BY c.created_at DESC
       LIMIT 1
     `, [numericUserId, String(campaignIdNum)]) as {
+      local_campaign_id?: number | null
       google_ads_account_id: number
       max_cpc: number | null
       campaign_config: string | null
@@ -325,16 +327,30 @@ export async function GET(
     }
 
     if (history.length === 0 && historyRows.length > 0) {
-      const campaignToken = String(campaignIdNum)
+      const googleCampaignToken = String(campaignIdNum)
+      const localCampaignToken = linked.local_campaign_id !== null && linked.local_campaign_id !== undefined
+        ? String(linked.local_campaign_id)
+        : null
       history = historyRows
         .filter((row: any) => {
           if (row.campaign_id !== null && row.campaign_id !== undefined) {
-            return String(row.campaign_id) === campaignToken
+            const rowToken = String(row.campaign_id)
+            if (rowToken === googleCampaignToken) return true
+            if (localCampaignToken && rowToken === localCampaignToken) return true
+            return false
           }
           const ids = safeParseJson<string[]>(row.campaign_ids)
-          if (Array.isArray(ids)) return ids.map(String).includes(campaignToken)
+          if (Array.isArray(ids)) {
+            const normalized = ids.map(String)
+            if (normalized.includes(googleCampaignToken)) return true
+            if (localCampaignToken && normalized.includes(localCampaignToken)) return true
+            return false
+          }
           const raw = typeof row.campaign_ids === 'string' ? row.campaign_ids : ''
-          return raw.split(',').map((value: string) => value.trim()).filter(Boolean).includes(campaignToken)
+          const tokens = raw.split(',').map((value: string) => value.trim()).filter(Boolean)
+          if (tokens.includes(googleCampaignToken)) return true
+          if (localCampaignToken && tokens.includes(localCampaignToken)) return true
+          return false
         })
         .map((row: any) => ({
           value: Number(row.adjustment_value),
