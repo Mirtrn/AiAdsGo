@@ -2392,6 +2392,142 @@ function normalizeDigits(text: string): string {
   return normalized
 }
 
+function sanitizeJsonText(text: string): string {
+  let jsonText = text.trim()
+
+  // Remove trailing commas in arrays/objects.
+  jsonText = jsonText.replace(/,\s*([}\]])/g, '$1')
+  // Replace smart quotes with ASCII quotes.
+  jsonText = jsonText.replace(/[“”]/g, '"')
+  jsonText = jsonText.replace(/[‘’]/g, "'")
+  // Remove stray debug identifiers between array items.
+  jsonText = jsonText.replace(/],\s*[A-Z_]+\s*\n\s*"/g, '],\n  "')
+  // Remove newlines inside string values while keeping structure.
+  jsonText = jsonText.replace(/([a-zA-Z,.])\s*\n\s*([a-zA-Z])/g, '$1 $2')
+  // Normalize non-ASCII digits to ASCII.
+  jsonText = normalizeDigits(jsonText)
+  // Remove _comment fields added by AI.
+  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']\s*,/g, ',')
+  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']/g, '')
+  jsonText = jsonText.replace(/_comment\s*:\s*["'][^"']*["']\s*,/g, '')
+  // Clean up duplicate commas or commas next to brackets.
+  jsonText = jsonText.replace(/,\s*,/g, ',')
+  jsonText = jsonText.replace(/([{\[]),/g, '$1')
+  jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1')
+  // Fix common invalid assignment operators.
+  jsonText = jsonText.replace(/:\s*=/g, ':')
+  jsonText = jsonText.replace(/=\s*:/g, ':')
+
+  return repairJsonText(jsonText).trim()
+}
+
+function extractJsonCandidates(text: string): string[] {
+  const candidates: string[] = []
+  const stack: string[] = []
+  let startIndex = -1
+  let inString: '"' | null = null
+  let escape = false
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (inString) {
+      if (ch === '\\') {
+        escape = true
+        continue
+      }
+      if (ch === inString) {
+        inString = null
+      }
+      continue
+    }
+
+    if (ch === '"') {
+      inString = ch
+      continue
+    }
+
+    if (ch === '{' || ch === '[') {
+      if (stack.length === 0) {
+        startIndex = i
+      }
+      stack.push(ch)
+      continue
+    }
+
+    if (ch === '}' || ch === ']') {
+      if (stack.length === 0) {
+        continue
+      }
+
+      const open = stack[stack.length - 1]
+      const matches = (open === '{' && ch === '}') || (open === '[' && ch === ']')
+      if (!matches) {
+        continue
+      }
+
+      stack.pop()
+      if (stack.length === 0 && startIndex !== -1) {
+        candidates.push(text.slice(startIndex, i + 1))
+        startIndex = -1
+      }
+    }
+  }
+
+  return candidates
+}
+
+function scoreAdCreativeCandidate(raw: any): number {
+  if (!raw || typeof raw !== 'object') return 0
+
+  const data = raw?.responsive_search_ads ?? raw?.responsiveSearchAds ?? raw
+  if (!data || typeof data !== 'object') return 0
+
+  let score = 0
+  if (Array.isArray(data.headlines)) score += 3
+  if (Array.isArray(data.descriptions)) score += 2
+  if (Array.isArray(data.keywords)) score += 1
+  if (Array.isArray(data.callouts)) score += 1
+  if (Array.isArray(data.sitelinks)) score += 1
+
+  return score
+}
+
+function selectBestJsonCandidate(text: string): string | null {
+  const candidates = extractJsonCandidates(text)
+  if (candidates.length === 0) return null
+
+  let bestCandidate: string | null = null
+  let bestScore = -1
+  let bestLength = -1
+
+  for (const candidate of candidates) {
+    const cleaned = sanitizeJsonText(candidate)
+    try {
+      const parsed = JSON.parse(cleaned)
+      const score = scoreAdCreativeCandidate(parsed)
+      if (score > bestScore || (score === bestScore && cleaned.length > bestLength)) {
+        bestCandidate = candidate
+        bestScore = score
+        bestLength = cleaned.length
+      }
+    } catch {
+      // Ignore invalid JSON candidates.
+    }
+  }
+
+  if (bestCandidate && bestScore > 0) {
+    return bestCandidate
+  }
+
+  return null
+}
+
 /**
  * 解析AI响应
  */
@@ -2401,67 +2537,48 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
 
   // 移除可能的markdown代码块标记
   let jsonText = text.trim()
-  jsonText = jsonText.replace(/^```json\n?/, '')
-  jsonText = jsonText.replace(/^```\n?/, '')
-  jsonText = jsonText.replace(/\n?```$/, '')
-  jsonText = jsonText.trim()
+  jsonText = jsonText
+    .replace(/```json\s*/gi, '')
+    .replace(/```javascript\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/^json\s*/i, '')
+    .trim()
 
   console.log('🔍 清理markdown后长度:', jsonText.length)
   console.log('🔍 清理markdown后前200字符:', jsonText.substring(0, 200))
 
   // 尝试提取JSON对象或数组（如果AI在JSON前后加了其他文本）
-  // 支持 { ... } 和 [ ... ] 两种格式
-  const jsonObjectMatch = jsonText.match(/\{[\s\S]*\}/)
-  const jsonArrayMatch = jsonText.match(/\[[\s\S]*\]/)
-
-  if (jsonObjectMatch && jsonArrayMatch) {
-    // 两者都存在时，选择更长的那个
-    jsonText = jsonObjectMatch[0].length > jsonArrayMatch[0].length ? jsonObjectMatch[0] : jsonArrayMatch[0]
-  } else if (jsonObjectMatch) {
-    jsonText = jsonObjectMatch[0]
-  } else if (jsonArrayMatch) {
-    jsonText = jsonArrayMatch[0]
+  // 优先使用候选扫描，避免误截取 {KeyWord:...} 这类内容
+  const selectedCandidate = selectBestJsonCandidate(jsonText)
+  if (selectedCandidate) {
+    jsonText = selectedCandidate
+    console.log('✅ 选择JSON候选片段，长度:', jsonText.length)
   } else {
-    console.warn('⚠️ 未能通过正则提取JSON对象或数组')
-  }
+    // 支持 { ... } 和 [ ... ] 两种格式
+    const jsonObjectMatch = jsonText.match(/\{[\s\S]*\}/)
+    const jsonArrayMatch = jsonText.match(/\[[\s\S]*\]/)
 
-  if (jsonObjectMatch || jsonArrayMatch) {
-    console.log('✅ 成功提取JSON，长度:', jsonText.length)
+    if (jsonObjectMatch && jsonArrayMatch) {
+      // 两者都存在时，选择更长的那个
+      jsonText = jsonObjectMatch[0].length > jsonArrayMatch[0].length ? jsonObjectMatch[0] : jsonArrayMatch[0]
+    } else if (jsonObjectMatch) {
+      jsonText = jsonObjectMatch[0]
+    } else if (jsonArrayMatch) {
+      jsonText = jsonArrayMatch[0]
+    } else {
+      console.warn('⚠️ 未能通过正则提取JSON对象或数组')
+    }
+
+    if (jsonObjectMatch || jsonArrayMatch) {
+      console.log('✅ 成功提取JSON，长度:', jsonText.length)
+    }
   }
 
   // 清理提取后可能残留的markdown标记
   jsonText = jsonText.replace(/\n?```$/, '').trim()
 
   // 修复常见的JSON格式错误
-  // 1. 移除尾部逗号（数组和对象中）
-  jsonText = jsonText.replace(/,\s*([}\]])/g, '$1')
-  // 2. 修复智能引号（替换为标准ASCII引号）
-  jsonText = jsonText.replace(/[“”]/g, '"') // 花引号 “ ” → 直引号 "
-  jsonText = jsonText.replace(/[‘’]/g, "'") // 花单引号 ‘ ’ → 直单引号 '
-  // 3. 移除JSON中的非法标识符行（如 LAGGS_CALLOUTS 等调试输出）
-  jsonText = jsonText.replace(/],\s*[A-Z_]+\s*\n\s*"/g, '],\n  "')
-  // 4. 移除JSON字符串值中的换行符（保留结构性换行）
-  // 只处理字符串值内部的换行（字母/标点后跟换行再跟字母）
-  jsonText = jsonText.replace(/([a-zA-Z,.])\s*\n\s*([a-zA-Z])/g, '$1 $2')
-  // 5. 规范化非ASCII数字为ASCII数字（修复Bengali等其他语言的数字）
-  jsonText = normalizeDigits(jsonText)
-  // 6. 移除_comment字段（AI可能添加注释但不是有效JSON）
-  // Strategy: Replace _comment lines but preserve surrounding commas correctly
-  // Case 1: , _comment: "...", → ,
-  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']\s*,/g, ',')
-  // Case 2: , _comment: "..." → (remove entirely)
-  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']/g, '')
-  // Case 3: _comment: "...", → (remove entirely - handles first property case)
-  jsonText = jsonText.replace(/_comment\s*:\s*["'][^"']*["']\s*,/g, '')
-  // 7. 清理可能产生的重复逗号或空对象/数组中的逗号
-  jsonText = jsonText.replace(/,\s*,/g, ',')  // Double commas
-  jsonText = jsonText.replace(/([{\[]),/g, '$1')  // Comma after { or [
-  jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1')  // Comma before } or ]
-  // 8. 修复错误的赋值运算符（:= 或 == 改为 :）
-  jsonText = jsonText.replace(/:\s*=/g, ':')  // Fix := to :
-  jsonText = jsonText.replace(/=\s*:/g, ':')  // Fix =: to :
-
-  jsonText = repairJsonText(jsonText)
+  jsonText = sanitizeJsonText(jsonText)
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
