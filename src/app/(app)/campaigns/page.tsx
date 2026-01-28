@@ -150,6 +150,8 @@ export default function CampaignsPage() {
   const [offlineTarget, setOfflineTarget] = useState<Campaign | null>(null)
   const [offlineSubmitting, setOfflineSubmitting] = useState(false)
   const [offlineBlacklistOffer, setOfflineBlacklistOffer] = useState(false)
+  const [offlinePauseClickFarm, setOfflinePauseClickFarm] = useState(false)
+  const [offlinePauseUrlSwap, setOfflinePauseUrlSwap] = useState(false)
   const [isOfflineAccountIssueDialogOpen, setIsOfflineAccountIssueDialogOpen] = useState(false)
   const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
   const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
@@ -462,6 +464,8 @@ export default function CampaignsPage() {
 
     setOfflineTarget(campaign)
     setOfflineBlacklistOffer(false)
+    setOfflinePauseClickFarm(false)
+    setOfflinePauseUrlSwap(false)
     setIsOfflineDialogOpen(true)
   }
 
@@ -478,7 +482,11 @@ export default function CampaignsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ blacklistOffer: offlineBlacklistOffer }),
+        body: JSON.stringify({
+          blacklistOffer: offlineBlacklistOffer,
+          pauseClickFarmTasks: offlinePauseClickFarm,
+          pauseUrlSwapTasks: offlinePauseUrlSwap,
+        }),
       })
 
       if (response.status === 401) {
@@ -516,6 +524,8 @@ export default function CampaignsPage() {
       if (!keepState) {
         setOfflineTarget(null)
         setOfflineBlacklistOffer(false)
+        setOfflinePauseClickFarm(false)
+        setOfflinePauseUrlSwap(false)
         setOfflineAccountIssueMessage(null)
         setOfflineAccountIssueStatus(null)
       }
@@ -534,7 +544,12 @@ export default function CampaignsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ blacklistOffer: offlineBlacklistOffer, forceLocalOffline: true }),
+        body: JSON.stringify({
+          blacklistOffer: offlineBlacklistOffer,
+          pauseClickFarmTasks: offlinePauseClickFarm,
+          pauseUrlSwapTasks: offlinePauseUrlSwap,
+          forceLocalOffline: true,
+        }),
       })
 
       if (response.status === 401) {
@@ -561,6 +576,8 @@ export default function CampaignsPage() {
       setOfflineSubmitting(false)
       setOfflineTarget(null)
       setOfflineBlacklistOffer(false)
+      setOfflinePauseClickFarm(false)
+      setOfflinePauseUrlSwap(false)
       setOfflineAccountIssueMessage(null)
       setOfflineAccountIssueStatus(null)
     }
@@ -1594,6 +1611,8 @@ export default function CampaignsPage() {
           if (!open) {
             setOfflineTarget(null)
             setOfflineBlacklistOffer(false)
+            setOfflinePauseClickFarm(false)
+            setOfflinePauseUrlSwap(false)
           }
         }}
       >
@@ -1624,6 +1643,26 @@ export default function CampaignsPage() {
                     同时拉黑该 Offer（品牌+国家组合），后续发布将被阻止
                   </label>
                 </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={offlinePauseClickFarm}
+                    onCheckedChange={(checked) => setOfflinePauseClickFarm(Boolean(checked))}
+                    id="offline-pause-click-farm"
+                  />
+                  <label htmlFor="offline-pause-click-farm" className="text-sm text-gray-700">
+                    同时暂停补点击任务
+                  </label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={offlinePauseUrlSwap}
+                    onCheckedChange={(checked) => setOfflinePauseUrlSwap(Boolean(checked))}
+                    id="offline-pause-url-swap"
+                  />
+                  <label htmlFor="offline-pause-url-swap" className="text-sm text-gray-700">
+                    同时暂停换链接任务
+                  </label>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1650,6 +1689,8 @@ export default function CampaignsPage() {
             setOfflineAccountIssueStatus(null)
             setOfflineTarget(null)
             setOfflineBlacklistOffer(false)
+            setOfflinePauseClickFarm(false)
+            setOfflinePauseUrlSwap(false)
           }
         }}
       >
@@ -1675,7 +1716,10 @@ export default function CampaignsPage() {
                   </ul>
                 </div>
                 <div className="text-sm text-gray-700">
-                  当前选择：{offlineBlacklistOffer ? '同时拉黑Offer' : '不拉黑Offer'}
+                  当前选择：
+                  {offlineBlacklistOffer ? '拉黑Offer' : '不拉黑Offer'}，
+                  {offlinePauseClickFarm ? '暂停补点击任务' : '不暂停补点击任务'}，
+                  {offlinePauseUrlSwap ? '暂停换链接任务' : '不暂停换链接任务'}
                 </div>
               </div>
             </AlertDialogDescription>

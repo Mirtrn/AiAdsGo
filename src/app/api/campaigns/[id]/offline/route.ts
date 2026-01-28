@@ -9,6 +9,8 @@ import { invalidateOfferCache } from '@/lib/api-cache'
 type OfflineBody = {
   blacklistOffer?: boolean
   forceLocalOffline?: boolean
+  pauseClickFarmTasks?: boolean
+  pauseUrlSwapTasks?: boolean
 }
 
 function normalizeGoogleCampaignId(value: unknown): string | null {
@@ -37,6 +39,8 @@ export async function POST(
     const body = (await request.json().catch(() => null)) as OfflineBody | null
     const blacklistOffer = Boolean(body?.blacklistOffer)
     const forceLocalOffline = Boolean(body?.forceLocalOffline)
+    const pauseClickFarmTasks = Boolean(body?.pauseClickFarmTasks)
+    const pauseUrlSwapTasks = Boolean(body?.pauseUrlSwapTasks)
 
     const db = await getDatabase()
 
@@ -186,6 +190,73 @@ export async function POST(
     // 解除关联后刷新Offer缓存
     invalidateOfferCache(userId, campaignRow.offer_id)
 
+    // 可选：暂停补点击任务
+    let clickFarmPaused = 0
+    if (pauseClickFarmTasks) {
+      clickFarmPaused = (
+        await db.exec(
+          `
+            UPDATE click_farm_tasks
+            SET status = 'paused',
+                pause_reason = 'offline',
+                pause_message = '广告系列下线，任务已暂停',
+                paused_at = ${nowFunc},
+                updated_at = ${nowFunc}
+            WHERE offer_id = ?
+              AND user_id = ?
+              AND status IN ('pending', 'running', 'paused')
+              AND IS_DELETED_FALSE
+          `,
+          [campaignRow.offer_id, userId]
+        )
+      ).changes
+    }
+
+    // 可选：暂停换链接任务
+    let urlSwapPaused = 0
+    if (pauseUrlSwapTasks) {
+      const urlSwapNotDeletedCondition =
+        db.type === 'postgres'
+          ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+          : '(is_deleted = 0 OR is_deleted IS NULL)'
+      urlSwapPaused = (
+        await db.exec(
+          `
+            UPDATE url_swap_tasks
+            SET status = 'disabled',
+                error_message = '广告系列下线，任务已暂停',
+                updated_at = ${nowFunc}
+            WHERE offer_id = ?
+              AND user_id = ?
+              AND status != 'disabled'
+              AND ${urlSwapNotDeletedCondition}
+          `,
+          [campaignRow.offer_id, userId]
+        )
+      ).changes
+    }
+
+    // 🔥 可选：移除队列中的待处理任务（best-effort）
+    if (pauseClickFarmTasks || pauseUrlSwapTasks) {
+      try {
+        const { getOrCreateQueueManager } = await import('@/lib/queue/init-queue')
+        const queueManager = await getOrCreateQueueManager()
+        const pendingTasks = await queueManager.getPendingTasks()
+        for (const task of pendingTasks) {
+          if (!task?.data) continue
+          if (task.data.offerId !== campaignRow.offer_id) continue
+          if (pauseClickFarmTasks && task.type === 'click-farm') {
+            await queueManager.removeTask(task.id)
+          }
+          if (pauseUrlSwapTasks && task.type === 'url-swap') {
+            await queueManager.removeTask(task.id)
+          }
+        }
+      } catch (err: any) {
+        console.warn('[offline] queue cleanup skipped:', err?.message || err)
+      }
+    }
+
     // 可选：Offer拉黑
     let blacklistResult: { applied: boolean; reason?: string } = { applied: false }
     if (blacklistOffer && campaignRow.offer_id && campaignRow.offer_brand && campaignRow.offer_target_country) {
@@ -323,6 +394,8 @@ export async function POST(
         offerId: campaignRow.offer_id,
         offlineCount: campaignsToOffline.length,
         blacklist: blacklistResult,
+        clickFarmPaused,
+        urlSwapPaused,
       },
       googleAds: googleAdsSummary,
     })
