@@ -218,93 +218,98 @@ export async function POST(
     }
 
     const customerId = campaignRow.customer_id
-    if (!googleAdsSummary.skippedReason && !customerId) {
-      googleAdsSummary.skippedReason = '缺少Google Ads customer_id'
-    } else if (!googleAdsSummary.skippedReason) {
-      const googleCampaignIds = campaignsToOffline
-        .map((c) => normalizeGoogleCampaignId(c.google_campaign_id) || normalizeGoogleCampaignId(c.campaign_id))
-        .filter((id): id is string => Boolean(id))
-
-      googleAdsSummary.planned = googleCampaignIds.length
-
-      if (googleCampaignIds.length === 0) {
-        googleAdsSummary.skippedReason = '未找到可同步的Google Ads广告系列ID'
+    if (!googleAdsSummary.skippedReason) {
+      if (!customerId) {
+        googleAdsSummary.skippedReason = '缺少Google Ads customer_id'
       } else {
-        // 获取用户的 Google Ads 基础凭证（用于判断OAuth/服务账号模式）
-        let credentials: Awaited<ReturnType<typeof getGoogleAdsCredentialsFromDB>> | null = null
-        try {
-          credentials = await getGoogleAdsCredentialsFromDB(userId)
-        } catch (err: any) {
-          googleAdsSummary.skippedReason = err?.message || 'Google Ads 凭证未配置或不可用'
-        }
+        const customerIdValue = customerId
+        const googleCampaignIds = campaignsToOffline
+          .map((c) => normalizeGoogleCampaignId(c.google_campaign_id) || normalizeGoogleCampaignId(c.campaign_id))
+          .filter((id): id is string => Boolean(id))
 
-        if (!googleAdsSummary.skippedReason && credentials) {
-          const useServiceAccount = Boolean(credentials.useServiceAccount)
-          let authType: 'oauth' | 'service_account' = 'oauth'
-          let refreshToken = ''
-          let serviceAccountId: string | undefined
+        googleAdsSummary.planned = googleCampaignIds.length
 
-          if (useServiceAccount) {
-            authType = 'service_account'
-            const config = await getServiceAccountConfig(userId)
-            if (!config) {
-              googleAdsSummary.skippedReason = '未找到服务账号配置'
-            } else {
-              serviceAccountId = config.id
-            }
-          } else {
-            authType = 'oauth'
-            const oauthCredentials = await getGoogleAdsCredentials(userId)
-            refreshToken = oauthCredentials?.refresh_token || ''
-            if (!refreshToken) {
-              googleAdsSummary.skippedReason = 'Google Ads OAuth未授权或已过期'
-            }
+        if (googleCampaignIds.length === 0) {
+          googleAdsSummary.skippedReason = '未找到可同步的Google Ads广告系列ID'
+        } else {
+          // 获取用户的 Google Ads 基础凭证（用于判断OAuth/服务账号模式）
+          let credentials: Awaited<ReturnType<typeof getGoogleAdsCredentialsFromDB>> | null = null
+          try {
+            credentials = await getGoogleAdsCredentialsFromDB(userId)
+          } catch (err: any) {
+            googleAdsSummary.skippedReason = err?.message || 'Google Ads 凭证未配置或不可用'
           }
 
-          const loginCustomerId = campaignRow.parent_mcc_id || credentials.login_customer_id || undefined
+          if (!googleAdsSummary.skippedReason && credentials) {
+            const useServiceAccount = Boolean(credentials.useServiceAccount)
+            let authType: 'oauth' | 'service_account' = 'oauth'
+            let refreshToken = ''
+            let serviceAccountId: string | undefined
 
-          if (!googleAdsSummary.skippedReason) {
-            googleAdsSummary.queued = true
-            void (async () => {
-              try {
-                for (const id of googleCampaignIds) {
-                  try {
-                    await updateGoogleAdsCampaignStatus({
-                      customerId,
-                      refreshToken,
-                      campaignId: id,
-                      status: 'REMOVED',
-                      accountId: campaignRow.google_ads_account_id!,
-                      userId,
-                      loginCustomerId,
-                      authType,
-                      serviceAccountId,
-                    })
-                    googleAdsSummary.removed += 1
-                  } catch (err: any) {
+            if (useServiceAccount) {
+              authType = 'service_account'
+              const config = await getServiceAccountConfig(userId)
+              if (!config) {
+                googleAdsSummary.skippedReason = '未找到服务账号配置'
+              } else {
+                serviceAccountId = config.id
+              }
+            } else {
+              authType = 'oauth'
+              const oauthCredentials = await getGoogleAdsCredentials(userId)
+              refreshToken = oauthCredentials?.refresh_token || ''
+              if (!refreshToken) {
+                googleAdsSummary.skippedReason = 'Google Ads OAuth未授权或已过期'
+              }
+            }
+
+            const loginCustomerId = (campaignRow.parent_mcc_id || credentials.login_customer_id || undefined) as
+              | string
+              | undefined
+
+            if (!googleAdsSummary.skippedReason) {
+              googleAdsSummary.queued = true
+              void (async () => {
+                try {
+                  for (const id of googleCampaignIds) {
                     try {
                       await updateGoogleAdsCampaignStatus({
-                        customerId,
+                        customerId: customerIdValue,
                         refreshToken,
                         campaignId: id,
-                        status: 'PAUSED',
+                        status: 'REMOVED',
                         accountId: campaignRow.google_ads_account_id!,
                         userId,
                         loginCustomerId,
                         authType,
                         serviceAccountId,
                       })
-                      googleAdsSummary.pausedFallback += 1
-                    } catch (err2: any) {
-                      // best-effort; ignore per-campaign failure
-                      console.error('[offline] Google Ads pause fallback failed:', err2?.message || err2)
+                      googleAdsSummary.removed += 1
+                    } catch (err: any) {
+                      try {
+                        await updateGoogleAdsCampaignStatus({
+                          customerId: customerIdValue,
+                          refreshToken,
+                          campaignId: id,
+                          status: 'PAUSED',
+                          accountId: campaignRow.google_ads_account_id!,
+                          userId,
+                          loginCustomerId,
+                          authType,
+                          serviceAccountId,
+                        })
+                        googleAdsSummary.pausedFallback += 1
+                      } catch (err2: any) {
+                        // best-effort; ignore per-campaign failure
+                        console.error('[offline] Google Ads pause fallback failed:', err2?.message || err2)
+                      }
                     }
                   }
+                } catch (err: any) {
+                  console.error('[offline] Google Ads update failed:', err?.message || err)
                 }
-              } catch (err: any) {
-                console.error('[offline] Google Ads update failed:', err?.message || err)
-              }
-            })()
+              })()
+            }
           }
         }
       }
