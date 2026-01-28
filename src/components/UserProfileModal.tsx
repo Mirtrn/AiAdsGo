@@ -84,7 +84,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
       trial: { label: '试用版', variant: 'outline' },
       annual: { label: '年度会员', variant: 'default' },
-      lifetime: { label: '终身会员', variant: 'secondary' },
+      lifetime: { label: '长期会员', variant: 'secondary' },
       enterprise: { label: '企业版', variant: 'default' },
     }
 
@@ -264,7 +264,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
               {subscriptionStatus.status === 'lifetime' && (
                 <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-900">
-                    🎉 您拥有终身会员权限，享受所有功能永久使用权
+                    🎉 您拥有长期会员权限，享受所有功能永久使用权
                   </p>
                 </div>
               )}

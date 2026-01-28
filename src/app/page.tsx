@@ -341,7 +341,7 @@ export default function MarketingHome() {
               <div className="absolute top-0 right-0 -mt-4 mr-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-lg">
                 最受欢迎
               </div>
-	              <h3 className="text-lg font-semibold text-white mb-2">终身会员</h3>
+	              <h3 className="text-lg font-semibold text-white mb-2">长期会员</h3>
 	              <div className="flex items-baseline mb-6">
 	                <span className="text-4xl font-bold tracking-tight text-white">¥11,999</span>
 	                <span className="text-slate-400 ml-1">/一次性</span>

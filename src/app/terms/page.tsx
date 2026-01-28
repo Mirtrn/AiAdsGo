@@ -87,7 +87,7 @@ export default function TermsPage() {
                 </p>
                 <ul className="list-disc list-inside text-slate-600 space-y-2 ml-4">
                   <li><strong>年度会员</strong>：¥5,999/年，包含12个月使用权</li>
-                  <li><strong>终身会员</strong>：¥10,999 一次性付款，永久使用权</li>
+                  <li><strong>长期会员</strong>：¥10,999 一次性付款，永久使用权</li>
                   <li><strong>私有化部署</strong>：¥29,999，包含1年技术支持</li>
                 </ul>
                 <p className="text-slate-600 leading-relaxed mt-4">

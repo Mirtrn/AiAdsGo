@@ -630,7 +630,7 @@ export default function UserManagementPage() {
                                     <SelectItem value="all">所有套餐</SelectItem>
                                     <SelectItem value="trial">试用版</SelectItem>
                                     <SelectItem value="annual">年度会员</SelectItem>
-                                    <SelectItem value="lifetime">终身会员</SelectItem>
+                                    <SelectItem value="lifetime">长期会员</SelectItem>
                                     <SelectItem value="enterprise">私有化部署</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -791,7 +791,7 @@ export default function UserManagementPage() {
                                                 <Badge variant="outline" className="capitalize">
                                                     {user.packageType === 'trial' ? '试用版' :
                                                      user.packageType === 'annual' ? '年度会员' :
-                                                     user.packageType === 'lifetime' ? '终身会员' : '私有化部署'}
+                                                     user.packageType === 'lifetime' ? '长期会员' : '私有化部署'}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
@@ -1008,7 +1008,7 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="trial">试用版 (Trial)</SelectItem>
                                     <SelectItem value="annual">年度会员 (Annual)</SelectItem>
-                                    <SelectItem value="lifetime">终身会员 (Lifetime)</SelectItem>
+                                    <SelectItem value="lifetime">长期会员 (Lifetime)</SelectItem>
                                     <SelectItem value="enterprise">私有化部署 (Enterprise)</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -1078,7 +1078,7 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="trial">试用版 (Trial)</SelectItem>
                                     <SelectItem value="annual">年度会员 (Annual)</SelectItem>
-                                    <SelectItem value="lifetime">终身会员 (Lifetime)</SelectItem>
+                                    <SelectItem value="lifetime">长期会员 (Lifetime)</SelectItem>
                                     <SelectItem value="enterprise">私有化部署 (Enterprise)</SelectItem>
                                 </SelectContent>
                             </Select>

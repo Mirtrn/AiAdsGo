@@ -84,7 +84,7 @@ export default function DashboardPage() {
   const packageLabels = {
     trial: '试用版',
     annual: '年度会员',
-    lifetime: '终身会员',
+    lifetime: '长期会员',
     enterprise: '私有化部署',
   }
 
