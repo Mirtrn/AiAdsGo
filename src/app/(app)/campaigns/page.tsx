@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2 } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, Ban } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -144,6 +144,15 @@ export default function CampaignsPage() {
   const [isToggleStatusDialogOpen, setIsToggleStatusDialogOpen] = useState(false)
   const [toggleStatusTarget, setToggleStatusTarget] = useState<Campaign | null>(null)
   const [toggleStatusNextStatus, setToggleStatusNextStatus] = useState<'PAUSED' | 'ENABLED' | null>(null)
+
+  // Offline (下线) dialog states
+  const [isOfflineDialogOpen, setIsOfflineDialogOpen] = useState(false)
+  const [offlineTarget, setOfflineTarget] = useState<Campaign | null>(null)
+  const [offlineSubmitting, setOfflineSubmitting] = useState(false)
+  const [offlineBlacklistOffer, setOfflineBlacklistOffer] = useState(false)
+  const [isOfflineAccountIssueDialogOpen, setIsOfflineAccountIssueDialogOpen] = useState(false)
+  const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
+  const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
 
   const currencySet = new Set(
     campaigns
@@ -429,6 +438,132 @@ export default function CampaignsPage() {
     setToggleStatusNextStatus(null)
 
     await handleToggleStatus(campaign, nextStatus)
+  }
+
+  const openOfflineDialog = (campaign: Campaign) => {
+    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+
+    if (isDeleted || offerDeleted || String(campaign.status || '').toUpperCase() === 'REMOVED') {
+      showError('无法操作', '该广告系列已下线/删除')
+      return
+    }
+
+    if (!googleCampaignId) {
+      showError('无法操作', '该广告系列尚未发布到Google Ads')
+      return
+    }
+
+    if (campaign.adsAccountAvailable === false) {
+      showError('无法操作', '关联的Ads账号不可用（可能已解绑或停用）')
+      return
+    }
+
+    setOfflineTarget(campaign)
+    setOfflineBlacklistOffer(false)
+    setIsOfflineDialogOpen(true)
+  }
+
+  const confirmOffline = async () => {
+    if (!offlineTarget || offlineSubmitting) return
+    const campaign = offlineTarget
+
+    setOfflineSubmitting(true)
+    setIsOfflineDialogOpen(false)
+    let keepState = false
+
+    try {
+      const response = await fetch(`/api/campaigns/${campaign.id}/offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ blacklistOffer: offlineBlacklistOffer }),
+      })
+
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      const data = await response.json().catch(() => null)
+      if (response.status === 422 && data?.action === 'ACCOUNT_STATUS_NOT_USABLE') {
+        setOfflineAccountIssueMessage(data?.message || '账号状态异常，无法在Google Ads中删除或暂停广告系列。')
+        const status = data?.details?.accountStatus
+        setOfflineAccountIssueStatus(status ? String(status) : null)
+        setIsOfflineAccountIssueDialogOpen(true)
+        keepState = true
+        return
+      }
+      if (!response.ok) {
+        const message = data?.error || data?.message || '下线失败'
+        showError('下线失败', message)
+        return
+      }
+
+      const googleAdsNote = data?.googleAds?.queued
+        ? `Google Ads 处理已排队（计划处理 ${data.googleAds?.planned ?? 0} 个广告系列）`
+        : data?.googleAds?.skippedReason
+          ? `Google Ads 未同步：${data.googleAds.skippedReason}`
+          : undefined
+
+      showSuccess('已下线', googleAdsNote)
+      await fetchCampaigns()
+    } catch (err: any) {
+      showError('下线失败', err?.message || '网络错误')
+    } finally {
+      setOfflineSubmitting(false)
+      if (!keepState) {
+        setOfflineTarget(null)
+        setOfflineBlacklistOffer(false)
+        setOfflineAccountIssueMessage(null)
+        setOfflineAccountIssueStatus(null)
+      }
+    }
+  }
+
+  const confirmOfflineLocalOnly = async () => {
+    if (!offlineTarget || offlineSubmitting) return
+    const campaign = offlineTarget
+
+    setOfflineSubmitting(true)
+    setIsOfflineAccountIssueDialogOpen(false)
+
+    try {
+      const response = await fetch(`/api/campaigns/${campaign.id}/offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ blacklistOffer: offlineBlacklistOffer, forceLocalOffline: true }),
+      })
+
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        const message = data?.error || data?.message || '本地下线失败'
+        showError('本地下线失败', message)
+        return
+      }
+
+      const googleAdsNote = data?.googleAds?.skippedReason
+        ? `Google Ads 未同步：${data.googleAds.skippedReason}`
+        : undefined
+
+      showSuccess('已本地下线', googleAdsNote)
+      await fetchCampaigns()
+    } catch (err: any) {
+      showError('本地下线失败', err?.message || '网络错误')
+    } finally {
+      setOfflineSubmitting(false)
+      setOfflineTarget(null)
+      setOfflineBlacklistOffer(false)
+      setOfflineAccountIssueMessage(null)
+      setOfflineAccountIssueStatus(null)
+    }
   }
 
   const handleToggleStatus = async (
@@ -1260,6 +1395,38 @@ export default function CampaignsPage() {
                             )}
                           </Button>
 
+                          {/* Offline / Downline */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openOfflineDialog(campaign)}
+                            disabled={
+                              offlineSubmitting ||
+                              !googleCampaignId ||
+                              isDeleted ||
+                              offerDeleted ||
+                              campaign.adsAccountAvailable === false ||
+                              String(campaign.status || '').toUpperCase() === 'REMOVED'
+                            }
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title={
+                              !googleCampaignId
+                                ? '该广告系列尚未发布到Google Ads，无法下线'
+                                : (campaign.adsAccountAvailable === false)
+                                  ? 'Ads账号已解绑，无法下线'
+                                  : isDeleted
+                                    ? '该广告系列已删除，无法下线'
+                                    : offerDeleted
+                                      ? '关联Offer已删除，无法下线'
+                                      : String(campaign.status || '').toUpperCase() === 'REMOVED'
+                                        ? '该广告系列已下线'
+                                        : '下线广告系列（不可恢复）'
+                            }
+                            aria-label="下线广告系列"
+                          >
+                            <Ban className="w-4 h-4" />
+                          </Button>
+
 	                          {/* Delete Button */}
 	                          {campaign.creationStatus === 'draft' && (
 	                            <Button
@@ -1413,6 +1580,114 @@ export default function CampaignsPage() {
               variant="destructive"
             >
               {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
+      {/* Offline Confirmation Dialog */}
+      <AlertDialog
+        open={isOfflineDialogOpen}
+        onOpenChange={(open) => {
+          setIsOfflineDialogOpen(open)
+          if (!open) {
+            setOfflineTarget(null)
+            setOfflineBlacklistOffer(false)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认下线广告系列</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要下线广告系列{' '}
+                  <strong className="text-gray-900">{offlineTarget?.campaignName || '-'}</strong> 吗？
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  <p className="font-medium mb-1">下线将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>在 Google Ads 中删除或暂停该广告系列</li>
+                    <li>解除该 Offer 与当前 Ads 账号的关联</li>
+                    <li>此操作不可恢复</li>
+                  </ul>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={offlineBlacklistOffer}
+                    onCheckedChange={(checked) => setOfflineBlacklistOffer(Boolean(checked))}
+                    id="offline-blacklist-offer"
+                  />
+                  <label htmlFor="offline-blacklist-offer" className="text-sm text-gray-700">
+                    同时拉黑该 Offer（品牌+国家组合），后续发布将被阻止
+                  </label>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={offlineSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void confirmOffline()}
+              disabled={offlineSubmitting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {offlineSubmitting ? '下线中...' : '确认下线'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Offline Account Issue Dialog */}
+      <AlertDialog
+        open={isOfflineAccountIssueDialogOpen}
+        onOpenChange={(open) => {
+          setIsOfflineAccountIssueDialogOpen(open)
+          if (!open) {
+            setOfflineAccountIssueMessage(null)
+            setOfflineAccountIssueStatus(null)
+            setOfflineTarget(null)
+            setOfflineBlacklistOffer(false)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>账号状态异常</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  {offlineAccountIssueMessage || '当前 Ads 账号状态异常，无法在 Google Ads 中删除或暂停广告系列。'}
+                </p>
+                {offlineAccountIssueStatus && (
+                  <div className="text-sm text-gray-700">
+                    当前账号状态：<strong>{offlineAccountIssueStatus}</strong>
+                  </div>
+                )}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                  <p className="font-medium mb-1">继续本地下线将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>仅在本地标记为已下线并解除关联</li>
+                    <li>无法保证 Google Ads 侧立即停止投放</li>
+                    <li>请尽快登录 Google Ads 处理账号状态与广告系列</li>
+                  </ul>
+                </div>
+                <div className="text-sm text-gray-700">
+                  当前选择：{offlineBlacklistOffer ? '同时拉黑Offer' : '不拉黑Offer'}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={offlineSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void confirmOfflineLocalOnly()}
+              disabled={offlineSubmitting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {offlineSubmitting ? '处理中...' : '仅本地下线'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
