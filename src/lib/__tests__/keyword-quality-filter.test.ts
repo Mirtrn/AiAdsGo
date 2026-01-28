@@ -39,12 +39,12 @@ describe('keyword-quality-filter', () => {
 
     it('should remove ambiguous-brand unrelated topics when context filter enabled', () => {
       const input = [
-        { keyword: 'rove', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
-        { keyword: 'rove r2 4k', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
-        { keyword: 'rove r2 4k dash cam', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
-        { keyword: 'rove beetle larvae', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
-        { keyword: 'rove concept', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
-        { keyword: 'rove concept miami', searchVolume: 1000, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove r2 4k', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove r2 4k dash cam', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove beetle larvae', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove concept', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'rove concept miami', searchVolume: 0, source: 'KEYWORD_POOL' as const },
       ]
 
       const result = filterKeywordQuality(input, {
