@@ -23,6 +23,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
   const [biddingStrategyType, setBiddingStrategyType] = useState<string>('UNKNOWN')
   const [currentCpc, setCurrentCpc] = useState<number | null>(null)
   const [newCpcValue, setNewCpcValue] = useState<string>('')
+  const [cpcHistory, setCpcHistory] = useState<Array<{ value: number; createdAt: string }>>([])
 
   const currentCpcDisplay = useMemo(() => {
     if (currentCpc === null || !(currentCpc > 0)) return '(未知)'
@@ -43,10 +44,12 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
       const nextCurrent = typeof data.currentCpc === 'number' ? data.currentCpc : null
       setCurrentCpc(nextCurrent)
       setNewCpcValue(nextCurrent !== null && nextCurrent > 0 ? nextCurrent.toFixed(2) : '')
+      setCpcHistory(Array.isArray(data.history) ? data.history : [])
     } catch (e: any) {
       showError('获取当前CPC失败', e?.message || String(e))
       setCurrentCpc(null)
       setNewCpcValue('')
+      setCpcHistory([])
     } finally {
       setLoading(false)
     }
@@ -61,6 +64,11 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
     if (currentCpc === null || !(currentCpc > 0)) return
     const next = Math.max(0.01, currentCpc * (1 + percent))
     setNewCpcValue(next.toFixed(2))
+  }
+
+  const formatHistoryDate = (value: string) => {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('zh-CN')
   }
 
   const save = async () => {
@@ -103,8 +111,25 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
             竞价策略: <span className="text-foreground">{biddingStrategyType}</span>
           </div>
 
-          <div className="text-sm text-muted-foreground">
-            当前CPC: <span className="font-medium text-foreground">{loading ? '加载中…' : currentCpcDisplay}</span>
+          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>
+              当前CPC: <span className="font-medium text-foreground">{loading ? '加载中…' : currentCpcDisplay}</span>
+            </span>
+            <span className="text-xs text-muted-foreground">历史:</span>
+            {loading ? (
+              <span className="text-xs text-muted-foreground">加载中…</span>
+            ) : cpcHistory.length === 0 ? (
+              <span className="text-xs text-muted-foreground">暂无</span>
+            ) : (
+              cpcHistory.slice(0, 3).map((item, index) => (
+                <span
+                  key={`${item.createdAt}-${index}`}
+                  className="text-xs text-foreground bg-muted px-2 py-0.5 rounded"
+                >
+                  {currency} {Number(item.value).toFixed(2)} · {formatHistoryDate(item.createdAt)}
+                </span>
+              ))
+            )}
           </div>
 
           <div className="space-y-2">

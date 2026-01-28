@@ -124,7 +124,7 @@ export async function PUT(
     // 通过本地campaign映射找到对应的Ads账号（避免用“第一个账号”导致权限/账号不匹配）
     const db = await getDatabase()
     const linked = await db.queryOne(`
-      SELECT google_ads_account_id
+      SELECT google_ads_account_id, offer_id
       FROM campaigns
       WHERE user_id = ?
         AND status != 'REMOVED'
@@ -132,7 +132,7 @@ export async function PUT(
         AND google_ads_account_id IS NOT NULL
       ORDER BY created_at DESC
       LIMIT 1
-    `, [numericUserId, String(campaignId)]) as { google_ads_account_id: number } | undefined
+    `, [numericUserId, String(campaignId)]) as { google_ads_account_id: number; offer_id: number | null } | undefined
 
     if (!linked?.google_ads_account_id) {
       return NextResponse.json(
@@ -146,6 +146,60 @@ export async function PUT(
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ?
     `, [linked.google_ads_account_id, numericUserId]) as any
+
+    const offerId = linked.offer_id
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+    const recordHistory = async (
+      adjustmentType: string,
+      successCount: number,
+      failureCount: number,
+      errorMessage?: string | null
+    ) => {
+      if (!offerId) return
+      try {
+        await db.exec(
+          `
+            INSERT INTO cpc_adjustment_history (
+              user_id,
+              offer_id,
+              campaign_id,
+              adjustment_type,
+              adjustment_value,
+              affected_campaign_count,
+              campaign_ids,
+              success_count,
+              failure_count,
+              error_message,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
+          `,
+          [
+            numericUserId,
+            offerId,
+            campaignIdNum,
+            adjustmentType,
+            newCpc,
+            1,
+            JSON.stringify([String(campaignIdNum)]),
+            successCount,
+            failureCount,
+            errorMessage || null,
+          ]
+        )
+        try {
+          const { getRedisClient } = await import('@/lib/redis-client')
+          const redis = getRedisClient()
+          if (redis) {
+            const cacheKey = `cpc:history:user:${numericUserId}:campaign:${campaignIdNum}`
+            await redis.del(cacheKey)
+          }
+        } catch {
+          // ignore cache errors
+        }
+      } catch (err: any) {
+        console.warn('[update-cpc] failed to record history:', err?.message || err)
+      }
+    }
 
     const isAccountActive = adsAccountRow?.is_active === true || adsAccountRow?.is_active === 1
     const isAccountDeleted = adsAccountRow?.is_deleted === true || adsAccountRow?.is_deleted === 1
@@ -314,6 +368,8 @@ export async function PUT(
         requestId
       )
 
+      await recordHistory('manual_cpc', adGroups.length, 0, null)
+
       return NextResponse.json({
         success: true,
         message: `成功更新 ${adGroups.length} 个广告组的CPC为 ${newCpc}`,
@@ -356,6 +412,8 @@ export async function PUT(
         )
       }
 
+      await recordHistory('max_cpc', 1, 0, null)
+
       return NextResponse.json({
         success: true,
         message: `成功更新广告系列的最大CPC限制为 ${newCpc}`,
@@ -397,6 +455,8 @@ export async function PUT(
         )
       }
 
+      await recordHistory('max_cpc', 1, 0, null)
+
       return NextResponse.json({
         success: true,
         message: `成功更新广告系列的最大CPC限制为 ${newCpc}`,
@@ -427,6 +487,8 @@ export async function PUT(
         adsAccountRow.customer_id,
         requestId
       )
+
+      await recordHistory('target_cpa', 1, 0, null)
 
       return NextResponse.json({
         success: true,

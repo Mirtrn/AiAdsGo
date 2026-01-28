@@ -4,6 +4,7 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib
 import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getRedisClient } from '@/lib/redis-client'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 
 function extractSearchResults(result: any): any[] {
@@ -70,6 +71,7 @@ export async function GET(
         c.google_ads_account_id,
         c.max_cpc,
         c.campaign_config,
+        c.offer_id,
         gaa.customer_id,
         gaa.currency,
         gaa.parent_mcc_id,
@@ -88,6 +90,7 @@ export async function GET(
       google_ads_account_id: number
       max_cpc: number | null
       campaign_config: string | null
+      offer_id: number | null
       customer_id: string | null
       currency: string | null
       parent_mcc_id: string | null
@@ -261,15 +264,109 @@ export async function GET(
         : (biddingStrategyType === 'TARGET_CPA') ? 'TARGET_CPA'
           : biddingStrategyType
 
+    const historyCacheKey = linked.offer_id ? `cpc:history:user:${numericUserId}:campaign:${campaignIdNum}` : null
+    let history: Array<{ value: number; adjustmentType: string; createdAt: string; successCount: number; failureCount: number }> = []
+
+    if (historyCacheKey) {
+      try {
+        const redis = getRedisClient()
+        const cached = redis ? await redis.get(historyCacheKey) : null
+        if (cached) {
+          const parsed = safeParseJson<typeof history>(cached)
+          if (Array.isArray(parsed)) {
+            history = parsed
+          }
+        }
+      } catch {
+        // ignore cache errors
+      }
+    }
+
+    let historyRows: any[] = []
+    if (history.length === 0 && linked.offer_id) {
+      try {
+        historyRows = await db.query(
+          `
+            SELECT
+              adjustment_value,
+              adjustment_type,
+              created_at,
+              campaign_id,
+              campaign_ids,
+              success_count,
+              failure_count
+            FROM cpc_adjustment_history
+            WHERE user_id = ?
+              AND offer_id = ?
+            ORDER BY created_at DESC
+            LIMIT 8
+          `,
+          [numericUserId, linked.offer_id]
+        )
+      } catch {
+        historyRows = await db.query(
+          `
+            SELECT
+              adjustment_value,
+              adjustment_type,
+              created_at,
+              campaign_ids,
+              success_count,
+              failure_count
+            FROM cpc_adjustment_history
+            WHERE user_id = ?
+              AND offer_id = ?
+            ORDER BY created_at DESC
+            LIMIT 8
+          `,
+          [numericUserId, linked.offer_id]
+        )
+      }
+    }
+
+    if (history.length === 0 && historyRows.length > 0) {
+      const campaignToken = String(campaignIdNum)
+      history = historyRows
+        .filter((row: any) => {
+          if (row.campaign_id !== null && row.campaign_id !== undefined) {
+            return String(row.campaign_id) === campaignToken
+          }
+          const ids = safeParseJson<string[]>(row.campaign_ids)
+          if (Array.isArray(ids)) return ids.map(String).includes(campaignToken)
+          const raw = typeof row.campaign_ids === 'string' ? row.campaign_ids : ''
+          return raw.split(',').map((value: string) => value.trim()).filter(Boolean).includes(campaignToken)
+        })
+        .map((row: any) => ({
+          value: Number(row.adjustment_value),
+          adjustmentType: row.adjustment_type,
+          createdAt: row.created_at,
+          successCount: Number(row.success_count) || 0,
+          failureCount: Number(row.failure_count) || 0,
+        }))
+
+      if (historyCacheKey && history.length > 0) {
+        try {
+          const redis = getRedisClient()
+          if (redis) {
+            await redis.setex(historyCacheKey, CPC_HISTORY_CACHE_TTL, JSON.stringify(history))
+          }
+        } catch {
+          // ignore cache errors
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       campaignId: String(campaignIdNum),
       biddingStrategyType: derivedBiddingStrategyType,
       currency,
       currentCpc,
+      history,
     })
   } catch (error: any) {
     console.error('获取Campaign CPC配置失败:', error)
     return NextResponse.json({ error: error.message || '获取Campaign CPC配置失败' }, { status: 500 })
   }
 }
+const CPC_HISTORY_CACHE_TTL = 900

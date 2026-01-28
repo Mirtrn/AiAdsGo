@@ -528,6 +528,7 @@ export const TABLES: TableDef[] = [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
       { name: 'offer_id', type: 'INTEGER', notNull: true, references: { table: 'offers', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'campaign_id', type: 'INTEGER' },
       { name: 'adjustment_type', type: 'TEXT', notNull: true },
       { name: 'adjustment_value', type: 'REAL', notNull: true },
       { name: 'affected_campaign_count', type: 'INTEGER', notNull: true },
