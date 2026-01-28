@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -72,6 +72,7 @@ export default function AdminUrlSwapPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const filterKeyRef = useRef<string>('');
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -135,7 +136,16 @@ export default function AdminUrlSwapPage() {
     }
 
     setFilteredTasks(result);
-    setCurrentPage(1);
+
+    const filterKey = JSON.stringify({ searchQuery, statusFilter });
+    const filtersChanged = filterKeyRef.current !== filterKey;
+    filterKeyRef.current = filterKey;
+
+    const totalPages = Math.max(1, Math.ceil(result.length / pageSize));
+    setCurrentPage((prev) => {
+      const nextPage = filtersChanged ? 1 : prev;
+      return nextPage > totalPages ? totalPages : nextPage;
+    });
   };
 
   const formatDateTime = (dateValue: string | null): string => {

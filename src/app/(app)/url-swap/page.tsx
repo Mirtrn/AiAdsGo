@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,6 +79,7 @@ export default function UrlSwapPage() {
   type SortDirection = 'asc' | 'desc' | null;
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const filterKeyRef = useRef<string>('');
 
   useEffect(() => {
     loadData();
@@ -198,7 +199,16 @@ export default function UrlSwapPage() {
     }
 
     setFilteredTasks(result);
-    setCurrentPage(1);
+
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection });
+    const filtersChanged = filterKeyRef.current !== filterKey;
+    filterKeyRef.current = filterKey;
+
+    const totalPages = Math.max(1, Math.ceil(result.length / pageSize));
+    setCurrentPage((prev) => {
+      const nextPage = filtersChanged ? 1 : prev;
+      return nextPage > totalPages ? totalPages : nextPage;
+    });
   };
 
   const formatDate = (dateValue: string | null): string => {

@@ -100,6 +100,7 @@ export default function OffersPage() {
   // P2-5: 排序状态
   const [sortBy, setSortBy] = useState<string>('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const filterKeyRef = useRef<string>('')
 
   // 多选和批量删除状态
   const [selectedOfferIds, setSelectedOfferIds] = useState<Set<number>>(new Set())
@@ -300,9 +301,14 @@ export default function OffersPage() {
 
     setFilteredOffers(filtered)
 
-    // 重置到第一页当筛选条件改变时（使用usePagination的setPage）
-    setPage(1)
-  }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder, setPage])
+    const filterKey = JSON.stringify({ searchQuery, countryFilter, statusFilter, sortBy, sortOrder })
+    const filtersChanged = filterKeyRef.current !== filterKey
+    filterKeyRef.current = filterKey
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+    const nextPage = filtersChanged ? 1 : currentPage
+    setPage(nextPage > totalPages ? totalPages : nextPage)
+  }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder, pageSize, currentPage, setPage])
 
   // P2-5: 排序处理函数
   const handleSort = (field: string) => {

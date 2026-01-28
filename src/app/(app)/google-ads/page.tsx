@@ -248,7 +248,6 @@ export default function GoogleAdsPage() {
         }))
 
         setAccounts(enrichedAccounts)
-        setCurrentPage(1) // 重置分页
         setIsCached(data.data.cached || false)
 
         // 获取最新同步时间
@@ -323,7 +322,6 @@ export default function GoogleAdsPage() {
         }))
 
         setAccounts(enrichedAccounts)
-        setCurrentPage(1) // 重置分页
         setIsCached(data.data.cached || false)
 
         // 获取最新同步时间
@@ -461,6 +459,13 @@ export default function GoogleAdsPage() {
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = startIndex + pageSize
   const paginatedAccounts = sortedAccounts.slice(startIndex, endIndex)
+
+  useEffect(() => {
+    const safeTotalPages = Math.max(1, totalPages || 1)
+    if (currentPage > safeTotalPages) {
+      setCurrentPage(safeTotalPages)
+    }
+  }, [currentPage, totalPages])
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {

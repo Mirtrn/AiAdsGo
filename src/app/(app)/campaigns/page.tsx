@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showSuccess, showError, showConfirm } from '@/lib/toast-utils'
 import {
@@ -121,6 +121,7 @@ export default function CampaignsPage() {
   type SortDirection = 'asc' | 'desc' | null
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const filterKeyRef = useRef<string>('')
 
   // Trend data states
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
@@ -284,8 +285,17 @@ export default function CampaignsPage() {
     }
 
     setFilteredCampaigns(result)
-    setCurrentPage(1) // Reset to first page when filters change
-  }, [campaigns, searchQuery, statusFilter, sortField, sortDirection])
+
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection })
+    const filtersChanged = filterKeyRef.current !== filterKey
+    filterKeyRef.current = filterKey
+
+    const totalPages = Math.max(1, Math.ceil(result.length / pageSize))
+    setCurrentPage((prev) => {
+      const nextPage = filtersChanged ? 1 : prev
+      return nextPage > totalPages ? totalPages : nextPage
+    })
+  }, [campaigns, searchQuery, statusFilter, sortField, sortDirection, pageSize])
 
   const fetchCampaigns = async (currencyOverride?: string) => {
     try {
