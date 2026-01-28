@@ -109,14 +109,14 @@ export default function TaskDetailPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || '停止任务失败');
+        throw new Error(error.message || '暂停任务失败');
       }
 
-      toast.success('任务已停止');
+      toast.success('任务已暂停');
       await loadTaskDetails();
     } catch (error: any) {
-      console.error('停止任务失败:', error);
-      toast.error(error.message || '停止任务失败');
+      console.error('暂停任务失败:', error);
+      toast.error(error.message || '暂停任务失败');
     } finally {
       setActionLoading(false);
     }
@@ -148,16 +148,16 @@ export default function TaskDetailPage() {
     const variants: Record<string, any> = {
       running: 'default',
       pending: 'secondary',
-      paused: 'destructive',
-      stopped: 'outline',
+      paused: 'secondary',
+      stopped: 'secondary',
       completed: 'success',
     };
 
     const labels: Record<string, string> = {
       running: '运行中',
       pending: '等待中',
-      paused: '已中止',
-      stopped: '已停止',
+      paused: '已暂停',
+      stopped: '已暂停',
       completed: '已完成',
     };
 
@@ -256,7 +256,7 @@ export default function TaskDetailPage() {
               {task.status === 'running' && (
                 <Button variant="outline" onClick={handleStopTask} disabled={actionLoading}>
                   <Square className="mr-2 h-4 w-4" />
-                  停止任务
+                  暂停任务
                 </Button>
               )}
               {(task.status === 'stopped' || task.status === 'paused') && (

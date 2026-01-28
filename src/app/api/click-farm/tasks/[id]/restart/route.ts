@@ -36,7 +36,7 @@ export async function POST(
       );
     }
 
-    // 如果是因为代理缺失而中止，需要检查代理是否已配置
+    // 如果是因为代理缺失而暂停，需要检查代理是否已配置
     if (task.pause_reason === 'no_proxy') {
       const db = await getDatabase();
       const offer = await db.queryOne<any>(`

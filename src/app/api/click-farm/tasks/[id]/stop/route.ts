@@ -1,4 +1,4 @@
-// POST /api/click-farm/tasks/[id]/stop - 停止任务
+// POST /api/click-farm/tasks/[id]/stop - 暂停任务
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClickFarmTaskById, stopClickFarmTask } from '@/lib/click-farm';
@@ -26,7 +26,7 @@ export async function POST(
 
     if (!['pending', 'running', 'paused'].includes(task.status)) {
       return NextResponse.json(
-        { error: 'invalid_status', message: '任务当前状态无法停止' },
+        { error: 'invalid_status', message: '任务当前状态无法暂停' },
         { status: 400 }
       );
     }
@@ -36,13 +36,13 @@ export async function POST(
     return NextResponse.json({
       success: true,
       data: updatedTask,
-      message: '任务已停止'
+      message: '任务已暂停'
     });
 
   } catch (error) {
-    console.error('停止任务失败:', error);
+    console.error('暂停任务失败:', error);
     return NextResponse.json(
-      { error: 'server_error', message: '停止任务失败' },
+      { error: 'server_error', message: '暂停任务失败' },
       { status: 500 }
     );
   }

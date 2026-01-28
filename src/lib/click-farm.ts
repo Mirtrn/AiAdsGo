@@ -467,7 +467,7 @@ export async function deleteClickFarmTask(
 }
 
 /**
- * 停止任务
+ * 暂停任务（手动）
  */
 export async function stopClickFarmTask(
   id: number | string,
@@ -507,7 +507,7 @@ export async function restartClickFarmTask(
 }
 
 /**
- * 中止任务（代理缺失）
+ * 暂停任务（代理缺失）
  */
 export async function pauseClickFarmTask(
   id: number | string,

@@ -125,13 +125,13 @@ export default function UrlSwapTaskDetailPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '启用任务失败');
+        throw new Error(data.error || '恢复任务失败');
       }
 
-      toast.success('任务已启用');
+      toast.success('任务已恢复');
       await loadTask();
     } catch (error: any) {
-      toast.error(error.message || '启用任务失败');
+      toast.error(error.message || '恢复任务失败');
     } finally {
       setActionLoading(null);
     }
@@ -139,9 +139,9 @@ export default function UrlSwapTaskDetailPage() {
 
   const getStatusBadge = (status: string) => {
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
-      enabled: { label: '启用', variant: 'default', className: 'bg-green-600' },
+      enabled: { label: '运行中', variant: 'default', className: 'bg-green-600' },
       disabled: { label: '已暂停', variant: 'secondary', className: 'bg-yellow-100 text-yellow-700' },
-      error: { label: '错误', variant: 'destructive', className: '' },
+      error: { label: '异常', variant: 'destructive', className: '' },
       completed: { label: '已完成', variant: 'default', className: 'bg-blue-600' },
     };
     const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
@@ -219,7 +219,7 @@ export default function UrlSwapTaskDetailPage() {
                   className="flex items-center gap-2"
                 >
                   <Play className="w-4 h-4" />
-                  启用
+                    恢复
                 </Button>
               )}
               <Button

@@ -10,7 +10,7 @@ const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
  * 通知类型
  */
 export type ClickFarmNotificationType =
-  | 'task_paused'      // 任务已中止
+  | 'task_paused'      // 任务已暂停
   | 'task_completed'   // 任务已完成
   | 'task_resumed';    // 任务已恢复
 
@@ -55,7 +55,7 @@ export async function logClickFarmEvent(
 }
 
 /**
- * 任务中止通知
+ * 任务暂停通知
  */
 export async function notifyTaskPaused(
   userId: number,
@@ -67,8 +67,8 @@ export async function notifyTaskPaused(
     userId,
     taskId,
     'task_paused',
-    '补点击任务已中止',
-    `任务 ${taskId} 因 ${reason} 被中止：${message}`
+    '补点击任务已暂停',
+    `任务 ${taskId} 因 ${reason} 被暂停：${message}`
   );
 }
 
@@ -142,8 +142,8 @@ export async function getUserNotifications(userId: number): Promise<ClickFarmNot
         id: `${task.id}-paused`,
         type: 'task_paused' as ClickFarmNotificationType,
         task_id: task.id,
-        title: '任务已中止',
-        message: task.pause_message || '任务已被中止',
+        title: '任务已暂停',
+        message: task.pause_message || '任务已被暂停',
         created_at: task.paused_at,
         read: false,
       };

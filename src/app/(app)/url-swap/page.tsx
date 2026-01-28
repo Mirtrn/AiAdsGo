@@ -275,13 +275,13 @@ export default function UrlSwapPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || '启用任务失败');
+        throw new Error(data.error || '恢复任务失败');
       }
 
-      toast.success('任务已启用');
+      toast.success('任务已恢复');
       await loadData();
     } catch (error: any) {
-      toast.error(error.message || '启用任务失败');
+      toast.error(error.message || '恢复任务失败');
     } finally {
       setActionLoading(null);
     }
@@ -314,9 +314,9 @@ export default function UrlSwapPage() {
 
   const getStatusBadge = (status: string) => {
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
-      enabled: { label: '启用', variant: 'default', className: 'bg-green-600' },
+      enabled: { label: '运行中', variant: 'default', className: 'bg-green-600' },
       disabled: { label: '已暂停', variant: 'secondary', className: 'bg-yellow-100 text-yellow-700' },
-      error: { label: '错误', variant: 'destructive', className: '' },
+      error: { label: '异常', variant: 'destructive', className: '' },
       completed: { label: '已完成', variant: 'default', className: 'bg-blue-600' },
     };
     const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
@@ -425,7 +425,7 @@ export default function UrlSwapPage() {
               <CardContent className="pt-0">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-medium text-gray-600">已启用</p>
+                    <p className="text-xs font-medium text-gray-600">运行中</p>
                     <p className="text-xl font-bold text-green-600 mt-1">
                       {stats.active_tasks}
                     </p>
@@ -508,9 +508,9 @@ export default function UrlSwapPage() {
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="all">所有状态</option>
-                <option value="enabled">已启用</option>
+                <option value="enabled">运行中</option>
                 <option value="disabled">已暂停</option>
-                <option value="error">错误</option>
+                <option value="error">异常</option>
                 <option value="completed">已完成</option>
               </select>
             </div>
@@ -646,7 +646,7 @@ export default function UrlSwapPage() {
                               onClick={() => handleEnableTask(task.id)}
                               disabled={actionLoading === task.id}
                               className="text-green-600"
-                              title="启用任务"
+                              title="恢复任务"
                             >
                               <Play className="w-4 h-4" />
                             </Button>

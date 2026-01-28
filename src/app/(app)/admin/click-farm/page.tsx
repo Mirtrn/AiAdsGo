@@ -242,7 +242,7 @@ export default function AdminClickFarmPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                 <div className="text-center">
                   <div className="text-lg font-bold text-blue-600">{stats.taskStatusDistribution.pending}</div>
                   <div className="text-xs text-gray-500">等待开始</div>
@@ -252,12 +252,10 @@ export default function AdminClickFarmPage() {
                   <div className="text-xs text-gray-500">运行中</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-lg font-bold text-yellow-600">{stats.taskStatusDistribution.paused}</div>
-                  <div className="text-xs text-gray-500">已中止</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold text-gray-600">{stats.taskStatusDistribution.stopped}</div>
-                  <div className="text-xs text-gray-500">已停止</div>
+                  <div className="text-lg font-bold text-yellow-600">
+                    {stats.taskStatusDistribution.paused + stats.taskStatusDistribution.stopped}
+                  </div>
+                  <div className="text-xs text-gray-500">已暂停</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-purple-600">{stats.taskStatusDistribution.completed}</div>

@@ -136,7 +136,7 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     await pauseClickFarmTask(
       task.id,
       'offer_deleted',
-      `关联的Offer (ID: ${task.offer_id}) 已被删除，自动停止任务`
+      `关联的Offer (ID: ${task.offer_id}) 已被删除，自动暂停任务`
     );
     await notifyTaskPaused(task.user_id, task.id, 'offer_deleted', '您关联的Offer已被删除');
     return { taskId, status: 'paused', message: 'Offer已删除，任务已暂停' };

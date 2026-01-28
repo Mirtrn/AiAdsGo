@@ -131,7 +131,11 @@ export default function ClickFarmPage() {
 
     // Status filter
     if (statusFilter !== 'all') {
-      result = result.filter(t => t.status === statusFilter);
+      if (statusFilter === 'paused') {
+        result = result.filter(t => t.status === 'paused' || t.status === 'stopped');
+      } else {
+        result = result.filter(t => t.status === statusFilter);
+      }
     }
 
     // Sorting
@@ -140,7 +144,7 @@ export default function ClickFarmPage() {
         pending: 1,
         running: 2,
         paused: 3,
-        stopped: 4,
+        stopped: 3,
         completed: 5,
       };
 
@@ -279,13 +283,13 @@ export default function ClickFarmPage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || '停止任务失败');
+        throw new Error(error.message || '暂停任务失败');
       }
 
-      toast.success('任务已停止');
+      toast.success('任务已暂停');
       await loadData();
     } catch (error: any) {
-      toast.error(error.message || '停止任务失败');
+      toast.error(error.message || '暂停任务失败');
     } finally {
       setActionLoading(null);
     }
@@ -445,8 +449,8 @@ export default function ClickFarmPage() {
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
       running: { label: '运行中', variant: 'default', className: 'bg-green-600' },
       pending: { label: '等待中', variant: 'secondary', className: 'bg-blue-100 text-blue-700' },
-      paused: { label: '已中止', variant: 'destructive', className: '' },
-      stopped: { label: '已停止', variant: 'outline', className: '' },
+      paused: { label: '已暂停', variant: 'secondary', className: 'bg-yellow-100 text-yellow-700' },
+      stopped: { label: '已暂停', variant: 'secondary', className: 'bg-yellow-100 text-yellow-700' },
       completed: { label: '已完成', variant: 'default', className: 'bg-purple-600' },
     };
     const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
@@ -654,7 +658,7 @@ export default function ClickFarmPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                 <div className="text-center">
                   <div className="text-lg font-bold text-blue-600">{stats.taskStatusDistribution.pending}</div>
                   <div className="text-xs text-muted-foreground">等待开始</div>
@@ -664,12 +668,10 @@ export default function ClickFarmPage() {
                   <div className="text-xs text-muted-foreground">运行中</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-lg font-bold text-yellow-600">{stats.taskStatusDistribution.paused}</div>
-                  <div className="text-xs text-muted-foreground">已中止</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold text-gray-600">{stats.taskStatusDistribution.stopped}</div>
-                  <div className="text-xs text-muted-foreground">已停止</div>
+                  <div className="text-lg font-bold text-yellow-600">
+                    {stats.taskStatusDistribution.paused + stats.taskStatusDistribution.stopped}
+                  </div>
+                  <div className="text-xs text-muted-foreground">已暂停</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-purple-600">{stats.taskStatusDistribution.completed}</div>
@@ -705,8 +707,7 @@ export default function ClickFarmPage() {
                 <option value="all">所有状态</option>
                 <option value="running">运行中</option>
                 <option value="pending">等待中</option>
-                <option value="paused">已中止</option>
-                <option value="stopped">已停止</option>
+                <option value="paused">已暂停</option>
                 <option value="completed">已完成</option>
               </select>
             </div>
@@ -784,14 +785,7 @@ export default function ClickFarmPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-1">
-                          {getStatusBadge(task.status)}
-                          {task.status === 'paused' && task.pause_message && (
-                            <span className="text-xs text-red-600" title={task.pause_message}>
-                              {task.pause_message}
-                            </span>
-                          )}
-                        </div>
+                        {getStatusBadge(task.status)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -884,7 +878,7 @@ export default function ClickFarmPage() {
                               onClick={() => handleStopTask(task.id)}
                               disabled={actionLoading === task.id}
                               className="text-yellow-600"
-                              title="停止任务"
+                              title="暂停任务"
                             >
                               <Pause className="w-4 h-4" />
                             </Button>

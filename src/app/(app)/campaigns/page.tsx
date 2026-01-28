@@ -1650,7 +1650,7 @@ export default function CampaignsPage() {
                     id="offline-blacklist-offer"
                   />
                   <label htmlFor="offline-blacklist-offer" className="text-sm text-gray-700">
-                    同时拉黑该 Offer（品牌+国家组合），后续发布将被阻止
+                    同时拉黑该 Offer（品牌+国家组合）
                   </label>
                 </div>
                 <div className="flex items-start gap-2">
