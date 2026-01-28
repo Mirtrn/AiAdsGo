@@ -707,6 +707,33 @@ function calculateFileHash(content: string): string {
 }
 
 /**
+ * PostgreSQL: 对齐关键序列，避免因 seed 数据显式 id 导致的主键冲突
+ */
+async function alignPostgresSequences(): Promise<void> {
+  const db = await getDatabase()
+  if (db.type !== 'postgres') {
+    return
+  }
+
+  try {
+    await db.query(`
+      DO $$
+      BEGIN
+        IF to_regclass('public.prompt_versions') IS NOT NULL
+           AND to_regclass('public.prompt_versions_id_seq') IS NOT NULL THEN
+          PERFORM setval(
+            'prompt_versions_id_seq',
+            (SELECT COALESCE(MAX(id), 1) FROM prompt_versions)
+          );
+        END IF;
+      END $$;
+    `)
+  } catch (error) {
+    console.warn('⚠️ Failed to align PostgreSQL sequences:', error)
+  }
+}
+
+/**
  * 自动执行增量迁移（支持内容变更检测）
  *
  * 核心功能：
@@ -723,6 +750,9 @@ function calculateFileHash(content: string): string {
  */
 async function runPendingMigrations(): Promise<void> {
   const db = await getDatabase()
+
+  // PostgreSQL: 迁移前对齐序列，避免 prompt_versions 主键冲突
+  await alignPostgresSequences()
 
   // 🎯 根据数据库类型选择迁移目录
   const migrationsDir = db.type === 'postgres'
@@ -1003,21 +1033,26 @@ async function executeMigration(name: string, sql: string): Promise<void> {
     const rawSql = (db as any).getRawConnection()
     await rawSql.begin(async (tx: any) => {
       for (const stmt of statements) {
-        if (stmt.trim()) {
-          try {
-            await tx.unsafe(stmt)
-          } catch (error) {
-            // 忽略 "column already exists" 和 "duplicate key" 等幂等性错误
-            const errorMsg = error instanceof Error ? error.message : String(error)
-            if (
-              errorMsg.includes('already exists') ||
-              errorMsg.includes('duplicate key value violates unique constraint')
-            ) {
-              console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
-              // 不抛出异常，继续执行下一条语句
-            } else {
-              throw error
-            }
+        if (!stmt.trim()) {
+          continue
+        }
+
+        try {
+          // 使用 SAVEPOINT 避免“已忽略错误导致事务中断”
+          await tx.savepoint(async (sp: any) => {
+            await sp.unsafe(stmt)
+          })
+        } catch (error) {
+          // 忽略 "column already exists" 和 "duplicate key" 等幂等性错误
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          if (
+            errorMsg.includes('already exists') ||
+            errorMsg.includes('duplicate key value violates unique constraint')
+          ) {
+            console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
+            // 不抛出异常，继续执行下一条语句
+          } else {
+            throw error
           }
         }
       }

@@ -17785,3 +17785,8 @@ INSERT INTO migration_history (migration_name) VALUES
   ('139_ad_creative_generation_v4.34.pg.sql'),
   ('140_ad_creative_generation_v4.35.pg.sql')
 ON CONFLICT (migration_name) DO NOTHING;
+
+-- ==========================================
+-- Reset sequences after seed data
+-- ==========================================
+SELECT setval('prompt_versions_id_seq', (SELECT COALESCE(MAX(id), 1) FROM prompt_versions));
