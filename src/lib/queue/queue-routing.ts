@@ -2,19 +2,66 @@ import type { TaskType } from './types'
 import { isBackgroundTaskType } from './task-category'
 import { getBackgroundQueueManager, getQueueManager } from './unified-queue-manager'
 import type { UnifiedQueueManager } from './unified-queue-manager'
+import { logger } from '@/lib/structured-logger'
+
+const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
+
+function isEnvTrue(value?: string | null): boolean {
+  if (!value) return false
+  return TRUE_VALUES.has(value.toLowerCase())
+}
+
+let splitDecisionLogged = false
+let splitMisconfigLogged = false
+
+export function getQueueRoutingDiagnostics() {
+  const splitFlag = isEnvTrue(process.env.QUEUE_SPLIT_BACKGROUND)
+  const backgroundWorker = isEnvTrue(process.env.QUEUE_BACKGROUND_WORKER)
+  const redisUrlPresent = Boolean(process.env.REDIS_URL && process.env.REDIS_URL.trim())
+  const splitEnabled = splitFlag && redisUrlPresent
+
+  return {
+    splitFlag,
+    splitEnabled,
+    redisUrlPresent,
+    backgroundWorker,
+  }
+}
 
 export function isBackgroundQueueSplitEnabled(): boolean {
+  const diagnostics = getQueueRoutingDiagnostics()
+
+  if (!splitDecisionLogged) {
+    splitDecisionLogged = true
+    logger.info('queue_split_status', diagnostics)
+  }
+
+  if (diagnostics.splitFlag && !diagnostics.redisUrlPresent && !splitMisconfigLogged) {
+    splitMisconfigLogged = true
+    logger.error('queue_split_misconfig', {
+      message: 'QUEUE_SPLIT_BACKGROUND=true but REDIS_URL is missing in this process',
+      ...diagnostics,
+    })
+  }
+
   // 拆分队列依赖 Redis 做进程间共享；未配置 REDIS_URL 时退回单队列（避免内存队列跨进程丢任务）
-  if (!process.env.REDIS_URL) return false
-  const raw = process.env.QUEUE_SPLIT_BACKGROUND
-  if (!raw) return false
-  const value = raw.toLowerCase()
-  return value === '1' || value === 'true' || value === 'yes' || value === 'on'
+  return diagnostics.splitEnabled
 }
 
 export function getQueueManagerForTaskType(type: TaskType): UnifiedQueueManager {
-  if (isBackgroundTaskType(type) && isBackgroundQueueSplitEnabled()) {
-    return getBackgroundQueueManager()
+  if (isBackgroundTaskType(type)) {
+    if (isBackgroundQueueSplitEnabled()) {
+      return getBackgroundQueueManager()
+    }
+
+    const splitFlag = isEnvTrue(process.env.QUEUE_SPLIT_BACKGROUND)
+    if (splitFlag) {
+      logger.warn('queue_split_fallback_to_core', {
+        taskType: type,
+        ...getQueueRoutingDiagnostics(),
+      })
+    }
   }
+
   return getQueueManager()
 }

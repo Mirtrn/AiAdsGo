@@ -13,6 +13,9 @@ import { getBackgroundQueueManager } from './lib/queue/unified-queue-manager'
 import { registerBackgroundExecutors } from './lib/queue/executors/background-executors'
 import type { QueueConfig } from './lib/queue/types'
 import { getDatabase } from './lib/db'
+import { getQueueRoutingDiagnostics } from './lib/queue/queue-routing'
+import { logger } from './lib/structured-logger'
+import { setBackgroundWorkerHeartbeat, getBackgroundWorkerHeartbeatKey, getBackgroundWorkerHeartbeatTtlSeconds } from './lib/queue/background-worker-heartbeat'
 
 async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
   try {
@@ -33,6 +36,8 @@ async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
 }
 
 async function main() {
+  logger.info('background_worker_boot', getQueueRoutingDiagnostics())
+
   const queue = getBackgroundQueueManager({
     // worker 进程：不依赖 enqueue 自动 start，避免误触发全量执行器注册
     autoStartOnEnqueue: false,
@@ -44,12 +49,33 @@ async function main() {
   }
 
   await queue.initialize()
+  logger.info('queue_runtime_status', {
+    ...queue.getRuntimeInfo(),
+    ...getQueueRoutingDiagnostics(),
+  })
   registerBackgroundExecutors(queue)
   // 标记“执行器已注册”，避免后续 ensureStarted() 触发全量注册
   queue.registerAllExecutors()
 
   await queue.start()
   console.log('✅ Background queue worker started')
+
+  const heartbeatKey = getBackgroundWorkerHeartbeatKey()
+  const heartbeatTtl = getBackgroundWorkerHeartbeatTtlSeconds()
+  const sendHeartbeat = async () => {
+    const ok = await setBackgroundWorkerHeartbeat({
+      instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID,
+      pid: process.pid,
+      env: process.env.NODE_ENV || 'development',
+      ts: new Date().toISOString(),
+    })
+    if (!ok) {
+      logger.warn('background_worker_heartbeat_failed', { heartbeatKey })
+    }
+  }
+  await sendHeartbeat()
+  const heartbeatTimer = setInterval(sendHeartbeat, Math.max(1000, Math.floor((heartbeatTtl * 1000) / 3)))
+  heartbeatTimer.unref?.()
 
   // 可选：定期刷新DB配置（多实例环境下避免配置漂移）
   let lastConfigJson: string | null = dbConfig ? JSON.stringify(dbConfig) : null
@@ -66,6 +92,7 @@ async function main() {
     try {
       console.log(`⏹️ Background queue worker stopping (${signal})...`)
       clearInterval(refreshTimer)
+      clearInterval(heartbeatTimer)
       await queue.stop()
     } finally {
       process.exit(0)

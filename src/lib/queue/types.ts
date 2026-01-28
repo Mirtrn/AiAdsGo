@@ -165,6 +165,9 @@ export interface QueueConfig {
   // 代理配置
   proxyPool?: ProxyConfig[]      // 代理IP池
   proxyRotation?: boolean        // 是否自动轮换代理
+
+  // 队列实例标识（用于日志与诊断）
+  instanceName?: string
 }
 
 /**

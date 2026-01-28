@@ -19,6 +19,31 @@ import { executeAdCreativeGeneration } from './ad-creative-executor'
 import { executeCampaignPublish } from './campaign-publish-executor'
 import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
+import { logger } from '@/lib/structured-logger'
+
+const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
+
+function isEnvTrue(value?: string | null): boolean {
+  if (!value) return false
+  return TRUE_VALUES.has(value.toLowerCase())
+}
+
+function shouldRegisterBackgroundExecutors(): { allowed: boolean; reason: string } {
+  const splitFlag = isEnvTrue(process.env.QUEUE_SPLIT_BACKGROUND)
+  const isBackgroundWorker = isEnvTrue(process.env.QUEUE_BACKGROUND_WORKER)
+  const override = isEnvTrue(process.env.QUEUE_ALLOW_BACKGROUND_EXECUTORS_IN_WEB)
+
+  if (!splitFlag) {
+    return { allowed: true, reason: 'split_disabled' }
+  }
+  if (isBackgroundWorker) {
+    return { allowed: true, reason: 'background_worker' }
+  }
+  if (override) {
+    return { allowed: true, reason: 'override' }
+  }
+  return { allowed: false, reason: 'split_enabled_non_worker' }
+}
 
 /**
  * 注册所有任务执行器
@@ -60,11 +85,21 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
   // 🆕 注册 campaign-publish 执行器（异步Campaign发布，避免504超时）
   queue.registerExecutor('campaign-publish', executeCampaignPublish)
 
-  // 🆕 注册 click-farm 执行器（补点击任务，带代理和超时控制）
-  queue.registerExecutor('click-farm', createClickFarmExecutor())
+  const backgroundDecision = shouldRegisterBackgroundExecutors()
+  if (backgroundDecision.allowed) {
+    // 🆕 注册 click-farm 执行器（补点击任务，带代理和超时控制）
+    queue.registerExecutor('click-farm', createClickFarmExecutor())
 
-  // 🆕 注册 url-swap 执行器（换链接任务，监测和更新广告链接）
-  queue.registerExecutor('url-swap', executeUrlSwapTask)
+    // 🆕 注册 url-swap 执行器（换链接任务，监测和更新广告链接）
+    queue.registerExecutor('url-swap', executeUrlSwapTask)
+  } else {
+    logger.warn('queue_background_executors_skipped', {
+      reason: backgroundDecision.reason,
+      splitFlag: isEnvTrue(process.env.QUEUE_SPLIT_BACKGROUND),
+      backgroundWorker: isEnvTrue(process.env.QUEUE_BACKGROUND_WORKER),
+      override: isEnvTrue(process.env.QUEUE_ALLOW_BACKGROUND_EXECUTORS_IN_WEB),
+    })
+  }
 }
 
 /**

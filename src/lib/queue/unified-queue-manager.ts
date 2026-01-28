@@ -98,7 +98,8 @@ export class UnifiedQueueManager {
       redisUrl: config.redisUrl || process.env.REDIS_URL,
       redisKeyPrefix: config.redisKeyPrefix || defaultRedisKeyPrefix,
       proxyPool: config.proxyPool || [],
-      proxyRotation: config.proxyRotation !== false
+      proxyRotation: config.proxyRotation !== false,
+      instanceName: config.instanceName
     }
 
     // 初始化代理管理器
@@ -132,6 +133,28 @@ export class UnifiedQueueManager {
     }
   }
 
+  getRuntimeInfo(): {
+    instanceName: string
+    adapter: string
+    connected: boolean
+    redisUrlPresent: boolean
+    redisKeyPrefix?: string
+    autoStartOnEnqueue: boolean
+  } {
+    const adapterName = (this.adapter as any)?.constructor?.name || 'UnknownAdapter'
+    const connected = typeof this.adapter.isConnected === 'function'
+      ? this.adapter.isConnected()
+      : true
+    return {
+      instanceName: this.config.instanceName || 'queue',
+      adapter: adapterName,
+      connected,
+      redisUrlPresent: Boolean(this.config.redisUrl),
+      redisKeyPrefix: this.config.redisKeyPrefix,
+      autoStartOnEnqueue: this.config.autoStartOnEnqueue !== false,
+    }
+  }
+
   /**
    * 初始化队列（连接存储）
    * 只执行一次，后续调用直接返回
@@ -154,6 +177,7 @@ export class UnifiedQueueManager {
       try {
         await this.adapter.connect()
         console.log(`✅ 队列已初始化: ${this.adapter.constructor.name}`)
+        logger.info('queue_runtime_info', this.getRuntimeInfo())
         this.initialized = true
       } catch (error: any) {
         console.error('❌ Redis连接失败，回退到内存队列:', error.message)
@@ -162,6 +186,11 @@ export class UnifiedQueueManager {
         this.adapter = new MemoryQueueAdapter()
         await this.adapter.connect()
         console.log('✅ 内存队列已启用')
+        logger.warn('queue_runtime_info', {
+          ...this.getRuntimeInfo(),
+          fallback: 'memory',
+          error: error?.message || String(error),
+        })
         this.initialized = true
       }
     })()
@@ -1450,7 +1479,10 @@ declare global {
 export function getQueueManager(config?: Partial<QueueConfig>): UnifiedQueueManager {
   if (!globalThis.__queueManager) {
     console.log('🚀 创建统一队列管理器单例...')
-    globalThis.__queueManager = new UnifiedQueueManager(config)
+    globalThis.__queueManager = new UnifiedQueueManager({
+      instanceName: 'core',
+      ...config,
+    })
   }
   return globalThis.__queueManager
 }
@@ -1468,6 +1500,7 @@ export function getBackgroundQueueManager(config?: Partial<QueueConfig>): Unifie
       `autoads:${process.env.NODE_ENV || 'development'}:queue:bg:`
 
     globalThis.__backgroundQueueManager = new UnifiedQueueManager({
+      instanceName: 'background',
       ...config,
       // 默认使用独立前缀（可用环境变量覆盖）
       redisKeyPrefix: config?.redisKeyPrefix || defaultBackgroundRedisKeyPrefix,

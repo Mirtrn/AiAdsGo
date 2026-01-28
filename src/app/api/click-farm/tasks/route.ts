@@ -9,6 +9,9 @@ import { getDatabase } from '@/lib/db';
 import { getTimezoneByCountry, getDateInTimezone } from '@/lib/timezone-utils';
 import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
 import { getAllProxyUrls } from '@/lib/settings';
+import { getQueueManagerForTaskType } from '@/lib/queue';
+import { getQueueRoutingDiagnostics } from '@/lib/queue/queue-routing';
+import { isBackgroundWorkerAlive, getBackgroundWorkerHeartbeatKey } from '@/lib/queue/background-worker-heartbeat';
 
 /**
  * POST - 创建补点击任务
@@ -211,8 +214,39 @@ export async function POST(request: NextRequest) {
 
     if (scheduledDate === todayInTaskTimezone) {
       const triggerMode = (process.env.CLICK_FARM_TRIGGER_MODE || 'async').toLowerCase();
+      const queueManager = getQueueManagerForTaskType('click-farm');
+      const queueInfo = queueManager.getRuntimeInfo();
+      const routingDiagnostics = getQueueRoutingDiagnostics();
+      const redisReady = queueInfo.adapter === 'RedisQueueAdapter' && queueInfo.connected;
+      const heartbeatKey = getBackgroundWorkerHeartbeatKey();
+      const backgroundAlive = routingDiagnostics.splitEnabled
+        ? await isBackgroundWorkerAlive()
+        : true;
 
-      if (triggerMode === 'scheduler' || triggerMode === 'disabled') {
+      if (!redisReady) {
+        triggerResult = {
+          status: 'deferred',
+          mode: 'queue_unavailable',
+          reason: 'redis_unavailable'
+        };
+        console.warn('[CreateTask] 队列未就绪，跳过立即调度:', {
+          taskId: task.id,
+          queue: queueInfo,
+          routing: routingDiagnostics,
+        });
+      } else if (!backgroundAlive) {
+        triggerResult = {
+          status: 'deferred',
+          mode: 'worker_unavailable',
+          reason: 'background_worker_offline',
+        };
+        console.warn('[CreateTask] 背景Worker心跳缺失，跳过立即调度:', {
+          taskId: task.id,
+          heartbeatKey,
+          queue: queueInfo,
+          routing: routingDiagnostics,
+        });
+      } else if (triggerMode === 'scheduler' || triggerMode === 'disabled') {
         triggerResult = { status: 'deferred', mode: triggerMode };
         console.log(`[CreateTask] 任务 ${task.id} 开始日期是今天，跳过立即调度 (mode=${triggerMode})`);
       } else {
@@ -241,6 +275,10 @@ export async function POST(request: NextRequest) {
         trigger: triggerResult,
         message: triggerResult?.status === 'queued'
           ? `补点击任务创建成功，已加入 ${triggerResult.clickCount} 个点击任务`
+          : triggerResult?.mode === 'queue_unavailable'
+            ? '补点击任务创建成功，但队列未就绪，调度将由后台稍后处理'
+            : triggerResult?.mode === 'worker_unavailable'
+              ? '补点击任务创建成功，但后台Worker未就绪，调度将由后台稍后处理'
           : triggerResult?.status === 'deferred'
             ? '补点击任务创建成功，调度将在后台触发'
           : '补点击任务创建成功'
