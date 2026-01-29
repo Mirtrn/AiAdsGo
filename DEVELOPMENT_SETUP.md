@@ -79,7 +79,7 @@ npx playwright install chromium --with-deps
 DEFAULT_ADMIN_PASSWORD="your-strong-password" npm run db:init
 
 # 5. 配置环境变量
-cp .env.example .env.local
+cp .env.examplmoxe .env.local
 # 编辑 .env.local，至少设置以下两项：
 # - JWT_SECRET（64字符十六进制）
 #   生成方法: openssl rand -hex 32
