@@ -86,6 +86,27 @@ export interface UrlSwapTask {
   // === 时间戳 ===
   created_at: string;
   updated_at: string;
+
+  // === 多目标支持（可选） ===
+  targets?: UrlSwapTaskTarget[];
+}
+
+/**
+ * 换链接任务目标（多Campaign/多账号）
+ */
+export interface UrlSwapTaskTarget {
+  id: string;
+  task_id: string;
+  offer_id: number;
+  google_ads_account_id: number;
+  google_customer_id: string;
+  google_campaign_id: string;
+  status: 'active' | 'paused' | 'removed' | 'invalid';
+  consecutive_failures: number;
+  last_success_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /**

@@ -20,8 +20,15 @@ import type {
   SwapHistoryEntry,
   UrlSwapTaskStats,
   UrlSwapGlobalStats,
-  UrlSwapTaskListItem
+  UrlSwapTaskListItem,
+  UrlSwapTaskTarget
 } from './url-swap-types'
+
+type UrlSwapTargetInput = {
+  google_ads_account_id: number
+  google_customer_id: string
+  google_campaign_id: string
+}
 
 /**
  * 创建换链接任务
@@ -81,14 +88,39 @@ export async function createUrlSwapTask(
         finalUrlSuffix: offer.final_url_suffix || null,
       }
 
-  // 5. 获取关联的Campaign
-  const campaign = await getCampaignByOfferId(input.offer_id, userId)
-  const googleCustomerId = normalizeNullableString(input.google_customer_id) ?? campaign?.customer_id ?? null
-  const googleCampaignId = normalizeNullableString(input.google_campaign_id) ?? campaign?.campaign_id ?? null
+  // 5. 获取关联的Campaign目标（支持多账号）
+  const normalizedCustomerId = normalizeNullableString(input.google_customer_id)
+  const normalizedCampaignId = normalizeNullableString(input.google_campaign_id)
 
-  if (!googleCustomerId || !googleCampaignId) {
+  let targets = await getOfferCampaignTargets(input.offer_id, userId)
+
+  if (normalizedCampaignId) {
+    targets = targets.filter((t) =>
+      t.google_campaign_id === normalizedCampaignId &&
+      (!normalizedCustomerId || t.google_customer_id === normalizedCustomerId)
+    )
+  } else if (normalizedCustomerId) {
+    targets = targets.filter((t) => t.google_customer_id === normalizedCustomerId)
+  }
+
+  if (targets.length === 0 && normalizedCustomerId && normalizedCampaignId) {
+    const accountId = await findGoogleAdsAccountIdByCustomerId(normalizedCustomerId, userId)
+    if (accountId) {
+      targets = [{
+        google_ads_account_id: accountId,
+        google_customer_id: normalizedCustomerId,
+        google_campaign_id: normalizedCampaignId
+      }]
+    }
+  }
+
+  if (targets.length === 0) {
     throw new Error('缺少 Customer ID 或 Campaign ID，无法创建换链任务（请先完成Campaign发布并关联到Offer）')
   }
+
+  const primaryTarget = targets[0]
+  const googleCustomerId = primaryTarget.google_customer_id
+  const googleCampaignId = primaryTarget.google_campaign_id
 
   // 6. 生成任务ID
   const taskId = crypto.randomUUID().toLowerCase()
@@ -135,9 +167,16 @@ export async function createUrlSwapTask(
     now
   ])
 
+  await ensureUrlSwapTaskTargets(taskId, input.offer_id, userId, targets)
+
   console.log(`[url-swap] 创建换链接任务成功: ${taskId}`)
 
-  return (await getUrlSwapTaskById(taskId, userId))!
+  const task = await getUrlSwapTaskById(taskId, userId)
+  if (!task) {
+    throw new Error('任务创建失败')
+  }
+  task.targets = await getUrlSwapTaskTargets(taskId, userId)
+  return task
 }
 
 /**
@@ -190,6 +229,350 @@ export async function getUrlSwapTaskByOfferId(
   if (!task) return null
 
   return parseUrlSwapTask(task)
+}
+
+/**
+ * 获取任务的目标列表（多Campaign/多账号）
+ */
+export async function getUrlSwapTaskTargets(
+  taskId: string,
+  userId?: number,
+  options?: { status?: UrlSwapTaskTarget['status'] | Array<UrlSwapTaskTarget['status']> }
+): Promise<UrlSwapTaskTarget[]> {
+  const db = await getDatabase()
+
+  const params: any[] = []
+  let userJoin = ''
+  if (userId && userId > 0) {
+    userJoin = 'INNER JOIN url_swap_tasks t ON t.id = ust.task_id AND t.user_id = ?'
+    params.push(userId)
+  }
+
+  const statusList = options?.status
+    ? (Array.isArray(options.status) ? options.status : [options.status])
+    : null
+
+  params.push(taskId)
+
+  let statusClause = ''
+  if (statusList && statusList.length > 0) {
+    statusClause = `AND ust.status IN (${statusList.map(() => '?').join(', ')})`
+    params.push(...statusList)
+  }
+
+  const rows = await db.query<any>(`
+    SELECT ust.*
+    FROM url_swap_task_targets ust
+    ${userJoin}
+    WHERE ust.task_id = ?
+    ${statusClause}
+    ORDER BY ust.created_at DESC
+  `, params)
+
+  return rows.map((row: any) => ({
+    id: row.id,
+    task_id: row.task_id,
+    offer_id: row.offer_id,
+    google_ads_account_id: row.google_ads_account_id,
+    google_customer_id: row.google_customer_id,
+    google_campaign_id: row.google_campaign_id,
+    status: row.status || 'active',
+    consecutive_failures: row.consecutive_failures || 0,
+    last_success_at: row.last_success_at,
+    last_error: row.last_error,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }))
+}
+
+/**
+ * 为任务批量添加目标（多Campaign/多账号）
+ */
+export async function ensureUrlSwapTaskTargets(
+  taskId: string,
+  offerId: number,
+  userId: number,
+  targets: UrlSwapTargetInput[]
+): Promise<number> {
+  const db = await getDatabase()
+  if (!targets || targets.length === 0) return 0
+
+  const now = new Date().toISOString()
+  let inserted = 0
+
+  for (const target of targets) {
+    if (!target.google_ads_account_id || !target.google_customer_id || !target.google_campaign_id) {
+      continue
+    }
+    if (db.type === 'postgres') {
+      const result = await db.exec(`
+        INSERT INTO url_swap_task_targets (
+          task_id, offer_id, google_ads_account_id, google_customer_id, google_campaign_id,
+          status, consecutive_failures, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)
+        ON CONFLICT (task_id, google_ads_account_id, google_campaign_id) DO NOTHING
+      `, [taskId, offerId, target.google_ads_account_id, target.google_customer_id, target.google_campaign_id, now, now])
+      if ((result as any)?.changes) inserted += Number((result as any).changes) || 0
+    } else {
+      const result = await db.exec(`
+        INSERT OR IGNORE INTO url_swap_task_targets (
+          task_id, offer_id, google_ads_account_id, google_customer_id, google_campaign_id,
+          status, consecutive_failures, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)
+      `, [taskId, offerId, target.google_ads_account_id, target.google_customer_id, target.google_campaign_id, now, now])
+      if ((result as any)?.changes) inserted += Number((result as any).changes) || 0
+    }
+  }
+
+  return inserted
+}
+
+/**
+ * 发布新Campaign后自动追加换链目标
+ */
+export async function addUrlSwapTargetForOfferCampaign(params: {
+  offerId: number
+  userId: number
+  googleAdsAccountId: number
+  googleCustomerId: string
+  googleCampaignId: string
+}): Promise<boolean> {
+  const task = await getUrlSwapTaskByOfferId(params.offerId, params.userId)
+  if (!task || task.is_deleted || task.status === 'completed') {
+    return false
+  }
+
+  await ensureUrlSwapTaskTargets(task.id, params.offerId, params.userId, [{
+    google_ads_account_id: params.googleAdsAccountId,
+    google_customer_id: params.googleCustomerId,
+    google_campaign_id: params.googleCampaignId
+  }])
+
+  if (!task.google_customer_id || !task.google_campaign_id) {
+    const db = await getDatabase()
+    await db.exec(`
+      UPDATE url_swap_tasks
+      SET google_customer_id = ?, google_campaign_id = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `, [params.googleCustomerId, params.googleCampaignId, new Date().toISOString(), task.id, params.userId])
+  }
+
+  return true
+}
+
+/**
+ * 刷新任务目标（回填历史Campaign）
+ */
+export async function refreshUrlSwapTaskTargets(params: {
+  taskId: string
+  userId: number
+  googleAdsAccountId?: number
+}): Promise<{ inserted: number; totalTargets: number; candidateTargets: number }> {
+  const task = await getUrlSwapTaskById(params.taskId, params.userId)
+  if (!task) {
+    throw new Error('任务不存在')
+  }
+
+  let targets = await getOfferCampaignTargets(task.offer_id, params.userId)
+  if (params.googleAdsAccountId) {
+    targets = targets.filter((t) => t.google_ads_account_id === params.googleAdsAccountId)
+  }
+
+  if (targets.length === 0 && task.google_customer_id && task.google_campaign_id) {
+    const accountId = await findGoogleAdsAccountIdByCustomerId(task.google_customer_id, params.userId)
+    if (accountId) {
+      targets = [{
+        google_ads_account_id: accountId,
+        google_customer_id: task.google_customer_id,
+        google_campaign_id: task.google_campaign_id
+      }]
+    }
+  }
+
+  const inserted = await ensureUrlSwapTaskTargets(task.id, task.offer_id, params.userId, targets)
+  const totalTargets = (await getUrlSwapTaskTargets(task.id, params.userId)).length
+
+  return {
+    inserted,
+    totalTargets,
+    candidateTargets: targets.length
+  }
+}
+
+/**
+ * 记录目标成功
+ */
+export async function markUrlSwapTargetSuccess(targetId: string): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  await db.exec(`
+    UPDATE url_swap_task_targets
+    SET
+      consecutive_failures = 0,
+      last_error = NULL,
+      last_success_at = ?,
+      status = 'active',
+      updated_at = ?
+    WHERE id = ?
+  `, [now, now, targetId])
+}
+
+/**
+ * 记录目标失败
+ */
+const URL_SWAP_TARGET_ERROR_THRESHOLD = 3
+
+export async function markUrlSwapTargetFailure(targetId: string, errorMessage: string): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const row = await db.queryOne<{ consecutive_failures: number }>(`
+    SELECT consecutive_failures
+    FROM url_swap_task_targets
+    WHERE id = ?
+  `, [targetId])
+  const currentFailures = row?.consecutive_failures || 0
+  const newFailures = currentFailures + 1
+  const shouldPause = newFailures >= URL_SWAP_TARGET_ERROR_THRESHOLD
+
+  await db.exec(`
+    UPDATE url_swap_task_targets
+    SET
+      consecutive_failures = ?,
+      last_error = ?,
+      status = ?,
+      updated_at = ?
+    WHERE id = ?
+  `, [newFailures, errorMessage, shouldPause ? 'paused' : 'active', now, targetId])
+}
+
+/**
+ * 批量暂停任务目标（按task_id）
+ */
+export async function pauseUrlSwapTargetsByTaskId(taskId: string): Promise<number> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'paused',
+        updated_at = ?
+    WHERE task_id = ?
+      AND status NOT IN ('removed', 'invalid')
+  `, [now, taskId])
+  return (result as any)?.changes ?? 0
+}
+
+/**
+ * 批量暂停任务目标（按offer_id）
+ */
+export async function pauseUrlSwapTargetsByOfferId(offerId: number): Promise<number> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'paused',
+        updated_at = ?
+    WHERE offer_id = ?
+      AND status NOT IN ('removed', 'invalid')
+  `, [now, offerId])
+  return (result as any)?.changes ?? 0
+}
+
+/**
+ * 批量暂停任务目标（按user_id集合）
+ */
+export async function pauseUrlSwapTargetsByUserIds(userIds: number[]): Promise<number> {
+  if (!userIds || userIds.length === 0) return 0
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const placeholders = userIds.map(() => '?').join(', ')
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'paused',
+        updated_at = ?
+    WHERE status NOT IN ('removed', 'invalid')
+      AND task_id IN (
+        SELECT id FROM url_swap_tasks
+        WHERE user_id IN (${placeholders})
+          AND ${isDeletedCondition}
+      )
+  `, [now, ...userIds])
+  return (result as any)?.changes ?? 0
+}
+
+/**
+ * 将指定Campaign对应的目标标记为已移除
+ */
+export async function markUrlSwapTargetsRemovedByCampaignId(
+  campaignId: number,
+  userId: number
+): Promise<number> {
+  const db = await getDatabase()
+  const row = await db.queryOne<{
+    offer_id: number
+    google_ads_account_id: number
+    google_campaign_id: string | null
+  }>(`
+    SELECT
+      offer_id,
+      google_ads_account_id,
+      COALESCE(NULLIF(google_campaign_id, ''), NULLIF(campaign_id, '')) AS google_campaign_id
+    FROM campaigns
+    WHERE id = ? AND user_id = ?
+    LIMIT 1
+  `, [campaignId, userId])
+
+  if (!row?.offer_id || !row?.google_ads_account_id || !row?.google_campaign_id) {
+    return 0
+  }
+
+  const now = new Date().toISOString()
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'removed',
+        updated_at = ?
+    WHERE offer_id = ?
+      AND google_ads_account_id = ?
+      AND google_campaign_id = ?
+  `, [now, row.offer_id, row.google_ads_account_id, row.google_campaign_id])
+  return (result as any)?.changes ?? 0
+}
+
+/**
+ * 将指定Offer+Ads账号下的目标标记为已移除
+ */
+export async function markUrlSwapTargetsRemovedByOfferAccount(
+  offerId: number,
+  googleAdsAccountId: number
+): Promise<number> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'removed',
+        updated_at = ?
+    WHERE offer_id = ?
+      AND google_ads_account_id = ?
+  `, [now, offerId, googleAdsAccountId])
+  return (result as any)?.changes ?? 0
+}
+
+/**
+ * 将指定Offer下的目标标记为已移除
+ */
+export async function markUrlSwapTargetsRemovedByOfferId(offerId: number): Promise<number> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const result = await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'removed',
+        updated_at = ?
+    WHERE offer_id = ?
+  `, [now, offerId])
+  return (result as any)?.changes ?? 0
 }
 
 /**
@@ -390,6 +773,13 @@ export async function disableUrlSwapTask(id: string, userId: number): Promise<vo
     WHERE id = ? AND user_id = ?
   `, [now, id, userId])
 
+  // 同步暂停所有目标（除已移除/无效）
+  await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'paused', updated_at = ?
+    WHERE task_id = ? AND status NOT IN ('removed', 'invalid')
+  `, [now, id])
+
   console.log(`[url-swap] 禁用任务: ${id}`)
 }
 
@@ -413,6 +803,13 @@ export async function enableUrlSwapTask(id: string, userId: number): Promise<voi
     SET status = 'enabled', next_swap_at = ?, updated_at = ?
     WHERE id = ? AND user_id = ?
   `, [nextSwapAt.toISOString(), now, id, userId])
+
+  // 同步恢复所有目标（除已移除/无效）
+  await db.exec(`
+    UPDATE url_swap_task_targets
+    SET status = 'active', consecutive_failures = 0, last_error = NULL, updated_at = ?
+    WHERE task_id = ? AND status NOT IN ('removed', 'invalid')
+  `, [now, id])
 
   console.log(`[url-swap] 启用任务: ${id}`)
 }
@@ -963,6 +1360,19 @@ export async function getCampaignByOfferId(
   offerId: number,
   userId?: number
 ): Promise<{ customer_id: string | null; campaign_id: string | null } | null> {
+  const targets = await getOfferCampaignTargets(offerId, userId || 0)
+  if (!targets || targets.length === 0) return null
+  const primary = targets[0]
+  return {
+    customer_id: primary.google_customer_id || null,
+    campaign_id: primary.google_campaign_id || null,
+  }
+}
+
+async function getOfferCampaignTargets(
+  offerId: number,
+  userId: number
+): Promise<UrlSwapTargetInput[]> {
   const db = await getDatabase()
   const isDeletedCondition = db.type === 'postgres' ? 'c.is_deleted = FALSE' : 'c.is_deleted = 0'
 
@@ -973,27 +1383,52 @@ export async function getCampaignByOfferId(
     params.push(userId)
   }
 
-  const row = await db.queryOne<any>(`
+  const rows = await db.query<any>(`
     SELECT
-      gaa.customer_id as customer_id,
-      COALESCE(NULLIF(c.google_campaign_id, ''), NULLIF(c.campaign_id, '')) as campaign_id
+      c.google_ads_account_id as google_ads_account_id,
+      gaa.customer_id as google_customer_id,
+      COALESCE(NULLIF(c.google_campaign_id, ''), NULLIF(c.campaign_id, '')) as google_campaign_id
     FROM campaigns c
     LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     WHERE c.offer_id = ?
       ${userCondition}
       AND ${isDeletedCondition}
       AND c.status != 'REMOVED'
+      AND c.google_ads_account_id IS NOT NULL
       AND (
         (c.google_campaign_id IS NOT NULL AND c.google_campaign_id != '')
         OR (c.campaign_id IS NOT NULL AND c.campaign_id != '')
       )
     ORDER BY c.created_at DESC
-    LIMIT 1
   `, params)
 
-  if (!row) return null
-  return {
-    customer_id: row.customer_id || null,
-    campaign_id: row.campaign_id || null,
+  const deduped = new Map<string, UrlSwapTargetInput>()
+  for (const row of rows) {
+    if (!row.google_ads_account_id || !row.google_customer_id || !row.google_campaign_id) continue
+    const key = `${row.google_ads_account_id}-${row.google_campaign_id}`
+    if (deduped.has(key)) continue
+    deduped.set(key, {
+      google_ads_account_id: row.google_ads_account_id,
+      google_customer_id: row.google_customer_id,
+      google_campaign_id: row.google_campaign_id,
+    })
   }
+
+  return Array.from(deduped.values())
+}
+
+async function findGoogleAdsAccountIdByCustomerId(
+  customerId: string,
+  userId: number
+): Promise<number | null> {
+  const db = await getDatabase()
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  const row = await db.queryOne<{ id: number }>(`
+    SELECT id
+    FROM google_ads_accounts
+    WHERE user_id = ? AND customer_id = ? AND ${isDeletedCondition}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `, [userId, customerId])
+  return row?.id ?? null
 }

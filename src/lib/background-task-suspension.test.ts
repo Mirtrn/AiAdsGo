@@ -54,6 +54,7 @@ describe('background-task-suspension', () => {
     exec
       .mockResolvedValueOnce({ changes: 2 }) // click-farm
       .mockResolvedValueOnce({ changes: 3 }) // url-swap
+      .mockResolvedValueOnce({ changes: 4 }) // url-swap targets
 
     coreQueue.purgePendingTasksByUserAndTypes.mockResolvedValueOnce({
       removedCount: 5,
@@ -66,11 +67,13 @@ describe('background-task-suspension', () => {
 
     const result = await suspendUserBackgroundTasks(42, { reason: 'manual_disable', purgeQueue: true })
 
-    expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenCalledTimes(3)
     expect(exec.mock.calls[0][0]).toContain('UPDATE click_farm_tasks')
     expect(exec.mock.calls[0][1]).toEqual([42])
     expect(exec.mock.calls[1][0]).toContain('UPDATE url_swap_tasks')
     expect(exec.mock.calls[1][1]).toEqual([42])
+    expect(exec.mock.calls[2][0]).toContain('UPDATE url_swap_task_targets')
+    expect(exec.mock.calls[2][1]).toEqual([expect.any(String), 42])
 
     expect(coreQueue.purgePendingTasksByUserAndTypes).toHaveBeenCalledWith(42, USER_SUSPENDED_TASK_TYPES)
     expect(bgQueue.purgePendingTasksByUserAndTypes).toHaveBeenCalledWith(42, USER_SUSPENDED_TASK_TYPES)
@@ -96,6 +99,7 @@ describe('background-task-suspension', () => {
     exec
       .mockResolvedValueOnce({ changes: 10 }) // bulk stop click-farm
       .mockResolvedValueOnce({ changes: 20 }) // bulk disable url-swap
+      .mockResolvedValueOnce({ changes: 30 }) // bulk pause url-swap targets
 
     coreQueue.purgePendingTasksByUserAndTypes.mockResolvedValue({ removedCount: 1, removedTaskIds: [] })
     bgQueue.purgePendingTasksByUserAndTypes.mockResolvedValue({ removedCount: 2, removedTaskIds: [] })
@@ -107,14 +111,15 @@ describe('background-task-suspension', () => {
     expect(result.urlSwapDisabled).toBe(20)
     expect(result.queuePurged).toBe(9) // (1+2) * 3 users
 
-    expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenCalledTimes(3)
     expect(exec.mock.calls[0][0]).toContain('UPDATE click_farm_tasks')
     expect(exec.mock.calls[0][1]).toEqual([1, 2, 4])
     expect(exec.mock.calls[1][0]).toContain('UPDATE url_swap_tasks')
     expect(exec.mock.calls[1][1]).toEqual([1, 2, 4])
+    expect(exec.mock.calls[2][0]).toContain('UPDATE url_swap_task_targets')
+    expect(exec.mock.calls[2][1]).toEqual([expect.any(String), 1, 2, 4])
 
     expect(coreQueue.purgePendingTasksByUserAndTypes).toHaveBeenCalledTimes(3)
     expect(bgQueue.purgePendingTasksByUserAndTypes).toHaveBeenCalledTimes(3)
   })
 })
-

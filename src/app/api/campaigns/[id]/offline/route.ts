@@ -5,6 +5,7 @@ import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
+import { markUrlSwapTargetsRemovedByOfferAccount, pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
 
 type OfflineBody = {
   blacklistOffer?: boolean
@@ -187,6 +188,11 @@ export async function POST(
       [campaignRow.offer_id, campaignRow.google_ads_account_id, userId]
     )
 
+    await markUrlSwapTargetsRemovedByOfferAccount(
+      campaignRow.offer_id,
+      campaignRow.google_ads_account_id
+    )
+
     // 解除关联后刷新Offer缓存
     invalidateOfferCache(userId, campaignRow.offer_id)
 
@@ -234,6 +240,8 @@ export async function POST(
           [campaignRow.offer_id, userId]
         )
       ).changes
+
+      await pauseUrlSwapTargetsByOfferId(campaignRow.offer_id)
     }
 
     // 🔥 可选：移除队列中的待处理任务（best-effort）

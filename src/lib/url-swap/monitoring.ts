@@ -13,6 +13,7 @@
 
 import { getDatabase } from '@/lib/db'
 import type { UrlSwapTask, UrlSwapTaskStatus } from '@/lib/url-swap-types'
+import { pauseUrlSwapTargetsByTaskId } from '@/lib/url-swap'
 import { notifySwapError, notifyUrlSwapTaskPaused } from './notifications'
 
 /**
@@ -336,6 +337,8 @@ export async function autoDisableHighFailureTask(taskId: string): Promise<boolea
           updated_at = ?
       WHERE id = ?
     `, [`任务失败率过高 (${failureRate.toFixed(1)}%)，已自动禁用`, now, taskId])
+
+    await pauseUrlSwapTargetsByTaskId(taskId)
 
     // 发送通知
     await notifyUrlSwapTaskPaused(

@@ -2,6 +2,7 @@ import { getDatabase } from '@/lib/db'
 import { boolParam, nowFunc, toBool } from '@/lib/db-helpers'
 import { getBackgroundQueueManager, getQueueManager } from '@/lib/queue'
 import type { TaskType } from '@/lib/queue/types'
+import { pauseUrlSwapTargetsByUserIds } from '@/lib/url-swap'
 
 export const USER_SUSPENDED_TASK_TYPES: TaskType[] = ['click-farm', 'url-swap']
 
@@ -79,6 +80,7 @@ export async function suspendUserBackgroundTasks(
       [userId]
     )
   ).changes
+  await pauseUrlSwapTargetsByUserIds([userId])
 
   const purgeQueue = opts.purgeQueue ?? true
   let queuePurged = 0
@@ -163,6 +165,7 @@ export async function suspendBackgroundTasksForInactiveOrExpiredUsers(opts?: {
       [...affectedUserIds]
     )
   ).changes
+  await pauseUrlSwapTargetsByUserIds(affectedUserIds)
 
   const purgeQueue = opts?.purgeQueue ?? true
   let queuePurged = 0

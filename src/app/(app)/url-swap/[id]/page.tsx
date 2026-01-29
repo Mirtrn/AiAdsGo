@@ -20,8 +20,24 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { UrlSwapTask } from '@/lib/url-swap-types';
+import type { UrlSwapTask, UrlSwapTaskTarget } from '@/lib/url-swap-types';
 import UrlSwapHistory from '@/components/UrlSwapHistory';
+
+function groupTargetsByAccount(targets: UrlSwapTaskTarget[]) {
+  const groups = new Map<string, { accountId: number; customerId: string; targets: UrlSwapTaskTarget[] }>();
+  targets.forEach((target) => {
+    const key = `${target.google_ads_account_id}-${target.google_customer_id}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        accountId: target.google_ads_account_id,
+        customerId: target.google_customer_id,
+        targets: []
+      });
+    }
+    groups.get(key)!.targets.push(target);
+  });
+  return Array.from(groups.values());
+}
 
 export default function UrlSwapTaskDetailPage() {
   const router = useRouter();
@@ -152,6 +168,47 @@ export default function UrlSwapTaskDetailPage() {
       </Badge>
     );
   };
+
+  const getTargetStatusBadge = (status: UrlSwapTaskTarget['status']) => {
+    const configs: Record<UrlSwapTaskTarget['status'], { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
+      active: { label: '启用', variant: 'default', className: 'bg-green-600' },
+      paused: { label: '暂停', variant: 'secondary', className: 'bg-yellow-100 text-yellow-700' },
+      removed: { label: '已移除', variant: 'outline', className: 'text-gray-500' },
+      invalid: { label: '无效', variant: 'destructive', className: '' },
+    };
+
+    const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
+
+    return (
+      <Badge variant={config.variant} className={config.className}>
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const rawTargets = task?.targets ?? [];
+  const legacyTargets: UrlSwapTaskTarget[] =
+    task && rawTargets.length === 0 && task.google_customer_id && task.google_campaign_id
+      ? [{
+          id: 'legacy',
+          task_id: task.id,
+          offer_id: task.offer_id,
+          google_ads_account_id: 0,
+          google_customer_id: task.google_customer_id,
+          google_campaign_id: task.google_campaign_id,
+          status: 'active',
+          consecutive_failures: 0,
+          last_success_at: null,
+          last_error: null,
+          created_at: '',
+          updated_at: ''
+        }]
+      : [];
+
+  const targets = rawTargets.length > 0 ? rawTargets : legacyTargets;
+  const isLegacyTargets = rawTargets.length === 0 && legacyTargets.length > 0;
+
+  const groupedTargets = targets.length > 0 ? groupTargetsByAccount(targets) : [];
 
   if (loading) {
     return (
@@ -394,6 +451,69 @@ export default function UrlSwapTaskDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Targets */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">换链目标列表</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {targets.length === 0 ? (
+              <p className="text-sm text-gray-500">暂无目标（请先发布 Campaign 或刷新任务）</p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between text-sm text-gray-600">
+                  <span>目标数：{targets.length}</span>
+                  {isLegacyTargets && (
+                    <span className="text-amber-600">旧任务兼容模式（仅单目标）</span>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  {groupedTargets.map((group) => (
+                    <div key={`${group.accountId}-${group.customerId}`} className="border rounded-lg bg-white">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+                        <div className="text-sm font-medium text-gray-900">
+                          Ads账号 {group.accountId || '未知'} · Customer {group.customerId}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Campaign 数量：{group.targets.length}
+                        </div>
+                      </div>
+                      <div className="divide-y">
+                        {group.targets.map((target) => (
+                          <div key={target.id} className="grid grid-cols-1 md:grid-cols-6 gap-3 px-4 py-3 text-sm">
+                            <div className="md:col-span-2">
+                              <p className="text-xs text-gray-500">Campaign ID</p>
+                              <p className="font-mono break-all">{target.google_campaign_id}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">状态</p>
+                              <div className="mt-1">{getTargetStatusBadge(target.status)}</div>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">连续失败</p>
+                              <p className="font-medium">{target.consecutive_failures}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">最近成功</p>
+                              <p className="font-medium">{formatDateTime(target.last_success_at)}</p>
+                            </div>
+                            <div className="md:col-span-2">
+                              <p className="text-xs text-gray-500">最近错误</p>
+                              <p className="text-xs text-gray-600 break-all">
+                                {target.last_error || '-'}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Error Info */}
         {task.status === 'error' && task.error_message && (

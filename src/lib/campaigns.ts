@@ -1,5 +1,6 @@
 import { getDatabase } from './db'
 import { getInsertedId } from './db-helpers'
+import { markUrlSwapTargetsRemovedByCampaignId } from './url-swap'
 
 export interface Campaign {
   id: number
@@ -200,6 +201,9 @@ export async function updateCampaign(
 
   const fields: string[] = []
   const values: any[] = []
+  const nextStatus = updates.status !== undefined ? String(updates.status).toUpperCase() : null
+  const currentStatus = String(campaign.status || '').toUpperCase()
+  const shouldMarkRemoved = nextStatus === 'REMOVED' && currentStatus !== 'REMOVED'
 
   if (updates.campaignName !== undefined) {
     fields.push('campaign_name = ?')
@@ -266,6 +270,10 @@ export async function updateCampaign(
     WHERE id = ? AND user_id = ?
   `, values)
 
+  if (shouldMarkRemoved) {
+    await markUrlSwapTargetsRemovedByCampaignId(id, userId)
+  }
+
   return findCampaignById(id, userId)
 }
 
@@ -287,6 +295,10 @@ export async function deleteCampaign(id: number, userId: number): Promise<boolea
         status = 'REMOVED'
     WHERE id = ? AND user_id = ?
   `, [id, userId])
+
+  if (result.changes > 0) {
+    await markUrlSwapTargetsRemovedByCampaignId(id, userId)
+  }
 
   return result.changes > 0
 }

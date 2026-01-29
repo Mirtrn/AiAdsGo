@@ -3,6 +3,11 @@ import { generateOfferName, getTargetLanguage, isOfferNameUnique, normalizeBrand
 import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from './offer-category'
 import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
+import {
+  markUrlSwapTargetsRemovedByOfferAccount,
+  markUrlSwapTargetsRemovedByOfferId,
+  pauseUrlSwapTargetsByOfferId
+} from './url-swap'
 
 export interface Offer {
   id: number
@@ -889,6 +894,8 @@ export async function deleteOffer(
           updated_at = ${nowFunc}
       WHERE offer_id = ? AND user_id = ? AND status != 'REMOVED'
     `, [id, userId])
+
+    await markUrlSwapTargetsRemovedByOfferId(id)
   }
 
   // 🔥 需求：终止并软删除关联的补点击任务
@@ -942,6 +949,8 @@ export async function deleteOffer(
         AND ${isDeletedCondition}
         AND status != 'disabled'
     `, [id, userId])
+
+    await pauseUrlSwapTargetsByOfferId(id)
 
     console.log(`[Offer删除] 禁用 ${urlSwapTasks.length} 个关联的URL Swap任务`)
 
@@ -1020,6 +1029,8 @@ export async function unlinkOfferFromAccount(
       AND user_id = ?
       AND status != 'REMOVED'
   `, [offerId, accountId, userId])
+
+  await markUrlSwapTargetsRemovedByOfferAccount(offerId, accountId)
 
   // 🔥 2025-12-19修复：清理API缓存，确保前端立即看到解绑效果
   const { invalidateOfferCache } = await import('./api-cache')

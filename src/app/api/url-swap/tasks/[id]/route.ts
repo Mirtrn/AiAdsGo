@@ -3,7 +3,7 @@
 // DELETE /api/url-swap/tasks/[id] - 删除任务
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUrlSwapTaskById, getUrlSwapTaskStats, updateUrlSwapTask } from '@/lib/url-swap';
+import { getUrlSwapTaskById, getUrlSwapTaskStats, updateUrlSwapTask, getUrlSwapTaskTargets } from '@/lib/url-swap';
 import { findInvalidAffiliateLinks, normalizeAffiliateLinksInput } from '@/lib/url-swap-link-utils';
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { getDatabase } from '@/lib/db';
@@ -37,12 +37,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     // 获取统计信息
     const stats = await getUrlSwapTaskStats(id, parseInt(userId));
+    const targets = await getUrlSwapTaskTargets(id, parseInt(userId));
+
+    const taskWithTargets = { ...task, targets }
 
     return NextResponse.json({
       success: true,
-      data: task, // 兼容前端（期望 data 为任务对象）
-      task,
-      stats
+      data: taskWithTargets, // 兼容前端（期望 data 为任务对象）
+      task: taskWithTargets,
+      stats,
+      targets
     });
 
   } catch (error: any) {

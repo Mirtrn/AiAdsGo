@@ -32,6 +32,7 @@ import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
+import { addUrlSwapTargetForOfferCampaign } from '@/lib/url-swap'
 
 /**
  * 广告系列发布任务数据接口
@@ -805,6 +806,24 @@ export async function executeCampaignPublish(
     )
     // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面"关联Ads账号"及时更新
     invalidateOfferCache(userId, offerId)
+
+    // 🔥 新增：发布成功后自动追加换链接任务目标（多账号/多Campaign）
+    try {
+      if (adsAccount?.customer_id) {
+        const added = await addUrlSwapTargetForOfferCampaign({
+          offerId,
+          userId,
+          googleAdsAccountId: adsAccount.id,
+          googleCustomerId: adsAccount.customer_id,
+          googleCampaignId
+        })
+        if (added) {
+          console.log(`🔗 已追加换链接任务目标: offer=${offerId}, campaign=${googleCampaignId}`)
+        }
+      }
+    } catch (err: any) {
+      console.warn('⚠️ 追加换链接任务目标失败（不影响发布）:', err?.message || err)
+    }
 
     apiSuccess = true
 

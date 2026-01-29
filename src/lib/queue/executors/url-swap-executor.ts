@@ -11,8 +11,17 @@
 
 import type { Task } from '../types'
 import { resolveAffiliateLink } from '@/lib/url-resolver-enhanced'
-import { updateTaskAfterManualAdvance, updateTaskAfterSwap, recordSwapHistory, setTaskError, type UrlSwapErrorType } from '@/lib/url-swap'
-import type { UrlSwapTaskData } from '@/lib/url-swap-types'
+import {
+  updateTaskAfterManualAdvance,
+  updateTaskAfterSwap,
+  recordSwapHistory,
+  setTaskError,
+  getUrlSwapTaskTargets,
+  markUrlSwapTargetSuccess,
+  markUrlSwapTargetFailure,
+  type UrlSwapErrorType
+} from '@/lib/url-swap'
+import type { UrlSwapTaskData, UrlSwapTaskTarget } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
@@ -57,6 +66,72 @@ function formatGoogleAdsError(error: unknown): string {
   const formatted = formatGoogleAdsApiError(responseData ?? error)
   if (formatted && formatted !== 'Google Ads API error') return formatted
   return formatGoogleAdsApiError(error)
+}
+
+function shouldRetryTargetOnSameSuffix(target: UrlSwapTaskTarget): boolean {
+  return Boolean(target.last_error) || (target.consecutive_failures ?? 0) > 0
+}
+
+async function updateTargetsFinalUrlSuffix(params: {
+  targets: UrlSwapTaskTarget[]
+  finalUrlSuffix: string
+  userId: number
+  refreshToken: string
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string
+}): Promise<{ successCount: number; failureCount: number; failures: string[] }> {
+  const failures: string[] = []
+  let successCount = 0
+  let failureCount = 0
+
+  let forcedAuthType: 'oauth' | 'service_account' | null = null
+
+  for (const target of params.targets) {
+    const attemptAuthType = forcedAuthType ?? params.authType
+    try {
+      try {
+        await updateCampaignFinalUrlSuffix({
+          customerId: target.google_customer_id,
+          refreshToken: attemptAuthType === 'oauth' ? params.refreshToken : '',
+          campaignId: target.google_campaign_id,
+          finalUrlSuffix: params.finalUrlSuffix,
+          userId: params.userId,
+          authType: attemptAuthType,
+          serviceAccountId: attemptAuthType === 'service_account' ? params.serviceAccountId : undefined,
+        })
+      } catch (firstError: any) {
+        const message = firstError?.message || String(firstError)
+        if (attemptAuthType === 'oauth' && isOAuthInvalidGrantError(message) && params.serviceAccountId) {
+          await updateCampaignFinalUrlSuffix({
+            customerId: target.google_customer_id,
+            refreshToken: '',
+            campaignId: target.google_campaign_id,
+            finalUrlSuffix: params.finalUrlSuffix,
+            userId: params.userId,
+            authType: 'service_account',
+            serviceAccountId: params.serviceAccountId,
+          })
+          forcedAuthType = 'service_account'
+        } else {
+          throw firstError
+        }
+      }
+
+      if (target.id) {
+        await markUrlSwapTargetSuccess(target.id)
+      }
+      successCount += 1
+    } catch (error: any) {
+      const message = formatGoogleAdsError(error)
+      failures.push(message)
+      failureCount += 1
+      if (target.id) {
+        await markUrlSwapTargetFailure(target.id, message)
+      }
+    }
+  }
+
+  return { successCount, failureCount, failures }
 }
 
 /**
@@ -125,6 +200,25 @@ export async function executeUrlSwapTask(
     effectiveCurrentFinalUrl = (typeof taskRow.current_final_url === 'string' ? taskRow.current_final_url : currentFinalUrl) as string | null
     effectiveCurrentFinalUrlSuffix = (typeof taskRow.current_final_url_suffix === 'string' ? taskRow.current_final_url_suffix : currentFinalUrlSuffix) as string | null
 
+    const activeTargets = await getUrlSwapTaskTargets(taskId, task.userId, { status: 'active' })
+    const fallbackTargets: UrlSwapTaskTarget[] = (!activeTargets.length && effectiveCustomerId && effectiveCampaignId)
+      ? [{
+          id: '',
+          task_id: taskId,
+          offer_id: offerId,
+          google_ads_account_id: 0,
+          google_customer_id: effectiveCustomerId,
+          google_campaign_id: effectiveCampaignId,
+          status: 'active',
+          consecutive_failures: 0,
+          last_success_at: null,
+          last_error: null,
+          created_at: '',
+          updated_at: ''
+        }]
+      : []
+    const taskTargets = activeTargets.length > 0 ? activeTargets : fallbackTargets
+
     // =========================
     // 方式二：手动轮询推广链接列表
     // =========================
@@ -160,7 +254,7 @@ export async function executeUrlSwapTask(
       const urlChanged = resolved.finalUrl !== currentUrlFromDb ||
                          resolved.finalUrlSuffix !== currentSuffixFromDb
 
-      if (!effectiveCustomerId || !effectiveCampaignId) {
+      if (!taskTargets.length) {
         const message =
           '缺少 Customer ID 或 Campaign ID，无法更新 Google Ads Final URL suffix。\n' +
           '请在换链任务中填写正确的 Customer/Campaign ID（或先完成Campaign发布并关联到Offer），然后重新启用任务。'
@@ -189,8 +283,13 @@ export async function executeUrlSwapTask(
         }
       }
 
-      if (urlChanged) {
-        console.log(`[url-swap-executor]（manual）更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
+      const targetsToUpdate = urlChanged
+        ? taskTargets
+        : taskTargets.filter(shouldRetryTargetOnSameSuffix)
+
+      let updateResult: { successCount: number; failureCount: number; failures: string[] } | null = null
+      if (targetsToUpdate.length > 0) {
+        console.log(`[url-swap-executor]（manual）更新Google Ads目标数: ${targetsToUpdate.length}`)
 
         let adsApiError: Error | null = null
 
@@ -211,33 +310,14 @@ export async function executeUrlSwapTask(
 
           const refreshToken = credentials?.refresh_token || ''
 
-          try {
-            await updateCampaignFinalUrlSuffix({
-              customerId: effectiveCustomerId,
-              refreshToken,
-              campaignId: effectiveCampaignId,
-              finalUrlSuffix: resolved.finalUrlSuffix,
-              userId: task.userId,
-              authType: auth.authType,
-              serviceAccountId: auth.serviceAccountId,
-            })
-          } catch (firstError: any) {
-            const message = firstError?.message || String(firstError)
-            if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
-              console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
-              await updateCampaignFinalUrlSuffix({
-                customerId: effectiveCustomerId,
-                refreshToken: '',
-                campaignId: effectiveCampaignId,
-                finalUrlSuffix: resolved.finalUrlSuffix,
-                userId: task.userId,
-                authType: 'service_account',
-                serviceAccountId: serviceAccount.id,
-              })
-            } else {
-              throw firstError
-            }
-          }
+          updateResult = await updateTargetsFinalUrlSuffix({
+            targets: targetsToUpdate,
+            finalUrlSuffix: resolved.finalUrlSuffix,
+            userId: task.userId,
+            refreshToken,
+            authType: auth.authType,
+            serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+          })
         } catch (adsError: any) {
           const message = formatGoogleAdsError(adsError)
           adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
@@ -249,6 +329,10 @@ export async function executeUrlSwapTask(
       }
 
       if (urlChanged) {
+        const hasSuccess = (updateResult?.successCount ?? 0) > 0
+        if (targetsToUpdate.length > 0 && !hasSuccess) {
+          throw new Error('Google Ads 更新失败（所有目标均未更新成功）')
+        }
         await recordSwapHistory(taskId, {
           swapped_at: new Date().toISOString(),
           previous_final_url: currentUrlFromDb,
@@ -260,6 +344,11 @@ export async function executeUrlSwapTask(
 
         await updateTaskAfterSwap(taskId, resolved.finalUrl, resolved.finalUrlSuffix, { manualSuffixCursor: nextCursor })
       } else {
+        const hasUpdates = targetsToUpdate.length > 0
+        const hasSuccess = (updateResult?.successCount ?? 0) > 0
+        if (hasUpdates && !hasSuccess) {
+          throw new Error('Google Ads 更新失败（所有目标均未更新成功）')
+        }
         await updateTaskAfterManualAdvance(taskId, nextCursor)
       }
 
@@ -270,7 +359,7 @@ export async function executeUrlSwapTask(
     // =========================
     // 方式一：自动解析推广链接
     // =========================
-    if (!effectiveCustomerId || !effectiveCampaignId) {
+    if (!taskTargets.length) {
       const message =
         '缺少 Customer ID 或 Campaign ID，无法更新 Google Ads Final URL suffix。\n' +
         '请在换链任务中填写正确的 Customer/Campaign ID（或先完成Campaign发布并关联到Offer），然后重新启用任务。'
@@ -307,8 +396,52 @@ export async function executeUrlSwapTask(
                        resolved.finalUrlSuffix !== effectiveCurrentFinalUrlSuffix
 
     if (!urlChanged) {
-      // URL未变化，只更新统计（不算作URL变化）
-      console.log(`[url-swap-executor] URL未变化: ${taskId}`)
+      const retryTargets = taskTargets.filter(shouldRetryTargetOnSameSuffix)
+      if (retryTargets.length === 0) {
+        // URL未变化，只更新统计（不算作URL变化）
+        console.log(`[url-swap-executor] URL未变化: ${taskId}`)
+        await updateTaskStats(taskId, true, false)
+        return { success: true, changed: false }
+      }
+
+      console.log(`[url-swap-executor] URL未变化，尝试重试失败目标: ${retryTargets.length}`)
+      let retryResult: { successCount: number; failureCount: number; failures: string[] } | null = null
+      try {
+        const credentials = await getGoogleAdsCredentials(task.userId)
+        const auth = await getUserAuthType(task.userId)
+
+        const db = await getDatabase()
+        const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+        const serviceAccount = await db.queryOne(`
+          SELECT id FROM google_ads_service_accounts
+          WHERE user_id = ? AND ${isActiveCondition}
+          ORDER BY created_at DESC LIMIT 1
+        `, [task.userId]) as { id: string } | undefined
+
+        if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+          throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
+        }
+
+        const refreshToken = credentials?.refresh_token || ''
+
+        retryResult = await updateTargetsFinalUrlSuffix({
+          targets: retryTargets,
+          finalUrlSuffix: resolved.finalUrlSuffix,
+          userId: task.userId,
+          refreshToken,
+          authType: auth.authType,
+          serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+        })
+      } catch (adsError: any) {
+        const message = formatGoogleAdsError(adsError)
+        throw new Error(message.includes('Google Ads') ? message : `Google Ads API调用失败: ${message}`)
+      }
+
+      const hasSuccess = (retryResult?.successCount ?? 0) > 0
+      if (!hasSuccess) {
+        throw new Error('Google Ads 更新失败（所有目标均未更新成功）')
+      }
+
       await updateTaskStats(taskId, true, false)
       return { success: true, changed: false }
     }
@@ -325,11 +458,12 @@ export async function executeUrlSwapTask(
       }
     }
 
-    // 4. 调用Google Ads API更新
-    if (effectiveCustomerId && effectiveCampaignId) {
-      console.log(`[url-swap-executor] 更新Google Ads: customer=${effectiveCustomerId}, campaign=${effectiveCampaignId}`)
+    // 4. 调用Google Ads API更新（多目标）
+    const targetsToUpdate = taskTargets
+    let updateResult: { successCount: number; failureCount: number; failures: string[] } | null = null
 
-      let adsApiError: Error | null = null
+    if (targetsToUpdate.length > 0) {
+      console.log(`[url-swap-executor] 更新Google Ads目标数: ${targetsToUpdate.length}`)
 
       try {
         // 获取用户认证信息
@@ -351,47 +485,26 @@ export async function executeUrlSwapTask(
 
         const refreshToken = credentials?.refresh_token || ''
 
-        // 调用Google Ads API更新Final URL Suffix
-        try {
-          await updateCampaignFinalUrlSuffix({
-            customerId: effectiveCustomerId,
-            refreshToken,
-            campaignId: effectiveCampaignId,
-            finalUrlSuffix: resolved.finalUrlSuffix,
-            userId: task.userId,
-            authType: auth.authType,
-            serviceAccountId: auth.serviceAccountId,
-          })
-        } catch (firstError: any) {
-          // OAuth refresh token 失效时，如果用户已配置服务账号，自动降级使用服务账号执行
-          const message = firstError?.message || String(firstError)
-          if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
-            console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
-            await updateCampaignFinalUrlSuffix({
-              customerId: effectiveCustomerId,
-              refreshToken: '',
-              campaignId: effectiveCampaignId,
-              finalUrlSuffix: resolved.finalUrlSuffix,
-              userId: task.userId,
-              authType: 'service_account',
-              serviceAccountId: serviceAccount.id,
-            })
-          } else {
-            throw firstError
-          }
-        }
+        updateResult = await updateTargetsFinalUrlSuffix({
+          targets: targetsToUpdate,
+          finalUrlSuffix: resolved.finalUrlSuffix,
+          userId: task.userId,
+          refreshToken,
+          authType: auth.authType,
+          serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+        })
 
-        console.log(`[url-swap-executor] Google Ads更新成功: ${taskId}`)
+        console.log(`[url-swap-executor] Google Ads更新完成: ${taskId}`)
       } catch (adsError: any) {
         const message = formatGoogleAdsError(adsError)
         console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, message)
-        adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
+        throw new Error(message.includes('Google Ads') ? message : `Google Ads API调用失败: ${message}`)
       }
+    }
 
-      // 如果Ads API失败，抛出错误让外层catch处理
-      if (adsApiError) {
-        throw adsApiError
-      }
+    const hasSuccess = (updateResult?.successCount ?? 0) > 0
+    if (targetsToUpdate.length > 0 && !hasSuccess) {
+      throw new Error('Google Ads 更新失败（所有目标均未更新成功）')
     }
 
     // 5. 记录换链历史
