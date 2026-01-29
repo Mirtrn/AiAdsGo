@@ -224,7 +224,7 @@ export default function Step4PublishSummary({
     issues: string[]
     suggestions: string[]
     overallRecommendations: string[]  // 🔧 新增：整体建议字段
-    canForcePublish?: boolean  // 🔥 新增：是否可以强制发布（60-80分时为true）
+    canForcePublish?: boolean  // 🔥 新增：是否可以强制发布（40-80分时为true）
   } | null>(null)
 
   // 🔥 新增：确认暂停对话框相关state
@@ -373,7 +373,7 @@ export default function Step4PublishSummary({
     onGoBackToStep3()
   }
 
-  // 🔥 新增：强制发布处理函数（用于60-80分警告时）
+  // 🔥 新增：强制发布处理函数（用于40-80分警告时）
   const handleForcePublish = async () => {
     try {
       setShowForcePublishConfirm(false)
@@ -416,7 +416,7 @@ export default function Step4PublishSummary({
 
         setLaunchScoreBlockDetails({
           launchScore: details.launchScore || 0,
-          threshold: details.threshold || 60,
+          threshold: details.threshold || 40,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
@@ -426,7 +426,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，无法强制发布`, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          message: `投放评分过低，需要≥${details.threshold || 40}分`,
           success: false
         })
         setPublishing(false)
@@ -586,7 +586,7 @@ export default function Step4PublishSummary({
         // 存储Launch Score阻止详情，在卡片中显示
         setLaunchScoreBlockDetails({
           launchScore: details.launchScore || 0,
-          threshold: details.threshold || 60,
+          threshold: details.threshold || 40,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
@@ -596,7 +596,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          message: `投放评分过低，需要≥${details.threshold || 40}分`,
           success: false
         })
         setPublishing(false)
@@ -867,7 +867,7 @@ export default function Step4PublishSummary({
         // 存储Launch Score阻止详情，在卡片中显示
         setLaunchScoreBlockDetails({
           launchScore: details.launchScore || 0,
-          threshold: details.threshold || 60,
+          threshold: details.threshold || 40,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
@@ -878,7 +878,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          message: `投放评分过低，需要≥${details.threshold || 40}分`,
           success: false
         })
         setPublishing(false)
@@ -1049,7 +1049,7 @@ export default function Step4PublishSummary({
         // 存储Launch Score阻止详情，在卡片中显示
         setLaunchScoreBlockDetails({
           launchScore: details.launchScore || 0,
-          threshold: details.threshold || 60,
+          threshold: details.threshold || 40,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
@@ -1059,7 +1059,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          message: `投放评分过低，需要≥${details.threshold || 40}分`,
           success: false
         })
         setPublishing(false)
@@ -1515,7 +1515,7 @@ export default function Step4PublishSummary({
 
                     {/* 🔧 优化：操作按钮移到卡片顶部，用户一眼就能看到 */}
                     <div className="mb-4 pb-4 border-b border-red-200 space-y-3">
-                      {/* 🔥 新增：强制发布按钮（仅在60-80分警告时显示）- 优先显示 */}
+                      {/* 🔥 新增：强制发布按钮（仅在40-80分警告时显示）- 优先显示 */}
                       {launchScoreBlockDetails.canForcePublish && (
                         <Button
                           variant="destructive"
@@ -2113,7 +2113,7 @@ export default function Step4PublishSummary({
         </DialogContent>
       </Dialog>
 
-      {/* 🔥 新增：强制发布确认对话框（60-80分警告时）*/}
+      {/* 🔥 新增：强制发布确认对话框（40-80分警告时）*/}
       <Dialog open={showForcePublishConfirm} onOpenChange={setShowForcePublishConfirm}>
         <DialogContent className="max-w-md">
           <DialogHeader>

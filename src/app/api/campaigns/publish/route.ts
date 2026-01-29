@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       enableCampaignImmediately = false,  // 是否立即启用Campaign，默认false（PAUSED状态）
       enableSmartOptimization = false,
       variantCount = 3,
-      forcePublish = false, // 强制发布标志（用于绕过60-80分警告）
+      forcePublish = false, // 强制发布标志（用于绕过40-80分警告）
       // 向后兼容snake_case
       offer_id,
       ad_creative_id,
@@ -684,11 +684,11 @@ export async function POST(request: NextRequest) {
       console.log(`      • Final URL得分: ${analysis.basicConfig.finalUrlScore}/5`)
 
       // 阻断规则
-      const CRITICAL_THRESHOLD = 60  // 严重问题阈值
+      const CRITICAL_THRESHOLD = 40  // 严重问题阈值
       const WARNING_THRESHOLD = 80   // 警告阈值
 
       if (launchScore < CRITICAL_THRESHOLD) {
-        // 强制阻断：<60分
+        // 强制阻断：<40分
         console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
 
         // 🎯 收集所有维度的问题和建议
@@ -716,7 +716,7 @@ export async function POST(request: NextRequest) {
           { status: 422 } // 422 Unprocessable Entity
         )
       } else if (launchScore < WARNING_THRESHOLD && !_forcePublish) {
-        // 警告但可绕过：60-80分
+        // 警告但可绕过：40-80分
         console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
 
         // 🎯 收集所有维度的问题和建议
