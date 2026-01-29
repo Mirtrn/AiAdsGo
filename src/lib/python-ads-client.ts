@@ -525,14 +525,9 @@ export async function updateCampaignStatusPython(params: {
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
   requestId?: string
 }): Promise<void> {
+  const effectiveStatus = params.status === 'REMOVED' ? 'PAUSED' : params.status
   if (params.status === 'REMOVED') {
-    return removeCampaignPython({
-      userId: params.userId,
-      serviceAccountId: params.serviceAccountId,
-      customerId: params.customerId,
-      campaignResourceName: params.campaignResourceName,
-      requestId: params.requestId,
-    })
+    console.warn(`⚠️ 已禁用Google Ads删除操作，改为暂停: ${params.campaignResourceName}`)
   }
 
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-status', params.requestId, async () => {
@@ -541,7 +536,7 @@ export async function updateCampaignStatusPython(params: {
       service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
       customer_id: params.customerId,
       campaign_resource_name: params.campaignResourceName,
-      status: params.status,
+      status: effectiveStatus,
     }, {
       headers: getPythonRequestHeaders(params.userId, params.requestId),
     })

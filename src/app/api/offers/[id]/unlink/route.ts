@@ -36,7 +36,7 @@ export async function POST(
     const googleAdsAccountId = parseInt(accountId, 10)
     const db = await getDatabase()
 
-    // 先读取该 Offer 在该账号下“已同步”的所有 Campaign（用于后续 best-effort 的 Google Ads 远端移除/暂停）
+    // 先读取该 Offer 在该账号下“已同步”的所有 Campaign（用于后续 best-effort 的 Google Ads 远端暂停）
     const campaignsToUnlink = await db.query(`
       SELECT id, google_campaign_id, campaign_name, status
       FROM campaigns
@@ -81,11 +81,12 @@ export async function POST(
     )
 
     if (shouldAttemptGoogleAds) {
-      // 异步 best-effort：尽量在 Google Ads 端移除/暂停已同步的 Campaign
+      // 异步 best-effort：尽量在 Google Ads 端暂停已同步的 Campaign
       // 不阻塞当前 API 响应，避免 499（client closed request）
       void (async () => {
         const googleAdsRemoval = {
           attempted: 0,
+          paused: 0,
           removed: 0,
           pausedFallback: 0,
           failed: 0,
@@ -120,42 +121,26 @@ export async function POST(
                 customerId: adsAccount!.customer_id!,
                 refreshToken,
                 campaignId: googleCampaignId,
-                status: 'REMOVED',
+                status: 'PAUSED',
                 accountId: adsAccount!.id,
                 userId,
                 loginCustomerId,
                 authType: auth.authType,
                 serviceAccountId: auth.serviceAccountId
               })
-              googleAdsRemoval.removed++
+              googleAdsRemoval.paused++
             } catch (err: any) {
-              // 降级：至少暂停，确保投放停止
-              try {
-                await updateGoogleAdsCampaignStatus({
-                  customerId: adsAccount!.customer_id!,
-                  refreshToken,
-                  campaignId: googleCampaignId,
-                  status: 'PAUSED',
-                  accountId: adsAccount!.id,
-                  userId,
-                  loginCustomerId,
-                  authType: auth.authType,
-                  serviceAccountId: auth.serviceAccountId
-                })
-                googleAdsRemoval.pausedFallback++
-              } catch (err2: any) {
-                googleAdsRemoval.failed++
-                googleAdsRemoval.failures.push({
-                  campaignId: googleCampaignId,
-                  reason: String(err2?.message || err?.message || 'UNKNOWN_ERROR')
-                })
-              }
+              googleAdsRemoval.failed++
+              googleAdsRemoval.failures.push({
+                campaignId: googleCampaignId,
+                reason: String(err?.message || 'UNKNOWN_ERROR')
+              })
             }
           }
         } catch (err: any) {
           console.error('[unlink] Google Ads best-effort removal failed:', err?.message || err)
         } finally {
-          console.log('[unlink] Google Ads best-effort removal summary:', googleAdsRemoval)
+          console.log('[unlink] Google Ads best-effort pause summary:', googleAdsRemoval)
         }
       })()
     }

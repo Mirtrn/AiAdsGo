@@ -275,10 +275,11 @@ export async function POST(
       }
     }
 
-    // Google Ads 远端下线：best-effort（REMOVED，失败则 PAUSED）
+    // Google Ads 远端下线：仅暂停（避免删除触发风控）
     const googleAdsSummary = {
       queued: false,
       planned: 0,
+      paused: 0,
       removed: 0,
       pausedFallback: 0,
       skippedReason: null as string | null,
@@ -348,32 +349,17 @@ export async function POST(
                         customerId: customerIdValue,
                         refreshToken,
                         campaignId: id,
-                        status: 'REMOVED',
+                        status: 'PAUSED',
                         accountId: campaignRow.google_ads_account_id!,
                         userId,
                         loginCustomerId,
                         authType,
                         serviceAccountId,
                       })
-                      googleAdsSummary.removed += 1
+                      googleAdsSummary.paused += 1
                     } catch (err: any) {
-                      try {
-                        await updateGoogleAdsCampaignStatus({
-                          customerId: customerIdValue,
-                          refreshToken,
-                          campaignId: id,
-                          status: 'PAUSED',
-                          accountId: campaignRow.google_ads_account_id!,
-                          userId,
-                          loginCustomerId,
-                          authType,
-                          serviceAccountId,
-                        })
-                        googleAdsSummary.pausedFallback += 1
-                      } catch (err2: any) {
-                        // best-effort; ignore per-campaign failure
-                        console.error('[offline] Google Ads pause fallback failed:', err2?.message || err2)
-                      }
+                      // best-effort; ignore per-campaign failure
+                      console.error('[offline] Google Ads pause failed:', err?.message || err)
                     }
                   }
                 } catch (err: any) {

@@ -986,18 +986,21 @@ export async function createGoogleAdsCampaign(params: {
       console.log(`✅ 成功添加${criteriaOperations.length}个定位条件`)
     } catch (error: any) {
       console.error('❌ 添加定位条件失败:', error.message)
-      // 如果定位条件创建失败，删除已创建的Campaign以保持数据一致性
+      // 如果定位条件创建失败，暂停已创建的Campaign以保持安全（避免删除触发风控）
       try {
         await trackOAuthApiCall(
           params.userId,
           params.customerId,
           ApiOperationType.MUTATE,
-          '/api/google-ads/campaign/remove',
-          () => customer.campaigns.remove([campaignResourceName])
+          '/api/google-ads/campaign/update',
+          () => customer.campaigns.update([{
+            resource_name: campaignResourceName,
+            status: enums.CampaignStatus.PAUSED,
+          }])
         )
-        console.log(`🗑️ 已删除Campaign ${campaignId}（因定位条件创建失败）`)
+        console.log(`⏸️ 已暂停Campaign ${campaignId}（因定位条件创建失败）`)
       } catch (rollbackError) {
-        console.error('⚠️ Campaign删除失败:', rollbackError)
+        console.error('⚠️ Campaign暂停失败:', rollbackError)
       }
       throw new Error(`Campaign定位条件创建失败: ${error.message}`)
     }
@@ -1075,6 +1078,12 @@ export async function updateGoogleAdsCampaignStatus(params: {
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
 }): Promise<void> {
+  const requestedStatus = params.status
+  const effectiveStatus = requestedStatus === 'REMOVED' ? 'PAUSED' : requestedStatus
+  if (requestedStatus === 'REMOVED') {
+    console.warn(`⚠️ 已禁用Google Ads删除操作，改为暂停: campaign ${params.campaignId}`)
+  }
+
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (params.authType === 'service_account') {
     const { updateCampaignStatusPython } = await import('./python-ads-client')
@@ -1084,7 +1093,7 @@ export async function updateGoogleAdsCampaignStatus(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       campaignResourceName: resourceName,
-      status: params.status as 'ENABLED' | 'PAUSED' | 'REMOVED',
+      status: effectiveStatus as 'ENABLED' | 'PAUSED' | 'REMOVED',
     })
   } else {
     const customer = await getCustomerWithCredentials({
@@ -1095,40 +1104,23 @@ export async function updateGoogleAdsCampaignStatus(params: {
 
     const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-    if (params.status === 'REMOVED') {
-      await trackOAuthApiCall(
-        params.userId,
-        params.customerId,
-        ApiOperationType.MUTATE,
-        '/api/google-ads/campaign/remove',
-        () => withRetry(
-          () => customer.campaigns.remove([resourceName]),
-          {
-            maxRetries: 3,
-            initialDelay: 1000,
-            operationName: `Remove Campaign: ${params.campaignId}`
-          }
-        )
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/update',
+      () => withRetry(
+        () => customer.campaigns.update([{
+          resource_name: resourceName,
+          status: enums.CampaignStatus[effectiveStatus],
+        }]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Update Campaign Status: ${params.campaignId} -> ${effectiveStatus}`
+        }
       )
-    } else {
-      await trackOAuthApiCall(
-        params.userId,
-        params.customerId,
-        ApiOperationType.MUTATE,
-        '/api/google-ads/campaign/update',
-        () => withRetry(
-          () => customer.campaigns.update([{
-            resource_name: resourceName,
-            status: enums.CampaignStatus[params.status],
-          }]),
-          {
-            maxRetries: 3,
-            initialDelay: 1000,
-            operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
-          }
-        )
-      )
-    }
+    )
   }
 
   // 清除相关缓存（更新状态后）
