@@ -23,9 +23,7 @@ export const PRODUCT_WORD_PATTERNS = [
   'edition', 'version', 'gen', 'generation',
   'camera', 'cam', 'vacuum', 'robot', 'cleaner',
   'doorbell', 'security', 'tracker', 'sensor',
-  'starter', 'bundle', 'kit', 'set', 'pack',
-  // 🔧 2026-01-30: allow brand+product concatenations for supplement brands
-  'vitamin', 'vitamins', 'supplement', 'supplements', 'health'
+  'starter', 'bundle', 'kit', 'set', 'pack'
 ]
 
 function hasBrandConnector(rawBrand: string): boolean {

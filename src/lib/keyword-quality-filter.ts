@@ -16,6 +16,7 @@
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import {
   containsPureBrand,
   getPureBrandKeywords,
@@ -24,6 +25,25 @@ import {
 } from './brand-keyword-utils'
 
 export { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword }
+
+/**
+ * 判断是否为“品牌拼接词”（无空格直接拼接）
+ * 例如: swansonvitamin / drmercola
+ * 用于在有真实搜索量时放宽过滤规则。
+ */
+export function isBrandConcatenation(keyword: string, brandName: string): boolean {
+  if (!keyword || !brandName) return false
+
+  const kwNorm = normalizeGoogleAdsKeyword(keyword)
+  const brandNorm = normalizeGoogleAdsKeyword(brandName)
+  if (!kwNorm || !brandNorm) return false
+  if (!kwNorm.startsWith(brandNorm)) return false
+  if (kwNorm === brandNorm) return false
+
+  const nextChar = kwNorm.charAt(brandNorm.length)
+  if (!nextChar) return false
+  return nextChar !== ' '
+}
 
 // ============================================
 // 品牌词匹配策略（🔥 2026-01-05 新增：明确用途，避免混用）
@@ -758,6 +778,7 @@ export function filterKeywordQuality(
       ? kw.searchVolume
       : Number(kw.searchVolume) || 0
     const wordCount = keyword.trim().split(/\s+/).length
+    const isConcatenatedBrandWithVolume = searchVolume > 0 && isBrandConcatenation(keyword, brandName)
 
     let removeReason: string | null = null
 
@@ -769,11 +790,11 @@ export function filterKeywordQuality(
     }
     // 1. 检查是否必须包含纯品牌词（使用策略函数）
     // 🔥 2026-01-05 使用 shouldKeepByBrand 策略函数，明确用途
-    else if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords)) {
+    else if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords) && !isConcatenatedBrandWithVolume) {
       removeReason = `不含纯品牌词: "${keyword}"`
     }
     // 2. 检查品牌变体词
-    else if (isBrandVariant(keyword, brandName)) {
+    else if (isBrandVariant(keyword, brandName) && !isConcatenatedBrandWithVolume) {
       removeReason = `品牌变体词: "${keyword}"`
     }
     // 3. 检查品牌无关词（🔥 2025-12-29 新增）

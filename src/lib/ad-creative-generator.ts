@@ -20,7 +20,7 @@ import {
   deduplicateKeywordsWithPriority,
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
-import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
+import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch, isBrandConcatenation } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
@@ -3189,8 +3189,9 @@ export async function generateAdCreative(
       : (canonicalBrandKeyword ? [canonicalBrandKeyword] : [])
   const mustContainBrand = brandTokensToMatch.length > 0
 
-  const containsBrand = (keyword: string): boolean => {
-    return containsPureBrand(keyword, brandTokensToMatch)
+  const containsBrand = (keyword: string, searchVolume?: number): boolean => {
+    if (containsPureBrand(keyword, brandTokensToMatch)) return true
+    return typeof searchVolume === 'number' && searchVolume > 0 && isBrandConcatenation(keyword, offerBrand)
   }
 
   // 🎯 需求34: 读取已提取的广告元素（从爬虫阶段保存的数据）
@@ -3773,7 +3774,7 @@ export async function generateAdCreative(
 
   // 🔒 强制：只保留包含“纯品牌词”的关键词（不拼接造词）
   const originalKeywordCount = keywordsWithVolume.length
-  const validKeywords = keywordsWithVolume.filter(kw => containsBrand(kw.keyword))
+  const validKeywords = keywordsWithVolume.filter(kw => containsBrand(kw.keyword, kw.searchVolume))
 
   // 更新关键词列表
   const removedCount = originalKeywordCount - validKeywords.length
@@ -4056,7 +4057,7 @@ export async function generateAdCreative(
   keywordsWithVolume.forEach(kw => {
     // 使用策略函数：判断是否应该使用 EXACT 匹配
     const isPureBrand = shouldUseExactMatch(kw.keyword, pureBrandKeywordsList)
-    const isBrandRelated = !isPureBrand && containsBrand(kw.keyword)
+    const isBrandRelated = !isPureBrand && containsBrand(kw.keyword, kw.searchVolume)
 
     if (isPureBrand) {
       pureBrandKeywords.push(kw)
@@ -4379,7 +4380,7 @@ export async function generateAdCreative(
     const preview = brandTokensToMatch.slice(0, 3).join(', ')
     console.log(`\n🔒 强制约束: 只保留包含纯品牌词的关键词 (tokens: [${preview}${brandTokensToMatch.length > 3 ? '...' : ''}])`)
     const before = finalKeywords.length
-    finalKeywords = finalKeywords.filter(kw => containsBrand(kw.keyword))
+    finalKeywords = finalKeywords.filter(kw => containsBrand(kw.keyword, kw.searchVolume))
     console.log(`   ✅ 品牌强制过滤完成: ${before} → ${finalKeywords.length}`)
   }
 
@@ -4409,7 +4410,7 @@ export async function generateAdCreative(
   const filteredOutCount = beforeFilterCount - afterFilterCount
 
   // 计算最终品牌词比例
-  const finalBrandCount = keywordsWithVolume.filter(kw => containsBrand(kw.keyword)).length
+  const finalBrandCount = keywordsWithVolume.filter(kw => containsBrand(kw.keyword, kw.searchVolume)).length
   const brandRatio = afterFilterCount > 0 ? Math.round(finalBrandCount / afterFilterCount * 100) : 0
 
   console.log(`\n✅ 过滤完成:`)

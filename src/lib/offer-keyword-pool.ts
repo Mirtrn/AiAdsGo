@@ -1791,7 +1791,14 @@ async function saveKeywordPoolWithData(
     statistics: { totalKeywords: number; balanceScore: number }
   },
   pageType: 'product' | 'store' = 'product',
-  storeBuckets?: StoreKeywordBuckets  // 🆕 v4.16: 店铺桶数据（可选）
+  storeBuckets?: StoreKeywordBuckets,  // 🆕 v4.16: 店铺桶数据（可选）
+  storeBucketData?: {
+    bucketA: PoolKeywordData[]
+    bucketB: PoolKeywordData[]
+    bucketC: PoolKeywordData[]
+    bucketD: PoolKeywordData[]
+    bucketS: PoolKeywordData[]
+  }
 ): Promise<OfferKeywordPool> {
   const db = await getDatabase()
 
@@ -1801,12 +1808,22 @@ async function saveKeywordPoolWithData(
   const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
   const bucketDJson = serializeJsonForDb(buckets.bucketD.keywords, db.type)
 
-  // 🆕 v4.16: 店铺分桶JSON
-  const storeBucketAJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketA.keywords, db.type) : '[]'
-  const storeBucketBJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketB.keywords, db.type) : '[]'
-  const storeBucketCJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketC.keywords, db.type) : '[]'
-  const storeBucketDJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketD.keywords, db.type) : '[]'
-  const storeBucketSJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketS.keywords, db.type) : '[]'
+  // 🆕 v4.16: 店铺分桶JSON（优先保存带搜索量的数据）
+  const storeBucketAJson = storeBucketData
+    ? serializeJsonForDb(storeBucketData.bucketA, db.type)
+    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketA.keywords, db.type) : '[]')
+  const storeBucketBJson = storeBucketData
+    ? serializeJsonForDb(storeBucketData.bucketB, db.type)
+    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketB.keywords, db.type) : '[]')
+  const storeBucketCJson = storeBucketData
+    ? serializeJsonForDb(storeBucketData.bucketC, db.type)
+    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketC.keywords, db.type) : '[]')
+  const storeBucketDJson = storeBucketData
+    ? serializeJsonForDb(storeBucketData.bucketD, db.type)
+    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketD.keywords, db.type) : '[]')
+  const storeBucketSJson = storeBucketData
+    ? serializeJsonForDb(storeBucketData.bucketS, db.type)
+    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketS.keywords, db.type) : '[]')
 
   const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length + buckets.bucketD.keywords.length
 
@@ -2596,7 +2613,14 @@ export async function generateOfferKeywordPool(
         statistics: storeBuckets.statistics
       },
       pageType,  // 🆕 v4.16: 传递页面类型
-      storeBuckets  // 🆕 v4.16: 传递店铺桶数据
+      storeBuckets,  // 🆕 v4.16: 传递店铺桶数据
+      {
+        bucketA: storeBucketAData,
+        bucketB: storeBucketBData,
+        bucketC: storeBucketCData,
+        bucketD: storeBucketDData,
+        bucketS: storeBucketSData,
+      }
     )
 
     return pool

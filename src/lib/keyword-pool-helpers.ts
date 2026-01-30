@@ -28,7 +28,8 @@ import {
   isPureBrandKeyword,
   isBrandVariant,
   isSemanticQuery,
-  isBrandIrrelevant
+  isBrandIrrelevant,
+  isBrandConcatenation
 } from './keyword-quality-filter'
 import type { Offer } from './offers'
 
@@ -100,9 +101,11 @@ async function getGlobalKeywordCandidates(params: {
     for (const row of rows) {
       const canonical = normalizeGoogleAdsKeyword(row.keyword)
       if (!canonical) continue
-      if (!containsPureBrand(canonical, pureBrandKeywords)) continue
 
       const searchVolume = Number(row.search_volume) || 0
+      const isConcatenatedBrand = searchVolume > 0 && isBrandConcatenation(canonical, brandName)
+      if (!containsPureBrand(canonical, pureBrandKeywords) && !isConcatenatedBrand) continue
+
       const avgCpcMicros = Number(row.avg_cpc_micros) || 0
       const isPureBrand = isPureBrandKeyword(canonical, pureBrandKeywords)
       const matchType = isPureBrand ? 'EXACT' : 'PHRASE'
@@ -138,15 +141,17 @@ function mergeGlobalCandidates(params: {
   allKeywords: Map<string, PoolKeywordData>
   candidates: PoolKeywordData[]
   pureBrandKeywords: string[]
+  brandName: string
 }): { added: number; updated: number } {
-  const { allKeywords, candidates, pureBrandKeywords } = params
+  const { allKeywords, candidates, pureBrandKeywords, brandName } = params
   let added = 0
   let updated = 0
 
   for (const kw of candidates) {
     const canonical = normalizeGoogleAdsKeyword(kw.keyword)
     if (!canonical) continue
-    if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+    const isConcatenatedBrand = (kw.searchVolume || 0) > 0 && isBrandConcatenation(canonical, brandName)
+    if (!containsPureBrand(canonical, pureBrandKeywords) && !isConcatenatedBrand) continue
 
     const existing = allKeywords.get(canonical)
     const isPureBrand = isPureBrandKeyword(canonical, pureBrandKeywords)
@@ -560,7 +565,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       const merged = mergeGlobalCandidates({
         allKeywords,
         candidates: globalCandidates,
-        pureBrandKeywords
+        pureBrandKeywords,
+        brandName
       })
       console.log(`      📦 全局关键词库补充: 新增 ${merged.added}, 更新 ${merged.updated}`)
     }
@@ -613,9 +619,10 @@ function qualityFilterOAuth(
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
     const isPureBrand = isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+    const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
 
     // 1. 品牌变体词过滤
-    if (isBrandVariant(kw.keyword, brandName)) {
+    if (isBrandVariant(kw.keyword, brandName) && !isConcatenatedBrandWithVolume) {
       brandVariantRemoved++
       return false
     }
@@ -869,7 +876,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       const merged = mergeGlobalCandidates({
         allKeywords,
         candidates: globalCandidates,
-        pureBrandKeywords
+        pureBrandKeywords,
+        brandName
       })
       console.log(`      📦 全局关键词库补充: 新增 ${merged.added}, 更新 ${merged.updated}`)
     }
@@ -913,9 +921,10 @@ function qualityFilterServiceAccount(
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
     const isPureBrand = isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+    const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
 
     // 1. 品牌变体词过滤
-    if (isBrandVariant(kw.keyword, brandName)) {
+    if (isBrandVariant(kw.keyword, brandName) && !isConcatenatedBrandWithVolume) {
       brandVariantRemoved++
       return false
     }
@@ -1122,14 +1131,19 @@ export function filterKeywords(
 
   let geoFilteredCount = 0
   let nonBrandRemovedCount = 0
+  let concatenatedBrandKept = 0
 
   const kept: PoolKeywordData[] = []
 
   for (const kw of keywords) {
     // 🔒 全量强制：只保留包含“纯品牌词”的关键词（不拼接造词）
     if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
-      nonBrandRemovedCount++
-      continue
+      const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
+      if (!isConcatenatedBrandWithVolume) {
+        nonBrandRemovedCount++
+        continue
+      }
+      concatenatedBrandKept++
     }
 
     // ✅ 地理位置过滤（过滤非目标国家的关键词）
@@ -1146,6 +1160,7 @@ export function filterKeywords(
 
   console.log(`   过滤: ${keywords.length} → ${kept.length}`)
   console.log(`      移除非品牌: ${nonBrandRemovedCount}`)
+  console.log(`      拼接品牌保留(有量): ${concatenatedBrandKept}`)
   console.log(`      地理过滤: ${geoFilteredCount}`)
   console.log(`      策略: 100%品牌包含`)
 
