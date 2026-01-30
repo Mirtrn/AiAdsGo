@@ -662,6 +662,35 @@ CREATE TABLE search_term_reports (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
 );
+CREATE TABLE brand_core_keywords (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand_key TEXT NOT NULL,
+  brand_display TEXT,
+  target_country TEXT NOT NULL,
+  target_language TEXT NOT NULL,
+  keyword_norm TEXT NOT NULL,
+  keyword_display TEXT,
+  source_mask TEXT NOT NULL,
+  impressions_total INTEGER NOT NULL DEFAULT 0,
+  clicks_total INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  search_volume INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (brand_key, target_country, target_language, keyword_norm)
+);
+CREATE TABLE brand_core_keyword_daily (
+  brand_key TEXT NOT NULL,
+  target_country TEXT NOT NULL,
+  target_language TEXT NOT NULL,
+  keyword_norm TEXT NOT NULL,
+  date TEXT NOT NULL,
+  impressions INTEGER NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  source_mask TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (brand_key, target_country, target_language, keyword_norm, date)
+);
 CREATE TABLE system_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -1377,6 +1406,12 @@ CREATE INDEX idx_search_terms_term
 ON search_term_reports(search_term);
 CREATE INDEX idx_search_terms_user_id
 ON search_term_reports(user_id);
+CREATE INDEX idx_brand_core_lookup
+ON brand_core_keywords(brand_key, target_country, target_language);
+CREATE INDEX idx_brand_core_last_seen
+ON brand_core_keywords(brand_key, last_seen_at);
+CREATE INDEX idx_brand_core_daily_date
+ON brand_core_keyword_daily(date);
 CREATE INDEX idx_settings_category_key
 ON system_settings(category, key);
 CREATE INDEX idx_settings_user_category

@@ -30,6 +30,9 @@ import {
 } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
+import { isInvalidKeyword } from './keyword-invalid-filter'
+import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
+import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 
 function derivePageTypeFromScrapedData(scrapedData: any): 'store' | 'product' | null {
   if (!scrapedData || typeof scrapedData !== 'object') return null
@@ -58,55 +61,6 @@ function resolveOfferPageType(offer: OfferPageTypeSource): 'store' | 'product' {
   if (explicit === 'store') return 'store'
   if (explicit === 'product') return derived === 'store' ? 'store' : 'product'
   return derived || 'product'
-}
-
-// ============================================
-// 🔒 关键词质量校验（2026-01-26）
-// ============================================
-
-/**
- * 无效关键词模式 - 这些关键词来自抓取失败时的回退逻辑
- * 会产生完全不相关的广告创意
- */
-const INVALID_KEYWORD_PATTERNS = [
-  // "unknown" 系列 - 来自抓取失败时使用 "unknown" 作为种子词扩展
-  /^unknown$/i,
-  /^unknown\s+/i,
-  /\s+unknown$/i,
-  /\bunknown\s+(caller|number|movie|pokemon|synonym|meaning|mother|amazon|charge)\b/i,
-
-  // 其他明显无效的模式
-  /^(test|testing|sample|example|placeholder)$/i,
-  /^(null|undefined|n\/a|na|none)$/i,
-
-  // 过于通用的单词
-  /^(the|a|an|and|or|of|to|for|with|in|on|at|by|from)$/i,
-]
-
-/**
- * 检查关键词是否无效（应被过滤）
- * @param keyword - 要检查的关键词
- * @returns true 如果关键词无效，应被过滤
- */
-function isInvalidKeyword(keyword: string): boolean {
-  if (!keyword || keyword.trim().length === 0) return true
-
-  const trimmed = keyword.trim().toLowerCase()
-
-  // 检查是否匹配任何无效模式
-  for (const pattern of INVALID_KEYWORD_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return true
-    }
-  }
-
-  // 检查关键词是否过短（单字符）
-  if (trimmed.length < 2) return true
-
-  // 检查关键词是否全是数字或特殊字符
-  if (/^[\d\W]+$/.test(trimmed)) return true
-
-  return false
 }
 
 // ============================================
@@ -225,6 +179,360 @@ export interface KeywordBuckets {
     bucketDCount: number
     bucketSCount?: number  // 🔧 可选：店铺链接专用
     balanceScore: number
+  }
+}
+
+// ============================================
+// 全局核心关键词补充逻辑
+// ============================================
+
+const GLOBAL_CORE_PROMO_PRICE_PATTERNS = /\b(discount|sale|deal|coupon|promo|code|offer|clearance|price|cost|cheap|affordable|budget)\b/i
+const GLOBAL_CORE_MODEL_PATTERNS = /\b(s\d+|q\d+|s7|s8|q5|q7|max|ultra|pro(?!\s*store))\b/i
+const GLOBAL_CORE_REVIEW_PATTERNS = /\b(review|rating|testimonial|feedback|comment|opinion)\b/i
+const GLOBAL_CORE_TRUST_PATTERNS =
+  /\b(review|reviews|rating|ratings|testimonial|testimonials|feedback|support|customer\s*service|warranty|guarantee|refund|return|secure|security|privacy|trusted|trust)\b/i
+const GLOBAL_CORE_GEO_PATTERNS = /\b(locations?|near\s+me|delivery|shipping|local|store\s+finder)\b/i
+const GLOBAL_CORE_SEARCH_VOLUME_TTL_DAYS = 30
+
+function buildExistingKeywordNormSet(lists: PoolKeywordData[][]): Set<string> {
+  const set = new Set<string>()
+  for (const list of lists) {
+    for (const kw of list) {
+      const norm = normalizeGoogleAdsKeyword(kw.keyword)
+      if (norm) set.add(norm)
+    }
+  }
+  return set
+}
+
+function selectBucketForProduct(keyword: string): 'A' | 'B' | 'C' | 'D' {
+  if (GLOBAL_CORE_PROMO_PRICE_PATTERNS.test(keyword)) return 'D'
+  if (GLOBAL_CORE_MODEL_PATTERNS.test(keyword)) return 'A'
+  return 'B'
+}
+
+function selectBucketForStore(keyword: string): 'A' | 'B' | 'C' | 'D' | 'S' {
+  if (GLOBAL_CORE_PROMO_PRICE_PATTERNS.test(keyword) || GLOBAL_CORE_GEO_PATTERNS.test(keyword)) return 'S'
+  if (GLOBAL_CORE_TRUST_PATTERNS.test(keyword) || GLOBAL_CORE_REVIEW_PATTERNS.test(keyword)) return 'D'
+  return 'B'
+}
+
+function pushUniqueKeyword(list: string[], keyword: string): void {
+  const norm = normalizeGoogleAdsKeyword(keyword)
+  if (!norm) return
+  const exists = list.some(item => normalizeGoogleAdsKeyword(item) === norm)
+  if (!exists) list.push(keyword)
+}
+
+async function injectGlobalCoreKeywordsForProduct(params: {
+  offer: Offer
+  userId: number
+  brandKeywords: PoolKeywordData[]
+  bucketAData: PoolKeywordData[]
+  bucketBData: PoolKeywordData[]
+  bucketCData: PoolKeywordData[]
+  bucketDData: PoolKeywordData[]
+  statistics: { totalKeywords: number; balanceScore: number }
+}): Promise<{
+  bucketAData: PoolKeywordData[]
+  bucketBData: PoolKeywordData[]
+  bucketCData: PoolKeywordData[]
+  bucketDData: PoolKeywordData[]
+  statistics: { totalKeywords: number; balanceScore: number }
+}> {
+  const { offer, userId, brandKeywords, bucketAData, bucketBData, bucketCData, bucketDData, statistics } = params
+
+  const coreKeywords = await getBrandCoreKeywords(
+    offer.brand,
+    offer.target_country,
+    offer.target_language || 'en'
+  )
+  if (coreKeywords.length === 0) {
+    return {
+      bucketAData,
+      bucketBData,
+      bucketCData,
+      bucketDData,
+      statistics,
+    }
+  }
+
+  const existingSet = buildExistingKeywordNormSet([
+    brandKeywords,
+    bucketAData,
+    bucketBData,
+    bucketCData,
+    bucketDData,
+  ])
+
+  const addedKeywords: PoolKeywordData[] = []
+
+  for (const core of coreKeywords) {
+    const keywordText = core.keywordDisplay?.trim() || core.keywordNorm
+    if (!keywordText) continue
+    const keywordNorm = normalizeGoogleAdsKeyword(keywordText)
+    if (!keywordNorm || isInvalidKeyword(keywordNorm)) continue
+    if (existingSet.has(keywordNorm)) continue
+
+    const newKeyword: PoolKeywordData = {
+      keyword: keywordText,
+      searchVolume: Number(core.searchVolume || 0),
+      source: 'GLOBAL_CORE',
+      matchType: 'PHRASE',
+    }
+
+    const bucket = selectBucketForProduct(keywordText)
+    if (bucket === 'A') bucketAData.push(newKeyword)
+    else if (bucket === 'D') bucketDData.push(newKeyword)
+    else if (bucket === 'C') bucketCData.push(newKeyword)
+    else bucketBData.push(newKeyword)
+
+    existingSet.add(keywordNorm)
+    addedKeywords.push(newKeyword)
+  }
+
+  await hydrateGlobalCoreKeywordSearchVolumes(addedKeywords, offer, userId)
+
+  const counts = [bucketAData.length, bucketBData.length, bucketCData.length, bucketDData.length]
+  return {
+    bucketAData,
+    bucketBData,
+    bucketCData,
+    bucketDData,
+    statistics: {
+      totalKeywords: counts.reduce((a, b) => a + b, 0),
+      balanceScore: calculateBalanceScore(counts),
+    },
+  }
+}
+
+async function injectGlobalCoreKeywordsForStore(params: {
+  offer: Offer
+  userId: number
+  brandKeywords: PoolKeywordData[]
+  storeBuckets: StoreKeywordBuckets
+  bucketAData: PoolKeywordData[]
+  bucketBData: PoolKeywordData[]
+  bucketCData: PoolKeywordData[]
+  bucketDData: PoolKeywordData[]
+  bucketSData: PoolKeywordData[]
+}): Promise<{
+  bucketAData: PoolKeywordData[]
+  bucketBData: PoolKeywordData[]
+  bucketCData: PoolKeywordData[]
+  bucketDData: PoolKeywordData[]
+  bucketSData: PoolKeywordData[]
+}> {
+  const {
+    offer,
+    userId,
+    brandKeywords,
+    storeBuckets,
+    bucketAData,
+    bucketBData,
+    bucketCData,
+    bucketDData,
+    bucketSData,
+  } = params
+
+  const coreKeywords = await getBrandCoreKeywords(
+    offer.brand,
+    offer.target_country,
+    offer.target_language || 'en'
+  )
+  if (coreKeywords.length === 0) {
+    return {
+      bucketAData,
+      bucketBData,
+      bucketCData,
+      bucketDData,
+      bucketSData,
+    }
+  }
+
+  const existingSet = buildExistingKeywordNormSet([
+    brandKeywords,
+    bucketAData,
+    bucketBData,
+    bucketCData,
+    bucketDData,
+    bucketSData,
+  ])
+
+  const addedKeywords: PoolKeywordData[] = []
+
+  for (const core of coreKeywords) {
+    const keywordText = core.keywordDisplay?.trim() || core.keywordNorm
+    if (!keywordText) continue
+    const keywordNorm = normalizeGoogleAdsKeyword(keywordText)
+    if (!keywordNorm || isInvalidKeyword(keywordNorm)) continue
+    if (existingSet.has(keywordNorm)) continue
+
+    const newKeyword: PoolKeywordData = {
+      keyword: keywordText,
+      searchVolume: Number(core.searchVolume || 0),
+      source: 'GLOBAL_CORE',
+      matchType: 'PHRASE',
+    }
+
+    const bucket = selectBucketForStore(keywordText)
+    if (bucket === 'S') {
+      bucketSData.push(newKeyword)
+      pushUniqueKeyword(storeBuckets.bucketS.keywords, keywordText)
+    } else if (bucket === 'D') {
+      bucketDData.push(newKeyword)
+      pushUniqueKeyword(storeBuckets.bucketD.keywords, keywordText)
+    } else if (bucket === 'C') {
+      bucketCData.push(newKeyword)
+      pushUniqueKeyword(storeBuckets.bucketC.keywords, keywordText)
+    } else if (bucket === 'A') {
+      bucketAData.push(newKeyword)
+      pushUniqueKeyword(storeBuckets.bucketA.keywords, keywordText)
+    } else {
+      bucketBData.push(newKeyword)
+      pushUniqueKeyword(storeBuckets.bucketB.keywords, keywordText)
+    }
+
+    existingSet.add(keywordNorm)
+    addedKeywords.push(newKeyword)
+  }
+
+  await hydrateGlobalCoreKeywordSearchVolumes(addedKeywords, offer, userId)
+  recalculateStoreBucketStatistics(storeBuckets)
+
+  return {
+    bucketAData,
+    bucketBData,
+    bucketCData,
+    bucketDData,
+    bucketSData,
+  }
+}
+
+async function hydrateGlobalCoreKeywordSearchVolumes(
+  keywords: PoolKeywordData[],
+  offer: Offer,
+  userId: number
+): Promise<void> {
+  if (keywords.length === 0) return
+
+  try {
+    const country = normalizeCountryCode(offer.target_country || 'US')
+    const language = normalizeLanguageCode(offer.target_language || 'en')
+
+    const keywordMap = new Map<string, PoolKeywordData>()
+    for (const kw of keywords) {
+      const norm = normalizeGoogleAdsKeyword(kw.keyword)
+      if (!norm) continue
+      if (!keywordMap.has(norm)) keywordMap.set(norm, kw)
+    }
+
+    const normalizedKeywords = Array.from(keywordMap.keys())
+    if (normalizedKeywords.length === 0) return
+
+    const db = await getDatabase()
+    const placeholders = normalizedKeywords.map(() => '?').join(',')
+    const rows = await db.query(
+      `
+      SELECT keyword, search_volume, competition_level, avg_cpc_micros, cached_at
+      FROM global_keywords
+      WHERE keyword IN (${placeholders})
+        AND country = ?
+        AND language = ?
+    `,
+      [...normalizedKeywords, country, language]
+    ) as Array<{
+      keyword: string
+      search_volume: number | null
+      competition_level: string | null
+      avg_cpc_micros: number | null
+      cached_at: string | Date | null
+    }>
+
+    const cutoffMs = Date.now() - GLOBAL_CORE_SEARCH_VOLUME_TTL_DAYS * 24 * 60 * 60 * 1000
+    const staleNorms = new Set<string>()
+    const volumeUpdates = new Map<string, number>()
+
+    const seenNorms = new Set<string>()
+    for (const row of rows) {
+      const norm = normalizeGoogleAdsKeyword(row.keyword)
+      if (!norm) continue
+      seenNorms.add(norm)
+      const kw = keywordMap.get(norm)
+      if (!kw) continue
+
+      const cachedAtValue = row.cached_at
+      const cachedAtMs = cachedAtValue instanceof Date
+        ? cachedAtValue.getTime()
+        : Date.parse(String(cachedAtValue || ''))
+      const isFresh = Number.isFinite(cachedAtMs) && cachedAtMs >= cutoffMs
+
+      if (isFresh) {
+        kw.searchVolume = Number(row.search_volume || 0)
+        if (row.competition_level) kw.competition = row.competition_level
+        const avgCpc = Number(row.avg_cpc_micros || 0) / 1_000_000
+        if (avgCpc > 0) {
+          kw.lowTopPageBid = avgCpc
+          kw.highTopPageBid = avgCpc
+        }
+        volumeUpdates.set(norm, kw.searchVolume || 0)
+      } else {
+        staleNorms.add(norm)
+      }
+    }
+
+    for (const norm of normalizedKeywords) {
+      if (!seenNorms.has(norm)) staleNorms.add(norm)
+    }
+
+    if (staleNorms.size > 0) {
+      const { getKeywordSearchVolumes } = await import('./keyword-planner')
+      const auth = await getUserAuthType(userId)
+      const refreshKeywords = Array.from(staleNorms)
+        .map(norm => keywordMap.get(norm)?.keyword)
+        .filter((kw): kw is string => Boolean(kw))
+
+      if (refreshKeywords.length > 0) {
+        const volumes = await getKeywordSearchVolumes(
+          refreshKeywords,
+          country,
+          language,
+          userId,
+          auth.authType,
+          auth.serviceAccountId
+        )
+
+        for (const vol of volumes) {
+          const norm = normalizeGoogleAdsKeyword(vol.keyword)
+          if (!norm) continue
+          const kw = keywordMap.get(norm)
+          if (!kw) continue
+
+          kw.searchVolume = vol.avgMonthlySearches || 0
+          kw.competition = vol.competition || kw.competition
+          kw.competitionIndex = vol.competitionIndex || kw.competitionIndex
+          kw.lowTopPageBid = vol.lowTopPageBid || kw.lowTopPageBid
+          kw.highTopPageBid = vol.highTopPageBid || kw.highTopPageBid
+          volumeUpdates.set(norm, kw.searchVolume || 0)
+        }
+      }
+    }
+
+    if (volumeUpdates.size > 0) {
+      const updates = Array.from(volumeUpdates.entries()).map(([keywordNorm, searchVolume]) => ({
+        keywordNorm,
+        searchVolume,
+      }))
+      await updateBrandCoreKeywordSearchVolumes(
+        offer.brand,
+        country,
+        language,
+        updates
+      )
+      await refreshBrandCoreKeywordCache(offer.brand, country, language)
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ 全局核心关键词搜索量补齐失败: ${error?.message || String(error)}`)
   }
 }
 
@@ -2584,11 +2892,11 @@ export async function generateOfferKeywordPool(
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
     }
 
-    const storeBucketAData = mapAndFilterKeywords(storeBuckets.bucketA.keywords)
-    const storeBucketBData = mapAndFilterKeywords(storeBuckets.bucketB.keywords)
-    const storeBucketCData = mapAndFilterKeywords(storeBuckets.bucketC.keywords)
-    const storeBucketDData = mapAndFilterKeywords(storeBuckets.bucketD.keywords)
-    const storeBucketSData = mapAndFilterKeywords(storeBuckets.bucketS.keywords)
+    let storeBucketAData = mapAndFilterKeywords(storeBuckets.bucketA.keywords)
+    let storeBucketBData = mapAndFilterKeywords(storeBuckets.bucketB.keywords)
+    let storeBucketCData = mapAndFilterKeywords(storeBuckets.bucketC.keywords)
+    let storeBucketDData = mapAndFilterKeywords(storeBuckets.bucketD.keywords)
+    let storeBucketSData = mapAndFilterKeywords(storeBuckets.bucketS.keywords)
 
     // 记录过滤掉的关键词数量
     const originalCount = storeBuckets.bucketA.keywords.length + storeBuckets.bucketB.keywords.length +
@@ -2600,7 +2908,26 @@ export async function generateOfferKeywordPool(
       console.log(`ℹ️ 店铺关键词映射过滤: ${originalCount} → ${filteredCount} (过滤掉 ${originalCount - filteredCount} 个无搜索量数据的关键词)`)
     }
 
-    // 8. 保存到数据库（包含店铺分桶）
+    // 8. 补充品牌全局核心关键词（不破坏原流程）
+    const injectedStore = await injectGlobalCoreKeywordsForStore({
+      offer,
+      userId,
+      brandKeywords: brandKeywordsData,
+      storeBuckets,
+      bucketAData: storeBucketAData,
+      bucketBData: storeBucketBData,
+      bucketCData: storeBucketCData,
+      bucketDData: storeBucketDData,
+      bucketSData: storeBucketSData,
+    })
+
+    storeBucketAData = injectedStore.bucketAData
+    storeBucketBData = injectedStore.bucketBData
+    storeBucketCData = injectedStore.bucketCData
+    storeBucketDData = injectedStore.bucketDData
+    storeBucketSData = injectedStore.bucketSData
+
+    // 9. 保存到数据库（包含店铺分桶）
     const pool = await saveKeywordPoolWithData(
       offerId,
       userId,
@@ -2652,10 +2979,10 @@ export async function generateOfferKeywordPool(
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
     }
 
-    const bucketAData = mapAndFilterKeywords(productBuckets.bucketA.keywords)
-    const bucketBData = mapAndFilterKeywords(productBuckets.bucketB.keywords)
-    const bucketCData = mapAndFilterKeywords(productBuckets.bucketC.keywords)
-    const bucketDData = mapAndFilterKeywords(productBuckets.bucketD.keywords)
+    let bucketAData = mapAndFilterKeywords(productBuckets.bucketA.keywords)
+    let bucketBData = mapAndFilterKeywords(productBuckets.bucketB.keywords)
+    let bucketCData = mapAndFilterKeywords(productBuckets.bucketC.keywords)
+    let bucketDData = mapAndFilterKeywords(productBuckets.bucketD.keywords)
 
     // 记录过滤掉的关键词数量
     const originalCount = productBuckets.bucketA.keywords.length + productBuckets.bucketB.keywords.length +
@@ -2665,7 +2992,24 @@ export async function generateOfferKeywordPool(
       console.log(`ℹ️ 关键词映射过滤: ${originalCount} → ${filteredCount} (过滤掉 ${originalCount - filteredCount} 个无搜索量数据的关键词)`)
     }
 
-    // 8. 保存到数据库
+    // 8. 补充品牌全局核心关键词（不破坏原流程）
+    const injectedProduct = await injectGlobalCoreKeywordsForProduct({
+      offer,
+      userId,
+      brandKeywords: brandKeywordsData,
+      bucketAData,
+      bucketBData,
+      bucketCData,
+      bucketDData,
+      statistics: productBuckets.statistics,
+    })
+
+    bucketAData = injectedProduct.bucketAData
+    bucketBData = injectedProduct.bucketBData
+    bucketCData = injectedProduct.bucketCData
+    bucketDData = injectedProduct.bucketDData
+
+    // 9. 保存到数据库
     const pool = await saveKeywordPoolWithData(
       offerId,
       userId,
@@ -2675,7 +3019,7 @@ export async function generateOfferKeywordPool(
         bucketB: { intent: productBuckets.bucketB.intent, keywords: bucketBData },
         bucketC: { intent: productBuckets.bucketC.intent, keywords: bucketCData },
         bucketD: { intent: productBuckets.bucketD.intent, keywords: bucketDData },
-        statistics: productBuckets.statistics
+        statistics: injectedProduct.statistics
       },
       pageType  // 🆕 v4.16: 传递页面类型
     )

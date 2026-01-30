@@ -874,6 +874,45 @@ CREATE TABLE search_term_reports (
 
 
 -- ==========================================
+-- Table: brand_core_keywords
+-- ==========================================
+CREATE TABLE brand_core_keywords (
+  id SERIAL PRIMARY KEY,
+  brand_key TEXT NOT NULL,
+  brand_display TEXT,
+  target_country TEXT NOT NULL,
+  target_language TEXT NOT NULL,
+  keyword_norm TEXT NOT NULL,
+  keyword_display TEXT,
+  source_mask TEXT NOT NULL,
+  impressions_total INTEGER NOT NULL DEFAULT 0,
+  clicks_total INTEGER NOT NULL DEFAULT 0,
+  last_seen_at DATE,
+  search_volume INTEGER,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (brand_key, target_country, target_language, keyword_norm)
+);
+
+
+-- ==========================================
+-- Table: brand_core_keyword_daily
+-- ==========================================
+CREATE TABLE brand_core_keyword_daily (
+  brand_key TEXT NOT NULL,
+  target_country TEXT NOT NULL,
+  target_language TEXT NOT NULL,
+  keyword_norm TEXT NOT NULL,
+  date DATE NOT NULL,
+  impressions INTEGER NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  source_mask TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (brand_key, target_country, target_language, keyword_norm, date)
+);
+
+
+-- ==========================================
 -- Table: sync_logs
 -- ==========================================
 CREATE TABLE sync_logs (
@@ -1534,6 +1573,21 @@ ON search_term_reports(search_term);
 -- Index: idx_search_terms_user_id (on table: search_term_reports)
 CREATE INDEX idx_search_terms_user_id
 ON search_term_reports(user_id);
+
+
+-- Index: idx_brand_core_lookup (on table: brand_core_keywords)
+CREATE INDEX idx_brand_core_lookup
+ON brand_core_keywords(brand_key, target_country, target_language);
+
+
+-- Index: idx_brand_core_last_seen (on table: brand_core_keywords)
+CREATE INDEX idx_brand_core_last_seen
+ON brand_core_keywords(brand_key, last_seen_at);
+
+
+-- Index: idx_brand_core_daily_date (on table: brand_core_keyword_daily)
+CREATE INDEX idx_brand_core_daily_date
+ON brand_core_keyword_daily(date);
 
 
 -- Index: idx_sync_logs_user (on table: sync_logs)

@@ -3,8 +3,8 @@
  *
  * 所有表结构在此定义，自动生成 SQLite 和 PostgreSQL 的初始化脚本
  * 版本: 2.0.0
- * 最后更新: 2025-12-08
- * 表数量: 39 (removed prompt_usage_stats, added offer_tasks, batch_tasks)
+ * 最后更新: 2026-01-30
+ * 表数量: 41 (added brand_core_keywords, brand_core_keyword_daily)
  */
 
 // ============================================================================
@@ -479,7 +479,57 @@ export const TABLES: TableDef[] = [
   },
 
   // -------------------------------------------------------------------------
-  // 16. rate_limits - API 速率限制记录
+  // 15. brand_core_keywords - 品牌全局核心关键词池（跨用户共享）
+  // -------------------------------------------------------------------------
+  {
+    name: 'brand_core_keywords',
+    columns: [
+      { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
+      { name: 'brand_key', type: 'TEXT', notNull: true },
+      { name: 'brand_display', type: 'TEXT' },
+      { name: 'target_country', type: 'TEXT', notNull: true },
+      { name: 'target_language', type: 'TEXT', notNull: true },
+      { name: 'keyword_norm', type: 'TEXT', notNull: true },
+      { name: 'keyword_display', type: 'TEXT' },
+      { name: 'source_mask', type: 'TEXT', notNull: true },
+      { name: 'impressions_total', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'clicks_total', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'last_seen_at', type: 'DATE' },
+      { name: 'search_volume', type: 'INTEGER' },
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_brand_core_lookup', columns: ['brand_key', 'target_country', 'target_language'] },
+      { name: 'idx_brand_core_last_seen', columns: ['brand_key', 'last_seen_at'] },
+    ],
+    uniqueConstraints: [['brand_key', 'target_country', 'target_language', 'keyword_norm']],
+  },
+
+  // -------------------------------------------------------------------------
+  // 16. brand_core_keyword_daily - 核心关键词每日汇总（滚动窗口）
+  // -------------------------------------------------------------------------
+  {
+    name: 'brand_core_keyword_daily',
+    columns: [
+      { name: 'brand_key', type: 'TEXT', notNull: true },
+      { name: 'target_country', type: 'TEXT', notNull: true },
+      { name: 'target_language', type: 'TEXT', notNull: true },
+      { name: 'keyword_norm', type: 'TEXT', notNull: true },
+      { name: 'date', type: 'DATE', notNull: true },
+      { name: 'impressions', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'clicks', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'source_mask', type: 'TEXT', notNull: true },
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_brand_core_daily_date', columns: ['date'] },
+    ],
+    uniqueConstraints: [['brand_key', 'target_country', 'target_language', 'keyword_norm', 'date']],
+  },
+
+  // -------------------------------------------------------------------------
+  // 17. rate_limits - API 速率限制记录
   // -------------------------------------------------------------------------
   {
     name: 'rate_limits',
@@ -1206,5 +1256,5 @@ export const DEFAULT_SETTINGS = [
 // 导出表数量常量
 // ============================================================================
 
-export const SCHEMA_VERSION = '2.0.0'
+export const SCHEMA_VERSION = '2.1.0'
 export const TABLE_COUNT = TABLES.length
