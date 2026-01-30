@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle, ExternalLink, Trash2 } from 'lucide-react'
 import ProgressTracker from '@/components/ProgressTracker'
 import { useOfferExtractionV2 } from '@/hooks/useOfferExtractionV2'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
@@ -236,13 +236,9 @@ export default function CreateOfferModalV2({
     resetExtraction() // 重置之前的提取状态
     setCurrentStep('extracting')
 
+    let normalizedLinks: string[] = []
     if (linkType === 'store') {
-      const normalizedLinks = normalizeStoreProductLinks()
-      if (normalizedLinks.length === 0) {
-        setError('店铺类型需至少填写1个单品推广链接')
-        setCurrentStep('input')
-        return
-      }
+      normalizedLinks = normalizeStoreProductLinks()
       for (const link of normalizedLinks) {
         try {
           // eslint-disable-next-line no-new
@@ -256,7 +252,6 @@ export default function CreateOfferModalV2({
     }
 
     // 🔥 启动SSE流式提取
-    const normalizedLinks = linkType === 'store' ? normalizeStoreProductLinks() : []
     startExtraction(
       affiliateLink,
       targetCountry,
@@ -396,7 +391,7 @@ export default function CreateOfferModalV2({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-slate-500 mt-1">
-                  店铺类型需额外填写最多3个单品推广链接
+                  店铺类型可选填写最多3个单品推广链接，用于补充单品数据
                 </p>
               </div>
 
@@ -422,9 +417,7 @@ export default function CreateOfferModalV2({
 
               {linkType === 'store' && (
                 <div className="space-y-2">
-                  <Label>
-                    单品推广链接（最多3个） <span className="text-red-500">*</span>
-                  </Label>
+                  <Label>单品推广链接（最多3个）</Label>
                   <div className="space-y-2">
                     {storeProductLinks.map((link, idx) => (
                       <div key={`store-product-link-${idx}`} className="flex items-center gap-2">
@@ -438,9 +431,11 @@ export default function CreateOfferModalV2({
                           type="button"
                           variant="outline"
                           size="sm"
+                          className="shrink-0 whitespace-nowrap border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                           onClick={() => removeStoreProductLink(idx)}
                           disabled={storeProductLinks.length === 1}
                         >
+                          <Trash2 className="w-4 h-4 mr-1" />
                           删除
                         </Button>
                       </div>

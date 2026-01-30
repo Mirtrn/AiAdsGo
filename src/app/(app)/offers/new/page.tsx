@@ -48,6 +48,7 @@ export default function NewOfferPage() {
     setLoading(true)
 
     try {
+      let uniqueLinks: string[] = []
       if (linkType === 'store') {
         if (!affiliateLink.trim()) {
           throw new Error('店铺类型需填写店铺推广链接')
@@ -55,10 +56,7 @@ export default function NewOfferPage() {
         const normalizedLinks = storeProductLinks
           .map((link) => link.trim())
           .filter((link) => Boolean(link))
-        const uniqueLinks = Array.from(new Set(normalizedLinks)).slice(0, 3)
-        if (uniqueLinks.length === 0) {
-          throw new Error('店铺类型需至少填写1个单品推广链接')
-        }
+        uniqueLinks = Array.from(new Set(normalizedLinks)).slice(0, 3)
         for (const link of uniqueLinks) {
           try {
             // eslint-disable-next-line no-new
@@ -83,8 +81,8 @@ export default function NewOfferPage() {
           target_country: targetCountry,
           affiliate_link: affiliateLink || undefined,
           page_type: linkType,
-          store_product_links: linkType === 'store'
-            ? Array.from(new Set(storeProductLinks.map((link) => link.trim()).filter((link) => Boolean(link)))).slice(0, 3)
+          store_product_links: linkType === 'store' && uniqueLinks.length > 0
+            ? uniqueLinks
             : undefined,
           brand_description: brandDescription || undefined,
           unique_selling_points: uniqueSellingPoints || undefined,
@@ -177,7 +175,7 @@ export default function NewOfferPage() {
                       <option value="product">单品</option>
                       <option value="store">店铺</option>
                     </select>
-                    <p className="mt-1 text-sm text-gray-500">店铺类型需额外填写单品推广链接（最多3个）</p>
+                    <p className="mt-1 text-sm text-gray-500">店铺类型可选填写单品推广链接（最多3个）</p>
                   </div>
 
                   <div>
@@ -270,7 +268,7 @@ export default function NewOfferPage() {
                   {linkType === 'store' && (
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        单品推广链接（最多3个） *
+                        单品推广链接（最多3个）
                       </label>
                       <div className="space-y-2">
                         {storeProductLinks.map((link, idx) => (
@@ -284,7 +282,7 @@ export default function NewOfferPage() {
                             />
                             <button
                               type="button"
-                              className="mt-1 px-2 py-1 text-sm border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                              className="mt-1 inline-flex items-center whitespace-nowrap shrink-0 px-2 py-1 text-sm border border-red-200 rounded-md text-red-600 hover:bg-red-50 disabled:opacity-50"
                               onClick={() => removeStoreProductLink(idx)}
                               disabled={storeProductLinks.length === 1}
                             >

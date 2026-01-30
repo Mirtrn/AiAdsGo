@@ -17,7 +17,7 @@
  * - 可选列：品牌名/brand_name（或brand）
  * - 可选列：产品价格/product_price（店铺类型可填平均产品价格）
  * - 可选列：佣金比例/commission_payout（店铺类型可填平均佣金比例）
- * - 店铺类型可选列：单品推广链接 product_link_1~3（至少填1个，最多3个）
+ * - 店铺类型可选列：单品推广链接 product_link_1~3（最多3个）
  * - 编码：UTF-8
  * - 最大有效行数：500行
  * - 缺少必填参数的行会被自动跳过
@@ -228,13 +228,10 @@ export async function POST(req: NextRequest) {
           console.warn(`⚠️ 跳过第${i + 1}行：单品推广链接无效 (${invalidLink})`)
           continue
         }
-        if (uniqueProductLinks.length === 0) {
-          skippedCount++
-          console.warn(`⚠️ 跳过第${i + 1}行：店铺类型需至少填写1个单品推广链接`)
-          continue
-        }
         row.page_type = 'store'
-        row.store_product_links = uniqueProductLinks
+        if (uniqueProductLinks.length > 0) {
+          row.store_product_links = uniqueProductLinks
+        }
       } else if (resolvedPageType === 'product') {
         row.page_type = 'product'
       } else if (rawPageType) {

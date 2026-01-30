@@ -71,18 +71,14 @@ async function post(request: NextRequest) {
         .map((link) => link.trim())
         .filter((link) => Boolean(link))
       storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
-      if (storeProductLinks.length === 0) {
-        return NextResponse.json(
-          { error: '店铺类型需至少填写1个单品推广链接' },
-          { status: 400 }
-        )
-      }
     }
 
     const offer = await createOffer(parseInt(userId, 10), {
       ...validationResult.data,
       page_type: pageType,
-      store_product_links: storeProductLinks ? JSON.stringify(storeProductLinks) : undefined,
+      store_product_links: storeProductLinks && storeProductLinks.length > 0
+        ? JSON.stringify(storeProductLinks)
+        : undefined,
     })
 
     // 使缓存失效

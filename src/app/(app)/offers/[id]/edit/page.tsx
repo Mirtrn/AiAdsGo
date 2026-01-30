@@ -19,6 +19,8 @@ export default function EditOfferPage() {
   const [category, setCategory] = useState('')
   const [targetCountry, setTargetCountry] = useState('US')
   const [affiliateLink, setAffiliateLink] = useState('')
+  const [finalUrl, setFinalUrl] = useState('')
+  const [finalUrlSuffix, setFinalUrlSuffix] = useState('')
   const [brandDescription, setBrandDescription] = useState('')
   const [uniqueSellingPoints, setUniqueSellingPoints] = useState('')
   const [productHighlights, setProductHighlights] = useState('')
@@ -44,6 +46,8 @@ export default function EditOfferPage() {
 
         // 填充表单 - 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
         setUrl(offer.url || '')
+        setFinalUrl(offer.finalUrl || '')
+        setFinalUrlSuffix(offer.finalUrlSuffix || '')
         setBrand(offer.brand || '')
         setCategory(offer.category || '')
         setTargetCountry(offer.targetCountry || 'US')
@@ -173,7 +177,7 @@ export default function EditOfferPage() {
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="url" className="block text-sm font-medium text-gray-700">
-                      商品/店铺URL *
+                      原始URL（商品/店铺） *
                     </label>
                     <input
                       type="url"
@@ -185,8 +189,18 @@ export default function EditOfferPage() {
                       onChange={(e) => setUrl(e.target.value)}
                     />
                     <p className="mt-1 text-sm text-gray-500">
-                      这是您的最终着陆页URL，将用于Google Ads广告
+                      这是您保存的商品/店铺URL，广告投放将优先使用解析出的Final URL
                     </p>
+                    <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                      <div className="text-xs text-gray-500">Final URL（解析结果）</div>
+                      <div className={`mt-1 text-sm break-all ${finalUrl ? 'text-gray-900' : 'text-gray-400'}`}>
+                        {finalUrl || '未提取'}
+                      </div>
+                      <div className="mt-2 text-xs text-gray-500">Final URL Suffix</div>
+                      <div className={`mt-1 text-sm break-all font-mono ${finalUrlSuffix ? 'text-gray-900' : 'text-gray-400'}`}>
+                        {finalUrlSuffix || '未提取'}
+                      </div>
+                    </div>
                   </div>
 
                   <div>

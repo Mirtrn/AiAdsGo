@@ -405,12 +405,6 @@ export async function PUT(
         .map((link) => link.trim())
         .filter((link) => Boolean(link))
       storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
-      if (storeProductLinks.length === 0) {
-        return NextResponse.json(
-          { error: '店铺类型需至少填写1个单品推广链接' },
-          { status: 400 }
-        )
-      }
     }
 
     const offer = await updateOffer(parseInt(id, 10), parseInt(userId, 10), {
@@ -419,7 +413,9 @@ export async function PUT(
       category: validationResult.data.category,
       target_country: validationResult.data.target_country,
       affiliate_link: validationResult.data.affiliate_link,
-      store_product_links: storeProductLinks ? JSON.stringify(storeProductLinks) : undefined,
+      store_product_links: storeProductLinks && storeProductLinks.length > 0
+        ? JSON.stringify(storeProductLinks)
+        : undefined,
       brand_description: validationResult.data.brand_description,
       unique_selling_points: validationResult.data.unique_selling_points,
       product_highlights: validationResult.data.product_highlights,

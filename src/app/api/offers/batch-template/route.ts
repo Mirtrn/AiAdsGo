@@ -10,7 +10,7 @@
  * - 必填：affiliate_link（推广链接）, target_country（推广国家）
  * - 选填：page_type（链接类型：product/store）, brand_name（品牌名）
  * - 选填：product_price（产品价格/平均产品价格）, commission_payout（佣金比例/平均佣金比例）
- * - 店铺类型必填：product_link_1~3（单品推广链接，最多3个）
+ * - 店铺类型可选填：product_link_1~3（单品推广链接，最多3个）
  * - 说明：Final URL、评论分析、竞品分析等信息会通过自动抓取获得
  */
 

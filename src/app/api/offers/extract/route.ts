@@ -99,22 +99,17 @@ export async function POST(req: NextRequest) {
     const pageType = (page_type === 'store' || page_type === 'product') ? page_type : 'product'
     let normalizedStoreProductLinks: string[] = []
     if (pageType === 'store') {
-      if (!Array.isArray(store_product_links)) {
+      if (store_product_links !== undefined && store_product_links !== null && !Array.isArray(store_product_links)) {
         return NextResponse.json(
           { error: 'Invalid request', message: 'store_product_links 必须为URL数组（最多3个）' },
           { status: 400 }
         )
       }
-      normalizedStoreProductLinks = store_product_links
+      const rawStoreLinks = Array.isArray(store_product_links) ? store_product_links : []
+      normalizedStoreProductLinks = rawStoreLinks
         .map((link: any) => (typeof link === 'string' ? link.trim() : ''))
         .filter((link: string) => Boolean(link))
       normalizedStoreProductLinks = Array.from(new Set(normalizedStoreProductLinks)).slice(0, 3)
-      if (normalizedStoreProductLinks.length === 0) {
-        return NextResponse.json(
-          { error: 'Invalid request', message: '店铺类型需至少填写1个单品推广链接' },
-          { status: 400 }
-        )
-      }
       for (const link of normalizedStoreProductLinks) {
         try {
           // eslint-disable-next-line no-new

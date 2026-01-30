@@ -104,22 +104,17 @@ export async function POST(req: NextRequest) {
     const pageType = (page_type === 'store' || page_type === 'product') ? page_type : 'product'
     let normalizedStoreProductLinks: string[] = []
     if (pageType === 'store') {
-      if (!Array.isArray(store_product_links)) {
+      if (store_product_links !== undefined && store_product_links !== null && !Array.isArray(store_product_links)) {
         return new Response(
           JSON.stringify({ error: 'Invalid store_product_links (需为URL数组，最多3个)' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         )
       }
-      normalizedStoreProductLinks = store_product_links
+      const rawStoreLinks = Array.isArray(store_product_links) ? store_product_links : []
+      normalizedStoreProductLinks = rawStoreLinks
         .map((link: any) => (typeof link === 'string' ? link.trim() : ''))
         .filter((link: string) => Boolean(link))
       normalizedStoreProductLinks = Array.from(new Set(normalizedStoreProductLinks)).slice(0, 3)
-      if (normalizedStoreProductLinks.length === 0) {
-        return new Response(
-          JSON.stringify({ error: '店铺类型需至少填写1个单品推广链接' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
       for (const link of normalizedStoreProductLinks) {
         try {
           // eslint-disable-next-line no-new

@@ -39,6 +39,8 @@ import { formatCurrency } from '@/lib/currency'
 interface Offer {
   id: number
   url: string
+  finalUrl?: string | null
+  finalUrlSuffix?: string | null
   brand: string
   category: string | null
   categoryRaw?: string | null
@@ -880,7 +882,33 @@ export default function OfferDetailPage() {
                 </dd>
               </div>
               <div className="sm:col-span-2">
-                <dt className="text-sm font-medium text-gray-500">商品/店铺URL</dt>
+                <dt className="text-sm font-medium text-gray-500">Final URL（最终落地页）</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  <a
+                    href={offer.finalUrl || offer.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:text-indigo-500 break-all"
+                  >
+                    {offer.finalUrl || offer.url}
+                  </a>
+                  {!offer.finalUrl && (
+                    <div className="text-xs text-amber-600 mt-1">Final URL未提取，当前显示原始URL</div>
+                  )}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-sm font-medium text-gray-500">Final URL Suffix</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {offer.finalUrlSuffix ? (
+                    <span className="font-mono break-all">{offer.finalUrlSuffix}</span>
+                  ) : (
+                    <span className="text-gray-400">未提取</span>
+                  )}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-sm font-medium text-gray-500">原始URL</dt>
                 <dd className="mt-1 text-sm text-gray-900">
                   <a href={offer.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
                     {offer.url}
