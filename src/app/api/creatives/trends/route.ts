@@ -157,9 +157,12 @@ export async function GET(request: NextRequest) {
     const statusDistribution = await db.query(statusQuery, statusParams) as any[]
 
     // 5. 查询Ad Strength分布（当前总量）
+    const adStrengthExpr = db.type === 'postgres'
+      ? `COALESCE(NULLIF(trim(both '\"' from NULLIF(ad_strength_data::text, 'null')), ''), 'UNKNOWN')`
+      : `COALESCE(ad_strength_data, 'UNKNOWN')`
     let adStrengthQuery = `
       SELECT
-        COALESCE(ad_strength_data, 'UNKNOWN') as ad_strength,
+        ${adStrengthExpr} as ad_strength,
         COUNT(*) as count
       FROM ad_creatives
       WHERE user_id = ? AND ${isDeletedCheck}
@@ -171,7 +174,7 @@ export async function GET(request: NextRequest) {
       adStrengthParams.push(parseInt(offerId))
     }
 
-    adStrengthQuery += ` GROUP BY ad_strength_data`
+    adStrengthQuery += ` GROUP BY ${adStrengthExpr}`
 
     const adStrengthDistribution = await db.query(adStrengthQuery, adStrengthParams) as any[]
 
