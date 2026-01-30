@@ -88,7 +88,7 @@ export async function executeBatchCreation(
           skip_warmup,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, false, false, ${nowFunc}, ${nowFunc})
+        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, false, false, ${nowFunc}, ${nowFunc})
       `, [
         childTaskId,
         task.userId,
