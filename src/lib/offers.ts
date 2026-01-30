@@ -195,7 +195,7 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     input.product_highlights || null,
     input.target_audience || null,
     input.final_url || null,  // 解析后的最终URL
-    input.final_url_suffix || null,  // URL查询参数后缀
+    input.final_url_suffix ?? null,  // URL查询参数后缀
     offerName,  // 自动生成
     targetLanguage,  // 自动生成
     input.product_price || null,  // 需求28
@@ -1319,7 +1319,7 @@ export async function updateOfferScrapeStatus(
       brandForWrite,
       newOfferName,
       scrapedData.url || null,
-      scrapedData.final_url_suffix || null,
+      scrapedData.final_url_suffix ?? null,
       scrapedData.product_name || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,

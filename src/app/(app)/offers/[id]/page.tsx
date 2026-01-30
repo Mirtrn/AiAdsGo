@@ -457,6 +457,17 @@ export default function OfferDetailPage() {
     )
   }
 
+  const resolvedFinalUrl = offer.finalUrl || offer.url
+  const finalUrlSuffixValue = offer.finalUrlSuffix
+  const finalUrlSuffixStatus =
+    finalUrlSuffixValue === ''
+      ? 'empty'
+      : finalUrlSuffixValue
+        ? 'present'
+        : 'missing'
+  const shouldShowOriginalUrl =
+    Boolean(offer.finalUrl && offer.url && offer.finalUrl !== offer.url)
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-sm">
@@ -885,12 +896,12 @@ export default function OfferDetailPage() {
                 <dt className="text-sm font-medium text-gray-500">Final URL（最终落地页）</dt>
                 <dd className="mt-1 text-sm text-gray-900">
                   <a
-                    href={offer.finalUrl || offer.url}
+                    href={resolvedFinalUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-indigo-600 hover:text-indigo-500 break-all"
                   >
-                    {offer.finalUrl || offer.url}
+                    {resolvedFinalUrl}
                   </a>
                   {!offer.finalUrl && (
                     <div className="text-xs text-amber-600 mt-1">Final URL未提取，当前显示原始URL</div>
@@ -900,21 +911,27 @@ export default function OfferDetailPage() {
               <div className="sm:col-span-2">
                 <dt className="text-sm font-medium text-gray-500">Final URL Suffix</dt>
                 <dd className="mt-1 text-sm text-gray-900">
-                  {offer.finalUrlSuffix ? (
-                    <span className="font-mono break-all">{offer.finalUrlSuffix}</span>
-                  ) : (
+                  {finalUrlSuffixStatus === 'present' && (
+                    <span className="font-mono break-all">{finalUrlSuffixValue}</span>
+                  )}
+                  {finalUrlSuffixStatus === 'empty' && (
+                    <span className="text-gray-500">无参数</span>
+                  )}
+                  {finalUrlSuffixStatus === 'missing' && (
                     <span className="text-gray-400">未提取</span>
                   )}
                 </dd>
               </div>
-              <div className="sm:col-span-2">
-                <dt className="text-sm font-medium text-gray-500">原始URL</dt>
-                <dd className="mt-1 text-sm text-gray-900">
-                  <a href={offer.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
-                    {offer.url}
-                  </a>
-                </dd>
-              </div>
+              {shouldShowOriginalUrl && (
+                <div className="sm:col-span-2">
+                  <dt className="text-sm font-medium text-gray-500">原始URL</dt>
+                  <dd className="mt-1 text-sm text-gray-900">
+                    <a href={offer.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
+                      {offer.url}
+                    </a>
+                  </dd>
+                </div>
+              )}
               {offer.affiliateLink && (
                 <div className="sm:col-span-2">
                   <dt className="text-sm font-medium text-gray-500">联盟推广链接</dt>

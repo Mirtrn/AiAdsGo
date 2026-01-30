@@ -340,7 +340,7 @@ export async function executeOfferExtraction(
         brand: (extractResult.data.brand || brandName) || undefined,
         url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-        final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
         scraped_data: JSON.stringify(extractResult.data),
@@ -357,7 +357,7 @@ export async function executeOfferExtraction(
         store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-        final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
         product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
@@ -383,7 +383,7 @@ export async function executeOfferExtraction(
         store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-        final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
         product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
@@ -505,7 +505,7 @@ export async function executeOfferExtraction(
 	          brand: (extractResult.data.brand || brandName) || undefined,
 	          url: extractResult.data.finalUrl || undefined,
 	          // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-	          final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+	          final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
 	          // 🔥 2025-12-16修复：保存product_name到数据库
 	          product_name: extractResult.data.productName || undefined,
 	          brand_description: aiProductInfo.brandDescription || fallbackProductInfo.brandDescription || undefined,

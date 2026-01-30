@@ -63,6 +63,8 @@ export const META_REFRESH_DOMAINS = [
  * These domains require browser JavaScript execution (Playwright required)
  */
 export const JS_REDIRECT_DOMAINS = [
+  // LinkBux (JS redirect / anti-bot)
+  'linkbux.com',
   // Modern Link Shorteners
   'pboost.me',
   'linktree.com',
