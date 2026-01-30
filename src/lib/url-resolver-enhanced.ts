@@ -7,7 +7,7 @@
 import { getRedisClient } from './redis'
 import { resolveAffiliateLinkWithPlaywright } from './url-resolver-playwright'
 import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
-import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
+import { extractEmbeddedTargetUrl, resolveAffiliateLinkWithHttp } from './url-resolver-http'
 import { getOptimalResolver, extractDomain } from './resolver-domains'
 import { REDIS_PREFIX_CONFIG } from './config'
 import { maskProxyUrl } from './proxy/validate-url'
@@ -622,6 +622,34 @@ function buildFullUrl(finalUrl: string, finalUrlSuffix: string | null | undefine
   return finalUrl.includes('?') ? `${finalUrl}&${suffix}` : `${finalUrl}?${suffix}`
 }
 
+function applyEmbeddedTargetFallback(result: ResolvedUrlData): ResolvedUrlData {
+  const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+  const embeddedTarget = extractEmbeddedTargetUrl(fullResolvedUrl)
+  if (!embeddedTarget) return result
+
+  try {
+    const urlObj = new URL(embeddedTarget)
+    const finalUrl = `${urlObj.origin}${urlObj.pathname}`
+    const finalUrlSuffix = urlObj.search.substring(1)
+
+    if (finalUrl === result.finalUrl && finalUrlSuffix === result.finalUrlSuffix) {
+      return result
+    }
+
+    console.log(`   📎 tracking URL包含嵌入目标，改用目标URL: ${finalUrl}`)
+
+    return {
+      ...result,
+      finalUrl,
+      finalUrlSuffix,
+      redirectChain: [...result.redirectChain, urlObj.toString()],
+      redirectCount: result.redirectCount + 1,
+    }
+  } catch {
+    return result
+  }
+}
+
 function shouldRetryHttpInsteadOfFallbackToPlaywright(error: unknown): boolean {
   const msg = (error as any)?.message ? String((error as any).message) : String(error)
 
@@ -704,7 +732,7 @@ export async function resolveAffiliateLink(
     const cached = await getCachedRedirect(affiliateLink, targetCountry)
     if (cached) {
       console.log(`⚠️ 使用缓存数据（注意：追踪参数可能已过期）`)
-      return cached
+      return applyEmbeddedTargetFallback(cached)
     }
   } else {
     console.log(`🔄 跳过缓存，直接解析URL（确保获取最新追踪参数）`)
@@ -827,6 +855,9 @@ export async function resolveAffiliateLink(
       }
 
       const responseTime = Date.now() - startTime
+
+      // 🔥 兜底：tracking URL仍未解析时，尝试提取嵌入的目标URL
+      result = applyEmbeddedTargetFallback(result)
 
       // 记录代理成功
       proxyPool.recordSuccess(proxy.url, responseTime)

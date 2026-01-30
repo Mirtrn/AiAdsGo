@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { describe, expect, it } from 'vitest'
-import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
+import { extractEmbeddedTargetUrl, resolveAffiliateLinkWithHttp } from './url-resolver-http'
 
 function listen(server: http.Server): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
@@ -182,5 +182,11 @@ describe('resolveAffiliateLinkWithHttp', () => {
     } finally {
       await close()
     }
+  })
+
+  it('extracts embedded target URL from linkbux tracking page', () => {
+    const trackingUrl = 'https://www.linkbux.com/403?url=https%3A%2F%2Fswansonvitamins.com'
+    const extracted = extractEmbeddedTargetUrl(trackingUrl)
+    expect(extracted).toBe('https://swansonvitamins.com')
   })
 })

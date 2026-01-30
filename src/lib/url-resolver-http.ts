@@ -574,6 +574,7 @@ export function extractEmbeddedTargetUrl(url: string): string | null {
   // 已知的tracking域名列表
   const trackingDomains = [
     'partnermatic.com',
+    'linkbux.com',
     'go2cloud.org',
     'tracking.com',
     'aff.bstk.com',
