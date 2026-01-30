@@ -24,6 +24,7 @@ import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureB
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
+import { parsePrice } from './pricing-utils'
 
 /**
  * 🔧 安全解析JSON字段
@@ -40,6 +41,17 @@ function safeParseJson(value: any, defaultValue: any = null): any {
     }
   }
   return value; // 已经是对象/数组（PostgreSQL jsonb）
+}
+
+function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | null {
+  if (!scrapedData || typeof scrapedData !== 'object') return null
+  const explicit = typeof scrapedData.pageType === 'string' ? scrapedData.pageType : null
+  if (explicit === 'store' || explicit === 'product') return explicit
+  const productsLen = Array.isArray(scrapedData.products) ? scrapedData.products.length : 0
+  const hasStoreName = typeof scrapedData.storeName === 'string' && scrapedData.storeName.trim().length > 0
+  const hasDeep = !!scrapedData.deepScrapeResults
+  if (hasStoreName || hasDeep || productsLen >= 2) return 'store'
+  return null
 }
 
 /**
@@ -586,8 +598,15 @@ async function buildAdCreativePrompt(
   const targetLanguage = offer.target_language || 'English'
   const languageInstruction = getLanguageInstruction(targetLanguage)
 
-  // 🆕 v4.16: 确定链接类型
-  const linkType = (offer.page_type as 'product' | 'store') || 'product'
+  // 🆕 v4.16: 确定链接类型（含scraped_data兜底）
+  const scrapedDataForLinkType = safeParseJson(offer.scraped_data, null)
+  const derivedLinkType = deriveLinkTypeFromScrapedData(scrapedDataForLinkType)
+  const linkType = (() => {
+    const explicit = offer.page_type as 'product' | 'store' | null
+    if (explicit === 'store') return 'store'
+    if (explicit === 'product') return derivedLinkType === 'store' ? 'store' : 'product'
+    return derivedLinkType || 'product'
+  })()
 
   const variables: Record<string, string> = {
     language_instruction: languageInstruction,
@@ -1221,6 +1240,29 @@ This creative focuses on "${intent || intentEn}" user intent.
           .filter(Boolean)
         if (supplementalNames.length > 0) {
           topProducts = [...topProducts, ...supplementalNames].slice(0, 5)
+        }
+
+        const supplementalFeatured = Array.from(new Set(supplementalNames)).slice(0, 3)
+        if (supplementalFeatured.length > 0) {
+          extras.push(`SUPPLEMENTAL PICKS: ${supplementalFeatured.join(', ')}`)
+        }
+
+        const supplementalPriceValues = supplementalProducts
+          .map((p: any) => parsePrice(p?.productPrice))
+          .filter((v: any) => typeof v === 'number' && !Number.isNaN(v)) as number[]
+        const storePriceValues = Array.isArray(scrapedData.products)
+          ? scrapedData.products.map((p: any) => parsePrice(p?.price)).filter((v: any) => typeof v === 'number' && !Number.isNaN(v)) as number[]
+          : []
+        const allPriceValues = [...supplementalPriceValues, ...storePriceValues]
+        if (allPriceValues.length > 0) {
+          const minPrice = Math.min(...allPriceValues)
+          const maxPrice = Math.max(...allPriceValues)
+          if (minPrice > 0 && maxPrice > 0) {
+            const range = minPrice === maxPrice
+              ? `${minPrice.toFixed(2)}`
+              : `${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}`
+            extras.push(`STORE PRICE RANGE: ${range}`)
+          }
         }
       }
     } catch {}
@@ -3394,11 +3436,17 @@ export async function generateAdCreative(
       priority: 'HIGH' // 桶关键词优先级最高
     }))
     console.log(`📦 v4.10 关键词池: 使用桶 ${options.bucket} (${options.bucketIntent}) 的 ${bucketKeywordsNormalized.length} 个关键词`)
-  } else if (options?.bucket && offer.page_type) {
+  } else if (options?.bucket) {
     // 🆕 v4.16: 自动根据链接类型和bucket获取关键词
     const { getKeywordsByLinkTypeAndBucket } = await import('./offer-keyword-pool')
 
-    const linkType = offer.page_type as 'product' | 'store'
+    const derivedBucketLinkType = deriveLinkTypeFromScrapedData(safeParseJson(offer.scraped_data, null))
+    const linkType = (() => {
+      const explicit = offer.page_type as 'product' | 'store' | null
+      if (explicit === 'store') return 'store'
+      if (explicit === 'product') return derivedBucketLinkType === 'store' ? 'store' : 'product'
+      return derivedBucketLinkType || 'product'
+    })()
     const bucketType = options.bucket as 'A' | 'B' | 'C' | 'D' | 'S'
 
     const keywordResult = await getKeywordsByLinkTypeAndBucket(offerId, linkType, bucketType)

@@ -54,6 +54,14 @@ interface ExtractedData {
   resolveMethod: string
   // 🔥 页面类型标识（店铺/单品）
   pageType: 'store' | 'product'
+  pageTypeDetected?: 'store' | 'product'
+  pageTypeAdjusted?: boolean
+  warnings?: string[] | null
+  supplementalSummary?: {
+    requested: number
+    succeeded: number
+    failed: number
+  } | null
   // AI分析结果
   brandDescription: string | null
   uniqueSellingPoints: string | null
@@ -133,6 +141,10 @@ export default function CreateOfferModalV2({
         resolveMethod: 'sse-stream',
         // 🔥 页面类型标识（店铺/单品）
         pageType: extractionResult.pageType || 'product',
+        pageTypeDetected: extractionResult.pageTypeDetected || null,
+        pageTypeAdjusted: extractionResult.pageTypeAdjusted || false,
+        warnings: extractionResult.warnings || null,
+        supplementalSummary: extractionResult.supplementalSummary || null,
         // AI分析结果
         brandDescription: extractionResult.brandDescription || null,
         uniqueSellingPoints: extractionResult.uniqueSellingPoints || null,
@@ -578,6 +590,30 @@ export default function CreateOfferModalV2({
                 </p>
               </div>
             </div>
+
+            {(extractedData.warnings && extractedData.warnings.length > 0) && (
+              <div className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded text-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-medium">需要确认的信息</p>
+                  <ul className="list-disc list-inside text-xs space-y-0.5">
+                    {extractedData.warnings.map((warning, idx) => (
+                      <li key={`offer-warning-${idx}`}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {extractedData.supplementalSummary && extractedData.supplementalSummary.requested > 0 && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded text-sm flex items-start gap-2">
+                <Badge variant="outline" className="mt-0.5">店铺补充单品</Badge>
+                <div className="text-xs">
+                  已处理 {extractedData.supplementalSummary.requested} 个单品链接，成功 {extractedData.supplementalSummary.succeeded} 个，
+                  失败 {extractedData.supplementalSummary.failed} 个。
+                </div>
+              </div>
+            )}
 
             {/* 自动提取的数据展示 */}
             <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50">

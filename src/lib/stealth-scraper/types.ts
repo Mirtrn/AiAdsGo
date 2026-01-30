@@ -6,6 +6,7 @@
 
 import type { Browser, BrowserContext } from 'playwright'
 import type { ProxyCredentials } from '../proxy/types'
+import type { SupplementalProductResult } from '../offer-supplemental-products'
 
 // Re-export ProxyCredentials for external use
 export type { ProxyCredentials } from '../proxy/types'
@@ -123,6 +124,7 @@ export interface AmazonStoreData {
     aggregatedCompetitorAsins?: string[]   // 聚合所有竞品ASIN（去重）
     aggregatedFeatures?: string[]          // 聚合所有产品特性（去重）
   }
+  supplementalProducts?: SupplementalProductResult[]
 }
 
 /**
@@ -178,6 +180,7 @@ export interface IndependentStoreData {
     successCount: number
     failedCount: number
   }
+  supplementalProducts?: SupplementalProductResult[]
 }
 
 /**

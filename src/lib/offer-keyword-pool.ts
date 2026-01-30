@@ -31,6 +31,35 @@ import {
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
+function derivePageTypeFromScrapedData(scrapedData: any): 'store' | 'product' | null {
+  if (!scrapedData || typeof scrapedData !== 'object') return null
+  const explicit = typeof scrapedData.pageType === 'string' ? scrapedData.pageType : null
+  if (explicit === 'store' || explicit === 'product') return explicit
+  const productsLen = Array.isArray(scrapedData.products) ? scrapedData.products.length : 0
+  const hasStoreName = typeof scrapedData.storeName === 'string' && scrapedData.storeName.trim().length > 0
+  const hasDeep = !!scrapedData.deepScrapeResults
+  if (hasStoreName || hasDeep || productsLen >= 2) return 'store'
+  return null
+}
+
+type OfferPageTypeSource = Pick<Offer, 'page_type' | 'scraped_data'>
+
+function resolveOfferPageType(offer: OfferPageTypeSource): 'store' | 'product' {
+  const explicit = offer.page_type as 'store' | 'product' | null
+  let scrapedData: any = null
+  if (offer.scraped_data) {
+    try {
+      scrapedData = typeof offer.scraped_data === 'string' ? JSON.parse(offer.scraped_data) : offer.scraped_data
+    } catch {
+      scrapedData = null
+    }
+  }
+  const derived = derivePageTypeFromScrapedData(scrapedData)
+  if (explicit === 'store') return 'store'
+  if (explicit === 'product') return derived === 'store' ? 'store' : 'product'
+  return derived || 'product'
+}
+
 // ============================================
 // 🔒 关键词质量校验（2026-01-26）
 // ============================================
@@ -2322,7 +2351,7 @@ export async function generateOfferKeywordPool(
 
   // 🆕 2025-12-27: 关键词质量过滤
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
-  const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
+  const pageTypeForContextFilter = resolveOfferPageType(offer)
   const pureBrandKeywordsForFilter = getPureBrandKeywords(offer.brand || '')
   const categorySignals = extractCategorySignalsFromScrapedData(offer.scraped_data)
   const categoryContext = [offer.category, ...categorySignals].filter(Boolean).join(' ')
@@ -2495,7 +2524,7 @@ export async function generateOfferKeywordPool(
   }
 
   // 🆕 v4.16: 确定页面类型
-  const pageType = (offer.page_type as 'product' | 'store') || 'product'
+  const pageType = resolveOfferPageType(offer)
   console.log(`📊 页面类型: ${pageType}`)
 
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
@@ -2800,7 +2829,7 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
     // 兜底：某些页面类型（尤其店铺页/抓取降级）可能出现 ai_keywords='[]' 且 extracted_keywords=NULL
     // 这种情况下用“真实已抓取”的结构化字段构建最小种子词，避免整个创意生成流程被阻断。
     if (keywordMap.size === 0 && offer?.brand) {
-      console.warn(`[extractKeywordsFromOffer] Offer #${offerId} 无AI/提取关键词，使用兜底种子词生成 (pageType=${offer.page_type || 'unknown'})`)
+      console.warn(`[extractKeywordsFromOffer] Offer #${offerId} 无AI/提取关键词，使用兜底种子词生成 (pageType=${resolveOfferPageType(offer)})`)
 
       // 1) 品牌词（保证至少有一个关键词）
       addKeywordString(offer.brand, 'FALLBACK_BRAND')
