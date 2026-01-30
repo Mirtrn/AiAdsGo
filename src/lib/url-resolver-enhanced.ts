@@ -753,7 +753,8 @@ export async function resolveAffiliateLink(
           result = await resolveWithHttp(affiliateLink, proxy.url)
 
           // KISS降级策略：检查是否停在了tracking URL
-          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
+          const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com|[?&](?:url|redirect|target|destination|goto|link)=/i.test(fullResolvedUrl)
 
           if (isTrackingUrl) {
             console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
@@ -786,7 +787,8 @@ export async function resolveAffiliateLink(
           result = await resolveWithHttp(affiliateLink, proxy.url)
 
           // 🔥 重要：即使HTTP有重定向，也可能停在 tracking 中间页（例如 partnermatic track），需要继续用Playwright追踪
-          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
+          const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com|[?&](?:url|redirect|target|destination|goto|link)=/i.test(fullResolvedUrl)
           if (isTrackingUrl) {
             console.log(`   ⚠️ 检测到tracking URL（未知域名路径），降级到Playwright继续解析...`)
             const fullTrackingUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)

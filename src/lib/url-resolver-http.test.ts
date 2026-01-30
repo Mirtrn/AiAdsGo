@@ -130,5 +130,57 @@ describe('resolveAffiliateLinkWithHttp', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(openStreams).toBe(0)
   })
-})
 
+  it('handles JS redirect via变量赋值再跳转', async () => {
+    const server = http.createServer((req, res) => {
+      if (!req.url || !req.method) {
+        res.statusCode = 400
+        res.end()
+        return
+      }
+
+      if (req.url === '/track' && req.method === 'HEAD') {
+        res.statusCode = 200
+        res.end()
+        return
+      }
+
+      if (req.url === '/track' && req.method === 'GET') {
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'text/html; charset=utf-8')
+        res.end(`
+          <html><head>
+            <script>
+              function dm() {
+                var u = "/final?z=3";
+                location.replace(u);
+              }
+              setTimeout(dm, 10);
+            </script>
+          </head></html>
+        `)
+        return
+      }
+
+      if (req.url.startsWith('/final') && req.method === 'HEAD') {
+        res.statusCode = 200
+        res.end()
+        return
+      }
+
+      res.statusCode = 404
+      res.end()
+    })
+
+    const { port, close } = await listen(server)
+    try {
+      const startUrl = `http://127.0.0.1:${port}/track`
+      const result = await resolveAffiliateLinkWithHttp(startUrl, undefined, 10)
+
+      expect(result.finalUrl).toBe(`http://127.0.0.1:${port}/final`)
+      expect(result.finalUrlSuffix).toBe('z=3')
+    } finally {
+      await close()
+    }
+  })
+})

@@ -236,6 +236,39 @@ export async function resolveAffiliateLinkWithHttp(
         }
       }
 
+      // JS redirect via变量: var u = "https://..."; location.replace(u)
+      const varMap = new Map<string, string>()
+      const varRegex = /(?:var|let|const)\s+([a-zA-Z_$][\w$]*)\s*=\s*["']([^"']+)["']/gi
+      let varMatch: RegExpExecArray | null
+      while ((varMatch = varRegex.exec(content)) !== null) {
+        const varName = varMatch[1]
+        const varValue = varMatch[2]?.trim()
+        if (!varName || !varValue) continue
+        if (!/^https?:\/\//i.test(varValue) && !varValue.startsWith('/')) continue
+        varMap.set(varName, varValue)
+      }
+
+      if (varMap.size > 0) {
+        const varRedirects = [
+          /(?:window\.)?location\.replace\(\s*([a-zA-Z_$][\w$]*)\s*\)/i,
+          /(?:window\.)?location\.assign\(\s*([a-zA-Z_$][\w$]*)\s*\)/i,
+          /(?:window\.)?location(?:\.href)?\s*=\s*([a-zA-Z_$][\w$]*)/i,
+          /document\.location(?:\.href)?\s*=\s*([a-zA-Z_$][\w$]*)/i,
+        ]
+        for (const re of varRedirects) {
+          const m = content.match(re)
+          const varName = m?.[1]
+          if (!varName) continue
+          const value = varMap.get(varName)
+          if (!value) continue
+          try {
+            return new URL(value, baseUrl).toString()
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       return null
     }
 
