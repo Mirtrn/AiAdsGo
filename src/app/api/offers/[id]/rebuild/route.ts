@@ -144,7 +144,7 @@ export async function POST(
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ${db.type === 'postgres' ? 'true' : '1'}, ${db.type === 'postgres' ? 'false' : '0'}, ${nowFunc}, ${nowFunc})
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ${db.type === 'postgres' ? 'true' : '1'}, ${db.type === 'postgres' ? 'false' : '0'}, ${nowFunc}, ${nowFunc})
     `, [
       taskId,
       userIdNum,
