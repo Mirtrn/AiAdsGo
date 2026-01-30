@@ -537,13 +537,11 @@ export async function performScrapeAndAnalysis(
     const detectedPageType: 'product' | 'store' = expectedIsStorePage ? 'store' : 'product'
     let expectedPageType: 'product' | 'store' = pageTypeOverride || detectedPageType
     const scrapeWarnings: string[] = []
-    const pageTypeAdjusted = Boolean(pageTypeOverride && pageTypeOverride !== detectedPageType && detectedPageType === 'store')
+    const pageTypeAdjusted = Boolean(pageTypeOverride && pageTypeOverride !== detectedPageType)
 
-    if (pageTypeOverride && pageTypeOverride !== detectedPageType && detectedPageType === 'store') {
-      expectedPageType = 'store'
-      scrapeWarnings.push('系统识别为店铺页面，已自动切换为店铺模式')
-    } else if (pageTypeOverride && pageTypeOverride !== detectedPageType) {
-      scrapeWarnings.push(`系统识别为${detectedPageType === 'store' ? '店铺' : '单品'}页面，请确认链接类型是否选择正确`)
+    if (pageTypeOverride && pageTypeOverride !== detectedPageType) {
+      expectedPageType = detectedPageType
+      scrapeWarnings.push(`系统识别为${detectedPageType === 'store' ? '店铺' : '单品'}页面，已自动切换为${detectedPageType === 'store' ? '店铺' : '单品'}模式`)
     }
 
     console.log(`🎯 预期页面类型: ${expectedPageType}${pageTypeOverride ? ' (用户选择)' : ''}`)
@@ -573,7 +571,7 @@ export async function performScrapeAndAnalysis(
 
     const needsJavaScript = isAmazon || isShopifyDomain || isIndependentStore
 
-    const shouldScrapeSupplementalProducts = expectedPageType === 'store' && normalizedStoreProductLinks.length > 0
+    const shouldScrapeSupplementalProducts = normalizedStoreProductLinks.length > 0
     let supplementalProductsCache: SupplementalProductResult[] | null = null
 
     const getSupplementalProducts = async () => {

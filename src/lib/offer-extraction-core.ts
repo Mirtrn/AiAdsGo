@@ -541,12 +541,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         ? pageTypeOverride
         : null
 
-      if (userSelectedPageType && userSelectedPageType !== detectedPageType && detectedPageType === 'store') {
-        extractionWarnings.push('系统识别为店铺页面，已自动切换为店铺模式')
-        effectivePageType = 'store'
+      if (userSelectedPageType && userSelectedPageType !== detectedPageType) {
+        extractionWarnings.push(`系统识别为${detectedPageType === 'store' ? '店铺' : '单品'}页面，已自动切换为${detectedPageType === 'store' ? '店铺' : '单品'}模式`)
+        effectivePageType = detectedPageType
         pageTypeAdjusted = true
-      } else if (userSelectedPageType && userSelectedPageType !== detectedPageType) {
-        extractionWarnings.push(`系统识别为${detectedPageType === 'store' ? '店铺' : '单品'}页面，请确认链接类型是否选择正确`)
       }
 
       // 🔥 修复：拼接完整URL（包含追踪参数），避免Amazon 404拦截
@@ -713,7 +711,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         : []
       supplementalRequested = normalizedStoreLinks.length
 
-      if (effectivePageType === 'store' && normalizedStoreLinks.length > 0) {
+      if (normalizedStoreLinks.length > 0) {
         progressCallback?.('scraping_products', 'in_progress', `正在抓取${normalizedStoreLinks.length}个单品推广链接...`, {
           count: normalizedStoreLinks.length,
         }, 0)
