@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
+import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB, getCustomerWithCredentials } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
@@ -10,6 +10,7 @@ import { markUrlSwapTargetsRemovedByCampaignId, pauseUrlSwapTargetsByOfferId } f
 type OfflineBody = {
   blacklistOffer?: boolean
   forceLocalOffline?: boolean
+  removeGoogleAdsCampaign?: boolean
   pauseClickFarmTasks?: boolean
   pauseUrlSwapTasks?: boolean
 }
@@ -40,6 +41,7 @@ export async function POST(
     const body = (await request.json().catch(() => null)) as OfflineBody | null
     const blacklistOffer = Boolean(body?.blacklistOffer)
     const forceLocalOffline = Boolean(body?.forceLocalOffline)
+    const removeGoogleAdsCampaign = Boolean(body?.removeGoogleAdsCampaign)
     const pauseClickFarmTasks = Boolean(body?.pauseClickFarmTasks)
     const pauseUrlSwapTasks = Boolean(body?.pauseUrlSwapTasks)
 
@@ -262,7 +264,7 @@ export async function POST(
       }
     }
 
-    // Google Ads 远端下线：仅暂停（避免删除触发风控）
+    // Google Ads 远端下线：默认暂停，可选删除
     const googleAdsSummary = {
       queued: false,
       planned: 0,
@@ -270,6 +272,7 @@ export async function POST(
       removed: 0,
       pausedFallback: 0,
       skippedReason: null as string | null,
+      action: removeGoogleAdsCampaign ? 'REMOVE' : 'PAUSE',
     }
 
     if (skipRemoteUpdates) {
@@ -330,21 +333,46 @@ export async function POST(
                 try {
                   for (const id of googleCampaignIds) {
                     try {
-                      await updateGoogleAdsCampaignStatus({
-                        customerId: customerIdValue,
-                        refreshToken,
-                        campaignId: id,
-                        status: 'PAUSED',
-                        accountId: campaignRow.google_ads_account_id!,
-                        userId,
-                        loginCustomerId,
-                        authType,
-                        serviceAccountId,
-                      })
-                      googleAdsSummary.paused += 1
+                      if (removeGoogleAdsCampaign) {
+                        if (authType === 'service_account') {
+                          const { removeCampaignPython } = await import('@/lib/python-ads-client')
+                          const resourceName = `customers/${customerIdValue}/campaigns/${id}`
+                          await removeCampaignPython({
+                            userId,
+                            serviceAccountId,
+                            customerId: customerIdValue,
+                            campaignResourceName: resourceName,
+                          })
+                        } else {
+                          const customer = await getCustomerWithCredentials({
+                            customerId: customerIdValue,
+                            refreshToken,
+                            accountId: campaignRow.google_ads_account_id!,
+                            userId,
+                            loginCustomerId,
+                            authType,
+                          })
+                          const resourceName = `customers/${customerIdValue}/campaigns/${id}`
+                          await customer.campaigns.remove([resourceName])
+                        }
+                        googleAdsSummary.removed += 1
+                      } else {
+                        await updateGoogleAdsCampaignStatus({
+                          customerId: customerIdValue,
+                          refreshToken,
+                          campaignId: id,
+                          status: 'PAUSED',
+                          accountId: campaignRow.google_ads_account_id!,
+                          userId,
+                          loginCustomerId,
+                          authType,
+                          serviceAccountId,
+                        })
+                        googleAdsSummary.paused += 1
+                      }
                     } catch (err: any) {
                       // best-effort; ignore per-campaign failure
-                      console.error('[offline] Google Ads pause failed:', err?.message || err)
+                      console.error('[offline] Google Ads update failed:', err?.message || err)
                     }
                   }
                 } catch (err: any) {

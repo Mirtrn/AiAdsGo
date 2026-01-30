@@ -153,6 +153,7 @@ export default function CampaignsPage() {
   const [offlineBlacklistOffer, setOfflineBlacklistOffer] = useState(false)
   const [offlinePauseClickFarm, setOfflinePauseClickFarm] = useState(false)
   const [offlinePauseUrlSwap, setOfflinePauseUrlSwap] = useState(false)
+  const [offlineRemoveGoogleAds, setOfflineRemoveGoogleAds] = useState(false)
   const [isOfflineAccountIssueDialogOpen, setIsOfflineAccountIssueDialogOpen] = useState(false)
   const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
   const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
@@ -476,6 +477,7 @@ export default function CampaignsPage() {
     setOfflineBlacklistOffer(false)
     setOfflinePauseClickFarm(false)
     setOfflinePauseUrlSwap(false)
+    setOfflineRemoveGoogleAds(false)
     setIsOfflineDialogOpen(true)
   }
 
@@ -496,6 +498,7 @@ export default function CampaignsPage() {
           blacklistOffer: offlineBlacklistOffer,
           pauseClickFarmTasks: offlinePauseClickFarm,
           pauseUrlSwapTasks: offlinePauseUrlSwap,
+          removeGoogleAdsCampaign: offlineRemoveGoogleAds,
         }),
       })
 
@@ -519,8 +522,9 @@ export default function CampaignsPage() {
         return
       }
 
+      const actionLabel = data?.googleAds?.action === 'REMOVE' ? '删除' : '暂停'
       const googleAdsNote = data?.googleAds?.queued
-        ? `Google Ads 处理已排队（计划处理 ${data.googleAds?.planned ?? 0} 个广告系列）`
+        ? `Google Ads ${actionLabel}处理已排队（计划处理 ${data.googleAds?.planned ?? 0} 个广告系列）`
         : data?.googleAds?.skippedReason
           ? `Google Ads 未同步：${data.googleAds.skippedReason}`
           : undefined
@@ -536,6 +540,7 @@ export default function CampaignsPage() {
         setOfflineBlacklistOffer(false)
         setOfflinePauseClickFarm(false)
         setOfflinePauseUrlSwap(false)
+        setOfflineRemoveGoogleAds(false)
         setOfflineAccountIssueMessage(null)
         setOfflineAccountIssueStatus(null)
       }
@@ -558,6 +563,7 @@ export default function CampaignsPage() {
           blacklistOffer: offlineBlacklistOffer,
           pauseClickFarmTasks: offlinePauseClickFarm,
           pauseUrlSwapTasks: offlinePauseUrlSwap,
+          removeGoogleAdsCampaign: offlineRemoveGoogleAds,
           forceLocalOffline: true,
         }),
       })
@@ -588,6 +594,7 @@ export default function CampaignsPage() {
       setOfflineBlacklistOffer(false)
       setOfflinePauseClickFarm(false)
       setOfflinePauseUrlSwap(false)
+      setOfflineRemoveGoogleAds(false)
       setOfflineAccountIssueMessage(null)
       setOfflineAccountIssueStatus(null)
     }
@@ -1623,6 +1630,7 @@ export default function CampaignsPage() {
             setOfflineBlacklistOffer(false)
             setOfflinePauseClickFarm(false)
             setOfflinePauseUrlSwap(false)
+            setOfflineRemoveGoogleAds(false)
           }
         }}
       >
@@ -1638,10 +1646,20 @@ export default function CampaignsPage() {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                   <p className="font-medium mb-1">下线将会：</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>在 Google Ads 中暂停该广告系列</li>
+                    <li>在 Google Ads 中暂停该广告系列（可选删除）</li>
                     <li>仅下线当前广告系列，不影响同 Offer 下其他广告系列</li>
                     <li>此操作不可恢复</li>
                   </ul>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={offlineRemoveGoogleAds}
+                    onCheckedChange={(checked) => setOfflineRemoveGoogleAds(Boolean(checked))}
+                    id="offline-remove-google-ads"
+                  />
+                  <label htmlFor="offline-remove-google-ads" className="text-sm text-gray-700">
+                    同时在 Google Ads 中删除该广告系列（不可恢复）
+                  </label>
                 </div>
                 <div className="text-sm font-semibold text-red-700">
                   以下选项会影响整个 Offer
@@ -1704,6 +1722,7 @@ export default function CampaignsPage() {
             setOfflineBlacklistOffer(false)
             setOfflinePauseClickFarm(false)
             setOfflinePauseUrlSwap(false)
+            setOfflineRemoveGoogleAds(false)
           }
         }}
       >
@@ -1713,7 +1732,7 @@ export default function CampaignsPage() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  {offlineAccountIssueMessage || '当前 Ads 账号状态异常，无法在 Google Ads 中暂停广告系列。'}
+                  {offlineAccountIssueMessage || '当前 Ads 账号状态异常，无法在 Google Ads 中暂停/删除广告系列。'}
                 </p>
                 {offlineAccountIssueStatus && (
                   <div className="text-sm text-gray-700">
@@ -1733,6 +1752,7 @@ export default function CampaignsPage() {
                 </div>
                 <div className="text-sm text-gray-700">
                   当前选择：
+                  Google Ads 侧{offlineRemoveGoogleAds ? '删除' : '暂停'}，
                   {offlineBlacklistOffer ? '拉黑Offer' : '不拉黑Offer'}，
                   {offlinePauseClickFarm ? '暂停补点击任务' : '不暂停补点击任务'}，
                   {offlinePauseUrlSwap ? '暂停换链接任务' : '不暂停换链接任务'}
