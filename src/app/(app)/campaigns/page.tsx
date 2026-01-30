@@ -506,7 +506,7 @@ export default function CampaignsPage() {
 
       const data = await response.json().catch(() => null)
       if (response.status === 422 && data?.action === 'ACCOUNT_STATUS_NOT_USABLE') {
-        setOfflineAccountIssueMessage(data?.message || '账号状态异常，无法在Google Ads中删除或暂停广告系列。')
+        setOfflineAccountIssueMessage(data?.message || '账号状态异常，无法在 Google Ads 中暂停广告系列。')
         const status = data?.details?.accountStatus
         setOfflineAccountIssueStatus(status ? String(status) : null)
         setIsOfflineAccountIssueDialogOpen(true)
@@ -1638,10 +1638,13 @@ export default function CampaignsPage() {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                   <p className="font-medium mb-1">下线将会：</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>在 Google Ads 中删除或暂停该广告系列</li>
-                    <li>解除该 Offer 与当前 Ads 账号的关联</li>
+                    <li>在 Google Ads 中暂停该广告系列</li>
+                    <li>仅下线当前广告系列，不影响同 Offer 下其他广告系列</li>
                     <li>此操作不可恢复</li>
                   </ul>
+                </div>
+                <div className="text-sm font-semibold text-red-700">
+                  以下选项会影响整个 Offer
                 </div>
                 <div className="flex items-start gap-2">
                   <Checkbox
@@ -1710,7 +1713,7 @@ export default function CampaignsPage() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  {offlineAccountIssueMessage || '当前 Ads 账号状态异常，无法在 Google Ads 中删除或暂停广告系列。'}
+                  {offlineAccountIssueMessage || '当前 Ads 账号状态异常，无法在 Google Ads 中暂停广告系列。'}
                 </p>
                 {offlineAccountIssueStatus && (
                   <div className="text-sm text-gray-700">
@@ -1720,10 +1723,13 @@ export default function CampaignsPage() {
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
                   <p className="font-medium mb-1">继续本地下线将会：</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>仅在本地标记为已下线并解除关联</li>
+                    <li>仅在本地标记该广告系列为已下线（不影响同 Offer 下其他广告系列）</li>
                     <li>无法保证 Google Ads 侧立即停止投放</li>
                     <li>请尽快登录 Google Ads 处理账号状态与广告系列</li>
                   </ul>
+                </div>
+                <div className="text-sm font-semibold text-red-700">
+                  以下选项会影响整个 Offer
                 </div>
                 <div className="text-sm text-gray-700">
                   当前选择：

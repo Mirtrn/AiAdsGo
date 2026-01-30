@@ -5,7 +5,7 @@ import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
-import { markUrlSwapTargetsRemovedByOfferAccount, pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
+import { markUrlSwapTargetsRemovedByCampaignId, pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
 
 type OfflineBody = {
   blacklistOffer?: boolean
@@ -139,7 +139,7 @@ export async function POST(
         return NextResponse.json(
           {
             action: 'ACCOUNT_STATUS_NOT_USABLE',
-            message: `该 Google Ads 账号状态为 ${accountStatus}，无法执行下线操作。是否仍然仅本地下线并解除关联？`,
+            message: `该 Google Ads 账号状态为 ${accountStatus}，无法执行下线操作。是否仍然仅本地下线该广告系列（不影响同 Offer 下其他广告系列）？`,
             details: { accountStatus },
             canProceedLocal: true,
           },
@@ -154,25 +154,7 @@ export async function POST(
       return NextResponse.json({ error: '缺少关联Offer，无法下线' }, { status: 400 })
     }
 
-    // 查询同一Offer + Ads账号下的全部Campaigns（用于解除关联）
-    const campaignsToOffline = await db.query(
-      `
-        SELECT id, google_campaign_id, campaign_id, status
-        FROM campaigns
-        WHERE offer_id = ?
-          AND google_ads_account_id = ?
-          AND user_id = ?
-          AND status != 'REMOVED'
-      `,
-      [campaignRow.offer_id, campaignRow.google_ads_account_id, userId]
-    ) as Array<{
-      id: number
-      google_campaign_id: string | null
-      campaign_id: string | null
-      status: string | null
-    }>
-
-    // 先执行本地解除关联与标记下线，避免外部接口阻塞
+    // 先执行本地标记下线，避免外部接口阻塞
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
     const isDeletedTrue = db.type === 'postgres' ? 'true' : '1'
 
@@ -183,17 +165,14 @@ export async function POST(
             is_deleted = ${isDeletedTrue},
             deleted_at = ${nowFunc},
             updated_at = ${nowFunc}
-        WHERE offer_id = ? AND google_ads_account_id = ? AND user_id = ? AND status != 'REMOVED'
+        WHERE id = ? AND user_id = ? AND status != 'REMOVED'
       `,
-      [campaignRow.offer_id, campaignRow.google_ads_account_id, userId]
+      [campaignRow.id, userId]
     )
 
-    await markUrlSwapTargetsRemovedByOfferAccount(
-      campaignRow.offer_id,
-      campaignRow.google_ads_account_id
-    )
+    await markUrlSwapTargetsRemovedByCampaignId(campaignRow.id, userId)
 
-    // 解除关联后刷新Offer缓存
+    // 下线后刷新Offer缓存
     invalidateOfferCache(userId, campaignRow.offer_id)
 
     // 可选：暂停补点击任务
@@ -303,9 +282,7 @@ export async function POST(
         googleAdsSummary.skippedReason = '缺少Google Ads customer_id'
       } else {
         const customerIdValue = customerId
-        const googleCampaignIds = campaignsToOffline
-          .map((c) => normalizeGoogleCampaignId(c.google_campaign_id) || normalizeGoogleCampaignId(c.campaign_id))
-          .filter((id): id is string => Boolean(id))
+        const googleCampaignIds = googleCampaignId ? [googleCampaignId] : []
 
         googleAdsSummary.planned = googleCampaignIds.length
 
@@ -386,7 +363,7 @@ export async function POST(
       data: {
         campaignId,
         offerId: campaignRow.offer_id,
-        offlineCount: campaignsToOffline.length,
+        offlineCount: googleCampaignId ? 1 : 0,
         blacklist: blacklistResult,
         clickFarmPaused,
         urlSwapPaused,
