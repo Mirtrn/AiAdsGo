@@ -28,7 +28,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'keyword_intent_clustering',
   'v4.18',
-  'keyword_generation',
+  '关键词聚类',
   '关键词意图聚类v4.18 - 增强店铺链接分桶精准度',
   '修复店铺链接分桶精准度，添加排除规则避免错误分配',
   'keyword_intent_clustering.txt',

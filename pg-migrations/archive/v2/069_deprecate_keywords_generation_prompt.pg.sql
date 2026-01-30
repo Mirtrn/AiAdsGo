@@ -41,7 +41,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'keywords_generation',
   'v3.3-deprecated',
-  'keyword_generation',
+  '关键词生成',
   '关键词生成v3.3（已废弃）',
   '⚠️ 已废弃 (2025-12-14): 正向关键词生成已迁移到Keyword Planner API。请使用 unified-keyword-service.ts 的 getUnifiedKeywordData()',
   'src/lib/keyword-generator.ts',

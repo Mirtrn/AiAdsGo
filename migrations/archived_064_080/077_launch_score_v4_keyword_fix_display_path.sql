@@ -58,7 +58,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'keywords_generation',
   'v3.2',
-  'keyword_generation',
+  '关键词生成',
   '关键词生成v3.2',
   '修复竞品关键词冲突：禁止生成竞品品牌关键词，避免与否定关键词冲突',
   'src/lib/keyword-generator.ts',
