@@ -1113,6 +1113,8 @@ export async function updateOfferScrapeStatus(
   scrapedData?: {
     brand?: string
     url?: string
+    // 可选显式传入 final_url（否则从 url / scraped_data 派生）
+    final_url?: string
     // 🔥 2025-12-16修复：添加final_url_suffix字段到类型定义
     final_url_suffix?: string
     // 🔥 2025-12-16修复：添加product_name字段到类型定义
@@ -1158,6 +1160,43 @@ export async function updateOfferScrapeStatus(
   invalidateOfferCache(userId, id)
 
   if (status === 'completed' && scrapedData) {
+    const deriveFinalUrlFromInput = (inputUrl?: string | null): { finalUrl?: string; finalUrlSuffix?: string } => {
+      if (!inputUrl) return {}
+      try {
+        const urlObj = new URL(inputUrl)
+        return {
+          finalUrl: `${urlObj.origin}${urlObj.pathname}`,
+          finalUrlSuffix: urlObj.search.substring(1),
+        }
+      } catch {
+        return {}
+      }
+    }
+
+    const derivedFromUrl = deriveFinalUrlFromInput(scrapedData.url)
+    const derivedFromScrapedData = (() => {
+      if (!scrapedData.scraped_data) return {}
+      try {
+        const parsed = JSON.parse(scrapedData.scraped_data)
+        const finalUrl = typeof parsed?.finalUrl === 'string' ? parsed.finalUrl : undefined
+        const finalUrlSuffix = typeof parsed?.finalUrlSuffix === 'string' ? parsed.finalUrlSuffix : undefined
+        return { finalUrl, finalUrlSuffix }
+      } catch {
+        return {}
+      }
+    })()
+
+    const finalUrlForWrite =
+      scrapedData.final_url ??
+      derivedFromUrl.finalUrl ??
+      derivedFromScrapedData.finalUrl ??
+      null
+    const finalUrlSuffixForWrite =
+      scrapedData.final_url_suffix ??
+      derivedFromUrl.finalUrlSuffix ??
+      derivedFromScrapedData.finalUrlSuffix ??
+      null
+
     const derivedCategory = deriveCategoryFromScrapedData(scrapedData.scraped_data)
       ?? (scrapedData.category ? compactCategoryLabel(scrapedData.category) : null)
 
@@ -1289,6 +1328,7 @@ export async function updateOfferScrapeStatus(
           brand = COALESCE(?, brand),
           offer_name = COALESCE(?, offer_name),
           url = COALESCE(?, url),
+          final_url = COALESCE(?, final_url),
           final_url_suffix = COALESCE(?, final_url_suffix),
           product_name = COALESCE(?, product_name),
           brand_description = COALESCE(?, brand_description),
@@ -1319,7 +1359,8 @@ export async function updateOfferScrapeStatus(
       brandForWrite,
       newOfferName,
       scrapedData.url || null,
-      scrapedData.final_url_suffix ?? null,
+      finalUrlForWrite,
+      finalUrlSuffixForWrite,
       scrapedData.product_name || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,
