@@ -27,6 +27,8 @@ const createOfferSchema = z.object({
   commission_payout: z.string().optional(),
   // 🔥 页面类型标识（店铺/单品）
   page_type: z.enum(['store', 'product']).optional(),
+  // 店铺模式：最多3个单品推广链接
+  store_product_links: z.array(z.string().url('无效的URL格式')).max(3).optional(),
   // AI分析结果字段（JSON字符串格式）
   review_analysis: z.string().optional(),
   competitor_analysis: z.string().optional(),
@@ -62,7 +64,26 @@ async function post(request: NextRequest) {
       )
     }
 
-    const offer = await createOffer(parseInt(userId, 10), validationResult.data)
+    const pageType = validationResult.data.page_type || 'product'
+    let storeProductLinks: string[] | undefined = undefined
+    if (pageType === 'store') {
+      storeProductLinks = (validationResult.data.store_product_links || [])
+        .map((link) => link.trim())
+        .filter((link) => Boolean(link))
+      storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
+      if (storeProductLinks.length === 0) {
+        return NextResponse.json(
+          { error: '店铺类型需至少填写1个单品推广链接' },
+          { status: 400 }
+        )
+      }
+    }
+
+    const offer = await createOffer(parseInt(userId, 10), {
+      ...validationResult.data,
+      page_type: pageType,
+      store_product_links: storeProductLinks ? JSON.stringify(storeProductLinks) : undefined,
+    })
 
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10))
@@ -128,10 +149,12 @@ async function post(request: NextRequest) {
           // 新增字段（需求1和需求5）
           offerName: offer.offer_name,
           targetLanguage: offer.target_language,
-          // 需求28：产品价格和佣金比例
-          productPrice: offer.product_price,
-          commissionPayout: offer.commission_payout,
-        },
+        // 需求28：产品价格和佣金比例
+        productPrice: offer.product_price,
+        commissionPayout: offer.commission_payout,
+        pageType: offer.page_type,
+        storeProductLinks: offer.store_product_links,
+      },
       },
       { status: 201 }
     )

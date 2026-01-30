@@ -16,6 +16,7 @@ import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
 import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
 import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
 import { filterNavigationLabels } from '@/lib/scrape-text-filters'
+import { parsePrice } from '@/lib/pricing-utils'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -81,6 +82,18 @@ function pickTopUniqueLines(input: unknown, limit: number): string[] {
   return out
 }
 
+function computeAveragePriceFromStrings(prices: Array<unknown>): string | undefined {
+  const values: number[] = []
+  for (const raw of prices) {
+    if (typeof raw !== 'string') continue
+    const num = parsePrice(raw)
+    if (typeof num === 'number' && !Number.isNaN(num)) values.push(num)
+  }
+  if (values.length === 0) return undefined
+  const avg = values.reduce((sum, v) => sum + v, 0) / values.length
+  return avg > 0 ? avg.toFixed(2) : undefined
+}
+
 function deriveFallbackProductInfoFromExtractData(extractData: any): {
   brandDescription?: string
   uniqueSellingPoints?: string
@@ -108,9 +121,18 @@ function deriveFallbackProductInfoFromExtractData(extractData: any): {
     ? extractData.deepScrapeResults.topProducts
     : []
 
-  const deepFeaturesRaw = deepTopProducts.flatMap((t: any) =>
-    Array.isArray(t?.productData?.features) ? t.productData.features : []
-  )
+  const supplementalProducts = Array.isArray((extractData as any)?.supplementalProducts)
+    ? (extractData as any).supplementalProducts
+    : []
+
+  const deepFeaturesRaw = [
+    ...deepTopProducts.flatMap((t: any) =>
+      Array.isArray(t?.productData?.features) ? t.productData.features : []
+    ),
+    ...supplementalProducts.flatMap((p: any) =>
+      Array.isArray(p?.productFeatures) ? p.productFeatures : []
+    ),
+  ]
   const deepFeatures = filterNavigationLabels(deepFeaturesRaw).filter((line) => line.length <= 200)
 
   const storeCatalogCandidatesRaw: unknown[] = []
@@ -128,6 +150,12 @@ function deriveFallbackProductInfoFromExtractData(extractData: any): {
     const name = (t as any)?.productData?.productName
     if (typeof name === 'string') storeCatalogCandidatesRaw.push(name)
     const category = (t as any)?.productData?.category
+    if (typeof category === 'string') storeCatalogCandidatesRaw.push(category)
+  }
+  for (const p of supplementalProducts) {
+    const name = (p as any)?.productName
+    if (typeof name === 'string') storeCatalogCandidatesRaw.push(name)
+    const category = (p as any)?.category
     if (typeof category === 'string') storeCatalogCandidatesRaw.push(category)
   }
   const storeCatalogCandidates = filterNavigationLabels(storeCatalogCandidatesRaw).filter((line) => line.length <= 120)
@@ -203,6 +231,9 @@ export interface OfferExtractionTaskData {
   commissionPayout?: string
   // 🔥 新增：用户手动输入的品牌名（独立站Google搜索补充用）
   brandName?: string
+  // 🔥 链接类型与店铺补充单品链接
+  pageType?: 'store' | 'product'
+  storeProductLinks?: string[]
 }
 
 /**
@@ -211,7 +242,17 @@ export interface OfferExtractionTaskData {
 export async function executeOfferExtraction(
   task: Task<OfferExtractionTaskData>
 ): Promise<any> {
-  const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout, brandName } = task.data
+  const {
+    affiliateLink,
+    targetCountry,
+    skipCache = false,
+    skipWarmup = false,
+    productPrice,
+    commissionPayout,
+    brandName,
+    pageType,
+    storeProductLinks
+  } = task.data
   const db = getDatabase()
 
   // 🔥 2025-12-12调试：记录task.data中的targetCountry
@@ -238,6 +279,8 @@ export async function executeOfferExtraction(
       skipCache,
       skipWarmup,
       brandNameInput: brandName,
+      pageTypeOverride: pageType,
+      storeProductLinks,
       // 进度回调：更新到数据库
       progressCallback: async (stage, status, message, data, duration) => {
         // 计算进度百分比 - 必须包含所有ProgressStage阶段
@@ -279,6 +322,16 @@ export async function executeOfferExtraction(
       SELECT batch_id, offer_id FROM offer_tasks WHERE id = ?
     `, [task.id])
 
+    const pageTypeToPersist = (pageType === 'store' || pageType === 'product')
+      ? pageType
+      : (extractResult.data.pageType || 'product')
+    const supplementalPrices = Array.isArray((extractResult.data as any).supplementalProducts)
+      ? (extractResult.data as any).supplementalProducts.map((p: any) => p?.productPrice)
+      : []
+    const derivedAverageProductPrice = (!productPrice && pageTypeToPersist === 'store')
+      ? computeAveragePriceFromStrings(supplementalPrices)
+      : undefined
+
     if (taskRow?.offer_id && !taskRow?.batch_id) {
       // 重建任务：已有Offer记录，更新基础数据
       createdOfferId = taskRow.offer_id
@@ -291,7 +344,7 @@ export async function executeOfferExtraction(
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
         scraped_data: JSON.stringify(extractResult.data),
-        page_type: extractResult.data.pageType || undefined,
+        page_type: pageTypeToPersist,
       })
     } else if (taskRow?.batch_id) {
       // 批量任务：创建新Offer记录（基础数据）
@@ -301,14 +354,15 @@ export async function executeOfferExtraction(
         brand: extractResult.data.brand || brandName || '提取中...',
         target_country: targetCountry,
         affiliate_link: affiliateLink,
+        store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
-        product_price: productPrice || extractResult.data.productPrice || undefined,
+        product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
-        page_type: extractResult.data.pageType || 'product',
+        page_type: pageTypeToPersist,
       })
       createdOfferId = offer.id
       // 保存scraped_data
@@ -326,14 +380,15 @@ export async function executeOfferExtraction(
         brand: extractResult.data.brand || brandName || '提取中...',
         target_country: targetCountry,
         affiliate_link: affiliateLink,
+        store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
-        product_price: productPrice || extractResult.data.productPrice || undefined,
+        product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
-        page_type: extractResult.data.pageType || 'product',
+        page_type: pageTypeToPersist,
       })
       createdOfferId = offer.id
       // 保存scraped_data
@@ -481,7 +536,7 @@ export async function executeOfferExtraction(
           extracted_at: new Date().toISOString(),
           ai_keywords: aiKeywordSeeds ? JSON.stringify(aiKeywordSeeds) : undefined,
           scraped_data: JSON.stringify(extractResult.data),
-          page_type: extractResult.data.pageType || undefined,
+          page_type: pageTypeToPersist,
         })
         console.log(`✅ AI分析结果已更新到Offer: offer_id=${createdOfferId}`)
       } catch (offerError: any) {

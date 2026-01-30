@@ -8,14 +8,15 @@
  */
 
 import { findOfferById, updateOfferScrapeStatus, updateOffer } from './offers'
-import { scrapeUrl } from './scraper'
+import { extractProductInfo, scrapeUrl } from './scraper'
 import { analyzeProductPage, ProductInfo } from './ai'
 import { getProxyUrlForCountry, isProxyEnabled } from './settings'
 import { SeoData } from './redis'
 import { getDatabase } from './db'
 import { getLanguageCodeForCountry } from './language-country-codes'
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
-import { normalizeBrandName } from './offer-utils'
+import { detectPageType, normalizeBrandName } from './offer-utils'
+import { resolveAffiliateLink } from './url-resolver-enhanced'
 
 /**
  * 🔥 根据目标国家获取对应的Amazon域名
@@ -426,6 +427,21 @@ export async function performScrapeAndAnalysis(
     const targetCountry = offer?.target_country || 'US'
     const useProxy = await isProxyEnabled(userId)
     const proxyUrl = useProxy ? await getProxyUrlForCountry(targetCountry, userId) : undefined
+    const pageTypeOverride: 'store' | 'product' | undefined =
+      offer?.page_type === 'store' || offer?.page_type === 'product' ? offer.page_type : undefined
+    const normalizedStoreProductLinks = (() => {
+      if (!offer?.store_product_links) return []
+      try {
+        const parsed = JSON.parse(offer.store_product_links)
+        if (!Array.isArray(parsed)) return []
+        const cleaned = parsed
+          .map((link) => (typeof link === 'string' ? link.trim() : ''))
+          .filter((link) => Boolean(link))
+        return Array.from(new Set(cleaned)).slice(0, 3)
+      } catch {
+        return []
+      }
+    })()
 
     // 自动检测并解析推广链接
     let actualUrl = url
@@ -518,8 +534,8 @@ export async function performScrapeAndAnalysis(
                                 urlForScraping.includes('/collections') ||
                                 (urlForScraping.includes('.myshopify.com') && !urlForScraping.match(/\/products\/[^/]+$/)) ||
                                 urlPath === '/' || urlPath === ''
-    const expectedPageType: 'product' | 'store' = expectedIsStorePage ? 'store' : 'product'
-    console.log(`🎯 预期页面类型: ${expectedPageType}`)
+    const expectedPageType: 'product' | 'store' = pageTypeOverride || (expectedIsStorePage ? 'store' : 'product')
+    console.log(`🎯 预期页面类型: ${expectedPageType}${pageTypeOverride ? ' (用户选择)' : ''}`)
 
     // ⚠️ 缓存已禁用：根据需求，取消所有网页数据缓存，避免数据污染
     // 所有抓取任务统一使用Playwright，确保数据新鲜度
@@ -545,6 +561,157 @@ export async function performScrapeAndAnalysis(
     )
 
     const needsJavaScript = isAmazon || isShopifyDomain || isIndependentStore
+
+    const shouldScrapeSupplementalProducts = expectedPageType === 'store' && normalizedStoreProductLinks.length > 0
+    let supplementalProductsCache: Array<{
+      sourceAffiliateLink: string
+      finalUrl: string | null
+      finalUrlSuffix?: string | null
+      pageType?: string | null
+      productName?: string | null
+      productPrice?: string | null
+      productDescription?: string | null
+      brandName?: string | null
+      productFeatures?: string[] | null
+      rating?: string | null
+      reviewCount?: string | null
+      reviewHighlights?: string[] | null
+      topReviews?: string[] | null
+      imageUrls?: string[] | null
+      category?: string | null
+      error?: string | null
+    }> | null = null
+
+    const scrapeSupplementalProductLink = async (link: string) => {
+      const result: {
+        sourceAffiliateLink: string
+        finalUrl: string | null
+        finalUrlSuffix?: string | null
+        pageType?: string | null
+        productName?: string | null
+        productPrice?: string | null
+        productDescription?: string | null
+        brandName?: string | null
+        productFeatures?: string[] | null
+        rating?: string | null
+        reviewCount?: string | null
+        reviewHighlights?: string[] | null
+        topReviews?: string[] | null
+        imageUrls?: string[] | null
+        category?: string | null
+        error?: string | null
+      } = {
+        sourceAffiliateLink: link,
+        finalUrl: null,
+        finalUrlSuffix: null,
+        pageType: null,
+        error: null,
+      }
+
+      try {
+        const resolved = await resolveAffiliateLink(link, {
+          targetCountry,
+          skipCache: true,
+        })
+
+        result.finalUrl = resolved.finalUrl || null
+        result.finalUrlSuffix = resolved.finalUrlSuffix || null
+
+        if (!resolved.finalUrl) {
+          result.error = '无法解析最终落地页'
+          return result
+        }
+
+        const pageType = detectPageType(resolved.finalUrl)
+        result.pageType = pageType.pageType
+
+        const fullTargetUrl = resolved.finalUrlSuffix
+          ? `${resolved.finalUrl}?${resolved.finalUrlSuffix}`
+          : resolved.finalUrl
+
+        if (pageType.isAmazonProductPage) {
+          const { scrapeAmazonProduct } = await import('@/lib/stealth-scraper')
+          const amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyUrl, targetCountry)
+          result.productName = amazonProductData.productName || null
+          result.productPrice = amazonProductData.productPrice || null
+          result.productDescription = amazonProductData.productDescription || null
+          result.brandName = amazonProductData.brandName || null
+          result.productFeatures = amazonProductData.features || []
+          result.rating = amazonProductData.rating || null
+          result.reviewCount = amazonProductData.reviewCount || null
+          result.reviewHighlights = amazonProductData.reviewHighlights || []
+          result.topReviews = amazonProductData.topReviews || []
+          result.imageUrls = amazonProductData.imageUrls || []
+          result.category = amazonProductData.category || null
+          return result
+        }
+
+        if (pageType.isAmazonStore || pageType.isIndependentStore) {
+          result.error = '链接为店铺页，无法作为单品补充'
+          return result
+        }
+
+        let scrapedData: import('./scraper').ScrapedProductData | null = null
+        try {
+          scrapedData = await extractProductInfo(fullTargetUrl, targetCountry, proxyUrl, 30000)
+        } catch {
+          scrapedData = null
+        }
+
+        if (!scrapedData || (!scrapedData.brandName && !scrapedData.productName)) {
+          try {
+            const { scrapeIndependentProduct } = await import('@/lib/stealth-scraper')
+            const independentProductData = await scrapeIndependentProduct(
+              fullTargetUrl,
+              proxyUrl,
+              targetCountry,
+              2
+            )
+            scrapedData = {
+              productName: independentProductData.productName,
+              productDescription: independentProductData.productDescription,
+              productPrice: independentProductData.productPrice,
+              productCategory: null,
+              productFeatures: [],
+              brandName: independentProductData.brandName,
+              imageUrls: [],
+              metaTitle: null,
+              metaDescription: null,
+            }
+          } catch (playwrightErr: any) {
+            result.error = playwrightErr?.message || 'Playwright抓取失败'
+            return result
+          }
+        }
+
+        if (scrapedData) {
+          result.productName = scrapedData.productName || null
+          result.productPrice = scrapedData.productPrice || null
+          result.productDescription = scrapedData.productDescription || null
+          result.brandName = scrapedData.brandName || null
+          result.productFeatures = scrapedData.productFeatures || []
+          result.imageUrls = scrapedData.imageUrls || []
+          result.category = scrapedData.productCategory || null
+        }
+
+        return result
+      } catch (error: any) {
+        result.error = error?.message || '抓取失败'
+        return result
+      }
+    }
+
+    const getSupplementalProducts = async () => {
+      if (!shouldScrapeSupplementalProducts) return []
+      if (supplementalProductsCache) return supplementalProductsCache
+      const results: NonNullable<typeof supplementalProductsCache> = []
+      for (const link of normalizedStoreProductLinks) {
+        const item = await scrapeSupplementalProductLink(link)
+        results.push(item)
+      }
+      supplementalProductsCache = results
+      return results
+    }
 
     // 1. 抓取网页内容
     if (needsJavaScript) {
@@ -725,6 +892,10 @@ export async function performScrapeAndAnalysis(
               console.log(`✅ Amazon Store抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
 
               // 🎯 P0优化: 保存原始爬虫数据（Store页面）
+              const supplementalProducts = await getSupplementalProducts()
+              if (supplementalProducts.length > 0) {
+                storeData.supplementalProducts = supplementalProducts
+              }
               rawScrapedData = storeData
 
               // 🎯 Phase 3持久化：保存产品数据到数据库
@@ -866,6 +1037,10 @@ export async function performScrapeAndAnalysis(
               console.log(`✅ 独立站店铺深度抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品, 深度抓取: ${storeData.deepScrapeResults?.successCount || 0}/${storeData.deepScrapeResults?.totalScraped || 0}`)
 
               // 🎯 P0优化: 保存原始爬虫数据（Independent Store页面）
+              const supplementalProducts = await getSupplementalProducts()
+              if (supplementalProducts.length > 0) {
+                storeData.supplementalProducts = supplementalProducts
+              }
               rawScrapedData = storeData
 
               // 🎯 Phase 3持久化：保存产品数据到数据库
@@ -930,7 +1105,7 @@ export async function performScrapeAndAnalysis(
 
     // 使用之前检测的页面类型（已在缓存验证阶段完成）
     const pageType = expectedPageType
-    console.log(`🔍 页面类型: ${pageType} (${expectedIsStorePage ? '店铺页面' : '单品页面'})`)
+    console.log(`🔍 页面类型: ${pageType} (${pageType === 'store' ? '店铺页面' : '单品页面'})`)
 
     try {
       // 🎯 P1优化：从rawScrapedData提取technicalDetails和reviewHighlights供AI使用

@@ -1185,11 +1185,15 @@ This creative focuses on "${intent || intentEn}" user intent.
   // 🔥 2025-12-10优化：提取销售热度数据
   let storeSalesVolumes: string[] = []
   let storeDiscounts: string[] = []
+  let supplementalProducts: any[] = []
 
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
       hotInsights = scrapedData.hotInsights || null
+      supplementalProducts = Array.isArray(scrapedData.supplementalProducts)
+        ? scrapedData.supplementalProducts
+        : []
       // 提取热销产品名称（如果有products数组）
       if (scrapedData.products && Array.isArray(scrapedData.products)) {
         topProducts = scrapedData.products
@@ -1209,6 +1213,15 @@ This creative focuses on "${intent || intentEn}" user intent.
           .slice(0, 3)
           .map((p: any) => p.discount)
         storeDiscounts = [...new Set(storeDiscounts)] // 去重
+      }
+
+      if (supplementalProducts.length > 0) {
+        const supplementalNames = supplementalProducts
+          .map((p: any) => p.productName)
+          .filter(Boolean)
+        if (supplementalNames.length > 0) {
+          topProducts = [...topProducts, ...supplementalNames].slice(0, 5)
+        }
       }
     } catch {}
   }
@@ -1269,6 +1282,38 @@ This creative focuses on "${intent || intentEn}" user intent.
           if (p.badge) storeHotBadges.push(p.badge)
         })
         storeHotBadges = [...new Set(storeHotBadges)].slice(0, 3)
+      }
+
+      if (supplementalProducts.length > 0) {
+        const supplementalFeatures = supplementalProducts
+          .flatMap((p: any) => Array.isArray(p.productFeatures) ? p.productFeatures : [])
+          .filter(Boolean)
+        const supplementalReviews = supplementalProducts
+          .flatMap((p: any) => Array.isArray(p.reviewHighlights) ? p.reviewHighlights : [])
+          .filter(Boolean)
+        const supplementalTopReviews = supplementalProducts
+          .flatMap((p: any) => Array.isArray(p.topReviews) ? p.topReviews : [])
+          .filter(Boolean)
+        const supplementalCategories = supplementalProducts
+          .map((p: any) => p.category)
+          .filter(Boolean)
+
+        if (supplementalFeatures.length > 0) {
+          storeAggregatedFeatures = [...storeAggregatedFeatures, ...supplementalFeatures]
+        }
+        if (supplementalReviews.length > 0 || supplementalTopReviews.length > 0) {
+          storeAggregatedReviews = [
+            ...storeAggregatedReviews,
+            ...supplementalReviews,
+            ...supplementalTopReviews,
+          ]
+        }
+        if (supplementalCategories.length > 0) {
+          storeCategoryKeywords = [
+            ...storeCategoryKeywords,
+            ...supplementalCategories,
+          ]
+        }
       }
     } catch {}
   }

@@ -122,6 +122,7 @@ export const TABLES: TableDef[] = [
       { name: 'target_language', type: 'TEXT' },
       { name: 'offer_name', type: 'TEXT', unique: true },
       { name: 'affiliate_link', type: 'TEXT' },
+      { name: 'store_product_links', type: 'TEXT' },  // 店铺模式：最多3个单品推广链接（JSON）
       { name: 'brand_description', type: 'TEXT' },
       { name: 'unique_selling_points', type: 'TEXT' },
       { name: 'product_highlights', type: 'TEXT' },
@@ -1048,11 +1049,20 @@ export const TABLES: TableDef[] = [
       { name: 'status', type: 'TEXT', notNull: true, check: "status IN ('pending', 'running', 'completed', 'failed')", default: 'pending' },
       { name: 'stage', type: 'TEXT' },  // Current processing stage
       { name: 'progress', type: 'INTEGER', default: 0 },  // 0-100
+      { name: 'message', type: 'TEXT' },
       { name: 'affiliate_link', type: 'TEXT', notNull: true },
       { name: 'target_country', type: 'TEXT', notNull: true },
+      { name: 'page_type', type: 'TEXT' },  // store/product (user selection)
+      { name: 'store_product_links', type: 'TEXT' },  // JSON array
+      { name: 'skip_cache', type: 'BOOLEAN', default: false },
+      { name: 'skip_warmup', type: 'BOOLEAN', default: false },
+      { name: 'product_price', type: 'TEXT' },
+      { name: 'commission_payout', type: 'TEXT' },
+      { name: 'brand_name', type: 'TEXT' },
       { name: 'result', type: 'TEXT' },  // JSON extraction result
       { name: 'error', type: 'TEXT' },  // JSON error details
       { name: 'batch_id', type: 'TEXT', references: { table: 'batch_tasks', column: 'id', onDelete: 'SET NULL' } },  // Migration 060
+      { name: 'offer_id', type: 'INTEGER', references: { table: 'offers', column: 'id', onDelete: 'SET NULL' } },
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
       { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
       { name: 'started_at', type: 'TIMESTAMP' },

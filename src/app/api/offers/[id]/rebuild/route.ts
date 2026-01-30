@@ -42,6 +42,8 @@ interface Offer {
   target_country: string
   product_price: string | null
   commission_payout: string | null
+  page_type: string | null
+  store_product_links: string | null
 }
 
 export async function POST(
@@ -81,7 +83,7 @@ export async function POST(
 
     // 2. 查询Offer并验证所有权
     const offers = await db.query<Offer>(
-      `SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout FROM offers WHERE id = ? AND user_id = ? AND ${notDeletedCondition}`,
+      `SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout, page_type, store_product_links FROM offers WHERE id = ? AND user_id = ? AND ${notDeletedCondition}`,
       [offerId, userIdNum]
     )
 
@@ -134,6 +136,8 @@ export async function POST(
         status,
         affiliate_link,
         target_country,
+        page_type,
+        store_product_links,
         product_price,
         commission_payout,
         skip_cache,
@@ -147,6 +151,8 @@ export async function POST(
       offerId,  // 关键：关联到现有offer
       offer.affiliate_link,
       offer.target_country,
+      offer.page_type || null,
+      offer.store_product_links || null,
       offer.product_price,
       offer.commission_payout
     ])
@@ -154,6 +160,19 @@ export async function POST(
     console.log(`📝 重建Offer任务已创建: taskId=${taskId}, offerId=${offerId}`)
 
     // 6. 将任务加入队列（强制跳过缓存）
+    const storeProductLinks = (() => {
+      if (!offer.store_product_links) return undefined
+      try {
+        const parsed = JSON.parse(offer.store_product_links)
+        if (Array.isArray(parsed)) {
+          return parsed.map((link) => (typeof link === 'string' ? link.trim() : ''))
+            .filter((link) => Boolean(link))
+            .slice(0, 3)
+        }
+      } catch {}
+      return undefined
+    })()
+
     const taskData: OfferExtractionTaskData = {
       affiliateLink: offer.affiliate_link,
       targetCountry: offer.target_country,
@@ -161,6 +180,8 @@ export async function POST(
       skipWarmup: false,
       productPrice: offer.product_price || undefined,
       commissionPayout: offer.commission_payout || undefined,
+      pageType: offer.page_type === 'store' || offer.page_type === 'product' ? offer.page_type : undefined,
+      storeProductLinks,
     }
 
     await queue.enqueue(

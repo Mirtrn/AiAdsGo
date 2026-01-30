@@ -15,6 +15,8 @@ export default function NewOfferPage() {
   const [category, setCategory] = useState('')
   const [targetCountry, setTargetCountry] = useState('US')
   const [affiliateLink, setAffiliateLink] = useState('')
+  const [linkType, setLinkType] = useState<'product' | 'store'>('product')
+  const [storeProductLinks, setStoreProductLinks] = useState<string[]>([''])
   const [brandDescription, setBrandDescription] = useState('')
   const [uniqueSellingPoints, setUniqueSellingPoints] = useState('')
   const [productHighlights, setProductHighlights] = useState('')
@@ -46,6 +48,27 @@ export default function NewOfferPage() {
     setLoading(true)
 
     try {
+      if (linkType === 'store') {
+        if (!affiliateLink.trim()) {
+          throw new Error('店铺类型需填写店铺推广链接')
+        }
+        const normalizedLinks = storeProductLinks
+          .map((link) => link.trim())
+          .filter((link) => Boolean(link))
+        const uniqueLinks = Array.from(new Set(normalizedLinks)).slice(0, 3)
+        if (uniqueLinks.length === 0) {
+          throw new Error('店铺类型需至少填写1个单品推广链接')
+        }
+        for (const link of uniqueLinks) {
+          try {
+            // eslint-disable-next-line no-new
+            new URL(link)
+          } catch {
+            throw new Error(`单品推广链接无效: ${link}`)
+          }
+        }
+      }
+
       // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch('/api/offers', {
         method: 'POST',
@@ -59,6 +82,10 @@ export default function NewOfferPage() {
           category: category || undefined,
           target_country: targetCountry,
           affiliate_link: affiliateLink || undefined,
+          page_type: linkType,
+          store_product_links: linkType === 'store'
+            ? Array.from(new Set(storeProductLinks.map((link) => link.trim()).filter((link) => Boolean(link)))).slice(0, 3)
+            : undefined,
           brand_description: brandDescription || undefined,
           unique_selling_points: uniqueSellingPoints || undefined,
           product_highlights: productHighlights || undefined,
@@ -86,6 +113,25 @@ export default function NewOfferPage() {
 
   // 使用全局统一的国家列表（支持69个国家）
   const countries = getCountryOptionsForUI()
+
+  const updateStoreProductLink = (index: number, value: string) => {
+    setStoreProductLinks((prev) => {
+      const next = [...prev]
+      next[index] = value
+      return next
+    })
+  }
+
+  const addStoreProductLink = () => {
+    setStoreProductLinks((prev) => (prev.length >= 3 ? prev : [...prev, '']))
+  }
+
+  const removeStoreProductLink = (index: number) => {
+    setStoreProductLinks((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.length > 0 ? next : ['']
+    })
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -117,6 +163,23 @@ export default function NewOfferPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-4">基础信息</h3>
 
                 <div className="space-y-4">
+                  <div>
+                    <label htmlFor="linkType" className="block text-sm font-medium text-gray-700">
+                      链接类型 *
+                    </label>
+                    <select
+                      id="linkType"
+                      required
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      value={linkType}
+                      onChange={(e) => setLinkType(e.target.value as 'product' | 'store')}
+                    >
+                      <option value="product">单品</option>
+                      <option value="store">店铺</option>
+                    </select>
+                    <p className="mt-1 text-sm text-gray-500">店铺类型需额外填写单品推广链接（最多3个）</p>
+                  </div>
+
                   <div>
                     <label htmlFor="url" className="block text-sm font-medium text-gray-700">
                       商品/店铺URL *
@@ -187,7 +250,7 @@ export default function NewOfferPage() {
 
                   <div>
                     <label htmlFor="affiliateLink" className="block text-sm font-medium text-gray-700">
-                      联盟推广链接
+                      {linkType === 'store' ? '店铺推广链接' : '联盟推广链接'}
                     </label>
                     <input
                       type="url"
@@ -198,9 +261,48 @@ export default function NewOfferPage() {
                       onChange={(e) => setAffiliateLink(e.target.value)}
                     />
                     <p className="mt-1 text-sm text-gray-500">
-                      如果有联盟链接，可以在这里填写（可选）
+                      {linkType === 'store'
+                        ? '店铺类型建议填写推广链接用于追踪'
+                        : '如果有联盟链接，可以在这里填写（可选）'}
                     </p>
                   </div>
+
+                  {linkType === 'store' && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        单品推广链接（最多3个） *
+                      </label>
+                      <div className="space-y-2">
+                        {storeProductLinks.map((link, idx) => (
+                          <div key={`store-product-link-${idx}`} className="flex items-center gap-2">
+                            <input
+                              type="url"
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                              placeholder={`单品推广链接 ${idx + 1}`}
+                              value={link}
+                              onChange={(e) => updateStoreProductLink(idx, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="mt-1 px-2 py-1 text-sm border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                              onClick={() => removeStoreProductLink(idx)}
+                              disabled={storeProductLinks.length === 1}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-sm text-indigo-600 hover:text-indigo-500"
+                        onClick={addStoreProductLink}
+                        disabled={storeProductLinks.length >= 3}
+                      >
+                        + 添加单品链接
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -216,7 +318,7 @@ export default function NewOfferPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="productPrice" className="block text-sm font-medium text-gray-700">
-                      产品价格 (Product Price)
+                      {linkType === 'store' ? '平均产品价格' : '产品价格'} (Product Price)
                     </label>
                     <input
                       type="text"
@@ -233,7 +335,7 @@ export default function NewOfferPage() {
 
                   <div>
                     <label htmlFor="commissionPayout" className="block text-sm font-medium text-gray-700">
-                      佣金比例 (Commission Payout)
+                      {linkType === 'store' ? '平均佣金比例' : '佣金比例'} (Commission Payout)
                     </label>
                     <input
                       type="text"

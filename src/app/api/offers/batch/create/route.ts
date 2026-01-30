@@ -13,7 +13,11 @@
  *
  * CSV格式要求：
  * - 必需列：推广链接/affiliate_link, 推广国家/target_country（支持中英文表头）
- * - 可选列：品牌名/brand_name（或brand）, 产品价格/product_price, 佣金比例/commission_payout
+ * - 可选列：链接类型/page_type（store/product）
+ * - 可选列：品牌名/brand_name（或brand）
+ * - 可选列：产品价格/product_price（店铺类型可填平均产品价格）
+ * - 可选列：佣金比例/commission_payout（店铺类型可填平均佣金比例）
+ * - 店铺类型可选列：单品推广链接 product_link_1~3（至少填1个，最多3个）
  * - 编码：UTF-8
  * - 最大有效行数：500行
  * - 缺少必填参数的行会被自动跳过
@@ -120,6 +124,10 @@ export async function POST(req: NextRequest) {
     const brandNameIdx = headers.indexOf('brand_name')
     const productPriceIdx = headers.indexOf('product_price')
     const commissionPayoutIdx = headers.indexOf('commission_payout')
+    const pageTypeIdx = headers.indexOf('page_type')
+    const productLink1Idx = headers.indexOf('product_link_1')
+    const productLink2Idx = headers.indexOf('product_link_2')
+    const productLink3Idx = headers.indexOf('product_link_3')
 
     // 解析数据行，只保留必填参数完整的行
     const rows: Array<{
@@ -128,6 +136,8 @@ export async function POST(req: NextRequest) {
       brand_name?: string
       product_price?: string
       commission_payout?: string
+      page_type?: 'store' | 'product'
+      store_product_links?: string[]
     }> = []
 
     let skippedCount = 0
@@ -158,6 +168,19 @@ export async function POST(req: NextRequest) {
         target_country: targetCountry,
       }
 
+      const rawPageType = pageTypeIdx !== -1 ? (values[pageTypeIdx] || '').trim() : ''
+      const normalizedPageType = rawPageType.toLowerCase()
+      const parsedPageType: 'store' | 'product' | undefined = (() => {
+        if (!normalizedPageType) return undefined
+        if (['store', 'shop', 'shopify', 'storefront', '店铺', '店铺页', '店铺类型'].includes(normalizedPageType)) {
+          return 'store'
+        }
+        if (['product', 'item', 'single', '单品', '产品', '商品', '单品页'].includes(normalizedPageType)) {
+          return 'product'
+        }
+        return undefined
+      })()
+
       // 添加可选参数
       if (brandNameIdx !== -1 && values[brandNameIdx]) {
         const brandName = values[brandNameIdx].trim()
@@ -173,6 +196,51 @@ export async function POST(req: NextRequest) {
       }
       if (commissionPayoutIdx !== -1 && values[commissionPayoutIdx]) {
         row.commission_payout = values[commissionPayoutIdx]
+      }
+
+      const productLinkCandidates = [
+        productLink1Idx !== -1 ? values[productLink1Idx] : '',
+        productLink2Idx !== -1 ? values[productLink2Idx] : '',
+        productLink3Idx !== -1 ? values[productLink3Idx] : '',
+      ]
+      const normalizedProductLinks = productLinkCandidates
+        .map((v) => (v || '').trim())
+        .filter((v) => Boolean(v))
+      const uniqueProductLinks = Array.from(new Set(normalizedProductLinks)).slice(0, 3)
+
+      let resolvedPageType = parsedPageType
+      if (!resolvedPageType && uniqueProductLinks.length > 0) {
+        resolvedPageType = 'store'
+      }
+
+      if (resolvedPageType === 'store') {
+        const invalidLink = uniqueProductLinks.find((link) => {
+          try {
+            // eslint-disable-next-line no-new
+            new URL(link)
+            return false
+          } catch {
+            return true
+          }
+        })
+        if (invalidLink) {
+          skippedCount++
+          console.warn(`⚠️ 跳过第${i + 1}行：单品推广链接无效 (${invalidLink})`)
+          continue
+        }
+        if (uniqueProductLinks.length === 0) {
+          skippedCount++
+          console.warn(`⚠️ 跳过第${i + 1}行：店铺类型需至少填写1个单品推广链接`)
+          continue
+        }
+        row.page_type = 'store'
+        row.store_product_links = uniqueProductLinks
+      } else if (resolvedPageType === 'product') {
+        row.page_type = 'product'
+      } else if (rawPageType) {
+        skippedCount++
+        console.warn(`⚠️ 跳过第${i + 1}行：无法识别链接类型 (${rawPageType})`)
+        continue
       }
 
       rows.push(row)

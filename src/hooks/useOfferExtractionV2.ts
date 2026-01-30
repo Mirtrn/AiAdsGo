@@ -65,7 +65,9 @@ interface UseOfferExtractionV2Return {
     targetCountry: string,
     productPrice?: string,
     commissionPayout?: string,
-    brandName?: string
+    brandName?: string,
+    pageType?: 'store' | 'product',
+    storeProductLinks?: string[]
   ) => Promise<void>
   reconnect: (taskId: string) => Promise<void>
   reset: () => void
@@ -131,7 +133,9 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     targetCountry: string,
     productPrice?: string,
     commissionPayout?: string,
-    brandName?: string
+    brandName?: string,
+    pageType?: 'store' | 'product',
+    storeProductLinks?: string[]
   ) => {
     reset()
     setIsExtracting(true)
@@ -156,6 +160,8 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
           product_price: productPrice,
           commission_payout: commissionPayout,
           brand_name: brandName || undefined,
+          page_type: pageType || undefined,
+          store_product_links: storeProductLinks && storeProductLinks.length > 0 ? storeProductLinks : undefined,
         }),
         signal: abortControllerRef.current.signal
       })

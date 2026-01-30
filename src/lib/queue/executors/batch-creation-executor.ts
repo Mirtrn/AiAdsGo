@@ -29,6 +29,8 @@ export interface BatchCreationTaskData {
     brand_name?: string
     product_price?: string
     commission_payout?: string
+    page_type?: 'store' | 'product'
+    store_product_links?: string[]
   }>
 }
 
@@ -77,6 +79,8 @@ export async function executeBatchCreation(
           status,
           affiliate_link,
           target_country,
+          page_type,
+          store_product_links,
           brand_name,
           product_price,
           commission_payout,
@@ -91,6 +95,10 @@ export async function executeBatchCreation(
         batchId,
         row.affiliate_link,
         row.target_country,
+        row.page_type || null,
+        row.store_product_links && row.store_product_links.length > 0
+          ? JSON.stringify(row.store_product_links)
+          : null,
         row.brand_name || null,
         row.product_price || null,
         row.commission_payout || null,
@@ -106,6 +114,8 @@ export async function executeBatchCreation(
         productPrice: row.product_price,
         commissionPayout: row.commission_payout,
         brandName: row.brand_name,
+        pageType: row.page_type,
+        storeProductLinks: row.store_product_links,
       }
 
       await queue.enqueue(

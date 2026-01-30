@@ -85,6 +85,8 @@ export default function CreateOfferModalV2({
 
   // 步骤1：用户输入
   const [affiliateLink, setAffiliateLink] = useState('')
+  const [linkType, setLinkType] = useState<'product' | 'store'>('product')
+  const [storeProductLinks, setStoreProductLinks] = useState<string[]>([''])
   const [targetCountry, setTargetCountry] = useState('US')
   const [productPrice, setProductPrice] = useState('')
   const [commissionPayout, setCommissionPayout] = useState('')
@@ -186,6 +188,35 @@ export default function CreateOfferModalV2({
     }
   }, [extractionError])
 
+  const updateStoreProductLink = (index: number, value: string) => {
+    setStoreProductLinks((prev) => {
+      const next = [...prev]
+      next[index] = value
+      return next
+    })
+  }
+
+  const addStoreProductLink = () => {
+    setStoreProductLinks((prev) => {
+      if (prev.length >= 3) return prev
+      return [...prev, '']
+    })
+  }
+
+  const removeStoreProductLink = (index: number) => {
+    setStoreProductLinks((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.length > 0 ? next : ['']
+    })
+  }
+
+  const normalizeStoreProductLinks = () => {
+    const normalized = storeProductLinks
+      .map((link) => link.trim())
+      .filter((link) => Boolean(link))
+    return Array.from(new Set(normalized)).slice(0, 3)
+  }
+
   // ========== 步骤1: 提交用户输入，开始自动提取 ==========
   const handleExtract = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -193,8 +224,36 @@ export default function CreateOfferModalV2({
     resetExtraction() // 重置之前的提取状态
     setCurrentStep('extracting')
 
+    if (linkType === 'store') {
+      const normalizedLinks = normalizeStoreProductLinks()
+      if (normalizedLinks.length === 0) {
+        setError('店铺类型需至少填写1个单品推广链接')
+        setCurrentStep('input')
+        return
+      }
+      for (const link of normalizedLinks) {
+        try {
+          // eslint-disable-next-line no-new
+          new URL(link)
+        } catch {
+          setError(`单品推广链接无效：${link}`)
+          setCurrentStep('input')
+          return
+        }
+      }
+    }
+
     // 🔥 启动SSE流式提取
-    startExtraction(affiliateLink, targetCountry, productPrice, commissionPayout, brandName)
+    const normalizedLinks = linkType === 'store' ? normalizeStoreProductLinks() : []
+    startExtraction(
+      affiliateLink,
+      targetCountry,
+      productPrice,
+      commissionPayout,
+      brandName,
+      linkType,
+      normalizedLinks
+    )
   }
 
   // ========== 步骤3: 用户确认后跳转到Offer详情页 ==========
@@ -240,6 +299,8 @@ export default function CreateOfferModalV2({
 
   const resetForm = () => {
     setAffiliateLink('')
+    setLinkType('product')
+    setStoreProductLinks([''])
     setTargetCountry('US')
     setProductPrice('')
     setCommissionPayout('')
@@ -310,8 +371,26 @@ export default function CreateOfferModalV2({
           <form onSubmit={handleExtract} className="space-y-4 py-4">
             <div className="space-y-4">
               <div>
+                <Label htmlFor="linkType">
+                  链接类型 <span className="text-red-500">*</span>
+                </Label>
+                <Select value={linkType} onValueChange={(value) => setLinkType(value as 'product' | 'store')}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="选择链接类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="product">单品</SelectItem>
+                    <SelectItem value="store">店铺</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">
+                  店铺类型需额外填写最多3个单品推广链接
+                </p>
+              </div>
+
+              <div>
                 <Label htmlFor="affiliateLink">
-                  推广链接 <span className="text-red-500">*</span>
+                  {linkType === 'store' ? '店铺推广链接' : '推广链接'} <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="affiliateLink"
@@ -323,9 +402,54 @@ export default function CreateOfferModalV2({
                   className="mt-1"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  您的Affiliate推广链接，系统将自动解析最终落地页
+                  {linkType === 'store'
+                    ? '店铺的Affiliate推广链接，系统将自动解析最终落地页'
+                    : '您的Affiliate推广链接，系统将自动解析最终落地页'}
                 </p>
               </div>
+
+              {linkType === 'store' && (
+                <div className="space-y-2">
+                  <Label>
+                    单品推广链接（最多3个） <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="space-y-2">
+                    {storeProductLinks.map((link, idx) => (
+                      <div key={`store-product-link-${idx}`} className="flex items-center gap-2">
+                        <Input
+                          type="url"
+                          value={link}
+                          onChange={(e) => updateStoreProductLink(idx, e.target.value)}
+                          placeholder={`单品推广链接 ${idx + 1}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeStoreProductLink(idx)}
+                          disabled={storeProductLinks.length === 1}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addStoreProductLink}
+                      disabled={storeProductLinks.length >= 3}
+                    >
+                      添加单品链接
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    仅用于补充单品数据，最多3个
+                  </p>
+                </div>
+              )}
 
               <div>
                 <Label htmlFor="targetCountry">
@@ -366,7 +490,9 @@ export default function CreateOfferModalV2({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="productPrice">产品价格</Label>
+                    <Label htmlFor="productPrice">
+                      {linkType === 'store' ? '平均产品价格' : '产品价格'}
+                    </Label>
                     <Input
                       id="productPrice"
                       type="text"
@@ -378,7 +504,9 @@ export default function CreateOfferModalV2({
                   </div>
 
                   <div>
-                    <Label htmlFor="commissionPayout">佣金比例</Label>
+                    <Label htmlFor="commissionPayout">
+                      {linkType === 'store' ? '平均佣金比例' : '佣金比例'}
+                    </Label>
                     <Input
                       id="commissionPayout"
                       type="text"

@@ -20,6 +20,7 @@ export interface Offer {
   target_language: string | null
   offer_name: string | null
   affiliate_link: string | null
+  store_product_links: string | null  // 店铺模式：最多3个单品推广链接（JSON）
   brand_description: string | null
   unique_selling_points: string | null
   product_highlights: string | null
@@ -80,6 +81,7 @@ export interface CreateOfferInput {
   target_country: string
   target_language?: string // 目标语言（如English, Spanish等）
   affiliate_link?: string
+  store_product_links?: string  // JSON string array
   brand_description?: string
   unique_selling_points?: string
   product_highlights?: string
@@ -109,6 +111,7 @@ export interface UpdateOfferInput {
   category?: string
   target_country?: string
   affiliate_link?: string
+  store_product_links?: string
   brand_description?: string
   unique_selling_points?: string
   product_highlights?: string
@@ -186,6 +189,7 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     input.category || null,
     input.target_country,
     input.affiliate_link || null,
+    input.store_product_links || null,
     input.brand_description || null,
     input.unique_selling_points || null,
     input.product_highlights || null,
@@ -227,7 +231,7 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
 
   const result = await db.exec(`
     INSERT INTO offers (
-      user_id, url, brand, category, target_country, affiliate_link,
+      user_id, url, brand, category, target_country, affiliate_link, store_product_links,
       brand_description, unique_selling_points, product_highlights,
       target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
@@ -237,7 +241,7 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
       extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
       extracted_at,
       page_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, params)
 
   // 🔧 修复(2025-12-30): PostgreSQL 使用 RETURNING id，SQLite 使用 lastInsertRowid
@@ -554,6 +558,10 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   if (input.affiliate_link !== undefined) {
     updates.push('affiliate_link = ?')
     params.push(input.affiliate_link)
+  }
+  if (input.store_product_links !== undefined) {
+    updates.push('store_product_links = ?')
+    params.push(input.store_product_links)
   }
   if (input.brand_description !== undefined) {
     updates.push('brand_description = ?')

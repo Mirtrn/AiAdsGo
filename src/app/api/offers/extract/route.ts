@@ -51,7 +51,17 @@ export async function POST(req: NextRequest) {
     // 2. 解析请求参数
     const body = await req.json()
     // 🔥 修复（2025-12-08）：添加product_price和commission_payout参数支持
-    const { affiliate_link, target_country, product_price, commission_payout, brand_name, skipCache, skipWarmup } = body
+    const {
+      affiliate_link,
+      target_country,
+      product_price,
+      commission_payout,
+      brand_name,
+      page_type,
+      store_product_links,
+      skipCache,
+      skipWarmup
+    } = body
 
     // 参数验证
     if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
@@ -85,6 +95,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 可选：链接类型（店铺/单品）
+    const pageType = (page_type === 'store' || page_type === 'product') ? page_type : 'product'
+    let normalizedStoreProductLinks: string[] = []
+    if (pageType === 'store') {
+      if (!Array.isArray(store_product_links)) {
+        return NextResponse.json(
+          { error: 'Invalid request', message: 'store_product_links 必须为URL数组（最多3个）' },
+          { status: 400 }
+        )
+      }
+      normalizedStoreProductLinks = store_product_links
+        .map((link: any) => (typeof link === 'string' ? link.trim() : ''))
+        .filter((link: string) => Boolean(link))
+      normalizedStoreProductLinks = Array.from(new Set(normalizedStoreProductLinks)).slice(0, 3)
+      if (normalizedStoreProductLinks.length === 0) {
+        return NextResponse.json(
+          { error: 'Invalid request', message: '店铺类型需至少填写1个单品推广链接' },
+          { status: 400 }
+        )
+      }
+      for (const link of normalizedStoreProductLinks) {
+        try {
+          // eslint-disable-next-line no-new
+          new URL(link)
+        } catch {
+          return NextResponse.json(
+            { error: 'Invalid request', message: `单品推广链接无效: ${link}` },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
 
@@ -96,6 +139,8 @@ export async function POST(req: NextRequest) {
         status,
         affiliate_link,
         target_country,
+        page_type,
+        store_product_links,
         product_price,
         commission_payout,
         brand_name,
@@ -103,12 +148,14 @@ export async function POST(req: NextRequest) {
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
     `, [
       taskId,
       userIdNum,
       affiliate_link,
       target_country,
+      pageType,
+      normalizedStoreProductLinks.length > 0 ? JSON.stringify(normalizedStoreProductLinks) : null,
       product_price || null,
       commission_payout || null,
       (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : null,
@@ -128,6 +175,8 @@ export async function POST(req: NextRequest) {
       productPrice: product_price || undefined,
       commissionPayout: commission_payout || undefined,
       brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
+      pageType,
+      storeProductLinks: normalizedStoreProductLinks.length > 0 ? normalizedStoreProductLinks : undefined,
     }
 
     await queue.enqueue(

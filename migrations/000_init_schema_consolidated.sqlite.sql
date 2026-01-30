@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS "offers" (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   affiliate_link TEXT,
+  store_product_links TEXT,
   final_url TEXT,
   final_url_suffix TEXT,
   offer_name TEXT,
@@ -719,6 +720,8 @@ CREATE TABLE offer_tasks (
   -- Input parameters
   affiliate_link TEXT NOT NULL,
   target_country TEXT NOT NULL,
+  page_type TEXT,
+  store_product_links TEXT,
   skip_cache INTEGER DEFAULT 0,
   skip_warmup INTEGER DEFAULT 0,
   product_price TEXT,

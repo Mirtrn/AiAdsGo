@@ -36,6 +36,36 @@ export function canonicalizeOfferBatchCsvHeader(value: unknown) {
     return false
   }
 
+  if (has(t =>
+    t.includes('productlink1') ||
+    t.includes('storeproductlink1') ||
+    t.includes('单品链接1') ||
+    t.includes('单品推广链接1') ||
+    t.includes('商品链接1') ||
+    t.includes('产品链接1')
+  )) {
+    return 'product_link_1'
+  }
+  if (has(t =>
+    t.includes('productlink2') ||
+    t.includes('storeproductlink2') ||
+    t.includes('单品链接2') ||
+    t.includes('单品推广链接2') ||
+    t.includes('商品链接2') ||
+    t.includes('产品链接2')
+  )) {
+    return 'product_link_2'
+  }
+  if (has(t =>
+    t.includes('productlink3') ||
+    t.includes('storeproductlink3') ||
+    t.includes('单品链接3') ||
+    t.includes('单品推广链接3') ||
+    t.includes('商品链接3') ||
+    t.includes('产品链接3')
+  )) {
+    return 'product_link_3'
+  }
   if (has(t => t === 'affiliatelink' || t.includes('affiliatelink') || t.includes('推广链接'))) {
     return 'affiliate_link'
   }
@@ -45,13 +75,29 @@ export function canonicalizeOfferBatchCsvHeader(value: unknown) {
   if (has(t => t === 'brandname' || t.includes('brandname') || t === 'brand' || t.includes('品牌名') || t.includes('品牌名称') || t === '品牌')) {
     return 'brand_name'
   }
-  if (has(t => t === 'productprice' || t.includes('productprice') || t.includes('产品价格'))) {
+  if (has(t => t === 'pagetype' || t.includes('pagetype') || t.includes('page_type') || t.includes('链接类型') || t.includes('页面类型') || t.includes('linktype'))) {
+    return 'page_type'
+  }
+  if (has(t =>
+    t === 'productprice' ||
+    t.includes('productprice') ||
+    t.includes('产品价格') ||
+    t.includes('平均产品价格') ||
+    t.includes('avgproductprice') ||
+    t.includes('averageproductprice')
+  )) {
     return 'product_price'
   }
-  if (has(t => t === 'commissionpayout' || t.includes('commissionpayout') || t.includes('佣金比例'))) {
+  if (has(t =>
+    t === 'commissionpayout' ||
+    t.includes('commissionpayout') ||
+    t.includes('佣金比例') ||
+    t.includes('平均佣金比例') ||
+    t.includes('avgcommissionpayout') ||
+    t.includes('averagecommissionpayout')
+  )) {
     return 'commission_payout'
   }
-
   return raw.toLowerCase()
 }
 

@@ -124,6 +124,7 @@ CREATE TABLE "offers" (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   affiliate_link TEXT,
+  store_product_links TEXT,
   final_url TEXT,
   final_url_suffix TEXT,
   offer_name TEXT,
@@ -2742,6 +2743,8 @@ CREATE TABLE offer_tasks (
   -- Input parameters
   affiliate_link TEXT NOT NULL,
   target_country VARCHAR(10) NOT NULL,
+  page_type TEXT,
+  store_product_links TEXT,
   skip_cache BOOLEAN DEFAULT FALSE,
   skip_warmup BOOLEAN DEFAULT FALSE,
   product_price TEXT,

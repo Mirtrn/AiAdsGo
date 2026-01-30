@@ -270,6 +270,7 @@ export async function GET(
 
     const pageTypeEffective = pageTypeFromScrapedData || offer.page_type || 'product'
     const isStorePage = pageTypeEffective === 'store'
+    const storeProductLinks = safeParseJson<string[]>(offer.store_product_links) || []
 
     const storedUniqueSellingPoints = normalizeTextCandidate(offer.unique_selling_points)
     const storedProductHighlights = normalizeTextCandidate(offer.product_highlights)
@@ -334,6 +335,7 @@ export async function GET(
         competitorAnalysis: offer.competitor_analysis,
         // 链接类型（店铺/单品）
         pageType: pageTypeEffective,
+        storeProductLinks,
       },
     })
   } catch (error: any) {
@@ -358,6 +360,8 @@ const updateOfferSchema = z.object({
   unique_selling_points: z.string().optional(),
   product_highlights: z.string().optional(),
   target_audience: z.string().optional(),
+  page_type: z.enum(['store', 'product']).optional(),
+  store_product_links: z.array(z.string().url('无效的URL格式')).max(3).optional(),
   product_price: z.string().optional(),
   commission_payout: z.string().optional(),
   is_active: z.boolean().optional(),
@@ -394,18 +398,35 @@ export async function PUT(
       )
     }
 
+    const pageType = validationResult.data.page_type || undefined
+    let storeProductLinks: string[] | undefined = undefined
+    if (pageType === 'store') {
+      storeProductLinks = (validationResult.data.store_product_links || [])
+        .map((link) => link.trim())
+        .filter((link) => Boolean(link))
+      storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
+      if (storeProductLinks.length === 0) {
+        return NextResponse.json(
+          { error: '店铺类型需至少填写1个单品推广链接' },
+          { status: 400 }
+        )
+      }
+    }
+
     const offer = await updateOffer(parseInt(id, 10), parseInt(userId, 10), {
       url: validationResult.data.url,
       brand: validationResult.data.brand,
       category: validationResult.data.category,
       target_country: validationResult.data.target_country,
       affiliate_link: validationResult.data.affiliate_link,
+      store_product_links: storeProductLinks ? JSON.stringify(storeProductLinks) : undefined,
       brand_description: validationResult.data.brand_description,
       unique_selling_points: validationResult.data.unique_selling_points,
       product_highlights: validationResult.data.product_highlights,
       target_audience: validationResult.data.target_audience,
       product_price: validationResult.data.product_price,
       commission_payout: validationResult.data.commission_payout,
+      page_type: pageType,
       is_active: validationResult.data.is_active,
     })
 
@@ -431,6 +452,8 @@ export async function PUT(
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
+        pageType: offer.page_type,
+        storeProductLinks: offer.store_product_links,
         scrapeStatus: offer.scrape_status,
         // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
         isActive: offer.is_active === true || offer.is_active === 1,
