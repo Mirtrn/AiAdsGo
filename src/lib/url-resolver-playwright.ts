@@ -271,6 +271,33 @@ export async function resolveAffiliateLinkWithPlaywright(
 
     console.log(`智能等待完成: ${smartWait.waited}ms, 信号: ${smartWait.signals.join(', ')}`)
 
+    if (statusCode < 400) {
+      // 给JS重定向一点额外时间（部分追踪域名会在短延迟后跳转）
+      const initialHost = (() => {
+        try {
+          return normalizeHost(new URL(affiliateLink).hostname)
+        } catch {
+          return ''
+        }
+      })()
+      const maxRedirectWaitMs = redirectChain.length <= 1 ? 5000 : 2000
+      const redirectDeadline = Date.now() + maxRedirectWaitMs
+      while (Date.now() < redirectDeadline) {
+        const currentUrl = page.url()
+        const currentHost = (() => {
+          try {
+            return normalizeHost(new URL(currentUrl).hostname)
+          } catch {
+            return ''
+          }
+        })()
+        if (currentUrl !== affiliateLink && currentHost && currentHost !== initialHost) {
+          break
+        }
+        await page.waitForTimeout(200)
+      }
+    }
+
     // 记录优化效果（相比固定等待networkidle + waitTime）
     const traditionalWaitTime = 60000  // 传统方式固定60秒
     recordWaitOptimization(traditionalWaitTime, totalWaitTime)
