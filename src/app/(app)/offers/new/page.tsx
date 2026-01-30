@@ -165,16 +165,32 @@ export default function NewOfferPage() {
                     <label htmlFor="linkType" className="block text-sm font-medium text-gray-700">
                       链接类型 *
                     </label>
-                    <select
-                      id="linkType"
-                      required
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      value={linkType}
-                      onChange={(e) => setLinkType(e.target.value as 'product' | 'store')}
-                    >
-                      <option value="product">单品</option>
-                      <option value="store">店铺</option>
-                    </select>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {([
+                        { value: 'product', label: '单品' },
+                        { value: 'store', label: '店铺' },
+                      ] as const).map((option) => (
+                        <label
+                          key={option.value}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                            linkType === option.value
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            id={`linkType-${option.value}`}
+                            name="linkType"
+                            type="radio"
+                            value={option.value}
+                            checked={linkType === option.value}
+                            onChange={() => setLinkType(option.value)}
+                            className="sr-only"
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
                     <p className="mt-1 text-sm text-gray-500">店铺类型可选填写单品推广链接（最多3个）</p>
                   </div>
 

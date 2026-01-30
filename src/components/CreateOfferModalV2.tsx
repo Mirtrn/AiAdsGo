@@ -381,15 +381,32 @@ export default function CreateOfferModalV2({
                 <Label htmlFor="linkType">
                   链接类型 <span className="text-red-500">*</span>
                 </Label>
-                <Select value={linkType} onValueChange={(value) => setLinkType(value as 'product' | 'store')}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="选择链接类型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="product">单品</SelectItem>
-                    <SelectItem value="store">店铺</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {([
+                    { value: 'product', label: '单品' },
+                    { value: 'store', label: '店铺' },
+                  ] as const).map((option) => (
+                    <label
+                      key={option.value}
+                      className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                        linkType === option.value
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        id={`linkType-${option.value}`}
+                        name="linkType"
+                        type="radio"
+                        value={option.value}
+                        checked={linkType === option.value}
+                        onChange={() => setLinkType(option.value)}
+                        className="sr-only"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
                 <p className="text-xs text-slate-500 mt-1">
                   店铺类型可选填写最多3个单品推广链接，用于补充单品数据
                 </p>

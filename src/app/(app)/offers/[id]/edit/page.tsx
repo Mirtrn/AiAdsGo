@@ -19,6 +19,7 @@ export default function EditOfferPage() {
   const [category, setCategory] = useState('')
   const [targetCountry, setTargetCountry] = useState('US')
   const [affiliateLink, setAffiliateLink] = useState('')
+  const [linkType, setLinkType] = useState<'product' | 'store'>('product')
   const [finalUrl, setFinalUrl] = useState('')
   const [finalUrlSuffix, setFinalUrlSuffix] = useState('')
   const [brandDescription, setBrandDescription] = useState('')
@@ -46,6 +47,7 @@ export default function EditOfferPage() {
 
         // 填充表单 - 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
         setUrl(offer.url || '')
+        setLinkType((offer.pageType === 'store' || offer.pageType === 'product') ? offer.pageType : 'product')
         setFinalUrl(offer.finalUrl || '')
         setFinalUrlSuffix(offer.finalUrlSuffix || '')
         setBrand(offer.brand || '')
@@ -107,6 +109,7 @@ export default function EditOfferPage() {
           category: category || undefined,
           target_country: targetCountry,
           affiliate_link: affiliateLink || undefined,
+          page_type: linkType,
           brand_description: brandDescription || undefined,
           unique_selling_points: uniqueSellingPoints || undefined,
           product_highlights: productHighlights || undefined,
@@ -175,6 +178,39 @@ export default function EditOfferPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-4">基础信息</h3>
 
                 <div className="space-y-4">
+                  <div>
+                    <label htmlFor="linkType" className="block text-sm font-medium text-gray-700">
+                      链接类型 *
+                    </label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {([
+                        { value: 'product', label: '单品' },
+                        { value: 'store', label: '店铺' },
+                      ] as const).map((option) => (
+                        <label
+                          key={option.value}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                            linkType === option.value
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            id={`linkType-${option.value}`}
+                            name="linkType"
+                            type="radio"
+                            value={option.value}
+                            checked={linkType === option.value}
+                            onChange={() => setLinkType(option.value)}
+                            className="sr-only"
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-sm text-gray-500">店铺类型可选填写单品推广链接（最多3个）</p>
+                  </div>
+
                   <div>
                     <label htmlFor="url" className="block text-sm font-medium text-gray-700">
                       原始URL（商品/店铺） *
