@@ -176,7 +176,7 @@ export async function GET(
         })
         campaignRows = extractSearchResults(fetched)
       } else {
-        const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
+        const loginCustomerId = credentials.login_customer_id || linked.parent_mcc_id || undefined
         const customer = await getCustomerWithCredentials({
           customerId: linked.customer_id,
           refreshToken: oauthRefreshToken || undefined,
@@ -235,7 +235,7 @@ export async function GET(
           })
           adGroupRows = extractSearchResults(fetched)
         } else {
-          const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
+          const loginCustomerId = credentials.login_customer_id || linked.parent_mcc_id || undefined
           const customer = await getCustomerWithCredentials({
             customerId: linked.customer_id,
             refreshToken: oauthRefreshToken || undefined,

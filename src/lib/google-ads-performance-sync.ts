@@ -236,13 +236,20 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('No active Google Ads account found')
     }
 
+    let loginCustomerId: string | undefined
+    if (auth.authType === 'service_account') {
+      loginCustomerId = serviceAccount?.mccCustomerId ? String(serviceAccount.mccCustomerId) : undefined
+    } else {
+      loginCustomerId = credentials.login_customer_id ? String(credentials.login_customer_id) : undefined
+    }
+
     // 使用统一入口获取 Customer 实例（自动选择 OAuth 或服务账号）
     const customer = await getCustomerWithCredentials({
       customerId: account.customer_id,
       refreshToken: credentials.refresh_token || '',
       accountId: account.id,
       userId: userIdNum,
-      loginCustomerId: account.parent_mcc_id || undefined,
+      loginCustomerId,
       authType: auth.authType,
       serviceAccountId: auth.serviceAccountId,
     })

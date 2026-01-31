@@ -267,13 +267,14 @@ export async function PUT(
         )
       }
       serviceAccountId = config.id
+      const serviceAccountMccId = config.mccCustomerId ? String(config.mccCustomerId) : undefined
 
       // 使用统一客户端（服务账号模式）
       customer = await getCustomerWithCredentials({
         customerId: adsAccountRow.customer_id,
         accountId: adsAccountRow.id,
         userId: numericUserId,
-        loginCustomerId: adsAccountRow.parent_mcc_id || credentials.login_customer_id,
+        loginCustomerId: serviceAccountMccId || adsAccountRow.parent_mcc_id || undefined,
         authType: 'service_account',
         serviceAccountId,
       })
@@ -290,7 +291,7 @@ export async function PUT(
         )
       }
 
-      const loginCustomerId = adsAccountRow.parent_mcc_id || credentials.login_customer_id
+      const loginCustomerId = credentials.login_customer_id || adsAccountRow.parent_mcc_id || undefined
 
       // 使用统一客户端（OAuth模式）
       customer = await getCustomerWithCredentials({

@@ -98,19 +98,11 @@ export async function POST(
           const credentials = await getGoogleAdsCredentials(userId)
           const refreshToken = credentials?.refresh_token || ''
 
-          let loginCustomerId: string | undefined = adsAccount!.parent_mcc_id ? String(adsAccount!.parent_mcc_id) : undefined
-          if (!loginCustomerId) {
-            try {
-              const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
-              const config = await getGoogleAdsConfig(userId)
-              if (config?.loginCustomerId) {
-                loginCustomerId = String(config.loginCustomerId)
-                // 缓存到账号表，减少后续重复读取
-                await db.exec(`UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`, [loginCustomerId, adsAccount!.id])
-              }
-            } catch {
-              // 忽略：没有loginCustomerId时会让调用方走降级策略或报权限错误
-            }
+          let loginCustomerId: string | undefined = credentials?.login_customer_id
+            ? String(credentials.login_customer_id)
+            : undefined
+          if (!loginCustomerId && adsAccount!.parent_mcc_id) {
+            loginCustomerId = String(adsAccount!.parent_mcc_id)
           }
 
           for (const campaign of campaignsToUnlink) {

@@ -305,6 +305,7 @@ export async function POST(
             let authType: 'oauth' | 'service_account' = 'oauth'
             let refreshToken = ''
             let serviceAccountId: string | undefined
+            let serviceAccountMccId: string | undefined
 
             if (useServiceAccount) {
               authType = 'service_account'
@@ -313,6 +314,7 @@ export async function POST(
                 googleAdsSummary.skippedReason = '未找到服务账号配置'
               } else {
                 serviceAccountId = config.id
+                serviceAccountMccId = config.mccCustomerId ? String(config.mccCustomerId) : undefined
               }
             } else {
               authType = 'oauth'
@@ -323,9 +325,17 @@ export async function POST(
               }
             }
 
-            const loginCustomerId = (campaignRow.parent_mcc_id || credentials.login_customer_id || undefined) as
-              | string
-              | undefined
+            let loginCustomerId: string | undefined
+            if (authType === 'service_account') {
+              loginCustomerId = serviceAccountMccId
+            } else {
+              loginCustomerId = credentials.login_customer_id
+                ? String(credentials.login_customer_id)
+                : undefined
+            }
+            if (!loginCustomerId && campaignRow.parent_mcc_id) {
+              loginCustomerId = String(campaignRow.parent_mcc_id)
+            }
 
             if (!googleAdsSummary.skippedReason) {
               googleAdsSummary.queued = true

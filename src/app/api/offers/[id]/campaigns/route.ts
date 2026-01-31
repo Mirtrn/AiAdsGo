@@ -351,7 +351,7 @@ export async function GET(
           // ignore
         }
       } else {
-        const loginCustomerId = account.parentMccId || credentials.login_customer_id
+        const loginCustomerId = credentials.login_customer_id || account.parentMccId || undefined
         const customer = await getCustomerWithCredentials({
           customerId: account.customerId,
           refreshToken: oauthRefreshToken || undefined,

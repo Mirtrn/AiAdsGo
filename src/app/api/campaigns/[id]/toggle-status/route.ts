@@ -185,6 +185,7 @@ export async function PUT(
     let authType: 'oauth' | 'service_account' = 'oauth'
     let refreshToken = ''
     let serviceAccountId: string | undefined
+    let serviceAccountMccId: string | undefined
 
     if (useServiceAccount) {
       authType = 'service_account'
@@ -196,6 +197,7 @@ export async function PUT(
         )
       }
       serviceAccountId = config.id
+      serviceAccountMccId = config.mccCustomerId ? String(config.mccCustomerId) : undefined
     } else {
       authType = 'oauth'
       const oauthCredentials = await getGoogleAdsCredentials(userId)
@@ -208,7 +210,17 @@ export async function PUT(
       }
     }
 
-    const loginCustomerId = adsAccountRow.parent_mcc_id || credentials.login_customer_id
+    let loginCustomerId: string | undefined
+    if (authType === 'service_account') {
+      loginCustomerId = serviceAccountMccId
+    } else {
+      loginCustomerId = credentials.login_customer_id
+        ? String(credentials.login_customer_id)
+        : undefined
+    }
+    if (!loginCustomerId && adsAccountRow.parent_mcc_id) {
+      loginCustomerId = String(adsAccountRow.parent_mcc_id)
+    }
 
     // 先更新 Google Ads 状态
     await updateGoogleAdsCampaignStatus({

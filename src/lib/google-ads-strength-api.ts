@@ -50,12 +50,14 @@ async function getGoogleAdsClient(
       throw new Error('未找到服务账号配置')
     }
 
+    const serviceAccountMccId = config.mccCustomerId ? String(config.mccCustomerId) : undefined
+
     return {
       customer: await getCustomerWithCredentials({
         customerId,
         accountId: account.id,
         userId,
-        loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+        loginCustomerId: serviceAccountMccId || account.parent_mcc_id || undefined,
         authType: 'service_account',
         serviceAccountId: account.service_account_id,
       }),
@@ -72,7 +74,7 @@ async function getGoogleAdsClient(
       customer: await getCustomerWithCredentials({
         customerId,
         refreshToken: account.refresh_token,
-        loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+        loginCustomerId: credentials.login_customer_id || account.parent_mcc_id || undefined,
         credentials: {
           client_id: credentials.client_id,
           client_secret: credentials.client_secret,
