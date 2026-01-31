@@ -64,6 +64,7 @@ export default function UrlSwapTaskModal({
   const [loadingOffer, setLoadingOffer] = useState(true);
   const [taskData, setTaskData] = useState<UrlSwapTask | null>(null);
   const [proxyWarning, setProxyWarning] = useState('');
+  const [enabling, setEnabling] = useState(false);
 
   // Form state
   const [swapIntervalMinutes, setSwapIntervalMinutes] = useState(30);
@@ -74,6 +75,7 @@ export default function UrlSwapTaskModal({
   const [manualLinksText, setManualLinksText] = useState('');
 
   const isEditMode = !!editTaskId;
+  const canEnableTask = isEditMode && !!taskData && (taskData.status === 'disabled' || taskData.status === 'error');
 
   // Load existing task data (edit mode)
   useEffect(() => {
@@ -111,6 +113,27 @@ export default function UrlSwapTaskModal({
       console.error('加载任务失败:', error);
       toast.error('加载任务失败');
       onOpenChange(false);
+    }
+  };
+
+  const handleEnableTask = async () => {
+    if (!editTaskId) return;
+    setEnabling(true);
+    try {
+      const response = await fetch(`/api/url-swap/tasks/${editTaskId}/enable`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.message || '启用任务失败');
+      }
+      toast.success('任务已启用');
+      setTaskData(prev => (prev ? { ...prev, status: 'enabled' } : prev));
+    } catch (error: any) {
+      console.error('启用任务失败:', error);
+      toast.error(error?.message || '启用任务失败');
+    } finally {
+      setEnabling(false);
     }
   };
 
@@ -515,6 +538,17 @@ export default function UrlSwapTaskModal({
             >
               取消
             </Button>
+            {canEnableTask && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleEnableTask}
+                disabled={loading || enabling}
+              >
+                {enabling && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                直接启用
+              </Button>
+            )}
             <Button type="submit" disabled={loading || (swapMode === 'auto' && !!proxyWarning)}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isEditMode ? '更新任务' : '创建任务'}
