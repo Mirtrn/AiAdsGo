@@ -70,7 +70,7 @@ import {
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
-import { showError, showSuccess } from '@/lib/toast-utils'
+import { showError, showInfo, showSuccess } from '@/lib/toast-utils'
 import type { OfferListItem, UnlinkTarget } from './types'
 
 // 使用类型别名保持兼容性
@@ -1116,9 +1116,18 @@ export default function OffersPage() {
                                     if (response.ok) {
                                       const data = await response.json()
                                       if (data.data) {
-                                        // 有任务，进入编辑模式
                                         setSelectedOfferForClickFarm(offer)
-                                        setEditTaskIdForClickFarm(data.data.id)
+                                        if (isEditableClickFarmStatus(data.data.status)) {
+                                          // 有可编辑任务，进入编辑模式
+                                          setEditTaskIdForClickFarm(data.data.id)
+                                        } else {
+                                          // 任务不可编辑（如已完成），进入创建模式
+                                          setEditTaskIdForClickFarm(undefined)
+                                          showInfo(
+                                            `当前任务状态为 ${formatClickFarmStatus(data.data.status)}，已进入创建新任务。` +
+                                            '如需继续当前任务，请前往补点击管理页面'
+                                          )
+                                        }
                                       } else {
                                         // 没有任务，进入创建模式
                                         setSelectedOfferForClickFarm(offer)
@@ -1524,4 +1533,24 @@ export default function OffersPage() {
       </AlertDialog>
     </div>
   )
+}
+const isEditableClickFarmStatus = (status?: string) => (
+  status === 'pending' || status === 'running'
+)
+
+const formatClickFarmStatus = (status?: string) => {
+  switch (status) {
+    case 'pending':
+      return '待开始'
+    case 'running':
+      return '运行中'
+    case 'paused':
+      return '已暂停'
+    case 'stopped':
+      return '已停止'
+    case 'completed':
+      return '已完成'
+    default:
+      return status || '未知'
+  }
 }
