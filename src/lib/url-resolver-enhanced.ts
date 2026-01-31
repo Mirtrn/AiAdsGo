@@ -624,18 +624,26 @@ function buildFullUrl(finalUrl: string, finalUrlSuffix: string | null | undefine
 
 function isBlockedHttpResolution(result: ResolvedUrlData): boolean {
   const statusCode = typeof result.statusCode === 'number' ? result.statusCode : 0
-  if (statusCode >= 400) return true
+  if (statusCode < 400) return false
 
   try {
+    const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
     const urlObj = new URL(result.finalUrl)
-    const host = urlObj.hostname.toLowerCase()
     const path = urlObj.pathname.toLowerCase()
+
+    // 已解析到tracking/中间页时，仍需降级Playwright继续追踪
+    const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com|[?&](?:url|redirect|target|destination|goto|link)=/i.test(fullResolvedUrl)
+    if (isTrackingUrl) return true
+
+    // 明显错误页路径仍视为阻断
     const blockedPath = /\/(?:403|404|blocked|error)(?:\/|$)/i.test(path)
-    const trackingDomains = ['linkbux.com']
-    const isTrackingHost = trackingDomains.some(domain => host === domain || host.endsWith(`.${domain}`))
-    return isTrackingHost && blockedPath
-  } catch {
+    if (blockedPath) return true
+
+    // 非tracking落地页即使4xx，也视为已解析成功（避免不必要降级）
     return false
+  } catch {
+    // URL解析失败时，保守认为需要降级
+    return true
   }
 }
 
@@ -799,8 +807,9 @@ export async function resolveAffiliateLink(
 
           const blocked = isBlockedHttpResolution(result)
           if (blocked) {
-            console.log(`   ⚠️ HTTP解析命中拦截/错误页，改用Playwright（原始链接）`)
-            const playwrightResult = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
+            const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+            console.log(`   ⚠️ HTTP解析命中拦截/错误页，改用Playwright（解析结果）`)
+            const playwrightResult = await resolveWithPlaywright(fullResolvedUrl, proxy.url, targetCountry)
             result = {
               ...playwrightResult,
               redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
@@ -844,8 +853,9 @@ export async function resolveAffiliateLink(
 
           const blocked = isBlockedHttpResolution(result)
           if (blocked) {
-            console.log(`   ⚠️ HTTP解析命中拦截/错误页，改用Playwright（原始链接）`)
-            const playwrightResult = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
+            const fullResolvedUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+            console.log(`   ⚠️ HTTP解析命中拦截/错误页，改用Playwright（解析结果）`)
+            const playwrightResult = await resolveWithPlaywright(fullResolvedUrl, proxy.url, targetCountry)
             result = {
               ...playwrightResult,
               redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
