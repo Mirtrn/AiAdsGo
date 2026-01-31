@@ -428,8 +428,13 @@ class PostgresAdapter implements DatabaseAdapter {
     const hasReturning = /\bRETURNING\b/i.test(pgSql)
 
     if (isInsert && !hasReturning) {
-      // 移除末尾的分号（如果有），添加 RETURNING id
-      pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
+      const noIdTables = new Set(['brand_core_keyword_daily'])
+      const tableName = extractTableName(pgSql)
+
+      if (!noIdTables.has(tableName)) {
+        // 移除末尾的分号（如果有），添加 RETURNING id
+        pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
+      }
     }
 
     let pgResult: any
