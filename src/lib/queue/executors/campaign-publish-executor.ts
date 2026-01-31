@@ -256,32 +256,6 @@ export async function executeCampaignPublish(
 
     console.log(`💰 使用账号货币: ${adsAccount.currency}`)
 
-    // 🔧 修复(2025-12-19): 如果parent_mcc_id为NULL，从用户设置中获取login_customer_id
-    // 这确保MCC账户ID正确传递给Google Ads API
-    let effectiveLoginCustomerId = adsAccount.parent_mcc_id
-
-    if (!effectiveLoginCustomerId) {
-      try {
-        // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种方式获取login_customer_id
-        const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
-        const config = await getGoogleAdsConfig(userId)
-
-        if (config?.loginCustomerId) {
-          effectiveLoginCustomerId = config.loginCustomerId
-          // 同时更新数据库，避免后续调用继续走这条路径
-          await db.exec(
-            `UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`,
-            [effectiveLoginCustomerId, adsAccount.id]
-          )
-        }
-      } catch (settingsError: any) {
-        console.warn(`⚠️ 无法从用户设置获取login_customer_id: ${settingsError.message}`)
-      }
-    }
-
-    // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
-    const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
-
     // 2. 检查OAuth凭证或服务账号配置
     const credentials = await getGoogleAdsCredentials(userId)
 
@@ -299,6 +273,29 @@ export async function executeCampaignPublish(
     // 获取认证类型和服务账号ID
     const auth = await getUserAuthType(userId)
     const refreshToken = credentials?.refresh_token || ''
+
+    // 🔧 优先使用用户配置的login_customer_id（OAuth）或服务账号MCC（service_account）
+    // parent_mcc_id仅用于层级关系，不应覆盖登录MCC
+    let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+
+    if (auth.authType === 'oauth') {
+      if (credentials?.login_customer_id) {
+        effectiveLoginCustomerId = credentials.login_customer_id
+      }
+    } else if (auth.authType === 'service_account') {
+      try {
+        const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
+        const saConfig = await getServiceAccountConfig(userId, auth.serviceAccountId)
+        if (saConfig?.mccCustomerId) {
+          effectiveLoginCustomerId = saConfig.mccCustomerId
+        }
+      } catch (error) {
+        console.warn('⚠️ 无法获取服务账号MCC Customer ID:', error)
+      }
+    }
+
+    // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
+    const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
 
     // 3. 根据货币获取CPC默认值
     const getDefaultCPC = (currency: string): number => {

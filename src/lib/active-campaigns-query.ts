@@ -58,13 +58,6 @@ export async function queryActiveCampaigns(
     throw new Error(`Google Ads账号不存在或未激活: ${googleAdsAccountId}`)
   }
 
-  // 🔧 处理MCC子账号的login-customer-id参数
-  // 如果有parent_mcc_id，说明是子账号，需要传递loginCustomerId
-  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
-
-  // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
-  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
-
   // 2. 检查OAuth凭证或服务账号配置
   const credentials = await getGoogleAdsCredentials(userId)
 
@@ -75,13 +68,37 @@ export async function queryActiveCampaigns(
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
+  const auth = await getUserAuthType(userId)
+
+  // 🔧 处理MCC子账号的login-customer-id参数
+  // 优先使用用户配置的login_customer_id（OAuth）或服务账号MCC（service_account）
+  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+
+  if (auth.authType === 'oauth') {
+    if (credentials?.login_customer_id) {
+      effectiveLoginCustomerId = credentials.login_customer_id
+    }
+  } else if (auth.authType === 'service_account') {
+    try {
+      const { getServiceAccountConfig } = await import('./google-ads-service-account')
+      const saConfig = await getServiceAccountConfig(userId, auth.serviceAccountId)
+      if (saConfig?.mccCustomerId) {
+        effectiveLoginCustomerId = saConfig.mccCustomerId
+      }
+    } catch (error) {
+      console.warn('⚠️ 无法获取服务账号MCC Customer ID:', error)
+    }
+  }
+
+  // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
+  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+
   if (!credentials?.refresh_token && !serviceAccount) {
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
 
   // 3. 查询Google Ads账号中的所有广告系列（跳过缓存，获取实时状态）
   console.log(`🔍 查询Google Ads账号 ${adsAccount.customer_id} 中的广告系列...`)
-  const auth = await getUserAuthType(userId)
   const allCampaigns = await listGoogleAdsCampaigns({
     customerId: adsAccount.customer_id,
     refreshToken: credentials?.refresh_token || '',
@@ -161,10 +178,6 @@ export async function pauseCampaigns(
     throw new Error(`Google Ads账号不存在: ${googleAdsAccountId}`)
   }
 
-  // 🔧 处理MCC子账号的login-customer-id参数
-  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
-  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
-
   // 检查OAuth凭证或服务账号配置
   const credentials2 = await getGoogleAdsCredentials(userId)
 
@@ -176,6 +189,30 @@ export async function pauseCampaigns(
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
+  const auth = await getUserAuthType(userId)
+
+  // 🔧 处理MCC子账号的login-customer-id参数
+  // 优先使用用户配置的login_customer_id（OAuth）或服务账号MCC（service_account）
+  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+
+  if (auth.authType === 'oauth') {
+    if (credentials2?.login_customer_id) {
+      effectiveLoginCustomerId = credentials2.login_customer_id
+    }
+  } else if (auth.authType === 'service_account') {
+    try {
+      const { getServiceAccountConfig } = await import('./google-ads-service-account')
+      const saConfig = await getServiceAccountConfig(userId, auth.serviceAccountId)
+      if (saConfig?.mccCustomerId) {
+        effectiveLoginCustomerId = saConfig.mccCustomerId
+      }
+    } catch (error) {
+      console.warn('⚠️ 无法获取服务账号MCC Customer ID:', error)
+    }
+  }
+
+  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+
   if (!credentials2?.refresh_token && !serviceAccount2) {
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
@@ -184,7 +221,6 @@ export async function pauseCampaigns(
   const { updateGoogleAdsCampaignStatus } = await import('./google-ads-api')
 
   // 逐个暂停（串行执行，避免并发冲突）
-  const auth = await getUserAuthType(userId)
   const failures: PauseCampaignsResult['failures'] = []
   let pausedCount = 0
   for (const campaign of campaigns) {
