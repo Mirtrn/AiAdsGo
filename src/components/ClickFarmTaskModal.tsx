@@ -78,6 +78,8 @@ export default function ClickFarmTaskModal({
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
   // 🔧 修复P2-10(2025-12-30): 初始值设为空,避免误导用户,实际值由选择offer时自动设置
   const [timezone, setTimezone] = useState<string>('');
+  const [taskStatus, setTaskStatus] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
 
   // 🆕 Referer配置状态
   const [refererConfig, setRefererConfig] = useState<{
@@ -86,6 +88,7 @@ export default function ClickFarmTaskModal({
   }>({ type: 'none' });
 
   const isEditMode = !!editTaskId;  // 🆕 判断是否为编辑模式
+  const canRestartTask = isEditMode && (taskStatus === 'paused' || taskStatus === 'stopped');
 
   // 🔧 修复P1-2(2025-12-30): 清理拖拽事件监听器,防止内存泄漏
   useEffect(() => {
@@ -111,6 +114,7 @@ export default function ClickFarmTaskModal({
 
       const { data: task } = await response.json();
 
+      setTaskStatus(task.status || null);
       setSelectedOfferId(task.offer_id);
       setDailyClickCount(task.daily_click_count);
       // 🔧 修复P0-2(2025-12-30): 直接使用后端返回的时间范围,避免数据丢失
@@ -154,6 +158,27 @@ export default function ClickFarmTaskModal({
       console.error('加载任务失败:', error);
       toast.error('加载任务失败');
       onOpenChange(false);
+    }
+  };
+
+  const handleRestartTask = async () => {
+    if (!editTaskId) return;
+    setRestarting(true);
+    try {
+      const response = await fetch(`/api/click-farm/tasks/${editTaskId}/restart`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.message || '恢复任务失败');
+      }
+      toast.success('任务已恢复');
+      setTaskStatus('running');
+    } catch (error: any) {
+      console.error('恢复任务失败:', error);
+      toast.error(error?.message || '恢复任务失败');
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -1150,6 +1175,17 @@ export default function ClickFarmTaskModal({
                 >
                   取消
                 </Button>
+                {canRestartTask && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleRestartTask}
+                    disabled={loading || restarting}
+                  >
+                    {restarting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    直接恢复
+                  </Button>
+                )}
                 <Button type="submit" disabled={loading || !!proxyWarning}>
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {isEditMode ? '更新任务' : '创建任务'}
