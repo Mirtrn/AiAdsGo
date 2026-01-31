@@ -33,6 +33,12 @@ export interface ResponseSchema {
   format?: string
   description?: string
   nullable?: boolean
+  minItems?: number
+  maxItems?: number
+  minLength?: number
+  maxLength?: number
+  minimum?: number
+  maximum?: number
   items?: ResponseSchema
   enum?: string[]
   properties?: {

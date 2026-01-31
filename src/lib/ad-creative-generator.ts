@@ -2101,8 +2101,15 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 }
 \`\`\`
 
+**COUNT REQUIREMENTS (MUST MATCH TEMPLATE):**
+- Headlines: EXACTLY 15 items, each ≤ 30 chars
+- Descriptions: EXACTLY 4 items, each ≤ 90 chars
+- Keywords: AT LEAST 10 items
+- Callouts: EXACTLY 6 items, each ≤ 25 chars
+- Sitelinks: EXACTLY 6 items (text ≤ 25, description ≤ 35)
+
 **CRITICAL - KEYWORD REQUIREMENTS:**
-- Return at least 5-10 keywords in the "keywords" array
+- Return at least 10 keywords in the "keywords" array
 - Include a mix of: brand keywords, product keywords, and high-volume generic keywords
 - Each keyword should be 2-8 words long
 - Use the exact keyword format from the provided keyword pool
@@ -2671,12 +2678,14 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
   properties: {
     headlines: {
       type: 'ARRAY',
+      minItems: 15,
+      maxItems: 15,
       items: {
         type: 'OBJECT',
         properties: {
-          text: { type: 'STRING' },
+          text: { type: 'STRING', maxLength: 30 },
           type: { type: 'STRING' },
-          length: { type: 'INTEGER' },
+          length: { type: 'INTEGER', maximum: 30 },
           group: { type: 'STRING' }
         },
         required: ['text']
@@ -2684,12 +2693,14 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     descriptions: {
       type: 'ARRAY',
+      minItems: 4,
+      maxItems: 4,
       items: {
         type: 'OBJECT',
         properties: {
-          text: { type: 'STRING' },
+          text: { type: 'STRING', maxLength: 90 },
           type: { type: 'STRING' },
-          length: { type: 'INTEGER' },
+          length: { type: 'INTEGER', maximum: 90 },
           group: { type: 'STRING' }
         },
         required: ['text']
@@ -2697,26 +2708,31 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     keywords: {
       type: 'ARRAY',
+      minItems: 10,
       items: { type: 'STRING' }
     },
     callouts: {
       type: 'ARRAY',
-      items: { type: 'STRING' }
+      minItems: 6,
+      maxItems: 6,
+      items: { type: 'STRING', maxLength: 25 }
     },
     sitelinks: {
       type: 'ARRAY',
+      minItems: 6,
+      maxItems: 6,
       items: {
         type: 'OBJECT',
         properties: {
-          text: { type: 'STRING' },
+          text: { type: 'STRING', maxLength: 25 },
           url: { type: 'STRING' },
-          description: { type: 'STRING' }
+          description: { type: 'STRING', maxLength: 35 }
         },
         required: ['text']
       }
     },
-    path1: { type: 'STRING' },
-    path2: { type: 'STRING' },
+    path1: { type: 'STRING', maxLength: 15 },
+    path2: { type: 'STRING', maxLength: 15 },
     theme: { type: 'STRING' },
     explanation: { type: 'STRING' },
     quality_metrics: {
@@ -3223,7 +3239,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 24576,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
     },
   })
 
@@ -3257,7 +3273,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 24576,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
     },
   })
 
@@ -3743,7 +3759,7 @@ export async function generateAdCreative(
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.9,
-      maxOutputTokens: 24576,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)

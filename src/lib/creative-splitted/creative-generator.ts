@@ -40,7 +40,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number):
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.9,
-      maxOutputTokens: 24576
+      maxOutputTokens: 32768
     }, userId || 0) // 提供默认值
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）

@@ -298,7 +298,7 @@ export async function generateContent(params: {
           },
         }
 
-    const MAX_OUTPUT_TOKENS_CAP = 32768
+    const MAX_OUTPUT_TOKENS_CAP = 49152
     const MAX_TOKENS_RETRY_BUMP = 8192
     const MAX_TOKENS_RETRY_BUFFER = 2048
 

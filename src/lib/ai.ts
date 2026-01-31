@@ -1212,7 +1212,7 @@ ${currentOrientation === 'brand' ? `
       operationType: 'ad_creative_generation_main',
       prompt: basePrompt,
       temperature: 0.7,
-      maxOutputTokens: 24576,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
     }, options.userId)
 
     const text = result.text
