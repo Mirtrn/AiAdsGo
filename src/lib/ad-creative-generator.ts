@@ -3239,7 +3239,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
     },
   })
 
@@ -3273,7 +3273,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
     },
   })
 
@@ -3759,7 +3759,7 @@ export async function generateAdCreative(
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.9,
-      maxOutputTokens: 32768,  // 🔧 提升：减少MAX_TOKENS截断风险，保留足够输出空间
+      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)

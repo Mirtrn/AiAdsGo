@@ -374,22 +374,38 @@ export async function generateContent(params: {
       }
       console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
 
+      // 🔧 调试(2026-01-31): 记录响应内容详情，排查输出过大问题
+      const usage = response.data.usageMetadata
+      const thoughtsTokenCount = usage?.thoughtsTokenCount || 0
+      const candidatesTokenCount = usage?.candidatesTokenCount || 0
+      const charsPerToken = candidatesTokenCount > 0 ? (text.length / candidatesTokenCount).toFixed(2) : 'N/A'
+      console.log(`📊 响应分析:`)
+      console.log(`   - 文本长度: ${text.length} 字符`)
+      console.log(`   - 输出tokens: ${candidatesTokenCount} (含thinking: ${thoughtsTokenCount})`)
+      console.log(`   - 字符/token比: ${charsPerToken}`)
+      // 如果输出异常大（超过10k tokens），记录更多信息
+      if (candidatesTokenCount > 10000) {
+        console.warn(`⚠️ 输出异常大! 预期约1000 tokens，实际 ${candidatesTokenCount} tokens`)
+        console.log(`   - 响应前500字符: ${text.substring(0, 500)}`)
+        console.log(`   - 响应后500字符: ${text.substring(text.length - 500)}`)
+      }
+
       // 记录token使用情况
-      let usage: GeminiAxiosGenerateResult['usage']
+      let usageResult: GeminiAxiosGenerateResult['usage']
       if (response.data.usageMetadata) {
-        usage = {
+        usageResult = {
           inputTokens: response.data.usageMetadata.promptTokenCount || 0,
           outputTokens: response.data.usageMetadata.candidatesTokenCount || 0,
           totalTokens: response.data.usageMetadata.totalTokenCount || 0
         }
-        console.log(`   Token使用: prompt=${usage.inputTokens}, ` +
-          `output=${usage.outputTokens}, ` +
-          `total=${usage.totalTokens}`)
+        console.log(`   Token使用: prompt=${usageResult.inputTokens}, ` +
+          `output=${usageResult.outputTokens}, ` +
+          `total=${usageResult.totalTokens}`)
       }
 
       return {
         text,
-        usage,
+        usage: usageResult,
         model
       }
     }
