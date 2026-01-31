@@ -3238,9 +3238,9 @@ async function generateWithVertexAI(
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.9,
+      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
       topP: 0.95,
-      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
+      maxOutputTokens: 32768,  // 保持较高值以防截断
     },
   })
 
@@ -3272,9 +3272,9 @@ async function generateWithGeminiAPI(
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.9,
+      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
       topP: 0.95,
-      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
+      maxOutputTokens: 32768,  // 保持较高值以防截断
     },
   })
 
@@ -3759,8 +3759,8 @@ export async function generateAdCreative(
     aiResponse = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,
-      temperature: 0.9,
-      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
+      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性，避免随机生成过多内容
+      maxOutputTokens: 32768,  // 保持较高值以防截断
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)

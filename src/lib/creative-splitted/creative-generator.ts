@@ -39,8 +39,8 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number):
     const response = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,
-      temperature: 0.9,
-      maxOutputTokens: 32768  // 🔧 schema已限制输出大小
+      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
+      maxOutputTokens: 32768  // 保持较高值以防截断
     }, userId || 0) // 提供默认值
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）
