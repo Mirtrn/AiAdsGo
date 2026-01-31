@@ -871,6 +871,26 @@ This creative focuses on "${intent || intentEn}" user intent.
 
   // 🔥 P0优化：增强数据 - 添加真实折扣、促销、排名、徽章等爬虫抓取的数据
   const extras: string[] = []
+  const supplementalVerifiedFacts: string[] = []
+  const supplementalHookLines: string[] = []
+
+  const formatSupplementalName = (name: string) => {
+    if (!name) return ''
+    const cleaned = name
+      .split(' - ')[0]
+      .split(' – ')[0]
+      .split(' — ')[0]
+      .split(':')[0]
+      .trim()
+      .replace(/\s+/g, ' ')
+    return cleaned.length > 48 ? `${cleaned.slice(0, 45).trim()}...` : cleaned
+  }
+
+  const formatSupplementalFeature = (feature: string) => {
+    if (!feature) return ''
+    const cleaned = feature.replace(/\s+/g, ' ').trim()
+    return cleaned.length > 90 ? `${cleaned.slice(0, 87).trim()}...` : cleaned
+  }
 
   // 价格信息（优先使用爬虫数据的原始字段）
   let currentPrice = null
@@ -1235,9 +1255,21 @@ This creative focuses on "${intent || intentEn}" user intent.
       }
 
       if (supplementalProducts.length > 0) {
-        const supplementalNames = supplementalProducts
-          .map((p: any) => p.productName)
+        const supplementalItems = supplementalProducts
+          .filter((p: any) => !p?.error)
+          .map((p: any) => ({
+            name: p.productName || p.name,
+            price: p.productPrice || p.price,
+            rating: p.rating,
+            reviewCount: p.reviewCount,
+            features: Array.isArray(p.productFeatures) ? p.productFeatures : [],
+          }))
+          .filter((p: any) => Boolean(p.name))
+
+        const supplementalNames = supplementalItems
+          .map((p: any) => formatSupplementalName(p.name))
           .filter(Boolean)
+
         if (supplementalNames.length > 0) {
           topProducts = [...topProducts, ...supplementalNames].slice(0, 5)
         }
@@ -1247,8 +1279,39 @@ This creative focuses on "${intent || intentEn}" user intent.
           extras.push(`SUPPLEMENTAL PICKS: ${supplementalFeatured.join(', ')}`)
         }
 
-        const supplementalPriceValues = supplementalProducts
-          .map((p: any) => parsePrice(p?.productPrice))
+        const supplementalHooks = supplementalItems.slice(0, 3).map((item: any) => {
+          const name = formatSupplementalName(item.name)
+          const featureBits = (item.features || [])
+            .map((f: string) => formatSupplementalFeature(f))
+            .filter(Boolean)
+            .slice(0, 2)
+          const valueBits: string[] = []
+          if (item.rating) valueBits.push(`${item.rating}★`)
+          if (item.reviewCount) valueBits.push(`${item.reviewCount} reviews`)
+          if (item.price) valueBits.push(item.price)
+          if (featureBits.length > 0) {
+            return `${name}: ${featureBits.join(' | ')}`
+          }
+          if (valueBits.length > 0) {
+            return `${name}: ${valueBits.join(', ')}`
+          }
+          return name
+        })
+        if (supplementalHooks.length > 0) {
+          supplementalHookLines.push(...supplementalHooks)
+          extras.push(`SUPPLEMENTAL HOOKS: ${supplementalHooks.join(' || ')}`)
+        }
+
+        // 收集可验证事实（仅单品链接来源）
+        supplementalItems.slice(0, 3).forEach((item: any) => {
+          const name = formatSupplementalName(item.name)
+          if (item.price) supplementalVerifiedFacts.push(`- SUPPLEMENTAL ${name} PRICE: ${item.price}`)
+          if (item.rating) supplementalVerifiedFacts.push(`- SUPPLEMENTAL ${name} RATING: ${item.rating}`)
+          if (item.reviewCount) supplementalVerifiedFacts.push(`- SUPPLEMENTAL ${name} REVIEW COUNT: ${item.reviewCount}`)
+        })
+
+        const supplementalPriceValues = supplementalItems
+          .map((p: any) => parsePrice(p?.price))
           .filter((v: any) => typeof v === 'number' && !Number.isNaN(v)) as number[]
         const storePriceValues = Array.isArray(scrapedData.products)
           ? scrapedData.products.map((p: any) => parsePrice(p?.price)).filter((v: any) => typeof v === 'number' && !Number.isNaN(v)) as number[]
@@ -1372,6 +1435,21 @@ This creative focuses on "${intent || intentEn}" user intent.
   }
   if (storeCategoryKeywords.length > 0) {
     extras.push(`STORE CATEGORIES: ${storeCategoryKeywords.join(', ')}`)
+  }
+
+  // 🆕 多单品卖点混合（店铺模式）：强约束提示
+  if (linkType === 'store' && supplementalHookLines.length > 0) {
+    const hooksList = supplementalHookLines.slice(0, 6).map(h => `- ${h}`).join('\n')
+    store_creative_instructions += `
+
+### 🧩 多单品卖点混合（必须）
+- 必须混合使用不同单品的卖点（至少覆盖 2 个不同单品）
+- 至少 2 条 headlines 或 descriptions 需直接体现单品卖点/特色（可使用短名）
+- 价格/评分只能使用 VERIFIED FACTS 中列出的数字
+
+**可用单品卖点库（混合引用）**:
+${hooksList}
+`
   }
 
   // 🎯 v3.2优化（2025-12-08）：读取v3.2差异化分析数据
@@ -1676,6 +1754,9 @@ This creative focuses on "${intent || intentEn}" user intent.
   if (primeEligible) verifiedFacts.push(`- PRIME/FAST SHIPPING: Yes`)
   if (totalReviews > 0) verifiedFacts.push(`- TOTAL REVIEWS: ${totalReviews}`)
   if (averageRating > 0) verifiedFacts.push(`- AVERAGE RATING: ${averageRating}`)
+  if (supplementalVerifiedFacts.length > 0) {
+    verifiedFacts.push(...supplementalVerifiedFacts.slice(0, 6))
+  }
   if (quantitativeHighlights.length > 0) {
     verifiedFacts.push(`- QUANTITATIVE HIGHLIGHTS: ${quantitativeHighlights.slice(0, 3).map(h => `${h.metric}=${h.value}`).join(', ')}`)
   }
