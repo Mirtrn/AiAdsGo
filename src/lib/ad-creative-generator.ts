@@ -10,7 +10,7 @@ import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getUserAuthType } from './google-ads-oauth'
 import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义分类
-import { generateContent, getGeminiMode } from './gemini'
+import { generateContent, getGeminiMode, type ResponseSchema } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
 import { loadPrompt } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
@@ -2666,6 +2666,71 @@ function scoreAdCreativeCandidate(raw: any): number {
   return score
 }
 
+const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
+  type: 'OBJECT',
+  properties: {
+    headlines: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          text: { type: 'STRING' },
+          type: { type: 'STRING' },
+          length: { type: 'INTEGER' },
+          group: { type: 'STRING' }
+        },
+        required: ['text']
+      }
+    },
+    descriptions: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          text: { type: 'STRING' },
+          type: { type: 'STRING' },
+          length: { type: 'INTEGER' },
+          group: { type: 'STRING' }
+        },
+        required: ['text']
+      }
+    },
+    keywords: {
+      type: 'ARRAY',
+      items: { type: 'STRING' }
+    },
+    callouts: {
+      type: 'ARRAY',
+      items: { type: 'STRING' }
+    },
+    sitelinks: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          text: { type: 'STRING' },
+          url: { type: 'STRING' },
+          description: { type: 'STRING' }
+        },
+        required: ['text']
+      }
+    },
+    path1: { type: 'STRING' },
+    path2: { type: 'STRING' },
+    theme: { type: 'STRING' },
+    explanation: { type: 'STRING' },
+    quality_metrics: {
+      type: 'OBJECT',
+      properties: {
+        headline_diversity_score: { type: 'NUMBER' },
+        keyword_relevance_score: { type: 'NUMBER' },
+        estimated_ad_strength: { type: 'STRING' }
+      }
+    }
+  },
+  required: ['headlines', 'descriptions', 'keywords']
+}
+
 function selectBestJsonCandidate(text: string): string | null {
   const candidates = extractJsonCandidates(text)
   if (candidates.length === 0) return null
@@ -3679,6 +3744,8 @@ export async function generateAdCreative(
       prompt,
       temperature: 0.9,
       maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
+      responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
+      responseMimeType: 'application/json'
     }, userId)
   } finally {
     console.timeEnd(timerLabel)

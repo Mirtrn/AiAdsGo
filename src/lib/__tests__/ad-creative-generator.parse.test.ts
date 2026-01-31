@@ -58,4 +58,56 @@ describe('ad-creative-generator.parseAIResponse', () => {
     expect(result.headlines).toHaveLength(15)
     expect(result.descriptions).toHaveLength(4)
   })
+
+  it('repairs missing commas between objects in arrays', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const aiText = `{
+  "headlines": [
+    {"text": "A", "type": "brand", "length": 1}
+    {"text": "B", "type": "feature", "length": 1},
+    {"text": "C", "type": "cta", "length": 1}
+  ],
+  "descriptions": [
+    {"text": "Desc 1", "type": "feature-benefit-cta", "length": 6}
+    {"text": "Desc 2", "type": "feature-benefit-cta", "length": 6}
+  ],
+  "keywords": ["k1", "k2", "k3"],
+  "callouts": ["Callout 1"],
+  "sitelinks": [{"text": "Link 1", "url": "/", "description": "Desc"}]
+}`
+
+    const result = parseAIResponse(aiText)
+    expect(result.headlines.length).toBeGreaterThanOrEqual(3)
+    expect(result.descriptions.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('repairs raw newlines inside string values', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const aiText = `{
+  "headlines": [
+    {"text": "Line1
+Line2", "type": "brand", "length": 10},
+    {"text": "Two", "type": "feature", "length": 3},
+    {"text": "Three", "type": "cta", "length": 5}
+  ],
+  "descriptions": [
+    {"text": "Desc line1
+line2", "type": "feature-benefit-cta", "length": 10},
+    {"text": "Desc two", "type": "feature-benefit-cta", "length": 8}
+  ],
+  "keywords": ["k1", "k2", "k3"],
+  "callouts": ["Callout 1"],
+  "sitelinks": [{"text": "Link 1", "url": "/", "description": "Desc"}]
+}`
+
+    const result = parseAIResponse(aiText)
+    expect(result.headlines[0]).toContain('Line1 Line2')
+    expect(result.descriptions[0]).toContain('Desc line1 line2')
+  })
 })
