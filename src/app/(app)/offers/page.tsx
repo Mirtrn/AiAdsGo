@@ -1120,6 +1120,9 @@ export default function OffersPage() {
                                         if (isEditableClickFarmStatus(data.data.status)) {
                                           // 有可编辑任务，进入编辑模式
                                           setEditTaskIdForClickFarm(data.data.id)
+                                          if (data.data.status === 'paused' || data.data.status === 'stopped') {
+                                            showInfo(`当前任务状态为 ${formatClickFarmStatus(data.data.status)}，可在弹窗中恢复或调整后重新启动。`)
+                                          }
                                         } else {
                                           // 任务不可编辑（如已完成），进入创建模式
                                           setEditTaskIdForClickFarm(undefined)
@@ -1535,7 +1538,7 @@ export default function OffersPage() {
   )
 }
 const isEditableClickFarmStatus = (status?: string) => (
-  status === 'pending' || status === 'running'
+  status === 'pending' || status === 'running' || status === 'paused' || status === 'stopped'
 )
 
 const formatClickFarmStatus = (status?: string) => {
