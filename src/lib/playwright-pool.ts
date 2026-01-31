@@ -458,6 +458,9 @@ class PlaywrightPool {
     // 1. 尝试复用现有空闲实例
     const existing = this.findIdleInstance(proxyKey)
     if (existing) {
+      // 🔒 先标记为占用，避免并发获取同一实例导致context被重复关闭
+      existing.inUse = true
+      existing.lastUsedAt = Date.now()
       try {
         // 验证实例是否仍然有效
         const isConnected = existing.browser.isConnected()
@@ -481,11 +484,16 @@ class PlaywrightPool {
         } else {
           // 实例已断开，清理
           console.log(`❌ 实例已断开，清理: ${existing.id}`)
+          await existing.context?.close().catch(() => {})
+          await existing.browser?.close().catch(() => {})
           this.instances.delete(existing.id)
         }
       } catch (error) {
         console.warn('实例验证失败，清理:', error)
+        await existing.context?.close().catch(() => {})
+        await existing.browser?.close().catch(() => {})
         this.instances.delete(existing.id)
+        existing.inUse = false
       }
     }
 
@@ -635,6 +643,9 @@ class PlaywrightPool {
       const idleInstance = this.findIdleInstance(waiting.proxyKey)
 
       if (idleInstance) {
+        // 🔒 先标记为占用，避免并发复用同一实例
+        idleInstance.inUse = true
+        idleInstance.lastUsedAt = Date.now()
         // 移除等待请求
         this.waitingQueue.splice(i, 1)
         clearTimeout(waiting.timeout)
@@ -654,6 +665,7 @@ class PlaywrightPool {
           console.log(`🔄 从队列唤醒，复用实例: ${idleInstance.id}`)
           waiting.resolve({ browser: idleInstance.browser, context: newContext, instanceId: idleInstance.id })
         } catch (error) {
+          idleInstance.inUse = false
           waiting.reject(error as Error)
         }
         return
