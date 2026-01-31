@@ -2678,8 +2678,6 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
   properties: {
     headlines: {
       type: 'ARRAY',
-      minItems: 15,
-      maxItems: 15,
       items: {
         type: 'OBJECT',
         properties: {
@@ -2693,8 +2691,6 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     descriptions: {
       type: 'ARRAY',
-      minItems: 4,
-      maxItems: 4,
       items: {
         type: 'OBJECT',
         properties: {
@@ -2708,20 +2704,14 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     keywords: {
       type: 'ARRAY',
-      minItems: 10,
-      maxItems: 20,  // 🔧 修复(2026-01-31)：限制关键词数量，避免模型无限生成
       items: { type: 'STRING' }
     },
     callouts: {
       type: 'ARRAY',
-      minItems: 6,
-      maxItems: 6,
       items: { type: 'STRING', maxLength: 25 }
     },
     sitelinks: {
       type: 'ARRAY',
-      minItems: 6,
-      maxItems: 6,
       items: {
         type: 'OBJECT',
         properties: {
