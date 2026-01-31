@@ -1169,9 +1169,18 @@ export default function OffersPage() {
                                     if (response.ok) {
                                       const data = await response.json()
                                       if (data.data) {
-                                        // 有任务，进入编辑模式
                                         setSelectedOfferForUrlSwap(offer)
-                                        setEditTaskIdForUrlSwap(data.data.id)
+                                        if (isEditableUrlSwapStatus(data.data.status)) {
+                                          // 可编辑任务，进入编辑模式
+                                          setEditTaskIdForUrlSwap(data.data.id)
+                                          if (data.data.status === 'disabled' || data.data.status === 'error') {
+                                            showInfo(`当前任务状态为 ${formatUrlSwapStatus(data.data.status)}，可在弹窗中调整配置后前往换链接管理启用。`)
+                                          }
+                                        } else {
+                                          // 已完成任务，进入创建模式
+                                          setEditTaskIdForUrlSwap(undefined)
+                                          showInfo(`当前任务状态为 ${formatUrlSwapStatus(data.data.status)}，已进入创建新任务。`)
+                                        }
                                       } else {
                                         // 没有任务，进入创建模式
                                         setSelectedOfferForUrlSwap(offer)
@@ -1551,6 +1560,25 @@ const formatClickFarmStatus = (status?: string) => {
       return '已暂停'
     case 'stopped':
       return '已停止'
+    case 'completed':
+      return '已完成'
+    default:
+      return status || '未知'
+  }
+}
+
+const isEditableUrlSwapStatus = (status?: string) => (
+  status === 'enabled' || status === 'disabled' || status === 'error'
+)
+
+const formatUrlSwapStatus = (status?: string) => {
+  switch (status) {
+    case 'enabled':
+      return '已启用'
+    case 'disabled':
+      return '已禁用'
+    case 'error':
+      return '异常'
     case 'completed':
       return '已完成'
     default:
