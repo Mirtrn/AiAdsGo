@@ -157,6 +157,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 - 若无证据，不写折扣/限时/数字，只写“价值/省心/替代方案”类表述
 
 ## 输出（JSON only）
+**注意**：下方 JSON 示例仅示意格式，数量必须遵循“基本要求”的固定数量与关键词至少10条规则。
 {{output_format_section}}
 ',
 '
