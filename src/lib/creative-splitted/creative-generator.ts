@@ -40,7 +40,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number):
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.9,
-      maxOutputTokens: 49152  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
+      maxOutputTokens: 32768  // 🔧 schema已限制输出大小
     }, userId || 0) // 提供默认值
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）

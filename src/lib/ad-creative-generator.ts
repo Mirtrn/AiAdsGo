@@ -2709,6 +2709,7 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     keywords: {
       type: 'ARRAY',
       minItems: 10,
+      maxItems: 20,  // 🔧 修复(2026-01-31)：限制关键词数量，避免模型无限生成
       items: { type: 'STRING' }
     },
     callouts: {
@@ -2733,8 +2734,8 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     path1: { type: 'STRING', maxLength: 15 },
     path2: { type: 'STRING', maxLength: 15 },
-    theme: { type: 'STRING' },
-    explanation: { type: 'STRING' },
+    theme: { type: 'STRING', maxLength: 50 },  // 🔧 限制主题长度
+    explanation: { type: 'STRING', maxLength: 100 },  // 🔧 进一步缩短：100字符足够说明创意思路
     quality_metrics: {
       type: 'OBJECT',
       properties: {
@@ -3239,7 +3240,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
+      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
     },
   })
 
@@ -3273,7 +3274,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
+      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
     },
   })
 
@@ -3759,7 +3760,7 @@ export async function generateAdCreative(
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.9,
-      maxOutputTokens: 49152,  // 🔧 提升：减少MAX_TOKENS截断风险，适配Gemini 3 thinking模式
+      maxOutputTokens: 32768,  // 🔧 schema已限制输出大小
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)
