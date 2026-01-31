@@ -399,9 +399,10 @@ export async function PUT(
     }
 
     const pageType = validationResult.data.page_type || undefined
+    const storeProductLinksInput = validationResult.data.store_product_links
     let storeProductLinks: string[] | undefined = undefined
-    if (pageType === 'store') {
-      storeProductLinks = (validationResult.data.store_product_links || [])
+    if (pageType === 'store' && storeProductLinksInput !== undefined) {
+      storeProductLinks = storeProductLinksInput
         .map((link) => link.trim())
         .filter((link) => Boolean(link))
       storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
@@ -413,8 +414,8 @@ export async function PUT(
       category: validationResult.data.category,
       target_country: validationResult.data.target_country,
       affiliate_link: validationResult.data.affiliate_link,
-      store_product_links: storeProductLinks && storeProductLinks.length > 0
-        ? JSON.stringify(storeProductLinks)
+      store_product_links: storeProductLinks !== undefined
+        ? (storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : null)
         : undefined,
       brand_description: validationResult.data.brand_description,
       unique_selling_points: validationResult.data.unique_selling_points,

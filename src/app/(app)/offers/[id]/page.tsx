@@ -65,6 +65,7 @@ interface Offer {
   // 可选的产品价格和佣金比例
   productPrice: string | null
   commissionPayout: string | null
+  storeProductLinks?: string[]
 }
 
 interface PerformanceSummary {
@@ -467,6 +468,9 @@ export default function OfferDetailPage() {
         : 'missing'
   const shouldShowOriginalUrl =
     Boolean(offer.finalUrl && offer.url && offer.finalUrl !== offer.url)
+  const storeProductLinks = Array.isArray(offer.storeProductLinks)
+    ? offer.storeProductLinks.map((link) => link.trim()).filter((link) => Boolean(link))
+    : []
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -939,6 +943,27 @@ export default function OfferDetailPage() {
                     <a href={offer.affiliateLink} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
                       {offer.affiliateLink}
                     </a>
+                  </dd>
+                </div>
+              )}
+              {storeProductLinks.length > 0 && (
+                <div className="sm:col-span-2">
+                  <dt className="text-sm font-medium text-gray-500">单品推广链接</dt>
+                  <dd className="mt-1 text-sm text-gray-900">
+                    <ul className="space-y-1">
+                      {storeProductLinks.map((link, index) => (
+                        <li key={`${link}-${index}`}>
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:text-indigo-500 break-all"
+                          >
+                            {link}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
                   </dd>
                 </div>
               )}

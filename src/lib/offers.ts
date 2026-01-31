@@ -111,7 +111,7 @@ export interface UpdateOfferInput {
   category?: string
   target_country?: string
   affiliate_link?: string
-  store_product_links?: string
+  store_product_links?: string | null
   brand_description?: string
   unique_selling_points?: string
   product_highlights?: string
