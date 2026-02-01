@@ -259,13 +259,10 @@ export async function generateContent(params: {
     maxOutputTokens,
   }
 
-  // 🔧 2026-01-31: 禁用 Gemini 3 thinking 模式以减少延迟和 token 消耗
-  // thinking 模式对结构化输出任务（如广告创意生成）帮助有限，但会增加响应时间
+  // 🔧 2026-02-01: 恢复 Gemini 3 thinking 模式
+  // thinking 模式可能有助于模型更好地规划结构化输出，避免生成过多 tokens
   if (model.includes('gemini-3') || model.includes('gemini-2.5')) {
-    generationConfig.thinkingConfig = {
-      thinkingBudget: 0  // 禁用 thinking 模式
-    }
-    console.log(`🧠 已禁用 thinking 模式 (模型: ${model})`)
+    console.log(`🧠 Gemini 3/2.5 模型使用默认 thinking 模式 (模型: ${model})`)
   }
 
   // 🆕 Token优化：结构化JSON输出约束
