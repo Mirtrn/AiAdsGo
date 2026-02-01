@@ -125,6 +125,7 @@ export async function executeAdCreativeGeneration(
     let bestCreative: any = null
     let bestEvaluation: any = null
     let attempts = 0
+    let noImprovementStreak = 0
     let retryHistory: Array<{
       attempt: number
       rating: string
@@ -251,9 +252,23 @@ export async function executeAdCreativeGeneration(
       })
 
       // 更新最佳结果
-      if (!bestEvaluation || evaluation.finalScore > bestEvaluation.finalScore) {
+      const ratingRank: Record<string, number> = {
+        POOR: 0,
+        AVERAGE: 1,
+        GOOD: 2,
+        EXCELLENT: 3
+      }
+      const currentRank = ratingRank[evaluation.finalRating] ?? 0
+      const bestRank = bestEvaluation ? (ratingRank[bestEvaluation.finalRating] ?? 0) : -1
+      const scoreImproved = !bestEvaluation || evaluation.finalScore > bestEvaluation.finalScore
+      const ratingImproved = currentRank > bestRank
+
+      if (!bestEvaluation || ratingImproved || scoreImproved) {
         bestCreative = creative
         bestEvaluation = evaluation
+        noImprovementStreak = 0
+      } else {
+        noImprovementStreak += 1
       }
 
       // 收集已使用关键词
@@ -268,6 +283,18 @@ export async function executeAdCreativeGeneration(
 
       // 检查是否达到目标
       if (evaluation.finalRating === targetRating) {
+        break
+      }
+
+      // 🔧 自适应提前停止：连续无提升且已达到 GOOD 时不再强求 EXCELLENT
+      // 目的：避免第三轮无明显收益却显著拉长总时长
+      if (
+        attempts >= 2 &&
+        noImprovementStreak >= 1 &&
+        bestEvaluation?.finalRating === 'GOOD' &&
+        targetRating === 'EXCELLENT'
+      ) {
+        console.log(`⚠️ 连续无提升，已达 GOOD，提前结束重试以缩短耗时`)
         break
       }
 
