@@ -3753,7 +3753,7 @@ export async function generateAdCreative(
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性，避免随机生成过多内容
-      maxOutputTokens: 65536,  // 🔧 2026-02-01: 提高到Gemini 3 Flash Preview最大值，防止截断
+      maxOutputTokens: 32768,  // 🔧 2026-02-01: 降低上限以减少超时
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)
