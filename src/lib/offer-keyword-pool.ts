@@ -862,7 +862,7 @@ async function clusterBatchKeywords(
     operationType: 'keyword_clustering',
     prompt,
     temperature: 0.3,
-    maxOutputTokens: 65000,
+    maxOutputTokens: 32768,
     responseSchema,
     responseMimeType: 'application/json'
   }, userId)
@@ -1362,7 +1362,7 @@ async function clusterKeywordsDirectly(
         operationType: 'keyword_clustering',
         prompt,
         temperature: 0.3,
-        maxOutputTokens: 65000,
+        maxOutputTokens: 32768,
         responseSchema,
         responseMimeType: 'application/json'
       }, userId)
