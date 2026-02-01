@@ -58,6 +58,7 @@ export async function executeAdCreativeGeneration(
 ): Promise<any> {
   const { offerId, maxRetries = 3, targetRating = 'EXCELLENT', synthetic = false } = task.data
   const db = getDatabase()
+  const effectiveMaxRetries = Math.min(maxRetries, 2)
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -137,7 +138,11 @@ export async function executeAdCreativeGeneration(
     const brandKeywords = offer.brand ? [offer.brand.toLowerCase()] : []
 
     // 多轮生成循环
-    while (attempts < maxRetries) {
+    if (effectiveMaxRetries < maxRetries) {
+      console.log(`ℹ️ 已限制最大生成轮次: ${maxRetries} → ${effectiveMaxRetries}`)
+    }
+
+    while (attempts < effectiveMaxRetries) {
       attempts++
       const attemptBaseProgress = 10 + (attempts - 1) * 25
 
@@ -298,7 +303,7 @@ export async function executeAdCreativeGeneration(
         break
       }
 
-      if (attempts < maxRetries) {
+      if (attempts < effectiveMaxRetries) {
         await new Promise(resolve => setTimeout(resolve, 1000))
       }
     }
