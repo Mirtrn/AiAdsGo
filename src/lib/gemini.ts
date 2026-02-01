@@ -56,6 +56,7 @@ export interface GeminiGenerateParams {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
+  timeoutMs?: number
   operationType?: string // 用于智能模型选择（可选）
   enableAutoModelSelection?: boolean // 启用自动模型选择（默认false，零破坏性）
   responseSchema?: ResponseSchema  // 🆕 Token优化：结构化JSON输出约束
@@ -271,6 +272,7 @@ export async function generateContent(
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
+    timeoutMs,
     operationType,
     enableAutoModelSelection = true, // 默认true，启用智能模型选择
     responseSchema,  // 🆕 Token优化：结构化JSON输出
@@ -349,7 +351,7 @@ export async function generateContent(
       // 如果用户也配置了Gemini API，则降级
       if (hasGeminiAPI) {
         console.log('🔄 降级到用户的 Gemini 直接 API 模式...')
-        return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType }, userId)
+        return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, timeoutMs, operationType, responseSchema, responseMimeType }, userId)
       } else {
         // 用户只配置了Vertex AI，没有降级选项
         throw new Error(`Vertex AI 调用失败，且用户未配置 Gemini API 作为备选: ${error.message}`)
@@ -359,7 +361,7 @@ export async function generateContent(
 
   // 使用 Gemini API（用户没有配置Vertex AI）
   console.log(`🌐 使用用户(ID=${userId})的 Gemini 直接 API 配置`)
-  return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType }, userId)
+  return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, timeoutMs, operationType, responseSchema, responseMimeType }, userId)
 }
 
 /**
@@ -371,7 +373,7 @@ async function callDirectAPI(
   params: GeminiGenerateParams,
   userId: number
 ): Promise<GeminiGenerateResult> {
-  const { model, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType } = params
+  const { model, prompt, temperature, maxOutputTokens, timeoutMs, operationType, responseSchema, responseMimeType } = params
 
   const { getSetting } = await import('./settings')
   const providerSetting = await getSetting('ai', 'gemini_provider', userId)
@@ -409,6 +411,7 @@ async function callDirectAPI(
     prompt,
     temperature,
     maxOutputTokens,
+    timeoutMs,
     responseSchema,  // 🆕 传递JSON schema约束
     responseMimeType,  // 🆕 传递MIME类型
   }, userId)

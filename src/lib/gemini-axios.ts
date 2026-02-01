@@ -231,6 +231,7 @@ export async function generateContent(params: {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
+  timeoutMs?: number
   responseSchema?: any  // 🆕 Token优化：JSON schema
   responseMimeType?: string  // 🆕 Token优化：MIME类型
 }, userId: number, overrideConfig?: { provider: string; apiKey: string }): Promise<GeminiAxiosGenerateResult> {
@@ -239,6 +240,7 @@ export async function generateContent(params: {
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
+    timeoutMs,
     responseSchema,  // 🆕 Token优化：JSON schema
     responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
@@ -287,21 +289,27 @@ export async function generateContent(params: {
     console.log(`🤖 调用 Gemini API: ${model}`)
     console.log(`   - Prompt长度: ${prompt.length} 字符`)
     console.log(`   - maxOutputTokens: ${maxOutputTokens}`)
+    if (timeoutMs) {
+      console.log(`   - timeout: ${timeoutMs}ms`)
+    }
     console.log(`   - temperature: ${temperature}`)
 
     // 🔧 修复(2025-12-30): 第三方中转服务需要在headers中传递API Key
     // - 官方API: query参数 ?key=xxx
     // - ThunderRelay中转: header x-api-key: xxx
+    const timeoutConfig = timeoutMs ? { timeout: timeoutMs } : {}
     const requestConfig = provider === 'relay'
       ? {
           headers: {
             'x-api-key': apiKey,
           },
+          ...timeoutConfig,
         }
       : {
           params: {
             key: apiKey,
           },
+          ...timeoutConfig,
         }
 
     // 🔧 2026-02-01: 提高上限到65536（Gemini 3 Flash Preview 支持的最大值）

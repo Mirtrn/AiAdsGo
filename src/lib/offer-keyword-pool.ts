@@ -34,6 +34,53 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 
+const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
+const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
+const KEYWORD_CLUSTERING_FALLBACK_MODEL = 'gemini-2.5-flash'
+
+type GeminiGenerateParams = Parameters<typeof generateContent>[0]
+type GeminiGenerateResult = Awaited<ReturnType<typeof generateContent>>
+
+function isGeminiTimeoutError(error: unknown): boolean {
+  if (!error) return false
+  const message = typeof error === 'object' && error !== null && 'message' in error
+    ? String((error as { message?: string }).message)
+    : String(error)
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: string }).code)
+    : ''
+  return message.includes('timeout') || code === 'ECONNABORTED'
+}
+
+async function runKeywordClustering(
+  params: GeminiGenerateParams,
+  userId: number
+): Promise<GeminiGenerateResult> {
+  const baseParams: GeminiGenerateParams = {
+    ...params,
+    maxOutputTokens: KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS,
+    timeoutMs: KEYWORD_CLUSTERING_TIMEOUT_MS,
+  }
+
+  try {
+    return await generateContent(baseParams, userId)
+  } catch (error) {
+    if (!isGeminiTimeoutError(error)) {
+      throw error
+    }
+    const message = typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: string }).message)
+      : String(error)
+    console.warn(`⚠️ keyword_clustering 超时 (${KEYWORD_CLUSTERING_TIMEOUT_MS}ms)，降级到 ${KEYWORD_CLUSTERING_FALLBACK_MODEL} 重试...`)
+    console.warn(`   错误: ${message}`)
+    return await generateContent({
+      ...baseParams,
+      model: KEYWORD_CLUSTERING_FALLBACK_MODEL,
+      enableAutoModelSelection: false,
+    }, userId)
+  }
+}
+
 function derivePageTypeFromScrapedData(scrapedData: any): 'store' | 'product' | null {
   if (!scrapedData || typeof scrapedData !== 'object') return null
   const explicit = typeof scrapedData.pageType === 'string' ? scrapedData.pageType : null
@@ -858,11 +905,10 @@ async function clusterBatchKeywords(
   }
 
   // 4. 调用 AI（使用智能模型选择，60-90s）
-  const aiResponse = await generateContent({
+  const aiResponse = await runKeywordClustering({
     operationType: 'keyword_clustering',
     prompt,
     temperature: 0.3,
-    maxOutputTokens: 32768,
     responseSchema,
     responseMimeType: 'application/json'
   }, userId)
@@ -1358,11 +1404,10 @@ async function clusterKeywordsDirectly(
       }
 
       // 4. 调用 AI（使用智能模型选择）
-      const aiResponse = await generateContent({
+      const aiResponse = await runKeywordClustering({
         operationType: 'keyword_clustering',
         prompt,
         temperature: 0.3,
-        maxOutputTokens: 32768,
         responseSchema,
         responseMimeType: 'application/json'
       }, userId)
