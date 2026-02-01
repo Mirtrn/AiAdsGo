@@ -1,7 +1,41 @@
--- ============================================
--- Google Ads 广告创意生成 v4.39
+-- Migration: 154_ad_creative_generation_v4.40.pg.sql
+-- Description: ad_creative_generation v4.40 - 关键词数量限制10-20 + JSON Schema约束恢复
+-- Date: 2026-02-01
+-- Database: PostgreSQL
+
+-- 1) 取消当前激活版本
+UPDATE prompt_versions
+SET is_active = FALSE
+WHERE prompt_id = 'ad_creative_generation' AND is_active = TRUE;
+
+-- 2) 幂等写入新版本（若已存在则更新内容）
+INSERT INTO prompt_versions (
+  prompt_id,
+  version,
+  category,
+  name,
+  description,
+  file_path,
+  function_name,
+  prompt_content,
+  language,
+  created_by,
+  is_active,
+  change_notes,
+  created_at
+) VALUES (
+  'ad_creative_generation',
+  'v4.40',
+  '广告创意生成',
+  '广告创意生成v4.40 - 关键词数量限制 + Schema约束',
+  '关键词数量限制为10-20个；恢复JSON Schema的minItems/maxItems约束防止输出过长',
+  'prompts/ad_creative_generation_v4.40.txt',
+  'buildAdCreativePrompt',
+  $$-- ============================================
+-- Google Ads 广告创意生成 v4.40
 -- KISS-3类型：A(品牌/信任) + B(场景+功能) + D(转化/价值)
 -- 强制证据约束 + 仅Headline#1品牌DKI + 多单品卖点混合
+-- v4.40: 关键词数量限制为10-20个；恢复JSON Schema约束防止输出过长
 -- ============================================
 
 ## 任务
@@ -41,7 +75,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 ## 🧩 补充单品优先级（仅当存在补充单品信息）
 如果在 EXTRAS DATA 或 VERIFIED FACTS 中出现以下前缀信息（如 `SUPPLEMENTAL PICKS` / `SUPPLEMENTAL HOOKS` / `STORE HOT FEATURES` / `STORE USER VOICES` / `STORE CATEGORIES` / `STORE PRICE RANGE`）：
 - 必须优先使用这些补充单品卖点与名称，作为主要创意素材
-- 需要“多单品卖点混合”：至少覆盖 2 个不同单品的卖点
+- 需要"多单品卖点混合"：至少覆盖 2 个不同单品的卖点
 - 至少 2 个标题 + 1 个描述 + 1 个 Sitelink/Callout 需要引用补充单品信息（在不超字符限制的前提下）
 - 价格/评分等数字必须来自 VERIFIED FACTS，严禁编造
 
@@ -54,9 +88,9 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 
 ## ✅ Evidence-Only Claims（CRITICAL）
 你必须严格遵守以下规则，避免虚假陈述：
-- 只能使用“VERIFIED FACTS”中出现过的数字、折扣、限时、保障/支持承诺、覆盖范围、速度/时长等可验证信息
-- 如果VERIFIED FACTS中没有对应信息：不得编造，不得“默认有”，改用不含数字/不含承诺的表述
-- 不得写“24/7”“X分钟开通”“覆盖X国”“X%折扣”“退款保证”“终身”等，除非VERIFIED FACTS明确提供
+- 只能使用"VERIFIED FACTS"中出现过的数字、折扣、限时、保障/支持承诺、覆盖范围、速度/时长等可验证信息
+- 如果VERIFIED FACTS中没有对应信息：不得编造，不得"默认有"，改用不含数字/不含承诺的表述
+- 不得写"24/7""X分钟开通""覆盖X国""X%折扣""退款保证""终身"等，除非VERIFIED FACTS明确提供
 
 ## 关键词使用规则
 {{ai_keywords_section}}
@@ -91,7 +125,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 - 至少2个标题为问题句（以?结尾），用于刺痛/共鸣（但不得编造事实）
 
 ## 描述规则（4个，≤90字符）
-要求：每条描述都必须包含关键词，并以“目标语言的CTA”结尾（不得混语言）。
+要求：每条描述都必须包含关键词，并以"目标语言的CTA"结尾（不得混语言）。
 
 ### 描述结构（必须覆盖）
 {{description_1_guidance}}
@@ -114,12 +148,39 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 - 品牌词覆盖更高，但避免标题重复
 
 ### 桶B（场景+功能）
-- 用“场景/痛点”开头，再用“功能/卖点”给出解决方案
+- 用"场景/痛点"开头，再用"功能/卖点"给出解决方案
 - 避免机械重复品牌词，保持场景/功能多样性
 
 ### 桶D（转化/价值）
 - 优先突出可验证的优惠/价值点 + 强行动号召
-- 若无证据，不写折扣/限时/数字，只写“价值/省心/替代方案”类表述
+- 若无证据，不写折扣/限时/数字，只写"价值/省心/替代方案"类表述
 
 ## 输出（JSON only）
 {{output_format_section}}
+$$,
+  'Chinese',
+  NULL,
+  TRUE,
+  $$v4.40:
+1. 关键词数量限制为10-20个（之前是"至少10个"，无上限）
+2. 恢复JSON Schema的minItems/maxItems约束，防止Gemini生成过多内容导致超出token限制
+$$,
+  '2026-02-01 12:00:00'
+)
+ON CONFLICT (prompt_id, version) DO UPDATE SET
+  category = EXCLUDED.category,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  file_path = EXCLUDED.file_path,
+  function_name = EXCLUDED.function_name,
+  prompt_content = EXCLUDED.prompt_content,
+  language = EXCLUDED.language,
+  created_by = EXCLUDED.created_by,
+  is_active = EXCLUDED.is_active,
+  change_notes = EXCLUDED.change_notes,
+  created_at = EXCLUDED.created_at;
+
+-- 3) 确保新版本激活
+UPDATE prompt_versions
+SET is_active = TRUE
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.40';

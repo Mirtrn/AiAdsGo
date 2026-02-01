@@ -2092,7 +2092,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   "descriptions": [
     {"text": "...", "type": "feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length": N}
   ],
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", ...],
+  "keywords": ["keyword1", "keyword2", ...],
   "callouts": ["..."],
   "sitelinks": [{"text": "...", "url": "/", "description": "..."}],
   "path1": "...",
@@ -2101,21 +2101,14 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 }
 \`\`\`
 
-**COUNT REQUIREMENTS (MUST MATCH TEMPLATE):**
+**STRICT COUNT REQUIREMENTS (MUST MATCH EXACTLY):**
 - Headlines: EXACTLY 15 items, each ≤ 30 chars
 - Descriptions: EXACTLY 4 items, each ≤ 90 chars
-- Keywords: AT LEAST 10 items
+- Keywords: 10-20 items (no more than 20)
 - Callouts: EXACTLY 6 items, each ≤ 25 chars
-- Sitelinks: EXACTLY 6 items (text ≤ 25, description ≤ 35)
+- Sitelinks: EXACTLY 6 items, text ≤ 25, description ≤ 35
 
-**CRITICAL - KEYWORD REQUIREMENTS:**
-- Return at least 10 keywords in the "keywords" array
-- Include a mix of: brand keywords, product keywords, and high-volume generic keywords
-- Each keyword should be 2-8 words long
-- Use the exact keyword format from the provided keyword pool
-- DO NOT return only 1 keyword - this is incorrect behavior!
-
-**IMPORTANT**: You MUST return ONLY valid JSON. Do not add any explanations, German text, or markdown formatting outside the JSON code block. All headlines must be in the target language ({{target_language}}) and the JSON must be parseable.`
+**IMPORTANT**: Return ONLY valid JSON. No explanations or markdown outside the JSON block. All content must be in {{target_language}}.`
 
   // Substitute all placeholders and return
   return substitutePlaceholders(promptTemplate, variables)
@@ -2678,6 +2671,8 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
   properties: {
     headlines: {
       type: 'ARRAY',
+      minItems: 15,
+      maxItems: 15,
       items: {
         type: 'OBJECT',
         properties: {
@@ -2691,6 +2686,8 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     descriptions: {
       type: 'ARRAY',
+      minItems: 4,
+      maxItems: 4,
       items: {
         type: 'OBJECT',
         properties: {
@@ -2704,14 +2701,20 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     keywords: {
       type: 'ARRAY',
+      minItems: 10,
+      maxItems: 20,
       items: { type: 'STRING' }
     },
     callouts: {
       type: 'ARRAY',
+      minItems: 6,
+      maxItems: 6,
       items: { type: 'STRING', maxLength: 25 }
     },
     sitelinks: {
       type: 'ARRAY',
+      minItems: 6,
+      maxItems: 6,
       items: {
         type: 'OBJECT',
         properties: {
@@ -2724,8 +2727,8 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
     },
     path1: { type: 'STRING', maxLength: 15 },
     path2: { type: 'STRING', maxLength: 15 },
-    theme: { type: 'STRING', maxLength: 50 },  // 🔧 限制主题长度
-    explanation: { type: 'STRING', maxLength: 100 },  // 🔧 进一步缩短：100字符足够说明创意思路
+    theme: { type: 'STRING', maxLength: 50 },
+    explanation: { type: 'STRING', maxLength: 100 },
     quality_metrics: {
       type: 'OBJECT',
       properties: {
@@ -3750,7 +3753,7 @@ export async function generateAdCreative(
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性，避免随机生成过多内容
-      maxOutputTokens: 32768,  // 保持较高值以防截断
+      maxOutputTokens: 65536,  // 🔧 2026-02-01: 提高到Gemini 3 Flash Preview最大值，防止截断
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json'
     }, userId)

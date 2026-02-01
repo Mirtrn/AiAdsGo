@@ -304,9 +304,11 @@ export async function generateContent(params: {
           },
         }
 
-    const MAX_OUTPUT_TOKENS_CAP = 49152
-    const MAX_TOKENS_RETRY_BUMP = 8192
-    const MAX_TOKENS_RETRY_BUFFER = 2048
+    // 🔧 2026-02-01: 提高上限到65536（Gemini 3 Flash Preview 支持的最大值）
+    // 原问题：gemini-3-flash-preview 可能生成36k+ tokens，超过原来的49152上限
+    const MAX_OUTPUT_TOKENS_CAP = 65536
+    const MAX_TOKENS_RETRY_BUMP = 16384  // 更大的增量，减少重试次数
+    const MAX_TOKENS_RETRY_BUFFER = 4096
 
     const runRequest = async (overrideMaxOutputTokens?: number): Promise<GeminiAxiosGenerateResult> => {
       const effectiveMaxOutputTokens = overrideMaxOutputTokens ?? maxOutputTokens
