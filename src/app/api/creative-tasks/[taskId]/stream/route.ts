@@ -18,6 +18,7 @@ interface CreativeTask {
   progress: number
   message: string | null
   current_attempt: number
+  max_retries: number | null
   result: string | null
   error: string | null
   updated_at: string
@@ -105,7 +106,8 @@ export async function GET(
                 progress: task.progress,
                 message: task.message || '处理中...',
                 details: {
-                  attempt: task.current_attempt
+                  attempt: task.current_attempt,
+                  maxRetries: task.max_retries ?? undefined
                 }
               })
             }

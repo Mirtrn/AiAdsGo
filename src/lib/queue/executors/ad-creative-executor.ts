@@ -67,9 +67,12 @@ export async function executeAdCreativeGeneration(
     // 更新任务状态为运行中
     await db.exec(`
       UPDATE creative_tasks
-      SET status = 'running', started_at = ${nowFunc}, message = '开始生成广告创意'
+      SET status = 'running',
+          started_at = ${nowFunc},
+          message = '开始生成广告创意',
+          max_retries = ?
       WHERE id = ?
-    `, [task.id])
+    `, [effectiveMaxRetries, task.id])
 
     console.log(`🚀 开始执行创意生成任务: ${task.id}`)
 
