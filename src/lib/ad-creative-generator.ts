@@ -4767,7 +4767,10 @@ export async function generateSyntheticCreative(
 
   // 1. 获取offer信息
   const db = await getDatabase()
-  const offer = await db.queryOne('SELECT * FROM offers WHERE id = ? AND user_id = ?', [offerId, userId])
+  const offer = await db.queryOne(
+    'SELECT target_country FROM offers WHERE id = ? AND user_id = ?',
+    [offerId, userId]
+  )
   if (!offer) {
     throw new Error('Offer不存在或无权访问')
   }

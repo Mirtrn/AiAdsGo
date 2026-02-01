@@ -74,6 +74,40 @@ export interface Offer {
   is_blacklisted?: boolean
 }
 
+// 列表页所需的精简字段（避免拉取大字段导致内存膨胀）
+export interface OfferListRow {
+  id: number
+  user_id: number
+  url: string
+  brand: string
+  category: string | null
+  target_country: string
+  target_language: string | null
+  offer_name: string | null
+  affiliate_link: string | null
+  brand_description: string | null
+  unique_selling_points: string | null
+  product_highlights: string | null
+  target_audience: string | null
+  final_url: string | null
+  final_url_suffix: string | null
+  product_price: string | null
+  commission_payout: string | null
+  scrape_status: string
+  scrape_error: string | null
+  scraped_at: string | null
+  is_active: number | boolean
+  created_at: string
+  updated_at: string
+  linked_accounts?: Array<{
+    accountId: number
+    accountName: string | null
+    customerId: string
+    campaignCount: number
+  }>
+  is_blacklisted?: boolean
+}
+
 export interface CreateOfferInput {
   url: string
   brand?: string // 可选，抓取时自动提取
@@ -308,7 +342,7 @@ export async function listOffers(
     includeDeleted?: boolean
     ids?: number[] // 批量查询特定ID的Offers
   }
-): Promise<{ offers: Offer[]; total: number }> {
+): Promise<{ offers: OfferListRow[]; total: number }> {
   const db = await getDatabase()
 
   let whereConditions = ['user_id = ?']
@@ -360,7 +394,33 @@ export async function listOffers(
   const { count } = await db.queryOne(countQuery, params) as { count: number }
 
   // 获取列表
-  let listQuery = `SELECT * FROM offers WHERE ${whereClause} ORDER BY created_at DESC`
+  const listColumns = [
+    'id',
+    'user_id',
+    'url',
+    'brand',
+    'category',
+    'target_country',
+    'target_language',
+    'offer_name',
+    'affiliate_link',
+    'brand_description',
+    'unique_selling_points',
+    'product_highlights',
+    'target_audience',
+    'final_url',
+    'final_url_suffix',
+    'product_price',
+    'commission_payout',
+    'scrape_status',
+    'scrape_error',
+    'scraped_at',
+    'is_active',
+    'created_at',
+    'updated_at',
+  ].join(', ')
+
+  let listQuery = `SELECT ${listColumns} FROM offers WHERE ${whereClause} ORDER BY created_at DESC`
 
   if (options?.limit) {
     listQuery += ` LIMIT ${options.limit}`
@@ -370,7 +430,7 @@ export async function listOffers(
     listQuery += ` OFFSET ${options.offset}`
   }
 
-  const offers = await db.query(listQuery, params) as Offer[]
+  const offers = await db.query(listQuery, params) as OfferListRow[]
 
   // ⚡ P0性能优化: 使用单次JOIN查询关联账号，避免N+1查询问题
   // 为每个offer查询关联的Google Ads账号信息

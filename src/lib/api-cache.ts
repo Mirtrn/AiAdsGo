@@ -11,6 +11,7 @@ interface CacheEntry<T> {
 
 class ApiCache {
   private cache: Map<string, CacheEntry<any>> = new Map()
+  private inFlight: Map<string, Promise<any>> = new Map()
   private defaultTTL: number = 5 * 60 * 1000 // 默认5分钟
   // ⚡ P0性能优化: 添加LRU缓存限制，防止内存泄漏
   private maxSize: number = 1000 // 最大1000条缓存
@@ -184,10 +185,24 @@ class ApiCache {
       return cached
     }
 
-    // 缓存未命中，执行获取函数
-    const data = await fetchFn()
-    this.set(key, data, ttl)
-    return data
+    // 缓存未命中，避免并发请求打爆同一计算
+    const inflight = this.inFlight.get(key)
+    if (inflight) {
+      return await inflight
+    }
+
+    const fetchPromise = (async () => {
+      const data = await fetchFn()
+      this.set(key, data, ttl)
+      return data
+    })()
+
+    this.inFlight.set(key, fetchPromise)
+    try {
+      return await fetchPromise
+    } finally {
+      this.inFlight.delete(key)
+    }
   }
 }
 

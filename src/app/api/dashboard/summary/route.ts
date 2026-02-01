@@ -147,22 +147,23 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 并行获取所有数据
-    const [kpis, riskAlerts, topOffers] = await Promise.all([
-      getKPIs(userId, days),
-      getRiskAlerts(userId, 3),
-      getTopOffers(userId, 5)
-    ])
+    const buildResult = async () => {
+      // 并行获取所有数据
+      const [kpis, riskAlerts, topOffers] = await Promise.all([
+        getKPIs(userId, days),
+        getRiskAlerts(userId, 3),
+        getTopOffers(userId, 5)
+      ])
 
-    const result = {
-      kpis,
-      riskAlerts,
-      topOffers,
-      timestamp: new Date().toISOString()
+      return {
+        kpis,
+        riskAlerts,
+        topOffers,
+        timestamp: new Date().toISOString()
+      }
     }
 
-    // 缓存2分钟
-    apiCache.set(cacheKey, result, 2 * 60 * 1000)
+    const result = await apiCache.getOrSet(cacheKey, buildResult, 2 * 60 * 1000)
 
     return NextResponse.json({
       ...result,

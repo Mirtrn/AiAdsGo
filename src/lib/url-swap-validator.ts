@@ -141,7 +141,8 @@ async function getOfferById(offerId: number): Promise<any | null> {
     : '(is_deleted = 0 OR is_deleted IS NULL)'
 
   return db.queryOne(`
-    SELECT * FROM offers
+    SELECT id, user_id, target_country, affiliate_link
+    FROM offers
     WHERE id = ? AND ${isDeletedCondition}
   `, [offerId])
 }

@@ -263,65 +263,60 @@ async function get(request: NextRequest) {
       searchQuery,
     })
 
-    if (!noCache) {
-      // 尝试从缓存获取
-      const cached = apiCache.get<any>(cacheKey)
-      if (cached) {
-        return NextResponse.json(cached)
+    const buildResult = async () => {
+      const { offers, total } = await listOffers(parseInt(userId, 10), {
+        limit,
+        offset,
+        isActive,
+        targetCountry,
+        searchQuery,
+      })
+
+      return {
+        success: true,
+        offers: offers.map(offer => ({
+          id: offer.id,
+          url: offer.url,
+          brand: offer.brand,
+          category: offer.category,
+          targetCountry: offer.target_country,
+          affiliateLink: offer.affiliate_link,
+          brandDescription: offer.brand_description,
+          uniqueSellingPoints: offer.unique_selling_points,
+          productHighlights: offer.product_highlights,
+          targetAudience: offer.target_audience,
+          // Final URL字段
+          finalUrl: offer.final_url,
+          finalUrlSuffix: offer.final_url_suffix,
+          scrapeStatus: offer.scrape_status,
+          scrapeError: offer.scrape_error,
+          scrapedAt: offer.scraped_at,
+          isActive: offer.is_active === 1,
+          createdAt: offer.created_at,
+          updatedAt: offer.updated_at,
+          // 新增字段（需求1和需求5）
+          offerName: offer.offer_name,
+          targetLanguage: offer.target_language,
+          // 需求28：产品价格和佣金比例
+          productPrice: offer.product_price,
+          commissionPayout: offer.commission_payout,
+          // P1-11: 关联的Google Ads账号
+          linkedAccounts: offer.linked_accounts || [],
+          // 🔥 黑名单标记
+          isBlacklisted: offer.is_blacklisted || false,
+        })),
+        total,
+        limit,
+        offset,
       }
     }
 
-    const { offers, total } = await listOffers(parseInt(userId, 10), {
-      limit,
-      offset,
-      isActive,
-      targetCountry,
-      searchQuery,
-    })
-
-    const result = {
-      success: true,
-      offers: offers.map(offer => ({
-        id: offer.id,
-        url: offer.url,
-        brand: offer.brand,
-        category: offer.category,
-        targetCountry: offer.target_country,
-        affiliateLink: offer.affiliate_link,
-        brandDescription: offer.brand_description,
-        uniqueSellingPoints: offer.unique_selling_points,
-        productHighlights: offer.product_highlights,
-        targetAudience: offer.target_audience,
-        // Final URL字段
-        finalUrl: offer.final_url,
-        finalUrlSuffix: offer.final_url_suffix,
-        scrapeStatus: offer.scrape_status,
-        scrapeError: offer.scrape_error,
-        scrapedAt: offer.scraped_at,
-        isActive: offer.is_active === 1,
-        createdAt: offer.created_at,
-        updatedAt: offer.updated_at,
-        // 新增字段（需求1和需求5）
-        offerName: offer.offer_name,
-        targetLanguage: offer.target_language,
-        // 需求28：产品价格和佣金比例
-        productPrice: offer.product_price,
-        commissionPayout: offer.commission_payout,
-        // P1-11: 关联的Google Ads账号
-        linkedAccounts: offer.linked_accounts || [],
-        // 🔥 黑名单标记
-        isBlacklisted: offer.is_blacklisted || false,
-      })),
-      total,
-      limit,
-      offset,
-    }
-
-    // 缓存结果（2分钟）
     if (!noCache) {
-      apiCache.set(cacheKey, result, 2 * 60 * 1000)
+      const result = await apiCache.getOrSet(cacheKey, buildResult, 2 * 60 * 1000)
+      return NextResponse.json(result)
     }
 
+    const result = await buildResult()
     return NextResponse.json(result)
   } catch (error: any) {
     console.error('获取Offer列表失败:', error)
