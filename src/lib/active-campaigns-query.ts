@@ -4,6 +4,7 @@
  * 使用真实的Google Ads API查询，结合命名规范建立关联关系
  */
 
+import { enums } from 'google-ads-api'
 import { getDatabase } from './db'
 import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { listGoogleAdsCampaigns } from './google-ads-api'
@@ -29,6 +30,34 @@ export interface ActiveCampaignsQueryResult {
     manual: number
     other: number
   }
+}
+
+function normalizeCampaignStatus(status: unknown): 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN' {
+  if (typeof status === 'number') {
+    const mapped = (enums.CampaignStatus as Record<number, string>)[status]
+    return (mapped || 'UNKNOWN') as 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN'
+  }
+
+  if (typeof status === 'string') {
+    const trimmed = status.trim()
+    if (!trimmed) return 'UNKNOWN'
+    if (/^\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed)
+      const mapped = (enums.CampaignStatus as Record<number, string>)[numeric]
+      return (mapped || 'UNKNOWN') as 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN'
+    }
+    return trimmed.toUpperCase() as 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN'
+  }
+
+  if (status && typeof status === 'object') {
+    const maybeValue = (status as { value?: unknown; name?: unknown; status?: unknown })
+    const nested = maybeValue.value ?? maybeValue.name ?? maybeValue.status
+    if (typeof nested === 'string' || typeof nested === 'number') {
+      return normalizeCampaignStatus(nested)
+    }
+  }
+
+  return 'UNKNOWN'
 }
 
 /**
@@ -114,7 +143,7 @@ export async function queryActiveCampaigns(
   const campaigns: GoogleAdsCampaignInfo[] = allCampaigns.map((c: any) => ({
     id: c.campaign.id,
     name: c.campaign.name,
-    status: c.campaign.status as 'ENABLED' | 'PAUSED',
+    status: normalizeCampaignStatus(c.campaign.status),
     budget: c.campaign_budget?.amount_micros
       ? Math.round(Number(c.campaign_budget.amount_micros) / 1000000)
       : undefined

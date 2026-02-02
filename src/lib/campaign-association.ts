@@ -6,6 +6,8 @@
  * 例如：173-456-reolink-Search
  */
 
+import { parseAssociativeCampaignName } from './naming-convention'
+
 /**
  * 广告系列命名信息
  */
@@ -23,7 +25,7 @@ export interface CampaignNamingInfo {
 export interface GoogleAdsCampaignInfo {
   id: string
   name: string
-  status: 'ENABLED' | 'PAUSED'
+  status: 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN'
   budget?: number
 }
 
@@ -34,25 +36,19 @@ export interface GoogleAdsCampaignInfo {
  * @returns 解析后的命名信息
  */
 export function parseCampaignName(campaignName: string): CampaignNamingInfo {
-  // 匹配命名规范：[数字]-[数字]-[文本]-[文本]
-  // 例如：173-456-reolink-Search
-  const namingPattern = /^(\d+)-(\d+)-([^-]+)-([^-]+)$/
+  const parsed = parseAssociativeCampaignName(campaignName)
 
-  const match = campaignName.match(namingPattern)
-
-  if (!match) {
+  if (!parsed) {
     return {
       isValidNaming: false
     }
   }
 
-  const [, offerIdStr, creativeIdStr, brandName, campaignType] = match
-
   return {
-    offerId: parseInt(offerIdStr, 10),
-    creativeId: parseInt(creativeIdStr, 10),
-    brandName,
-    campaignType,
+    offerId: parsed.offerId,
+    creativeId: parsed.creativeId,
+    brandName: parsed.brand,
+    campaignType: parsed.campaignType,
     isValidNaming: true
   }
 }
