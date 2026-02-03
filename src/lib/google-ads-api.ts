@@ -2149,22 +2149,30 @@ export async function createGoogleAdsCalloutExtensions(params: {
   const customer = await getCustomerWithCredentials(params)
 
   const assetIds: string[] = []
+  const assetResourceNames: string[] = []
 
   try {
-    // 🔧 修复(2025-12-26): 确保所有calloutText都是字符串
-    const validCallouts = params.callouts.filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
-    if (validCallouts.length === 0) {
+    // 🔧 修复(2026-02-03): 规范化/去重callouts，避免无效字符或重复导致批量关联失败
+    const normalizedCallouts = Array.from(new Set(
+      params.callouts
+        .filter((text): text is string => typeof text === 'string')
+        .map((text) => sanitizeGoogleAdsAdText(text, 25))
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0)
+    ))
+
+    if (normalizedCallouts.length === 0) {
       throw new Error('没有有效的Callout文本，无法创建Callout扩展')
     }
 
     // Step 1: Create Callout Assets
-    const assetOperations = validCallouts.map(calloutText => ({
+    const assetOperations = normalizedCallouts.map(calloutText => ({
       callout_asset: {
         callout_text: calloutText.substring(0, 25) // Google Ads限制：最多25个字符
       }
     }))
 
-    console.log(`📢 创建${params.callouts.length}个Callout Assets...`)
+    console.log(`📢 创建${normalizedCallouts.length}个Callout Assets...`)
     const assetResponse = await trackOAuthApiCall(
       params.userId,
       params.customerId,
@@ -2175,33 +2183,59 @@ export async function createGoogleAdsCalloutExtensions(params: {
 
     if (assetResponse && assetResponse.results) {
       assetResponse.results.forEach((result: any) => {
-        const assetId = result.resource_name?.split('/').pop() || ''
-        assetIds.push(assetId)
+        const resourceName = result.resource_name || result.resourceName
+        if (!resourceName) {
+          console.warn('⚠️ Callout Asset结果缺少resource_name，已跳过:', JSON.stringify(result))
+          return
+        }
+        assetResourceNames.push(resourceName)
+        const assetId = resourceName.split('/').pop() || ''
+        if (assetId) assetIds.push(assetId)
       })
       console.log(`✅ Callout Assets创建成功: ${assetIds.length}个`)
     }
 
+    if (assetResourceNames.length === 0) {
+      throw new Error('Callout Assets创建结果为空，无法继续关联到Campaign')
+    }
+
     // Step 2: Link Assets to Campaign
-    const campaignAssetOperations = assetIds.map(assetId => ({
+    const campaignAssetOperations = assetResourceNames.map(resourceName => ({
       campaign: `customers/${params.customerId}/campaigns/${params.campaignId}`,
-      asset: `customers/${params.customerId}/assets/${assetId}`,
+      asset: resourceName,
       field_type: enums.AssetFieldType.CALLOUT
     }))
 
     console.log(`🔗 关联Callout Assets到Campaign ${params.campaignId}...`)
-    await trackOAuthApiCall(
+    const linkResponse = await trackOAuthApiCall(
       params.userId,
       params.customerId,
       ApiOperationType.MUTATE_BATCH,
       '/api/google-ads/campaign-assets/create',
-      () => customer.campaignAssets.create(campaignAssetOperations)
+      () => customer.campaignAssets.create(campaignAssetOperations, { partial_failure: true })
     )
+    const partialFailure = linkResponse?.partial_failure_error || linkResponse?.partialFailureError
+    if (partialFailure) {
+      console.warn('⚠️ Callout Assets部分关联失败:', JSON.stringify(partialFailure, null, 2))
+    }
     console.log(`✅ Callout Assets关联成功`)
 
     return { assetIds }
   } catch (error: any) {
-    console.error('❌ 创建Callout扩展失败:', error.message)
-    throw new Error(`创建Callout扩展失败: ${error.message}`)
+    const errorMessage =
+      error?.errors?.[0]?.message ||
+      error?.error?.message ||
+      error?.message ||
+      (typeof error === 'string' ? error : 'Unknown error')
+    let errorDetails = ''
+    try {
+      errorDetails = JSON.stringify(error, null, 2)
+    } catch {
+      errorDetails = String(error)
+    }
+    console.error('❌ 创建Callout扩展失败:', errorMessage)
+    console.error('❌ 错误详情:', errorDetails)
+    throw new Error(`创建Callout扩展失败: ${errorMessage}`)
   }
 }
 
