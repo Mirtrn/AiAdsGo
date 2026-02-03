@@ -406,15 +406,37 @@ async function callDirectAPI(
   // 使用代理模式调用（传递用户的API密钥和provider类型）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
-  const result = await axiosGenerate({
-    model: model || 'gemini-2.5-pro',
+  const effectiveModel = model || 'gemini-2.5-pro'
+  const baseParams = {
+    model: effectiveModel,
     prompt,
     temperature,
     maxOutputTokens,
     timeoutMs,
     responseSchema,  // 🆕 传递JSON schema约束
     responseMimeType,  // 🆕 传递MIME类型
-  }, userId)
+  }
+
+  let result
+  try {
+    result = await axiosGenerate(baseParams, userId)
+  } catch (error: any) {
+    const message = String(error?.message || '')
+    const isMaxTokens = error?.code === 'MAX_TOKENS' || message.includes('MAX_TOKENS') || message.includes('token限制')
+    const shouldFallbackModel = isMaxTokens &&
+      effectiveModel === 'gemini-3-flash-preview' &&
+      operationType === 'ad_creative_generation_main'
+
+    if (shouldFallbackModel) {
+      console.warn('⚠️ ad_creative_generation_main MAX_TOKENS in gemini-3-flash-preview, fallback to gemini-2.5-pro')
+      result = await axiosGenerate({
+        ...baseParams,
+        model: 'gemini-2.5-pro',
+      }, userId)
+    } else {
+      throw error
+    }
+  }
 
   // ✅ Token使用率监控
   if (result.usage?.outputTokens) {
@@ -424,7 +446,7 @@ async function callDirectAPI(
   return {
     text: result.text,
     usage: result.usage,
-    model: result.model || model || 'gemini-2.5-pro',
+    model: result.model || effectiveModel,
     apiType: 'direct-api'
   }
 }

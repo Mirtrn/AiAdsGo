@@ -356,14 +356,33 @@ export async function generateContent(params: {
           console.error('❌ Gemini API输出达到token限制被截断')
           console.error('   - finishReason:', candidate.finishReason)
           console.error('   - usageMetadata:', response.data.usageMetadata)
+          const partialText = extractCandidateText(candidate)
+          if (partialText) {
+            const head = partialText.substring(0, 1024)
+            const tail = partialText.substring(Math.max(0, partialText.length - 1024))
+            console.error(`   - 输出预览(前1KB): ${head}`)
+            console.error(`   - 输出预览(后1KB): ${tail}`)
+            console.error(`   - 输出长度: ${partialText.length} 字符`)
+          } else {
+            console.error('   - 输出预览: 空文本')
+          }
 
           const usage = response.data.usageMetadata
           const thoughtsTokenCount = usage?.thoughtsTokenCount || 0
+          const candidatesTokenCount = usage?.candidatesTokenCount || 0
+          // Use actual output token usage as a floor for the retry to avoid under-bumping.
+          const minRetryFromUsage = candidatesTokenCount > 0
+            ? candidatesTokenCount + MAX_TOKENS_RETRY_BUFFER
+            : 0
+          const minRetryFromThoughts = thoughtsTokenCount > 0
+            ? thoughtsTokenCount + MAX_TOKENS_RETRY_BUFFER
+            : 0
           const retryMaxOutputTokens = Math.min(
             MAX_OUTPUT_TOKENS_CAP,
             Math.max(
               effectiveMaxOutputTokens + MAX_TOKENS_RETRY_BUMP,
-              thoughtsTokenCount > 0 ? thoughtsTokenCount + MAX_TOKENS_RETRY_BUFFER : 0
+              minRetryFromThoughts,
+              minRetryFromUsage
             )
           )
 
