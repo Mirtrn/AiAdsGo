@@ -24,7 +24,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
-import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap } from 'lucide-react'
+import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2 } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'
@@ -505,6 +505,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     ))
     handleChange('keywords', newKeywords)
     showSuccess('批量修改成功', `已更新 ${selectedKeywordIndexes.size} 个关键词的匹配类型`)
+  }
+
+  const handleBatchRemoveKeywords = () => {
+    if (selectedKeywordIndexes.size === 0) return
+    const removeCount = selectedKeywordIndexes.size
+    const newKeywords = config.keywords.filter((_, idx) => !selectedKeywordIndexes.has(idx))
+    handleChange('keywords', newKeywords)
+    setSelectedKeywordIndexes(new Set())
+    showSuccess('批量删除成功', `已删除 ${removeCount} 个关键词`)
   }
 
   const handleAddCallout = () => {
@@ -1065,6 +1074,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   disabled={selectedKeywordIndexes.size === 0}
                 >
                   批量修改匹配类型
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBatchRemoveKeywords}
+                  disabled={selectedKeywordIndexes.size === 0}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  批量删除
                 </Button>
               </div>
             </div>
