@@ -2214,7 +2214,9 @@ export async function createGoogleAdsCalloutExtensions(params: {
       '/api/google-ads/campaign-assets/create',
       () => customer.campaignAssets.create(campaignAssetOperations, { partial_failure: true })
     )
-    const partialFailure = linkResponse?.partial_failure_error || linkResponse?.partialFailureError
+    const partialFailure =
+      linkResponse?.partial_failure_error ||
+      (linkResponse as { partialFailureError?: unknown } | undefined)?.partialFailureError
     if (partialFailure) {
       console.warn('⚠️ Callout Assets部分关联失败:', JSON.stringify(partialFailure, null, 2))
     }
