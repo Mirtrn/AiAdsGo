@@ -162,6 +162,7 @@ blob-report/
 
 # misc
 .DS_Store
+/.worktrees/
 
 # 临时分析报告文件
 ANALYSIS_SUMMARY.md
