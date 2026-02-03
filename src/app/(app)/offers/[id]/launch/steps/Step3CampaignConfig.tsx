@@ -21,6 +21,7 @@ import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap } from 'lucide-react'
@@ -323,6 +324,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const [enableDynamicCpc, setEnableDynamicCpc] = useState(false)
   const [batchKeywordDialogOpen, setBatchKeywordDialogOpen] = useState(false)
   const [batchKeywordInput, setBatchKeywordInput] = useState('')
+  const [selectedKeywordIndexes, setSelectedKeywordIndexes] = useState<Set<number>>(new Set())
+  const [batchMatchType, setBatchMatchType] = useState<'BROAD' | 'PHRASE' | 'EXACT'>('PHRASE')
 
   // 🔧 修复(2025-12-27): 当selectedCreative变化时，重新初始化配置
   // 解决用户在第1步切换创意后，第3步仍显示旧创意参数的问题
@@ -384,6 +387,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     // 重置验证错误和动态CPC开关
     setValidationErrors([])
     setEnableDynamicCpc(false)
+    setSelectedKeywordIndexes(new Set())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCreative?.id])
 
@@ -433,6 +437,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const handleRemoveKeyword = (index: number) => {
     const newKeywords = config.keywords.filter((_, i) => i !== index)
     handleChange('keywords', newKeywords)
+    setSelectedKeywordIndexes(prev => {
+      if (prev.size === 0) return prev
+      const next = new Set<number>()
+      prev.forEach(i => {
+        if (i === index) return
+        next.add(i > index ? i - 1 : i)
+      })
+      return next
+    })
   }
 
   const parseBatchKeywords = (input: string) => input
@@ -461,6 +474,37 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     setBatchKeywordInput('')
     setBatchKeywordDialogOpen(false)
     showSuccess('批量添加成功', `已添加${keywords.length}个关键词（词组匹配）`)
+  }
+
+  const handleToggleKeywordSelect = (index: number, checked: boolean) => {
+    setSelectedKeywordIndexes(prev => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(index)
+      } else {
+        next.delete(index)
+      }
+      return next
+    })
+  }
+
+  const handleSelectAllKeywords = (checked: boolean) => {
+    if (!checked) {
+      setSelectedKeywordIndexes(new Set())
+      return
+    }
+    setSelectedKeywordIndexes(new Set(config.keywords.map((_, idx) => idx)))
+  }
+
+  const handleBatchMatchTypeApply = () => {
+    if (selectedKeywordIndexes.size === 0) return
+    const newKeywords = config.keywords.map((kw, idx) => (
+      selectedKeywordIndexes.has(idx)
+        ? { ...kw, matchType: batchMatchType }
+        : kw
+    ))
+    handleChange('keywords', newKeywords)
+    showSuccess('批量修改成功', `已更新 ${selectedKeywordIndexes.size} 个关键词的匹配类型`)
   }
 
   const handleAddCallout = () => {
@@ -985,9 +1029,54 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               </div>
             </div>
 
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={config.keywords.length > 0 && selectedKeywordIndexes.size === config.keywords.length}
+                  onCheckedChange={(checked) => handleSelectAllKeywords(checked === true)}
+                  aria-label="全选关键词"
+                />
+                <span className="text-sm text-gray-600">全选</span>
+                {selectedKeywordIndexes.size > 0 && (
+                  <Badge variant="secondary" className="ml-1">
+                    已选 {selectedKeywordIndexes.size}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={batchMatchType}
+                  onValueChange={(value) => setBatchMatchType(value as 'BROAD' | 'PHRASE' | 'EXACT')}
+                  disabled={selectedKeywordIndexes.size === 0}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="匹配类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BROAD">广泛</SelectItem>
+                    <SelectItem value="PHRASE">词组</SelectItem>
+                    <SelectItem value="EXACT">精确</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBatchMatchTypeApply}
+                  disabled={selectedKeywordIndexes.size === 0}
+                >
+                  批量修改匹配类型
+                </Button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               {config.keywords.map((keyword, index) => (
-                <div key={index} className="grid grid-cols-[1fr_140px_100px_40px] gap-2 items-center">
+                <div key={index} className="grid grid-cols-[24px_1fr_140px_100px_40px] gap-2 items-center">
+                  <Checkbox
+                    checked={selectedKeywordIndexes.has(index)}
+                    onCheckedChange={(checked) => handleToggleKeywordSelect(index, checked === true)}
+                    aria-label={`选择关键词 ${keyword.text || `#${index + 1}`}`}
+                  />
                   <Input
                     value={keyword.text}
                     onChange={(e) => handleKeywordChange(index, 'text', e.target.value)}
@@ -1006,11 +1095,13 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                       <SelectItem value="EXACT">精确</SelectItem>
                     </SelectContent>
                   </Select>
-                  {keyword.searchVolume !== undefined && (
+                  {keyword.searchVolume !== undefined ? (
                     <Badge variant="secondary" className="text-xs justify-center">
                       <span className="text-blue-600 font-semibold">{formatSearchVolume(keyword.searchVolume)}</span>
                       <span className="ml-1 text-gray-500">搜索量</span>
                     </Badge>
+                  ) : (
+                    <div />
                   )}
                   <Button
                     variant="ghost"
