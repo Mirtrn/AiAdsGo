@@ -81,6 +81,17 @@ export function containsPureBrand(keyword: string, pureBrandKeywords: string[]):
     if (concatenatedBrand && concatenatedBrand !== normalizedBrand) {
       if (haystack.includes(` ${concatenatedBrand} `)) return true
     }
+
+    if (concatenatedBrand) {
+      for (let start = 0; start < keywordTokens.length; start++) {
+        let combined = ''
+        for (let end = start; end < keywordTokens.length; end++) {
+          combined += keywordTokens[end]
+          if (combined.length > concatenatedBrand.length) break
+          if (combined === concatenatedBrand) return true
+        }
+      }
+    }
   }
 
   for (const brand of pureBrandKeywords) {
