@@ -26,13 +26,16 @@ vi.mock('@/lib/url-swap', () => ({
   updateTaskAfterSwap: vi.fn(),
   recordSwapHistory: vi.fn(),
   setTaskError: vi.fn(),
+  getUrlSwapTaskTargets: vi.fn(),
+  markUrlSwapTargetSuccess: vi.fn(),
+  markUrlSwapTargetFailure: vi.fn(),
 }))
 
 import { getDatabase } from '@/lib/db'
 import { resolveAffiliateLink } from '@/lib/url-resolver-enhanced'
 import { initializeProxyPool } from '@/lib/offer-utils'
 import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
-import { recordSwapHistory, setTaskError } from '@/lib/url-swap'
+import { getUrlSwapTaskTargets, recordSwapHistory, setTaskError } from '@/lib/url-swap'
 import { executeUrlSwapTask } from '@/lib/queue/executors/url-swap-executor'
 
 describe('executeUrlSwapTask (auto)', () => {
@@ -66,6 +69,7 @@ describe('executeUrlSwapTask (auto)', () => {
     })
 
     vi.mocked(initializeProxyPool).mockResolvedValueOnce(undefined as any)
+    vi.mocked(getUrlSwapTaskTargets).mockResolvedValueOnce([])
     vi.mocked(resolveAffiliateLink).mockResolvedValueOnce({
       finalUrl: 'https://example.com/final',
       finalUrlSuffix: 'x=1',

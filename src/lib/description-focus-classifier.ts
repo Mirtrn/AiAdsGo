@@ -92,18 +92,15 @@ const CTA_KEYWORDS = [
   'reserve', 'book', 'schedule', 'contact', 'call', 'visit', 'check', 'see', 'view'
 ]
 
+const CTA_REGEX = new RegExp(CTA_KEYWORDS.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
+
 /**
  * 检查描述是否包含CTA
  */
 export function hasCTA(description: string): { hasCTA: boolean; ctaWords: string[] } {
   const lowerDesc = description.toLowerCase()
-  const foundCTAs: string[] = []
-
-  for (const cta of CTA_KEYWORDS) {
-    if (lowerDesc.includes(cta)) {
-      foundCTAs.push(cta)
-    }
-  }
+  const matches = lowerDesc.match(CTA_REGEX)
+  const foundCTAs = matches ? Array.from(new Set(matches)) : []
 
   return {
     hasCTA: foundCTAs.length > 0,
