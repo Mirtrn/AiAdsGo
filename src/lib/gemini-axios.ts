@@ -11,6 +11,16 @@ import { getUserOnlySetting } from './settings'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
 
+function isEnvTrue(value?: string | null): boolean {
+  if (!value) return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'true' || normalized === '1' || normalized === 'yes'
+}
+
+function shouldLogFullGeminiResponse(): boolean {
+  return isEnvTrue(process.env.GEMINI_LOG_FULL_RESPONSE)
+}
+
 /**
  * Gemini API 请求接口
  */
@@ -423,6 +433,13 @@ export async function generateContent(params: {
         console.warn(`⚠️ 输出异常大! 预期约1000 tokens，实际 ${candidatesTokenCount} tokens`)
         console.log(`   - 响应前500字符: ${text.substring(0, 500)}`)
         console.log(`   - 响应后500字符: ${text.substring(text.length - 500)}`)
+        if (shouldLogFullGeminiResponse()) {
+          console.log('   - 响应完整内容开始 >>>')
+          console.log(text)
+          console.log('   - 响应完整内容结束 <<<')
+        } else {
+          console.log('   - 响应完整内容已省略 (设置 GEMINI_LOG_FULL_RESPONSE=true 开启)')
+        }
       }
 
       // 记录token使用情况

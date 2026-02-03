@@ -1038,7 +1038,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 overflow-x-auto">
               <div className="flex items-center gap-2">
                 <Checkbox
                   checked={config.keywords.length > 0 && selectedKeywordIndexes.size === config.keywords.length}
@@ -1052,7 +1052,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   </Badge>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 whitespace-nowrap">
                 <Select
                   value={batchMatchType}
                   onValueChange={(value) => setBatchMatchType(value as 'BROAD' | 'PHRASE' | 'EXACT')}
