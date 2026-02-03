@@ -1825,14 +1825,13 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   let extracted_elements_section = ''
   if (extractedElements) {
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
-      // 🔥 修复(2025-12-16): 从10个提升到100个，充分利用有真实搜索量的关键词
-      // 原问题：高搜索量关键词仅使用10个，大量被浪费
+      // 🔧 调整(2026-02-03): 将提取关键词数量限制在30个以内，避免Prompt噪声过高
       // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
       const hasAnyVolume = extractedElements.keywords.some(k => k.searchVolume > 0)
       const topKeywords = extractedElements.keywords
         .filter(k => hasAnyVolume ? k.searchVolume >= 500 : true)
-        .slice(0, 100)
-        .map(k => `"${k.keyword}" (${k.searchVolume}/mo, ${k.source})`)
+        .slice(0, 30)
+        .map(k => (k.searchVolume > 0 ? `"${k.keyword}" (${k.searchVolume}/mo)` : `"${k.keyword}"`))
       if (topKeywords.length > 0) {
         extracted_elements_section += `\n**EXTRACTED KEYWORDS** (from product data, validated by Keyword Planner):\n${topKeywords.join(', ')}\n`
       }

@@ -376,6 +376,13 @@ export async function generateContent(params: {
           } else {
             console.error('   - 输出预览: 空文本')
           }
+          if (shouldLogFullGeminiResponse()) {
+            console.error('   - Prompt完整内容开始 >>>')
+            console.error(prompt)
+            console.error('   - Prompt完整内容结束 <<<')
+          } else {
+            console.error('   - Prompt完整内容已省略 (设置 GEMINI_LOG_FULL_RESPONSE=true 开启)')
+          }
 
           const usage = response.data.usageMetadata
           const thoughtsTokenCount = usage?.thoughtsTokenCount || 0
@@ -437,6 +444,9 @@ export async function generateContent(params: {
           console.log('   - 响应完整内容开始 >>>')
           console.log(text)
           console.log('   - 响应完整内容结束 <<<')
+          console.log('   - Prompt完整内容开始 >>>')
+          console.log(prompt)
+          console.log('   - Prompt完整内容结束 <<<')
         } else {
           console.log('   - 响应完整内容已省略 (设置 GEMINI_LOG_FULL_RESPONSE=true 开启)')
         }
