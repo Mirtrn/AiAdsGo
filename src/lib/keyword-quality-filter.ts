@@ -654,6 +654,12 @@ export interface KeywordQualityFilterOptions {
    */
   mustContainBrand?: boolean
   /**
+   * 允许来自 Keyword Planner 的非品牌词通过品牌门禁
+   * 仅在品牌词过于宽泛或店铺页需要更广泛覆盖时使用
+   * @default false
+   */
+  allowNonBrandFromPlanner?: boolean
+  /**
    * 与商品/品类相关性过滤（防歧义品牌误入无关主题）
    * - 当品牌词有歧义（如 "Rove"）时，Keyword Planner 可能返回包含品牌但主题无关的关键词（如 rove beetle, rove concept）。
    * - 启用后：除“纯品牌词”/“型号词”外，关键词必须命中至少 N 个来自 category/productName 的 token 才保留。
@@ -762,6 +768,7 @@ export function filterKeywordQuality(
     minWordCount = 1,
     maxWordCount = 8,
     mustContainBrand = false,
+    allowNonBrandFromPlanner = false,
     productUrl,  // 🔥 新增：用于平台冲突检测
     minContextTokenMatches = 0,
   } = options
@@ -779,6 +786,8 @@ export function filterKeywordQuality(
       : Number(kw.searchVolume) || 0
     const wordCount = keyword.trim().split(/\s+/).length
     const isConcatenatedBrandWithVolume = searchVolume > 0 && isBrandConcatenation(keyword, brandName)
+    const isPlannerSource = typeof kw.source === 'string' && kw.source.toUpperCase().startsWith('KEYWORD_PLANNER')
+    const allowPlannerNonBrand = allowNonBrandFromPlanner && isPlannerSource
 
     let removeReason: string | null = null
 
@@ -790,7 +799,7 @@ export function filterKeywordQuality(
     }
     // 1. 检查是否必须包含纯品牌词（使用策略函数）
     // 🔥 2026-01-05 使用 shouldKeepByBrand 策略函数，明确用途
-    else if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords) && !isConcatenatedBrandWithVolume) {
+    else if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords) && !isConcatenatedBrandWithVolume && !allowPlannerNonBrand) {
       removeReason = `不含纯品牌词: "${keyword}"`
     }
     // 2. 检查品牌变体词

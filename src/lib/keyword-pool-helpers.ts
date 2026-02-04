@@ -224,7 +224,10 @@ export async function expandAllKeywords(
   clientId?: string,
   clientSecret?: string,
   developerToken?: string,
-  progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
+  progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void,
+  plannerMinSearchVolume?: number,
+  allowNonBrandFromPlanner?: boolean,
+  plannerDecision?: { allowNonBrandFromPlanner?: boolean }
 ): Promise<PoolKeywordData[]> {
   console.log(`\n📋 关键词扩展策略 (v2.0 - 认证类型: ${authType}):`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
@@ -246,6 +249,9 @@ export async function expandAllKeywords(
       clientId,
       clientSecret,
       developerToken,
+      minSearchVolume: plannerMinSearchVolume ?? DEFAULTS.minSearchVolume,
+      allowNonBrandFromPlanner,
+      plannerDecision,
       progress
     })
   } else {
@@ -284,6 +290,9 @@ interface OAuthExpandParams {
   clientId?: string
   clientSecret?: string
   developerToken?: string
+  minSearchVolume?: number
+  allowNonBrandFromPlanner?: boolean
+  plannerDecision?: { allowNonBrandFromPlanner?: boolean }
   progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
 }
 
@@ -312,10 +321,17 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     clientId,
     clientSecret,
     developerToken,
+    minSearchVolume,
+    allowNonBrandFromPlanner,
+    plannerDecision,
     progress
   } = params
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const fullBrand = normalizeGoogleAdsKeyword(brandName)
+  const fullBrandKeywords = fullBrand ? [fullBrand] : []
+  const minFullBrandCount = DEFAULTS.minKeywordsTarget
+  let allowNonBrand = allowNonBrandFromPlanner ?? false
   const allKeywords = new Map<string, PoolKeywordData>()
   const maxRounds = 3
   const topN = 20
@@ -412,7 +428,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         clientSecret,
         developerToken,
         maxKeywords: DEFAULTS.maxKeywords,
-        minSearchVolume: DEFAULTS.minSearchVolume,
+        minSearchVolume: minSearchVolume ?? DEFAULTS.minSearchVolume,
         onProgress: progress
           ? (info: { message: string; current?: number; total?: number }) =>
               progress({
@@ -429,6 +445,17 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         keywordPlannerReturned = true
       }
 
+      if (!allowNonBrand && fullBrandKeywords.length > 0) {
+        const fullBrandCount = results.filter(kw => containsPureBrand(kw.keyword, fullBrandKeywords)).length
+        if (fullBrandCount < minFullBrandCount) {
+          allowNonBrand = true
+          if (plannerDecision) {
+            plannerDecision.allowNonBrandFromPlanner = true
+          }
+          console.log(`      ⚠️ 完整品牌词命中较少(${fullBrandCount}/${minFullBrandCount})，允许保留 Keyword Planner 非品牌词`)
+        }
+      }
+
       // 处理结果：只保留包含“纯品牌词”的关键词（不拼接造词）
       let newCount = 0
       let updatedCount = 0
@@ -439,7 +466,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
         if (!keywordText) continue
 
-        const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords)
+        const isBrandRelated = containsPureBrand(keywordText, pureBrandKeywords) || allowNonBrand
         if (!isBrandRelated) {
           genericSkipped++
           continue
@@ -1176,26 +1203,35 @@ export function filterKeywords(
   brandName: string,
   category: string,
   targetCountry?: string,
-  productName?: string | null
+  productName?: string | null,
+  options?: { allowNonBrandFromPlanner?: boolean }
 ): PoolKeywordData[] {
   // 获取纯品牌词列表
   const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const allowNonBrandFromPlanner = options?.allowNonBrandFromPlanner ?? false
 
   let geoFilteredCount = 0
   let nonBrandRemovedCount = 0
   let concatenatedBrandKept = 0
+  let plannerNonBrandKept = 0
 
   const kept: PoolKeywordData[] = []
 
   for (const kw of keywords) {
     // 🔒 全量强制：只保留包含“纯品牌词”的关键词（不拼接造词）
+    // 🆕 例外：店铺页允许 Keyword Planner 返回的非品牌词进入后续流程
     if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
       const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
-      if (!isConcatenatedBrandWithVolume) {
+      const isPlannerSource = typeof kw.source === 'string' && kw.source.toUpperCase().startsWith('KEYWORD_PLANNER')
+      if (!isConcatenatedBrandWithVolume && !(allowNonBrandFromPlanner && isPlannerSource)) {
         nonBrandRemovedCount++
         continue
       }
-      concatenatedBrandKept++
+      if (isConcatenatedBrandWithVolume) {
+        concatenatedBrandKept++
+      } else if (allowNonBrandFromPlanner && isPlannerSource) {
+        plannerNonBrandKept++
+      }
     }
 
     // ✅ 地理位置过滤（过滤非目标国家的关键词）
@@ -1213,8 +1249,14 @@ export function filterKeywords(
   console.log(`   过滤: ${keywords.length} → ${kept.length}`)
   console.log(`      移除非品牌: ${nonBrandRemovedCount}`)
   console.log(`      拼接品牌保留(有量): ${concatenatedBrandKept}`)
+  if (plannerNonBrandKept > 0) {
+    console.log(`      Keyword Planner 非品牌保留: ${plannerNonBrandKept}`)
+  }
   console.log(`      地理过滤: ${geoFilteredCount}`)
-  console.log(`      策略: 100%品牌包含`)
+  const strategyLabel = allowNonBrandFromPlanner
+    ? '品牌包含 + Keyword Planner 例外'
+    : '100%品牌包含'
+  console.log(`      策略: ${strategyLabel}`)
 
   return kept
 }

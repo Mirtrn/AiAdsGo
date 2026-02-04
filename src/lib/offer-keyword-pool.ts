@@ -116,6 +116,54 @@ function resolveOfferPageType(offer: OfferPageTypeSource): 'store' | 'product' {
   return derived || 'product'
 }
 
+function isGenericRetailKeyword(keyword: string): boolean {
+  if (!keyword) return false
+  const normalized = keyword.toLowerCase()
+  const patterns = [
+    /\bnear\s+me\b/i,
+    /\bnear\s+to\s+me\b/i,
+    /\bnear\s+by\s+me\b/i,
+    /\bclosest\b/i,
+    /\bnearest\b/i,
+    /\bstore(s)?\b/i,
+    /\bshop(s)?\b/i,
+    /\boutlet(s)?\b/i,
+    /\bwarehouse\b/i,
+    /\bonline\b/i,
+    /\bbuy\b/i,
+    /\bsale\b/i,
+    /\bdiscount\b/i,
+    /\bdeal(s)?\b/i,
+    /\bclearance\b/i
+  ]
+  return patterns.some(pattern => pattern.test(normalized))
+}
+
+function getKeywordSourcePriority(source: string | undefined): number {
+  const normalized = (source || '').toUpperCase()
+  if (normalized === 'KEYWORD_PLANNER_BRAND') return 0
+  if (normalized === 'KEYWORD_PLANNER') return 1
+  if (normalized === 'GLOBAL_KEYWORDS') return 2
+  if (normalized === 'GOOGLE_SUGGEST') return 3
+  if (normalized === 'ENHANCED_EXTRACT') return 4
+  return 5
+}
+
+function prioritizeBucketKeywords(keywords: PoolKeywordData[]): PoolKeywordData[] {
+  return [...keywords].sort((a, b) => {
+    const sourceRank = getKeywordSourcePriority(a.source) - getKeywordSourcePriority(b.source)
+    if (sourceRank !== 0) return sourceRank
+
+    const genericRank = Number(isGenericRetailKeyword(a.keyword)) - Number(isGenericRetailKeyword(b.keyword))
+    if (genericRank !== 0) return genericRank
+
+    const volumeDiff = (b.searchVolume || 0) - (a.searchVolume || 0)
+    if (volumeDiff !== 0) return volumeDiff
+
+    return b.keyword.length - a.keyword.length
+  })
+}
+
 // ============================================
 // 类型定义
 // ============================================
@@ -2500,6 +2548,9 @@ export async function generateOfferKeywordPool(
   if (!offer) {
     throw new Error(`Offer #${offerId} 不存在`)
   }
+  const pageType = resolveOfferPageType(offer)
+  let allowPlannerNonBrand = pageType === 'store'
+  const plannerMinSearchVolume = pageType === 'store' ? 10 : undefined
 
   // 1.5 Marketplace场景：尽量补全“品牌官网”，用于Keyword Planner的站点过滤（best-effort）
   try {
@@ -2727,6 +2778,7 @@ export async function generateOfferKeywordPool(
     console.warn('⚠️ 无法获取Google Ads凭证，跳过关键词扩展')
   }
 
+  const plannerDecision = { allowNonBrandFromPlanner: allowPlannerNonBrand }
   const expandedKeywords = await expandAllKeywords(
     initialKeywords,
     offer.brand,
@@ -2742,8 +2794,12 @@ export async function generateOfferKeywordPool(
     clientId,
     clientSecret,
     developerToken,
-    progress
+    progress,
+    plannerMinSearchVolume,
+    allowPlannerNonBrand,
+    plannerDecision
   )
+  allowPlannerNonBrand = plannerDecision.allowNonBrandFromPlanner ?? allowPlannerNonBrand
 
   // 4. 🆕 智能过滤（竞品+品类+搜索量+地理位置）
   const filteredKeywords = filterKeywords(
@@ -2751,7 +2807,8 @@ export async function generateOfferKeywordPool(
     offer.brand,
     offer.category || '',
     offer.target_country,  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
-    offer.product_name
+    offer.product_name,
+    { allowNonBrandFromPlanner: allowPlannerNonBrand }
   )
 
   console.log(`📝 第一次过滤后关键词数: ${filteredKeywords.length}`)
@@ -2774,6 +2831,7 @@ export async function generateOfferKeywordPool(
     maxWordCount: 8,
     // 🔒 全量强制：最终关键词必须包含“纯品牌词”（不拼接造词）
     mustContainBrand: pureBrandKeywordsForFilter.length > 0,
+    allowNonBrandFromPlanner: allowPlannerNonBrand,
     // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
     minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
       pageType: pageTypeForContextFilter
@@ -2943,7 +3001,6 @@ export async function generateOfferKeywordPool(
   }
 
   // 🆕 v4.16: 确定页面类型
-  const pageType = resolveOfferPageType(offer)
   console.log(`📊 页面类型: ${pageType}`)
 
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
@@ -2979,12 +3036,13 @@ export async function generateOfferKeywordPool(
     }
 
     const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
-      return kwList
+      const mapped = kwList
         .map(kw => {
           const key = normalizeGoogleAdsKeyword(kw)
           return key ? nonBrandMap.get(key) : undefined
         })
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
+      return prioritizeBucketKeywords(mapped)
     }
 
     let storeBucketAData = mapAndFilterKeywords(storeBuckets.bucketA.keywords)
@@ -3067,12 +3125,13 @@ export async function generateOfferKeywordPool(
     }
 
     const mapAndFilterKeywords = (kwList: string[]): PoolKeywordData[] => {
-      return kwList
+      const mapped = kwList
         .map(kw => {
           const key = normalizeGoogleAdsKeyword(kw)
           return key ? nonBrandMap.get(key) : undefined
         })
         .filter((kw): kw is PoolKeywordData => kw !== undefined)
+      return prioritizeBucketKeywords(mapped)
     }
 
     let bucketAData = mapAndFilterKeywords(productBuckets.bucketA.keywords)
