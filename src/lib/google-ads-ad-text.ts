@@ -6,6 +6,49 @@
 
 const DKI_PATTERN = /\{keyword:([^}]*)\}/gi
 
+export const GOOGLE_ADS_PROHIBITED_SYMBOLS = [
+  '★', '☆', '⭐', '🌟', '✨', // stars
+  '©', '®', '™',             // copyright/trademark
+  '•', '●', '◆', '▪',        // bullets
+  '→', '←', '↑', '↓',        // arrows
+  '✓', '✔', '✗', '✘',        // checkmarks
+  '❤', '♥', '♡',             // hearts
+  '⚡', '🔥', '💎',           // decorative emoji
+  '👍', '👎',                 // gestures
+  '；',                      // fullwidth semicolon
+]
+
+const EMOJI_REGEX = /[\p{Extended_Pictographic}]/gu
+const EMOJI_JOINERS_REGEX = /[\u200D\uFE0E\uFE0F]/g
+
+export function findGoogleAdsProhibitedSymbols(text: string): string[] {
+  const input = String(text ?? '')
+  const found = new Set<string>()
+  for (const symbol of GOOGLE_ADS_PROHIBITED_SYMBOLS) {
+    if (input.includes(symbol)) found.add(symbol)
+  }
+  const emojiMatches = input.match(EMOJI_REGEX) || []
+  emojiMatches.forEach(e => found.add(e))
+  return Array.from(found)
+}
+
+export function sanitizeGoogleAdsSymbols(text: string): { text: string; removed: string[] } {
+  const input = String(text ?? '')
+  const removed = findGoogleAdsProhibitedSymbols(input)
+  let cleaned = input
+  for (const symbol of GOOGLE_ADS_PROHIBITED_SYMBOLS) {
+    if (cleaned.includes(symbol)) {
+      cleaned = cleaned.replace(new RegExp(symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), ' ')
+    }
+  }
+  cleaned = cleaned
+    .replace(EMOJI_REGEX, ' ')
+    .replace(EMOJI_JOINERS_REGEX, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { text: cleaned, removed }
+}
+
 export function getGoogleAdsTextEffectiveLength(text: string): number {
   const input = String(text ?? '')
 
@@ -91,14 +134,13 @@ function truncateByEffectiveLength(text: string, maxLen: number): string {
 
 export function sanitizeGoogleAdsAdText(text: string, maxLen: number): string {
   const original = String(text ?? '')
-  const replaced = original
-    .replace(/±/g, '+/-')
-    // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
-    .replace(/[~～]/g, ' ')
-    // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "；" (fullwidth semicolon)
-    .replace(/[；]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const symbolSanitized = sanitizeGoogleAdsSymbols(
+    original
+      .replace(/±/g, '+/-')
+      // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
+      .replace(/[~～]/g, ' ')
+  )
+  const replaced = symbolSanitized.text
   if (getGoogleAdsTextEffectiveLength(replaced) <= maxLen) return replaced
 
   // 如果替换导致超长，回退为移除该符号，优先保证长度合规

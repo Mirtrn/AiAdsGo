@@ -32,6 +32,16 @@ describe('google-ads-ad-text', () => {
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Limited Offer')
   })
 
+  it('removes prohibited emoji symbols', () => {
+    const text = 'Top Picks 🔥 Today'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Top Picks Today')
+  })
+
+  it('removes decorative star symbols', () => {
+    const text = 'Rated ★★★★★'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Rated')
+  })
+
   it('sanitizes rsa path values', () => {
     expect(sanitizeGoogleAdsPath('Best ~ Deals', 15)).toBe('Best-Deals')
   })

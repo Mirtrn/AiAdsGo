@@ -1,3 +1,5 @@
+import { GOOGLE_ADS_PROHIBITED_SYMBOLS } from './google-ads-ad-text'
+
 /**
  * 约束优先级管理器
  *
@@ -60,8 +62,8 @@ const CONSTRAINT_DEFINITIONS: Record<string, Constraint> = {
     name: 'forbidden_symbols',
     priority: 'P0',
     hardLimit: true,
-    currentValue: ['★', '⭐', '©', '®', '™'],
-    defaultValue: ['★', '⭐', '©', '®', '™'],
+    currentValue: GOOGLE_ADS_PROHIBITED_SYMBOLS,
+    defaultValue: GOOGLE_ADS_PROHIBITED_SYMBOLS,
     description: 'Forbidden symbols in creatives'
   },
   forbidden_words: {

@@ -2357,14 +2357,19 @@ export async function createGoogleAdsSitelinkExtensions(params: {
     const assetOperations = params.sitelinks.map(sitelink => {
       console.log(`🔍 处理Sitelink: text="${sitelink.text}", url="${sitelink.url}", desc1="${sitelink.description1}"`)
 
+      const sanitizedLinkText = sanitizeGoogleAdsAdText(sitelink.text, 25)
       const sitelinkAsset: any = {
-        link_text: sitelink.text.substring(0, 25) // 最多25个字符
+        link_text: sanitizedLinkText.substring(0, 25) // 最多25个字符
       }
 
       // description1 和 description2 必须要么都存在，要么都不存在
       if (sitelink.description1 && sitelink.description1.trim()) {
-        sitelinkAsset.description1 = sitelink.description1.substring(0, 35)
-        sitelinkAsset.description2 = sitelink.description2?.substring(0, 35) || sitelink.description1.substring(0, 35)
+        const sanitizedDesc1 = sanitizeGoogleAdsAdText(sitelink.description1, 35)
+        const sanitizedDesc2 = sitelink.description2
+          ? sanitizeGoogleAdsAdText(sitelink.description2, 35)
+          : sanitizedDesc1
+        sitelinkAsset.description1 = sanitizedDesc1.substring(0, 35)
+        sitelinkAsset.description2 = sanitizedDesc2.substring(0, 35)
       }
 
       // 关键修复：final_urls必须在Asset层级，不是sitelink_asset内部

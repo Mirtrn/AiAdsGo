@@ -25,6 +25,7 @@ import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-cont
 import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
 import { parsePrice } from './pricing-utils'
+import { sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
 
 /**
  * 🔧 安全解析JSON字段
@@ -2939,41 +2940,11 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
 
     // 🔥 过滤Google Ads禁止的符号（Policy Violation防御）
     const removeProhibitedSymbols = (text: string): string => {
-      // Google Ads禁止的符号列表（基于SYMBOLS policy）
-      const prohibitedSymbols = [
-        '★', '☆', '⭐', '🌟', '✨',  // 星星符号
-        '©', '®', '™',              // 版权商标符号
-        '•', '●', '◆', '▪',         // 项目符号
-        '→', '←', '↑', '↓',         // 箭头符号
-        '✓', '✔', '✗', '✘',         // 勾选符号
-        '❤', '♥',                    // 心形符号
-        '⚡', '🔥', '💎',            // 装饰性emoji
-        '👍', '👎',                  // 手势emoji
-        '；'                          // 全角分号（SYMBOLS policy）
-      ]
-
-      let cleaned = text
-      let removedSymbols: string[] = []
-
-      for (const symbol of prohibitedSymbols) {
-        if (cleaned.includes(symbol)) {
-          removedSymbols.push(symbol)
-          // 替换规则：星星符号替换为 "star(s)"，其他符号直接删除
-          if (['★', '☆', '⭐', '🌟', '✨'].includes(symbol)) {
-            cleaned = cleaned.replace(new RegExp(symbol, 'g'), 'stars')
-          } else if (['✓', '✔'].includes(symbol)) {
-            cleaned = cleaned.replace(new RegExp(symbol, 'g'), '')  // 直接删除
-          } else {
-            cleaned = cleaned.replace(new RegExp(symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '')
-          }
-        }
+      const { text: cleaned, removed } = sanitizeGoogleAdsSymbols(text)
+      if (removed.length > 0) {
+        console.log(`🛡️ 移除违规符号: "${text}" → "${cleaned}" (移除: ${removed.join(', ')})`)
       }
-
-      if (removedSymbols.length > 0) {
-        console.log(`🛡️ 移除违规符号: "${text}" → "${cleaned}" (移除: ${removedSymbols.join(', ')})`)
-      }
-
-      return cleaned.trim()
+      return cleaned
     }
 
     // 应用DKI修复到所有headlines

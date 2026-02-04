@@ -1,3 +1,5 @@
+import { findGoogleAdsProhibitedSymbols } from './google-ads-ad-text'
+
 /**
  * Google Ads 合规性检查规则引擎
  *
@@ -251,10 +253,9 @@ function rule_ExcessivePunctuation(content: CreativeContent): ComplianceIssue[] 
  */
 function rule_ProhibitedSymbols(content: CreativeContent): ComplianceIssue[] {
   const issues: ComplianceIssue[] = []
-  const prohibitedSymbols = ['★', '☆', '♥', '♡', '→', '←', '↑', '↓', '✓', '✔', '✖', '✗', '©', '®', '™']
 
   const checkText = (text: string, field: 'headline' | 'description', index: number) => {
-    const foundSymbols = prohibitedSymbols.filter(symbol => text.includes(symbol))
+    const foundSymbols = findGoogleAdsProhibitedSymbols(text)
 
     if (foundSymbols.length > 0) {
       issues.push({
