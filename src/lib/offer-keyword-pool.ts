@@ -1180,7 +1180,8 @@ export async function clusterKeywordsByIntent(
   userId: number,
   targetCountry?: string,
   targetLanguage?: string,
-  pageType: 'product' | 'store' = 'product'
+  pageType: 'product' | 'store' = 'product',
+  progress?: KeywordPoolProgressReporter
 ): Promise<KeywordBuckets> {
   if (keywords.length === 0) {
     console.log('⚠️ 无关键词需要聚类，返回空桶')
@@ -1188,6 +1189,7 @@ export async function clusterKeywordsByIntent(
   }
 
   console.log(`🎯 开始 AI 语义聚类: ${keywords.length} 个关键词 (${pageType}链接)`)
+  await progress?.({ phase: 'cluster', message: `语义聚类准备中 (${keywords.length}个关键词)` })
 
   // 🔥 2025-12-22 整合优化：先生成高购买意图关键词
   // 🆕 v4.16: 店铺链接不生成高购买意图关键词
@@ -1197,12 +1199,16 @@ export async function clusterKeywordsByIntent(
 
   if (pageType === 'product') {
     console.log(`🎯 生成高购买意图关键词: ${highIntentKeywords.length} 个`)
+    await progress?.({ phase: 'cluster', message: `语义聚类：生成高意图词(${highIntentKeywords.length})` })
   }
 
   // 🔥 2025-12-23 修复：查询高购买意图词的真实搜索量
   let highIntentKeywordsWithVolume: string[] = highIntentKeywords
   if (targetCountry && targetLanguage) {
     try {
+      if (highIntentKeywords.length > 0) {
+        await progress?.({ phase: 'cluster', message: `语义聚类：查询高意图词搜索量(${highIntentKeywords.length})` })
+      }
       console.log(`📊 查询高购买意图词搜索量: ${highIntentKeywords.length} 个关键词`)
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
       // 🔧 修复(2025-12-26): 支持服务账号模式
@@ -1230,18 +1236,21 @@ export async function clusterKeywordsByIntent(
         // API 明确返回了不可用原因（服务账号/开发者token限制），保留所有关键词
         validKeywords = highIntentKeywords
         console.log('⚠️ 搜索量数据不可用（可能是服务账号或 developer token 无 Basic/Standard access），保留所有关键词')
+        await progress?.({ phase: 'cluster', message: `语义聚类：高意图词保留(搜索量不可用) ${validKeywords.length}/${highIntentKeywords.length}` })
       } else if (hasAnyVolume) {
         // API 正常返回，只保留有搜索量的关键词
         validKeywords = metricsResults
           .filter((kw: any) => kw.avgMonthlySearches > 0)
           .map((kw: any) => kw.keyword)
         console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
+        await progress?.({ phase: 'cluster', message: `语义聚类：高意图词保留 ${validKeywords.length}/${highIntentKeywords.length}` })
       } else {
         // 🔧 修复(2026-01-21): API正常返回但所有关键词搜索量为0
         // 这说明这些模板化关键词组合没有真实搜索量（小众品牌常见情况）
         // 不应保留这些无效关键词，而是返回空列表
         validKeywords = []
         console.log(`ℹ️ 所有高购买意图词搜索量为0（模板化关键词无真实搜索量），不使用这些关键词`)
+        await progress?.({ phase: 'cluster', message: `语义聚类：高意图词为0，使用原始关键词` })
       }
 
       // 更新高意图关键词列表
@@ -1251,9 +1260,11 @@ export async function clusterKeywordsByIntent(
       }
     } catch (error: any) {
       console.warn(`⚠️ 高购买意图词搜索量查询失败: ${error.message}，使用原始关键词`)
+      await progress?.({ phase: 'cluster', message: `语义聚类：高意图词搜索量失败，使用原始关键词` })
     }
   } else {
     console.log(`ℹ️ 未提供目标国家/语言，跳过高购买意图词搜索量查询`)
+    await progress?.({ phase: 'cluster', message: `语义聚类：跳过高意图词搜索量(无国家/语言)` })
   }
 
   // 将高购买意图关键词也加入聚类输入
@@ -1269,12 +1280,14 @@ export async function clusterKeywordsByIntent(
   if (!needsBatching) {
     // 小批量：直接处理（原逻辑）
     console.log(`📝 小批量模式：直接处理 ${allKeywordsForClustering.length} 个关键词`)
+    await progress?.({ phase: 'cluster', message: `语义聚类：小批量处理(${allKeywordsForClustering.length})` })
     return await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId, pageType)
   }
 
   // 大批量：分批处理（有限并发）
   const MAX_CONCURRENT_BATCHES = 3
   console.log(`🚀 大批量模式：将 ${allKeywordsForClustering.length} 个关键词分成 ${batchCount} 个批次并发处理 (最大并发 ${MAX_CONCURRENT_BATCHES})`)
+  await progress?.({ phase: 'cluster', message: `语义聚类：分批处理(${batchCount}批)` })
 
   // 1. 分批
   const batches: string[][] = []
@@ -1297,12 +1310,19 @@ export async function clusterKeywordsByIntent(
     try {
       // 并发处理批次（限制最大并发）
       const batchResults: KeywordBuckets[] = new Array(batches.length)
+      let completed = 0
       let nextIndex = 0
 
       const worker = async () => {
         while (true) {
           const current = nextIndex++
           if (current >= batches.length) break
+          await progress?.({
+            phase: 'cluster',
+            current: completed,
+            total: batchCount,
+            message: `语义聚类：开始批次 ${current + 1}/${batchCount} (${batches[current].length}个)`
+          })
           batchResults[current] = await clusterBatchKeywords(
             batches[current],
             brandName,
@@ -1315,6 +1335,13 @@ export async function clusterKeywordsByIntent(
             console.error(`❌ 批次 ${current + 1} 失败:`, error.message)
             throw error
           })
+          completed += 1
+          await progress?.({
+            phase: 'cluster',
+            current: completed,
+            total: batchCount,
+            message: `语义聚类：完成批次 ${current + 1}/${batchCount}`
+          })
         }
       }
 
@@ -1323,6 +1350,7 @@ export async function clusterKeywordsByIntent(
       await Promise.all(workers)
 
       // 3. 合并结果
+      await progress?.({ phase: 'cluster', message: '语义聚类：合并批次结果' })
       const mergedBuckets = mergeBatchResults(batchResults)
 
       // 4. 验证结果（店铺/单品分别处理）
@@ -3032,7 +3060,7 @@ export async function generateOfferKeywordPool(
 
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
   // 🆕 v4.16: 传递 pageType 参数
-  await progress?.({ phase: 'cluster', message: '语义聚类中' })
+  await progress?.({ phase: 'cluster', message: '语义聚类准备中' })
   const buckets = await clusterKeywordsByIntent(
     nonBrandKwStrings,
     offer.brand,
@@ -3040,7 +3068,8 @@ export async function generateOfferKeywordPool(
     userId,
     offer.target_country,  // 🔥 2025-12-23 新增：传递目标国家
     offer.target_language || 'en',  // 🔥 2025-12-23 新增：传递目标语言
-    pageType  // 🆕 v4.16: 传递页面类型
+    pageType,  // 🆕 v4.16: 传递页面类型
+    progress
   )
 
   // 🆕 v4.16: 根据页面类型处理不同的桶结构
