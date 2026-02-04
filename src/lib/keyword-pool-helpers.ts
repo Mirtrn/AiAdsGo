@@ -223,7 +223,8 @@ export async function expandAllKeywords(
   accountId?: number,
   clientId?: string,
   clientSecret?: string,
-  developerToken?: string
+  developerToken?: string,
+  progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
 ): Promise<PoolKeywordData[]> {
   console.log(`\n📋 关键词扩展策略 (v2.0 - 认证类型: ${authType}):`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
@@ -244,7 +245,8 @@ export async function expandAllKeywords(
       accountId,
       clientId,
       clientSecret,
-      developerToken
+      developerToken,
+      progress
     })
   } else {
     if (!offer || !userId) {
@@ -257,7 +259,8 @@ export async function expandAllKeywords(
       targetCountry,
       targetLanguage,
       offer,
-      userId
+      userId,
+      progress
     })
   }
 }
@@ -281,6 +284,7 @@ interface OAuthExpandParams {
   clientId?: string
   clientSecret?: string
   developerToken?: string
+  progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
 }
 
 /**
@@ -307,7 +311,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     accountId,
     clientId,
     clientSecret,
-    developerToken
+    developerToken,
+    progress
   } = params
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
@@ -339,7 +344,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         targetCountry,
         targetLanguage,
         offer,
-        userId
+        userId,
+        progress
       })
     }
     return fallbackKeywords
@@ -383,6 +389,12 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   try {
     // 迭代查询Keyword Planner
     for (let round = 1; round <= maxRounds; round++) {
+      await progress?.({
+        phase: 'expand-round',
+        current: round,
+        total: maxRounds,
+        message: `关键词池扩展 Round ${round}/${maxRounds}`
+      })
       console.log(`\n   📊 Round ${round}/${maxRounds}: Keyword Planner 查询`)
       console.log(`      种子词: ${seedKeywords.slice(0, 5).join(', ')}${seedKeywords.length > 5 ? '...' : ''}`)
 
@@ -400,7 +412,16 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         clientSecret,
         developerToken,
         maxKeywords: DEFAULTS.maxKeywords,
-        minSearchVolume: DEFAULTS.minSearchVolume
+        minSearchVolume: DEFAULTS.minSearchVolume,
+        onProgress: progress
+          ? (info: { message: string; current?: number; total?: number }) =>
+              progress({
+                phase: 'volume-batch',
+                current: info.current,
+                total: info.total,
+                message: `关键词池搜索量 Round ${round}/${maxRounds} · ${info.message}`
+              })
+          : undefined
       })
 
       console.log(`      返回 ${results.length} 个关键词`)
@@ -513,7 +534,18 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           brandSeedKeywords.map(kw => kw.keyword),
           targetCountry,
           targetLanguage,
-          userId
+          userId,
+          undefined,
+          undefined,
+          progress
+            ? (info: { message: string; current?: number; total?: number }) =>
+                progress({
+                  phase: 'seed-volume',
+                  current: info.current,
+                  total: info.total,
+                  message: `品牌词搜索量 ${info.current ?? 0}/${info.total ?? 0}`
+                })
+            : undefined
         )
 
         // 更新品牌词搜索量
@@ -681,6 +713,7 @@ interface ServiceAccountExpandParams {
   targetLanguage: string
   offer: Offer
   userId: number
+  progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
 }
 
 /**
@@ -700,7 +733,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     targetCountry,
     targetLanguage,
     offer,
-    userId
+    userId,
+    progress
   } = params
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
@@ -741,6 +775,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     }
 
     // ========== 阶段1: Google下拉词 ==========
+    await progress?.({
+      phase: 'service-step',
+      current: 1,
+      total: 3,
+      message: '关键词池扩展：Google下拉词 (1/3)'
+    })
     console.log(`\n   📊 阶段1: Google下拉词`)
 
     try {
@@ -787,6 +827,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     }
 
     // ========== 阶段2: 增强提取 ==========
+    await progress?.({
+      phase: 'service-step',
+      current: 2,
+      total: 3,
+      message: '关键词池扩展：增强提取 (2/3)'
+    })
     console.log(`\n   📊 阶段2: 增强提取`)
 
     try {
@@ -832,6 +878,12 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     }
 
     // ========== 阶段3: Google Trends扩展 ==========
+    await progress?.({
+      phase: 'service-step',
+      current: 3,
+      total: 3,
+      message: '关键词池扩展：Google Trends (3/3)'
+    })
     console.log(`\n   📊 阶段3: Google Trends扩展`)
 
     try {

@@ -265,7 +265,8 @@ export async function getKeywordSearchVolumes(
   language: string,
   userId?: number,
   authType?: AuthType,
-  serviceAccountId?: string
+  serviceAccountId?: string,
+  onProgress?: (info: { message: string; current?: number; total?: number }) => Promise<void> | void
 ): Promise<KeywordVolume[]> {
   if (!keywords.length) return []
 
@@ -696,6 +697,16 @@ export async function getKeywordSearchVolumes(
 
                 if (shouldRetry) break
                 if (stopProcessingBatches) break
+
+                if (success) {
+                  try {
+                    await onProgress?.({
+                      message: `搜索量批次 ${batchIndex + 1}/${keywordBatches.length} 完成`,
+                      current: batchIndex + 1,
+                      total: keywordBatches.length
+                    })
+                  } catch {}
+                }
 
                 // Delay between batches
                 if (batchIndex < keywordBatches.length - 1) {

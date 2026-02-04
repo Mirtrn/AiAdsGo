@@ -99,7 +99,68 @@ export async function executeAdCreativeGeneration(
         WHERE id = ?
       `, [task.id])
 
-      keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false)
+      type KeywordPoolProgressInfo = {
+        phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'
+        message: string
+        current?: number
+        total?: number
+      }
+
+      const reportKeywordPoolProgress = (() => {
+        let lastProgress = 5
+        let lastMessage = ''
+        let lastUpdateAt = 0
+        const minIntervalMs = 800
+
+        const computeProgress = (info: KeywordPoolProgressInfo): number => {
+          const ratio = info.current && info.total ? info.current / info.total : undefined
+          switch (info.phase) {
+            case 'seed-volume':
+              return 6
+            case 'expand-round':
+              return 6 + (ratio ? Math.floor(ratio * 2) : 0) // 6-8
+            case 'volume-batch':
+              return 7 + (ratio ? Math.floor(ratio * 2) : 0) // 7-9
+            case 'service-step':
+              return 6 + (ratio ? Math.floor(ratio * 2) : 0) // 6-8
+            case 'filter':
+            case 'cluster':
+            case 'save':
+              return 9
+            default:
+              return 6
+          }
+        }
+
+        return async (info: KeywordPoolProgressInfo) => {
+          const now = Date.now()
+          if (now - lastUpdateAt < minIntervalMs && info.message === lastMessage) return
+
+          const nextProgress = Math.min(
+            9,
+            Math.max(lastProgress, computeProgress(info))
+          )
+          lastProgress = nextProgress
+          lastMessage = info.message
+          lastUpdateAt = now
+
+          const message = info.message.startsWith('关键词池')
+            ? info.message
+            : `关键词池：${info.message}`
+
+          try {
+            await db.exec(`
+              UPDATE creative_tasks
+              SET stage = 'preparing', progress = ?, message = ?, updated_at = ${nowFunc}
+              WHERE id = ?
+            `, [nextProgress, message, task.id])
+          } catch (error: any) {
+            console.warn(`⚠️ 关键词池进度更新失败: ${error?.message || String(error)}`)
+          }
+        }
+      })()
+
+      keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false, reportKeywordPoolProgress)
 
       // ✅ KISS-3类型：只生成 A / B(含C) / D(含S) 三种创意
       // synthetic=true 为旧版前端兼容：映射为 D 类型（不再单独生成S桶）

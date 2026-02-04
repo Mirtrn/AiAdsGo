@@ -1938,6 +1938,7 @@ export async function expandKeywordsWithSeeds(params: {
   serviceAccountId?: string
   minSearchVolume?: number
   maxKeywords?: number
+  onProgress?: (info: { message: string; current?: number; total?: number }) => Promise<void> | void
 }): Promise<UnifiedKeywordData[]> {
   const {
     expansionSeeds,
@@ -1955,7 +1956,8 @@ export async function expandKeywordsWithSeeds(params: {
     authType = 'oauth',
     serviceAccountId,
     minSearchVolume = 500,
-    maxKeywords = 100
+    maxKeywords = 100,
+    onProgress
   } = params
 
   console.log(`认证方式: ${authType}`)
@@ -2058,9 +2060,19 @@ export async function expandKeywordsWithSeeds(params: {
 
     if (totalKeywords > 0) {
       // 分批处理，每批最多1000个关键词
+      const totalOuterBatches = Math.ceil(results.length / BATCH_SIZE)
       for (let i = 0; i < results.length; i += BATCH_SIZE) {
         const batch = results.slice(i, i + BATCH_SIZE)
         const batchKeywords = batch.map(kw => kw.keyword)
+
+        const outerBatchIndex = Math.floor(i / BATCH_SIZE) + 1
+        try {
+          await onProgress?.({
+            message: `精确搜索量批次 ${outerBatchIndex}/${totalOuterBatches}`,
+            current: outerBatchIndex,
+            total: totalOuterBatches
+          })
+        } catch {}
 
         console.log(`   📊 查询批次 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalKeywords / BATCH_SIZE)}: ${batchKeywords.length} 个关键词`)
 
@@ -2069,7 +2081,17 @@ export async function expandKeywordsWithSeeds(params: {
             batchKeywords,
             country,
             language,
-            userId
+            userId,
+            undefined,
+            undefined,
+            onProgress
+              ? (info: { message: string; current?: number; total?: number }) =>
+                  onProgress({
+                    message: `精确搜索量 ${outerBatchIndex}/${totalOuterBatches} · ${info.message}`,
+                    current: info.current,
+                    total: info.total
+                  })
+              : undefined
           )
 
           if (volumes.some((vol: any) =>

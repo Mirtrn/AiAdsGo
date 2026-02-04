@@ -40,6 +40,12 @@ const KEYWORD_CLUSTERING_FALLBACK_MODEL = 'gemini-2.5-flash'
 
 type GeminiGenerateParams = Parameters<typeof generateContent>[0]
 type GeminiGenerateResult = Awaited<ReturnType<typeof generateContent>>
+type KeywordPoolProgressReporter = (info: {
+  phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'
+  message: string
+  current?: number
+  total?: number
+}) => Promise<void> | void
 
 function isGeminiTimeoutError(error: unknown): boolean {
   if (!error) return false
@@ -2467,9 +2473,11 @@ export async function deleteKeywordPool(offerId: number): Promise<void> {
 export async function generateOfferKeywordPool(
   offerId: number,
   userId: number,
-  allKeywords?: string[]
+  allKeywords?: string[],
+  progress?: KeywordPoolProgressReporter
 ): Promise<OfferKeywordPool> {
   console.log(`\n📦 开始生成 Offer #${offerId} 的关键词池`)
+  await progress?.({ phase: 'seed-volume', message: '开始生成关键词池' })
 
   // 1. 获取 Offer 信息
   const offer = await findOfferById(offerId, userId)
@@ -2516,13 +2524,25 @@ export async function generateOfferKeywordPool(
     const auth = await getUserAuthType(userId)
 
     try {
+      await progress?.({ phase: 'seed-volume', message: `初始关键词搜索量查询中` })
+      const volumeProgress = progress
+        ? (info: { message: string; current?: number; total?: number }) =>
+            progress({
+              phase: 'seed-volume',
+              current: info.current,
+              total: info.total,
+              message: `初始关键词搜索量 ${info.current ?? 0}/${info.total ?? 0}`
+            })
+        : undefined
+
       const volumes = await getKeywordSearchVolumes(
         allKeywords,
         offer.target_country,
         offer.target_language || 'en',
         userId,
         auth.authType,
-        auth.serviceAccountId
+        auth.serviceAccountId,
+        volumeProgress
       )
 
       initialKeywords = volumes.map(v => ({
@@ -2549,7 +2569,7 @@ export async function generateOfferKeywordPool(
       }))
     }
   } else {
-    initialKeywords = await extractKeywordsFromOffer(offerId, userId)
+    initialKeywords = await extractKeywordsFromOffer(offerId, userId, progress)
   }
 
   if (initialKeywords.length === 0) {
@@ -2705,7 +2725,8 @@ export async function generateOfferKeywordPool(
     accountId,
     clientId,
     clientSecret,
-    developerToken
+    developerToken,
+    progress
   )
 
   // 4. 🆕 智能过滤（竞品+品类+搜索量+地理位置）
@@ -2763,6 +2784,7 @@ export async function generateOfferKeywordPool(
   }
 
   console.log(`📝 最终过滤后关键词数: ${finalFilteredKeywords.length}`)
+  await progress?.({ phase: 'filter', message: '关键词过滤完成' })
 
   // 5. 分离纯品牌词和非品牌词
   const keywordStrings = finalFilteredKeywords.map(kw => kw.keyword)
@@ -2841,13 +2863,24 @@ export async function generateOfferKeywordPool(
       try {
         const { getKeywordSearchVolumes } = await import('./keyword-planner')
         const auth = await getUserAuthType(userId)
+        await progress?.({ phase: 'seed-volume', message: '品牌词搜索量查询中' })
+        const volumeProgress = progress
+          ? (info: { message: string; current?: number; total?: number }) =>
+              progress({
+                phase: 'seed-volume',
+                current: info.current,
+                total: info.total,
+                message: `品牌词搜索量 ${info.current ?? 0}/${info.total ?? 0}`
+              })
+          : undefined
         const volumes = await getKeywordSearchVolumes(
           pureBrandKeywordsForFilter,
           offer.target_country,
           offer.target_language || 'en',
           userId,
           auth.authType,
-          auth.serviceAccountId
+          auth.serviceAccountId,
+          volumeProgress
         )
 
         volumes.forEach(vol => {
@@ -2899,6 +2932,7 @@ export async function generateOfferKeywordPool(
 
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
   // 🆕 v4.16: 传递 pageType 参数
+  await progress?.({ phase: 'cluster', message: '语义聚类中' })
   const buckets = await clusterKeywordsByIntent(
     nonBrandKwStrings,
     offer.brand,
@@ -2973,6 +3007,7 @@ export async function generateOfferKeywordPool(
     storeBucketSData = injectedStore.bucketSData
 
     // 9. 保存到数据库（包含店铺分桶）
+    await progress?.({ phase: 'save', message: '保存关键词池' })
     const pool = await saveKeywordPoolWithData(
       offerId,
       userId,
@@ -3055,6 +3090,7 @@ export async function generateOfferKeywordPool(
     bucketDData = injectedProduct.bucketDData
 
     // 9. 保存到数据库
+    await progress?.({ phase: 'save', message: '保存关键词池' })
     const pool = await saveKeywordPoolWithData(
       offerId,
       userId,
@@ -3084,7 +3120,8 @@ export async function generateOfferKeywordPool(
 export async function getOrCreateKeywordPool(
   offerId: number,
   userId: number,
-  forceRegenerate: boolean = false
+  forceRegenerate: boolean = false,
+  progress?: KeywordPoolProgressReporter
 ): Promise<OfferKeywordPool> {
   // 检查现有池
   if (!forceRegenerate) {
@@ -3096,14 +3133,18 @@ export async function getOrCreateKeywordPool(
   }
 
   // 生成新池
-  return generateOfferKeywordPool(offerId, userId)
+  return generateOfferKeywordPool(offerId, userId, undefined, progress)
 }
 
 /**
  * 从 Offer 现有数据提取关键词
  * 🔥 2025-12-16升级：返回 PoolKeywordData[]，保留完整元数据
  */
-async function extractKeywordsFromOffer(offerId: number, userId: number): Promise<PoolKeywordData[]> {
+async function extractKeywordsFromOffer(
+  offerId: number,
+  userId: number,
+  progress?: KeywordPoolProgressReporter
+): Promise<PoolKeywordData[]> {
   const db = await getDatabase()
   const keywordMap = new Map<string, PoolKeywordData>()
 
@@ -3280,6 +3321,7 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
   // 🔧 修复(2026-01-21): 查询提取关键词的搜索量
   if (keywords.length > 0) {
     console.log(`📊 查询 ${keywords.length} 个提取关键词的搜索量...`)
+    await progress?.({ phase: 'seed-volume', message: `初始关键词搜索量查询中` })
 
     try {
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
@@ -3296,13 +3338,24 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
       )
 
       if (offer) {
+        const volumeProgress = progress
+          ? (info: { message: string; current?: number; total?: number }) =>
+              progress({
+                phase: 'seed-volume',
+                current: info.current,
+                total: info.total,
+                message: `初始关键词搜索量 ${info.current ?? 0}/${info.total ?? 0}`
+              })
+          : undefined
+
         const volumes = await getKeywordSearchVolumes(
           keywords.map(k => k.keyword),
           offer.target_country,
           offer.target_language || 'en',
           userId,
           auth.authType,
-          auth.serviceAccountId
+          auth.serviceAccountId,
+          volumeProgress
         )
 
         // 更新搜索量
