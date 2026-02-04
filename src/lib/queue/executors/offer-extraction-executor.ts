@@ -322,9 +322,17 @@ export async function executeOfferExtraction(
       SELECT batch_id, offer_id FROM offer_tasks WHERE id = ?
     `, [task.id])
 
-    const pageTypeToPersist = (pageType === 'store' || pageType === 'product')
-      ? pageType
-      : (extractResult.data.pageType || 'product')
+    const extractedPageType = (extractResult.data.pageType === 'store' || extractResult.data.pageType === 'product')
+      ? extractResult.data.pageType
+      : null
+    const pageTypeOverride = (pageType === 'store' || pageType === 'product') ? pageType : null
+    const pageTypeAdjusted = extractResult.data.pageTypeAdjusted === true
+    if (pageTypeAdjusted && pageTypeOverride && extractedPageType && pageTypeOverride !== extractedPageType) {
+      console.warn(`⚠️ page_type已被系统修正: override=${pageTypeOverride} → detected=${extractedPageType}`)
+    }
+    const pageTypeToPersist = pageTypeAdjusted
+      ? (extractedPageType || pageTypeOverride || 'product')
+      : (pageTypeOverride || extractedPageType || 'product')
     const supplementalPrices = Array.isArray((extractResult.data as any).supplementalProducts)
       ? (extractResult.data as any).supplementalProducts.map((p: any) => p?.productPrice)
       : []
