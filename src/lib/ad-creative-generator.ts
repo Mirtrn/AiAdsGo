@@ -1764,6 +1764,8 @@ ${hooksList}
   variables.verified_facts_section = verifiedFacts.length
     ? `\n## ✅ VERIFIED FACTS (Only use these claims; do NOT invent)\n${verifiedFacts.join('\n')}\n`
     : `\n## ✅ VERIFIED FACTS (Only use these claims; do NOT invent)\n- (No verified facts provided. Do NOT use numbers, discounts, or guarantees.)\n`
+  const hasVerifiedFacts = verifiedFacts.length > 0
+  const hasPromoEvidence = !!(discount || activePromotions.length > 0 || currentPrice || originalPrice)
 
   // 🔥 Build promotion_section（v2.1新增）
   let promotion_section = ''
@@ -1893,7 +1895,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // Build all dynamic guidance sections
   variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
   variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords, featureSource)
-  variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions)
+  variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions, hasPromoEvidence)
   variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
   variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability)
 
@@ -1943,7 +1945,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     aiReviews
   )
 
-  variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions)
+  variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions, hasVerifiedFacts)
   variables.exclude_keywords_section = excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''
 
   // 🎯 新增：AI关键词section
@@ -2086,10 +2088,10 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 \`\`\`json
 {
   "headlines": [
-    {"text": "...", "type": "brand|feature|promo|cta|urgency|social_proof|question|emotional", "length": N}
+    {"text": "...", "type": "brand", "length": N}
   ],
   "descriptions": [
-    {"text": "...", "type": "feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length": N}
+    {"text": "...", "type": "feature-benefit-cta", "length": N}
   ],
   "keywords": ["keyword1", "keyword2", ...],
   "callouts": ["..."],
@@ -2099,6 +2101,11 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   "theme": "..."
 }
 \`\`\`
+
+**TYPE RULES (CRITICAL):**
+- headlines[].type 必须是单一值，仅能从以下选一个：brand / feature / promo / cta / urgency / social_proof / question / emotional
+- descriptions[].type 必须是单一值，仅能从以下选一个：feature-benefit-cta / problem-solution-proof / offer-urgency-trust / usp-differentiation
+- 禁止使用“|”拼接多个类型
 
 **STRICT COUNT REQUIREMENTS (MUST MATCH EXACTLY):**
 - Headlines: EXACTLY 15 items, each ≤ 30 chars
@@ -2253,61 +2260,51 @@ function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, 
 `
 }
 
-function buildHeadlinePromoGuidance(discount: string | null, activePromotions: any[]): string {
-  // 🔥 修复（2025-12-23）：强化价格优势量化，必须使用具体金额
+function buildHeadlinePromoGuidance(discount: string | null, activePromotions: any[], hasPromoEvidence: boolean): string {
+  // 🔥 修复（2026-02-04）：无证据时禁止要求量化优惠，避免与Evidence-Only冲突
+  if (!hasPromoEvidence) {
+    return `- Promo (3): If there is NO verified promo/price evidence, do NOT mention discounts, prices, or savings.
+  * Use value-focused, non-numeric wording only (e.g., "Smart Value Picks", "Quality That Lasts", "Designed for Modern Homes")`
+  }
+
   let promoGuidance = ''
 
   if (discount) {
-    // 解析折扣信息
-    const percentMatch = discount.match(/(\d+)%/)
-    const amountMatch = discount.match(/[£$€]?\s*(\d+\.?\d*)/)
+    const hasPercent = /\d+%/.test(discount)
+    const hasAmount = /[£$€]\s*\d+|\d+\s*(?:USD|GBP|EUR)/i.test(discount)
 
-    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: MUST use QUANTIFIED savings in headlines
-
-  * 🎯 **PRIMARY REQUIREMENT**: At least 2 headlines MUST use SPECIFIC savings amounts, NOT just percentages
-  * ✅ GOOD examples:
-  *   - "Save £170 Today" (specific amount)
-  *   - "Only £499 - Save £170" (current price + savings)
-  *   - "£170 Off This Week" (discount amount)
-  *   - "Was £669, Now £499" (original + current price)
-  * ❌ BAD examples:
-  *   - "20% Off" (no specific amount)
-  *   - "Save 20%" (no specific amount)
-  *   - "Discount Applied" (vague)
-
-  * 🎯 If discount >15% OR has specific savings amount:
-  *   - "Save £170 Today" (savings amount focus)
-  *   - "Reolink NVR Kit: Save £170" (brand + savings)
-  *   - "8 Camera 4K System - Only £499" (product + price)
-
-  * 🎯 If only percentage discount:
-  *   - MUST calculate or estimate a specific savings amount based on typical product price range
-  *   - Example: "Save 20% - £170 Off" (percentage + amount)
-
-  * 🎯 **PRICE COMPARISON**: Use price anchoring when possible:
-  *   - "Was £669, Now £499"
-  *   - "Save £170 (25% Off) - Only £499"
-  *   - "Best Value: £499 vs £669 elsewhere"`
+    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: Use ONLY VERIFIED savings/price data
+  * ✅ Use the exact amount/price/percent from VERIFIED FACTS. Do NOT estimate or invent.`
+    if (hasAmount) {
+      promoGuidance += `
+  * ✅ Examples (amount verified):
+  *   - "Save £170 Today"
+  *   - "Only £499 - Save £170"
+  *   - "Was £669, Now £499"`
+    }
+    if (hasPercent) {
+      promoGuidance += `
+  * ✅ Examples (percent verified):
+  *   - "20% Off Today"
+  *   - "Save 20% This Week"`
+    }
+    promoGuidance += `
+  * ❌ Avoid: inventing amounts not in VERIFIED FACTS`
   } else if (activePromotions.length > 0) {
-    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: MUST quantify savings for promotion "${activePromotions[0].description}"
-  * Example: "Save £170 with ${activePromotions[0].description || 'this offer'}" or "${activePromotions[0].description} - Save £170"
-  * Must include specific savings amount when possible`
+    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: Use ONLY VERIFIED promotion wording
+  * Example: "${activePromotions[0].description}" (verbatim or shortened)
+  * If the promotion text includes numbers/discounts, you may use them. Otherwise, avoid adding numbers.`
   } else {
-    promoGuidance = `- Promo (3): **P1 REQUIRED**: ALL promo headlines MUST include QUANTIFIED savings
-  * Use specific amounts: "Save £170", "£100 Off", "Only £499"
-  * Avoid vague terms: "Discount", "Sale", "Off" alone`
+    promoGuidance = `- Promo (3): Use ONLY VERIFIED price info (if available). Avoid any invented discounts or numbers.`
   }
 
   promoGuidance += `
   * IMPORTANT: Each promo headline must use a DIFFERENT promotional angle
   * ✅ Different angles:
-  *   - "Save £170 Today" (savings amount)
-  *   - "Was £669, Now £499" (price anchoring)
-  *   - "Best Price: £499 - Save £170" (value focus)
-  * ❌ Too similar (avoid):
-  *   - "Save £170", "Save 20%", "£170 Off" (mix percentage vs amount)
-  *   - "Save £170", "Save £170 Today", "Save £170 Now" (too similar)
-`
+  *   - Verified savings/price angle (if available)
+  *   - Verified price anchoring (if available)
+  *   - Value-focused angle (non-numeric if needed)
+  * ❌ Too similar (avoid): same wording with only tiny changes`
 
   return promoGuidance
 }
@@ -2368,7 +2365,7 @@ function buildHeadlineUrgencyGuidance(availability: string | null): string {
 function buildDescription1Guidance(badge: string | null, salesRank: string | null): string {
   return `- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
   * Focus: What makes this product/brand special (unique value proposition)
-  * Example: "Award-Winning Tech. Rated 4.8 stars by 50K+ Happy Customers."
+  * Example: "Premium design. Built for everyday comfort."
   * ❌ AVOID: Repeating "shop", "buy", "get" from other descriptions
 `
 }
@@ -2376,7 +2373,7 @@ function buildDescription1Guidance(badge: string | null, salesRank: string | nul
 function buildDescription2Guidance(primeEligible: boolean, activePromotions: any[]): string {
   return `- **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}${activePromotions.length > 0 ? `. 🎯 **P2 CRITICAL**: MUST mention promotion "${activePromotions[0].description}"${activePromotions[0].code ? ` with code "${activePromotions[0].code}"` : ''}. Example: "Save ${activePromotions[0].description} - Shop Now!"` : ''}
   * Focus: Urgency + convenience + trust signal (action-focused)
-  * Example: "Shop Now for Fast, Free Delivery. Easy Returns Guaranteed."
+  * Example: "Shop now for curated styles. Explore the collection today."
   * ❌ AVOID: Using the same CTA verb as Description 1 or 3
 `
 }
@@ -2384,7 +2381,7 @@ function buildDescription2Guidance(primeEligible: boolean, activePromotions: any
 function buildDescription3Guidance(useCases: string[], userProfiles: Array<{profile: string; indicators?: string[]}>): string {
   return `- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **USE CASES**: Reference real scenarios: ${useCases.slice(0, 2).join(', ')}` : ''}${userProfiles.length > 0 ? `. **TARGET PERSONAS**: Speak to: ${userProfiles.slice(0, 2).map(p => p.profile).join(', ')}` : ''}
   * Focus: Technical specs, capabilities, or versatility (feature-focused)
-  * Example: "4K Resolution. Solar Powered. Works Rain or Shine."
+  * Example: "Sleek finishes. Smart storage. Designed for modern homes."
   * ❌ AVOID: Mentioning "award", "rated", "trusted" from other descriptions
 `
 }
@@ -2393,8 +2390,8 @@ function buildDescription4Guidance(topReviews: string[], hotInsights: any, topPr
   return `- **Description 4 (Trust + Social Proof)**: Customer validation or support${topReviews.length > 0 ? `. 🎯 **P0 OPTIMIZATION - TOP REVIEWS**: MUST quote 1-2 real customer reviews for credibility: ${topReviews.slice(0, 2).map(r => `"${r.length > 50 ? r.substring(0, 47) + '...' : r}"`).join(' or ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: ${sentimentDistribution.positive}% positive from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}` : ''}
   * 🎯 **P0 CRITICAL**: If TOP REVIEWS available, incorporate authentic customer quotes for credibility (keep ≤90 chars)
   * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
-  * Example with review: "Works perfectly!" - 5★ Review. Trusted by 10K+ Buyers.
-  * Example without review: "Trusted by 100K+ Buyers. 30-Day Money-Back Promise."
+  * Example with review: "Works perfectly!" - Customer Review. Shop with confidence.
+  * Example without review: "Trusted for quality and style. Explore the collection today."
   * ❌ AVOID: Repeating "fast", "free", "easy" from other descriptions
 `
 }
@@ -2436,7 +2433,7 @@ function buildReviewDataSummary(
   return parts.length > 0 ? parts.join('; ') : ''
 }
 
-function buildCalloutGuidance(salesRank: string | null, primeEligible: boolean, availability: string | null, badge: string | null, activePromotions: any[]): string {
+function buildCalloutGuidance(salesRank: string | null, primeEligible: boolean, availability: string | null, badge: string | null, activePromotions: any[], hasVerifiedFacts: boolean): string {
   const parts: string[] = []
 
   if (salesRank) {
@@ -2449,7 +2446,9 @@ function buildCalloutGuidance(salesRank: string | null, primeEligible: boolean, 
     }
   }
 
-  parts.push(primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping')
+  if (primeEligible) {
+    parts.push('- **MUST include**: "Prime Free Shipping"')
+  }
 
   if (availability && !availability.toLowerCase().includes('out of stock')) {
     parts.push('- **MUST include**: "In Stock Now"')
@@ -2463,7 +2462,11 @@ function buildCalloutGuidance(salesRank: string | null, primeEligible: boolean, 
     parts.push(`- 🎯 **P2 CRITICAL - MUST include**: Promotion callout (e.g., "${activePromotions[0].description.substring(0, 22)}..." or "Limited Deal")`)
   }
 
-  parts.push('- 24/7 Support, Money Back Guarantee, etc.')
+  if (!hasVerifiedFacts) {
+    parts.push('- ⚠️ No verified facts: avoid numbers, discounts, guarantees, shipping promises, or time claims.')
+  }
+
+  parts.push('- Safe alternatives (non-numeric): "Official Store", "Modern Designs", "Curated Collections", "Quality Materials", "Shop New Arrivals", "Easy Browsing"')
 
   return parts.join('\n')
 }
@@ -2676,7 +2679,11 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
         type: 'OBJECT',
         properties: {
           text: { type: 'STRING', maxLength: 30 },
-          type: { type: 'STRING' },
+          type: {
+            type: 'STRING',
+            maxLength: 20,
+            enum: ['brand', 'feature', 'promo', 'cta', 'urgency', 'social_proof', 'question', 'emotional']
+          },
           length: { type: 'INTEGER', maximum: 30 },
           group: { type: 'STRING' }
         },
@@ -2691,7 +2698,11 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
         type: 'OBJECT',
         properties: {
           text: { type: 'STRING', maxLength: 90 },
-          type: { type: 'STRING' },
+          type: {
+            type: 'STRING',
+            maxLength: 30,
+            enum: ['feature-benefit-cta', 'problem-solution-proof', 'offer-urgency-trust', 'usp-differentiation']
+          },
           length: { type: 'INTEGER', maximum: 90 },
           group: { type: 'STRING' }
         },
