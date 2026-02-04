@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 600  // 10分钟
+export const maxDuration = 1200  // 20分钟
 
 interface CreativeTask {
   id: string
@@ -159,7 +159,7 @@ export async function GET(
           }
         })
 
-        // 超时保护：10分钟后自动关闭
+        // 超时保护：20分钟后自动关闭
         setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
@@ -172,7 +172,7 @@ export async function GET(
             controller.close()
             isClosed = true
           }
-        }, 600000)
+        }, 20 * 60 * 1000)
       }
     })
 
