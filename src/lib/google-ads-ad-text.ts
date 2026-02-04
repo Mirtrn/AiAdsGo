@@ -95,6 +95,8 @@ export function sanitizeGoogleAdsAdText(text: string, maxLen: number): string {
     .replace(/±/g, '+/-')
     // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
     .replace(/[~～]/g, ' ')
+    // Google Ads policy: SYMBOLS (PROHIBITED) evidence: "；" (fullwidth semicolon)
+    .replace(/[；]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (getGoogleAdsTextEffectiveLength(replaced) <= maxLen) return replaced

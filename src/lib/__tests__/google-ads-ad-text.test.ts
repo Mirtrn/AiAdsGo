@@ -27,6 +27,11 @@ describe('google-ads-ad-text', () => {
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Save 30% Today')
   })
 
+  it('sanitizes fullwidth semicolon to avoid SYMBOLS policy', () => {
+    const text = 'Limited；Offer'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Limited Offer')
+  })
+
   it('sanitizes rsa path values', () => {
     expect(sanitizeGoogleAdsPath('Best ~ Deals', 15)).toBe('Best-Deals')
   })

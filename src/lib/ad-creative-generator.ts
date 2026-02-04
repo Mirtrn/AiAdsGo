@@ -2948,7 +2948,8 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
         '✓', '✔', '✗', '✘',         // 勾选符号
         '❤', '♥',                    // 心形符号
         '⚡', '🔥', '💎',            // 装饰性emoji
-        '👍', '👎'                   // 手势emoji
+        '👍', '👎',                  // 手势emoji
+        '；'                          // 全角分号（SYMBOLS policy）
       ]
 
       let cleaned = text
