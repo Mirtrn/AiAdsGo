@@ -33,10 +33,12 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
+import { DEFAULTS } from './keyword-constants'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
 const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
 const KEYWORD_CLUSTERING_FALLBACK_MODEL = 'gemini-2.5-flash'
+const KEYWORD_CLUSTERING_INPUT_LIMIT = 500
 
 type GeminiGenerateParams = Parameters<typeof generateContent>[0]
 type GeminiGenerateResult = Awaited<ReturnType<typeof generateContent>>
@@ -147,6 +149,21 @@ function getKeywordSourcePriority(source: string | undefined): number {
   if (normalized === 'GOOGLE_SUGGEST') return 3
   if (normalized === 'ENHANCED_EXTRACT') return 4
   return 5
+}
+
+function prioritizeKeywordsForClustering(keywords: PoolKeywordData[]): PoolKeywordData[] {
+  return [...keywords].sort((a, b) => {
+    const sourceRank = getKeywordSourcePriority(a.source) - getKeywordSourcePriority(b.source)
+    if (sourceRank !== 0) return sourceRank
+
+    const volumeDiff = (b.searchVolume || 0) - (a.searchVolume || 0)
+    if (volumeDiff !== 0) return volumeDiff
+
+    const lengthDiff = b.keyword.length - a.keyword.length
+    if (lengthDiff !== 0) return lengthDiff
+
+    return a.keyword.localeCompare(b.keyword)
+  })
 }
 
 function prioritizeBucketKeywords(keywords: PoolKeywordData[]): PoolKeywordData[] {
@@ -2550,7 +2567,7 @@ export async function generateOfferKeywordPool(
   }
   const pageType = resolveOfferPageType(offer)
   let allowPlannerNonBrand = pageType === 'store'
-  const plannerMinSearchVolume = pageType === 'store' ? 10 : undefined
+  const plannerMinSearchVolume = pageType === 'store' ? DEFAULTS.minSearchVolume : undefined
 
   // 1.5 Marketplace场景：尽量补全“品牌官网”，用于Keyword Planner的站点过滤（best-effort）
   try {
@@ -2904,7 +2921,7 @@ export async function generateOfferKeywordPool(
 
   // 转换回 PoolKeywordData[]
   let brandKeywordsData = finalFilteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
-  const nonBrandKeywordsData = finalFilteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
+  let nonBrandKeywordsData = finalFilteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
 
   // 如果注入的品牌词不在 finalFilteredKeywords 中，补一个最小元数据对象，保证 brand_keywords 不为空
   if (brandKeywordsData.length === 0 && brandKwStrings.length > 0) {
@@ -2915,6 +2932,16 @@ export async function generateOfferKeywordPool(
       matchType: 'EXACT' as const,
       isPureBrand: true,
     }))
+  }
+
+  // 🆕 聚类输入硬上限：按来源优先级 + 搜索量 选 Top N
+  if (nonBrandKeywordsData.length > KEYWORD_CLUSTERING_INPUT_LIMIT) {
+    const prioritized = prioritizeKeywordsForClustering(nonBrandKeywordsData)
+    const capped = prioritized.slice(0, KEYWORD_CLUSTERING_INPUT_LIMIT)
+    const cappedSet = new Set(capped.map(item => item.keyword))
+    nonBrandKeywordsData = nonBrandKeywordsData.filter(item => cappedSet.has(item.keyword))
+    nonBrandKwStrings = capped.map(item => item.keyword)
+    console.log(`✂️ 聚类输入裁剪: ${prioritized.length} → ${capped.length} (Top ${KEYWORD_CLUSTERING_INPUT_LIMIT} by source+volume)`)
   }
 
   // 🔧 强化：补齐/更新纯品牌词的真实搜索量（优先使用缓存/Keyword Planner）

@@ -54,6 +54,60 @@ function isCompetitorKeyword(keyword: string, brandName: string): boolean {
   return false
 }
 
+const GENERIC_BRAND_SEED_TOKENS = new Set([
+  'store', 'stores', 'shop', 'shops', 'market', 'marketplace', 'outlet',
+  'online', 'official', 'home', 'furniture', 'fashion', 'product', 'products',
+  'goods', 'warehouse', 'mart', 'depot', 'superstore'
+])
+
+function buildPlannerBrandKeywords(brandName: string, category: string): string[] {
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  if (pureBrandKeywords.length === 0) return []
+
+  const normalizedFull = normalizeGoogleAdsKeyword(brandName) || pureBrandKeywords[0]
+  const normalizedCategory = normalizeGoogleAdsKeyword(category || '') || ''
+  const categoryTokens = new Set(normalizedCategory.split(/\s+/).filter(Boolean))
+
+  const filtered = new Set<string>()
+  const removed: string[] = []
+
+  for (const token of pureBrandKeywords) {
+    const normalizedToken = normalizeGoogleAdsKeyword(token) || token.toLowerCase()
+    if (!normalizedToken) continue
+
+    if (normalizedFull && normalizedToken === normalizedFull) {
+      filtered.add(normalizedToken)
+      continue
+    }
+
+    const tokenParts = normalizedToken.split(/\s+/).filter(Boolean)
+    if (tokenParts.length > 1) {
+      filtered.add(normalizedToken)
+      continue
+    }
+
+    const tokenWord = tokenParts[0]
+    if (!tokenWord) continue
+
+    if (categoryTokens.has(tokenWord) || GENERIC_BRAND_SEED_TOKENS.has(tokenWord)) {
+      removed.push(normalizedToken)
+      continue
+    }
+
+    filtered.add(normalizedToken)
+  }
+
+  if (normalizedFull && !filtered.has(normalizedFull)) {
+    filtered.add(normalizedFull)
+  }
+
+  if (removed.length > 0) {
+    console.log(`   🧹 品牌种子词去泛化: ${pureBrandKeywords.join(', ')} → ${Array.from(filtered).join(', ')} (移除: ${removed.join(', ')})`)
+  }
+
+  return Array.from(filtered)
+}
+
 function buildBrandLikePattern(brand: string): string | null {
   const normalized = normalizeGoogleAdsKeyword(brand)
   if (!normalized) return null
@@ -328,6 +382,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   } = params
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const plannerBrandKeywords = buildPlannerBrandKeywords(brandName, category)
   const fullBrand = normalizeGoogleAdsKeyword(brandName)
   const fullBrandKeywords = fullBrand ? [fullBrand] : []
   const minFullBrandCount = DEFAULTS.minKeywordsTarget
@@ -397,7 +452,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     .map(kw => normalizeGoogleAdsKeyword(kw.keyword))
     .filter(Boolean)
     .filter(kw => containsPureBrand(kw, pureBrandKeywords))
-  const seedKeywordsSet = new Set<string>([...pureBrandKeywords, ...initialBrandSeeds])
+  const seedKeywordsSet = new Set<string>([...plannerBrandKeywords, ...initialBrandSeeds])
   let seedKeywords = Array.from(seedKeywordsSet)
 
   console.log(`   初始种子词: ${seedKeywords.length}个`)
@@ -519,7 +574,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         .sort((a, b) => b.searchVolume - a.searchVolume)
 
       const nextSeedSet = new Set<string>()
-      for (const token of pureBrandKeywords) {
+      for (const token of plannerBrandKeywords) {
         if (nextSeedSet.size >= topN) break
         nextSeedSet.add(token)
       }
