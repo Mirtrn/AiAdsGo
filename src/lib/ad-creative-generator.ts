@@ -55,6 +55,109 @@ function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | 
   return null
 }
 
+const EN_CTA_REGEX = /shop now|buy now|learn more|get|order|sign up|try|start/i
+const EN_CTA_PHRASES = [
+  'Shop Now',
+  'Buy Now',
+  'Learn More',
+  'Order Now',
+  'Get Yours',
+  'Try Now',
+  'Start Now',
+  'Sign Up'
+]
+
+function headlineContainsKeyword(headline: string, keywords: string[]): boolean {
+  const headlineText = headline.toLowerCase()
+  return keywords.some(kw => {
+    const kwLower = kw.toLowerCase()
+    if (headlineText.includes(kwLower)) return true
+    const kwRoot = kwLower.replace(/s$|ing$|ed$/g, '')
+    return kwRoot.length >= 3 && headlineText.includes(kwRoot)
+  })
+}
+
+function enforceEnglishCtas(descriptions: string[], minCount: number, maxLength: number): { updated: string[]; fixed: number } {
+  const updated = [...descriptions]
+  let ctaCount = updated.filter(d => EN_CTA_REGEX.test(d)).length
+  let fixed = 0
+
+  for (let i = 0; i < updated.length && ctaCount < minCount; i += 1) {
+    if (EN_CTA_REGEX.test(updated[i])) continue
+    const base = updated[i].trim().replace(/[.!?]+$/, '')
+    const suffix = EN_CTA_PHRASES[fixed % EN_CTA_PHRASES.length]
+    const candidate = `${base}. ${suffix}`.trim()
+    if (candidate.length <= maxLength) {
+      updated[i] = candidate
+      ctaCount += 1
+      fixed += 1
+      continue
+    }
+    const fallback = `${updated[i].trim()} ${suffix}`.trim()
+    if (fallback.length <= maxLength) {
+      updated[i] = fallback
+      ctaCount += 1
+      fixed += 1
+    }
+  }
+
+  return { updated, fixed }
+}
+
+function enforceKeywordEmbedding(
+  headlines: string[],
+  keywords: string[],
+  minCount: number,
+  maxLength: number,
+  protectedIndexes: number[] = [0]
+): { updated: string[]; fixed: number } {
+  const updated = [...headlines]
+  let embeddedCount = updated.filter(h => headlineContainsKeyword(h, keywords)).length
+  let fixed = 0
+
+  if (embeddedCount >= minCount) {
+    return { updated, fixed }
+  }
+
+  const candidateKeywords = keywords
+    .map(k => k.trim())
+    .filter(k => k.length > 0 && k.length <= 14)
+    .sort((a, b) => a.length - b.length)
+
+  if (candidateKeywords.length === 0) {
+    return { updated, fixed }
+  }
+
+  for (let i = 0; i < updated.length && embeddedCount < minCount; i += 1) {
+    if (protectedIndexes.includes(i)) continue
+    if (/\?$/g.test(updated[i])) continue
+    if (headlineContainsKeyword(updated[i], keywords)) continue
+
+    let replaced = false
+    for (const kw of candidateKeywords) {
+      const prefix = `${kw} ${updated[i]}`.trim()
+      if (prefix.length <= maxLength) {
+        updated[i] = prefix
+        replaced = true
+        break
+      }
+      const suffix = `${updated[i]} ${kw}`.trim()
+      if (suffix.length <= maxLength) {
+        updated[i] = suffix
+        replaced = true
+        break
+      }
+    }
+
+    if (replaced) {
+      embeddedCount += 1
+      fixed += 1
+    }
+  }
+
+  return { updated, fixed }
+}
+
 /**
  * 转义正则表达式特殊字符
  */
@@ -602,6 +705,9 @@ async function buildAdCreativePrompt(
   // 🆕 v4.16: 确定链接类型（含scraped_data兜底）
   const scrapedDataForLinkType = safeParseJson(offer.scraped_data, null)
   const derivedLinkType = deriveLinkTypeFromScrapedData(scrapedDataForLinkType)
+  if (offer.page_type && derivedLinkType && offer.page_type !== derivedLinkType) {
+    console.warn(`⚠️ page_type不一致: offer.page_type=${offer.page_type}, scraped_data.pageType=${derivedLinkType}。将使用 ${derivedLinkType} 作为链接类型。`)
+  }
   const linkType = (() => {
     const explicit = offer.page_type as 'product' | 'store' | null
     if (explicit === 'store') return 'store'
@@ -1226,10 +1332,22 @@ This creative focuses on "${intent || intentEn}" user intent.
   let storeSalesVolumes: string[] = []
   let storeDiscounts: string[] = []
   let supplementalProducts: any[] = []
+  let storePriceRange: string | null = null
+  let storePriceSamples: Array<{ name: string; price: string }> = []
+  let storeDescriptionClaims: string[] = []
 
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
+      const storeDescription = typeof scrapedData.storeDescription === 'string' ? scrapedData.storeDescription : ''
+      if (storeDescription) {
+        const descLower = storeDescription.toLowerCase()
+        if (/free\\s+uk\\s+(delivery|shipping)/i.test(descLower)) {
+          storeDescriptionClaims.push('Free UK delivery')
+        } else if (/free\\s+(delivery|shipping)/i.test(descLower)) {
+          storeDescriptionClaims.push('Free delivery')
+        }
+      }
       hotInsights = scrapedData.hotInsights || null
       supplementalProducts = Array.isArray(scrapedData.supplementalProducts)
         ? scrapedData.supplementalProducts
@@ -1240,6 +1358,15 @@ This creative focuses on "${intent || intentEn}" user intent.
           .slice(0, 5)
           .map((p: any) => p.name || p.productName)
           .filter(Boolean)
+
+        const priceSamples = scrapedData.products
+          .filter((p: any) => p && p.price && (p.name || p.productName))
+          .slice(0, 3)
+          .map((p: any) => ({
+            name: p.name || p.productName,
+            price: p.price
+          }))
+        storePriceSamples = priceSamples
 
         // 🔥 2025-12-10优化：提取销量数据（"1K+ bought in past month"等）
         storeSalesVolumes = scrapedData.products
@@ -1253,6 +1380,19 @@ This creative focuses on "${intent || intentEn}" user intent.
           .slice(0, 3)
           .map((p: any) => p.discount)
         storeDiscounts = [...new Set(storeDiscounts)] // 去重
+
+        const storePriceValues = scrapedData.products
+          .map((p: any) => parsePrice(p?.price))
+          .filter((v: any) => typeof v === 'number' && !Number.isNaN(v)) as number[]
+        if (storePriceValues.length > 0) {
+          const minPrice = Math.min(...storePriceValues)
+          const maxPrice = Math.max(...storePriceValues)
+          if (minPrice > 0 && maxPrice > 0) {
+            storePriceRange = minPrice === maxPrice
+              ? `${minPrice.toFixed(2)}`
+              : `${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}`
+          }
+        }
       }
 
       if (supplementalProducts.length > 0) {
@@ -1322,16 +1462,18 @@ This creative focuses on "${intent || intentEn}" user intent.
           const minPrice = Math.min(...allPriceValues)
           const maxPrice = Math.max(...allPriceValues)
           if (minPrice > 0 && maxPrice > 0) {
-            const range = minPrice === maxPrice
+            storePriceRange = minPrice === maxPrice
               ? `${minPrice.toFixed(2)}`
               : `${minPrice.toFixed(2)}-${maxPrice.toFixed(2)}`
-            extras.push(`STORE PRICE RANGE: ${range}`)
           }
         }
       }
     } catch {}
   }
 
+  if (storePriceRange) {
+    extras.push(`STORE PRICE RANGE: ${storePriceRange}`)
+  }
   // 如果是Store页面，添加热销洞察到Prompt
   if (hotInsights && topProducts.length > 0) {
     extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)} stars, ${hotInsights.avgReviews} reviews)`)
@@ -1436,6 +1578,20 @@ This creative focuses on "${intent || intentEn}" user intent.
   }
   if (storeCategoryKeywords.length > 0) {
     extras.push(`STORE CATEGORIES: ${storeCategoryKeywords.join(', ')}`)
+  }
+
+  if (linkType === 'store') {
+    const uniqueClaims = [...new Set(storeDescriptionClaims)]
+    uniqueClaims.forEach(claim => supplementalVerifiedFacts.push(`- STORE CLAIM: ${claim}`))
+    storePriceSamples.slice(0, 2).forEach(sample => {
+      const name = formatSupplementalName(sample.name)
+      if (name && sample.price) {
+        supplementalVerifiedFacts.push(`- STORE ITEM PRICE: ${name} ${sample.price}`)
+      }
+    })
+    if (storePriceRange) {
+      supplementalVerifiedFacts.push(`- STORE PRICE RANGE: ${storePriceRange}`)
+    }
   }
 
   // 🆕 多单品卖点混合（店铺模式）：强约束提示
@@ -4600,6 +4756,36 @@ export async function generateAdCreative(
   }
   if (finalKeywordCount < 5) {
     console.warn(`⚠️ 警告: 关键词数量 ${finalKeywordCount} < 5，可能影响广告效果`)
+  }
+
+  // ✅ 基础约束修复：CTA 与关键词嵌入率（English）
+  const resolvedLanguage = normalizeLanguageCode(targetLanguage)
+  if (resolvedLanguage === 'en') {
+    const ctaFix = enforceEnglishCtas(result.descriptions, 2, 90)
+    if (ctaFix.fixed > 0) {
+      console.log(`🔧 CTA补强: 修复 ${ctaFix.fixed} 条描述`)
+      result.descriptions = ctaFix.updated
+      if (result.descriptionsWithMetadata) {
+        result.descriptionsWithMetadata = result.descriptionsWithMetadata.map((d, idx) => ({
+          ...d,
+          text: result.descriptions[idx],
+          length: result.descriptions[idx]?.length || d.length
+        }))
+      }
+    }
+
+    const embedFix = enforceKeywordEmbedding(result.headlines, result.keywords, 8, 30, [0])
+    if (embedFix.fixed > 0) {
+      console.log(`🔧 关键词嵌入率补强: 修复 ${embedFix.fixed} 个标题`)
+      result.headlines = embedFix.updated
+      if (result.headlinesWithMetadata) {
+        result.headlinesWithMetadata = result.headlinesWithMetadata.map((h, idx) => ({
+          ...h,
+          text: result.headlines[idx],
+          length: result.headlines[idx]?.length || h.length
+        }))
+      }
+    }
   }
 
   // 修正 sitelinks URL 为真实的 offer URL
