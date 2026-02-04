@@ -1767,6 +1767,7 @@ ${hooksList}
     : `\n## ✅ VERIFIED FACTS (Only use these claims; do NOT invent)\n- (No verified facts provided. Do NOT use numbers, discounts, or guarantees.)\n`
   const hasVerifiedFacts = verifiedFacts.length > 0
   const hasPromoEvidence = !!(discount || activePromotions.length > 0 || currentPrice || originalPrice)
+  const hasUrgencyEvidence = !!availability || activePromotions.some((p: any) => !!p?.validUntil)
 
   // 🔥 Build promotion_section（v2.1新增）
   let promotion_section = ''
@@ -1898,7 +1899,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords, featureSource)
   variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions, hasPromoEvidence)
   variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
-  variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability)
+  variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability, hasUrgencyEvidence)
 
   variables.description_1_guidance = buildDescription1Guidance(badge, salesRank)
   variables.description_2_guidance = buildDescription2Guidance(primeEligible, activePromotions)
@@ -2086,7 +2087,6 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.output_format_section = `
 ## 📋 OUTPUT (JSON only, no markdown):
 
-\`\`\`json
 {
   "headlines": [
     {"text": "...", "type": "brand", "length": N}
@@ -2101,7 +2101,6 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   "path2": "...",
   "theme": "..."
 }
-\`\`\`
 
 **TYPE RULES (CRITICAL):**
 - headlines[].type 必须是单一值，仅能从以下选一个：brand / feature / promo / cta / urgency / social_proof / question / emotional
@@ -2115,7 +2114,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 - Callouts: EXACTLY 6 items, each ≤ 25 chars
 - Sitelinks: EXACTLY 6 items, text ≤ 25, description ≤ 35
 
-**IMPORTANT**: Return ONLY valid JSON. No explanations or markdown outside the JSON block. All content must be in {{target_language}}.`
+**IMPORTANT**: Return ONLY valid JSON. No explanations or markdown. All content must be in {{target_language}}.`
 
   // Substitute all placeholders and return
   return substitutePlaceholders(promptTemplate, variables)
@@ -2320,7 +2319,7 @@ function buildHeadlineCTAGuidance(primeEligible: boolean, purchaseReasons: strin
 `
 }
 
-function buildHeadlineUrgencyGuidance(availability: string | null): string {
+function buildHeadlineUrgencyGuidance(availability: string | null, hasUrgencyEvidence: boolean): string {
   let urgencyText = ''
   let isCritical = false
 
@@ -2343,23 +2342,18 @@ function buildHeadlineUrgencyGuidance(availability: string | null): string {
     }
   }
 
-  // 🔥 修复（2025-12-23）：紧迫感是所有广告的必要元素，必须始终包含
   if (!urgencyText) {
-    urgencyText = `**P1 CRITICAL FOR ALL ADS**: "Order Now", "Limited Time Offer", "Ends Soon", "Today's Deal", "Don't Miss Out"`
+    if (hasUrgencyEvidence) {
+      urgencyText = `Use ONLY verified urgency evidence (stock/expiry) from VERIFIED FACTS or PROMOTION.`
+    } else {
+      urgencyText = `No verified urgency evidence. DO NOT use time/stock/limited claims.`
+    }
   }
 
-  return `- Urgency (2-3): ${urgencyText}
-  * 🎯 **P1 CRITICAL**: ALL ads MUST include urgency elements. At least 2-3 headlines MUST create urgency.
-  * Examples of strong urgency signals:
-  * - "Order Now" (immediate action)
-  * - "Limited Time Offer" (time scarcity)
-  * - "Only 5 Left in Stock" (scarcity - if stock data available)
-  * - "Today's Deal" (daily focus)
-  * - "Don't Miss Out" (FOMO)
-  * - "Ends Soon" (deadline)
-  * - "Act Fast" (prompt action)
-  * IMPORTANT: Each urgency headline must use a DIFFERENT urgency signal
-  * ❌ AVOID: "Limited Stock", "Limited Time", "Limited Offer" (too similar)
+  return `- Urgency (0-3): ${urgencyText}
+  * If verified stock/expiry evidence exists, include 1-2 urgency headlines using those exact facts.
+  * If no verified evidence, skip urgency headlines and use neutral CTAs instead.
+  * ❌ AVOID: unverified time/stock claims ("Limited Time", "Ends Soon", "Only X Left")`
 `
 }
 
