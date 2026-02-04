@@ -124,6 +124,20 @@ function isGoogleAdsFailure(value: unknown): value is GoogleAdsFailure {
   return Boolean(value && typeof value === 'object' && Array.isArray((value as any).errors))
 }
 
+function isAccountNotEnabledError(errors: GoogleAdsError[]): boolean {
+  return errors.some((error) => {
+    const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
+    if (message.includes('not yet enabled') || message.includes('deactivated')) return true
+
+    const errorCode = error.error_code ?? error.errorCode
+    if (!errorCode || typeof errorCode !== 'object') return false
+
+    const values = Object.values(errorCode).map((value) => String(value).toUpperCase())
+    const keys = Object.keys(errorCode).map((key) => key.toUpperCase())
+    return [...values, ...keys].some((value) => value.includes('CUSTOMER_NOT_ENABLED'))
+  })
+}
+
 export function formatGoogleAdsApiError(
   error: unknown,
   opts?: { maxViolatingTexts?: number }
@@ -258,6 +272,11 @@ export function formatGoogleAdsApiError(
 
     const reqPart = requestId ? `；RequestId=${requestId}` : ''
     return `Google Ads 政策审核未通过：${groupSummaries.join('；')}${reqPart}`
+  }
+
+  if (isAccountNotEnabledError(errors)) {
+    const reqPart = requestId ? `；RequestId=${requestId}` : ''
+    return `账号状态异常（未启用/已停用），请联系管理员或在 Google Ads 中恢复后重试。${reqPart}`
   }
 
   const messages = uniq(
