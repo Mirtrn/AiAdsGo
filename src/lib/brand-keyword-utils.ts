@@ -1,22 +1,5 @@
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
-const TITLE_BRAND_PREFIXES = new Set([
-  'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'prof', 'professor',
-])
-
-const DETERMINER_BRAND_PREFIXES = new Set([
-  'the', 'a', 'an',
-])
-
-const GENERIC_BRAND_PREFIXES = new Set([
-  ...TITLE_BRAND_PREFIXES,
-  ...DETERMINER_BRAND_PREFIXES,
-])
-
-const BROAD_FIRST_WORDS = new Set([
-  'real',
-])
-
 export const PRODUCT_WORD_PATTERNS = [
   'pro', 'max', 'ultra', 'plus', 'mini', 'lite', 'air', 's',
   'se', 'x', 'c', 'e', 'a', 'v', 't',
@@ -26,38 +9,11 @@ export const PRODUCT_WORD_PATTERNS = [
   'starter', 'bundle', 'kit', 'set', 'pack'
 ]
 
-function hasBrandConnector(rawBrand: string): boolean {
-  if (!rawBrand) return false
-  const lower = rawBrand.toLowerCase()
-  if (lower.includes('&')) return true
-  return /\b(and)\b/.test(lower)
-}
-
 export function getPureBrandKeywords(brandName: string): string[] {
   const normalizedFull = normalizeGoogleAdsKeyword(brandName || '')
   if (!normalizedFull) return []
 
-  const words = normalizedFull.split(/\s+/).filter(Boolean)
-  const pureBrandKeywords: string[] = [normalizedFull]
-
-  if (words.length > 1) {
-    const first = words[0]
-    const hasConnector = hasBrandConnector(brandName)
-
-    // Skip short tokens for connector-style or overly broad first-word brands.
-    if (!hasConnector) {
-      if (first && TITLE_BRAND_PREFIXES.has(first)) {
-        const meaningful = words.find((w, idx) => idx > 0 && !GENERIC_BRAND_PREFIXES.has(w))
-        if (meaningful) pureBrandKeywords.push(meaningful)
-      } else if (first && DETERMINER_BRAND_PREFIXES.has(first) && words.length > 2) {
-        pureBrandKeywords.push(words.slice(1).join(' '))
-      } else if (first && !GENERIC_BRAND_PREFIXES.has(first) && !BROAD_FIRST_WORDS.has(first)) {
-        pureBrandKeywords.push(first)
-      }
-    }
-  }
-
-  return Array.from(new Set(pureBrandKeywords))
+  return [normalizedFull]
 }
 
 export function containsPureBrand(keyword: string, pureBrandKeywords: string[]): boolean {

@@ -424,11 +424,10 @@ describe('OfferKeywordPool', () => {
 
   // ========== 新增测试：纯品牌词函数 ==========
   describe('getPureBrandKeywords - 多词品牌识别', () => {
-    it('should return full brand name and first word for multi-word brands', () => {
+    it('should return only full brand name for multi-word brands', () => {
       const result = getPureBrandKeywords('Eufy Security')
       expect(result).toContain('eufy security')
-      expect(result).toContain('eufy')
-      expect(result).toHaveLength(2)
+      expect(result).toHaveLength(1)
     })
 
     it('should return only full name for single-word brands', () => {
@@ -440,8 +439,7 @@ describe('OfferKeywordPool', () => {
     it('should handle three-word brands', () => {
       const result = getPureBrandKeywords('Ring Alarm Security')
       expect(result).toContain('ring alarm security')
-      expect(result).toContain('ring')
-      expect(result).toHaveLength(2)
+      expect(result).toHaveLength(1)
     })
 
     it('should be case-insensitive and trim whitespace', () => {
@@ -453,31 +451,24 @@ describe('OfferKeywordPool', () => {
     it('should normalize punctuation and avoid generic prefixes (Dr. Mercola)', () => {
       const result = getPureBrandKeywords('Dr. Mercola')
       expect(result).toContain('dr mercola')
-      expect(result).toContain('mercola')
-      expect(result).not.toContain('dr')
-      expect(result).toHaveLength(2)
+      expect(result).toHaveLength(1)
     })
 
     it('should treat leading determiners as optional for 3+ word brands (The North Face)', () => {
       const result = getPureBrandKeywords('The North Face')
       expect(result).toContain('the north face')
-      expect(result).toContain('north face')
-      expect(result).not.toContain('the')
-      expect(result).toHaveLength(2)
+      expect(result).toHaveLength(1)
     })
 
     it('should avoid broad first-word tokens (Real Relax)', () => {
       const result = getPureBrandKeywords('Real Relax')
       expect(result).toContain('real relax')
-      expect(result).not.toContain('real')
       expect(result).toHaveLength(1)
     })
 
     it('should avoid connector-based short tokens (Bob And Brad)', () => {
       const result = getPureBrandKeywords('Bob And Brad')
       expect(result).toContain('bob and brad')
-      expect(result).not.toContain('bob')
-      expect(result).not.toContain('brad')
       expect(result).toHaveLength(1)
     })
   })
@@ -517,8 +508,7 @@ describe('OfferKeywordPool', () => {
       expect(containsPureBrand('dr. mercola supplements', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('dr_mercola supplements', pureBrandKeywords)).toBe(true)
       expect(containsPureBrand('dr-mercola supplements', pureBrandKeywords)).toBe(true)
-      // 纯品牌词可为“mercola”（不要求包含前缀 Dr）
-      expect(containsPureBrand('mercola supplements', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('mercola supplements', pureBrandKeywords)).toBe(false)
     })
 
     it('should return false for non-brand keywords', () => {
