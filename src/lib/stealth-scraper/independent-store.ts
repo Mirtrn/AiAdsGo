@@ -57,6 +57,34 @@ function cleanText(value: string): string {
   return value.replace(/\s+/g, ' ').replace(/[\u00A0\u200B]/g, ' ').trim()
 }
 
+function normalizeForCompare(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function splitStoreTitleSegments(value: string): string[] {
+  return value
+    .split(/[|\u2013\u2014\-:·•]+/)
+    .map(segment => cleanText(segment))
+    .filter(Boolean)
+}
+
+function isReasonableStoreName(candidate: string): boolean {
+  if (!candidate) return false
+  if (candidate.length < 2 || candidate.length > 80) return false
+  if (!/[A-Za-z]/.test(candidate)) return false
+  const words = candidate.split(/\s+/).filter(Boolean)
+  if (words.length > 8) return false
+  if (isLikelyBlockedTitle(candidate)) return false
+  return true
+}
+
+function containsGenericStoreToken(candidate: string): boolean {
+  const lower = candidate.toLowerCase()
+  const tokens = lower.split(/\s+/).filter(Boolean)
+  const genericTokens = new Set(['official', 'store', 'shop', 'online', 'website', 'site'])
+  return tokens.some(token => genericTokens.has(token))
+}
+
 function extractLeadingBrandToken(text: string): string | null {
   const cleaned = cleanText(text)
   if (!cleaned) return null
@@ -976,18 +1004,38 @@ async function parseIndependentStoreHtml(html: string, finalUrl: string): Promis
     .filter(Boolean)
 
   const resolvedStoreName = (() => {
-    for (const candidate of storeNameCandidates) {
-      // Guard against navigation-leak titles like "back to topMenuHelp..." etc.
-      if (candidate.length < 2) continue
-      if (candidate.length > 80) continue
+    const domainNorm = domainBrand ? normalizeForCompare(domainBrand) : ''
 
-      const token = extractLeadingBrandToken(candidate)
+    for (const rawCandidate of storeNameCandidates) {
+      if (!rawCandidate) continue
+      const candidate = cleanText(rawCandidate)
+      if (!isReasonableStoreName(candidate)) continue
+
+      const segments = splitStoreTitleSegments(candidate)
+      const preferredSegment = domainNorm
+        ? segments.find(part => normalizeForCompare(part).includes(domainNorm))
+        : null
+      const picked = cleanText(preferredSegment || segments[0] || candidate)
+      if (!isReasonableStoreName(picked)) continue
+
+      if (domainNorm && normalizeForCompare(picked).includes(domainNorm)) {
+        if (domainBrand && containsGenericStoreToken(picked)) {
+          return domainBrand
+        }
+        return normalizeBrandName(picked)
+      }
+
+      const words = picked.split(/\s+/).filter(Boolean)
+      if (words.length >= 2 && words.length <= 5) {
+        return normalizeBrandName(picked)
+      }
+
+      const token = extractLeadingBrandToken(picked)
       if (!token) continue
 
       const normalized = normalizeBrandToken(token)
       if (!normalized) continue
 
-      // If we have a domain-derived brand, prefer it when it matches (stable + no punctuation).
       if (domainBrand && normalizeBrandName(normalized) === domainBrand) {
         return domainBrand
       }

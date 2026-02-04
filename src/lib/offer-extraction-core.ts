@@ -251,6 +251,10 @@ function isIpLike(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')
 }
 
+function normalizeForCompare(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 function deriveBrandFromFinalUrl(finalUrl: string): string | null {
   try {
     const url = new URL(finalUrl)
@@ -624,9 +628,17 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         // 例：kaspersky.es 页面标题/店铺名为 “Kaspersky España”，但品牌应为 “kaspersky”
         const brandFromUrl = deriveBrandFromFinalUrl(resolvedData.finalUrl)
         const storeName = typeof independentStoreData.storeName === 'string' ? independentStoreData.storeName.trim() : ''
+        const storeNorm = storeName ? normalizeForCompare(storeName) : ''
+        const urlNorm = brandFromUrl ? normalizeForCompare(brandFromUrl) : ''
         let brandCandidate: string | null = null
-        if (brandFromUrl && storeName && storeName.toLowerCase().includes(brandFromUrl)) {
-          brandCandidate = brandFromUrl
+        if (brandFromUrl && storeName) {
+          if (storeNorm && urlNorm && storeNorm === urlNorm) {
+            brandCandidate = storeName
+          } else if (storeNorm && urlNorm && storeNorm.includes(urlNorm)) {
+            brandCandidate = brandFromUrl
+          } else {
+            brandCandidate = storeName || brandFromUrl
+          }
         } else {
           brandCandidate = storeName || brandFromUrl
         }
