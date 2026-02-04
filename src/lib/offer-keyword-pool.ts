@@ -1195,10 +1195,10 @@ export async function clusterKeywordsByIntent(
   const allKeywordsForClustering = [...keywords, ...highIntentKeywordsWithVolume]
   console.log(`📊 总计聚类关键词: ${allKeywordsForClustering.length} 个 (原始:${keywords.length} + 高意图:${highIntentKeywordsWithVolume.length})`)
 
-  // 🔥 2025-12-27 优化：减小批次大小，降低超时风险
+  // 🔥 2026-02-04 优化：进一步减小批次大小，降低超时风险
   // 原因：减小单次请求处理量，提高稳定性
-  const BATCH_SIZE = 50  // 每批50个关键词（降低超时风险）
-  const needsBatching = allKeywordsForClustering.length > 60  // 从100改为60
+  const BATCH_SIZE = 30  // 每批30个关键词（降低超时风险）
+  const needsBatching = allKeywordsForClustering.length > 40  // 从60改为40
   const batchCount = needsBatching ? Math.ceil(allKeywordsForClustering.length / BATCH_SIZE) : 1
 
   if (!needsBatching) {
@@ -1207,8 +1207,9 @@ export async function clusterKeywordsByIntent(
     return await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId, pageType)
   }
 
-  // 大批量：分批处理
-  console.log(`🚀 大批量模式：将 ${allKeywordsForClustering.length} 个关键词分成 ${batchCount} 个批次并行处理`)
+  // 大批量：分批处理（有限并发）
+  const MAX_CONCURRENT_BATCHES = 3
+  console.log(`🚀 大批量模式：将 ${allKeywordsForClustering.length} 个关键词分成 ${batchCount} 个批次并发处理 (最大并发 ${MAX_CONCURRENT_BATCHES})`)
 
   // 1. 分批
   const batches: string[][] = []
@@ -1220,26 +1221,41 @@ export async function clusterKeywordsByIntent(
 
   console.log(`📦 批次划分: ${batches.map((b, i) => `批次${i + 1}=${b.length}个`).join(', ')}`)
 
-  // 2. 🔥 2025-12-27 优化：保持并行处理以支持多用户并发
-  // 原因：多用户场景下串行处理会严重影响系统吞吐量
-  // 优化措施：增大重试次数 + 随机抖动 + 增加超时时间
+  // 2. 🔥 2025-12-27 优化：有限并发处理以支持多用户并发
+  // 原因：纯串行会影响吞吐量，过度并发又会增加超时风险
+  // 优化措施：限制并发 + 增大重试次数 + 随机抖动
   const maxRetries = 3  // 从2改为3（4次尝试）
   const baseDelay = 5000
   let lastError: any
 
   for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
     try {
-      // 并行处理所有批次
-      const batchPromises = batches.map((batch, index) =>
-        clusterBatchKeywords(batch, brandName, category, userId, index + 1, batchCount, pageType)
-          .catch(error => {
-            console.error(`❌ 批次 ${index + 1} 失败:`, error.message)
+      // 并发处理批次（限制最大并发）
+      const batchResults: KeywordBuckets[] = new Array(batches.length)
+      let nextIndex = 0
+
+      const worker = async () => {
+        while (true) {
+          const current = nextIndex++
+          if (current >= batches.length) break
+          batchResults[current] = await clusterBatchKeywords(
+            batches[current],
+            brandName,
+            category,
+            userId,
+            current + 1,
+            batchCount,
+            pageType
+          ).catch(error => {
+            console.error(`❌ 批次 ${current + 1} 失败:`, error.message)
             throw error
           })
-      )
+        }
+      }
 
-      // 等待所有批次完成
-      const batchResults = await Promise.all(batchPromises)
+      const workerCount = Math.min(MAX_CONCURRENT_BATCHES, batches.length)
+      const workers = Array.from({ length: workerCount }, () => worker())
+      await Promise.all(workers)
 
       // 3. 合并结果
       const mergedBuckets = mergeBatchResults(batchResults)
