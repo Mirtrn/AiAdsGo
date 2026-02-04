@@ -2108,9 +2108,13 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
   // 🎯 新增：AI关键词section
   // 🔥 修复(2025-12-17): 优先使用mergedData中的关键词池数据，而非旧的ai_keywords字段
+  const brandGateKeywords = mustContainBrand ? brandTokensToMatch : []
+  const brandFilter = (kw: string) =>
+    !mustContainBrand || containsPureBrand(kw, brandGateKeywords)
+
   const keywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
     ? extractedElements.keywords.slice(0, 50).map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)  // 使用关键词池数据（最多50个）
-    : aiKeywords.slice(0, 15)  // fallback到旧的ai_keywords
+    : aiKeywords.filter(brandFilter).slice(0, 15)  // fallback到旧的ai_keywords（品牌门禁）
 
   if (keywordsForPrompt && keywordsForPrompt.length > 0) {
     variables.ai_keywords_section = `\n**高价值关键词池** (已验证搜索量):\n${keywordsForPrompt.join(', ')}\n`

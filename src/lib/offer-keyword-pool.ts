@@ -25,6 +25,7 @@ import type { UnifiedKeywordData } from './unified-keyword-service'
 import {
   filterKeywordQuality,
   generateFilterReport,
+  containsPureBrand,
   getPureBrandKeywords,
   isPureBrandKeyword as isPureBrandKeywordInternal
 } from './keyword-quality-filter'
@@ -804,6 +805,10 @@ export function generateHighIntentKeywords(
   baseKeywords?: string[]
 ): string[] {
   const highIntentKeywords: string[] = []
+  const brandTokens = getPureBrandKeywords(brandName)
+  const brandGate = brandTokens.length > 0
+    ? brandTokens
+    : (normalizeGoogleAdsKeyword(brandName) ? [normalizeGoogleAdsKeyword(brandName)!] : [])
 
   // 高购买意图修饰词
   const intentModifiers = [
@@ -830,7 +835,10 @@ export function generateHighIntentKeywords(
 
   // 3. 如果提供了基础关键词，组合生成
   if (baseKeywords && baseKeywords.length > 0) {
-    const topBaseKeywords = baseKeywords.slice(0, 5) // 只取前5个
+    const brandMatchedBase = brandGate.length > 0
+      ? baseKeywords.filter(kw => containsPureBrand(kw, brandGate))
+      : baseKeywords
+    const topBaseKeywords = brandMatchedBase.slice(0, 5) // 只取前5个
     const topIntentModifiers = intentModifiers.slice(0, 5) // 只取前5个意图词
 
     topBaseKeywords.forEach(keyword => {
@@ -1281,7 +1289,9 @@ export async function clusterKeywordsByIntent(
     // 小批量：直接处理（原逻辑）
     console.log(`📝 小批量模式：直接处理 ${allKeywordsForClustering.length} 个关键词`)
     await progress?.({ phase: 'cluster', message: `语义聚类：小批量处理(${allKeywordsForClustering.length})` })
-    return await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId, pageType)
+    const directBuckets = await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId, pageType)
+    filterBucketsToAllowedKeywords(directBuckets, new Set(allKeywordsForClustering.map(k => k.toLowerCase())))
+    return directBuckets
   }
 
   // 大批量：分批处理（有限并发）
@@ -1352,6 +1362,7 @@ export async function clusterKeywordsByIntent(
       // 3. 合并结果
       await progress?.({ phase: 'cluster', message: '语义聚类：合并批次结果' })
       const mergedBuckets = mergeBatchResults(batchResults)
+      filterBucketsToAllowedKeywords(mergedBuckets, new Set(allKeywordsForClustering.map(k => k.toLowerCase())))
 
       // 4. 验证结果（店铺/单品分别处理）
       if (pageType === 'store') {
@@ -1838,6 +1849,43 @@ function recalculateStoreBucketStatistics(buckets: StoreKeywordBuckets): void {
   buckets.statistics.bucketDCount = counts[3]
   buckets.statistics.bucketSCount = counts[4]
   buckets.statistics.balanceScore = calculateBalanceScore(counts)
+}
+
+function recalculateBucketStatistics(buckets: KeywordBuckets): void {
+  const counts = [
+    buckets.bucketA?.keywords?.length || 0,
+    buckets.bucketB?.keywords?.length || 0,
+    buckets.bucketC?.keywords?.length || 0,
+    buckets.bucketD?.keywords?.length || 0,
+  ]
+
+  const totalKeywords = counts.reduce((a, b) => a + b, 0)
+  buckets.statistics.totalKeywords = totalKeywords
+  buckets.statistics.bucketACount = counts[0]
+  buckets.statistics.bucketBCount = counts[1]
+  buckets.statistics.bucketCCount = counts[2]
+  buckets.statistics.bucketDCount = counts[3]
+  buckets.statistics.balanceScore = calculateBalanceScore(counts)
+}
+
+function filterBucketsToAllowedKeywords(
+  buckets: KeywordBuckets | StoreKeywordBuckets,
+  allowedKeywords: Set<string>
+): void {
+  const filterList = (list?: string[]) =>
+    (list || []).filter(kw => allowedKeywords.has(String(kw || '').toLowerCase()))
+
+  buckets.bucketA.keywords = filterList(buckets.bucketA.keywords)
+  buckets.bucketB.keywords = filterList(buckets.bucketB.keywords)
+  buckets.bucketC.keywords = filterList(buckets.bucketC.keywords)
+  buckets.bucketD.keywords = filterList(buckets.bucketD.keywords)
+
+  if ('bucketS' in buckets && buckets.bucketS) {
+    buckets.bucketS.keywords = filterList(buckets.bucketS.keywords)
+    recalculateStoreBucketStatistics(buckets)
+  } else {
+    recalculateBucketStatistics(buckets as KeywordBuckets)
+  }
 }
 
 function redistributeStoreBucketsFromS(buckets: StoreKeywordBuckets, originalKeywords: string[]): void {
