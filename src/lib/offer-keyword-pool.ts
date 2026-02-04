@@ -1880,9 +1880,10 @@ function filterBucketsToAllowedKeywords(
   buckets.bucketC.keywords = filterList(buckets.bucketC.keywords)
   buckets.bucketD.keywords = filterList(buckets.bucketD.keywords)
 
-  if ('bucketS' in buckets && buckets.bucketS) {
-    buckets.bucketS.keywords = filterList(buckets.bucketS.keywords)
-    recalculateStoreBucketStatistics(buckets)
+  const storeBuckets = buckets as StoreKeywordBuckets
+  if (storeBuckets.bucketS) {
+    storeBuckets.bucketS.keywords = filterList(storeBuckets.bucketS.keywords)
+    recalculateStoreBucketStatistics(storeBuckets)
   } else {
     recalculateBucketStatistics(buckets as KeywordBuckets)
   }

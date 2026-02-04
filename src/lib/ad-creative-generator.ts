@@ -2108,9 +2108,9 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
   // 🎯 新增：AI关键词section
   // 🔥 修复(2025-12-17): 优先使用mergedData中的关键词池数据，而非旧的ai_keywords字段
-  const brandGateKeywords = mustContainBrand ? brandTokensToMatch : []
+  const brandGateKeywords = getPureBrandKeywords(offer.brand || '')
   const brandFilter = (kw: string) =>
-    !mustContainBrand || containsPureBrand(kw, brandGateKeywords)
+    brandGateKeywords.length === 0 || containsPureBrand(kw, brandGateKeywords)
 
   const keywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
     ? extractedElements.keywords.slice(0, 50).map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)  // 使用关键词池数据（最多50个）
