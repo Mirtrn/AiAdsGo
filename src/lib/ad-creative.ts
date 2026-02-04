@@ -115,7 +115,6 @@ export interface DescriptionAsset {
 export interface QualityMetrics {
   headline_diversity_score?: number  // 0-100
   keyword_relevance_score?: number   // 0-100
-  estimated_ad_strength?: 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT'
 }
 
 export interface GeneratedAdCreativeData {

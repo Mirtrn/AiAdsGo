@@ -59,7 +59,6 @@ interface DescriptionAsset {
 interface QualityMetrics {
   headline_diversity_score?: number
   keyword_relevance_score?: number
-  estimated_ad_strength?: 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT'
 }
 
 interface Creative {

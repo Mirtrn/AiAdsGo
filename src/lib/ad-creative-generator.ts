@@ -2075,6 +2075,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 - 标题必须与具体产品相关联
 - 至少 2 个标题包含具体产品型号或参数
 - 有证据时描述可包含价格/折扣/限时等细节；禁止编造
+- 禁止使用店铺化引导（如“explore our collection/store”）
 `
   }
 
@@ -2367,7 +2368,7 @@ function buildDescription1Guidance(badge: string | null, salesRank: string | nul
 function buildDescription2Guidance(primeEligible: boolean, activePromotions: any[]): string {
   return `- **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}${activePromotions.length > 0 ? `. 🎯 **P2 CRITICAL**: MUST mention promotion "${activePromotions[0].description}"${activePromotions[0].code ? ` with code "${activePromotions[0].code}"` : ''}. Example: "Save ${activePromotions[0].description} - Shop Now!"` : ''}
   * Focus: Urgency + convenience + trust signal (action-focused)
-  * Example: "Shop now for curated styles. Explore the collection today."
+  * Example: "Shop now for refined design. Order today."
   * ❌ AVOID: Using the same CTA verb as Description 1 or 3
 `
 }
@@ -2385,7 +2386,7 @@ function buildDescription4Guidance(topReviews: string[], hotInsights: any, topPr
   * 🎯 **P0 CRITICAL**: If TOP REVIEWS available, incorporate authentic customer quotes for credibility (keep ≤90 chars)
   * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
   * Example with review: "Works perfectly!" - Customer Review. Shop with confidence.
-  * Example without review: "Trusted for quality and style. Explore the collection today."
+  * Example without review: "Trusted for quality and style. Learn more today."
   * ❌ AVOID: Repeating "fast", "free", "easy" from other descriptions
 `
 }
@@ -2737,8 +2738,7 @@ const AD_CREATIVE_RESPONSE_SCHEMA: ResponseSchema = {
       type: 'OBJECT',
       properties: {
         headline_diversity_score: { type: 'NUMBER' },
-        keyword_relevance_score: { type: 'NUMBER' },
-        estimated_ad_strength: { type: 'STRING' }
+        keyword_relevance_score: { type: 'NUMBER' }
       }
     }
   },
@@ -3119,12 +3119,10 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     // 解析quality_metrics（如果存在）
     const qualityMetrics = data.quality_metrics ? {
       headline_diversity_score: data.quality_metrics.headline_diversity_score,
-      keyword_relevance_score: data.quality_metrics.keyword_relevance_score,
-      estimated_ad_strength: data.quality_metrics.estimated_ad_strength
+      keyword_relevance_score: data.quality_metrics.keyword_relevance_score
     } : undefined
 
     if (qualityMetrics) {
-      console.log('📊 Ad Strength预估:', qualityMetrics.estimated_ad_strength)
       console.log('📊 Headline多样性:', qualityMetrics.headline_diversity_score)
       console.log('📊 关键词相关性:', qualityMetrics.keyword_relevance_score)
     }
