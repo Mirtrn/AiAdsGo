@@ -1135,6 +1135,67 @@ export async function updateGoogleAdsCampaignStatus(params: {
 }
 
 /**
+ * 删除Google Ads广告系列
+ */
+export async function removeGoogleAdsCampaign(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  accountId?: number
+  userId: number
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
+  customer?: Customer
+}): Promise<void> {
+  const authType = params.authType || 'oauth'
+  const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+
+  if (authType === 'service_account') {
+    const { removeCampaignPython } = await import('./python-ads-client')
+    await removeCampaignPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+    })
+  } else {
+    const customer = params.customer ?? await getCustomerWithCredentials({
+      customerId: params.customerId,
+      refreshToken: params.refreshToken,
+      accountId: params.accountId,
+      userId: params.userId,
+      loginCustomerId: params.loginCustomerId,
+      authType,
+      serviceAccountId: params.serviceAccountId,
+    })
+
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/remove',
+      () => withRetry(
+        () => customer.campaigns.remove([resourceName]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Remove Campaign: ${params.campaignId}`
+        }
+      )
+    )
+  }
+
+  const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
+    campaignId: params.campaignId
+  })
+  const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+  gadsApiCache.delete(getCacheKey)
+  gadsApiCache.delete(listCacheKey)
+  console.log(`🗑️ 已清除Campaign缓存: ${params.campaignId}`)
+}
+
+/**
  * 更新Google Ads广告系列预算
  */
 export async function updateGoogleAdsCampaignBudget(params: {

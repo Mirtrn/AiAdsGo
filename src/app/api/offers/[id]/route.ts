@@ -493,9 +493,15 @@ export async function DELETE(
     // 获取查询参数
     const { searchParams } = new URL(request.url)
     const autoUnlink = searchParams.get('autoUnlink') === 'true'
+    const removeGoogleAdsCampaigns = searchParams.get('removeGoogleAdsCampaigns') === 'true'
 
     // 执行删除操作
-    const result = await deleteOffer(parseInt(id, 10), parseInt(userId, 10), autoUnlink)
+    const result = await deleteOffer(
+      parseInt(id, 10),
+      parseInt(userId, 10),
+      autoUnlink,
+      removeGoogleAdsCampaigns
+    )
 
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10), parseInt(id, 10))

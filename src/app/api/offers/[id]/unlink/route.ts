@@ -3,7 +3,7 @@ import { unlinkOfferFromAccount } from '@/lib/offers'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
-import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
+import { removeGoogleAdsCampaign, updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 
 /**
  * POST /api/offers/:id/unlink
@@ -26,7 +26,8 @@ export async function POST(
 
     // 从请求体获取要解除关联的Ads账号ID
     const body = await request.json()
-    const { accountId } = body
+    const { accountId, removeGoogleAdsCampaigns } = body
+    const shouldRemoveGoogleAdsCampaigns = Boolean(removeGoogleAdsCampaigns)
 
     if (!accountId) {
       return NextResponse.json({ error: '缺少accountId参数' }, { status: 400 })
@@ -90,6 +91,7 @@ export async function POST(
           removed: 0,
           pausedFallback: 0,
           failed: 0,
+          action: shouldRemoveGoogleAdsCampaigns ? 'REMOVE' : 'PAUSE',
           failures: [] as Array<{ campaignId: string; reason: string }>
         }
 
@@ -109,24 +111,61 @@ export async function POST(
             const googleCampaignId = String(campaign.google_campaign_id)
             googleAdsRemoval.attempted++
             try {
-              await updateGoogleAdsCampaignStatus({
-                customerId: adsAccount!.customer_id!,
-                refreshToken,
-                campaignId: googleCampaignId,
-                status: 'PAUSED',
-                accountId: adsAccount!.id,
-                userId,
-                loginCustomerId,
-                authType: auth.authType,
-                serviceAccountId: auth.serviceAccountId
-              })
-              googleAdsRemoval.paused++
+              if (shouldRemoveGoogleAdsCampaigns) {
+                await removeGoogleAdsCampaign({
+                  customerId: adsAccount!.customer_id!,
+                  refreshToken,
+                  campaignId: googleCampaignId,
+                  accountId: adsAccount!.id,
+                  userId,
+                  loginCustomerId,
+                  authType: auth.authType,
+                  serviceAccountId: auth.serviceAccountId
+                })
+                googleAdsRemoval.removed++
+              } else {
+                await updateGoogleAdsCampaignStatus({
+                  customerId: adsAccount!.customer_id!,
+                  refreshToken,
+                  campaignId: googleCampaignId,
+                  status: 'PAUSED',
+                  accountId: adsAccount!.id,
+                  userId,
+                  loginCustomerId,
+                  authType: auth.authType,
+                  serviceAccountId: auth.serviceAccountId
+                })
+                googleAdsRemoval.paused++
+              }
             } catch (err: any) {
-              googleAdsRemoval.failed++
-              googleAdsRemoval.failures.push({
-                campaignId: googleCampaignId,
-                reason: String(err?.message || 'UNKNOWN_ERROR')
-              })
+              if (shouldRemoveGoogleAdsCampaigns) {
+                try {
+                  await updateGoogleAdsCampaignStatus({
+                    customerId: adsAccount!.customer_id!,
+                    refreshToken,
+                    campaignId: googleCampaignId,
+                    status: 'PAUSED',
+                    accountId: adsAccount!.id,
+                    userId,
+                    loginCustomerId,
+                    authType: auth.authType,
+                    serviceAccountId: auth.serviceAccountId
+                  })
+                  googleAdsRemoval.pausedFallback++
+                } catch (pauseErr: any) {
+                  googleAdsRemoval.failed++
+                  googleAdsRemoval.failures.push({
+                    campaignId: googleCampaignId,
+                    reason: String(pauseErr?.message || err?.message || 'UNKNOWN_ERROR')
+                  })
+                }
+              } else {
+                googleAdsRemoval.failed++
+                googleAdsRemoval.failures.push({
+                  campaignId: googleCampaignId,
+                  reason: String(err?.message || 'UNKNOWN_ERROR')
+                })
+              }
             }
           }
         } catch (err: any) {
@@ -146,7 +185,8 @@ export async function POST(
         unlinkedCampaigns: result.unlinkedCount,
         googleAds: {
           queued: shouldAttemptGoogleAds,
-          planned: campaignsToUnlink.length
+          planned: campaignsToUnlink.length,
+          action: shouldRemoveGoogleAdsCampaigns ? 'REMOVE' : 'PAUSE'
         }
       },
     })

@@ -816,7 +816,8 @@ export interface DeleteOfferResult {
 export async function deleteOffer(
   id: number,
   userId: number,
-  autoUnlink: boolean = false
+  autoUnlink: boolean = false,
+  removeGoogleAdsCampaigns: boolean = false
 ): Promise<DeleteOfferResult> {
   const db = await getDatabase()
 
@@ -825,6 +826,7 @@ export async function deleteOffer(
   const isDeletedTrue = db.type === 'postgres' ? true : 1
   const isActiveFalse = db.type === 'postgres' ? false : 0
   let autoPausedCampaignCount = 0
+  let autoRemovedCampaignCount = 0
 
   // 验证Offer存在且属于该用户
   const existing = await findOfferById(id, userId)
@@ -869,7 +871,11 @@ export async function deleteOffer(
 
   // 🔥 自动暂停关联的已启用广告系列（防止 Offer 删除后仍在花费）
   // 仅处理已成功发布到 Google Ads 的 campaign（google_campaign_id 非空）
-  const enabledCampaigns = await db.query(`
+  const campaignStatusCondition = removeGoogleAdsCampaigns
+    ? "c.status != 'REMOVED'"
+    : "c.status = 'ENABLED'"
+
+  const campaignsToProcess = await db.query(`
     SELECT
       c.id as campaignRowId,
       c.campaign_name as campaignName,
@@ -878,7 +884,7 @@ export async function deleteOffer(
     FROM campaigns c
     WHERE c.offer_id = ?
       AND c.user_id = ?
-      AND c.status = 'ENABLED'
+      AND ${campaignStatusCondition}
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
       AND c.google_ads_account_id IS NOT NULL
@@ -889,19 +895,19 @@ export async function deleteOffer(
     googleCampaignId: string
   }>
 
-  if (enabledCampaigns.length > 0) {
-    const { updateGoogleAdsCampaignStatus } = await import('./google-ads-api')
+  if (campaignsToProcess.length > 0) {
+    const { updateGoogleAdsCampaignStatus, removeGoogleAdsCampaign } = await import('./google-ads-api')
     const { getDecryptedCredentials } = await import('./google-ads-accounts')
     const { getUserAuthType } = await import('./google-ads-oauth')
 
     const auth = await getUserAuthType(userId)
     const errors: Array<{ campaignRowId: number; message: string }> = []
 
-    const campaignsByAccount = enabledCampaigns.reduce((acc, c) => {
+    const campaignsByAccount = campaignsToProcess.reduce((acc, c) => {
       if (!acc[c.googleAdsAccountId]) acc[c.googleAdsAccountId] = []
       acc[c.googleAdsAccountId].push(c)
       return acc
-    }, {} as Record<number, typeof enabledCampaigns>)
+    }, {} as Record<number, typeof campaignsToProcess>)
 
     for (const [accountIdStr, accountCampaigns] of Object.entries(campaignsByAccount)) {
       const accountId = Number(accountIdStr)
@@ -924,34 +930,82 @@ export async function deleteOffer(
 
       for (const c of accountCampaigns) {
         try {
-          await updateGoogleAdsCampaignStatus({
-            customerId: accountCredentials.customerId,
-            refreshToken: accountCredentials.refreshToken || '',
-            campaignId: c.googleCampaignId,
-            status: 'PAUSED',
-            accountId,
-            userId,
-            authType: auth.authType,
-            serviceAccountId: auth.serviceAccountId,
-          })
+          if (removeGoogleAdsCampaigns) {
+            await removeGoogleAdsCampaign({
+              customerId: accountCredentials.customerId,
+              refreshToken: accountCredentials.refreshToken || '',
+              campaignId: c.googleCampaignId,
+              accountId,
+              userId,
+              authType: auth.authType,
+              serviceAccountId: auth.serviceAccountId,
+            })
 
-          await db.exec(`
-            UPDATE campaigns
-            SET status = 'PAUSED',
-                updated_at = ${nowFunc}
-            WHERE id = ? AND user_id = ?
-          `, [c.campaignRowId, userId])
+            await db.exec(`
+              UPDATE campaigns
+              SET status = 'REMOVED',
+                  updated_at = ${nowFunc}
+              WHERE id = ? AND user_id = ?
+            `, [c.campaignRowId, userId])
+            autoRemovedCampaignCount++
+          } else {
+            await updateGoogleAdsCampaignStatus({
+              customerId: accountCredentials.customerId,
+              refreshToken: accountCredentials.refreshToken || '',
+              campaignId: c.googleCampaignId,
+              status: 'PAUSED',
+              accountId,
+              userId,
+              authType: auth.authType,
+              serviceAccountId: auth.serviceAccountId,
+            })
+
+            await db.exec(`
+              UPDATE campaigns
+              SET status = 'PAUSED',
+                  updated_at = ${nowFunc}
+              WHERE id = ? AND user_id = ?
+            `, [c.campaignRowId, userId])
+            autoPausedCampaignCount++
+          }
         } catch (e: any) {
-          errors.push({ campaignRowId: c.campaignRowId, message: e?.message || '暂停失败' })
+          if (removeGoogleAdsCampaigns) {
+            try {
+              await updateGoogleAdsCampaignStatus({
+                customerId: accountCredentials.customerId,
+                refreshToken: accountCredentials.refreshToken || '',
+                campaignId: c.googleCampaignId,
+                status: 'PAUSED',
+                accountId,
+                userId,
+                authType: auth.authType,
+                serviceAccountId: auth.serviceAccountId,
+              })
+
+              await db.exec(`
+                UPDATE campaigns
+                SET status = 'PAUSED',
+                    updated_at = ${nowFunc}
+                WHERE id = ? AND user_id = ?
+              `, [c.campaignRowId, userId])
+              autoPausedCampaignCount++
+            } catch (pauseError: any) {
+              errors.push({
+                campaignRowId: c.campaignRowId,
+                message: `${e?.message || '删除失败'}；暂停失败：${pauseError?.message || '未知错误'}`
+              })
+            }
+          } else {
+            errors.push({ campaignRowId: c.campaignRowId, message: e?.message || '暂停失败' })
+          }
         }
       }
     }
 
     if (errors.length > 0) {
-      throw new Error(`自动暂停关联广告系列失败：${errors.length}/${enabledCampaigns.length} 个未能暂停，请稍后重试或先手动暂停后再删除`)
+      const actionLabel = removeGoogleAdsCampaigns ? '删除' : '暂停'
+      throw new Error(`自动${actionLabel}关联广告系列失败：${errors.length}/${campaignsToProcess.length} 个未能${actionLabel}，请稍后重试或先手动处理后再删除`)
     }
-
-    autoPausedCampaignCount = enabledCampaigns.length
   }
 
   // 自动解除所有关联
@@ -1057,12 +1111,21 @@ export async function deleteOffer(
     WHERE id = ? AND user_id = ?
   `, [isDeletedTrue, isActiveFalse, id, userId])
 
+  const campaignNoticeParts: string[] = []
+  if (autoRemovedCampaignCount > 0) {
+    campaignNoticeParts.push(`已自动删除 ${autoRemovedCampaignCount} 个广告系列`)
+  }
+  if (autoPausedCampaignCount > 0) {
+    campaignNoticeParts.push(`已自动暂停 ${autoPausedCampaignCount} 个广告系列`)
+  }
+  const campaignNotice = campaignNoticeParts.length > 0 ? `，${campaignNoticeParts.join('，')}` : ''
+
   return {
     success: true,
     message: autoUnlink
-      ? `Offer删除成功${autoPausedCampaignCount > 0 ? `，已自动暂停 ${autoPausedCampaignCount} 个广告系列` : ''}，已自动解除 ${linkedAccounts.length} 个广告系列的关联${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
+      ? `Offer删除成功${campaignNotice}，已自动解除 ${linkedAccounts.length} 个广告系列的关联${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
       : clickFarmTasks.length > 0 || urlSwapTasks.length > 0
-        ? `Offer删除成功${autoPausedCampaignCount > 0 ? `，已自动暂停 ${autoPausedCampaignCount} 个广告系列` : ''}${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
+        ? `Offer删除成功${campaignNotice}${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
         : 'Offer删除成功'
   }
 }

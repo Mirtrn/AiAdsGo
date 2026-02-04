@@ -32,6 +32,8 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { TrendingUp, DollarSign, Target, Activity, RefreshCcw } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import { formatCurrency } from '@/lib/currency'
@@ -159,6 +161,7 @@ export default function OfferDetailPage() {
   const [isRebuildDialogOpen, setIsRebuildDialogOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [rebuildError, setRebuildError] = useState<string | null>(null)
+  const [removeGoogleAdsCampaignsOnDelete, setRemoveGoogleAdsCampaignsOnDelete] = useState(false)
 
   // Performance data states
   const [performanceLoading, setPerformanceLoading] = useState(true)
@@ -289,7 +292,12 @@ export default function OfferDetailPage() {
       setDeleting(true)
       setDeleteError(null)
 
-      const response = await fetch(`/api/offers/${offerId}`, {
+      const url = new URL(`/api/offers/${offerId}`, window.location.origin)
+      if (removeGoogleAdsCampaignsOnDelete) {
+        url.searchParams.set('removeGoogleAdsCampaigns', 'true')
+      }
+
+      const response = await fetch(url.toString(), {
         method: 'DELETE',
         credentials: 'include',
       })
@@ -305,6 +313,7 @@ export default function OfferDetailPage() {
       // 关闭对话框
       setIsDeleteDialogOpen(false)
       setDeleteError(null)
+      setRemoveGoogleAdsCampaignsOnDelete(false)
 
       // 跳转到列表页
       router.push('/offers')
@@ -508,7 +517,10 @@ export default function OfferDetailPage() {
                 重建
               </button>
               <button
-                onClick={() => setIsDeleteDialogOpen(true)}
+                onClick={() => {
+                  setRemoveGoogleAdsCampaignsOnDelete(false)
+                  setIsDeleteDialogOpen(true)
+                }}
                 disabled={deleting}
                 className="px-4 py-2 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
               >
@@ -1478,7 +1490,10 @@ export default function OfferDetailPage() {
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
         setIsDeleteDialogOpen(open)
-        if (!open) setDeleteError(null)
+        if (!open) {
+          setDeleteError(null)
+          setRemoveGoogleAdsCampaignsOnDelete(false)
+        }
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1501,9 +1516,25 @@ export default function OfferDetailPage() {
                     <p className="text-sm text-amber-800 font-medium mb-2">⚠️ 警告</p>
                     <ul className="text-sm text-amber-700 space-y-1 list-disc list-inside">
                       <li>此操作不可撤销</li>
-                      <li>系统会自动暂停该Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
+                      <li>系统会自动暂停该Offer在各关联Ads账号下的已启用广告系列（仅暂停该账号下关联的广告系列），避免继续花费</li>
                       <li>所有相关数据将被永久删除</li>
                     </ul>
+                    <div className="mt-3 flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+                      <Checkbox
+                        id="delete-remove-ads-detail"
+                        checked={removeGoogleAdsCampaignsOnDelete}
+                        onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnDelete(checked as boolean)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="delete-remove-ads-detail" className="text-sm font-medium cursor-pointer text-orange-900">
+                          同时在 Ads 账号中删除对应广告系列（不可恢复）
+                        </Label>
+                        <p className="text-xs text-orange-700 mt-1">
+                          仅删除该账号下与该Offer关联的广告系列
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

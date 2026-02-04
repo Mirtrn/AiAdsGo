@@ -59,6 +59,7 @@ import { usePagination } from '@/hooks'
 import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, RotateCw, Wand2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import {
   Pagination,
   PaginationContent,
@@ -137,6 +138,7 @@ export default function OffersPage() {
   const [offerToDelete, setOfferToDelete] = useState<Offer | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [removeGoogleAdsCampaignsOnDelete, setRemoveGoogleAdsCampaignsOnDelete] = useState(false)
 
   // 补点击任务Modal
   const [isClickFarmModalOpen, setIsClickFarmModalOpen] = useState(false)
@@ -160,6 +162,7 @@ export default function OffersPage() {
   const [isUnlinkDialogOpen, setIsUnlinkDialogOpen] = useState(false)
   const [offerToUnlink, setOfferToUnlink] = useState<UnlinkTarget | null>(null)
   const [unlinking, setUnlinking] = useState(false)
+  const [removeGoogleAdsCampaignsOnUnlink, setRemoveGoogleAdsCampaignsOnUnlink] = useState(false)
 
   // 拉黑投放状态
   const [blacklisting, setBlacklisting] = useState(false)
@@ -354,7 +357,10 @@ export default function OffersPage() {
     }
   }
 
-  const handleDeleteOffer = async (autoUnlink: boolean = false) => {
+  const handleDeleteOffer = async (
+    autoUnlink: boolean = false,
+    removeGoogleAdsCampaigns: boolean = false
+  ) => {
     if (!offerToDelete) return
 
     try {
@@ -365,6 +371,9 @@ export default function OffersPage() {
       const url = new URL(`/api/offers/${offerToDelete.id}`, window.location.origin)
       if (autoUnlink) {
         url.searchParams.set('autoUnlink', 'true')
+      }
+      if (removeGoogleAdsCampaigns) {
+        url.searchParams.set('removeGoogleAdsCampaigns', 'true')
       }
 
       const response = await fetch(url.toString(), {
@@ -384,6 +393,7 @@ export default function OffersPage() {
       if (response.status === 409 && data.hasLinkedAccounts) {
         // 关闭简单删除对话框，打开关联账号详情对话框
         setIsDeleteDialogOpen(false)
+        setRemoveGoogleAdsCampaignsOnDelete(false)
         setDeleteLinkedAccounts(data.linkedAccounts || [])
         setDeleteAccountCount(data.accountCount || 0)
         setDeleteCampaignCount(data.campaignCount || 0)
@@ -405,6 +415,7 @@ export default function OffersPage() {
       setIsDeleteConfirmDialogOpen(false)
       setOfferToDelete(null)
       setDeleteError(null)
+      setRemoveGoogleAdsCampaignsOnDelete(false)
       setDeleteLinkedAccounts([])
       setDeleteAccountCount(0)
       setDeleteCampaignCount(0)
@@ -425,7 +436,11 @@ export default function OffersPage() {
 
       // 并行删除所有选中的offers
       const deletePromises = Array.from(selectedOfferIds).map(async (id) => {
-        const response = await fetch(`/api/offers/${id}`, {
+        const url = new URL(`/api/offers/${id}`, window.location.origin)
+        if (removeGoogleAdsCampaignsOnDelete) {
+          url.searchParams.set('removeGoogleAdsCampaigns', 'true')
+        }
+        const response = await fetch(url.toString(), {
           method: 'DELETE',
           credentials: 'include',
         })
@@ -486,6 +501,7 @@ export default function OffersPage() {
       // 关闭对话框
       setIsBatchDeleteDialogOpen(false)
       setBatchDeleteError(null)
+      setRemoveGoogleAdsCampaignsOnDelete(false)
     } catch (err: any) {
       setBatchDeleteError(err.message || '批量删除失败')
     } finally {
@@ -587,6 +603,7 @@ export default function OffersPage() {
         credentials: 'include',
         body: JSON.stringify({
           accountId: offerToUnlink.accountId,
+          removeGoogleAdsCampaigns: removeGoogleAdsCampaignsOnUnlink,
         }),
       })
 
@@ -601,6 +618,7 @@ export default function OffersPage() {
       // 关闭对话框
       setIsUnlinkDialogOpen(false)
       setOfferToUnlink(null)
+      setRemoveGoogleAdsCampaignsOnUnlink(false)
     } catch (err: any) {
       setError(err.message || '解除关联失败')
     } finally {
@@ -744,7 +762,10 @@ export default function OffersPage() {
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => setIsBatchDeleteDialogOpen(true)}
+                    onClick={() => {
+                      setRemoveGoogleAdsCampaignsOnDelete(false)
+                      setIsBatchDeleteDialogOpen(true)
+                    }}
                     className="flex-shrink-0"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
@@ -1056,6 +1077,7 @@ export default function OffersPage() {
                                           accountId: account.accountId,
                                           accountName: account.customerId
                                         })
+                                        setRemoveGoogleAdsCampaignsOnUnlink(false)
                                         setIsUnlinkDialogOpen(true)
                                       }}
                                       className="text-gray-400 hover:text-red-600 transition-colors"
@@ -1221,6 +1243,7 @@ export default function OffersPage() {
                                 label: '删除Offer',
                                 onClick: () => {
                                   setOfferToDelete(offer)
+                                  setRemoveGoogleAdsCampaignsOnDelete(false)
                                   setIsDeleteDialogOpen(true)
                                 },
                                 variant: 'ghost',
@@ -1317,7 +1340,15 @@ export default function OffersPage() {
       />
 
       {/* P1-11: Unlink Account Confirmation Dialog */}
-      <AlertDialog open={isUnlinkDialogOpen} onOpenChange={setIsUnlinkDialogOpen}>
+      <AlertDialog
+        open={isUnlinkDialogOpen}
+        onOpenChange={(open) => {
+          setIsUnlinkDialogOpen(open)
+          if (!open) {
+            setRemoveGoogleAdsCampaignsOnUnlink(false)
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认解除关联</AlertDialogTitle>
@@ -1328,10 +1359,26 @@ export default function OffersPage() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-body-sm text-blue-800">
                 <p className="font-medium mb-1">ℹ️ 解除关联将会：</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>删除此账号下所有与该Offer相关的广告系列</li>
-                  <li>广告投放将立即停止</li>
+                  <li>仅暂停该账号下与该Offer关联的广告系列（Google Ads）</li>
+                  <li>广告投放将立即停止（仅限上述广告系列）</li>
                   <li>历史数据会保留用于查看</li>
                 </ul>
+              </div>
+              <div className="flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
+                <Checkbox
+                  id="unlink-remove-ads"
+                  checked={removeGoogleAdsCampaignsOnUnlink}
+                  onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnUnlink(checked as boolean)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <Label htmlFor="unlink-remove-ads" className="text-sm font-medium cursor-pointer text-orange-900">
+                    同时在 Ads 账号中删除对应广告系列（不可恢复）
+                  </Label>
+                  <p className="text-xs text-orange-700 mt-1">
+                    仅删除该账号下与该Offer关联的广告系列
+                  </p>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1351,7 +1398,10 @@ export default function OffersPage() {
       {/* P1-10: Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
         setIsDeleteDialogOpen(open)
-        if (!open) setDeleteError(null)
+        if (!open) {
+          setDeleteError(null)
+          setRemoveGoogleAdsCampaignsOnDelete(false)
+        }
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1373,10 +1423,26 @@ export default function OffersPage() {
                     <p className="font-medium mb-1">⚠️ 重要提示：</p>
                     <ul className="list-disc list-inside space-y-1 ml-2">
                       <li>已删除的Offer历史数据会保留在系统中</li>
-                      <li>系统会自动暂停该Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
+                      <li>系统会自动暂停该Offer在各关联Ads账号下的已启用广告系列（仅暂停该账号下关联的广告系列），避免继续花费</li>
                       <li>关联的Google Ads账号会自动解除关联</li>
                       <li>此操作不可撤销</li>
                     </ul>
+                    <div className="mt-3 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
+                      <Checkbox
+                        id="delete-remove-ads-simple"
+                        checked={removeGoogleAdsCampaignsOnDelete}
+                        onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnDelete(checked as boolean)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="delete-remove-ads-simple" className="text-sm font-medium cursor-pointer text-orange-900">
+                          同时在 Ads 账号中删除对应广告系列（不可恢复）
+                        </Label>
+                        <p className="text-xs text-orange-700 mt-1">
+                          仅删除该账号下与该Offer关联的广告系列
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1385,7 +1451,7 @@ export default function OffersPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting} onClick={() => setDeleteError(null)}>取消</AlertDialogCancel>
             <Button
-              onClick={() => handleDeleteOffer()}
+              onClick={() => handleDeleteOffer(false, removeGoogleAdsCampaignsOnDelete)}
               disabled={deleting}
               variant="destructive"
             >
@@ -1405,20 +1471,26 @@ export default function OffersPage() {
             setDeleteAccountCount(0)
             setDeleteCampaignCount(0)
             setDeleteError(null)
+            setRemoveGoogleAdsCampaignsOnDelete(false)
           }
         }}
         offerName={offerToDelete?.offerName || offerToDelete?.brand || ''}
         linkedAccounts={deleteLinkedAccounts}
         accountCount={deleteAccountCount}
         campaignCount={deleteCampaignCount}
-        onConfirmDelete={handleDeleteOffer}
+        onConfirmDelete={(autoUnlink) => handleDeleteOffer(autoUnlink, removeGoogleAdsCampaignsOnDelete)}
+        removeGoogleAdsCampaigns={removeGoogleAdsCampaignsOnDelete}
+        onRemoveGoogleAdsCampaignsChange={setRemoveGoogleAdsCampaignsOnDelete}
         deleting={deleting}
       />
 
       {/* Batch Delete Confirmation Dialog */}
       <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
         setIsBatchDeleteDialogOpen(open)
-        if (!open) setBatchDeleteError(null)
+        if (!open) {
+          setBatchDeleteError(null)
+          setRemoveGoogleAdsCampaignsOnDelete(false)
+        }
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1438,10 +1510,26 @@ export default function OffersPage() {
                     <p className="font-medium mb-1">⚠️ 重要提示：</p>
                     <ul className="list-disc list-inside space-y-1 ml-2">
                       <li>已删除的Offer历史数据会保留在系统中</li>
-                      <li>系统会自动暂停各Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
+                      <li>系统会自动暂停各Offer在关联Ads账号下的已启用广告系列（仅暂停该账号下关联的广告系列），避免继续花费</li>
                       <li>关联的Google Ads账号会自动解除关联</li>
                       <li>此操作不可撤销</li>
                     </ul>
+                    <div className="mt-3 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
+                      <Checkbox
+                        id="delete-remove-ads-batch"
+                        checked={removeGoogleAdsCampaignsOnDelete}
+                        onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnDelete(checked as boolean)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="delete-remove-ads-batch" className="text-sm font-medium cursor-pointer text-orange-900">
+                          同时在 Ads 账号中删除对应广告系列（不可恢复）
+                        </Label>
+                        <p className="text-xs text-orange-700 mt-1">
+                          仅删除该账号下与该Offer关联的广告系列
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

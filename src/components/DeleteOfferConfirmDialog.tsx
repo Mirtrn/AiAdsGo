@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { AlertTriangle, Trash2, UnlinkIcon } from 'lucide-react'
 
 interface LinkedAccountDetail {
@@ -43,6 +45,8 @@ interface Props {
   accountCount: number
   campaignCount: number
   onConfirmDelete: (autoUnlink: boolean) => void
+  removeGoogleAdsCampaigns: boolean
+  onRemoveGoogleAdsCampaignsChange: (value: boolean) => void
   deleting: boolean
 }
 
@@ -54,6 +58,8 @@ export default function DeleteOfferConfirmDialog({
   accountCount,
   campaignCount,
   onConfirmDelete,
+  removeGoogleAdsCampaigns,
+  onRemoveGoogleAdsCampaignsChange,
   deleting
 }: Props) {
   // 按账号分组展示
@@ -94,9 +100,25 @@ export default function DeleteOfferConfirmDialog({
           <AlertDescription className="text-orange-900">
             删除此Offer需要先解除所有关联的广告系列。您可以选择：
             <ul className="list-disc list-inside mt-2 space-y-1">
-              <li><strong>解除关联并删除</strong>：自动暂停该Offer下已启用的广告系列（避免继续花费），再将所有关联的广告系列标记为"已移除"，然后删除Offer</li>
+              <li><strong>解除关联并删除</strong>：自动暂停该Offer在各关联Ads账号下已启用的广告系列（仅暂停该账号下关联的广告系列，避免继续花费），再将所有关联的广告系列标记为"已移除"，然后删除Offer</li>
               <li><strong>取消</strong>：返回，手动在"关联Ads账号"列中逐个解除关联</li>
             </ul>
+            <div className="mt-3 flex items-start gap-3 rounded-md border border-orange-200 bg-white p-3">
+              <Checkbox
+                id="delete-remove-ads"
+                checked={removeGoogleAdsCampaigns}
+                onCheckedChange={(checked) => onRemoveGoogleAdsCampaignsChange(checked as boolean)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <Label htmlFor="delete-remove-ads" className="text-sm font-medium cursor-pointer text-orange-900">
+                  同时在 Ads 账号中删除对应广告系列（不可恢复）
+                </Label>
+                <p className="text-xs text-orange-700 mt-1">
+                  仅删除该账号下与该Offer关联的广告系列
+                </p>
+              </div>
+            </div>
           </AlertDescription>
         </Alert>
 
