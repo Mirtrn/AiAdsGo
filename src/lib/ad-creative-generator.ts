@@ -2354,7 +2354,6 @@ function buildHeadlineUrgencyGuidance(availability: string | null, hasUrgencyEvi
   * If verified stock/expiry evidence exists, include 1-2 urgency headlines using those exact facts.
   * If no verified evidence, skip urgency headlines and use neutral CTAs instead.
   * ❌ AVOID: unverified time/stock claims ("Limited Time", "Ends Soon", "Only X Left")`
-`
 }
 
 function buildDescription1Guidance(badge: string | null, salesRank: string | null): string {
