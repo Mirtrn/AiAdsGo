@@ -24,7 +24,8 @@ import {
   FileText,
   Clock,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Bot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -112,6 +113,11 @@ const navigationItems: NavItem[] = [
     label: '数据管理',
     href: '/data-management',
     icon: Database,
+  },
+  {
+    label: 'OpenClaw',
+    href: '/openclaw',
+    icon: Bot,
   },
   {
     label: '优化迭代',

@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    bash \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -43,6 +45,27 @@ RUN npm run build
 
 # 构建调度器
 RUN node build-scheduler.js
+
+# ============================================
+# Stage 2.5: OpenClaw 构建阶段（Node 22）
+# ============================================
+FROM node:22-bookworm-slim AS openclaw-builder
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /openclaw
+
+# 启用 pnpm（OpenClaw 使用 pnpm + workspace）
+RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+
+# 复制 OpenClaw 源码并构建
+COPY openclaw /openclaw
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
 
 # ============================================
 # Stage 3: 生产运行阶段（单容器）
@@ -110,6 +133,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # 复制打包后的调度器
 COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
+
+# 复制 OpenClaw（含 dist + node_modules）
+COPY --from=openclaw-builder --chown=nextjs:nodejs /openclaw /app/openclaw
+
+# 复制 Node 22 二进制（用于 OpenClaw Gateway）
+COPY --from=openclaw-builder /usr/local/bin/node /usr/local/bin/node22
 
 # 复制数据库迁移文件（初始化需要）
 COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations

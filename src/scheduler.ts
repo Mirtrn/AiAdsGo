@@ -14,6 +14,7 @@
 
 import cron from 'node-cron'
 import { getDatabase, getSQLiteDatabase } from './lib/db'
+import { getQueueManager } from './lib/queue/unified-queue-manager'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
@@ -30,6 +31,85 @@ function log(message: string) {
 function logError(message: string, error: any) {
   const timestamp = new Date().toISOString()
   console.error(`[${timestamp}] ${message}`, error instanceof Error ? error.message : String(error))
+}
+
+function parseBoolean(value: string | null | undefined): boolean {
+  if (!value) return false
+  const normalized = String(value).trim().toLowerCase()
+  return ['true', '1', 'yes', 'on'].includes(normalized)
+}
+
+const openclawStrategySchedules = new Map<number, { cron: string; task: cron.ScheduledTask }>()
+
+async function enqueueOpenclawStrategy(userId: number, mode: string) {
+  try {
+    const queue = getQueueManager()
+    await queue.enqueue(
+      'openclaw-strategy',
+      { userId, mode, trigger: 'cron' },
+      userId,
+      { priority: 'normal', maxRetries: 0 }
+    )
+    log(`🧠 OpenClaw策略已入队 (user=${userId}, mode=${mode})`)
+  } catch (error) {
+    logError(`❌ OpenClaw策略入队失败 (user=${userId})`, error)
+  }
+}
+
+async function refreshOpenclawStrategySchedules() {
+  const db = await getDatabase()
+  const rows = await db.query<{
+    user_id: number
+    enabled: string | null
+    cron: string | null
+  }>(`
+    SELECT
+      ss.user_id,
+      MAX(CASE WHEN ss.key = 'openclaw_strategy_enabled' THEN ss.value END) as enabled,
+      MAX(CASE WHEN ss.key = 'openclaw_strategy_cron' THEN ss.value END) as cron
+    FROM system_settings ss
+    INNER JOIN users u ON u.id = ss.user_id
+    WHERE ss.category = 'openclaw'
+      AND ss.user_id IS NOT NULL
+      AND ss.key IN ('openclaw_strategy_enabled', 'openclaw_strategy_cron')
+      AND u.is_active = ?
+    GROUP BY ss.user_id
+  `, [true])
+
+  const activeUsers = new Set<number>()
+  for (const row of rows || []) {
+    const enabled = parseBoolean(row.enabled)
+    if (!enabled) continue
+    const cronExpr = (row.cron || '0 9 * * *').trim() || '0 9 * * *'
+    if (!cron.validate(cronExpr)) {
+      logError(`❌ OpenClaw策略cron无效 (user=${row.user_id})`, cronExpr)
+      continue
+    }
+
+    activeUsers.add(row.user_id)
+    const existing = openclawStrategySchedules.get(row.user_id)
+    if (!existing || existing.cron !== cronExpr) {
+      if (existing) {
+        existing.task.stop()
+      }
+      const task = cron.schedule(cronExpr, async () => {
+        await enqueueOpenclawStrategy(row.user_id, 'auto')
+      }, {
+        scheduled: true,
+        timezone: 'Asia/Shanghai'
+      })
+      openclawStrategySchedules.set(row.user_id, { cron: cronExpr, task })
+      log(`✅ OpenClaw策略调度已更新 (user=${row.user_id}, cron=${cronExpr})`)
+    }
+  }
+
+  for (const [userId, schedule] of openclawStrategySchedules.entries()) {
+    if (!activeUsers.has(userId)) {
+      schedule.task.stop()
+      openclawStrategySchedules.delete(userId)
+      log(`⏸️  OpenClaw策略调度已移除 (user=${userId})`)
+    }
+  }
 }
 
 /**
@@ -200,6 +280,64 @@ async function suspendInactiveOrExpiredUserTasksTask() {
 }
 
 /**
+ * 任务6: OpenClaw 每日报表推送（飞书）
+ * 频率：每天上午9点（Asia/Shanghai）
+ */
+async function openclawDailyReportTask() {
+  log('📨 开始推送 OpenClaw 每日报表...')
+
+  const db = await getDatabase()
+
+  try {
+    const rows = await db.query<{
+      user_id: number
+      target: string | null
+      doc_folder: string | null
+      bitable_app: string | null
+    }>(`
+      SELECT
+        ss.user_id,
+        MAX(CASE WHEN ss.key = 'feishu_target' THEN ss.value END) as target,
+        MAX(CASE WHEN ss.key = 'feishu_doc_folder_token' THEN ss.value END) as doc_folder,
+        MAX(CASE WHEN ss.key = 'feishu_bitable_app_token' THEN ss.value END) as bitable_app
+      FROM system_settings ss
+      INNER JOIN users u ON u.id = ss.user_id
+      WHERE ss.category = 'openclaw'
+        AND ss.user_id IS NOT NULL
+        AND ss.value IS NOT NULL
+        AND ss.value != ''
+        AND ss.key IN ('feishu_target', 'feishu_doc_folder_token', 'feishu_bitable_app_token')
+        AND u.is_active = ?
+      GROUP BY ss.user_id
+    `, [true])
+
+    if (!rows || rows.length === 0) {
+      log('📭 未找到需要推送的OpenClaw用户')
+      return
+    }
+
+    const { sendDailyReportToFeishu } = await import('./lib/openclaw/reports')
+
+    let successCount = 0
+    for (const row of rows) {
+      try {
+        await sendDailyReportToFeishu({
+          userId: row.user_id,
+          target: row.target || undefined,
+        })
+        successCount++
+      } catch (error) {
+        logError(`❌ OpenClaw报表推送失败 (user=${row.user_id})`, error)
+      }
+    }
+
+    log(`📨 OpenClaw 报表推送完成 - 成功: ${successCount}/${rows.length}`)
+  } catch (error) {
+    logError('❌ OpenClaw 报表推送执行失败:', error)
+  }
+}
+
+/**
  * 清理旧备份文件
  */
 async function cleanupOldBackups(daysToKeep: number) {
@@ -321,6 +459,8 @@ function startScheduler() {
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 数据清理: 每天凌晨3点')
   log('  - 禁用/过期用户任务暂停: 每天一次 (默认凌晨4点)')
+  log('  - OpenClaw 每日报表推送: 每天上午9点')
+  log('  - OpenClaw 策略调度: 按用户配置')
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
 
   // 任务0: 每小时整点执行补点击任务调度
@@ -391,6 +531,25 @@ function startScheduler() {
   } else {
     log('⏸️  禁用/过期用户任务暂停已禁用 (USER_TASK_SWEEP_ENABLED=false)')
   }
+
+  // 任务6: OpenClaw 每日报表推送
+  cron.schedule('0 9 * * *', async () => {
+    await openclawDailyReportTask()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+
+  // 任务7: OpenClaw 策略调度（按用户配置）
+  refreshOpenclawStrategySchedules().catch((error) => {
+    logError('❌ OpenClaw策略调度初始化失败:', error)
+  })
+  cron.schedule('*/10 * * * *', async () => {
+    await refreshOpenclawStrategySchedules()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
 
   // [已禁用] 任务5: A/B测试监控
   // 原因：当前业务场景未使用A/B测试功能，数据库中无测试记录

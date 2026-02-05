@@ -19,6 +19,7 @@ import { executeAdCreativeGeneration } from './ad-creative-executor'
 import { executeCampaignPublish } from './campaign-publish-executor'
 import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
+import { executeOpenclawStrategy } from './openclaw-strategy-executor'
 import { logger } from '@/lib/structured-logger'
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
@@ -92,6 +93,9 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
     // 🆕 注册 url-swap 执行器（换链接任务，监测和更新广告链接）
     queue.registerExecutor('url-swap', executeUrlSwapTask)
+
+    // 🆕 注册 openclaw-strategy 执行器（OpenClaw策略）
+    queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
   } else {
     logger.warn('queue_background_executors_skipped', {
       reason: backgroundDecision.reason,
@@ -110,6 +114,7 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('click-farm', createClickFarmExecutor())
   queue.registerExecutor('url-swap', executeUrlSwapTask)
+  queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
 }
 
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'

@@ -30,7 +30,8 @@ const DEFAULT_QUEUE_CONFIG = {
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
     'click-farm': 50,  // 补点击任务并发限制（默认保守，避免小规格容器资源耗尽；可在管理台调整）
-    'url-swap': 3  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
+    'url-swap': 3,  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
+    'openclaw-strategy': 2  // OpenClaw 策略任务并发限制
   },
   maxQueueSize: 1000,
   taskTimeout: 900000, // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -53,6 +54,7 @@ const ALL_TASK_TYPES = [
   'campaign-publish',
   'click-farm',
   'url-swap',
+  'openclaw-strategy',
 ] as const
 
 function normalizeQueueConfig(input: any): typeof DEFAULT_QUEUE_CONFIG {

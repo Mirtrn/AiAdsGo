@@ -6,7 +6,7 @@ import {
   Package,
   Megaphone,
   Lightbulb,
-  Link2,
+  Bot,
   Settings
 } from 'lucide-react'
 
@@ -21,7 +21,7 @@ const mainNavItems: NavItem[] = [
   { label: 'Offer', href: '/offers', icon: Package },
   { label: '广告', href: '/campaigns', icon: Megaphone },
   { label: '创意', href: '/creatives', icon: Lightbulb },
-  { label: 'Ads账号', href: '/google-ads', icon: Link2 },
+  { label: 'OpenClaw', href: '/openclaw', icon: Bot },
   { label: '设置', href: '/settings', icon: Settings },
 ]
 
