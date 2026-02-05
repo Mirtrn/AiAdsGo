@@ -43,7 +43,6 @@ rm -rf "${TMP_DIR}"
 
 echo "✅ OpenClaw 预编译产物已生成 -> ${OUT_DIR}"
 
-if [[ -f "${OUT_DIR}/openclaw.mjs" ]]; then
-  node "${OUT_DIR}/openclaw.mjs" --help >/dev/null
-  echo "✅ OpenClaw 预编译产物已通过运行校验"
+if [[ -x "${ROOT_DIR}/scripts/verify-openclaw-prebuilt.sh" ]]; then
+  "${ROOT_DIR}/scripts/verify-openclaw-prebuilt.sh"
 fi
