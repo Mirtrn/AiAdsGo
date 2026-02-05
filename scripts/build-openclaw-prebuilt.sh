@@ -41,3 +41,8 @@ cp -r "${TMP_DIR}/"* "${OUT_DIR}/"
 rm -rf "${TMP_DIR}"
 
 echo "✅ OpenClaw 预编译产物已生成 -> ${OUT_DIR}"
+
+if [[ -f "${OUT_DIR}/openclaw.mjs" ]]; then
+  node "${OUT_DIR}/openclaw.mjs" --help >/dev/null
+  echo "✅ OpenClaw 预编译产物已通过运行校验"
+fi
