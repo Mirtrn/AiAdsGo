@@ -16,7 +16,7 @@ docker run --rm \
   -v "${TMP_DIR}:/out" \
   -w /openclaw \
   node:22-bookworm-slim \
-  bash -lc '
+  sh -lc '
     set -e
     apt-get update && apt-get install -y git python3 make g++ >/dev/null
     corepack enable

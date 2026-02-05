@@ -146,6 +146,11 @@ jobs:
           echo "📦 将推送以下标签:"
           echo "${ALL_TAGS}" | tr ',' '\n'
 
+      - name: 生成 OpenClaw 预编译产物
+        run: |
+          ./scripts/build-openclaw-prebuilt.sh
+          test -f openclaw-prebuilt/dist/entry.js
+
       # 单次构建，推送到两个Registry
       - name: 构建并推送Docker镜像
         uses: docker/build-push-action@v5
