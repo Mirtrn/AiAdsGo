@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_DIR="${ROOT_DIR}/openclaw"
 OUT_DIR="${ROOT_DIR}/openclaw-prebuilt"
 TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
 
 echo "🚧 构建 OpenClaw 预编译产物..."
 
@@ -16,6 +18,8 @@ docker run --rm \
   -v "${TMP_DIR}:/out" \
   -w /openclaw \
   -e OPENCLAW_A2UI_SKIP_MISSING=1 \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
   node:22-bookworm-slim \
   sh -lc '
     set -e
@@ -28,6 +32,7 @@ docker run --rm \
     cp -r dist/* /out/dist/
     cp openclaw.mjs /out/openclaw.mjs
     cp package.json /out/package.json
+    chown -R "${HOST_UID:-1000}:${HOST_GID:-1000}" /out
   '
 
 rm -rf "${OUT_DIR}"
