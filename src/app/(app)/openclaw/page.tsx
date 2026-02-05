@@ -178,6 +178,11 @@ const OTEL_PLACEHOLDER = `{
   "protocol": "grpc"
 }`
 
+const DEFAULT_GLOBAL_VALUES: Record<string, string> = {
+  gateway_port: '18789',
+  gateway_bind: 'loopback',
+}
+
 const STRATEGY_EXAMPLE_VALUES: Record<string, string> = {
   openclaw_strategy_enabled: 'true',
   openclaw_strategy_cron: '0 9 * * *',
@@ -243,6 +248,16 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
   return normalized === 'true' || normalized === '1'
 }
 
+const applyDefaults = (values: Record<string, string>, defaults: Record<string, string>) => {
+  const next = { ...values }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!next[key]) {
+      next[key] = value
+    }
+  }
+  return next
+}
+
 const formatTimestamp = (value?: number | string | null) => {
   if (!value) return '未知'
   const date = typeof value === 'number' ? new Date(value) : new Date(value)
@@ -291,6 +306,25 @@ export default function OpenClawPage() {
   const [asinSource, setAsinSource] = useState('manual')
   const [asinDefaultCountry, setAsinDefaultCountry] = useState('US')
   const [strategyRunning, setStrategyRunning] = useState(false)
+  const [simpleMode, setSimpleMode] = useState(true)
+  const [showAdvancedSystem, setShowAdvancedSystem] = useState(false)
+  const [showAdvancedFeishu, setShowAdvancedFeishu] = useState(false)
+  const [showAdvancedAi, setShowAdvancedAi] = useState(false)
+  const [showAdvancedOpenclaw, setShowAdvancedOpenclaw] = useState(false)
+  const [showAdvancedPartners, setShowAdvancedPartners] = useState(false)
+  const [showAdvancedUser, setShowAdvancedUser] = useState(false)
+  const [showAdvancedStrategy, setShowAdvancedStrategy] = useState(false)
+
+  useEffect(() => {
+    if (!simpleMode) return
+    setShowAdvancedSystem(false)
+    setShowAdvancedFeishu(false)
+    setShowAdvancedAi(false)
+    setShowAdvancedOpenclaw(false)
+    setShowAdvancedPartners(false)
+    setShowAdvancedUser(false)
+    setShowAdvancedStrategy(false)
+  }, [simpleMode])
 
   useEffect(() => {
     let active = true
@@ -327,11 +361,12 @@ export default function OpenClawPage() {
         settingsJson.global.forEach(item => {
           globalMap[item.key] = item.value ?? ''
         })
+        const globalWithDefaults = applyDefaults(globalMap, DEFAULT_GLOBAL_VALUES)
         const userMap: Record<string, string> = {}
         settingsJson.user.forEach(item => {
           userMap[item.key] = item.value ?? ''
         })
-        setGlobalValues(globalMap)
+        setGlobalValues(globalWithDefaults)
         setUserValues(userMap)
       } catch (error: any) {
         if (!active) return
@@ -618,6 +653,16 @@ export default function OpenClawPage() {
     },
     { total: 0, ready: 0, missing: 0, disabled: 0, blocked: 0 }
   )
+  const showSystemAdvanced = !simpleMode || showAdvancedSystem
+  const showFeishuAdvanced = !simpleMode || showAdvancedFeishu
+  const showAiAdvanced = !simpleMode || showAdvancedAi
+  const showOpenclawAdvanced = !simpleMode || showAdvancedOpenclaw
+  const showPartnersAdvanced = !simpleMode || showAdvancedPartners
+  const showUserAdvanced = !simpleMode || showAdvancedUser
+  const showStrategyAdvanced = !simpleMode || showAdvancedStrategy
+  const aiConfigured = Boolean((globalValues.ai_models_json || '').trim())
+  const showAiEditor = showAiAdvanced || !simpleMode || !aiConfigured
+  const gatewayTokenStatus = (globalValues.gateway_token || '').trim() ? '已设置' : '自动生成'
 
   return (
     <div className="p-6 space-y-6">
@@ -632,6 +677,14 @@ export default function OpenClawPage() {
         >
           配置指南
         </Link>
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border bg-slate-50 px-4 py-3">
+        <div>
+          <div className="text-sm font-medium">简化模式</div>
+          <div className="text-xs text-slate-500">仅显示必填项，其余使用默认值或隐藏</div>
+        </div>
+        <Switch checked={simpleMode} onCheckedChange={setSimpleMode} />
       </div>
 
       <Tabs defaultValue="config">
@@ -858,139 +911,206 @@ export default function OpenClawPage() {
                 </div>
               )}
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <label className="text-sm font-medium">Gateway 端口</label>
-                  <Input
-                    value={globalValues.gateway_port || ''}
-                    onChange={(e) => setGlobalValue('gateway_port', e.target.value)}
-                    disabled={!settings?.isAdmin}
-                    placeholder="18789"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Gateway Bind</label>
-                  <Select
-                    value={globalValues.gateway_bind || 'loopback'}
-                    onValueChange={(value) => setGlobalValue('gateway_bind', value)}
-                    disabled={!settings?.isAdmin}
+              {simpleMode && !showSystemAdvanced && (
+                <div className="flex flex-col gap-2 rounded-md border bg-slate-50 px-3 py-2 text-sm md:flex-row md:items-center md:justify-between">
+                  <span>
+                    Gateway 使用默认配置（端口 {globalValues.gateway_port || '18789'}，Bind {globalValues.gateway_bind || 'loopback'}，Token {gatewayTokenStatus}）
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAdvancedSystem(true)}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="loopback" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="loopback">loopback</SelectItem>
-                      <SelectItem value="auto">auto</SelectItem>
-                      <SelectItem value="lan">lan</SelectItem>
-                      <SelectItem value="tailnet">tailnet</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    高级设置
+                  </Button>
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Gateway Token</label>
-                  <Input
-                    type="password"
-                    value={globalValues.gateway_token || ''}
-                    onChange={(e) => setGlobalValue('gateway_token', e.target.value)}
-                    disabled={!settings?.isAdmin}
-                    placeholder="自动生成"
-                  />
+              )}
+
+              {showSystemAdvanced && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="text-sm font-medium">Gateway 端口</label>
+                    <Input
+                      value={globalValues.gateway_port || ''}
+                      onChange={(e) => setGlobalValue('gateway_port', e.target.value)}
+                      disabled={!settings?.isAdmin}
+                      placeholder="18789"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Gateway Bind</label>
+                    <Select
+                      value={globalValues.gateway_bind || 'loopback'}
+                      onValueChange={(value) => setGlobalValue('gateway_bind', value)}
+                      disabled={!settings?.isAdmin}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="loopback" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="loopback">loopback</SelectItem>
+                        <SelectItem value="auto">auto</SelectItem>
+                        <SelectItem value="lan">lan</SelectItem>
+                        <SelectItem value="tailnet">tailnet</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Gateway Token</label>
+                    <Input
+                      type="password"
+                      value={globalValues.gateway_token || ''}
+                      onChange={(e) => setGlobalValue('gateway_token', e.target.value)}
+                      disabled={!settings?.isAdmin}
+                      placeholder="自动生成"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle>广告联盟平台 (YeahPromos)</CardTitle>
-                  <CardDescription>根据 YeahPromos API 文档配置请求参数（可与 PartnerBoost 同时配置）</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-3">
-                  <InputWithLabel label="Token" type="password" value={globalValues.yeahpromos_token || ''} onChange={(v) => setGlobalValue('yeahpromos_token', v)} disabled={!settings?.isAdmin} />
-                  <InputWithLabel label="Site ID" value={globalValues.yeahpromos_site_id || ''} onChange={(v) => setGlobalValue('yeahpromos_site_id', v)} disabled={!settings?.isAdmin} />
-                  <InputWithLabel label="Start Date" value={globalValues.yeahpromos_start_date || ''} onChange={(v) => setGlobalValue('yeahpromos_start_date', v)} disabled={!settings?.isAdmin} placeholder="YYYY-MM-DD" />
-                  <InputWithLabel label="End Date" value={globalValues.yeahpromos_end_date || ''} onChange={(v) => setGlobalValue('yeahpromos_end_date', v)} disabled={!settings?.isAdmin} placeholder="YYYY-MM-DD" />
-                  <SwitchWithLabel label="Amazon Only" checked={(globalValues.yeahpromos_is_amazon || '0') === '1' || globalValues.yeahpromos_is_amazon === 'true'} onChange={(val) => setGlobalValue('yeahpromos_is_amazon', val ? '1' : '0')} disabled={!settings?.isAdmin} />
-                  <InputWithLabel label="Page" value={globalValues.yeahpromos_page || ''} onChange={(v) => setGlobalValue('yeahpromos_page', v)} disabled={!settings?.isAdmin} />
-                  <InputWithLabel label="Limit" value={globalValues.yeahpromos_limit || ''} onChange={(v) => setGlobalValue('yeahpromos_limit', v)} disabled={!settings?.isAdmin} />
-                </CardContent>
-              </Card>
+              {simpleMode && showSystemAdvanced && (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAdvancedSystem(false)}
+                  >
+                    收起高级
+                  </Button>
+                </div>
+              )}
 
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle>广告联盟平台 (PartnerBoost Amazon)</CardTitle>
-                  <CardDescription>根据 PartnerBoost Amazon API 文档配置默认参数（可与 YeahPromos 同时配置）</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <InputWithLabel label="Base URL" value={globalValues.partnerboost_base_url || ''} onChange={(v) => setGlobalValue('partnerboost_base_url', v)} disabled={!settings?.isAdmin} placeholder="https://app.partnerboost.com" />
-                    <InputWithLabel label="Token" type="password" value={globalValues.partnerboost_token || ''} onChange={(v) => setGlobalValue('partnerboost_token', v)} disabled={!settings?.isAdmin} />
-                  </div>
+              {!showPartnersAdvanced && simpleMode && (
+                <Card className="border-slate-200">
+                  <CardHeader>
+                    <CardTitle>广告联盟平台</CardTitle>
+                    <CardDescription>已隐藏可选参数（YeahPromos / PartnerBoost）</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowAdvancedPartners(true)}
+                    >
+                      显示可选配置
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
 
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">Get Products API</div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel label="page_size" value={globalValues.partnerboost_products_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_products_page_size', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="page" value={globalValues.partnerboost_products_page || ''} onChange={(v) => setGlobalValue('partnerboost_products_page', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="default_filter" value={globalValues.partnerboost_products_default_filter || ''} onChange={(v) => setGlobalValue('partnerboost_products_default_filter', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="country_code" value={globalValues.partnerboost_products_country_code || ''} onChange={(v) => setGlobalValue('partnerboost_products_country_code', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="brand_id" value={globalValues.partnerboost_products_brand_id || ''} onChange={(v) => setGlobalValue('partnerboost_products_brand_id', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="sort" value={globalValues.partnerboost_products_sort || ''} onChange={(v) => setGlobalValue('partnerboost_products_sort', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="asins" value={globalValues.partnerboost_products_asins || ''} onChange={(v) => setGlobalValue('partnerboost_products_asins', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="relationship" value={globalValues.partnerboost_products_relationship || ''} onChange={(v) => setGlobalValue('partnerboost_products_relationship', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="is_original_currency" value={globalValues.partnerboost_products_is_original_currency || ''} onChange={(v) => setGlobalValue('partnerboost_products_is_original_currency', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="has_promo_code" value={globalValues.partnerboost_products_has_promo_code || ''} onChange={(v) => setGlobalValue('partnerboost_products_has_promo_code', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="has_acc" value={globalValues.partnerboost_products_has_acc || ''} onChange={(v) => setGlobalValue('partnerboost_products_has_acc', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="filter_sexual_wellness" value={globalValues.partnerboost_products_filter_sexual_wellness || ''} onChange={(v) => setGlobalValue('partnerboost_products_filter_sexual_wellness', v)} disabled={!settings?.isAdmin} />
-                    </div>
-                  </div>
+              {showPartnersAdvanced && (
+                <>
+                  <Card className="border-slate-200">
+                    <CardHeader>
+                      <CardTitle>广告联盟平台 (YeahPromos)</CardTitle>
+                      <CardDescription>根据 YeahPromos API 文档配置请求参数（可与 PartnerBoost 同时配置）</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 md:grid-cols-3">
+                      <InputWithLabel label="Token" type="password" value={globalValues.yeahpromos_token || ''} onChange={(v) => setGlobalValue('yeahpromos_token', v)} disabled={!settings?.isAdmin} />
+                      <InputWithLabel label="Site ID" value={globalValues.yeahpromos_site_id || ''} onChange={(v) => setGlobalValue('yeahpromos_site_id', v)} disabled={!settings?.isAdmin} />
+                      <InputWithLabel label="Start Date" value={globalValues.yeahpromos_start_date || ''} onChange={(v) => setGlobalValue('yeahpromos_start_date', v)} disabled={!settings?.isAdmin} placeholder="YYYY-MM-DD" />
+                      <InputWithLabel label="End Date" value={globalValues.yeahpromos_end_date || ''} onChange={(v) => setGlobalValue('yeahpromos_end_date', v)} disabled={!settings?.isAdmin} placeholder="YYYY-MM-DD" />
+                      <SwitchWithLabel label="Amazon Only" checked={(globalValues.yeahpromos_is_amazon || '0') === '1' || globalValues.yeahpromos_is_amazon === 'true'} onChange={(val) => setGlobalValue('yeahpromos_is_amazon', val ? '1' : '0')} disabled={!settings?.isAdmin} />
+                      <InputWithLabel label="Page" value={globalValues.yeahpromos_page || ''} onChange={(v) => setGlobalValue('yeahpromos_page', v)} disabled={!settings?.isAdmin} />
+                      <InputWithLabel label="Limit" value={globalValues.yeahpromos_limit || ''} onChange={(v) => setGlobalValue('yeahpromos_limit', v)} disabled={!settings?.isAdmin} />
+                    </CardContent>
+                  </Card>
 
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">Link APIs</div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel label="product_ids" value={globalValues.partnerboost_link_product_ids || ''} onChange={(v) => setGlobalValue('partnerboost_link_product_ids', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="asins" value={globalValues.partnerboost_link_asins || ''} onChange={(v) => setGlobalValue('partnerboost_link_asins', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="country_code" value={globalValues.partnerboost_link_country_code || ''} onChange={(v) => setGlobalValue('partnerboost_link_country_code', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="uid" value={globalValues.partnerboost_link_uid || ''} onChange={(v) => setGlobalValue('partnerboost_link_uid', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="return_partnerboost_link" value={globalValues.partnerboost_link_return_partnerboost_link || ''} onChange={(v) => setGlobalValue('partnerboost_link_return_partnerboost_link', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="link_ids" value={globalValues.partnerboost_link_status_link_ids || ''} onChange={(v) => setGlobalValue('partnerboost_link_status_link_ids', v)} disabled={!settings?.isAdmin} />
-                    </div>
-                  </div>
+                  <Card className="border-slate-200">
+                    <CardHeader>
+                      <CardTitle>广告联盟平台 (PartnerBoost Amazon)</CardTitle>
+                      <CardDescription>根据 PartnerBoost Amazon API 文档配置默认参数（可与 YeahPromos 同时配置）</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel label="Base URL" value={globalValues.partnerboost_base_url || ''} onChange={(v) => setGlobalValue('partnerboost_base_url', v)} disabled={!settings?.isAdmin} placeholder="https://app.partnerboost.com" />
+                        <InputWithLabel label="Token" type="password" value={globalValues.partnerboost_token || ''} onChange={(v) => setGlobalValue('partnerboost_token', v)} disabled={!settings?.isAdmin} />
+                      </div>
 
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">Brands / Storefront APIs</div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel label="bids (brands)" value={globalValues.partnerboost_brands_bids || ''} onChange={(v) => setGlobalValue('partnerboost_brands_bids', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="page_size (brands)" value={globalValues.partnerboost_brands_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_brands_page_size', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="page (brands)" value={globalValues.partnerboost_brands_page || ''} onChange={(v) => setGlobalValue('partnerboost_brands_page', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="bids (storefront)" value={globalValues.partnerboost_storefront_bids || ''} onChange={(v) => setGlobalValue('partnerboost_storefront_bids', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="uid (storefront)" value={globalValues.partnerboost_storefront_uid || ''} onChange={(v) => setGlobalValue('partnerboost_storefront_uid', v)} disabled={!settings?.isAdmin} />
-                    </div>
-                  </div>
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2">Get Products API</div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <InputWithLabel label="page_size" value={globalValues.partnerboost_products_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_products_page_size', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="page" value={globalValues.partnerboost_products_page || ''} onChange={(v) => setGlobalValue('partnerboost_products_page', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="default_filter" value={globalValues.partnerboost_products_default_filter || ''} onChange={(v) => setGlobalValue('partnerboost_products_default_filter', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="country_code" value={globalValues.partnerboost_products_country_code || ''} onChange={(v) => setGlobalValue('partnerboost_products_country_code', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="brand_id" value={globalValues.partnerboost_products_brand_id || ''} onChange={(v) => setGlobalValue('partnerboost_products_brand_id', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="sort" value={globalValues.partnerboost_products_sort || ''} onChange={(v) => setGlobalValue('partnerboost_products_sort', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="asins" value={globalValues.partnerboost_products_asins || ''} onChange={(v) => setGlobalValue('partnerboost_products_asins', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="relationship" value={globalValues.partnerboost_products_relationship || ''} onChange={(v) => setGlobalValue('partnerboost_products_relationship', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="is_original_currency" value={globalValues.partnerboost_products_is_original_currency || ''} onChange={(v) => setGlobalValue('partnerboost_products_is_original_currency', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="has_promo_code" value={globalValues.partnerboost_products_has_promo_code || ''} onChange={(v) => setGlobalValue('partnerboost_products_has_promo_code', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="has_acc" value={globalValues.partnerboost_products_has_acc || ''} onChange={(v) => setGlobalValue('partnerboost_products_has_acc', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="filter_sexual_wellness" value={globalValues.partnerboost_products_filter_sexual_wellness || ''} onChange={(v) => setGlobalValue('partnerboost_products_filter_sexual_wellness', v)} disabled={!settings?.isAdmin} />
+                        </div>
+                      </div>
 
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">Amazon Report API</div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel label="page_size" value={globalValues.partnerboost_report_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_report_page_size', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="page" value={globalValues.partnerboost_report_page || ''} onChange={(v) => setGlobalValue('partnerboost_report_page', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="start_date" value={globalValues.partnerboost_report_start_date || ''} onChange={(v) => setGlobalValue('partnerboost_report_start_date', v)} disabled={!settings?.isAdmin} placeholder="YYYYMMDD" />
-                      <InputWithLabel label="end_date" value={globalValues.partnerboost_report_end_date || ''} onChange={(v) => setGlobalValue('partnerboost_report_end_date', v)} disabled={!settings?.isAdmin} placeholder="YYYYMMDD" />
-                      <InputWithLabel label="marketplace" value={globalValues.partnerboost_report_marketplace || ''} onChange={(v) => setGlobalValue('partnerboost_report_marketplace', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="asins" value={globalValues.partnerboost_report_asins || ''} onChange={(v) => setGlobalValue('partnerboost_report_asins', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="adGroupIds" value={globalValues.partnerboost_report_ad_group_ids || ''} onChange={(v) => setGlobalValue('partnerboost_report_ad_group_ids', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="order_ids" value={globalValues.partnerboost_report_order_ids || ''} onChange={(v) => setGlobalValue('partnerboost_report_order_ids', v)} disabled={!settings?.isAdmin} />
-                    </div>
-                  </div>
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2">Link APIs</div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <InputWithLabel label="product_ids" value={globalValues.partnerboost_link_product_ids || ''} onChange={(v) => setGlobalValue('partnerboost_link_product_ids', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="asins" value={globalValues.partnerboost_link_asins || ''} onChange={(v) => setGlobalValue('partnerboost_link_asins', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="country_code" value={globalValues.partnerboost_link_country_code || ''} onChange={(v) => setGlobalValue('partnerboost_link_country_code', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="uid" value={globalValues.partnerboost_link_uid || ''} onChange={(v) => setGlobalValue('partnerboost_link_uid', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="return_partnerboost_link" value={globalValues.partnerboost_link_return_partnerboost_link || ''} onChange={(v) => setGlobalValue('partnerboost_link_return_partnerboost_link', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="link_ids" value={globalValues.partnerboost_link_status_link_ids || ''} onChange={(v) => setGlobalValue('partnerboost_link_status_link_ids', v)} disabled={!settings?.isAdmin} />
+                        </div>
+                      </div>
 
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">Associates ASIN List API</div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel label="page_size" value={globalValues.partnerboost_associates_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_associates_page_size', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="page" value={globalValues.partnerboost_associates_page || ''} onChange={(v) => setGlobalValue('partnerboost_associates_page', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="filter_sexual_wellness" value={globalValues.partnerboost_associates_filter_sexual_wellness || ''} onChange={(v) => setGlobalValue('partnerboost_associates_filter_sexual_wellness', v)} disabled={!settings?.isAdmin} />
-                      <InputWithLabel label="region" value={globalValues.partnerboost_associates_region || ''} onChange={(v) => setGlobalValue('partnerboost_associates_region', v)} disabled={!settings?.isAdmin} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2">Brands / Storefront APIs</div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <InputWithLabel label="bids (brands)" value={globalValues.partnerboost_brands_bids || ''} onChange={(v) => setGlobalValue('partnerboost_brands_bids', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="page_size (brands)" value={globalValues.partnerboost_brands_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_brands_page_size', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="page (brands)" value={globalValues.partnerboost_brands_page || ''} onChange={(v) => setGlobalValue('partnerboost_brands_page', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="bids (storefront)" value={globalValues.partnerboost_storefront_bids || ''} onChange={(v) => setGlobalValue('partnerboost_storefront_bids', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="uid (storefront)" value={globalValues.partnerboost_storefront_uid || ''} onChange={(v) => setGlobalValue('partnerboost_storefront_uid', v)} disabled={!settings?.isAdmin} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2">Amazon Report API</div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <InputWithLabel label="page_size" value={globalValues.partnerboost_report_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_report_page_size', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="page" value={globalValues.partnerboost_report_page || ''} onChange={(v) => setGlobalValue('partnerboost_report_page', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="start_date" value={globalValues.partnerboost_report_start_date || ''} onChange={(v) => setGlobalValue('partnerboost_report_start_date', v)} disabled={!settings?.isAdmin} placeholder="YYYYMMDD" />
+                          <InputWithLabel label="end_date" value={globalValues.partnerboost_report_end_date || ''} onChange={(v) => setGlobalValue('partnerboost_report_end_date', v)} disabled={!settings?.isAdmin} placeholder="YYYYMMDD" />
+                          <InputWithLabel label="marketplace" value={globalValues.partnerboost_report_marketplace || ''} onChange={(v) => setGlobalValue('partnerboost_report_marketplace', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="asins" value={globalValues.partnerboost_report_asins || ''} onChange={(v) => setGlobalValue('partnerboost_report_asins', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="adGroupIds" value={globalValues.partnerboost_report_ad_group_ids || ''} onChange={(v) => setGlobalValue('partnerboost_report_ad_group_ids', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="order_ids" value={globalValues.partnerboost_report_order_ids || ''} onChange={(v) => setGlobalValue('partnerboost_report_order_ids', v)} disabled={!settings?.isAdmin} />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2">Associates ASIN List API</div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <InputWithLabel label="page_size" value={globalValues.partnerboost_associates_page_size || ''} onChange={(v) => setGlobalValue('partnerboost_associates_page_size', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="page" value={globalValues.partnerboost_associates_page || ''} onChange={(v) => setGlobalValue('partnerboost_associates_page', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="filter_sexual_wellness" value={globalValues.partnerboost_associates_filter_sexual_wellness || ''} onChange={(v) => setGlobalValue('partnerboost_associates_filter_sexual_wellness', v)} disabled={!settings?.isAdmin} />
+                          <InputWithLabel label="region" value={globalValues.partnerboost_associates_region || ''} onChange={(v) => setGlobalValue('partnerboost_associates_region', v)} disabled={!settings?.isAdmin} />
+                        </div>
+                      </div>
+
+                      {simpleMode && (
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowAdvancedPartners(false)}
+                          >
+                            收起可选配置
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
 
               <Card className="border-slate-200">
                 <CardHeader>
@@ -998,55 +1118,85 @@ export default function OpenClawPage() {
                   <CardDescription>配置 OpenClaw Models Providers JSON</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Providers JSON</span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setGlobalValue('ai_models_json', JSON_PLACEHOLDER)}
-                      disabled={!settings?.isAdmin}
-                    >
-                      填充示例
-                    </Button>
-                  </div>
-                  <Textarea
-                    value={globalValues.ai_models_json || ''}
-                    onChange={(e) => setGlobalValue('ai_models_json', e.target.value)}
-                    disabled={!settings?.isAdmin}
-                    placeholder={JSON_PLACEHOLDER}
-                    rows={10}
-                  />
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <InputWithLabel
-                      label="Models Mode"
-                      value={globalValues.openclaw_models_mode || ''}
-                      onChange={(v) => setGlobalValue('openclaw_models_mode', v)}
-                      disabled={!settings?.isAdmin}
-                      placeholder="merge / replace"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">Bedrock Discovery (JSON)</label>
+                  {simpleMode && aiConfigured && !showAiEditor && (
+                    <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                      <span>Models Providers 已配置</span>
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setGlobalValue('openclaw_models_bedrock_discovery_json', BEDROCK_PLACEHOLDER)}
-                        disabled={!settings?.isAdmin}
+                        onClick={() => setShowAdvancedAi(true)}
                       >
-                        填充示例
+                        编辑
                       </Button>
                     </div>
-                    <Textarea
-                      value={globalValues.openclaw_models_bedrock_discovery_json || ''}
-                      onChange={(e) => setGlobalValue('openclaw_models_bedrock_discovery_json', e.target.value)}
-                      disabled={!settings?.isAdmin}
-                      placeholder={BEDROCK_PLACEHOLDER}
-                      rows={6}
-                    />
-                  </div>
+                  )}
+
+                  {showAiEditor && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Providers JSON</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setGlobalValue('ai_models_json', JSON_PLACEHOLDER)}
+                          disabled={!settings?.isAdmin}
+                        >
+                          填充示例
+                        </Button>
+                      </div>
+                      <Textarea
+                        value={globalValues.ai_models_json || ''}
+                        onChange={(e) => setGlobalValue('ai_models_json', e.target.value)}
+                        disabled={!settings?.isAdmin}
+                        placeholder={JSON_PLACEHOLDER}
+                        rows={10}
+                      />
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel
+                          label="Models Mode"
+                          value={globalValues.openclaw_models_mode || ''}
+                          onChange={(v) => setGlobalValue('openclaw_models_mode', v)}
+                          disabled={!settings?.isAdmin}
+                          placeholder="merge / replace"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium">Bedrock Discovery (JSON)</label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setGlobalValue('openclaw_models_bedrock_discovery_json', BEDROCK_PLACEHOLDER)}
+                            disabled={!settings?.isAdmin}
+                          >
+                            填充示例
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={globalValues.openclaw_models_bedrock_discovery_json || ''}
+                          onChange={(e) => setGlobalValue('openclaw_models_bedrock_discovery_json', e.target.value)}
+                          disabled={!settings?.isAdmin}
+                          placeholder={BEDROCK_PLACEHOLDER}
+                          rows={6}
+                        />
+                      </div>
+                      {simpleMode && (
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowAdvancedAi(false)}
+                          >
+                            收起
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1056,72 +1206,93 @@ export default function OpenClawPage() {
                   <CardDescription>与 OpenClaw Feishu 插件参数一致</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {simpleMode && (
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>仅显示必填项，其余参数使用默认值</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAdvancedFeishu((prev) => !prev)}
+                      >
+                        {showFeishuAdvanced ? '收起高级' : '高级设置'}
+                      </Button>
+                    </div>
+                  )}
+
                   <div className="grid gap-4 md:grid-cols-3">
                     <InputWithLabel label="App ID" value={globalValues.feishu_app_id || ''} onChange={(v) => setGlobalValue('feishu_app_id', v)} disabled={!settings?.isAdmin} />
                     <InputWithLabel label="App Secret" type="password" value={globalValues.feishu_app_secret || ''} onChange={(v) => setGlobalValue('feishu_app_secret', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="App Secret File" value={globalValues.feishu_app_secret_file || ''} onChange={(v) => setGlobalValue('feishu_app_secret_file', v)} disabled={!settings?.isAdmin} placeholder="/path/to/secret" />
-                    <InputWithLabel label="Domain" value={globalValues.feishu_domain || ''} onChange={(v) => setGlobalValue('feishu_domain', v)} disabled={!settings?.isAdmin} placeholder="feishu / lark / https://..." />
                     <InputWithLabel label="Bot Name" value={globalValues.feishu_bot_name || ''} onChange={(v) => setGlobalValue('feishu_bot_name', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="DM Policy" value={globalValues.feishu_dm_policy || ''} onChange={(v) => setGlobalValue('feishu_dm_policy', v)} disabled={!settings?.isAdmin} placeholder="pairing / allowlist / open / disabled" />
-                    <InputWithLabel label="Group Policy" value={globalValues.feishu_group_policy || ''} onChange={(v) => setGlobalValue('feishu_group_policy', v)} disabled={!settings?.isAdmin} placeholder="open / allowlist / disabled" />
-                    <InputWithLabel label="DM Allowlist" value={globalValues.feishu_allow_from || ''} onChange={(v) => setGlobalValue('feishu_allow_from', v)} disabled={!settings?.isAdmin} placeholder='["open_id"]' />
-                    <InputWithLabel label="Group Allowlist" value={globalValues.feishu_group_allow_from || ''} onChange={(v) => setGlobalValue('feishu_group_allow_from', v)} disabled={!settings?.isAdmin} placeholder='["open_id"]' />
-                    <SwitchWithLabel label="Require Mention (group)" checked={(globalValues.feishu_require_mention || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_require_mention', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="History Limit" value={globalValues.feishu_history_limit || ''} onChange={(v) => setGlobalValue('feishu_history_limit', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="DM History Limit" value={globalValues.feishu_dm_history_limit || ''} onChange={(v) => setGlobalValue('feishu_dm_history_limit', v)} disabled={!settings?.isAdmin} />
-                    <SwitchWithLabel label="Streaming" checked={(globalValues.feishu_streaming || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_streaming', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
-                    <SwitchWithLabel label="Block Streaming" checked={(globalValues.feishu_block_streaming || 'false') === 'true'} onChange={(val) => setGlobalValue('feishu_block_streaming', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
-                    <SwitchWithLabel label="Config Writes" checked={(globalValues.feishu_config_writes || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_config_writes', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="Text Chunk Limit" value={globalValues.feishu_text_chunk_limit || ''} onChange={(v) => setGlobalValue('feishu_text_chunk_limit', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="Chunk Mode" value={globalValues.feishu_chunk_mode || ''} onChange={(v) => setGlobalValue('feishu_chunk_mode', v)} disabled={!settings?.isAdmin} placeholder="length / newline" />
-                    <InputWithLabel label="Markdown Tables" value={globalValues.feishu_markdown_tables || ''} onChange={(v) => setGlobalValue('feishu_markdown_tables', v)} disabled={!settings?.isAdmin} placeholder="off / bullets / code" />
-                    <InputWithLabel label="Media Max MB" value={globalValues.feishu_media_max_mb || ''} onChange={(v) => setGlobalValue('feishu_media_max_mb', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="Response Prefix" value={globalValues.feishu_response_prefix || ''} onChange={(v) => setGlobalValue('feishu_response_prefix', v)} disabled={!settings?.isAdmin} />
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Groups JSON (高级)</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('feishu_groups_json', FEISHU_GROUPS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+
+                  {showFeishuAdvanced && (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel label="App Secret File" value={globalValues.feishu_app_secret_file || ''} onChange={(v) => setGlobalValue('feishu_app_secret_file', v)} disabled={!settings?.isAdmin} placeholder="/path/to/secret" />
+                        <InputWithLabel label="Domain" value={globalValues.feishu_domain || ''} onChange={(v) => setGlobalValue('feishu_domain', v)} disabled={!settings?.isAdmin} placeholder="feishu / lark / https://..." />
+                        <InputWithLabel label="DM Policy" value={globalValues.feishu_dm_policy || ''} onChange={(v) => setGlobalValue('feishu_dm_policy', v)} disabled={!settings?.isAdmin} placeholder="pairing / allowlist / open / disabled" />
+                        <InputWithLabel label="Group Policy" value={globalValues.feishu_group_policy || ''} onChange={(v) => setGlobalValue('feishu_group_policy', v)} disabled={!settings?.isAdmin} placeholder="open / allowlist / disabled" />
+                        <InputWithLabel label="DM Allowlist" value={globalValues.feishu_allow_from || ''} onChange={(v) => setGlobalValue('feishu_allow_from', v)} disabled={!settings?.isAdmin} placeholder='["open_id"]' />
+                        <InputWithLabel label="Group Allowlist" value={globalValues.feishu_group_allow_from || ''} onChange={(v) => setGlobalValue('feishu_group_allow_from', v)} disabled={!settings?.isAdmin} placeholder='["open_id"]' />
+                        <SwitchWithLabel label="Require Mention (group)" checked={(globalValues.feishu_require_mention || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_require_mention', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
+                        <InputWithLabel label="History Limit" value={globalValues.feishu_history_limit || ''} onChange={(v) => setGlobalValue('feishu_history_limit', v)} disabled={!settings?.isAdmin} />
+                        <InputWithLabel label="DM History Limit" value={globalValues.feishu_dm_history_limit || ''} onChange={(v) => setGlobalValue('feishu_dm_history_limit', v)} disabled={!settings?.isAdmin} />
+                        <SwitchWithLabel label="Streaming" checked={(globalValues.feishu_streaming || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_streaming', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
+                        <SwitchWithLabel label="Block Streaming" checked={(globalValues.feishu_block_streaming || 'false') === 'true'} onChange={(val) => setGlobalValue('feishu_block_streaming', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
+                        <SwitchWithLabel label="Config Writes" checked={(globalValues.feishu_config_writes || 'true') !== 'false'} onChange={(val) => setGlobalValue('feishu_config_writes', val ? 'true' : 'false')} disabled={!settings?.isAdmin} />
+                        <InputWithLabel label="Text Chunk Limit" value={globalValues.feishu_text_chunk_limit || ''} onChange={(v) => setGlobalValue('feishu_text_chunk_limit', v)} disabled={!settings?.isAdmin} />
+                        <InputWithLabel label="Chunk Mode" value={globalValues.feishu_chunk_mode || ''} onChange={(v) => setGlobalValue('feishu_chunk_mode', v)} disabled={!settings?.isAdmin} placeholder="length / newline" />
+                        <InputWithLabel label="Markdown Tables" value={globalValues.feishu_markdown_tables || ''} onChange={(v) => setGlobalValue('feishu_markdown_tables', v)} disabled={!settings?.isAdmin} placeholder="off / bullets / code" />
+                        <InputWithLabel label="Media Max MB" value={globalValues.feishu_media_max_mb || ''} onChange={(v) => setGlobalValue('feishu_media_max_mb', v)} disabled={!settings?.isAdmin} />
+                        <InputWithLabel label="Response Prefix" value={globalValues.feishu_response_prefix || ''} onChange={(v) => setGlobalValue('feishu_response_prefix', v)} disabled={!settings?.isAdmin} />
                       </div>
-                      <Textarea
-                        value={globalValues.feishu_groups_json || ''}
-                        onChange={(e) => setGlobalValue('feishu_groups_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={FEISHU_GROUPS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Accounts JSON (高级)</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('feishu_accounts_json', FEISHU_ACCOUNTS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Groups JSON (高级)</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('feishu_groups_json', FEISHU_GROUPS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.feishu_groups_json || ''}
+                            onChange={(e) => setGlobalValue('feishu_groups_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={FEISHU_GROUPS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Accounts JSON (高级)</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('feishu_accounts_json', FEISHU_ACCOUNTS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.feishu_accounts_json || ''}
+                            onChange={(e) => setGlobalValue('feishu_accounts_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={FEISHU_ACCOUNTS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
                       </div>
-                      <Textarea
-                        value={globalValues.feishu_accounts_json || ''}
-                        onChange={(e) => setGlobalValue('feishu_accounts_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={FEISHU_ACCOUNTS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1131,182 +1302,213 @@ export default function OpenClawPage() {
                   <CardDescription>按 OpenClaw schema 提供高级能力，留空则使用默认</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Agent Defaults JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_agent_defaults_json', AGENT_DEFAULTS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={globalValues.openclaw_agent_defaults_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_agent_defaults_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={AGENT_DEFAULTS_PLACEHOLDER}
-                        rows={6}
-                      />
+                  {simpleMode && !showOpenclawAdvanced && (
+                    <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2 text-sm">
+                      <span>高级 JSON 配置已隐藏，默认值生效</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAdvancedOpenclaw(true)}
+                      >
+                        显示高级
+                      </Button>
                     </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Agent List JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_agent_list_json', AGENT_LIST_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={globalValues.openclaw_agent_list_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_agent_list_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={AGENT_LIST_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Session JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_session_json', SESSION_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+                  {showOpenclawAdvanced && (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Agent Defaults JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_agent_defaults_json', AGENT_DEFAULTS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_agent_defaults_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_agent_defaults_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={AGENT_DEFAULTS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Agent List JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_agent_list_json', AGENT_LIST_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_agent_list_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_agent_list_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={AGENT_LIST_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
                       </div>
-                      <Textarea
-                        value={globalValues.openclaw_session_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_session_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={SESSION_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Messages JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_messages_json', MESSAGES_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={globalValues.openclaw_messages_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_messages_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={MESSAGES_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Commands JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_commands_json', COMMANDS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={globalValues.openclaw_commands_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_commands_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={COMMANDS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                  </div>
 
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Approvals Exec JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_approvals_exec_json', APPROVALS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Session JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_session_json', SESSION_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_session_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_session_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={SESSION_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Messages JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_messages_json', MESSAGES_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_messages_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_messages_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={MESSAGES_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Commands JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_commands_json', COMMANDS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_commands_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_commands_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={COMMANDS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
                       </div>
-                      <Textarea
-                        value={globalValues.openclaw_approvals_exec_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_approvals_exec_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={APPROVALS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Redact Patterns JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_logging_redact_patterns_json', REDACT_PATTERNS_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Approvals Exec JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_approvals_exec_json', APPROVALS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_approvals_exec_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_approvals_exec_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={APPROVALS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Redact Patterns JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_logging_redact_patterns_json', REDACT_PATTERNS_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_logging_redact_patterns_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_logging_redact_patterns_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={REDACT_PATTERNS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Diagnostics OTEL JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_diagnostics_otel_json', OTEL_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_diagnostics_otel_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_diagnostics_otel_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={OTEL_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
                       </div>
-                      <Textarea
-                        value={globalValues.openclaw_logging_redact_patterns_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_logging_redact_patterns_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={REDACT_PATTERNS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Diagnostics OTEL JSON</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('openclaw_diagnostics_otel_json', OTEL_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={globalValues.openclaw_diagnostics_otel_json || ''}
-                        onChange={(e) => setGlobalValue('openclaw_diagnostics_otel_json', e.target.value)}
-                        disabled={!settings?.isAdmin}
-                        placeholder={OTEL_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                  </div>
+
+                      {simpleMode && (
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowAdvancedOpenclaw(false)}
+                          >
+                            收起高级
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1324,43 +1526,60 @@ export default function OpenClawPage() {
               <CardDescription>用于每日推送目标、文档/表格输出与OpenClaw身份绑定</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {simpleMode && (
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>仅显示必要字段，其余采用默认或可选配置</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAdvancedUser((prev) => !prev)}
+                  >
+                    {showUserAdvanced ? '收起高级' : '更多设置'}
+                  </Button>
+                </div>
+              )}
               <div className="grid gap-4 md:grid-cols-3">
                 <InputWithLabel
                   label="飞书推送目标 (open_id / union_id / chat_id)"
                   value={userValues.feishu_target || ''}
                   onChange={(v) => setUserValue('feishu_target', v)}
                 />
-                <InputWithLabel
-                  label="飞书文档目录 Token"
-                  value={userValues.feishu_doc_folder_token || ''}
-                  onChange={(v) => setUserValue('feishu_doc_folder_token', v)}
-                  placeholder="fldc_xxx"
-                />
-                <InputWithLabel
-                  label="文档标题前缀"
-                  value={userValues.feishu_doc_title_prefix || ''}
-                  onChange={(v) => setUserValue('feishu_doc_title_prefix', v)}
-                  placeholder="OpenClaw 每日报表"
-                />
-                <InputWithLabel
-                  label="Bitable App Token"
-                  value={userValues.feishu_bitable_app_token || ''}
-                  onChange={(v) => setUserValue('feishu_bitable_app_token', v)}
-                  placeholder="basc_xxx"
-                />
-                <InputWithLabel
-                  label="Bitable Table ID"
-                  value={userValues.feishu_bitable_table_id || ''}
-                  onChange={(v) => setUserValue('feishu_bitable_table_id', v)}
-                  placeholder="tbl_xxx (可留空自动创建)"
-                />
-                <InputWithLabel
-                  label="Bitable Table Name"
-                  value={userValues.feishu_bitable_table_name || ''}
-                  onChange={(v) => setUserValue('feishu_bitable_table_name', v)}
-                  placeholder="OpenClaw Daily Report"
-                />
               </div>
+              {showUserAdvanced && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <InputWithLabel
+                    label="飞书文档目录 Token"
+                    value={userValues.feishu_doc_folder_token || ''}
+                    onChange={(v) => setUserValue('feishu_doc_folder_token', v)}
+                    placeholder="fldc_xxx"
+                  />
+                  <InputWithLabel
+                    label="文档标题前缀"
+                    value={userValues.feishu_doc_title_prefix || ''}
+                    onChange={(v) => setUserValue('feishu_doc_title_prefix', v)}
+                    placeholder="OpenClaw 每日报表"
+                  />
+                  <InputWithLabel
+                    label="Bitable App Token"
+                    value={userValues.feishu_bitable_app_token || ''}
+                    onChange={(v) => setUserValue('feishu_bitable_app_token', v)}
+                    placeholder="basc_xxx"
+                  />
+                  <InputWithLabel
+                    label="Bitable Table ID"
+                    value={userValues.feishu_bitable_table_id || ''}
+                    onChange={(v) => setUserValue('feishu_bitable_table_id', v)}
+                    placeholder="tbl_xxx (可留空自动创建)"
+                  />
+                  <InputWithLabel
+                    label="Bitable Table Name"
+                    value={userValues.feishu_bitable_table_name || ''}
+                    onChange={(v) => setUserValue('feishu_bitable_table_name', v)}
+                    placeholder="OpenClaw Daily Report"
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <Button variant="outline" size="sm" onClick={applyFeishuDocExample}>
                   快速示例
@@ -1434,6 +1653,20 @@ export default function OpenClawPage() {
               <CardDescription>OpenClaw 自我进化策略参数（用户级配置）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {simpleMode && (
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>仅显示关键参数，其余使用默认值</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAdvancedStrategy((prev) => !prev)}
+                  >
+                    {showStrategyAdvanced ? '收起高级' : '更多参数'}
+                  </Button>
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-3">
                 <SwitchWithLabel
                   label="启用策略"
@@ -1446,42 +1679,47 @@ export default function OpenClawPage() {
                   onChange={(v) => setUserValue('openclaw_strategy_cron', v)}
                   placeholder="0 9 * * *"
                 />
-                <InputWithLabel
-                  label="每次最大Offer数"
-                  value={userValues.openclaw_strategy_max_offers_per_run || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_max_offers_per_run', v)}
-                />
-                <InputWithLabel
-                  label="默认日预算"
-                  value={userValues.openclaw_strategy_default_budget || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_default_budget', v)}
-                />
-                <InputWithLabel
-                  label="最大CPC"
-                  value={userValues.openclaw_strategy_max_cpc || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_max_cpc', v)}
-                />
-                <InputWithLabel
-                  label="最小CPC"
-                  value={userValues.openclaw_strategy_min_cpc || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_min_cpc', v)}
-                />
-                <InputWithLabel
-                  label="每日预算上限"
-                  value={userValues.openclaw_strategy_daily_budget_cap || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_daily_budget_cap', v)}
-                />
-                <InputWithLabel
-                  label="每日花费上限"
-                  value={userValues.openclaw_strategy_daily_spend_cap || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_daily_spend_cap', v)}
-                />
-                <InputWithLabel
-                  label="目标ROAS"
-                  value={userValues.openclaw_strategy_target_roas || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_target_roas', v)}
-                />
               </div>
+
+              {showStrategyAdvanced && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <InputWithLabel
+                    label="每次最大Offer数"
+                    value={userValues.openclaw_strategy_max_offers_per_run || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_max_offers_per_run', v)}
+                  />
+                  <InputWithLabel
+                    label="默认日预算"
+                    value={userValues.openclaw_strategy_default_budget || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_default_budget', v)}
+                  />
+                  <InputWithLabel
+                    label="最大CPC"
+                    value={userValues.openclaw_strategy_max_cpc || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_max_cpc', v)}
+                  />
+                  <InputWithLabel
+                    label="最小CPC"
+                    value={userValues.openclaw_strategy_min_cpc || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_min_cpc', v)}
+                  />
+                  <InputWithLabel
+                    label="每日预算上限"
+                    value={userValues.openclaw_strategy_daily_budget_cap || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_daily_budget_cap', v)}
+                  />
+                  <InputWithLabel
+                    label="每日花费上限"
+                    value={userValues.openclaw_strategy_daily_spend_cap || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_daily_spend_cap', v)}
+                  />
+                  <InputWithLabel
+                    label="目标ROAS"
+                    value={userValues.openclaw_strategy_target_roas || ''}
+                    onChange={(v) => setUserValue('openclaw_strategy_target_roas', v)}
+                  />
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Ads账号ID列表 (JSON)</label>
@@ -1493,33 +1731,35 @@ export default function OpenClawPage() {
                 />
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <SwitchWithLabel
-                  label="自动发布"
-                  checked={isTruthy(userValues.openclaw_strategy_enable_auto_publish, true)}
-                  onChange={(val) => setUserValue('openclaw_strategy_enable_auto_publish', val ? 'true' : 'false')}
-                />
-                <SwitchWithLabel
-                  label="自动暂停冲突Campaign"
-                  checked={isTruthy(userValues.openclaw_strategy_enable_auto_pause, true)}
-                  onChange={(val) => setUserValue('openclaw_strategy_enable_auto_pause', val ? 'true' : 'false')}
-                />
-                <SwitchWithLabel
-                  label="自动调整CPC"
-                  checked={isTruthy(userValues.openclaw_strategy_enable_auto_adjust_cpc, true)}
-                  onChange={(val) => setUserValue('openclaw_strategy_enable_auto_adjust_cpc', val ? 'true' : 'false')}
-                />
-                <SwitchWithLabel
-                  label="允许联盟平台补全"
-                  checked={isTruthy(userValues.openclaw_strategy_allow_affiliate_fetch, true)}
-                  onChange={(val) => setUserValue('openclaw_strategy_allow_affiliate_fetch', val ? 'true' : 'false')}
-                />
-                <SwitchWithLabel
-                  label="Dry Run"
-                  checked={isTruthy(userValues.openclaw_strategy_dry_run, false)}
-                  onChange={(val) => setUserValue('openclaw_strategy_dry_run', val ? 'true' : 'false')}
-                />
-              </div>
+              {showStrategyAdvanced && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <SwitchWithLabel
+                    label="自动发布"
+                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_publish, true)}
+                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_publish', val ? 'true' : 'false')}
+                  />
+                  <SwitchWithLabel
+                    label="自动暂停冲突Campaign"
+                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_pause, true)}
+                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_pause', val ? 'true' : 'false')}
+                  />
+                  <SwitchWithLabel
+                    label="自动调整CPC"
+                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_adjust_cpc, true)}
+                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_adjust_cpc', val ? 'true' : 'false')}
+                  />
+                  <SwitchWithLabel
+                    label="允许联盟平台补全"
+                    checked={isTruthy(userValues.openclaw_strategy_allow_affiliate_fetch, true)}
+                    onChange={(val) => setUserValue('openclaw_strategy_allow_affiliate_fetch', val ? 'true' : 'false')}
+                  />
+                  <SwitchWithLabel
+                    label="Dry Run"
+                    checked={isTruthy(userValues.openclaw_strategy_dry_run, false)}
+                    onChange={(val) => setUserValue('openclaw_strategy_dry_run', val ? 'true' : 'false')}
+                  />
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <Button variant="outline" size="sm" onClick={applyStrategyExample}>
