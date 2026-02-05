@@ -240,13 +240,16 @@ export async function expandAllKeywords(
   console.log(`   品牌: ${brandName}`)
 
   if (authType === 'oauth') {
+    const useSiteFilter = offer?.page_type !== 'store'
     return expandForOAuth({
       initialKeywords,
       brandName,
       category,
       targetCountry,
       targetLanguage,
-      pageUrl: offer ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true }) : undefined,
+      pageUrl: offer && useSiteFilter
+        ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true })
+        : undefined,
       offer,
       userId,
       customerId,
