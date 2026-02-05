@@ -15,10 +15,11 @@ docker run --rm \
   -v "${OPENCLAW_DIR}:/openclaw" \
   -v "${TMP_DIR}:/out" \
   -w /openclaw \
+  -e OPENCLAW_A2UI_SKIP_MISSING=1 \
   node:22-bookworm-slim \
   sh -lc '
     set -e
-    apt-get update && apt-get install -y git python3 make g++ >/dev/null
+    apt-get update && apt-get install -y git python3 make g++ bash >/dev/null
     corepack enable
     corepack prepare pnpm@10.23.0 --activate
     pnpm install --no-frozen-lockfile
