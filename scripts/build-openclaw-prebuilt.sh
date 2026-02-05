@@ -32,6 +32,7 @@ docker run --rm \
     cp -r dist/* /out/dist/
     cp openclaw.mjs /out/openclaw.mjs
     cp package.json /out/package.json
+    cp -a node_modules /out/node_modules
     chown -R "${HOST_UID:-1000}:${HOST_GID:-1000}" /out
   '
 

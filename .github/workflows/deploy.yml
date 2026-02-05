@@ -150,6 +150,7 @@ jobs:
         run: |
           ./scripts/build-openclaw-prebuilt.sh
           test -f openclaw-prebuilt/dist/entry.js
+          test -d openclaw-prebuilt/node_modules
           node openclaw-prebuilt/openclaw.mjs --help
 
       # 单次构建，推送到两个Registry

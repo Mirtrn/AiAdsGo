@@ -9,5 +9,10 @@ if [[ ! -f "${PREBUILT_DIR}/dist/entry.js" ]]; then
   exit 1
 fi
 
+if [[ ! -d "${PREBUILT_DIR}/node_modules" ]]; then
+  echo "❌ openclaw-prebuilt/node_modules 不存在"
+  exit 1
+fi
+
 node "${PREBUILT_DIR}/openclaw.mjs" --help >/dev/null
 echo "✅ OpenClaw 预编译产物验证通过"

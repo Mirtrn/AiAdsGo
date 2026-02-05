@@ -8,6 +8,7 @@ OpenClaw 预编译产物目录
 openclaw-prebuilt/
   openclaw.mjs
   package.json
+  node_modules/
   dist/
     entry.js
     index.js
