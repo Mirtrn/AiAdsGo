@@ -240,16 +240,13 @@ export async function expandAllKeywords(
   console.log(`   品牌: ${brandName}`)
 
   if (authType === 'oauth') {
-    const useSiteFilter = offer?.page_type !== 'store'
     return expandForOAuth({
       initialKeywords,
       brandName,
       category,
       targetCountry,
       targetLanguage,
-      pageUrl: offer && useSiteFilter
-        ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true })
-        : undefined,
+      pageUrl: offer ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true }) : undefined,
       offer,
       userId,
       customerId,
@@ -346,6 +343,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   const maxRounds = 3
   const topN = 20
   let keywordPlannerReturned = false
+  let usedNoSiteFilterSupplement = false
 
   const fallbackKeywords: PoolKeywordData[] = (() => {
     if (initialKeywords.length > 0) return initialKeywords
@@ -424,7 +422,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       console.log(`\n   📊 Round ${round}/${maxRounds}: Keyword Planner 查询`)
       console.log(`      种子词: ${seedKeywords.slice(0, 5).join(', ')}${seedKeywords.length > 5 ? '...' : ''}`)
 
-      const results = await expandKeywordsWithSeeds({
+      const primaryResults = await expandKeywordsWithSeeds({
         expansionSeeds: seedKeywords,
         country: targetCountry,
         language: targetLanguage,
@@ -449,6 +447,58 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
               })
           : undefined
       })
+
+      let results = primaryResults
+
+      const brandCountFromSiteFilter = fullBrandKeywords.length > 0
+        ? primaryResults.filter(kw => containsPureBrand(kw.keyword, fullBrandKeywords)).length
+        : 0
+
+      if (!usedNoSiteFilterSupplement && pageUrl && fullBrandKeywords.length > 0 && brandCountFromSiteFilter < minFullBrandCount) {
+        console.log(`      ⚠️ 站点过滤命中品牌词较少(${brandCountFromSiteFilter}/${minFullBrandCount})，补充无站点过滤查询`)
+        const supplementalResults = await expandKeywordsWithSeeds({
+          expansionSeeds: seedKeywords,
+          country: targetCountry,
+          language: targetLanguage,
+          userId,
+          brandName,
+          customerId,
+          refreshToken,
+          accountId,
+          clientId,
+          clientSecret,
+          developerToken,
+          maxKeywords: DEFAULTS.maxKeywords,
+          minSearchVolume: minSearchVolume ?? DEFAULTS.minSearchVolume,
+          onProgress: progress
+            ? (info: { message: string; current?: number; total?: number }) =>
+                progress({
+                  phase: 'volume-batch',
+                  current: info.current,
+                  total: info.total,
+                  message: `关键词池搜索量 Round ${round}/${maxRounds} · ${info.message}`
+                })
+            : undefined
+        })
+
+        const merged = new Map<string, typeof supplementalResults[number]>()
+        for (const kw of primaryResults) {
+          merged.set(kw.keyword.toLowerCase(), kw)
+        }
+        for (const kw of supplementalResults) {
+          const key = kw.keyword.toLowerCase()
+          const existing = merged.get(key)
+          if (!existing || (kw.searchVolume || 0) > (existing.searchVolume || 0)) {
+            merged.set(key, kw)
+          }
+        }
+        results = Array.from(merged.values())
+        usedNoSiteFilterSupplement = true
+        allowNonBrand = true
+        if (plannerDecision) {
+          plannerDecision.allowNonBrandFromPlanner = true
+        }
+      }
 
       console.log(`      返回 ${results.length} 个关键词`)
       if (results.length > 0) {

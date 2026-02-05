@@ -2643,7 +2643,7 @@ export async function generateOfferKeywordPool(
     throw new Error(`Offer #${offerId} 不存在`)
   }
   const pageType = resolveOfferPageType(offer)
-  let allowPlannerNonBrand = pageType === 'store'
+  let allowPlannerNonBrand = false
   const plannerMinSearchVolume = pageType === 'store' ? DEFAULTS.minSearchVolume : undefined
 
   // 1.5 Marketplace场景：尽量补全“品牌官网”，用于Keyword Planner的站点过滤（best-effort）
@@ -2913,6 +2913,10 @@ export async function generateOfferKeywordPool(
   const pureBrandKeywordsForFilter = getPureBrandKeywords(offer.brand || '')
   const categorySignals = extractCategorySignalsFromScrapedData(offer.scraped_data)
   const categoryContext = [offer.category, ...categorySignals].filter(Boolean).join(' ')
+  const baseContextMatches = getMinContextTokenMatchesForKeywordQualityFilter({
+    pageType: pageTypeForContextFilter
+  })
+  const effectiveContextMatches = allowPlannerNonBrand ? 0 : baseContextMatches
 
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
@@ -2927,9 +2931,7 @@ export async function generateOfferKeywordPool(
     mustContainBrand: pureBrandKeywordsForFilter.length > 0,
     allowNonBrandFromPlanner: allowPlannerNonBrand,
     // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
-    minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
-      pageType: pageTypeForContextFilter
-    }),
+    minContextTokenMatches: effectiveContextMatches,
   })
 
   // 生成过滤报告

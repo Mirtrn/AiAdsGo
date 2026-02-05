@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText, sanitizeGoogleAdsPath } from '../google-ads-ad-text'
+import {
+  getGoogleAdsTextEffectiveLength,
+  sanitizeGoogleAdsAdText,
+  sanitizeGoogleAdsFinalUrlSuffix,
+  sanitizeGoogleAdsPath
+} from '../google-ads-ad-text'
 
 describe('google-ads-ad-text', () => {
   it('counts DKI token as defaultText only', () => {
@@ -44,6 +49,14 @@ describe('google-ads-ad-text', () => {
 
   it('sanitizes rsa path values', () => {
     expect(sanitizeGoogleAdsPath('Best ~ Deals', 15)).toBe('Best-Deals')
+  })
+
+  it('sanitizes rsa path values with fullwidth semicolon', () => {
+    expect(sanitizeGoogleAdsPath('Deals；Today', 15)).toBe('Deals-Today')
+  })
+
+  it('sanitizes final url suffix with prohibited symbols', () => {
+    expect(sanitizeGoogleAdsFinalUrlSuffix('utm=abc；def')).toBe('utm=abcdef')
   })
 
   it('truncates text that is still too long after sanitization', () => {

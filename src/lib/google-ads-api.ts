@@ -6,7 +6,12 @@ import { getUserOnlySetting } from './settings'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
-import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText, sanitizeGoogleAdsPath } from './google-ads-ad-text'
+import {
+  getGoogleAdsTextEffectiveLength,
+  sanitizeGoogleAdsAdText,
+  sanitizeGoogleAdsFinalUrlSuffix,
+  sanitizeGoogleAdsPath
+} from './google-ads-ad-text'
 import { getGoogleAdsGeoTargetId } from './language-country-codes'
 
 /**
@@ -676,6 +681,9 @@ export async function createGoogleAdsCampaign(params: {
   serviceAccountId?: string
 }): Promise<{ campaignId: string; resourceName: string }> {
   const authType = params.authType || 'oauth'
+  const sanitizedFinalUrlSuffix = params.finalUrlSuffix && params.finalUrlSuffix.trim() !== ''
+    ? sanitizeGoogleAdsFinalUrlSuffix(params.finalUrlSuffix)
+    : ''
 
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
@@ -729,7 +737,7 @@ export async function createGoogleAdsCampaign(params: {
         targetLanguage: params.targetLanguage,
         startDate: params.startDate,
         endDate: params.endDate,
-        finalUrlSuffix: params.finalUrlSuffix,
+        finalUrlSuffix: sanitizedFinalUrlSuffix,
       })
     } catch (error: any) {
       if (isDuplicateCampaignNameError(error)) {
@@ -833,9 +841,7 @@ export async function createGoogleAdsCampaign(params: {
   // Final URL Suffix用于在所有广告的最终URL后附加跟踪参数
   // 从推广链接重定向访问后提取的Final URL suffix
   // 即使为空也设置字段，确保在Google Ads界面中显示配置状态
-  campaign.final_url_suffix = params.finalUrlSuffix && params.finalUrlSuffix.trim() !== ''
-    ? params.finalUrlSuffix
-    : ''
+  campaign.final_url_suffix = sanitizedFinalUrlSuffix
 
   if (campaign.final_url_suffix) {
     console.log('✅ Campaign Final URL Suffix配置:', campaign.final_url_suffix)
@@ -1681,6 +1687,9 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   const sanitizedDescriptions = params.descriptions.map(d => sanitizeGoogleAdsAdText(d, 90))
   const sanitizedPath1 = params.path1 ? sanitizeGoogleAdsPath(params.path1, 15) : undefined
   const sanitizedPath2 = params.path2 ? sanitizeGoogleAdsPath(params.path2, 15) : undefined
+  const sanitizedFinalUrlSuffix = params.finalUrlSuffix
+    ? sanitizeGoogleAdsFinalUrlSuffix(params.finalUrlSuffix)
+    : undefined
 
   const emptyHeadlineIndex = sanitizedHeadlines.findIndex(h => !h.trim())
   if (emptyHeadlineIndex >= 0) {
@@ -1704,7 +1713,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
       headlines: sanitizedHeadlines,
       descriptions: sanitizedDescriptions,
       finalUrls: params.finalUrls,
-      finalUrlSuffix: params.finalUrlSuffix,
+      finalUrlSuffix: sanitizedFinalUrlSuffix,
       path1: sanitizedPath1,
       path2: sanitizedPath2,
     })
@@ -1758,8 +1767,8 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   }
 
   // Add Final URL Suffix if provided (for tracking parameters)
-  if (params.finalUrlSuffix) {
-    ad.ad.final_url_suffix = params.finalUrlSuffix
+  if (sanitizedFinalUrlSuffix) {
+    ad.ad.final_url_suffix = sanitizedFinalUrlSuffix
   }
 
   // Add display path fields if provided
@@ -2193,27 +2202,7 @@ export async function createGoogleAdsCalloutExtensions(params: {
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
 }): Promise<{ assetIds: string[] }> {
-  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
-  if (params.authType === 'service_account') {
-    const { createCalloutExtensionsPython } = await import('./python-ads-client')
-    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
-    const assetResourceNames = await createCalloutExtensionsPython({
-      userId: params.userId,
-      serviceAccountId: params.serviceAccountId,
-      customerId: params.customerId,
-      campaignResourceName: resourceName,
-      calloutTexts: params.callouts,
-    })
-    return { assetIds: assetResourceNames.map(rn => rn.split('/').pop() || '') }
-  }
-
-  const customer = await getCustomerWithCredentials(params)
-
-  const assetIds: string[] = []
-  const assetResourceNames: string[] = []
-
   try {
-    // 🔧 修复(2026-02-03): 规范化/去重callouts，避免无效字符或重复导致批量关联失败
     const normalizedCallouts = Array.from(new Set(
       params.callouts
         .filter((text): text is string => typeof text === 'string')
@@ -2225,6 +2214,25 @@ export async function createGoogleAdsCalloutExtensions(params: {
     if (normalizedCallouts.length === 0) {
       throw new Error('没有有效的Callout文本，无法创建Callout扩展')
     }
+
+    // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+    if (params.authType === 'service_account') {
+      const { createCalloutExtensionsPython } = await import('./python-ads-client')
+      const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+      const assetResourceNames = await createCalloutExtensionsPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        campaignResourceName: resourceName,
+        calloutTexts: normalizedCallouts,
+      })
+      return { assetIds: assetResourceNames.map(rn => rn.split('/').pop() || '') }
+    }
+
+    const customer = await getCustomerWithCredentials(params)
+
+    const assetIds: string[] = []
+    const assetResourceNames: string[] = []
 
     // Step 1: Create Callout Assets
     const assetOperations = normalizedCallouts.map(calloutText => ({
@@ -2329,6 +2337,28 @@ export async function createGoogleAdsSitelinkExtensions(params: {
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
 }): Promise<{ assetIds: string[] }> {
+  const sanitizedSitelinks = params.sitelinks.map((sitelink) => {
+    const sanitizedText = sanitizeGoogleAdsAdText(sitelink.text, 25).trim()
+    const desc1Raw = sitelink.description1 ? sanitizeGoogleAdsAdText(sitelink.description1, 35).trim() : ''
+    const desc2Raw = sitelink.description2 ? sanitizeGoogleAdsAdText(sitelink.description2, 35).trim() : ''
+
+    let description1: string | undefined = desc1Raw
+    let description2: string | undefined = desc2Raw
+    if (description1) {
+      if (!description2) description2 = description1
+    } else {
+      description1 = undefined
+      description2 = undefined
+    }
+
+    return {
+      ...sitelink,
+      text: sanitizedText,
+      description1,
+      description2
+    }
+  })
+
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (params.authType === 'service_account') {
     const { createSitelinkExtensionsPython } = await import('./python-ads-client')
@@ -2338,7 +2368,7 @@ export async function createGoogleAdsSitelinkExtensions(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       campaignResourceName: resourceName,
-      sitelinks: params.sitelinks.map(sl => ({
+      sitelinks: sanitizedSitelinks.map(sl => ({
         linkText: sl.text,
         finalUrl: sl.url,
         description1: sl.description1,
@@ -2354,22 +2384,19 @@ export async function createGoogleAdsSitelinkExtensions(params: {
 
   try {
     // Step 1: Create Sitelink Assets
-    const assetOperations = params.sitelinks.map(sitelink => {
+    const assetOperations = sanitizedSitelinks.map(sitelink => {
       console.log(`🔍 处理Sitelink: text="${sitelink.text}", url="${sitelink.url}", desc1="${sitelink.description1}"`)
 
-      const sanitizedLinkText = sanitizeGoogleAdsAdText(sitelink.text, 25)
       const sitelinkAsset: any = {
-        link_text: sanitizedLinkText.substring(0, 25) // 最多25个字符
+        link_text: sitelink.text.substring(0, 25) // 最多25个字符
       }
 
       // description1 和 description2 必须要么都存在，要么都不存在
       if (sitelink.description1 && sitelink.description1.trim()) {
-        const sanitizedDesc1 = sanitizeGoogleAdsAdText(sitelink.description1, 35)
-        const sanitizedDesc2 = sitelink.description2
-          ? sanitizeGoogleAdsAdText(sitelink.description2, 35)
-          : sanitizedDesc1
-        sitelinkAsset.description1 = sanitizedDesc1.substring(0, 35)
-        sitelinkAsset.description2 = sanitizedDesc2.substring(0, 35)
+        const desc1 = sitelink.description1
+        const desc2 = sitelink.description2 || sitelink.description1
+        sitelinkAsset.description1 = desc1.substring(0, 35)
+        sitelinkAsset.description2 = desc2.substring(0, 35)
       }
 
       // 关键修复：final_urls必须在Asset层级，不是sitelink_asset内部
@@ -2587,6 +2614,7 @@ export async function updateCampaignFinalUrlSuffix(params: {
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
 }): Promise<void> {
+  const sanitizedFinalUrlSuffix = sanitizeGoogleAdsFinalUrlSuffix(params.finalUrlSuffix)
   // 🔧 修复(2025-01-03): 服务账号模式使用Python服务
   if (params.authType === 'service_account') {
     const { updateCampaignFinalUrlSuffixPython } = await import('./python-ads-client')
@@ -2596,7 +2624,7 @@ export async function updateCampaignFinalUrlSuffix(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       campaignResourceName: resourceName,
-      finalUrlSuffix: params.finalUrlSuffix,
+      finalUrlSuffix: sanitizedFinalUrlSuffix,
     })
   } else {
     const customer = await getCustomerWithCredentials({
@@ -2615,7 +2643,7 @@ export async function updateCampaignFinalUrlSuffix(params: {
       () => withRetry(
         () => customer.campaigns.update([{
           resource_name: resourceName,
-          final_url_suffix: params.finalUrlSuffix,
+          final_url_suffix: sanitizedFinalUrlSuffix,
         }]),
         {
           maxRetries: 3,

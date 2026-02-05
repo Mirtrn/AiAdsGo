@@ -157,9 +157,11 @@ export function sanitizeGoogleAdsAdText(text: string, maxLen: number): string {
 
 export function sanitizeGoogleAdsPath(text: string, maxLen: number = 15): string {
   const original = String(text ?? '')
-  const collapsed = original
+  const symbolSanitized = sanitizeGoogleAdsSymbols(original).text
+  const collapsed = symbolSanitized
     .replace(/[~～]/g, '')
     .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
     .trim()
     .replace(/^-+/, '')
     .replace(/-+$/, '')
@@ -168,4 +170,14 @@ export function sanitizeGoogleAdsPath(text: string, maxLen: number = 15): string
 
   const chars = Array.from(collapsed)
   return chars.slice(0, maxLen).join('')
+}
+
+export function sanitizeGoogleAdsFinalUrlSuffix(value: string): string {
+  const original = String(value ?? '')
+  if (!original) return ''
+  const symbolSanitized = sanitizeGoogleAdsSymbols(original).text
+  return symbolSanitized
+    .replace(/[~～]/g, '')
+    .replace(/\s+/g, '')
+    .trim()
 }
