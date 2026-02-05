@@ -64,7 +64,7 @@ RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 
 # 复制 OpenClaw 源码并构建
 COPY openclaw /openclaw
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 RUN pnpm build
 
 # ============================================
