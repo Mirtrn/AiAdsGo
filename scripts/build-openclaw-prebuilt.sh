@@ -30,6 +30,7 @@ docker run --rm \
     OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
     mkdir -p /out/dist
     cp -r dist/* /out/dist/
+    cp -r extensions /out/extensions
     cp openclaw.mjs /out/openclaw.mjs
     cp package.json /out/package.json
     cp -a node_modules /out/node_modules

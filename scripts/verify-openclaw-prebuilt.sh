@@ -14,6 +14,18 @@ if [[ ! -d "${PREBUILT_DIR}/node_modules" ]]; then
   exit 1
 fi
 
+if [[ ! -d "${PREBUILT_DIR}/extensions" ]]; then
+  echo "❌ openclaw-prebuilt/extensions 不存在"
+  exit 1
+fi
+
+for plugin in feishu memory-core; do
+  if [[ ! -f "${PREBUILT_DIR}/extensions/${plugin}/package.json" ]]; then
+    echo "❌ openclaw-prebuilt/extensions/${plugin} 缺失（插件未打包）"
+    exit 1
+  fi
+done
+
 node_major() {
   if ! command -v node >/dev/null 2>&1; then
     echo 0
