@@ -100,7 +100,7 @@ export async function fetchPartnerboostLinkByAsin(params: {
 
   const item = payload.data?.[0]
   if (!item) return null
-  const link = normalizeUrl(item.partnerboost_link) || normalizeUrl(item.link)
+  const link = normalizeUrl(item.partnerboost_link) || normalizeUrl(item.link) || undefined
   return { asin: item.asin, link }
 }
 
