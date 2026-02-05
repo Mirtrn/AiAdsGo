@@ -67,7 +67,8 @@ RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 # 复制 OpenClaw 源码并构建
 COPY openclaw /openclaw
 RUN pnpm install --no-frozen-lockfile
-RUN OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+ENV OPENCLAW_A2UI_SKIP_MISSING=1
+RUN pnpm build
 
 # ============================================
 # Stage 3: 生产运行阶段（单容器）
