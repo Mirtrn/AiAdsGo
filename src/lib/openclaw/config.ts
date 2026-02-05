@@ -188,6 +188,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       dmScope: 'per-account-channel-peer',
     },
     gateway: {
+      mode: 'local',
       bind: gatewayBind,
       port: gatewayPort,
       auth: {
