@@ -234,7 +234,7 @@ class PostgresAdapter implements DatabaseAdapter {
     // 只对在 PostgreSQL 中是 BOOLEAN 类型的字段进行转换
     const booleanFieldsPostgres: Record<string, string[]> = {
       // 表名: [字段名列表]
-      'users': ['is_active', 'must_change_password'],
+      'users': ['is_active', 'must_change_password', 'openclaw_enabled'],
       'offers': ['is_active', 'is_deleted', 'is_manager_account'],
       'ad_creatives': ['is_selected'],
       'campaigns': ['is_deleted'],
@@ -283,7 +283,7 @@ class PostgresAdapter implements DatabaseAdapter {
   private convertParams(params: any[], sql: string): any[] {
     // 已知的布尔字段列表（PostgreSQL 中是 BOOLEAN 类型）
     const booleanFields = new Set([
-      'is_active', 'is_selected', 'is_success', 'must_change_password',
+      'is_active', 'is_selected', 'is_success', 'must_change_password', 'openclaw_enabled',
       'is_default', 'is_manager', 'is_manager_account', 'is_idle',
       'enabled', 'is_deleted', 'is_sensitive', 'is_required', 'is_active'
     ])

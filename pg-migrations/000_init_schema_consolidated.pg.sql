@@ -51,6 +51,7 @@ CREATE TABLE users (
   package_expires_at TEXT,
   must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  openclaw_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   last_login_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -2861,6 +2862,7 @@ INSERT INTO users (
   package_expires_at,
   must_change_password,
   is_active,
+  openclaw_enabled,
   created_at,
   updated_at
 ) VALUES (
@@ -2873,6 +2875,7 @@ INSERT INTO users (
   '2099-12-31 23:59:59',
   TRUE,
   TRUE,
+  FALSE,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 )
