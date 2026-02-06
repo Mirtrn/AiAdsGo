@@ -1,9 +1,9 @@
--- Migration: 161_add_openclaw_enforce_autoads_only_template.pg.sql
+-- Migration: 162_add_openclaw_enforce_autoads_only_template.sql
 -- Date: 2026-02-06
 -- Description: 增加 OpenClaw 仅允许 AutoAds 发布链路的策略模板配置
--- Note: PostgreSQL 版本，使用 INSERT ... WHERE NOT EXISTS 保持幂等
+-- Note: SQLite 版本，使用 INSERT OR IGNORE 保持幂等
 
-INSERT INTO system_settings (
+INSERT OR IGNORE INTO system_settings (
   category,
   key,
   user_id,
@@ -14,18 +14,14 @@ INSERT INTO system_settings (
   is_required,
   data_type
 )
-SELECT
+VALUES (
   'openclaw',
   'openclaw_strategy_enforce_autoads_only',
   NULL,
   NULL,
   'true',
   '仅允许通过AutoAds标准接口创建/发布广告，不允许手工Campaign并行',
-  false,
-  false,
+  0,
+  0,
   'boolean'
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM system_settings
-  WHERE category = 'openclaw' AND key = 'openclaw_strategy_enforce_autoads_only' AND user_id IS NULL
 );
