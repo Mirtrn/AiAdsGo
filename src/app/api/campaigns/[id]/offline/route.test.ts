@@ -3,13 +3,25 @@ import { NextRequest } from 'next/server'
 import { POST } from '@/app/api/campaigns/[id]/offline/route'
 
 const dbFns = vi.hoisted(() => ({
-  exec: vi.fn(async () => ({ changes: 1 })),
-  query: vi.fn(async () => []),
-  queryOne: vi.fn(async () => null),
+  exec: vi.fn(),
+  query: vi.fn(),
+  queryOne: vi.fn(),
+}))
+
+const authFns = vi.hoisted(() => ({
+  verifyAuth: vi.fn(async () => ({
+    authenticated: true,
+    user: {
+      userId: 1,
+      email: 'tester@example.com',
+      role: 'user',
+      packageType: 'trial',
+    },
+  })),
 }))
 
 vi.mock('@/lib/auth', () => ({
-  verifyAuth: vi.fn(async () => ({ authenticated: true, user: { userId: 1 } })),
+  verifyAuth: authFns.verifyAuth,
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -59,7 +71,6 @@ vi.mock('@/lib/google-ads-service-account', () => ({
   getServiceAccountConfig: vi.fn(async () => null),
 }))
 
-const { verifyAuth } = await import('@/lib/auth')
 const { markUrlSwapTargetsRemovedByCampaignId } = await import('@/lib/url-swap')
 const { invalidateOfferCache } = await import('@/lib/api-cache')
 const { removePendingClickFarmQueueTasksByTaskIds } = await import('@/lib/click-farm/queue-cleanup')
@@ -69,7 +80,15 @@ describe('POST /api/campaigns/:id/offline', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    vi.mocked(verifyAuth).mockResolvedValue({ authenticated: true, user: { userId: 1 } })
+    authFns.verifyAuth.mockResolvedValue({
+      authenticated: true,
+      user: {
+        userId: 1,
+        email: 'tester@example.com',
+        role: 'user',
+        packageType: 'trial',
+      },
+    })
     dbFns.exec.mockResolvedValue({ changes: 1 })
     dbFns.query.mockResolvedValue([])
     dbFns.queryOne.mockResolvedValue({
