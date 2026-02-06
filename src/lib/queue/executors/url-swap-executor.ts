@@ -179,6 +179,8 @@ export async function executeUrlSwapTask(
     const db = await getDatabase()
     const taskRow = await db.queryOne<any>(`
       SELECT
+        status,
+        is_deleted,
         swap_mode,
         manual_affiliate_links,
         manual_suffix_cursor,
@@ -192,6 +194,13 @@ export async function executeUrlSwapTask(
 
     if (!taskRow) {
       throw new Error('任务不存在或已被删除')
+    }
+
+    const status = String(taskRow.status || '').toLowerCase()
+    const isDeleted = taskRow.is_deleted === true || Number(taskRow.is_deleted) === 1
+    if (isDeleted || status !== 'enabled') {
+      console.log(`[url-swap-executor] 跳过执行: taskId=${taskId}, status=${status || 'unknown'}, isDeleted=${isDeleted}`)
+      return { success: false, changed: false }
     }
 
     const swapMode = taskRow.swap_mode === 'manual' ? 'manual' : 'auto'

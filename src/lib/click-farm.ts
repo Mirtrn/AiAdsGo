@@ -7,6 +7,7 @@ import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './ti
 import { estimateTraffic } from './click-farm/distribution';
 import { normalizeDateOnly, normalizeTimestampToIso } from './db-datetime';
 import { boolParam, datetimeMinusHours } from './db-helpers';
+import { removePendingClickFarmQueueTasksByTaskIds } from './click-farm/queue-cleanup';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -464,6 +465,12 @@ export async function deleteClickFarmTask(
     SET is_deleted = TRUE, deleted_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
   `, [id, userId]);
+
+  try {
+    await removePendingClickFarmQueueTasksByTaskIds([id], userId)
+  } catch (error) {
+    console.warn(`[click-farm] 删除任务后清理队列失败: ${id}`, error)
+  }
 }
 
 /**
@@ -480,6 +487,12 @@ export async function stopClickFarmTask(
     SET status = 'stopped', updated_at = datetime('now')
     WHERE id = ? AND user_id = ? AND status IN ('pending', 'running', 'paused')
   `, [id, userId]);
+
+  try {
+    await removePendingClickFarmQueueTasksByTaskIds([id], userId)
+  } catch (error) {
+    console.warn(`[click-farm] 停止任务后清理队列失败: ${id}`, error)
+  }
 
   return (await getClickFarmTaskById(id, userId))!;
 }

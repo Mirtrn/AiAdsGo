@@ -274,6 +274,26 @@ export async function executeClickFarmTask(
 ): Promise<{ success: boolean; traffic: number }> {
   const { taskId, url, refererConfig, scheduledAt, timezone } = task.data;
 
+  // 关键防线：执行前再次校验 click_farm_tasks 状态，避免“已暂停/已停止任务”残留队列继续记点击
+  try {
+    const db = await getDatabase()
+    const currentTask = await db.queryOne<{ status?: string }>(`
+      SELECT status
+      FROM click_farm_tasks
+      WHERE id = ?
+      LIMIT 1
+    `, [taskId])
+
+    const status = String(currentTask?.status || '').toLowerCase()
+    if (status && status !== 'pending' && status !== 'running') {
+      console.log(`[ClickFarm] 跳过执行: taskId=${taskId}, status=${status}`)
+      return { success: false, traffic: 0 }
+    }
+  } catch (error: any) {
+    console.warn(`[ClickFarm] 执行前状态校验失败，按安全策略跳过: ${taskId}`, error?.message || error)
+    return { success: false, traffic: 0 }
+  }
+
   // 🔧 修复：动态获取代理URL（重试时会清除旧代理，需要重新获取）
   let proxyUrl = task.data.proxyUrl
   if (!proxyUrl) {
