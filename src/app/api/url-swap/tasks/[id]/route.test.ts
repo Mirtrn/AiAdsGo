@@ -3,9 +3,9 @@ import { NextRequest } from 'next/server'
 import { DELETE } from './route'
 
 const dbFns = vi.hoisted(() => ({
-  exec: vi.fn(async () => ({ changes: 1 })),
-  query: vi.fn(async () => []),
-  queryOne: vi.fn(async () => null),
+  exec: vi.fn(),
+  query: vi.fn(),
+  queryOne: vi.fn(),
 }))
 
 const queueCleanupFns = vi.hoisted(() => ({
@@ -63,7 +63,7 @@ describe('DELETE /api/url-swap/tasks/[id]', () => {
     expect(res.status).toBe(200)
     expect(data.success).toBe(true)
     expect(dbFns.exec).toHaveBeenCalledTimes(1)
-    expect(dbFns.exec.mock.calls[0][0]).toContain('UPDATE url_swap_tasks')
+    expect(dbFns.exec).toHaveBeenCalledWith(expect.stringContaining('UPDATE url_swap_tasks'), expect.any(Array))
     expect(queueCleanupFns.removePendingUrlSwapQueueTasksByTaskIds).toHaveBeenCalledWith(['us-task-1'], 1)
   })
 })
