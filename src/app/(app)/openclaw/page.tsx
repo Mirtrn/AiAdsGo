@@ -310,6 +310,7 @@ export default function OpenClawPage() {
   const [showAdvancedSystem, setShowAdvancedSystem] = useState(false)
   const [showAdvancedFeishu, setShowAdvancedFeishu] = useState(false)
   const [showAdvancedAi, setShowAdvancedAi] = useState(false)
+  const [showAdvancedAiOptions, setShowAdvancedAiOptions] = useState(false)
   const [showAdvancedOpenclaw, setShowAdvancedOpenclaw] = useState(false)
   const [showAdvancedPartners, setShowAdvancedPartners] = useState(false)
   const [showAdvancedUser, setShowAdvancedUser] = useState(false)
@@ -320,6 +321,7 @@ export default function OpenClawPage() {
     setShowAdvancedSystem(false)
     setShowAdvancedFeishu(false)
     setShowAdvancedAi(false)
+    setShowAdvancedAiOptions(false)
     setShowAdvancedOpenclaw(false)
     setShowAdvancedPartners(false)
     setShowAdvancedUser(false)
@@ -1153,36 +1155,64 @@ export default function OpenClawPage() {
                         placeholder={JSON_PLACEHOLDER}
                         rows={10}
                       />
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <InputWithLabel
-                          label="Models Mode"
-                          value={globalValues.openclaw_models_mode || ''}
-                          onChange={(v) => setGlobalValue('openclaw_models_mode', v)}
-                          disabled={!settings?.isAdmin}
-                          placeholder="merge / replace"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <label className="text-sm font-medium">Bedrock Discovery (JSON)</label>
+                      {!simpleMode || showAdvancedAiOptions ? (
+                        <>
+                          <div className="grid gap-4 md:grid-cols-3">
+                            <InputWithLabel
+                              label="Models Mode"
+                              value={globalValues.openclaw_models_mode || ''}
+                              onChange={(v) => setGlobalValue('openclaw_models_mode', v)}
+                              disabled={!settings?.isAdmin}
+                              placeholder="merge / replace"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <label className="text-sm font-medium">Bedrock Discovery (JSON)</label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setGlobalValue('openclaw_models_bedrock_discovery_json', BEDROCK_PLACEHOLDER)}
+                                disabled={!settings?.isAdmin}
+                              >
+                                填充示例
+                              </Button>
+                            </div>
+                            <Textarea
+                              value={globalValues.openclaw_models_bedrock_discovery_json || ''}
+                              onChange={(e) => setGlobalValue('openclaw_models_bedrock_discovery_json', e.target.value)}
+                              disabled={!settings?.isAdmin}
+                              placeholder={BEDROCK_PLACEHOLDER}
+                              rows={6}
+                            />
+                          </div>
+                          {simpleMode && (
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowAdvancedAiOptions(false)}
+                              >
+                                收起高级
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                          <span>Models Mode / Bedrock Discovery 已隐藏</span>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setGlobalValue('openclaw_models_bedrock_discovery_json', BEDROCK_PLACEHOLDER)}
-                            disabled={!settings?.isAdmin}
+                            onClick={() => setShowAdvancedAiOptions(true)}
                           >
-                            填充示例
+                            显示高级
                           </Button>
                         </div>
-                        <Textarea
-                          value={globalValues.openclaw_models_bedrock_discovery_json || ''}
-                          onChange={(e) => setGlobalValue('openclaw_models_bedrock_discovery_json', e.target.value)}
-                          disabled={!settings?.isAdmin}
-                          placeholder={BEDROCK_PLACEHOLDER}
-                          rows={6}
-                        />
-                      </div>
+                      )}
                       {simpleMode && (
                         <div className="flex justify-end">
                           <Button
