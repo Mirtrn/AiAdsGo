@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
 import {
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   type ProductSortField,
   type ProductSortOrder,
 } from '@/lib/affiliate-products'
-import { getCachedProductList, setCachedProductList } from '@/lib/products-cache'
+import {
+  buildProductListCacheHash,
+  getCachedProductList,
+  setCachedProductList,
+} from '@/lib/products-cache'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
 
 const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
@@ -59,7 +62,7 @@ export async function GET(request: NextRequest) {
       sortOrder,
       platform,
     }
-    const cacheHash = crypto.createHash('md5').update(JSON.stringify(cachePayload)).digest('hex')
+    const cacheHash = buildProductListCacheHash(cachePayload)
 
     if (!noCache) {
       const cached = await getCachedProductList<{

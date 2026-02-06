@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { REDIS_PREFIX_CONFIG } from '@/lib/config'
 import { getRedisClient } from '@/lib/redis'
 
@@ -15,6 +16,19 @@ function getListPattern(userId: number): string {
 
 function getListIndexKey(userId: number): string {
   return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:list:index`
+}
+
+export type ProductListCachePayload = {
+  page: number
+  pageSize: number
+  search: string
+  sortBy: string
+  sortOrder: string
+  platform: string
+}
+
+export function buildProductListCacheHash(payload: ProductListCachePayload): string {
+  return crypto.createHash('md5').update(JSON.stringify(payload)).digest('hex')
 }
 
 export async function getCachedProductList<T>(userId: number, hash: string): Promise<T | null> {

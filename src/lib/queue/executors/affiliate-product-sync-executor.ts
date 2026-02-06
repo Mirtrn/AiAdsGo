@@ -2,10 +2,18 @@ import type { Task } from '@/lib/queue/types'
 import {
   checkAffiliatePlatformConfig,
   type AffiliatePlatform,
+  listAffiliateProducts,
+  type ProductSortField,
+  type ProductSortOrder,
   type SyncMode,
   syncAffiliateProducts,
   updateAffiliateProductSyncRun,
 } from '@/lib/affiliate-products'
+import {
+  buildProductListCacheHash,
+  invalidateProductListCache,
+  setCachedProductList,
+} from '@/lib/products-cache'
 
 export type AffiliateProductSyncTaskData = {
   userId: number
@@ -14,6 +22,38 @@ export type AffiliateProductSyncTaskData = {
   runId: number
   productId?: number
   trigger?: 'manual' | 'retry' | 'schedule'
+}
+
+const DEFAULT_CACHE_WARM_PARAMS: {
+  page: number
+  pageSize: number
+  search: string
+  sortBy: ProductSortField
+  sortOrder: ProductSortOrder
+  platform: 'all'
+} = {
+  page: 1,
+  pageSize: 20,
+  search: '',
+  sortBy: 'serial',
+  sortOrder: 'desc',
+  platform: 'all',
+}
+
+async function refreshAndWarmProductListCache(userId: number): Promise<void> {
+  await invalidateProductListCache(userId)
+
+  const listResult = await listAffiliateProducts(userId, DEFAULT_CACHE_WARM_PARAMS)
+  const responsePayload = {
+    success: true as const,
+    items: listResult.items,
+    total: listResult.total,
+    page: listResult.page,
+    pageSize: listResult.pageSize,
+  }
+
+  const cacheHash = buildProductListCacheHash(DEFAULT_CACHE_WARM_PARAMS)
+  await setCachedProductList(userId, cacheHash, responsePayload)
 }
 
 export async function executeAffiliateProductSync(task: Task<AffiliateProductSyncTaskData>) {
@@ -43,6 +83,12 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       productId: data.productId,
     })
 
+    try {
+      await refreshAndWarmProductListCache(data.userId)
+    } catch (cacheError: any) {
+      console.warn('[affiliate-product-sync] cache refresh/warm failed:', cacheError?.message || cacheError)
+    }
+
     await updateAffiliateProductSyncRun({
       runId: data.runId,
       status: 'completed',
@@ -70,4 +116,3 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     throw error
   }
 }
-
