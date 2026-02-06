@@ -9,6 +9,10 @@
 REDIS_URL=redis://default:<REDACTED_REDIS_PASSWORD>@<REDACTED_HOST>:32284
 
 # 8C16G 推荐配置（单容器 + supervisord）
+NODE_MAX_OLD_SPACE_SIZE_WEB=5120      # Web 进程 Node 堆上限(MB)
+NODE_MAX_OLD_SPACE_SIZE_SCHEDULER=2048 # Scheduler 进程 Node 堆上限(MB)
+NODE_MAX_OLD_SPACE_SIZE_BACKGROUND_WORKER=4096 # Background Worker Node 堆上限(MB)
+NODE_MAX_OLD_SPACE_SIZE_OPENCLAW=1536  # OpenClaw Gateway Node 堆上限(MB)
 QUEUE_GLOBAL_CONCURRENCY=64         # 核心任务全局并发上限
 QUEUE_PER_USER_CONCURRENCY=16       # 单用户核心任务并发上限
 QUEUE_CLICK_FARM_CONCURRENCY=120    # click-farm 类型并发上限
