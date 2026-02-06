@@ -6,3 +6,7 @@
 ALTER TABLE users
   ADD COLUMN openclaw_enabled INTEGER NOT NULL DEFAULT 0;
 
+-- 管理员默认开启 OpenClaw
+UPDATE users
+SET openclaw_enabled = 1
+WHERE role = 'admin';

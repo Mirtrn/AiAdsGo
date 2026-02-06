@@ -130,6 +130,7 @@ const STRATEGY_PARAMS: ParamRow[] = [
   { key: 'openclaw_strategy_enable_auto_pause', desc: '自动暂停冲突Campaign' },
   { key: 'openclaw_strategy_enable_auto_adjust_cpc', desc: '自动调整CPC' },
   { key: 'openclaw_strategy_allow_affiliate_fetch', desc: '允许联盟平台补全' },
+  { key: 'openclaw_strategy_enforce_autoads_only', desc: '仅AutoAds发布链路', note: '建议固定 true' },
   { key: 'openclaw_strategy_dry_run', desc: 'Dry Run 模式' },
 ]
 

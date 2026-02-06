@@ -266,6 +266,13 @@ export async function middleware(request: NextRequest) {
     return attachRequestId(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 
+  // OpenClaw API 允许 Bearer Token 直接透传（由路由内 resolveOpenclawRequestUser 二次鉴权）
+  const isOpenclawApiRoute = pathname === '/api/openclaw' || pathname.startsWith('/api/openclaw/')
+  const hasAuthorizationHeader = Boolean(request.headers.get('authorization')?.trim())
+  if (isOpenclawApiRoute && hasAuthorizationHeader) {
+    return attachRequestId(NextResponse.next({ request: { headers: requestHeaders } }))
+  }
+
   // 从Cookie中读取token（HttpOnly Cookie方式）
   const token = request.cookies.get('auth_token')?.value
   const isApiRoute = pathname.startsWith('/api/')

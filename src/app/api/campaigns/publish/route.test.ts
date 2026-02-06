@@ -1,0 +1,158 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+import { POST } from '@/app/api/campaigns/publish/route'
+
+const authFns = vi.hoisted(() => ({
+  verifyAuth: vi.fn(),
+}))
+
+const dbFns = vi.hoisted(() => ({
+  queryOne: vi.fn(),
+  exec: vi.fn(),
+}))
+
+const openclawSettingsFns = vi.hoisted(() => ({
+  getOpenclawSettingsMap: vi.fn(),
+}))
+
+const campaignsFns = vi.hoisted(() => ({
+  queryActiveCampaigns: vi.fn(),
+}))
+
+vi.mock('@/lib/auth', () => ({
+  verifyAuth: authFns.verifyAuth,
+}))
+
+vi.mock('@/lib/db', () => ({
+  getDatabase: vi.fn(async () => ({
+    type: 'sqlite',
+    queryOne: dbFns.queryOne,
+    exec: dbFns.exec,
+  })),
+}))
+
+vi.mock('@/lib/openclaw/settings', () => ({
+  getOpenclawSettingsMap: openclawSettingsFns.getOpenclawSettingsMap,
+  parseBoolean: (value: any, fallback: boolean) => {
+    if (value === null || value === undefined) return fallback
+    const normalized = String(value).trim().toLowerCase()
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false
+    return fallback
+  },
+}))
+
+vi.mock('@/lib/active-campaigns-query', () => ({
+  queryActiveCampaigns: campaignsFns.queryActiveCampaigns,
+}))
+
+describe('POST /api/campaigns/publish AutoAds enforced', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    authFns.verifyAuth.mockResolvedValue({
+      authenticated: true,
+      user: { userId: 7 },
+    })
+
+    openclawSettingsFns.getOpenclawSettingsMap.mockResolvedValue({
+      openclaw_strategy_enforce_autoads_only: 'true',
+    })
+
+    dbFns.queryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM offers')) {
+        return {
+          id: 11,
+          url: 'https://example.com/p/11',
+          brand: 'BrandA',
+          target_country: 'US',
+          target_language: 'en',
+          scrape_status: 'completed',
+          category: 'test',
+          offer_name: 'Offer 11',
+        }
+      }
+      if (sql.includes('FROM ad_creatives')) {
+        return {
+          id: 22,
+          headlines: JSON.stringify(['h1']),
+          descriptions: JSON.stringify(['d1']),
+          keywords: JSON.stringify(['kw1']),
+          negative_keywords: JSON.stringify([]),
+          callouts: JSON.stringify([]),
+          sitelinks: JSON.stringify([]),
+          final_url: 'https://example.com/landing',
+          final_url_suffix: '',
+          is_selected: 1,
+          keywords_with_volume: JSON.stringify([]),
+          theme: 'default',
+        }
+      }
+      if (sql.includes('FROM google_ads_accounts')) {
+        return {
+          id: 33,
+          customer_id: '1234567890',
+          parent_mcc_id: '9681914021',
+          is_active: 1,
+          status: 'ENABLED',
+        }
+      }
+      return null
+    })
+
+    dbFns.exec.mockResolvedValue({ changes: 1 })
+
+    campaignsFns.queryActiveCampaigns.mockResolvedValue({
+      ownCampaigns: [],
+      manualCampaigns: [{ id: '1001', name: 'Manual-Campaign', status: 'ENABLED' }],
+      otherCampaigns: [],
+      total: { enabled: 1, own: 0, manual: 1, other: 0 },
+    })
+  })
+
+  it('returns 401 when unauthorized', async () => {
+    authFns.verifyAuth.mockResolvedValue({ authenticated: false, user: null })
+
+    const req = new NextRequest('http://localhost/api/campaigns/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(401)
+  })
+
+  it('blocks publishing when manual campaigns exist and AutoAds-only is enforced', async () => {
+    const req = new NextRequest('http://localhost/api/campaigns/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        offerId: 11,
+        adCreativeId: 22,
+        googleAdsAccountId: 33,
+        pauseOldCampaigns: false,
+        campaignConfig: {
+          campaignName: 'BrandA-US-20260101',
+          adGroupName: 'BrandA-US-11-22',
+          budgetAmount: 20,
+          budgetType: 'DAILY',
+          targetCountry: 'US',
+          targetLanguage: 'en',
+          biddingStrategy: 'MAXIMIZE_CLICKS',
+          maxCpcBid: 1,
+          finalUrlSuffix: '',
+          keywords: ['kw1'],
+          negativeKeywords: [],
+        },
+      }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(422)
+    expect(data.action).toBe('AUTOADS_ONLY_ENFORCED')
+    expect(data.details.requiresPauseOldCampaigns).toBe(true)
+  })
+})

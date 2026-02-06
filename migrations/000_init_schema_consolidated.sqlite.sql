@@ -28,7 +28,7 @@ CREATE TABLE users (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 , failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT DEFAULT NULL, last_failed_login TEXT DEFAULT NULL, created_by INTEGER REFERENCES users(id));
-INSERT INTO users VALUES(1,'autoads','admin@autoads.com','rebuild-placeholder-hash','AutoAds Administrator',NULL,NULL,'admin','lifetime','2099-12-31T23:59:59.000Z',1,1,0,NULL,'2026-01-17 14:16:52','2026-01-17 14:16:52',0,NULL,NULL,NULL);
+INSERT INTO users VALUES(1,'autoads','admin@autoads.com','rebuild-placeholder-hash','AutoAds Administrator',NULL,NULL,'admin','lifetime','2099-12-31T23:59:59.000Z',1,1,1,NULL,'2026-01-17 14:16:52','2026-01-17 14:16:52',0,NULL,NULL,NULL);
 CREATE TABLE google_ads_credentials (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL UNIQUE,

@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
-import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
-    return NextResponse.json({ error: '未授权' }, { status: 401 })
+    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
   const body = await request.json().catch(() => ({})) as { mode?: string }
   const mode = typeof body?.mode === 'string' && body.mode.trim() ? body.mode.trim() : 'manual'
   const parentRequestId = request.headers.get('x-request-id') || undefined
 
-  const queue = getQueueManager()
+  const queue = getQueueManagerForTaskType('openclaw-strategy')
   const taskId = await queue.enqueue(
     'openclaw-strategy',
     {

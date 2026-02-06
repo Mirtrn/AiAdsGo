@@ -27,6 +27,7 @@ export interface GoogleAdsCampaignInfo {
   name: string
   status: 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN'
   budget?: number
+  parsedNaming?: CampaignNamingInfo
 }
 
 /**
@@ -82,6 +83,8 @@ export function categorizeCampaigns(
     }
 
     const namingInfo = parseCampaignName(campaign.name)
+
+    campaign.parsedNaming = namingInfo
 
     if (!namingInfo.isValidNaming) {
       // 不匹配命名规范，可能是用户手动创建

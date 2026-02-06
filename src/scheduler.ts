@@ -14,7 +14,7 @@
 
 import cron from 'node-cron'
 import { getDatabase, getSQLiteDatabase } from './lib/db'
-import { getQueueManager } from './lib/queue/unified-queue-manager'
+import { getQueueManagerForTaskType } from './lib/queue/queue-routing'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
@@ -43,7 +43,7 @@ const openclawStrategySchedules = new Map<number, { cron: string; task: cron.Sch
 
 async function enqueueOpenclawStrategy(userId: number, mode: string) {
   try {
-    const queue = getQueueManager()
+    const queue = getQueueManagerForTaskType('openclaw-strategy')
     await queue.enqueue(
       'openclaw-strategy',
       { userId, mode, trigger: 'cron' },
@@ -309,8 +309,9 @@ async function openclawDailyReportTask() {
         AND ss.value != ''
         AND ss.key IN ('feishu_target', 'feishu_doc_folder_token', 'feishu_bitable_app_token')
         AND u.is_active = ?
+        AND u.openclaw_enabled = ?
       GROUP BY ss.user_id
-    `, [true])
+    `, [true, true])
 
     if (!rows || rows.length === 0) {
       log('📭 未找到需要推送的OpenClaw用户')

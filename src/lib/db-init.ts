@@ -197,12 +197,12 @@ async function createDefaultAdmin(): Promise<void> {
 
       if (db.type === 'sqlite') {
         db.exec(
-          'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
+          'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, openclaw_enabled = 1 WHERE username = ? OR role = ?',
           [passwordHash, DEFAULT_ADMIN.username, 'admin']
         )
       } else {
         await asyncDb!.query(
-          'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE WHERE username = $2 OR role = $3',
+          'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE, openclaw_enabled = TRUE WHERE username = $2 OR role = $3',
           [passwordHash, DEFAULT_ADMIN.username, 'admin']
         )
       }
@@ -211,8 +211,8 @@ async function createDefaultAdmin(): Promise<void> {
     } else {
       if (db.type === 'sqlite') {
         db.exec(
-          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active, openclaw_enabled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 1)`,
           [
             DEFAULT_ADMIN.username,
             DEFAULT_ADMIN.email,
@@ -225,8 +225,8 @@ async function createDefaultAdmin(): Promise<void> {
         )
       } else {
         await asyncDb!.query(
-          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE)`,
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active, openclaw_enabled)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE, TRUE)`,
           [
             DEFAULT_ADMIN.username,
             DEFAULT_ADMIN.email,
@@ -303,12 +303,12 @@ async function ensureAdminAccount(): Promise<void> {
 
         if (db.type === 'sqlite') {
           db.exec(
-            'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
+            'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, openclaw_enabled = 1 WHERE username = ? OR role = ?',
             [passwordHash, DEFAULT_ADMIN.username, 'admin']
           )
         } else {
           await asyncDb!.query(
-            'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE WHERE username = $2 OR role = $3',
+            'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE, openclaw_enabled = TRUE WHERE username = $2 OR role = $3',
             [passwordHash, DEFAULT_ADMIN.username, 'admin']
           )
         }
@@ -318,12 +318,12 @@ async function ensureAdminAccount(): Promise<void> {
         // 兜底：即使不更新密码，也确保管理员不被强制修改密码
         if (db.type === 'sqlite') {
           db.exec(
-            'UPDATE users SET must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
+            'UPDATE users SET must_change_password = 0, is_active = 1, openclaw_enabled = 1 WHERE username = ? OR role = ?',
             [DEFAULT_ADMIN.username, 'admin']
           )
         } else {
           await asyncDb!.query(
-            'UPDATE users SET must_change_password = FALSE, is_active = TRUE WHERE username = $1 OR role = $2',
+            'UPDATE users SET must_change_password = FALSE, is_active = TRUE, openclaw_enabled = TRUE WHERE username = $1 OR role = $2',
             [DEFAULT_ADMIN.username, 'admin']
           )
         }
@@ -335,8 +335,8 @@ async function ensureAdminAccount(): Promise<void> {
 
       if (db.type === 'sqlite') {
         db.exec(
-          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active, openclaw_enabled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 1)`,
           [
             DEFAULT_ADMIN.username,
             DEFAULT_ADMIN.email,
@@ -349,8 +349,8 @@ async function ensureAdminAccount(): Promise<void> {
         )
       } else {
         await asyncDb!.query(
-          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE)`,
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active, openclaw_enabled)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE, TRUE)`,
           [
             DEFAULT_ADMIN.username,
             DEFAULT_ADMIN.email,

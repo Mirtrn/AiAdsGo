@@ -4,10 +4,25 @@ import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
 
 export const dynamic = 'force-dynamic'
 
+function parseJsonObject(value: unknown): Record<string, any> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, any>
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  return typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
+}
+
 export async function GET(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
-    return NextResponse.json({ error: '未授权' }, { status: 401 })
+    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
   const db = await getDatabase()
@@ -51,10 +66,37 @@ export async function GET(request: NextRequest) {
     return acc
   }, {})
 
+  const latestKnowledge = await db.queryOne<any>(
+    `
+      SELECT report_date, summary_json, notes, created_at
+      FROM openclaw_knowledge_base
+      WHERE user_id = ?
+      ORDER BY report_date DESC, created_at DESC
+      LIMIT 1
+    `,
+    [auth.userId]
+  )
+
+  const knowledgeSummary = parseJsonObject(latestKnowledge?.summary_json)
+  const strategySummary = parseJsonObject(knowledgeSummary.strategy)
+  const strategyRecommendation = Object.keys(strategySummary).length > 0
+    ? {
+      guardLevel: strategySummary.guardLevel ?? null,
+      publishFailureRate: strategySummary.publishFailureRate ?? null,
+      nextMaxOffersPerRun: strategySummary.recommendedMaxOffersPerRun ?? null,
+      nextDefaultBudget: strategySummary.recommendedDefaultBudget ?? null,
+      nextMaxCpc: strategySummary.recommendedMaxCpc ?? null,
+      recommendationSource: strategySummary.recommendationSource ?? null,
+      recommendationNote: strategySummary.recommendationNote ?? null,
+    }
+    : null
+
   return NextResponse.json({
     success: true,
     run,
     actions,
     asinStats: stats,
+    latestKnowledge,
+    strategyRecommendation,
   })
 }

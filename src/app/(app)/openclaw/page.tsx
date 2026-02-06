@@ -199,6 +199,7 @@ const STRATEGY_EXAMPLE_VALUES: Record<string, string> = {
   openclaw_strategy_enable_auto_pause: 'true',
   openclaw_strategy_enable_auto_adjust_cpc: 'true',
   openclaw_strategy_allow_affiliate_fetch: 'true',
+  openclaw_strategy_enforce_autoads_only: 'true',
   openclaw_strategy_dry_run: 'false',
 }
 
@@ -206,6 +207,8 @@ const FEISHU_DOC_EXAMPLE_VALUES: Record<string, string> = {
   feishu_doc_title_prefix: 'OpenClaw 每日报表',
   feishu_bitable_table_name: 'OpenClaw Daily Report',
 }
+
+const AUTOADS_ONLY_SETTING_KEY = 'openclaw_strategy_enforce_autoads_only'
 
 const USER_KEYS = new Set([
   'feishu_app_id',
@@ -232,6 +235,7 @@ const USER_KEYS = new Set([
   'openclaw_strategy_enable_auto_pause',
   'openclaw_strategy_enable_auto_adjust_cpc',
   'openclaw_strategy_allow_affiliate_fetch',
+  'openclaw_strategy_enforce_autoads_only',
   'openclaw_strategy_dry_run',
 ])
 
@@ -380,6 +384,7 @@ export default function OpenClawPage() {
         settingsJson.user.forEach(item => {
           userMap[item.key] = item.value ?? ''
         })
+        userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
         setGlobalValues(globalWithDefaults)
         setUserValues(userMap)
       } catch (error: any) {
@@ -402,6 +407,10 @@ export default function OpenClawPage() {
   }
 
   const setUserValue = (key: string, value: string) => {
+    if (key === AUTOADS_ONLY_SETTING_KEY) {
+      setUserValues(prev => ({ ...prev, [AUTOADS_ONLY_SETTING_KEY]: 'true' }))
+      return
+    }
     setUserValues(prev => ({ ...prev, [key]: value }))
   }
 
@@ -484,9 +493,14 @@ export default function OpenClawPage() {
       if (!validateJsonArrayField(userValues.openclaw_strategy_ads_account_ids || '', 'Ads账号ID列表')) return
     }
 
+    const normalizedUserValues = {
+      ...userValues,
+      [AUTOADS_ONLY_SETTING_KEY]: 'true',
+    }
+
     const updates = scope === 'global'
       ? Object.entries(globalValues).map(([key, value]) => ({ key, value: value ?? '' }))
-      : Object.entries(userValues)
+      : Object.entries(normalizedUserValues)
         .filter(([key]) => USER_KEYS.has(key))
         .map(([key, value]) => ({ key, value: value ?? '' }))
 
@@ -1741,7 +1755,14 @@ export default function OpenClawPage() {
                   onChange={(v) => setUserValue('openclaw_strategy_cron', v)}
                   placeholder="0 9 * * *"
                 />
+                <SwitchWithLabel
+                  label="仅AutoAds链路（锁定）"
+                  checked={isTruthy(userValues.openclaw_strategy_enforce_autoads_only, true)}
+                  onChange={(val) => setUserValue(AUTOADS_ONLY_SETTING_KEY, val ? 'true' : 'false')}
+                  disabled
+                />
               </div>
+              <p className="text-xs text-slate-500">仅通过 AutoAds 接口执行 Offer创建 / 创意生成 / 广告发布，手工Campaign冲突将被阻断。</p>
 
               {showStrategyAdvanced && (
                 <div className="grid gap-4 md:grid-cols-3">

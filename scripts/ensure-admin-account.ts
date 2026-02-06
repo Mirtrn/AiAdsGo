@@ -49,9 +49,10 @@ async function ensureAdminAccount() {
             package_expires_at,
             must_change_password,
             is_active,
+            openclaw_enabled,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
             'autoads',
             'admin@autoads.com',
@@ -61,6 +62,7 @@ async function ensureAdminAccount() {
             'lifetime',
             '2099-12-31 23:59:59',
             false,
+            true,
             true,
           ]
         )
@@ -77,9 +79,10 @@ async function ensureAdminAccount() {
             package_expires_at,
             must_change_password,
             is_active,
+            openclaw_enabled,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
             'autoads',
             'admin@autoads.com',
@@ -89,6 +92,7 @@ async function ensureAdminAccount() {
             'lifetime',
             '2099-12-31 23:59:59',
             0, // false for SQLite
+            1, // true for SQLite
             1, // true for SQLite
           ]
         )
@@ -112,13 +116,13 @@ async function ensureAdminAccount() {
       if (isPostgres) {
         // PostgreSQL 版本
         await db.exec(
-          "UPDATE users SET password_hash = ?, must_change_password = FALSE, is_active = TRUE, updated_at = NOW() WHERE username = ?",
+          "UPDATE users SET password_hash = ?, must_change_password = FALSE, is_active = TRUE, openclaw_enabled = TRUE, updated_at = NOW() WHERE username = ?",
           [passwordHash, 'autoads']
         )
       } else {
         // SQLite 版本
         await db.exec(
-          "UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, updated_at = datetime('now') WHERE username = ?",
+          "UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, openclaw_enabled = 1, updated_at = datetime('now') WHERE username = ?",
           [passwordHash, 'autoads']
         )
       }

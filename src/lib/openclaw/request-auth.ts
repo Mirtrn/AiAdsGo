@@ -10,6 +10,22 @@ type ResolvedUser = {
   authType: 'session' | 'user-token' | 'gateway-binding'
 }
 
+export type OpenclawSessionAuthResult =
+  | {
+      authenticated: true
+      user: {
+        userId: number
+        email: string
+        role: string
+        packageType: string
+      }
+    }
+  | {
+      authenticated: false
+      status: 401 | 403
+      error: string
+    }
+
 export async function isOpenclawEnabledForUser(userId: number): Promise<boolean> {
   const db = await getDatabase()
   const user = await db.queryOne<{ openclaw_enabled: boolean | number; is_active: boolean | number }>(
@@ -22,6 +38,33 @@ export async function isOpenclawEnabledForUser(userId: number): Promise<boolean>
   if (!isActive) return false
 
   return (user.openclaw_enabled as any) === true || (user.openclaw_enabled as any) === 1
+}
+
+export async function verifyOpenclawSessionAuth(
+  request: NextRequest
+): Promise<OpenclawSessionAuthResult> {
+  const auth = await verifyAuth(request)
+  if (!auth.authenticated || !auth.user) {
+    return {
+      authenticated: false,
+      status: 401,
+      error: auth.error || '未授权',
+    }
+  }
+
+  const openclawEnabled = await isOpenclawEnabledForUser(auth.user.userId)
+  if (!openclawEnabled) {
+    return {
+      authenticated: false,
+      status: 403,
+      error: 'OpenClaw 功能未开启',
+    }
+  }
+
+  return {
+    authenticated: true,
+    user: auth.user,
+  }
 }
 
 function extractBearerToken(authHeader: string | null): string | null {
