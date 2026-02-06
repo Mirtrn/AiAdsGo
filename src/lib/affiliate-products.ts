@@ -162,6 +162,7 @@ type YeahPromosMerchant = {
   mid?: string | number
   merchant_name?: string
   url?: string
+  site_url?: string
   tracking_url?: string
   country?: string
   avg_payout?: string | number
@@ -169,15 +170,76 @@ type YeahPromosMerchant = {
   advert_status?: string | number
 }
 
+type YeahPromosResponseData = {
+  PageTotal?: number | string
+  pageTotal?: number | string
+  PageNow?: number | string
+  pageNow?: number | string
+  Data?: YeahPromosMerchant[] | Record<string, YeahPromosMerchant>
+  data?: YeahPromosMerchant[] | Record<string, YeahPromosMerchant>
+}
+
 type YeahPromosResponse = {
-  Code?: number
-  code?: number
-  PageTotal?: number
-  pageTotal?: number
-  PageNow?: number
-  pageNow?: number
-  Data?: YeahPromosMerchant[]
-  data?: YeahPromosMerchant[]
+  Code?: number | string
+  code?: number | string
+  PageTotal?: number | string
+  pageTotal?: number | string
+  PageNow?: number | string
+  pageNow?: number | string
+  Data?: YeahPromosMerchant[] | Record<string, YeahPromosMerchant>
+  data?: YeahPromosMerchant[] | YeahPromosResponseData
+}
+
+export function normalizeYeahPromosResultCode(code: unknown): number | null {
+  if (code === null || code === undefined || code === '') {
+    return null
+  }
+
+  const parsed = Number(code)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return parsed
+}
+
+function normalizeYeahPromosMerchants(value: unknown): YeahPromosMerchant[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value && typeof value === 'object') {
+    const candidates = Object.values(value as Record<string, unknown>)
+    return candidates.filter((item) => item && typeof item === 'object') as YeahPromosMerchant[]
+  }
+
+  return []
+}
+
+export function extractYeahPromosPayload(payload: YeahPromosResponse): {
+  merchants: YeahPromosMerchant[]
+  pageTotal: number | null
+  pageNow: number | null
+} {
+  const nested = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data as YeahPromosResponseData
+    : null
+
+  const merchants = normalizeYeahPromosMerchants(
+    payload.Data
+    ?? (Array.isArray(payload.data) ? payload.data : undefined)
+    ?? nested?.Data
+    ?? nested?.data
+  )
+
+  const pageTotal = toNumber(payload.PageTotal ?? payload.pageTotal ?? nested?.PageTotal ?? nested?.pageTotal)
+  const pageNow = toNumber(payload.PageNow ?? payload.pageNow ?? nested?.PageNow ?? nested?.pageNow)
+
+  return {
+    merchants,
+    pageTotal,
+    pageNow,
+  }
 }
 
 function normalizeUrl(value?: string | null): string | null {
@@ -558,15 +620,21 @@ async function fetchYeahPromosPromotableProducts(params: {
       'YeahPromos 商品拉取失败'
     )
 
-    const code = payload.Code ?? payload.code
-    if (code && code !== 100000) {
+    const codeRaw = payload.Code ?? payload.code
+    const code = normalizeYeahPromosResultCode(codeRaw)
+
+    if (codeRaw !== undefined && codeRaw !== null && codeRaw !== '' && code === null) {
+      throw new Error(`YeahPromos 商品拉取失败: Invalid code ${String(codeRaw)}`)
+    }
+
+    if (code !== null && code !== 100000) {
       throw new Error(`YeahPromos 商品拉取失败: ${code}`)
     }
 
-    const list = payload.Data || payload.data || []
-    merchants.push(...list)
+    const extracted = extractYeahPromosPayload(payload)
+    merchants.push(...extracted.merchants)
 
-    pageTotal = Number(payload.PageTotal ?? payload.pageTotal ?? page) || page
+    pageTotal = Number(extracted.pageTotal ?? page) || page
     page += 1
   }
 
@@ -592,7 +660,7 @@ async function fetchYeahPromosPromotableProducts(params: {
       asin: null,
       brand: normalizeUrl(item.merchant_name),
       productName: normalizeUrl(item.merchant_name),
-      productUrl: normalizeUrl(item.url),
+      productUrl: normalizeUrl(item.url || item.site_url),
       promoLink,
       shortPromoLink: null,
       allowedCountries,
