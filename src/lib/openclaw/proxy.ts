@@ -12,6 +12,8 @@ export type OpenclawProxyRequest = {
   body?: any
   channel?: string | null
   senderId?: string | null
+  accountId?: string | null
+  tenantKey?: string | null
 }
 
 type ResolvedOpenclawUser = {
@@ -38,12 +40,17 @@ async function resolveOpenclawUser(params: {
   authHeader: string | null
   channel?: string | null
   senderId?: string | null
+  accountId?: string | null
+  tenantKey?: string | null
 }): Promise<ResolvedOpenclawUser | null> {
   const token = extractBearerToken(params.authHeader)
   if (!token) return null
 
   if (await verifyOpenclawGatewayToken(token)) {
-    const userId = await resolveOpenclawUserFromBinding(params.channel, params.senderId)
+    const userId = await resolveOpenclawUserFromBinding(params.channel, params.senderId, {
+      accountId: params.accountId,
+      tenantKey: params.tenantKey,
+    })
     if (!userId) return null
     return { userId, authType: 'gateway-binding' }
   }
@@ -103,6 +110,8 @@ export async function handleOpenclawProxyRequest(params: {
     authHeader: params.authHeader,
     channel: request.channel,
     senderId: request.senderId,
+    accountId: request.accountId,
+    tenantKey: request.tenantKey,
   })
 
   if (!resolved) {

@@ -1,6 +1,7 @@
 import { getDatabase } from '@/lib/db'
 import { fetchAutoadsJson } from '@/lib/openclaw/autoads-client'
 import { invokeOpenclawTool } from '@/lib/openclaw/gateway'
+import { resolveUserFeishuAccountId } from '@/lib/openclaw/feishu-accounts'
 import { writeDailyReportToBitable, writeDailyReportToDoc } from '@/lib/openclaw/feishu-docs'
 
 type DailyReportPayload = {
@@ -236,6 +237,7 @@ export async function sendDailyReportToFeishu(params: {
   const report = await getOrCreateDailyReport(params.userId, params.date)
   const message = formatReportMessage(report)
   let sentAny = false
+  const accountId = await resolveUserFeishuAccountId(params.userId)
 
   if (params.target) {
     await invokeOpenclawTool({
@@ -245,6 +247,7 @@ export async function sendDailyReportToFeishu(params: {
         channel: 'feishu',
         target: params.target,
         message,
+        ...(accountId ? { accountId } : {}),
       },
     })
     sentAny = true

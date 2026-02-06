@@ -9,6 +9,8 @@ const proxySchema = z.object({
   body: z.unknown().optional(),
   channel: z.string().optional(),
   senderId: z.string().optional(),
+  accountId: z.string().optional(),
+  tenantKey: z.string().optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -25,12 +27,16 @@ export async function POST(request: NextRequest) {
 
     const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
     const senderId = parsed.data.senderId || request.headers.get('x-openclaw-sender') || undefined
+    const accountId = parsed.data.accountId || request.headers.get('x-openclaw-account-id') || undefined
+    const tenantKey = parsed.data.tenantKey || request.headers.get('x-openclaw-tenant-key') || undefined
 
     const response = await handleOpenclawProxyRequest({
       request: {
         ...parsed.data,
         channel,
         senderId,
+        accountId,
+        tenantKey,
       },
       authHeader,
     })

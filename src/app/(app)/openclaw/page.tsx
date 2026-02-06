@@ -207,6 +207,10 @@ const FEISHU_DOC_EXAMPLE_VALUES: Record<string, string> = {
 }
 
 const USER_KEYS = new Set([
+  'feishu_app_id',
+  'feishu_app_secret',
+  'feishu_bot_name',
+  'feishu_domain',
   'feishu_target',
   'feishu_doc_folder_token',
   'feishu_doc_title_prefix',
@@ -1250,10 +1254,8 @@ export default function OpenClawPage() {
                     </div>
                   )}
 
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <InputWithLabel label="App ID" value={globalValues.feishu_app_id || ''} onChange={(v) => setGlobalValue('feishu_app_id', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="App Secret" type="password" value={globalValues.feishu_app_secret || ''} onChange={(v) => setGlobalValue('feishu_app_secret', v)} disabled={!settings?.isAdmin} />
-                    <InputWithLabel label="Bot Name" value={globalValues.feishu_bot_name || ''} onChange={(v) => setGlobalValue('feishu_bot_name', v)} disabled={!settings?.isAdmin} />
+                  <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    飞书账号（App ID / App Secret / Bot Name）已迁移到【个人配置】，每个用户单独填写。
                   </div>
 
                   {showFeishuAdvanced && (
@@ -1570,6 +1572,28 @@ export default function OpenClawPage() {
                 </div>
               )}
               <div className="grid gap-4 md:grid-cols-3">
+                <InputWithLabel
+                  label="飞书 App ID"
+                  value={userValues.feishu_app_id || ''}
+                  onChange={(v) => setUserValue('feishu_app_id', v)}
+                />
+                <InputWithLabel
+                  label="飞书 App Secret"
+                  type="password"
+                  value={userValues.feishu_app_secret || ''}
+                  onChange={(v) => setUserValue('feishu_app_secret', v)}
+                />
+                <InputWithLabel
+                  label="飞书 Bot Name"
+                  value={userValues.feishu_bot_name || ''}
+                  onChange={(v) => setUserValue('feishu_bot_name', v)}
+                />
+                <InputWithLabel
+                  label="Domain"
+                  value={userValues.feishu_domain || ''}
+                  onChange={(v) => setUserValue('feishu_domain', v)}
+                  placeholder="feishu / lark / https://..."
+                />
                 <InputWithLabel
                   label="飞书推送目标 (open_id / union_id / chat_id)"
                   value={userValues.feishu_target || ''}

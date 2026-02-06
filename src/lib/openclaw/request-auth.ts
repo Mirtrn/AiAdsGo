@@ -33,7 +33,9 @@ export async function resolveOpenclawRequestUser(
   if (await verifyOpenclawGatewayToken(token)) {
     const channel = request.headers.get('x-openclaw-channel')
     const senderId = request.headers.get('x-openclaw-sender')
-    const userId = await resolveOpenclawUserFromBinding(channel, senderId)
+    const accountId = request.headers.get('x-openclaw-account-id')
+    const tenantKey = request.headers.get('x-openclaw-tenant-key')
+    const userId = await resolveOpenclawUserFromBinding(channel, senderId, { accountId, tenantKey })
     if (!userId) return null
     return { userId, authType: 'gateway-binding' }
   }

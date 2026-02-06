@@ -4,6 +4,10 @@ import { verifyAuth } from '@/lib/auth'
 import { getSettingsByCategory, updateSettings } from '@/lib/settings'
 
 const USER_SCOPED_KEYS = new Set([
+  'feishu_app_id',
+  'feishu_app_secret',
+  'feishu_bot_name',
+  'feishu_domain',
   'feishu_target',
   'feishu_doc_folder_token',
   'feishu_doc_title_prefix',
@@ -25,6 +29,13 @@ const USER_SCOPED_KEYS = new Set([
   'openclaw_strategy_enable_auto_adjust_cpc',
   'openclaw_strategy_allow_affiliate_fetch',
   'openclaw_strategy_dry_run',
+])
+
+const USER_SYNC_KEYS = new Set([
+  'feishu_app_id',
+  'feishu_app_secret',
+  'feishu_bot_name',
+  'feishu_domain',
 ])
 
 const updateSchema = z.object({
@@ -104,6 +115,15 @@ export async function PUT(request: NextRequest) {
       updates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
       auth.user.userId
     )
+
+    if (updates.some(item => USER_SYNC_KEYS.has(item.key))) {
+      try {
+        const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
+        await syncOpenclawConfig({ reason: 'openclaw-user-settings', actorUserId: auth.user.userId })
+      } catch (error) {
+        console.error('❌ OpenClaw配置同步失败:', error)
+      }
+    }
   }
 
   return NextResponse.json({ success: true })

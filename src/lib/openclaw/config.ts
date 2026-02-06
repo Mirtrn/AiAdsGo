@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { getSettingsByCategory } from '@/lib/settings'
 import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
+import { collectUserFeishuAccounts } from '@/lib/openclaw/feishu-accounts'
 
 type SyncOpenclawConfigOptions = {
   reason?: string
@@ -116,6 +117,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const feishuGroupAllowFrom = parseJsonArray(settingMap.feishu_group_allow_from)
   const feishuGroups = parseJsonObject(settingMap.feishu_groups_json)
   const feishuAccounts = parseJsonObject(settingMap.feishu_accounts_json)
+  const userFeishuAccounts = await collectUserFeishuAccounts()
   const feishuMarkdownTables = (settingMap.feishu_markdown_tables || '').trim()
   const feishuMediaMaxMb = parseNumber(settingMap.feishu_media_max_mb, undefined)
 
@@ -224,12 +226,24 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     ? { ...feishuAccounts }
     : {}
   const existingMain = feishuAccountsConfig.main
+  const hasMainCredentials = Boolean(
+    feishuAccount.appId &&
+      (feishuAccount.appSecret || feishuAccount.appSecretFile)
+  )
   if (existingMain && typeof existingMain === 'object' && !Array.isArray(existingMain)) {
-    feishuAccountsConfig.main = { ...feishuAccount, ...existingMain }
-  } else {
+    const mergedMain = { ...feishuAccount, ...existingMain }
+    if (mergedMain.appId && (mergedMain.appSecret || mergedMain.appSecretFile)) {
+      feishuAccountsConfig.main = mergedMain
+    } else {
+      delete feishuAccountsConfig.main
+    }
+  } else if (hasMainCredentials) {
     feishuAccountsConfig.main = feishuAccount
+  } else {
+    delete feishuAccountsConfig.main
   }
-  config.channels.feishu.accounts = feishuAccountsConfig
+  const mergedFeishuAccounts = { ...feishuAccountsConfig, ...userFeishuAccounts }
+  config.channels.feishu.accounts = mergedFeishuAccounts
 
   if (sessionOverrides && Object.keys(sessionOverrides).length > 0) {
     config.session = { ...config.session, ...sessionOverrides }
