@@ -420,6 +420,7 @@ async function insertDefaultSystemSettings(): Promise<void> {
     { category: 'system', key: 'sync_interval_hours', dataType: 'number', isSensitive: false, isRequired: true, description: '数据同步间隔(小时)', defaultValue: '6' },
     { category: 'system', key: 'link_check_enabled', dataType: 'boolean', isSensitive: false, isRequired: true, description: '是否启用链接检查', defaultValue: 'true' },
     { category: 'system', key: 'link_check_time', dataType: 'string', isSensitive: false, isRequired: true, description: '链接检查时间', defaultValue: '02:00' },
+    { category: 'system', key: 'data_sync_mode', dataType: 'string', isSensitive: false, isRequired: false, description: '手动同步默认模式（incremental/full）', defaultValue: 'incremental' },
   ]
 
   try {
