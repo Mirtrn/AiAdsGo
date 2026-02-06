@@ -4,6 +4,7 @@ import { fetchAutoadsAsUser } from '@/lib/openclaw/autoads-client'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { checkOpenclawRateLimit } from '@/lib/openclaw/rate-limit'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
+import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
 
 export type OpenclawProxyRequest = {
   method: string
@@ -116,6 +117,11 @@ export async function handleOpenclawProxyRequest(params: {
 
   if (!resolved) {
     throw new Error('OpenClaw authentication failed')
+  }
+
+  const openclawEnabled = await isOpenclawEnabledForUser(resolved.userId)
+  if (!openclawEnabled) {
+    throw new Error('OpenClaw access denied')
   }
 
   const method = (request.method || 'GET').toUpperCase()

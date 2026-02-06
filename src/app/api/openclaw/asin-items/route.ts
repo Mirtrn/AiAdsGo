@@ -13,7 +13,7 @@ function toNumber(value: string | null, fallback: number): number {
 export async function GET(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
-    return NextResponse.json({ error: '未授权' }, { status: 401 })
+    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
   const searchParams = request.nextUrl.searchParams

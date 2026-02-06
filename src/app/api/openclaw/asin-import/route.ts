@@ -24,7 +24,7 @@ function parseJsonValue(value: unknown): Record<string, any> | undefined {
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
-    return NextResponse.json({ error: '未授权' }, { status: 401 })
+    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
   const formData = await request.formData()

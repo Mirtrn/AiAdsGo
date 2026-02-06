@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     const message = error?.message || 'OpenClaw proxy error'
     const status = message.includes('authentication') ? 401
+      : message.includes('access denied') ? 403
       : message.includes('blocked') ? 403
         : message.includes('频繁') ? 429
         : 400

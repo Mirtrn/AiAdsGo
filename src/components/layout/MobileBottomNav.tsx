@@ -16,6 +16,10 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>
 }
 
+interface MobileBottomNavUser {
+  openclawEnabled?: boolean
+}
+
 const mainNavItems: NavItem[] = [
   { label: '仪表盘', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Offer', href: '/offers', icon: Package },
@@ -25,7 +29,7 @@ const mainNavItems: NavItem[] = [
   { label: '设置', href: '/settings', icon: Settings },
 ]
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ user }: { user?: MobileBottomNavUser }) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -36,8 +40,14 @@ export function MobileBottomNav() {
     return pathname?.startsWith(href) || false
   }
 
+  const filteredMainNavItems = mainNavItems.filter(item => {
+    if (item.href === '/openclaw') {
+      return Boolean(user?.openclawEnabled)
+    }
+    return true
+  })
   // 只显示前6个最重要的导航项
-  const visibleItems = mainNavItems.slice(0, 6)
+  const visibleItems = filteredMainNavItems.slice(0, 6)
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">

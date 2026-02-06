@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         profilePicture: user.profile_picture,
         role: user.role,
         packageType: user.package_type,
+        openclawEnabled: user.openclaw_enabled === true || user.openclaw_enabled === 1,
         packageExpiresAt: user.package_expires_at,
         validFrom: (user as any).valid_from,
         validUntil: (user as any).valid_until,

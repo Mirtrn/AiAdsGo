@@ -49,6 +49,7 @@ interface User {
     packageExpiresAt: string | null
     // 🔧 修复(2025-12-30): API统一返回boolean类型
     isActive: boolean
+    openclawEnabled: boolean
     createdAt: string
     lockedUntil: string | null
     failedLoginCount: number
@@ -176,6 +177,7 @@ export default function UserManagementPage() {
     const [editExpiry, setEditExpiry] = useState('')
     // 🔧 修复(2025-12-30): 改为boolean类型匹配API
     const [editStatus, setEditStatus] = useState(true)
+    const [editOpenclawEnabled, setEditOpenclawEnabled] = useState(false)
 
     // Reset password dialog
     const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false)
@@ -339,7 +341,8 @@ export default function UserManagementPage() {
                     email: editEmail || null,
                     packageType: editPackage,
                     packageExpiresAt: editExpiry || null,
-                    isActive: editStatus
+                    isActive: editStatus,
+                    openclawEnabled: editOpenclawEnabled
                 })
             })
 
@@ -505,6 +508,7 @@ export default function UserManagementPage() {
         setEditPackage(user.packageType)
         setEditExpiry(user.packageExpiresAt ? new Date(user.packageExpiresAt).toISOString().split('T')[0] : '')
         setEditStatus(user.isActive)
+        setEditOpenclawEnabled(user.openclawEnabled)
         setIsEditOpen(true)
     }
 
@@ -1101,6 +1105,18 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="true">正常</SelectItem>
                                     <SelectItem value="false">禁用</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>OpenClaw 访问</Label>
+                            <Select value={String(editOpenclawEnabled)} onValueChange={(v) => setEditOpenclawEnabled(v === 'true')}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="true">开启</SelectItem>
+                                    <SelectItem value="false">关闭</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

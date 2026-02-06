@@ -22,6 +22,7 @@ export interface User {
   package_expires_at: string | null
   must_change_password: number
   is_active: number
+  openclaw_enabled: number | boolean
   last_login_at: string | null
   created_at: string
   updated_at: string

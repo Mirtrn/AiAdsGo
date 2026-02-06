@@ -73,8 +73,9 @@ async function refreshOpenclawStrategySchedules() {
       AND ss.user_id IS NOT NULL
       AND ss.key IN ('openclaw_strategy_enabled', 'openclaw_strategy_cron')
       AND u.is_active = ?
+      AND u.openclaw_enabled = ?
     GROUP BY ss.user_id
-  `, [true])
+  `, [true, true])
 
   const activeUsers = new Set<number>()
   for (const row of rows || []) {

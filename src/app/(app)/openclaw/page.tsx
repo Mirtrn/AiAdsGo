@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -291,6 +292,7 @@ const renderTriState = (value?: boolean | null) => {
 }
 
 export default function OpenClawPage() {
+  const router = useRouter()
   const [settings, setSettings] = useState<OpenclawSettingsResponse | null>(null)
   const [globalValues, setGlobalValues] = useState<Record<string, string>>({})
   const [userValues, setUserValues] = useState<Record<string, string>>({})
@@ -344,6 +346,12 @@ export default function OpenClawPage() {
           fetch('/api/openclaw/strategy/status', { credentials: 'include' }),
           fetch('/api/openclaw/asin-items', { credentials: 'include' }),
         ])
+
+        if (settingsRes.status === 403) {
+          toast.error('当前账号未开启 OpenClaw 功能')
+          router.replace('/dashboard')
+          return
+        }
 
         if (!settingsRes.ok) {
           throw new Error('配置加载失败')

@@ -35,15 +35,23 @@ export async function PATCH(
   try {
     const userId = parseInt(params.id)
     const body = await request.json()
-    const { email, packageType, packageExpiresAt, isActive } = body
+    const { email, packageType, packageExpiresAt, isActive, openclawEnabled } = body
 
     const db = getDatabase()
 
     // 获取更新前的用户数据（用于审计日志）
     const beforeUser = await db.queryOne(
-      'SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?',
+      'SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled FROM users WHERE id = ?',
       [userId]
-    ) as { id: number; username: string; email: string; package_type: string; package_expires_at: string; is_active: number } | undefined
+    ) as {
+      id: number
+      username: string
+      email: string
+      package_type: string
+      package_expires_at: string
+      is_active: number
+      openclaw_enabled: number | boolean
+    } | undefined
 
     if (!beforeUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
@@ -76,6 +84,16 @@ export async function PATCH(
         const valueToSet = db.type === 'postgres' ? isActiveBoolean : (isActiveBoolean ? 1 : 0)
         fieldUpdates.push({ sql: 'is_active = ?', value: valueToSet })
         changedFields.push('is_active')
+      }
+    }
+
+    if (openclawEnabled !== undefined) {
+      const currentOpenclawEnabled = (beforeUser.openclaw_enabled as any) === true || (beforeUser.openclaw_enabled as any) === 1
+      const openclawEnabledBoolean = Boolean(openclawEnabled)
+      if (openclawEnabledBoolean !== currentOpenclawEnabled) {
+        const valueToSet = db.type === 'postgres' ? openclawEnabledBoolean : (openclawEnabledBoolean ? 1 : 0)
+        fieldUpdates.push({ sql: 'openclaw_enabled = ?', value: valueToSet })
+        changedFields.push('openclaw_enabled')
       }
     }
 
@@ -113,7 +131,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
     }
 
-    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?', [userId]) as any
+    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled FROM users WHERE id = ?', [userId]) as any
 
     // 获取操作者的username（从数据库查询）
     const operator = await db.queryOne('SELECT username FROM users WHERE id = ?', [auth.user!.userId]) as { username: string } | undefined
