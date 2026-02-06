@@ -18,6 +18,7 @@ docker run --rm \
   -v "${TMP_DIR}:/out" \
   -w /openclaw \
   -e OPENCLAW_A2UI_SKIP_MISSING=1 \
+  -e CI=true \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
   node:22-bookworm-slim \
@@ -32,7 +33,8 @@ docker run --rm \
     OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
 
     # 仅保留生产依赖，避免将 devDependencies 带入镜像
-    pnpm prune --prod
+    # CI=true + confirmModulesPurge=false，避免无TTY环境交互中断
+    pnpm prune --prod --config.confirmModulesPurge=false
 
     # 防御性清理（历史问题：@typescript/native-preview 导致镜像暴涨）
     rm -rf node_modules/.pnpm/@typescript+native-preview* \
