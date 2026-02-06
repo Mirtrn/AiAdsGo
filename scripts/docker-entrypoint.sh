@@ -19,7 +19,7 @@ cd /app
 node dist/db-init.js
 
 # 初始化 OpenClaw 目录并授权
-mkdir -p /app/.openclaw /app/.openclaw/workspace
+mkdir -p /app/.openclaw /app/.openclaw/workspace /app/.openclaw/canvas
 chown -R nextjs:nodejs /app/.openclaw
 
 # OpenClaw 配置同步（失败不影响主服务启动）
