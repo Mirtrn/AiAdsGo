@@ -9,6 +9,7 @@ import {
   normalizeFeishuTarget,
   PAIRING_APPROVED_MESSAGE,
   probeFeishu,
+  registerFeishuCardActionRoute,
   resolveDefaultFeishuAccountId,
   resolveFeishuAccount,
   resolveFeishuConfig,
@@ -19,6 +20,7 @@ import {
   type ChannelStatusIssue,
   type ResolvedFeishuAccount,
 } from "openclaw/plugin-sdk";
+import { handleFeishuCardConfirmAction } from "./card-actions.js";
 import { FeishuConfigSchema } from "./config-schema.js";
 import { feishuOnboardingAdapter } from "./onboarding.js";
 
@@ -254,6 +256,25 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
         lastStartAt: Date.now(),
       });
 
+      const { path: cardCallbackPath, unregister: unregisterCardAction } =
+        registerFeishuCardActionRoute({
+          cfg,
+          accountId: account.accountId,
+          accountConfig: account.config,
+          runtime,
+          handler: async (event) =>
+            await handleFeishuCardConfirmAction({
+              event,
+              accountId: account.accountId,
+              accountConfig: account.config,
+              log: (message) => log?.debug?.(message),
+            }),
+        });
+
+      if (cardCallbackPath) {
+        log?.info(`[${account.accountId}] Feishu card callback route: ${cardCallbackPath}`);
+      }
+
       try {
         await monitorFeishuProvider({
           appId,
@@ -270,6 +291,8 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
           lastError: err instanceof Error ? err.message : String(err),
         });
         throw err;
+      } finally {
+        unregisterCardAction();
       }
     },
   },

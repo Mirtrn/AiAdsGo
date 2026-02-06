@@ -38,6 +38,12 @@ const FeishuAccountSchema = z
     streaming: z.boolean().optional(),
     mediaMaxMb: z.number().optional(),
     responsePrefix: z.string().optional(),
+    cardCallbackPath: z.string().optional(),
+    cardVerificationToken: z.string().optional(),
+    cardEncryptKey: z.string().optional(),
+    cardConfirmUrl: z.string().optional(),
+    cardConfirmAuthToken: z.string().optional(),
+    cardConfirmTimeoutMs: z.number().int().positive().optional(),
     groups: z.record(z.string(), FeishuGroupSchema.optional()).optional(),
   })
   .strict();

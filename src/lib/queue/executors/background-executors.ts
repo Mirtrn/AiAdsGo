@@ -10,10 +10,14 @@ import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
 import { executeAffiliateProductSync } from './affiliate-product-sync-executor'
+import { executeOpenclawCommandTask } from './openclaw-command-executor'
+import { executeOpenclawReportSend } from './openclaw-report-send-executor'
 
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('click-farm', createClickFarmExecutor())
   queue.registerExecutor('url-swap', executeUrlSwapTask)
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
   queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
+  queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+  queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
 }

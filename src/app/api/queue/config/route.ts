@@ -33,6 +33,8 @@ const DEFAULT_QUEUE_CONFIG = {
     'url-swap': 3,  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
     'openclaw-strategy': 2,  // OpenClaw 策略任务并发限制
     'affiliate-product-sync': 2, // 联盟商品同步任务并发限制
+    'openclaw-command': 3, // OpenClaw 指令执行任务并发限制
+    'openclaw-report-send': 2, // OpenClaw 报表投递任务并发限制
   },
   maxQueueSize: 1000,
   taskTimeout: 900000, // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -57,6 +59,8 @@ const ALL_TASK_TYPES = [
   'url-swap',
   'openclaw-strategy',
   'affiliate-product-sync',
+  'openclaw-command',
+  'openclaw-report-send',
 ] as const
 
 function normalizeQueueConfig(input: any): typeof DEFAULT_QUEUE_CONFIG {

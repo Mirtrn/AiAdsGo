@@ -71,6 +71,7 @@ export type {
 export type { PluginRuntime } from "../plugins/runtime/types.js";
 export { normalizePluginHttpPath } from "../plugins/http-path.js";
 export { registerPluginHttpRoute } from "../plugins/http-registry.js";
+export { registerFeishuCardActionRoute } from "../feishu/card-action.js";
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 export type { OpenClawConfig } from "../config/config.js";
 export type { ChannelDock } from "../channels/dock.js";
@@ -115,7 +116,9 @@ export {
   requireOpenAllowFrom,
 } from "../config/zod-schema.core.js";
 export { ToolPolicySchema } from "../config/zod-schema.agent-runtime.js";
+export type { FeishuAccountConfig, FeishuConfig } from "../config/types.feishu.js";
 export type { RuntimeEnv } from "../runtime.js";
+export type { InteractiveCard, InteractiveCardActionEvent } from "@larksuiteoapi/node-sdk";
 export type { WizardPrompter } from "../wizard/prompts.js";
 export { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../routing/session-key.js";
 export { resolveAckReaction } from "../agents/identity.js";

@@ -86,6 +86,18 @@ export type FeishuAccountConfig = {
   heartbeat?: ChannelHeartbeatVisibilityConfig;
   /** Outbound response prefix override for this channel/account. */
   responsePrefix?: string;
+  /** Feishu interactive card callback path (HTTP webhook). */
+  cardCallbackPath?: string;
+  /** Verification token for interactive card callbacks. */
+  cardVerificationToken?: string;
+  /** Encrypt key for interactive card callbacks (if encrypted push enabled). */
+  cardEncryptKey?: string;
+  /** AutoAds/OpenClaw command confirm endpoint URL for card action forwarding. */
+  cardConfirmUrl?: string;
+  /** Bearer token for card confirm endpoint forwarding. */
+  cardConfirmAuthToken?: string;
+  /** Timeout (ms) when forwarding card actions to confirm endpoint. */
+  cardConfirmTimeoutMs?: number;
 };
 
 export type FeishuConfig = {

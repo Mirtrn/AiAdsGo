@@ -21,6 +21,8 @@ export const SendParamsSchema = Type.Object(
     gifPlayback: Type.Optional(Type.Boolean()),
     channel: Type.Optional(Type.String()),
     accountId: Type.Optional(Type.String()),
+    /** Optional channel-specific payload envelope. */
+    channelData: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     /** Optional session key for mirroring delivered output back into the transcript. */
     sessionKey: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,

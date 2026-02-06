@@ -632,7 +632,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       'click-farm',
       'url-swap',
       'openclaw-strategy',
-      'affiliate-product-sync'
+      'affiliate-product-sync',
+      'openclaw-command',
+      'openclaw-report-send'
     ]
     for (const taskType of taskTypes) {
       pipeline.del(this.getKey(`pending:${taskType}`))

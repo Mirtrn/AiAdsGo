@@ -448,45 +448,84 @@ export async function sendDailyReportToFeishu(params: {
   userId: number
   target?: string
   date?: string
+  deliveryTaskId?: string
 }): Promise<void> {
   const report = await getOrCreateDailyReport(params.userId, params.date)
+  const db = await getDatabase()
+  const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+  await db.exec(
+    `UPDATE openclaw_daily_reports
+     SET delivery_attempts = COALESCE(delivery_attempts, 0) + 1,
+         last_delivery_task_id = ?,
+         delivery_error = NULL
+     WHERE user_id = ? AND report_date = ?`,
+    [params.deliveryTaskId || null, params.userId, report.date]
+  )
+
   const message = formatReportMessage(report)
   let sentAny = false
+  const errors: string[] = []
   const accountId = await resolveUserFeishuAccountId(params.userId)
 
   if (params.target) {
-    await invokeOpenclawTool({
-      tool: 'message',
-      action: 'send',
-      args: {
-        channel: 'feishu',
-        target: params.target,
-        message,
-        ...(accountId ? { accountId } : {}),
-      },
-    })
-    sentAny = true
+    try {
+      await invokeOpenclawTool({
+        tool: 'message',
+        action: 'send',
+        args: {
+          channel: 'feishu',
+          target: params.target,
+          message,
+          ...(accountId ? { accountId } : {}),
+        },
+      })
+      sentAny = true
+    } catch (error: any) {
+      const messageText = error?.message || String(error)
+      errors.push(`target: ${messageText}`)
+      console.error('❌ 推送飞书消息失败:', error)
+    }
   }
 
   try {
     await writeDailyReportToBitable(params.userId, report)
     sentAny = true
-  } catch (error) {
+  } catch (error: any) {
+    const messageText = error?.message || String(error)
+    errors.push(`bitable: ${messageText}`)
     console.error('❌ 写入飞书多维表格失败:', error)
   }
 
   try {
     await writeDailyReportToDoc(params.userId, report)
     sentAny = true
-  } catch (error) {
+  } catch (error: any) {
+    const messageText = error?.message || String(error)
+    errors.push(`doc: ${messageText}`)
     console.error('❌ 写入飞书文档失败:', error)
   }
 
-  const db = await getDatabase()
+  const deliveryError = sentAny ? null : (errors.join(' | ') || '所有投递渠道均失败')
+
   await db.exec(
     `UPDATE openclaw_daily_reports
-     SET sent_status = ?, sent_at = datetime('now')
+     SET sent_status = ?,
+         sent_at = CASE WHEN ? THEN ${nowSql} ELSE sent_at END,
+         delivery_error = ?,
+         last_delivery_task_id = COALESCE(?, last_delivery_task_id)
      WHERE user_id = ? AND report_date = ?`,
-    [sentAny ? 'sent' : 'failed', params.userId, report.date]
+    [
+      sentAny ? 'sent' : 'failed',
+      sentAny,
+      deliveryError,
+      params.deliveryTaskId || null,
+      params.userId,
+      report.date,
+    ]
   )
+
+  if (!sentAny) {
+    throw new Error(deliveryError || '每日报表投递失败')
+  }
 }

@@ -66,6 +66,7 @@ export const sendHandlers: GatewayRequestHandlers = {
       accountId?: string;
       sessionKey?: string;
       idempotencyKey: string;
+      channelData?: Record<string, unknown>;
     };
     const idem = request.idempotencyKey;
     const dedupeKey = `send:${idem}`;
@@ -132,7 +133,12 @@ export const sendHandlers: GatewayRequestHandlers = {
         }
         const outboundDeps = context.deps ? createOutboundSendDeps(context.deps) : undefined;
         const mirrorPayloads = normalizeReplyPayloadsForDelivery([
-          { text: message, mediaUrl: request.mediaUrl, mediaUrls },
+          {
+            text: message,
+            mediaUrl: request.mediaUrl,
+            mediaUrls,
+            channelData: request.channelData,
+          },
         ]);
         const mirrorText = mirrorPayloads
           .map((payload) => payload.text)
@@ -170,7 +176,14 @@ export const sendHandlers: GatewayRequestHandlers = {
           channel: outboundChannel,
           to: resolved.to,
           accountId,
-          payloads: [{ text: message, mediaUrl: request.mediaUrl, mediaUrls }],
+          payloads: [
+            {
+              text: message,
+              mediaUrl: request.mediaUrl,
+              mediaUrls,
+              channelData: request.channelData,
+            },
+          ],
           gifPlayback: request.gifPlayback,
           deps: outboundDeps,
           mirror: providedSessionKey
@@ -262,6 +275,7 @@ export const sendHandlers: GatewayRequestHandlers = {
       channel?: string;
       accountId?: string;
       idempotencyKey: string;
+      channelData?: Record<string, unknown>;
     };
     const idem = request.idempotencyKey;
     const cached = context.dedupe.get(`poll:${idem}`);

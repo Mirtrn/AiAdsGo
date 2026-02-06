@@ -318,22 +318,32 @@ async function openclawDailyReportTask() {
       return
     }
 
-    const { sendDailyReportToFeishu } = await import('./lib/openclaw/reports')
+    const queue = getQueueManagerForTaskType('openclaw-report-send')
 
-    let successCount = 0
+    let queuedCount = 0
     for (const row of rows) {
       try {
-        await sendDailyReportToFeishu({
-          userId: row.user_id,
-          target: row.target || undefined,
-        })
-        successCount++
+        const taskId = await queue.enqueue(
+          'openclaw-report-send',
+          {
+            userId: row.user_id,
+            target: row.target || undefined,
+            trigger: 'cron',
+          },
+          row.user_id,
+          {
+            priority: 'normal',
+            maxRetries: 1,
+          }
+        )
+        queuedCount++
+        log(`📥 OpenClaw报表投递任务已入队 (user=${row.user_id}, task=${taskId})`)
       } catch (error) {
-        logError(`❌ OpenClaw报表推送失败 (user=${row.user_id})`, error)
+        logError(`❌ OpenClaw报表投递任务入队失败 (user=${row.user_id})`, error)
       }
     }
 
-    log(`📨 OpenClaw 报表推送完成 - 成功: ${successCount}/${rows.length}`)
+    log(`📨 OpenClaw 报表投递任务入队完成 - 成功: ${queuedCount}/${rows.length}`)
   } catch (error) {
     logError('❌ OpenClaw 报表推送执行失败:', error)
   }

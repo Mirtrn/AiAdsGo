@@ -7,6 +7,8 @@ const BACKGROUND_TASK_TYPES: ReadonlySet<TaskType> = new Set([
   'url-swap',
   'openclaw-strategy',
   'affiliate-product-sync',
+  'openclaw-command',
+  'openclaw-report-send',
 ])
 
 export function isBackgroundTaskType(type: TaskType | string): boolean {

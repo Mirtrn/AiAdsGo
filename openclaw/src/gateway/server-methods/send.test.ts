@@ -193,3 +193,46 @@ describe("gateway send mirroring", () => {
     );
   });
 });
+
+describe("gateway send channelData", () => {
+  it("passes channelData through to outbound payload", async () => {
+    mocks.deliverOutboundPayloads.mockResolvedValue([{ messageId: "m-card", channel: "feishu" }]);
+
+    const respond = vi.fn();
+    await sendHandlers.send({
+      params: {
+        to: "ou_123",
+        message: "Confirm",
+        channel: "feishu",
+        idempotencyKey: "idem-card",
+        channelData: {
+          feishu: {
+            card: {
+              header: { title: { tag: "plain_text", content: "确认" } },
+              elements: [{ tag: "markdown", content: "请确认" }],
+            },
+          },
+        },
+      },
+      respond,
+      context: makeContext(),
+      req: { type: "req", id: "1", method: "send" },
+      client: null,
+      isWebchatConnect: () => false,
+    });
+
+    expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payloads: [
+          expect.objectContaining({
+            channelData: {
+              feishu: {
+                card: expect.objectContaining({ elements: expect.any(Array) }),
+              },
+            },
+          }),
+        ],
+      }),
+    );
+  });
+});

@@ -21,6 +21,8 @@ import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
 import { executeAffiliateProductSync } from './affiliate-product-sync-executor'
+import { executeOpenclawCommandTask } from './openclaw-command-executor'
+import { executeOpenclawReportSend } from './openclaw-report-send-executor'
 import { logger } from '@/lib/structured-logger'
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
@@ -100,6 +102,12 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
     // 🆕 注册 affiliate-product-sync 执行器（联盟商品同步）
     queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
+
+    // 🆕 注册 openclaw-command 执行器（OpenClaw 指令执行）
+    queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+
+    // 🆕 注册 openclaw-report-send 执行器（OpenClaw 每日报表投递）
+    queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
   } else {
     logger.warn('queue_background_executors_skipped', {
       reason: backgroundDecision.reason,
@@ -120,6 +128,8 @@ export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('url-swap', executeUrlSwapTask)
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
   queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
+  queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+  queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
 }
 
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'
@@ -143,3 +153,5 @@ export type { CampaignPublishTaskData } from './campaign-publish-executor'
 export type { ClickFarmTaskData } from './click-farm-executor'
 export type { UrlSwapTaskData } from './url-swap-executor'
 export type { AffiliateProductSyncTaskData } from './affiliate-product-sync-executor'
+export type { OpenclawCommandTaskData } from './openclaw-command-executor'
+export type { OpenclawReportSendTaskData } from './openclaw-report-send-executor'

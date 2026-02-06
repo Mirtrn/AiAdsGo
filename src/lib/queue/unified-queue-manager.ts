@@ -104,7 +104,9 @@ export class UnifiedQueueManager {
         'click-farm': defaultClickFarmConcurrency, // 🆕 支持通过 QUEUE_CLICK_FARM_CONCURRENCY 覆盖
         'url-swap': defaultUrlSwapConcurrency,     // 支持通过 QUEUE_URL_SWAP_CONCURRENCY 覆盖
         'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
-        'affiliate-product-sync': 2 // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
+        'affiliate-product-sync': 2, // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
+        'openclaw-command': 3,       // 🆕 OpenClaw 指令执行任务并发限制
+        'openclaw-report-send': 2    // 🆕 OpenClaw 报表投递任务并发限制
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）

@@ -23,8 +23,10 @@ export type TaskType =
   | 'campaign-publish'      // 🆕 广告系列发布到Google Ads（异步处理，避免504超时）
   | 'click-farm'            // 🆕 补点击任务（单次点击执行，带代理和超时控制）
   | 'url-swap'              // 🆕 换链接任务（自动监测和更新Google Ads广告链接）
-  | 'openclaw-strategy'     // 🆕 OpenClaw 自进化策略任务
-  | 'affiliate-product-sync' // 🆕 联盟商品同步任务（YP/PB）
+  | 'openclaw-strategy'      // 🆕 OpenClaw 自进化策略任务
+  | 'affiliate-product-sync'  // 🆕 联盟商品同步任务（YP/PB）
+  | 'openclaw-command'        // 🆕 OpenClaw 指令执行任务（可含确认流）
+  | 'openclaw-report-send'    // 🆕 OpenClaw 每日报表投递任务
 
 /**
  * 任务优先级

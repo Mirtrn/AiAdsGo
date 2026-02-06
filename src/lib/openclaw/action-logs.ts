@@ -29,12 +29,20 @@ export async function recordOpenclawAction(params: {
   responseBody?: string | null
   status?: 'success' | 'error'
   errorMessage?: string | null
+  runId?: string | null
+  riskLevel?: string | null
+  confirmStatus?: string | null
+  latencyMs?: number | null
 }): Promise<void> {
   const db = await getDatabase()
+  const latencyMs = typeof params.latencyMs === 'number' && Number.isFinite(params.latencyMs)
+    ? Math.max(0, Math.round(params.latencyMs))
+    : null
+
   await db.exec(
     `INSERT INTO openclaw_action_logs
-     (user_id, channel, sender_id, action, target_type, target_id, request_body, response_body, status, error_message)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (user_id, channel, sender_id, action, target_type, target_id, request_body, response_body, status, error_message, run_id, risk_level, confirm_status, latency_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       params.userId,
       params.channel || null,
@@ -46,6 +54,10 @@ export async function recordOpenclawAction(params: {
       truncate(params.responseBody),
       params.status || 'success',
       truncate(params.errorMessage || null),
+      params.runId || null,
+      params.riskLevel || null,
+      params.confirmStatus || null,
+      latencyMs,
     ]
   )
 }
