@@ -364,12 +364,20 @@ const USER_KEYS = new Set([
   'partnerboost_base_url',
   'partnerboost_token',
   'partnerboost_products_page_size',
+  'partnerboost_products_page',
   'partnerboost_products_default_filter',
   'partnerboost_products_country_code',
+  'partnerboost_products_brand_id',
   'partnerboost_products_sort',
+  'partnerboost_products_asins',
   'partnerboost_products_relationship',
+  'partnerboost_products_is_original_currency',
+  'partnerboost_products_has_promo_code',
+  'partnerboost_products_has_acc',
   'partnerboost_products_filter_sexual_wellness',
+  'partnerboost_link_country_code',
   'partnerboost_link_uid',
+  'partnerboost_link_return_partnerboost_link',
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',
@@ -2108,6 +2116,12 @@ export default function OpenClawPage() {
                   placeholder="100"
                 />
                 <InputWithLabel
+                  label="PB page"
+                  value={userValues.partnerboost_products_page || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_page', v)}
+                  placeholder="1"
+                />
+                <InputWithLabel
                   label="PB default_filter"
                   value={userValues.partnerboost_products_default_filter || ''}
                   onChange={(v) => setUserValue('partnerboost_products_default_filter', v)}
@@ -2120,9 +2134,20 @@ export default function OpenClawPage() {
                   placeholder="US"
                 />
                 <InputWithLabel
+                  label="PB brand_id"
+                  value={userValues.partnerboost_products_brand_id || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_brand_id', v)}
+                />
+                <InputWithLabel
                   label="PB sort"
                   value={userValues.partnerboost_products_sort || ''}
                   onChange={(v) => setUserValue('partnerboost_products_sort', v)}
+                />
+                <InputWithLabel
+                  label="PB asins"
+                  value={userValues.partnerboost_products_asins || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_asins', v)}
+                  placeholder="B0CQT26VCW,B0XXXXX"
                 />
                 <InputWithLabel
                   label="PB relationship"
@@ -2131,15 +2156,45 @@ export default function OpenClawPage() {
                   placeholder="1"
                 />
                 <InputWithLabel
+                  label="PB is_original_currency"
+                  value={userValues.partnerboost_products_is_original_currency || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_is_original_currency', v)}
+                  placeholder="0"
+                />
+                <InputWithLabel
+                  label="PB has_promo_code"
+                  value={userValues.partnerboost_products_has_promo_code || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_has_promo_code', v)}
+                  placeholder="0"
+                />
+                <InputWithLabel
+                  label="PB has_acc"
+                  value={userValues.partnerboost_products_has_acc || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_has_acc', v)}
+                  placeholder="0"
+                />
+                <InputWithLabel
                   label="PB filter_sexual"
                   value={userValues.partnerboost_products_filter_sexual_wellness || ''}
                   onChange={(v) => setUserValue('partnerboost_products_filter_sexual_wellness', v)}
                   placeholder="0"
                 />
                 <InputWithLabel
+                  label="PB link country"
+                  value={userValues.partnerboost_link_country_code || ''}
+                  onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
+                  placeholder="US"
+                />
+                <InputWithLabel
                   label="PB link uid"
                   value={userValues.partnerboost_link_uid || ''}
                   onChange={(v) => setUserValue('partnerboost_link_uid', v)}
+                />
+                <InputWithLabel
+                  label="PB short-link flag"
+                  value={userValues.partnerboost_link_return_partnerboost_link || ''}
+                  onChange={(v) => setUserValue('partnerboost_link_return_partnerboost_link', v)}
+                  placeholder="1"
                 />
                 <InputWithLabel
                   label="飞书 App ID"

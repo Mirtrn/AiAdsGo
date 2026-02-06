@@ -141,21 +141,32 @@ type PartnerboostProduct = {
 }
 
 type PartnerboostProductsResponse = {
-  status?: { code?: number; msg?: string }
+  status?: { code?: number | string; msg?: string }
   data?: {
-    list?: PartnerboostProduct[]
-    has_more?: boolean
+    list?: PartnerboostProduct[] | Record<string, PartnerboostProduct>
+    has_more?: boolean | number | string
+    hasMore?: boolean | number | string
   }
 }
 
 type PartnerboostLinkItem = {
   product_id?: string
+  asin?: string
   link?: string
+  partnerboost_link?: string
+  link_id?: string
 }
 
 type PartnerboostLinkResponse = {
-  status?: { code?: number; msg?: string }
+  status?: { code?: number | string; msg?: string }
   data?: PartnerboostLinkItem[]
+  error_list?: Array<{ product_id?: string; message?: string }>
+}
+
+type PartnerboostAsinLinkResponse = {
+  status?: { code?: number | string; msg?: string }
+  data?: PartnerboostLinkItem[]
+  error_list?: Array<{ asin?: string; country_code?: string; message?: string }>
 }
 
 type YeahPromosMerchant = {
@@ -201,6 +212,92 @@ export function normalizeYeahPromosResultCode(code: unknown): number | null {
   }
 
   return parsed
+}
+
+export function normalizePartnerboostStatusCode(code: unknown): number | null {
+  if (code === null || code === undefined || code === '') {
+    return null
+  }
+
+  const parsed = Number(code)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return parsed
+}
+
+function normalizePartnerboostProductsList(value: unknown): PartnerboostProduct[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value && typeof value === 'object') {
+    const candidates = Object.values(value as Record<string, unknown>)
+    return candidates.filter((item) => item && typeof item === 'object') as PartnerboostProduct[]
+  }
+
+  return []
+}
+
+function normalizeBoolFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === '1' || normalized === 'true' || normalized === 'yes'
+  }
+  return false
+}
+
+export function extractPartnerboostProductsPayload(payload: PartnerboostProductsResponse): {
+  products: PartnerboostProduct[]
+  hasMore: boolean
+} {
+  const products = normalizePartnerboostProductsList(payload.data?.list)
+  const hasMore = normalizeBoolFlag(payload.data?.has_more ?? payload.data?.hasMore)
+
+  return {
+    products,
+    hasMore,
+  }
+}
+
+function parseInteger(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback
+}
+
+function parseCsvValues(value: string): string[] {
+  return value
+    .split(/[\n,;\s]+/g)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeAsin(value: unknown): string | null {
+  const normalized = String(value || '').trim().toUpperCase()
+  return normalized || null
+}
+
+export function resolvePartnerboostPromoLinks(input: {
+  productIdLink?: string | null
+  asinLink?: string | null
+  asinPartnerboostLink?: string | null
+}): {
+  promoLink: string | null
+  shortPromoLink: string | null
+} {
+  const shortPromoLink = normalizeUrl(input.asinPartnerboostLink)
+  const promoLink = shortPromoLink
+    || normalizeUrl(input.asinLink)
+    || normalizeUrl(input.productIdLink)
+    || null
+
+  return {
+    promoLink,
+    shortPromoLink,
+  }
 }
 
 function normalizeYeahPromosMerchants(value: unknown): YeahPromosMerchant[] {
@@ -419,12 +516,20 @@ export async function checkAffiliatePlatformConfig(userId: number, platform: Aff
     ? [
         'partnerboost_base_url',
         'partnerboost_products_page_size',
+        'partnerboost_products_page',
         'partnerboost_products_default_filter',
         'partnerboost_products_country_code',
+        'partnerboost_products_brand_id',
         'partnerboost_products_sort',
+        'partnerboost_products_asins',
         'partnerboost_products_relationship',
+        'partnerboost_products_is_original_currency',
+        'partnerboost_products_has_promo_code',
+        'partnerboost_products_has_acc',
         'partnerboost_products_filter_sexual_wellness',
+        'partnerboost_link_country_code',
         'partnerboost_link_uid',
+        'partnerboost_link_return_partnerboost_link',
       ]
     : [
         'yeahpromos_page',
@@ -465,21 +570,32 @@ async function fetchPartnerboostPromotableProducts(params: {
 
   const token = check.values.partnerboost_token
   const baseUrl = (check.values.partnerboost_base_url || DEFAULT_PB_BASE_URL).replace(/\/+$/, '')
-  const pageSize = Number(check.values.partnerboost_products_page_size || '100')
-  const defaultFilter = Number(check.values.partnerboost_products_default_filter || '0')
-  const countryCode = check.values.partnerboost_products_country_code || ''
+  const pageSize = Math.max(1, Math.min(parseInteger(check.values.partnerboost_products_page_size || '100', 100), 200))
+  const startPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
+  const defaultFilter = parseInteger(check.values.partnerboost_products_default_filter || '0', 0)
+  const countryCode = (check.values.partnerboost_products_country_code || '').trim().toUpperCase()
+  const brandId = (check.values.partnerboost_products_brand_id || '').trim() || null
   const sort = check.values.partnerboost_products_sort || ''
-  const relationship = Number(check.values.partnerboost_products_relationship || '1')
-  const filterSexual = Number(check.values.partnerboost_products_filter_sexual_wellness || '0')
+  const relationship = parseInteger(check.values.partnerboost_products_relationship || '1', 1)
+  const isOriginalCurrency = parseInteger(check.values.partnerboost_products_is_original_currency || '0', 0)
+  const hasPromoCode = parseInteger(check.values.partnerboost_products_has_promo_code || '0', 0)
+  const hasAcc = parseInteger(check.values.partnerboost_products_has_acc || '0', 0)
+  const filterSexual = parseInteger(check.values.partnerboost_products_filter_sexual_wellness || '0', 0)
+  const configuredAsins = parseCsvValues(check.values.partnerboost_products_asins || '')
+  const allAsins = Array.from(new Set([...(params.asins || []), ...configuredAsins]))
+    .map((asin) => normalizeAsin(asin))
+    .filter((asin): asin is string => Boolean(asin))
+  const linkCountryCode = (check.values.partnerboost_link_country_code || countryCode).trim().toUpperCase()
   const uid = check.values.partnerboost_link_uid || ''
-  const asins = params.asins?.filter(Boolean) || []
+  const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
   const maxPages = Math.max(1, Math.min(params.maxPages || 20, 30))
 
   const products: PartnerboostProduct[] = []
-  let page = 1
+  let page = startPage
   let hasMore = true
+  let fetchedPages = 0
 
-  while (hasMore && page <= maxPages) {
+  while (hasMore && fetchedPages < maxPages) {
     const payload = await fetchJsonOrThrow<PartnerboostProductsResponse>(
       `${baseUrl}/api/datafeed/get_fba_products`,
       {
@@ -491,25 +607,35 @@ async function fetchPartnerboostPromotableProducts(params: {
           page,
           default_filter: defaultFilter,
           country_code: countryCode,
+          brand_id: brandId,
           sort,
-          asins: asins.join(','),
+          asins: allAsins.join(','),
           relationship,
+          is_original_currency: isOriginalCurrency,
+          has_promo_code: hasPromoCode,
+          has_acc: hasAcc,
           filter_sexual_wellness: filterSexual,
         }),
       },
       'PartnerBoost 商品拉取失败'
     )
 
-    if (payload.status?.code !== 0) {
-      throw new Error(`PartnerBoost 商品拉取失败: ${payload.status?.msg || payload.status?.code}`)
+    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+    if (statusCode === null) {
+      throw new Error(`PartnerBoost 商品拉取失败: Invalid status code ${String(payload.status?.code)}`)
+    }
+    if (statusCode !== 0) {
+      throw new Error(`PartnerBoost 商品拉取失败: ${payload.status?.msg || statusCode}`)
     }
 
-    const list = payload.data?.list || []
-    products.push(...list)
-    hasMore = Boolean(payload.data?.has_more)
+    const extracted = extractPartnerboostProductsPayload(payload)
+    products.push(...extracted.products)
+    hasMore = extracted.hasMore
+
+    fetchedPages += 1
     page += 1
 
-    if (asins.length > 0) {
+    if (allAsins.length > 0) {
       hasMore = false
     }
   }
@@ -538,15 +664,64 @@ async function fetchPartnerboostPromotableProducts(params: {
       'PartnerBoost 推广链接拉取失败'
     )
 
-    if (payload.status?.code !== 0) {
-      throw new Error(`PartnerBoost 推广链接拉取失败: ${payload.status?.msg || payload.status?.code}`)
+    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+    if (statusCode === null) {
+      throw new Error(`PartnerBoost 推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
+    }
+    if (statusCode !== 0) {
+      throw new Error(`PartnerBoost 推广链接拉取失败: ${payload.status?.msg || statusCode}`)
     }
 
     for (const item of payload.data || []) {
       const productId = String(item.product_id || '').trim()
-      const link = normalizeUrl(item.link)
+      const link = normalizeUrl(item.partnerboost_link || item.link)
       if (!productId || !link) continue
       linkMap.set(productId, link)
+    }
+  }
+
+  const asinLinkMap = new Map<string, { link: string | null; partnerboostLink: string | null }>()
+  const missingAsins = Array.from(new Set(
+    products
+      .filter((item) => !linkMap.get(String(item.product_id || '').trim()))
+      .map((item) => normalizeAsin(item.asin))
+      .filter((asin): asin is string => Boolean(asin))
+  ))
+
+  for (let index = 0; index < missingAsins.length; index += batchSize) {
+    const batchAsins = missingAsins.slice(index, index + batchSize)
+    const payload = await fetchJsonOrThrow<PartnerboostAsinLinkResponse>(
+      `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          asins: batchAsins.join(','),
+          country_code: linkCountryCode,
+          uid,
+          return_partnerboost_link: returnPartnerboostLink,
+        }),
+      },
+      'PartnerBoost ASIN推广链接拉取失败'
+    )
+
+    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+    if (statusCode === null) {
+      throw new Error(`PartnerBoost ASIN推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
+    }
+    if (statusCode !== 0) {
+      throw new Error(`PartnerBoost ASIN推广链接拉取失败: ${payload.status?.msg || statusCode}`)
+    }
+
+    for (const item of payload.data || []) {
+      const asinKey = normalizeAsin(item.asin)
+      if (!asinKey) continue
+
+      asinLinkMap.set(asinKey, {
+        link: normalizeUrl(item.link),
+        partnerboostLink: normalizeUrl(item.partnerboost_link),
+      })
     }
   }
 
@@ -555,14 +730,22 @@ async function fetchPartnerboostPromotableProducts(params: {
     const mid = String(item.product_id || '').trim()
     if (!mid) continue
 
-    const promoLink = linkMap.get(mid) || null
+    const asinKey = normalizeAsin(item.asin)
+    const asinLinks = asinKey ? asinLinkMap.get(asinKey) : undefined
+    const resolvedLinks = resolvePartnerboostPromoLinks({
+      productIdLink: linkMap.get(mid) || null,
+      asinLink: asinLinks?.link || null,
+      asinPartnerboostLink: asinLinks?.partnerboostLink || null,
+    })
+
+    const promoLink = resolvedLinks.promoLink
     if (!promoLink) {
       continue
     }
 
     const priceAmount = parsePriceAmount(item.discount_price ?? item.original_price)
     const priceCurrency = normalizeUrl(item.currency) || null
-    const commissionRate = parsePercentage(item.commission ?? item.acc_commission)
+    const commissionRate = parsePercentage(item.acc_commission ?? item.commission)
     const allowedCountries = normalizeCountries(item.country_code)
 
     normalized.push({
@@ -573,7 +756,7 @@ async function fetchPartnerboostPromotableProducts(params: {
       productName: normalizeUrl(item.product_name),
       productUrl: normalizeUrl(item.url),
       promoLink,
-      shortPromoLink: null,
+      shortPromoLink: resolvedLinks.shortPromoLink,
       allowedCountries,
       priceAmount,
       priceCurrency,
