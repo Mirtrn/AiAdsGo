@@ -3,6 +3,7 @@ import {
   checkAffiliatePlatformConfig,
   type AffiliatePlatform,
   listAffiliateProducts,
+  normalizeAffiliatePlatform,
   type ProductSortField,
   type ProductSortOrder,
   type SyncMode,
@@ -11,7 +12,9 @@ import {
 } from '@/lib/affiliate-products'
 import {
   buildProductListCacheHash,
+  getLatestProductListQuery,
   invalidateProductListCache,
+  type ProductListCachePayload,
   setCachedProductList,
 } from '@/lib/products-cache'
 
@@ -40,10 +43,57 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   platform: 'all',
 }
 
-async function refreshAndWarmProductListCache(userId: number): Promise<void> {
-  await invalidateProductListCache(userId)
+const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
+  'serial',
+  'platform',
+  'mid',
+  'asin',
+  'allowedCountries',
+  'priceAmount',
+  'commissionRate',
+  'commissionAmount',
+  'promoLink',
+  'relatedOfferCount',
+  'updatedAt',
+])
 
-  const listResult = await listAffiliateProducts(userId, DEFAULT_CACHE_WARM_PARAMS)
+type CacheWarmParams = {
+  page: number
+  pageSize: number
+  search: string
+  sortBy: ProductSortField
+  sortOrder: ProductSortOrder
+  platform: 'all' | AffiliatePlatform
+}
+
+function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams {
+  const page = Math.max(1, Number(payload.page || 1))
+  const pageSize = Math.min(100, Math.max(10, Number(payload.pageSize || 20)))
+  const search = String(payload.search || '').trim()
+
+  const sortByRaw = String(payload.sortBy || 'serial') as ProductSortField
+  const sortBy = ALLOWED_SORT_FIELDS.has(sortByRaw) ? sortByRaw : 'serial'
+
+  const sortOrder = String(payload.sortOrder || 'desc').toLowerCase() === 'asc'
+    ? 'asc'
+    : 'desc' as ProductSortOrder
+
+  const platform = payload.platform === 'all'
+    ? 'all'
+    : (normalizeAffiliatePlatform(payload.platform) || 'all')
+
+  return {
+    page,
+    pageSize,
+    search,
+    sortBy,
+    sortOrder,
+    platform,
+  }
+}
+
+async function warmProductListCacheByParams(userId: number, params: CacheWarmParams): Promise<void> {
+  const listResult = await listAffiliateProducts(userId, params)
   const responsePayload = {
     success: true as const,
     items: listResult.items,
@@ -52,8 +102,26 @@ async function refreshAndWarmProductListCache(userId: number): Promise<void> {
     pageSize: listResult.pageSize,
   }
 
-  const cacheHash = buildProductListCacheHash(DEFAULT_CACHE_WARM_PARAMS)
+  const cacheHash = buildProductListCacheHash(params)
   await setCachedProductList(userId, cacheHash, responsePayload)
+}
+
+async function refreshAndWarmProductListCache(userId: number): Promise<void> {
+  await invalidateProductListCache(userId)
+
+  const warmTargets = new Map<string, CacheWarmParams>()
+  const defaultParams = normalizeWarmParams(DEFAULT_CACHE_WARM_PARAMS)
+  warmTargets.set(buildProductListCacheHash(defaultParams), defaultParams)
+
+  const latestQuery = await getLatestProductListQuery(userId)
+  if (latestQuery) {
+    const latestParams = normalizeWarmParams(latestQuery)
+    warmTargets.set(buildProductListCacheHash(latestParams), latestParams)
+  }
+
+  for (const params of warmTargets.values()) {
+    await warmProductListCacheByParams(userId, params)
+  }
 }
 
 export async function executeAffiliateProductSync(task: Task<AffiliateProductSyncTaskData>) {

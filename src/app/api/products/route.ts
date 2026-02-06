@@ -8,6 +8,7 @@ import {
 import {
   buildProductListCacheHash,
   getCachedProductList,
+  setLatestProductListQuery,
   setCachedProductList,
 } from '@/lib/products-cache'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
       platform,
     }
     const cacheHash = buildProductListCacheHash(cachePayload)
+    await setLatestProductListQuery(userId, cachePayload)
 
     if (!noCache) {
       const cached = await getCachedProductList<{
