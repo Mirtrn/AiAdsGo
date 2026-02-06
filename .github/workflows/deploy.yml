@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - openclaw
     tags:
       - 'v*.*.*'  # 匹配版本标签，如 v3.0.0
   workflow_dispatch:
@@ -106,15 +105,14 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
-      # 生成镜像标签 (按分支/标签区分前缀)
+      # 生成镜像标签（仅 main / 版本标签）
       - name: 生成镜像标签
         id: tags
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
 
-          # 标签前缀规则：
+          # 标签规则：
           # - main: prod-latest / prod-<sha>
-          # - openclaw: openclaw-prod-latest / openclaw-prod-<sha>
           # - tags(v*): prod-<version> / prod-<sha>
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
@@ -123,18 +121,11 @@ jobs:
             AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-${VERSION}"
             AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
           else
-            TAG_PREFIX="prod-"
-            LATEST_TAG="prod-latest"
-            if [[ "${{ github.ref }}" == "refs/heads/openclaw" ]]; then
-              TAG_PREFIX="openclaw-prod-"
-              LATEST_TAG="openclaw-prod-latest"
-            fi
+            GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest"
+            GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${SHORT_SHA}"
 
-            GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${LATEST_TAG}"
-            GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG_PREFIX}${SHORT_SHA}"
-
-            AR_TAGS="${{ env.GCP_AR_IMAGE }}:${LATEST_TAG}"
-            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:${TAG_PREFIX}${SHORT_SHA}"
+            AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-latest"
+            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
           fi
 
           # 合并所有标签
