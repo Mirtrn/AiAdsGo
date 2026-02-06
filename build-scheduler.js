@@ -95,10 +95,38 @@ async function buildDbInit() {
   }
 }
 
+async function buildOpenclawSync() {
+  console.log('📦 开始打包 OpenClaw 配置同步脚本...')
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(__dirname, 'src', 'openclaw-sync.ts')],
+      bundle: true,
+      platform: 'node',
+      target: 'node20',
+      outfile: path.join(__dirname, 'dist', 'openclaw-sync.js'),
+      external: [
+        // 排除需要原生模块的依赖
+        'better-sqlite3',
+        'bcrypt',
+      ],
+      minify: false,
+      sourcemap: false,
+      logLevel: 'info',
+    })
+
+    console.log('✅ OpenClaw 配置同步脚本打包完成: dist/openclaw-sync.js')
+  } catch (error) {
+    console.error('❌ OpenClaw 配置同步脚本打包失败:', error)
+    process.exit(1)
+  }
+}
+
 async function main() {
   await buildScheduler()
   await buildBackgroundWorker()
   await buildDbInit()
+  await buildOpenclawSync()
   console.log('')
   console.log('🎉 所有脚本打包完成！')
 }

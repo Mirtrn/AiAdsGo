@@ -5,3 +5,7 @@
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS openclaw_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- 管理员默认开启 OpenClaw
+UPDATE users
+SET openclaw_enabled = TRUE
+WHERE role = 'admin';

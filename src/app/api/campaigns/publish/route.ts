@@ -28,6 +28,13 @@ import {
 } from '@/lib/launch-scores'
 import { generateNamingScheme, NAMING_CONFIG, parseAdGroupName, validateCampaignName } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import { getOpenclawSettingsMap, parseBoolean } from '@/lib/openclaw/settings'
+
+const SINGLE_BRAND_PER_ACCOUNT_ENFORCED = (process.env.OPENCLAW_ENFORCE_SINGLE_BRAND_PER_ACCOUNT || 'true').trim().toLowerCase() !== 'false'
+
+function normalizeBrand(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
 
 function isOAuthTokenExpiredOrRevoked(err: any): boolean {
   const message = String(err?.message || '')
@@ -99,6 +106,8 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = authResult.user.userId
+    const openclawSettingMap = await getOpenclawSettingsMap(userId).catch(() => ({} as Record<string, string | null>))
+    const enforceAutoadsOnly = parseBoolean(openclawSettingMap.openclaw_strategy_enforce_autoads_only, true)
 
     // 2. 解析请求体 - 🔧 修复(2025-12-11): 接受camelCase字段名
     const body = await request.json()
@@ -275,10 +284,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    // 🔓 KISS优化(2025-12-12): 移除独占约束，允许多个Offer共享同一Ads账号
-    // 原逻辑：一个Ads账号只能被一个Offer使用
-    // 新逻辑：多个Offer可以共享同一Ads账号，通过前端优先级排序引导用户选择
-    console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用（已移除独占约束）`)
+    console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用`)
 
 	    const accountStatus = String(adsAccount.status || 'UNKNOWN').toUpperCase()
 
@@ -310,6 +316,67 @@ export async function POST(request: NextRequest) {
     console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
     console.log(`   - 用户手动创建: ${activeCampaignsResult.manualCampaigns.length}`)
     console.log(`   - 属于其他Offer: ${activeCampaignsResult.otherCampaigns.length}`)
+
+    const currentBrandNormalized = normalizeBrand(offer.brand)
+
+    if (SINGLE_BRAND_PER_ACCOUNT_ENFORCED && currentBrandNormalized) {
+      const enabledOtherBrandCampaigns = activeCampaignsResult.otherCampaigns.filter((campaign) => {
+        const campaignBrand = normalizeBrand((campaign as any).parsedNaming?.brandName || (campaign as any).name)
+        if (!campaignBrand) return true
+        return campaignBrand !== currentBrandNormalized
+      })
+
+      if (enabledOtherBrandCampaigns.length > 0) {
+        return NextResponse.json({
+          action: 'ACCOUNT_BRAND_CONFLICT',
+          message: '同一Ads账号同一时间只能投放一个品牌，请先暂停其他品牌Campaign。',
+          details: {
+            accountId: _googleAdsAccountId,
+            currentOfferId: _offerId,
+            currentBrand: offer.brand || null,
+            conflictCampaigns: enabledOtherBrandCampaigns.map((campaign) => ({
+              id: campaign.id,
+              name: campaign.name,
+              status: campaign.status,
+            })),
+          },
+        }, { status: 422 })
+      }
+
+      if (!enforceAutoadsOnly && !_pauseOldCampaigns && activeCampaignsResult.manualCampaigns.length > 0) {
+        return NextResponse.json({
+          action: 'ACCOUNT_BRAND_CONFLICT',
+          message: '检测到手动创建的激活Campaign，品牌不可判定。请先暂停后再发布，避免多品牌并行投放。',
+          details: {
+            accountId: _googleAdsAccountId,
+            currentOfferId: _offerId,
+            currentBrand: offer.brand || null,
+            manualCampaigns: activeCampaignsResult.manualCampaigns.map((campaign) => ({
+              id: campaign.id,
+              name: campaign.name,
+              status: campaign.status,
+            })),
+          },
+        }, { status: 422 })
+      }
+    }
+
+    if (enforceAutoadsOnly && activeCampaignsResult.manualCampaigns.length > 0 && !_pauseOldCampaigns) {
+      return NextResponse.json({
+        action: 'AUTOADS_ONLY_ENFORCED',
+        message: 'AutoAds强制模式已开启：检测到手工创建的激活Campaign，必须先通过AutoAds接口暂停后再发布。',
+        details: {
+          accountId: _googleAdsAccountId,
+          currentOfferId: _offerId,
+          manualCampaigns: activeCampaignsResult.manualCampaigns.map((campaign) => ({
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+          })),
+          requiresPauseOldCampaigns: true,
+        },
+      }, { status: 422 })
+    }
 
     // 计算需要暂停的广告系列总数（属于当前Offer + 用户手动创建）
     const campaignsToPause = [
@@ -413,6 +480,33 @@ export async function POST(request: NextRequest) {
         failedCount: pauseResult.failedCount,
         ownCount: activeCampaignsResult.ownCampaigns.length,
         manualCount: activeCampaignsResult.manualCampaigns.length
+      }
+
+      if (enforceAutoadsOnly && activeCampaignsResult.manualCampaigns.length > 0) {
+        const failedCampaignIdSet = new Set(
+          (pauseResult.failures || []).map((failure: any) => String(failure?.id || ''))
+        )
+
+        const unresolvedManualCampaigns = activeCampaignsResult.manualCampaigns.filter((campaign) => (
+          failedCampaignIdSet.has(String(campaign.id))
+        ))
+
+        if (unresolvedManualCampaigns.length > 0) {
+          return NextResponse.json({
+            action: 'AUTOADS_ONLY_ENFORCED',
+            message: 'AutoAds强制模式：手工Campaign暂停失败，已阻断发布。请先通过AutoAds修复后重试。',
+            details: {
+              accountId: _googleAdsAccountId,
+              currentOfferId: _offerId,
+              unresolvedManualCampaigns: unresolvedManualCampaigns.map((campaign) => ({
+                id: campaign.id,
+                name: campaign.name,
+                status: campaign.status,
+              })),
+              pauseFailures: pauseResult.failures,
+            },
+          }, { status: 422 })
+        }
       }
 
       // 更新数据库中对应的campaign记录状态
@@ -801,19 +895,20 @@ export async function POST(request: NextRequest) {
         } : undefined
       })
 
-      const variantCampaignName = (_enableSmartOptimization && baseCampaignName && !isAutoGeneratedCampaignName)
+      const allowCustomCampaignName = Boolean(baseCampaignName && isAutoGeneratedCampaignName)
+      const allowCustomAdGroupName = Boolean(baseAdGroupName && parsedAdGroupName)
+
+      const variantCampaignName = (_enableSmartOptimization && allowCustomCampaignName)
         ? appendVariantSuffix(baseCampaignName, i + 1, creatives.length)
         : ''
       const resolvedCampaignName = _enableSmartOptimization
-        ? (isAutoGeneratedCampaignName ? naming.campaignName : (variantCampaignName || naming.campaignName))
-        : (baseCampaignName || naming.campaignName)
+        ? (variantCampaignName || naming.campaignName)
+        : (allowCustomCampaignName ? baseCampaignName : naming.campaignName)
       const resolvedAdGroupName = _enableSmartOptimization
-        ? (!baseAdGroupName
+        ? (!allowCustomAdGroupName
             ? naming.adGroupName
-            : (parsedAdGroupName
-                ? (parsedAdGroupName.creativeId === creative.id ? baseAdGroupName : naming.adGroupName)
-                : baseAdGroupName))
-        : (baseAdGroupName || naming.adGroupName)
+            : (parsedAdGroupName!.creativeId === creative.id ? baseAdGroupName : naming.adGroupName))
+        : (allowCustomAdGroupName ? baseAdGroupName : naming.adGroupName)
       const resolvedAdName = baseAdName || naming.adName
       const normalizedCampaignConfig = {
         ...(typeof _campaignConfig === 'object' && _campaignConfig !== null ? _campaignConfig : {}),

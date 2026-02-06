@@ -41,6 +41,8 @@
     "scripts/**",
     "tests/**",
     "oldcode/**",
+    "openclaw/**",
+    "openclaw-prebuilt/**",
     ".next"
   ]
 }

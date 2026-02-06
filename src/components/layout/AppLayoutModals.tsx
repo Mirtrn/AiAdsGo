@@ -27,6 +27,7 @@ export interface UserInfo {
   displayName: string | null
   role: string
   packageType: string
+  openclawEnabled?: boolean
 }
 
 // 套餐类型中文映射

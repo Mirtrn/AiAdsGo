@@ -24,7 +24,8 @@ import {
   FileText,
   Clock,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Bot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -68,6 +69,7 @@ interface UserInfo {
   displayName: string | null
   role: string
   packageType: string
+  openclawEnabled?: boolean
 }
 
 interface NavItem {
@@ -114,6 +116,11 @@ const navigationItems: NavItem[] = [
     icon: Database,
   },
   {
+    label: 'OpenClaw',
+    href: '/openclaw',
+    icon: Bot,
+  },
+  {
     label: '优化迭代',
     href: '/optimization',
     icon: TrendingUp,
@@ -134,6 +141,15 @@ const navigationItems: NavItem[] = [
     icon: Settings,
   },
 ]
+
+function filterNavigationItemsByUser(items: NavItem[], user: UserInfo): NavItem[] {
+  return items.filter(item => {
+    if (item.href === '/openclaw') {
+      return Boolean(user.openclawEnabled)
+    }
+    return true
+  })
+}
 
 const adminNavigationItems: NavItem[] = [
   {
@@ -295,10 +311,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!user) return null
 
-  // 过滤导航项（管理员可见全部）
-  const visibleNavItems = user.role === 'admin'
-    ? [...navigationItems, ...adminNavigationItems]
-    : navigationItems
+  const filteredNavigationItems = filterNavigationItemsByUser(navigationItems, user)
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 lg:pb-0 pb-16">
@@ -387,7 +400,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           )}
-          {navigationItems.map((item) => {
+          {filteredNavigationItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)
 
@@ -483,7 +496,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* 移动端底部导航 */}
-      <MobileBottomNav />
+      <MobileBottomNav user={user} />
 
       {/* 动态导入的模态框组件 */}
       {user && (

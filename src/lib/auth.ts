@@ -162,11 +162,16 @@ export async function createUser(input: CreateUserInput): Promise<User> {
 
   // 如果没有提供用户名，自动生成
   const username = input.username || await generateUniqueUsername()
+  const role = input.role || 'user'
+  const shouldEnableOpenclaw = role === 'admin'
+  const openclawEnabledValue = db.type === 'postgres'
+    ? shouldEnableOpenclaw
+    : (shouldEnableOpenclaw ? 1 : 0)
 
   const result = await db.exec(`
     INSERT INTO users (
-      username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password, openclaw_enabled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     username,
     input.email || null, // email 可以为 null
@@ -174,10 +179,11 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     input.displayName || null,
     input.googleId || null,
     input.profilePicture || null,
-    input.role || 'user',
+    role,
     input.packageType || 'trial',
     input.packageExpiresAt || null,
-    input.mustChangePassword !== undefined ? input.mustChangePassword : 1
+    input.mustChangePassword !== undefined ? input.mustChangePassword : 1,
+    openclawEnabledValue,
   ])
 
   // 从INSERT结果中提取ID（兼容PostgreSQL和SQLite）

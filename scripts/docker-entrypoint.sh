@@ -18,6 +18,15 @@ fi
 cd /app
 node dist/db-init.js
 
+# 初始化 OpenClaw 目录并授权
+mkdir -p /app/.openclaw /app/.openclaw/workspace
+chown -R nextjs:nodejs /app/.openclaw
+
+# OpenClaw 配置同步（失败不影响主服务启动）
+if [ -f /app/dist/openclaw-sync.js ]; then
+    node dist/openclaw-sync.js || echo "⚠️  OpenClaw 配置同步失败，已跳过"
+fi
+
 echo ""
 echo "========================================"
 echo "✅ 初始化完成，启动服务..."
