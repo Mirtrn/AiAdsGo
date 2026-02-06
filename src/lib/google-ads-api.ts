@@ -65,6 +65,63 @@ export function sanitizeKeyword(keyword: string): string {
   return normalized.replace(/^[-_]+|[-_]+$/g, '').trim()
 }
 
+const GOOGLE_ADS_KEYWORD_MAX_WORDS = 10
+const GOOGLE_ADS_KEYWORD_MAX_LENGTH = 80
+
+/**
+ * 标准化关键词并应用Google Ads关键词限制
+ * - 最多10个单词
+ * - 最多80个字符
+ */
+export function sanitizeKeywordForGoogleAds(keyword: string): {
+  text: string
+  wasSanitized: boolean
+  truncatedByWordLimit: boolean
+  truncatedByCharLimit: boolean
+  originalWordCount: number
+} {
+  const originalInput = String(keyword ?? '')
+  const sanitized = sanitizeKeyword(originalInput)
+
+  if (!sanitized) {
+    return {
+      text: '',
+      wasSanitized: originalInput.trim().length > 0,
+      truncatedByWordLimit: false,
+      truncatedByCharLimit: false,
+      originalWordCount: 0,
+    }
+  }
+
+  const words = sanitized.split(/\s+/).filter(Boolean)
+  const originalWordCount = words.length
+  let limitedText = sanitized
+  let truncatedByWordLimit = false
+  let truncatedByCharLimit = false
+
+  if (words.length > GOOGLE_ADS_KEYWORD_MAX_WORDS) {
+    limitedText = words.slice(0, GOOGLE_ADS_KEYWORD_MAX_WORDS).join(' ')
+    truncatedByWordLimit = true
+  }
+
+  if (limitedText.length > GOOGLE_ADS_KEYWORD_MAX_LENGTH) {
+    const sliced = limitedText.slice(0, GOOGLE_ADS_KEYWORD_MAX_LENGTH)
+    const truncatedAtWordBoundary = sliced.replace(/\s+\S*$/, '').trim()
+    limitedText = (truncatedAtWordBoundary || sliced).trim()
+    truncatedByCharLimit = true
+  }
+
+  limitedText = limitedText.replace(/\s+/g, ' ').trim()
+
+  return {
+    text: limitedText,
+    wasSanitized: limitedText !== originalInput.trim(),
+    truncatedByWordLimit,
+    truncatedByCharLimit,
+    originalWordCount,
+  }
+}
+
 /**
  * 从数据库获取用户的Google Ads凭证
  *
@@ -1544,6 +1601,19 @@ export async function createGoogleAdsKeywordsBatch(params: {
 }): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
   const authType = params.authType || 'oauth'
 
+  const logKeywordNormalization = (
+    originalText: string,
+    normalized: ReturnType<typeof sanitizeKeywordForGoogleAds>
+  ): void => {
+    if (normalized.text === originalText) return
+    const reasons: string[] = []
+    if (normalized.truncatedByWordLimit) reasons.push(`words>${GOOGLE_ADS_KEYWORD_MAX_WORDS}`)
+    if (normalized.truncatedByCharLimit) reasons.push(`chars>${GOOGLE_ADS_KEYWORD_MAX_LENGTH}`)
+
+    const reasonSuffix = reasons.length > 0 ? ` (${reasons.join(', ')})` : ''
+    console.log(`[Keyword] Normalized: "${originalText}" -> "${normalized.text}"${reasonSuffix}`)
+  }
+
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
     const { createKeywordsPython } = await import('./python-ads-client')
@@ -1551,17 +1621,15 @@ export async function createGoogleAdsKeywordsBatch(params: {
     const adGroupResourceName = `customers/${params.customerId}/adGroups/${params.adGroupId}`
     const keywordInputs = params.keywords
       .map((kw, originalIndex) => {
-        const sanitizedText = sanitizeKeyword(kw.keywordText)
-        if (sanitizedText !== kw.keywordText) {
-          console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
-        }
-        if (!sanitizedText) {
+        const normalized = sanitizeKeywordForGoogleAds(kw.keywordText)
+        logKeywordNormalization(kw.keywordText, normalized)
+        if (!normalized.text) {
           console.warn(`[Keyword] Dropped empty keyword after sanitization: "${kw.keywordText}"`)
           return null
         }
-        return { kw, originalIndex, sanitizedText }
+        return { kw, originalIndex, normalizedText: normalized.text }
       })
-      .filter((x): x is { kw: (typeof params.keywords)[number]; originalIndex: number; sanitizedText: string } => Boolean(x))
+      .filter((x): x is { kw: (typeof params.keywords)[number]; originalIndex: number; normalizedText: string } => Boolean(x))
 
     if (keywordInputs.length === 0) {
       return []
@@ -1572,8 +1640,8 @@ export async function createGoogleAdsKeywordsBatch(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       adGroupResourceName,
-      keywords: keywordInputs.map(({ kw, sanitizedText }) => ({
-        text: sanitizedText,
+      keywords: keywordInputs.map(({ kw, normalizedText }) => ({
+        text: normalizedText,
         matchType: kw.matchType,
         status: kw.status,
         finalUrl: kw.finalUrl,
@@ -1605,11 +1673,9 @@ export async function createGoogleAdsKeywordsBatch(params: {
           ? (kw.negativeKeywordMatchType || 'EXACT')
           : kw.matchType
 
-        const sanitizedText = sanitizeKeyword(kw.keywordText)
-        if (sanitizedText !== kw.keywordText) {
-          console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
-        }
-        if (!sanitizedText) {
+        const normalized = sanitizeKeywordForGoogleAds(kw.keywordText)
+        logKeywordNormalization(kw.keywordText, normalized)
+        if (!normalized.text) {
           console.warn(`[Keyword] Dropped empty keyword after sanitization: "${kw.keywordText}"`)
           return null
         }
@@ -1617,7 +1683,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
         const operation: any = {
           ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
           keyword: {
-            text: sanitizedText,
+            text: normalized.text,
             match_type: enums.KeywordMatchType[effectiveMatchType],
           },
         }

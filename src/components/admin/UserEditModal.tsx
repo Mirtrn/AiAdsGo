@@ -97,7 +97,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
   const packageOptions = [
     { value: 'trial', label: '试用版', color: 'text-gray-700' },
     { value: 'annual', label: '年卡版 (¥5,999/年)', color: 'text-blue-700' },
-    { value: 'lifetime', label: '终身版 (¥10,999)', color: 'text-green-700' },
+    { value: 'lifetime', label: '长期会员 (¥10,999)', color: 'text-green-700' },
     { value: 'enterprise', label: '私有化部署 (¥29,999)', color: 'text-purple-700' },
   ]
 
@@ -123,7 +123,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
         validUntil = untilDate.toISOString().split('T')[0]
         break
       }
-      case 'lifetime': {  // 终身版 → 120个月（10年）
+      case 'lifetime': {  // 长期会员 → 120个月（10年）
         const untilDate = new Date()
         untilDate.setMonth(untilDate.getMonth() + 120)
         validUntil = untilDate.toISOString().split('T')[0]
@@ -249,7 +249,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
                 onClick={() => setQuickValidity(120)}
                 className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
               >
-                10年（终身）
+                10年（长期）
               </button>
             </div>
 

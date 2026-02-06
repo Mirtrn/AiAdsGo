@@ -119,7 +119,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
     } else if (daysLeft <= 30) {
       return { status: 'expiring_soon', message: `${daysLeft} 天后到期`, variant: 'outline' as const }
     } else if (endDate === '2099-12-31') {
-      return { status: 'lifetime', message: '永久有效', variant: 'secondary' as const }
+      return { status: 'lifetime', message: '长期有效', variant: 'secondary' as const }
     } else {
       return { status: 'active', message: `${daysLeft} 天后到期`, variant: 'default' as const }
     }
@@ -264,7 +264,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
               {subscriptionStatus.status === 'lifetime' && (
                 <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-900">
-                    🎉 您拥有长期会员权限，享受所有功能永久使用权
+                    🎉 您拥有长期会员权限，享受所有功能长期使用权
                   </p>
                 </div>
               )}

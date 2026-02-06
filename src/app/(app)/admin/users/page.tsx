@@ -799,7 +799,7 @@ export default function UserManagementPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {user.packageExpiresAt ? new Date(user.packageExpiresAt).toLocaleDateString('zh-CN') : '永久'}
+                                                {user.packageExpiresAt ? new Date(user.packageExpiresAt).toLocaleDateString('zh-CN') : '长期'}
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
                                                 {new Date(user.createdAt).toLocaleDateString('zh-CN')}
@@ -1012,7 +1012,7 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="trial">试用版 (Trial)</SelectItem>
                                     <SelectItem value="annual">年度会员 (Annual)</SelectItem>
-                                    <SelectItem value="lifetime">长期会员 (Lifetime)</SelectItem>
+                                    <SelectItem value="lifetime">长期会员</SelectItem>
                                     <SelectItem value="enterprise">私有化部署 (Enterprise)</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -1027,7 +1027,7 @@ export default function UserManagementPage() {
                             <p className="text-caption text-muted-foreground">
                                 {createPackage === 'trial' && '试用版: 当前日期 + 7天'}
                                 {createPackage === 'annual' && '年度会员: 当前日期 + 365天'}
-                                {(createPackage === 'lifetime' || createPackage === 'enterprise') && '终身/企业版: 2099-12-31'}
+                                {(createPackage === 'lifetime' || createPackage === 'enterprise') && '长期会员/企业版: 2099-12-31'}
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -1082,7 +1082,7 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="trial">试用版 (Trial)</SelectItem>
                                     <SelectItem value="annual">年度会员 (Annual)</SelectItem>
-                                    <SelectItem value="lifetime">长期会员 (Lifetime)</SelectItem>
+                                    <SelectItem value="lifetime">长期会员</SelectItem>
                                     <SelectItem value="enterprise">私有化部署 (Enterprise)</SelectItem>
                                 </SelectContent>
                             </Select>

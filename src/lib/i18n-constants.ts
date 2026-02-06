@@ -103,7 +103,7 @@ export const USER_ROLE = {
  */
 export const PACKAGE_TYPE = {
   annual: '年卡',
-  lifetime: '终身买断',
+  lifetime: '长期会员',
   private: '私有化部署',
   trial: '试用',
 } as const

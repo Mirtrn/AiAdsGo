@@ -348,7 +348,7 @@ export default function MarketingHome() {
 	              </div>
               <p className="text-sm text-slate-400 mb-8">适合致力于长期发展的专业 Affiliate Marketer</p>
               <ul className="space-y-4 mb-8">
-                {["终身使用权", "完整功能访问", "AI 智能文案", "真实关键词数据", "优先更新支持"].map((item) => (
+                {["长期使用权", "完整功能访问", "AI 智能文案", "真实关键词数据", "优先更新支持"].map((item) => (
                   <li key={item} className="flex items-center text-sm text-slate-300">
                     <CheckCircle2 className="w-5 h-5 text-blue-400 mr-3 flex-shrink-0" />
                     {item}
@@ -356,7 +356,7 @@ export default function MarketingHome() {
                 ))}
               </ul>
               <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl text-center hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/50">
-                获取终身权限
+                获取长期权限
               </ConsultCustomerDialogTrigger>
             </div>
 

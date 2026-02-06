@@ -187,7 +187,7 @@ export default function UserCreateModal({ isOpen, onClose, onSuccess }: UserCrea
                 >
                   <option value="trial">试用版 (免费)</option>
                   <option value="annual">年卡版 (¥5,999/年)</option>
-                  <option value="lifetime">终身版 (¥10,999)</option>
+                  <option value="lifetime">长期会员 (¥10,999)</option>
                   <option value="enterprise">私有化部署 (¥29,999)</option>
                 </select>
               </div>

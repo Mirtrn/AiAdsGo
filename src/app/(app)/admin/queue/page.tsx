@@ -92,7 +92,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   trial: '试用版',
   annual: '年卡',
-  lifetime: '终身买断',
+  lifetime: '长期会员',
   enterprise: '私有化部署',
 }
 
