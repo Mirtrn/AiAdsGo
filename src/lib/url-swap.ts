@@ -11,6 +11,7 @@ import { calculateNextSwapAt } from './url-swap-time'
 import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
 import { boolParam } from './db-helpers'
 import { normalizeAffiliateLinksInput, findInvalidAffiliateLinks } from './url-swap-link-utils'
+import { removePendingUrlSwapQueueTasksByTaskIds } from './url-swap/queue-cleanup'
 import type {
   UrlSwapTask,
   UrlSwapTaskStatus,
@@ -779,6 +780,12 @@ export async function disableUrlSwapTask(id: string, userId: number): Promise<vo
     SET status = 'paused', updated_at = ?
     WHERE task_id = ? AND status NOT IN ('removed', 'invalid')
   `, [now, id])
+
+  try {
+    await removePendingUrlSwapQueueTasksByTaskIds([id], userId)
+  } catch (error) {
+    console.warn(`[url-swap] 禁用任务后清理队列失败: ${id}`, error)
+  }
 
   console.log(`[url-swap] 禁用任务: ${id}`)
 }

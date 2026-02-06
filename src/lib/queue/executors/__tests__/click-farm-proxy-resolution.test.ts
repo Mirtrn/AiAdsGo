@@ -4,6 +4,13 @@ vi.mock('@/lib/click-farm', () => ({
   updateTaskStats: vi.fn(async () => {}),
 }))
 
+const queryOne = vi.fn()
+vi.mock('@/lib/db', () => ({
+  getDatabase: vi.fn(async () => ({
+    queryOne,
+  })),
+}))
+
 const getProxyIp = vi.fn(async () => ({
   host: '1.2.3.4',
   port: 3128,
@@ -32,6 +39,8 @@ vi.mock('axios', () => ({
 
 describe('click-farm proxy resolution', () => {
   beforeEach(() => {
+    queryOne.mockReset()
+    queryOne.mockResolvedValue({ status: 'running' })
     getProxyIp.mockClear()
     agentCtor.mockClear()
     axiosGet.mockClear()
@@ -68,5 +77,34 @@ describe('click-farm proxy resolution', () => {
     expect(agentCtor).toHaveBeenCalledWith('http://u:p@1.2.3.4:3128')
     expect(axiosGet).toHaveBeenCalled()
   })
-})
 
+  it('skips execution when click-farm task status is paused', async () => {
+    queryOne.mockResolvedValue({ status: 'paused' })
+
+    const mod = await import('../click-farm-executor')
+    const task = {
+      id: 't2',
+      type: 'click-farm',
+      userId: 1,
+      status: 'pending',
+      priority: 'normal',
+      createdAt: Date.now(),
+      retryCount: 0,
+      maxRetries: 0,
+      data: {
+        taskId: 'cf-paused-task',
+        url: 'https://example.com',
+        proxyUrl: 'http://127.0.0.1:8080',
+        offerId: 1,
+        timezone: 'America/New_York',
+        refererConfig: { type: 'none' },
+      },
+    } as any
+
+    const result = await mod.executeClickFarmTask(task)
+
+    expect(result.success).toBe(false)
+    expect(result.traffic).toBe(0)
+    expect(axiosGet).not.toHaveBeenCalled()
+  })
+})

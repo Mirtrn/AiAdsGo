@@ -8,6 +8,7 @@ import { findInvalidAffiliateLinks, normalizeAffiliateLinksInput } from '@/lib/u
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { getDatabase } from '@/lib/db';
 import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
+import { removePendingUrlSwapQueueTasksByTaskIds } from '@/lib/url-swap/queue-cleanup';
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -198,6 +199,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       SET is_deleted = ?, deleted_at = ?, updated_at = ?
       WHERE id = ?
     `, [isDeletedValue, now, now, id]);
+
+    try {
+      await removePendingUrlSwapQueueTasksByTaskIds([id], parseInt(userId));
+    } catch (cleanupError) {
+      console.warn(`[url-swap] 删除任务后清理队列失败: ${id}`, cleanupError);
+    }
 
     console.log(`[url-swap] 删除任务成功: ${id}`);
 

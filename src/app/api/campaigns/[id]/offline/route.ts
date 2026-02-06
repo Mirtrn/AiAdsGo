@@ -6,6 +6,8 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { markUrlSwapTargetsRemovedByCampaignId, pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
+import { removePendingClickFarmQueueTasksByTaskIds } from '@/lib/click-farm/queue-cleanup'
+import { removePendingUrlSwapQueueTasksByTaskIds } from '@/lib/url-swap/queue-cleanup'
 
 type OfflineBody = {
   blacklistOffer?: boolean
@@ -197,6 +199,31 @@ export async function POST(
           [campaignRow.offer_id, userId]
         )
       ).changes
+
+      // 额外按 click_farm_tasks.id 清理 pending 队列，确保“暂停后立即止血”
+      try {
+        const pausedTaskRows = await db.query<{ id: string }>(
+          `
+            SELECT id
+            FROM click_farm_tasks
+            WHERE offer_id = ?
+              AND user_id = ?
+              AND status = 'paused'
+              AND pause_reason = 'offline'
+              AND IS_DELETED_FALSE
+          `,
+          [campaignRow.offer_id, userId]
+        )
+
+        if (pausedTaskRows.length > 0) {
+          await removePendingClickFarmQueueTasksByTaskIds(
+            pausedTaskRows.map((row) => row.id),
+            userId
+          )
+        }
+      } catch (err: any) {
+        console.warn('[offline] click-farm queue cleanup by task ids skipped:', err?.message || err)
+      }
     }
 
     // 可选：暂停换链接任务
@@ -223,6 +250,30 @@ export async function POST(
       ).changes
 
       await pauseUrlSwapTargetsByOfferId(campaignRow.offer_id)
+
+      // 额外按 url_swap_tasks.id 清理 pending 队列，确保“暂停后立即止血”
+      try {
+        const pausedUrlSwapRows = await db.query<{ id: string }>(
+          `
+            SELECT id
+            FROM url_swap_tasks
+            WHERE offer_id = ?
+              AND user_id = ?
+              AND status = 'disabled'
+              AND ${urlSwapNotDeletedCondition}
+          `,
+          [campaignRow.offer_id, userId]
+        )
+
+        if (pausedUrlSwapRows.length > 0) {
+          await removePendingUrlSwapQueueTasksByTaskIds(
+            pausedUrlSwapRows.map((row) => row.id),
+            userId
+          )
+        }
+      } catch (err: any) {
+        console.warn('[offline] url-swap queue cleanup by task ids skipped:', err?.message || err)
+      }
     }
 
     // 🔥 可选：移除队列中的待处理任务（best-effort）
