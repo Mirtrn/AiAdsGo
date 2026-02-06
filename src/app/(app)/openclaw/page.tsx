@@ -122,6 +122,19 @@ const JSON_PLACEHOLDER = `{
   }
 }`
 
+const AI_MINIMAL_PLACEHOLDER = `{
+  "providers": {
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKey": "YOUR_API_KEY",
+      "api": "openai-responses",
+      "models": [
+        { "id": "gpt-5-mini", "name": "GPT-5 Mini" }
+      ]
+    }
+  }
+}`
+
 const FEISHU_GROUPS_PLACEHOLDER = `{
   "*": { "requireMention": true },
   "oc_xxx": {
@@ -203,14 +216,160 @@ const STRATEGY_EXAMPLE_VALUES: Record<string, string> = {
   openclaw_strategy_dry_run: 'false',
 }
 
+const STRATEGY_PRESET_OPTIONS: Array<{
+  id: string
+  label: string
+  description: string
+  values: Record<string, string>
+}> = [
+  {
+    id: 'balanced',
+    label: '平衡（推荐）',
+    description: '默认自动化方案，兼顾成本与产出。',
+    values: STRATEGY_EXAMPLE_VALUES,
+  },
+  {
+    id: 'conservative',
+    label: '稳健',
+    description: '更低预算与出价，适合先观察数据。',
+    values: {
+      ...STRATEGY_EXAMPLE_VALUES,
+      openclaw_strategy_max_offers_per_run: '2',
+      openclaw_strategy_default_budget: '15',
+      openclaw_strategy_max_cpc: '0.8',
+      openclaw_strategy_daily_budget_cap: '600',
+      openclaw_strategy_daily_spend_cap: '60',
+      openclaw_strategy_target_roas: '1.5',
+    },
+  },
+  {
+    id: 'aggressive',
+    label: '进取',
+    description: '更高预算与覆盖，适合快速放量。',
+    values: {
+      ...STRATEGY_EXAMPLE_VALUES,
+      openclaw_strategy_max_offers_per_run: '6',
+      openclaw_strategy_default_budget: '40',
+      openclaw_strategy_max_cpc: '1.8',
+      openclaw_strategy_min_cpc: '0.2',
+      openclaw_strategy_daily_budget_cap: '2500',
+      openclaw_strategy_daily_spend_cap: '200',
+      openclaw_strategy_target_roas: '0.8',
+    },
+  },
+]
+
+const STRATEGY_CRON_OPTIONS: Array<{ id: string; label: string; cron: string }> = [
+  { id: 'daily_morning', label: '每天 09:00（推荐）', cron: '0 9 * * *' },
+  { id: 'weekday_morning', label: '工作日 09:00', cron: '0 9 * * 1-5' },
+  { id: 'every_6_hours', label: '每 6 小时', cron: '0 */6 * * *' },
+  { id: 'hourly', label: '每小时', cron: '0 * * * *' },
+  { id: 'custom', label: '自定义 Cron', cron: '' },
+]
+
 const FEISHU_DOC_EXAMPLE_VALUES: Record<string, string> = {
   feishu_doc_title_prefix: 'OpenClaw 每日报表',
   feishu_bitable_table_name: 'OpenClaw Daily Report',
 }
 
+const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
+  feishu_domain: 'feishu',
+  feishu_bot_name: 'AutoAds 助手',
+}
+
 const AUTOADS_ONLY_SETTING_KEY = 'openclaw_strategy_enforce_autoads_only'
 
+const AI_GLOBAL_KEYS = [
+  'ai_models_json',
+  'openclaw_models_mode',
+  'openclaw_models_bedrock_discovery_json',
+] as const
+
+const FEISHU_GLOBAL_KEYS = [
+  'feishu_app_secret_file',
+  'feishu_domain',
+  'feishu_dm_policy',
+  'feishu_group_policy',
+  'feishu_allow_from',
+  'feishu_group_allow_from',
+  'feishu_require_mention',
+  'feishu_history_limit',
+  'feishu_dm_history_limit',
+  'feishu_streaming',
+  'feishu_block_streaming',
+  'feishu_config_writes',
+  'feishu_text_chunk_limit',
+  'feishu_chunk_mode',
+  'feishu_markdown_tables',
+  'feishu_media_max_mb',
+  'feishu_response_prefix',
+  'feishu_groups_json',
+  'feishu_accounts_json',
+] as const
+
+const FEISHU_USER_KEYS = [
+  'feishu_app_id',
+  'feishu_app_secret',
+  'feishu_bot_name',
+  'feishu_domain',
+  'feishu_target',
+  'feishu_doc_folder_token',
+  'feishu_doc_title_prefix',
+  'feishu_bitable_app_token',
+  'feishu_bitable_table_id',
+  'feishu_bitable_table_name',
+] as const
+
+const STRATEGY_USER_KEYS = [
+  'openclaw_strategy_enabled',
+  'openclaw_strategy_cron',
+  'openclaw_strategy_max_offers_per_run',
+  'openclaw_strategy_default_budget',
+  'openclaw_strategy_max_cpc',
+  'openclaw_strategy_min_cpc',
+  'openclaw_strategy_daily_budget_cap',
+  'openclaw_strategy_daily_spend_cap',
+  'openclaw_strategy_target_roas',
+  'openclaw_strategy_ads_account_ids',
+  'openclaw_strategy_enable_auto_publish',
+  'openclaw_strategy_enable_auto_pause',
+  'openclaw_strategy_enable_auto_adjust_cpc',
+  'openclaw_strategy_allow_affiliate_fetch',
+  'openclaw_strategy_enforce_autoads_only',
+  'openclaw_strategy_dry_run',
+] as const
+
+const GLOBAL_JSON_CHECK_LABELS: Record<string, string> = {
+  ai_models_json: 'AI引擎配置',
+  feishu_allow_from: '飞书 DM 白名单',
+  feishu_group_allow_from: '飞书群白名单',
+  feishu_groups_json: '飞书群组配置',
+  feishu_accounts_json: '飞书多账号配置',
+  openclaw_agent_defaults_json: 'Agent 默认配置',
+  openclaw_agent_list_json: 'Agent 列表配置',
+  openclaw_session_json: 'Session 配置',
+  openclaw_messages_json: 'Messages 配置',
+  openclaw_commands_json: 'Commands 配置',
+  openclaw_approvals_exec_json: '审批配置',
+  openclaw_models_bedrock_discovery_json: 'Bedrock Discovery 配置',
+  openclaw_logging_redact_patterns_json: '日志脱敏规则',
+  openclaw_diagnostics_otel_json: 'OTel 配置',
+}
+
 const USER_KEYS = new Set([
+  'yeahpromos_token',
+  'yeahpromos_site_id',
+  'yeahpromos_page',
+  'yeahpromos_limit',
+  'partnerboost_base_url',
+  'partnerboost_token',
+  'partnerboost_products_page_size',
+  'partnerboost_products_default_filter',
+  'partnerboost_products_country_code',
+  'partnerboost_products_sort',
+  'partnerboost_products_relationship',
+  'partnerboost_products_filter_sexual_wellness',
+  'partnerboost_link_uid',
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',
@@ -257,6 +416,72 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
   return normalized === 'true' || normalized === '1'
 }
 
+const hasText = (value?: string | null) => Boolean(value && value.trim())
+
+const normalizeStrategyAccountId = (value: unknown): number | string | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (/^-?\d+$/.test(trimmed)) {
+    const parsed = Number(trimmed)
+    return Number.isSafeInteger(parsed) ? parsed : trimmed
+  }
+  return trimmed
+}
+
+const formatStrategyAccountIdsForDraft = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!Array.isArray(parsed)) return value
+    return parsed
+      .map((item) => normalizeStrategyAccountId(item))
+      .filter((item): item is number | string => item !== null)
+      .map((item) => String(item))
+      .join('\n')
+  } catch {
+    return value
+  }
+}
+
+const normalizeStrategyAccountIdsForStorage = (value: string): string | null => {
+  const trimmed = value.trim()
+  if (!trimmed) return '[]'
+
+  if (/^[\[{]/.test(trimmed)) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!Array.isArray(parsed)) return null
+      const normalized = parsed
+        .map((item) => normalizeStrategyAccountId(item))
+        .filter((item): item is number | string => item !== null)
+      return JSON.stringify(normalized)
+    } catch {
+      return null
+    }
+  }
+
+  const normalized = trimmed
+    .split(/[\n,，]/)
+    .map((item) => normalizeStrategyAccountId(item))
+    .filter((item): item is number | string => item !== null)
+
+  return JSON.stringify(normalized)
+}
+
+const resolveStrategyCronPreset = (cron: string) => {
+  const normalized = cron.trim().replace(/\s+/g, ' ')
+  const matched = STRATEGY_CRON_OPTIONS.find((option) => option.id !== 'custom' && option.cron === normalized)
+  return matched?.id || 'custom'
+}
+
+const isLikelyCronExpression = (value: string) => {
+  const parts = value.trim().split(/\s+/)
+  return parts.length === 5 && parts.every(Boolean)
+}
+
 const applyDefaults = (values: Record<string, string>, defaults: Record<string, string>) => {
   const next = { ...values }
   for (const [key, value] of Object.entries(defaults)) {
@@ -300,6 +525,8 @@ export default function OpenClawPage() {
   const [settings, setSettings] = useState<OpenclawSettingsResponse | null>(null)
   const [globalValues, setGlobalValues] = useState<Record<string, string>>({})
   const [userValues, setUserValues] = useState<Record<string, string>>({})
+  const [savedGlobalValues, setSavedGlobalValues] = useState<Record<string, string>>({})
+  const [savedUserValues, setSavedUserValues] = useState<Record<string, string>>({})
   const [tokens, setTokens] = useState<TokenRecord[]>([])
   const [newToken, setNewToken] = useState<string | null>(null)
   const [reportDate, setReportDate] = useState<string>(parseLocalDate())
@@ -317,6 +544,9 @@ export default function OpenClawPage() {
   const [asinDefaultCountry, setAsinDefaultCountry] = useState('US')
   const [strategyRunning, setStrategyRunning] = useState(false)
   const [simpleMode, setSimpleMode] = useState(true)
+  const [strategyPreset, setStrategyPreset] = useState('balanced')
+  const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
+  const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
   const [showAdvancedSystem, setShowAdvancedSystem] = useState(false)
   const [showAdvancedFeishu, setShowAdvancedFeishu] = useState(false)
   const [showAdvancedAi, setShowAdvancedAi] = useState(false)
@@ -337,6 +567,14 @@ export default function OpenClawPage() {
     setShowAdvancedUser(false)
     setShowAdvancedStrategy(false)
   }, [simpleMode])
+
+  useEffect(() => {
+    setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
+  }, [userValues.openclaw_strategy_ads_account_ids])
+
+  useEffect(() => {
+    setStrategyCronPreset(resolveStrategyCronPreset(userValues.openclaw_strategy_cron || ''))
+  }, [userValues.openclaw_strategy_cron])
 
   useEffect(() => {
     let active = true
@@ -386,7 +624,9 @@ export default function OpenClawPage() {
         })
         userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
         setGlobalValues(globalWithDefaults)
+        setSavedGlobalValues(globalWithDefaults)
         setUserValues(userMap)
+        setSavedUserValues(userMap)
       } catch (error: any) {
         if (!active) return
         toast.error(error?.message || 'OpenClaw 配置加载失败')
@@ -440,6 +680,15 @@ export default function OpenClawPage() {
     }
   }
 
+  const hasDirtyFields = (
+    scope: 'global' | 'user',
+    keys: readonly string[]
+  ) => {
+    const current = scope === 'global' ? globalValues : userValues
+    const saved = scope === 'global' ? savedGlobalValues : savedUserValues
+    return keys.some((key) => (current[key] ?? '') !== (saved[key] ?? ''))
+  }
+
   const loadGatewayStatus = async (force = false, isActive?: () => boolean) => {
     setGatewayLoading(true)
     try {
@@ -465,44 +714,59 @@ export default function OpenClawPage() {
     }
   }
 
-  const saveSettings = async (scope: 'global' | 'user') => {
-    if (scope === 'global') {
-      const jsonChecks: Array<[string, string]> = [
-        ['ai_models_json', 'AI引擎配置'],
-        ['feishu_allow_from', '飞书 DM 白名单'],
-        ['feishu_group_allow_from', '飞书群白名单'],
-        ['feishu_groups_json', '飞书群组配置'],
-        ['feishu_accounts_json', '飞书多账号配置'],
-        ['openclaw_agent_defaults_json', 'Agent 默认配置'],
-        ['openclaw_agent_list_json', 'Agent 列表配置'],
-        ['openclaw_session_json', 'Session 配置'],
-        ['openclaw_messages_json', 'Messages 配置'],
-        ['openclaw_commands_json', 'Commands 配置'],
-        ['openclaw_approvals_exec_json', '审批配置'],
-        ['openclaw_models_bedrock_discovery_json', 'Bedrock Discovery 配置'],
-        ['openclaw_logging_redact_patterns_json', '日志脱敏规则'],
-        ['openclaw_diagnostics_otel_json', 'OTel 配置'],
-      ]
+  const saveSettings = async (params: {
+    scope: 'global' | 'user'
+    keys?: string[]
+    successMessage?: string
+  }) => {
+    const { scope, keys, successMessage } = params
 
-      for (const [key, label] of jsonChecks) {
+    if (scope === 'global') {
+      const keysToCheck = keys && keys.length > 0
+        ? keys.filter((key) => key in GLOBAL_JSON_CHECK_LABELS)
+        : Object.keys(GLOBAL_JSON_CHECK_LABELS)
+
+      for (const key of keysToCheck) {
+        const label = GLOBAL_JSON_CHECK_LABELS[key] || key
         if (!validateJsonField(globalValues[key] || '', label)) return
       }
     }
 
-    if (scope === 'user') {
-      if (!validateJsonArrayField(userValues.openclaw_strategy_ads_account_ids || '', 'Ads账号ID列表')) return
-    }
-
-    const normalizedUserValues = {
+    const normalizedUserValues: Record<string, string> = {
       ...userValues,
       [AUTOADS_ONLY_SETTING_KEY]: 'true',
     }
 
+    if (scope === 'user') {
+      const needsStrategyNormalization = !keys || keys.length === 0 || keys.includes('openclaw_strategy_ads_account_ids')
+      if (needsStrategyNormalization) {
+        const normalizedAccountIds = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
+        if (normalizedAccountIds === null) {
+          toast.error('Ads账号ID格式错误，请输入逗号/换行分隔的ID，或合法JSON数组')
+          return
+        }
+
+        if (!validateJsonArrayField(normalizedAccountIds, 'Ads账号ID列表')) return
+        normalizedUserValues.openclaw_strategy_ads_account_ids = normalizedAccountIds
+        setUserValues(prev => ({ ...prev, openclaw_strategy_ads_account_ids: normalizedAccountIds }))
+      }
+    }
+
+    const selectedKeySet = keys && keys.length > 0 ? new Set(keys) : null
     const updates = scope === 'global'
-      ? Object.entries(globalValues).map(([key, value]) => ({ key, value: value ?? '' }))
+      ? Object.entries(globalValues)
+        .filter(([key]) => !selectedKeySet || selectedKeySet.has(key))
+        .map(([key, value]) => ({ key, value: value ?? '' }))
       : Object.entries(normalizedUserValues)
         .filter(([key]) => USER_KEYS.has(key))
+        .filter(([key]) => !selectedKeySet || selectedKeySet.has(key))
         .map(([key, value]) => ({ key, value: value ?? '' }))
+    const updateKeys = updates.map((item) => item.key)
+
+    if (updates.length === 0) {
+      toast.message('当前分区没有可保存的配置项')
+      return
+    }
 
     const setSaving = scope === 'global' ? setSavingGlobal : setSavingUser
     setSaving(true)
@@ -519,7 +783,25 @@ export default function OpenClawPage() {
         throw new Error(errorJson.error || '保存失败')
       }
 
-      toast.success(scope === 'global' ? '配置中心已保存' : '个人配置已保存')
+      if (scope === 'global') {
+        setSavedGlobalValues((prev) => {
+          const next = { ...prev }
+          updateKeys.forEach((key) => {
+            next[key] = globalValues[key] ?? ''
+          })
+          return next
+        })
+      } else {
+        setSavedUserValues((prev) => {
+          const next = { ...prev }
+          updateKeys.forEach((key) => {
+            next[key] = normalizedUserValues[key] ?? ''
+          })
+          return next
+        })
+      }
+
+      toast.success(successMessage || (scope === 'global' ? '配置中心已保存' : '个人配置已保存'))
     } catch (error: any) {
       toast.error(error?.message || '保存失败')
     } finally {
@@ -570,16 +852,60 @@ export default function OpenClawPage() {
   }
 
   const applyStrategyExample = () => {
+    setStrategyPreset('balanced')
     setUserValues(prev => ({
       ...prev,
       ...STRATEGY_EXAMPLE_VALUES,
     }))
   }
 
+  const applyStrategyPreset = (presetId: string) => {
+    setStrategyPreset(presetId)
+    const preset = STRATEGY_PRESET_OPTIONS.find(option => option.id === presetId)
+    if (!preset) return
+    setUserValues(prev => ({
+      ...prev,
+      ...preset.values,
+    }))
+  }
+
+  const handleStrategyCronPresetChange = (presetId: string) => {
+    setStrategyCronPreset(presetId)
+    const preset = STRATEGY_CRON_OPTIONS.find(option => option.id === presetId)
+    if (!preset) return
+    if (preset.id !== 'custom') {
+      setUserValue('openclaw_strategy_cron', preset.cron)
+    }
+  }
+
+  const handleStrategyCronInputChange = (value: string) => {
+    setUserValue('openclaw_strategy_cron', value)
+    if (!value.trim()) {
+      setStrategyCronPreset('daily_morning')
+      return
+    }
+    setStrategyCronPreset(resolveStrategyCronPreset(value))
+  }
+
+  const handleStrategyAccountIdsDraftChange = (value: string) => {
+    setStrategyAccountIdsDraft(value)
+    const normalized = normalizeStrategyAccountIdsForStorage(value)
+    if (normalized !== null) {
+      setUserValue('openclaw_strategy_ads_account_ids', normalized)
+    }
+  }
+
   const applyFeishuDocExample = () => {
     setUserValues(prev => ({
       ...prev,
       ...FEISHU_DOC_EXAMPLE_VALUES,
+    }))
+  }
+
+  const applyFeishuBasicExample = () => {
+    setUserValues(prev => ({
+      ...prev,
+      ...FEISHU_BASIC_EXAMPLE_VALUES,
     }))
   }
 
@@ -691,6 +1017,63 @@ export default function OpenClawPage() {
   const aiConfigured = Boolean((globalValues.ai_models_json || '').trim())
   const showAiEditor = showAiAdvanced || !simpleMode || !aiConfigured
   const gatewayTokenStatus = (globalValues.gateway_token || '').trim() ? '已设置' : '自动生成'
+  const aiModelsMode = (globalValues.openclaw_models_mode || '').trim().toLowerCase()
+  const aiModelsModeValid = aiModelsMode === '' || aiModelsMode === 'merge' || aiModelsMode === 'replace'
+  const feishuDomain = (userValues.feishu_domain || '').trim().toLowerCase()
+  const feishuDomainValid =
+    !feishuDomain ||
+    feishuDomain === 'feishu' ||
+    feishuDomain === 'lark' ||
+    feishuDomain.startsWith('http://') ||
+    feishuDomain.startsWith('https://')
+
+  const setupCards = [
+    {
+      id: 'gateway',
+      label: 'Gateway',
+      done: hasText(globalValues.gateway_port) && hasText(globalValues.gateway_bind),
+      note: `${globalValues.gateway_bind || 'loopback'}:${globalValues.gateway_port || '18789'}`,
+    },
+    {
+      id: 'ai',
+      label: 'AI引擎',
+      done: aiConfigured,
+      note: aiConfigured ? '已配置 Providers JSON' : '未配置',
+    },
+    {
+      id: 'feishu_user',
+      label: '飞书账号',
+      done: hasText(userValues.feishu_app_id) && hasText(userValues.feishu_app_secret) && hasText(userValues.feishu_target),
+      note: hasText(userValues.feishu_target) ? '推送目标已设置' : '缺少推送目标',
+    },
+    {
+      id: 'strategy',
+      label: '策略',
+      done: isTruthy(userValues.openclaw_strategy_enabled, false),
+      note: isTruthy(userValues.openclaw_strategy_enabled, false) ? '已启用' : '未启用',
+    },
+  ] as const
+  const setupCompletedCount = setupCards.filter(item => item.done).length
+  const setupProgressPercent = Math.round((setupCompletedCount / setupCards.length) * 100)
+  const strategyCronValue = userValues.openclaw_strategy_cron || ''
+  const strategyAccountIdsNormalized = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
+  const strategyAccountIdsCount = (() => {
+    if (!strategyAccountIdsNormalized) return 0
+    try {
+      const parsed = JSON.parse(strategyAccountIdsNormalized)
+      return Array.isArray(parsed) ? parsed.length : 0
+    } catch {
+      return 0
+    }
+  })()
+  const strategyCronHasError = Boolean(strategyCronValue.trim()) && !isLikelyCronExpression(strategyCronValue)
+  const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
+  const aiDirty = hasDirtyFields('global', AI_GLOBAL_KEYS)
+  const feishuGlobalDirty = hasDirtyFields('global', FEISHU_GLOBAL_KEYS)
+  const feishuUserDirty = hasDirtyFields('user', FEISHU_USER_KEYS)
+  const strategyDirty = hasDirtyFields('user', STRATEGY_USER_KEYS)
+  const globalConfigKeys = Array.from(new Set([...Object.keys(globalValues), ...Object.keys(savedGlobalValues)]))
+  const globalConfigDirty = hasDirtyFields('global', globalConfigKeys)
 
   return (
     <div className="p-6 space-y-6">
@@ -723,6 +1106,38 @@ export default function OpenClawPage() {
         </TabsList>
 
         <TabsContent value="config" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>配置向导</CardTitle>
+              <CardDescription>按步骤完成核心参数，降低首次配置复杂度</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md border bg-slate-50 p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span>完成度</span>
+                  <span className="font-medium">{setupCompletedCount}/{setupCards.length}（{setupProgressPercent}%）</span>
+                </div>
+                <div className="mt-2 h-2 rounded bg-slate-200">
+                  <div className="h-2 rounded bg-slate-900 transition-all" style={{ width: `${setupProgressPercent}%` }} />
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                {setupCards.map(card => (
+                  <div key={card.id} className="rounded-md border px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{card.label}</span>
+                      <Badge variant={card.done ? 'default' : 'secondary'}>{card.done ? '已完成' : '待配置'}</Badge>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">{card.note}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-slate-500">
+                建议顺序：Gateway → AI引擎 → 个人配置（飞书）→ 策略中心。
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div>
@@ -1142,7 +1557,10 @@ export default function OpenClawPage() {
 
               <Card className="border-slate-200">
                 <CardHeader>
-                  <CardTitle>AI 引擎</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    AI 引擎
+                    {aiDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="AI 配置未保存" />}
+                  </CardTitle>
                   <CardDescription>配置 OpenClaw Models Providers JSON</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1164,15 +1582,26 @@ export default function OpenClawPage() {
                     <>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">Providers JSON</span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setGlobalValue('ai_models_json', JSON_PLACEHOLDER)}
-                          disabled={!settings?.isAdmin}
-                        >
-                          填充示例
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setGlobalValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)}
+                            disabled={!settings?.isAdmin}
+                          >
+                            最小模板
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setGlobalValue('ai_models_json', JSON_PLACEHOLDER)}
+                            disabled={!settings?.isAdmin}
+                          >
+                            完整示例
+                          </Button>
+                        </div>
                       </div>
                       <Textarea
                         value={globalValues.ai_models_json || ''}
@@ -1192,6 +1621,11 @@ export default function OpenClawPage() {
                               placeholder="merge / replace"
                             />
                           </div>
+                          <p className={`text-xs ${aiModelsModeValid ? 'text-slate-500' : 'text-red-600'}`}>
+                            {aiModelsModeValid
+                              ? 'Models Mode 可留空，或填写 merge / replace。'
+                              : 'Models Mode 仅支持 merge 或 replace。'}
+                          </p>
                           <div>
                             <div className="flex items-center justify-between">
                               <label className="text-sm font-medium">Bedrock Discovery (JSON)</label>
@@ -1251,6 +1685,16 @@ export default function OpenClawPage() {
                           </Button>
                         </div>
                       )}
+
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          onClick={() => saveSettings({ scope: 'global', keys: [...AI_GLOBAL_KEYS], successMessage: 'AI 配置已保存' })}
+                          disabled={!settings?.isAdmin || savingGlobal}
+                        >
+                          {savingGlobal ? '保存中...' : aiDirty ? '保存 AI 配置 *' : '保存 AI 配置'}
+                        </Button>
+                      </div>
                     </>
                   )}
                 </CardContent>
@@ -1258,7 +1702,10 @@ export default function OpenClawPage() {
 
               <Card className="border-slate-200">
                 <CardHeader>
-                  <CardTitle>飞书聊天</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    飞书聊天
+                    {feishuGlobalDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="系统飞书配置未保存" />}
+                  </CardTitle>
                   <CardDescription>与 OpenClaw Feishu 插件参数一致</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -1344,6 +1791,16 @@ export default function OpenClawPage() {
                             rows={6}
                           />
                         </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          onClick={() => saveSettings({ scope: 'global', keys: [...FEISHU_GLOBAL_KEYS], successMessage: '系统飞书配置已保存' })}
+                          disabled={!settings?.isAdmin || savingGlobal}
+                        >
+                          {savingGlobal ? '保存中...' : feishuGlobalDirty ? '保存飞书配置 *' : '保存飞书配置'}
+                        </Button>
                       </div>
                     </>
                   )}
@@ -1567,8 +2024,16 @@ export default function OpenClawPage() {
               </Card>
 
               <div className="flex justify-end">
-                <Button onClick={() => saveSettings('global')} disabled={!settings?.isAdmin || savingGlobal}>
-                  {savingGlobal ? '保存中...' : '保存配置'}
+                <Button
+                  onClick={() => saveSettings({ scope: 'global' })}
+                  disabled={!settings?.isAdmin || savingGlobal}
+                >
+                  {savingGlobal ? '保存中...' : (
+                    <span className="inline-flex items-center gap-2">
+                      <span>{globalConfigDirty ? '保存配置 *' : '保存配置'}</span>
+                      {globalConfigDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="系统配置未保存" />}
+                    </span>
+                  )}
                 </Button>
               </div>
             </CardContent>
@@ -1576,7 +2041,10 @@ export default function OpenClawPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>个人配置</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                个人配置
+                {feishuUserDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="个人配置未保存" />}
+              </CardTitle>
               <CardDescription>用于每日推送目标、文档/表格输出与OpenClaw身份绑定</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1593,7 +2061,86 @@ export default function OpenClawPage() {
                   </Button>
                 </div>
               )}
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                快速起步：填写 App ID、App Secret、推送目标，即可完成最小飞书联通配置。
+              </div>
               <div className="grid gap-4 md:grid-cols-3">
+                <InputWithLabel
+                  label="YP Token"
+                  type="password"
+                  value={userValues.yeahpromos_token || ''}
+                  onChange={(v) => setUserValue('yeahpromos_token', v)}
+                  placeholder="YeahPromos API Token"
+                />
+                <InputWithLabel
+                  label="YP Site ID"
+                  value={userValues.yeahpromos_site_id || ''}
+                  onChange={(v) => setUserValue('yeahpromos_site_id', v)}
+                />
+                <InputWithLabel
+                  label="YP Page / Limit"
+                  value={userValues.yeahpromos_page || ''}
+                  onChange={(v) => setUserValue('yeahpromos_page', v)}
+                  placeholder="page"
+                />
+                <InputWithLabel
+                  label="YP Limit"
+                  value={userValues.yeahpromos_limit || ''}
+                  onChange={(v) => setUserValue('yeahpromos_limit', v)}
+                  placeholder="1000"
+                />
+                <InputWithLabel
+                  label="PB Base URL"
+                  value={userValues.partnerboost_base_url || ''}
+                  onChange={(v) => setUserValue('partnerboost_base_url', v)}
+                  placeholder="https://app.partnerboost.com"
+                />
+                <InputWithLabel
+                  label="PB Token"
+                  type="password"
+                  value={userValues.partnerboost_token || ''}
+                  onChange={(v) => setUserValue('partnerboost_token', v)}
+                />
+                <InputWithLabel
+                  label="PB page_size"
+                  value={userValues.partnerboost_products_page_size || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_page_size', v)}
+                  placeholder="100"
+                />
+                <InputWithLabel
+                  label="PB default_filter"
+                  value={userValues.partnerboost_products_default_filter || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_default_filter', v)}
+                  placeholder="0"
+                />
+                <InputWithLabel
+                  label="PB country_code"
+                  value={userValues.partnerboost_products_country_code || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
+                  placeholder="US"
+                />
+                <InputWithLabel
+                  label="PB sort"
+                  value={userValues.partnerboost_products_sort || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_sort', v)}
+                />
+                <InputWithLabel
+                  label="PB relationship"
+                  value={userValues.partnerboost_products_relationship || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_relationship', v)}
+                  placeholder="1"
+                />
+                <InputWithLabel
+                  label="PB filter_sexual"
+                  value={userValues.partnerboost_products_filter_sexual_wellness || ''}
+                  onChange={(v) => setUserValue('partnerboost_products_filter_sexual_wellness', v)}
+                  placeholder="0"
+                />
+                <InputWithLabel
+                  label="PB link uid"
+                  value={userValues.partnerboost_link_uid || ''}
+                  onChange={(v) => setUserValue('partnerboost_link_uid', v)}
+                />
                 <InputWithLabel
                   label="飞书 App ID"
                   value={userValues.feishu_app_id || ''}
@@ -1622,6 +2169,22 @@ export default function OpenClawPage() {
                   onChange={(v) => setUserValue('feishu_target', v)}
                 />
               </div>
+              <div className="grid gap-2 md:grid-cols-3 text-xs">
+                <div className={hasText(userValues.feishu_app_id) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(userValues.feishu_app_id) ? '✓ App ID 已填写' : '• App ID 未填写'}
+                </div>
+                <div className={hasText(userValues.feishu_app_secret) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(userValues.feishu_app_secret) ? '✓ App Secret 已填写' : '• App Secret 未填写'}
+                </div>
+                <div className={hasText(userValues.feishu_target) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(userValues.feishu_target) ? '✓ 推送目标已填写' : '• 推送目标未填写'}
+                </div>
+              </div>
+              <p className={`text-xs ${feishuDomainValid ? 'text-slate-500' : 'text-red-600'}`}>
+                {feishuDomainValid
+                  ? 'Domain 可填写 feishu / lark，或完整 https:// 地址。'
+                  : 'Domain 格式无效，请填写 feishu、lark 或 http(s) 地址。'}
+              </p>
               {showUserAdvanced && (
                 <div className="grid gap-4 md:grid-cols-3">
                   <InputWithLabel
@@ -1657,11 +2220,19 @@ export default function OpenClawPage() {
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={applyFeishuDocExample}>
-                  快速示例
-                </Button>
-                <Button onClick={() => saveSettings('user')} disabled={savingUser}>
-                  {savingUser ? '保存中...' : '保存个人配置'}
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={applyFeishuBasicExample}>
+                    填充基础项
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={applyFeishuDocExample}>
+                    文档示例
+                  </Button>
+                </div>
+                <Button
+                  onClick={() => saveSettings({ scope: 'user', keys: [...FEISHU_USER_KEYS], successMessage: '个人飞书配置已保存' })}
+                  disabled={savingUser}
+                >
+                  {savingUser ? '保存中...' : feishuUserDirty ? '保存个人配置 *' : '保存个人配置'}
                 </Button>
               </div>
             </CardContent>
@@ -1725,10 +2296,19 @@ export default function OpenClawPage() {
         <TabsContent value="strategy" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>策略配置</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                策略配置
+                {strategyDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="策略配置未保存" />}
+              </CardTitle>
               <CardDescription>OpenClaw 自我进化策略参数（用户级配置）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {simpleMode && (
+                <div className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  建议顺序：①选预设 → ②确认调度频率 → ③填写 Ads 账号ID → ④保存策略配置
+                </div>
+              )}
+
               {simpleMode && (
                 <div className="flex items-center justify-between text-xs text-slate-500">
                   <span>仅显示关键参数，其余使用默认值</span>
@@ -1743,18 +2323,48 @@ export default function OpenClawPage() {
                 </div>
               )}
 
+              <div className="space-y-2">
+                <label className="text-sm font-medium">策略预设</label>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {STRATEGY_PRESET_OPTIONS.map(option => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => applyStrategyPreset(option.id)}
+                      className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                        strategyPreset === option.id
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 bg-white hover:border-slate-400'
+                      }`}
+                    >
+                      <div className="text-sm font-medium">{option.label}</div>
+                      <div className={`mt-1 text-xs ${strategyPreset === option.id ? 'text-slate-200' : 'text-slate-500'}`}>
+                        {option.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-3">
                 <SwitchWithLabel
                   label="启用策略"
                   checked={isTruthy(userValues.openclaw_strategy_enabled, false)}
                   onChange={(val) => setUserValue('openclaw_strategy_enabled', val ? 'true' : 'false')}
                 />
-                <InputWithLabel
-                  label="Cron 表达式"
-                  value={userValues.openclaw_strategy_cron || ''}
-                  onChange={(v) => setUserValue('openclaw_strategy_cron', v)}
-                  placeholder="0 9 * * *"
-                />
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">调度频率</label>
+                  <Select value={strategyCronPreset} onValueChange={handleStrategyCronPresetChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择执行频率" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STRATEGY_CRON_OPTIONS.map(option => (
+                        <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <SwitchWithLabel
                   label="仅AutoAds链路（锁定）"
                   checked={isTruthy(userValues.openclaw_strategy_enforce_autoads_only, true)}
@@ -1763,6 +2373,20 @@ export default function OpenClawPage() {
                 />
               </div>
               <p className="text-xs text-slate-500">仅通过 AutoAds 接口执行 Offer创建 / 创意生成 / 广告发布，手工Campaign冲突将被阻断。</p>
+
+              {(showStrategyAdvanced || strategyCronPreset === 'custom') && (
+                <div className="space-y-2">
+                  <InputWithLabel
+                    label="Cron 表达式"
+                    value={strategyCronValue}
+                    onChange={handleStrategyCronInputChange}
+                    placeholder="0 9 * * *"
+                  />
+                  <p className={`text-xs ${strategyCronHasError ? 'text-red-600' : 'text-slate-500'}`}>
+                    {strategyCronHasError ? 'Cron 格式建议为 5 段，例如：0 9 * * *' : '格式：分 时 日 月 周（例如：0 9 * * *）'}
+                  </p>
+                </div>
+              )}
 
               {showStrategyAdvanced && (
                 <div className="grid gap-4 md:grid-cols-3">
@@ -1805,13 +2429,21 @@ export default function OpenClawPage() {
               )}
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Ads账号ID列表 (JSON)</label>
+                <label className="text-sm font-medium">Ads账号ID列表</label>
                 <Textarea
-                  value={userValues.openclaw_strategy_ads_account_ids || ''}
-                  onChange={(e) => setUserValue('openclaw_strategy_ads_account_ids', e.target.value)}
-                  placeholder='[123, 456]'
+                  value={strategyAccountIdsDraft}
+                  onChange={(e) => handleStrategyAccountIdsDraftChange(e.target.value)}
+                  placeholder={'123456789\n987654321 或 123456789,987654321'}
                   rows={3}
                 />
+                <div className="flex items-center justify-between text-xs">
+                  <span className={strategyAccountIdsHasError ? 'text-red-600' : 'text-slate-500'}>
+                    {strategyAccountIdsHasError
+                      ? '账号ID格式错误，请用逗号/换行分隔，或输入JSON数组'
+                      : '支持逗号、换行或 JSON 数组输入，保存时自动标准化'}
+                  </span>
+                  <span className="text-slate-500">已识别 {strategyAccountIdsCount} 个账号</span>
+                </div>
               </div>
 
               {showStrategyAdvanced && (
@@ -1852,8 +2484,11 @@ export default function OpenClawPage() {
                   <Button variant="outline" onClick={handleRunStrategy} disabled={strategyRunning}>
                     {strategyRunning ? '执行中...' : '立即执行'}
                   </Button>
-                  <Button onClick={() => saveSettings('user')} disabled={savingUser}>
-                    {savingUser ? '保存中...' : '保存策略配置'}
+                  <Button
+                    onClick={() => saveSettings({ scope: 'user', keys: [...STRATEGY_USER_KEYS], successMessage: '策略配置已保存' })}
+                    disabled={savingUser}
+                  >
+                    {savingUser ? '保存中...' : strategyDirty ? '保存策略配置 *' : '保存策略配置'}
                   </Button>
                 </div>
               </div>
