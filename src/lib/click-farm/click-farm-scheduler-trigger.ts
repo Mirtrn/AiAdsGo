@@ -12,6 +12,7 @@ import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/li
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
+import type { UnifiedQueueManager } from '@/lib/queue/unified-queue-manager';
 import { getHeapStatistics } from 'v8';
 
 // 🆕 扩展ClickFarmTask类型，支持referer_config
@@ -32,6 +33,28 @@ const CLICK_FARM_HEAP_PRESSURE_THRESHOLD = (() => {
   const n = parseFloat(process.env.CLICK_FARM_HEAP_PRESSURE_PCT || '85')
   return Number.isFinite(n) && n > 0 ? n : 85
 })()
+
+const CLICK_FARM_REQUIRE_REDIS_IN_PRODUCTION =
+  process.env.CLICK_FARM_REQUIRE_REDIS_IN_PRODUCTION !== 'false'
+
+async function ensureClickFarmQueueAvailable(queueManager: UnifiedQueueManager): Promise<boolean> {
+  await queueManager.ensureInitialized()
+
+  const runtime = queueManager.getRuntimeInfo()
+  const usingMemoryQueue = runtime.adapter === 'MemoryQueueAdapter'
+  const enforceRedis =
+    process.env.NODE_ENV === 'production' &&
+    CLICK_FARM_REQUIRE_REDIS_IN_PRODUCTION
+
+  if (enforceRedis && usingMemoryQueue) {
+    console.error(
+      '[ClickFarmScheduler] Redis不可用，已回退到内存队列。为避免生产环境OOM，本轮跳过补点击入队。'
+    )
+    return false
+  }
+
+  return true
+}
 
 function isHeapPressureHigh(): boolean {
   try {
@@ -222,6 +245,15 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
 
   // 获取队列管理器并加入队列
   const queueManager = getQueueManagerForTaskType('click-farm');
+  if (!await ensureClickFarmQueueAvailable(queueManager)) {
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
+    return {
+      taskId,
+      status: 'skipped',
+      message: '队列后端不可用，已延后调度'
+    }
+  }
+
   let queued = 0;
 
   // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
@@ -300,6 +332,19 @@ export async function triggerAllPendingTasks(): Promise<{
   const tasks = await getPendingTasks();
   const queueManager = getQueueManagerForTaskType('click-farm');
   const db = getDatabase();
+
+  if (!await ensureClickFarmQueueAvailable(queueManager)) {
+    for (const task of tasks) {
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
+    }
+
+    return {
+      processed: tasks.length,
+      queued: 0,
+      paused: 0,
+      skipped: tasks.length
+    }
+  }
 
   // 🔧 添加调试日志
   console.log(`[TriggerAll] 开始执行，找到 ${tasks.length} 个待处理任务，当前时间: ${new Date().toISOString()}`);

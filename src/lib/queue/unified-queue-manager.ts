@@ -19,6 +19,16 @@ import { isBackgroundTaskType } from './task-category'
 import { logger } from '@/lib/structured-logger'
 import { runWithLogContext } from '@/lib/log-context'
 
+function getPositiveIntFromEnv(key: string, fallback: number): number {
+  const raw = process.env[key]
+  if (!raw) return fallback
+
+  const parsed = parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+
+  return parsed
+}
+
 /**
  * 统一队列管理器
  *
@@ -70,6 +80,9 @@ export class UnifiedQueueManager {
       process.env.REDIS_KEY_PREFIX ||
       `autoads:${process.env.NODE_ENV || 'development'}:queue:`
 
+    const defaultClickFarmConcurrency = getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 50)
+    const defaultUrlSwapConcurrency = getPositiveIntFromEnv('QUEUE_URL_SWAP_CONCURRENCY', 3)
+
     // 合并默认配置
     this.config = {
       autoStartOnEnqueue: config.autoStartOnEnqueue !== false,
@@ -88,8 +101,8 @@ export class UnifiedQueueManager {
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
         'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
-        'click-farm': 50,           // 🆕 补点击任务并发限制（默认保守，避免小规格容器内存/FD被打爆；可在管理台调整）
-        'url-swap': 3,              // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
+        'click-farm': defaultClickFarmConcurrency, // 🆕 支持通过 QUEUE_CLICK_FARM_CONCURRENCY 覆盖
+        'url-swap': defaultUrlSwapConcurrency,     // 支持通过 QUEUE_URL_SWAP_CONCURRENCY 覆盖
         'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
         'affiliate-product-sync': 2 // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
       },

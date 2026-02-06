@@ -8,11 +8,15 @@
 # Redis配置（已在.env中配置）
 REDIS_URL=redis://default:<REDACTED_REDIS_PASSWORD>@<REDACTED_HOST>:32284
 
-# 可选配置（使用默认值）
-QUEUE_GLOBAL_CONCURRENCY=5          # 全局并发限制
-QUEUE_PER_USER_CONCURRENCY=2        # 单用户并发限制
-QUEUE_MAX_SIZE=1000                 # 队列最大长度
-QUEUE_TASK_TIMEOUT=60000            # 任务超时时间(ms)
+# 8C16G 推荐配置（单容器 + supervisord）
+QUEUE_GLOBAL_CONCURRENCY=64         # 核心任务全局并发上限
+QUEUE_PER_USER_CONCURRENCY=16       # 单用户核心任务并发上限
+QUEUE_CLICK_FARM_CONCURRENCY=120    # click-farm 类型并发上限
+QUEUE_URL_SWAP_CONCURRENCY=8        # url-swap 类型并发上限
+CLICK_FARM_MAX_INFLIGHT=120         # click-farm 实际 HTTP 并发
+CLICK_FARM_HEAP_PRESSURE_PCT=88     # heap 超过 88% 时延后调度
+QUEUE_MAX_SIZE=20000                # 队列最大长度
+QUEUE_TASK_TIMEOUT=900000           # 任务超时时间(ms)
 QUEUE_MAX_RETRIES=3                 # 最大重试次数
 QUEUE_RETRY_DELAY=5000              # 重试延迟(ms)
 
@@ -171,11 +175,11 @@ await queue.enqueue('scrape', {
 
 ### 并发配置建议
 
-| CPU核心数 | 全局并发 | 单用户并发 |
-|-----------|----------|------------|
-| 4核       | 8        | 2          |
-| 8核       | 16       | 4          |
-| 16核+     | 16       | 4          |
+| CPU核心数 | 全局并发 | 单用户并发 | click-farm并发 |
+|-----------|----------|------------|----------------|
+| 4核       | 24       | 6          | 40             |
+| 8核       | 64       | 16         | 120            |
+| 16核+     | 96       | 24         | 180            |
 
 ### 代理IP池建议
 
