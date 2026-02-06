@@ -152,10 +152,10 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages -r /app/python
 # 复制Python服务代码
 COPY --chown=nextjs:nodejs python-service /app/python-service
 
-# 创建必要的目录
-RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
+# 创建必要的目录（避免对 /app 整体递归 chown 产生超大 layer）
+RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run /app/data /app/.openclaw/workspace && \
     chown -R www-data:www-data /var/log/nginx /var/lib/nginx /var/run && \
-    chown -R nextjs:nodejs /app
+    chown -R nextjs:nodejs /app/data /app/.openclaw
 
 # 暴露80端口（Nginx）
 EXPOSE 80

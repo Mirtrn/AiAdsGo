@@ -26,6 +26,16 @@ for plugin in feishu memory-core; do
   fi
 done
 
+# 防止把 dev 依赖打进镜像（历史问题：TypeScript native preview 二进制体积巨大）
+if compgen -G "${PREBUILT_DIR}/node_modules/.pnpm/@typescript+native-preview*" > /dev/null; then
+  echo "❌ 检测到 dev 依赖 @typescript/native-preview 被打包进 openclaw-prebuilt"
+  exit 1
+fi
+if compgen -G "${PREBUILT_DIR}/node_modules/@typescript/native-preview*" > /dev/null; then
+  echo "❌ 检测到 dev 依赖 @typescript/native-preview 被打包进 openclaw-prebuilt"
+  exit 1
+fi
+
 node_major() {
   if ! command -v node >/dev/null 2>&1; then
     echo 0

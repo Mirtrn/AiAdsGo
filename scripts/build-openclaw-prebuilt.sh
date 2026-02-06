@@ -8,7 +8,7 @@ TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
-echo "🚧 构建 OpenClaw 预编译产物..."
+echo "🚧 构建 OpenClaw 预编译产物（生产依赖）..."
 
 rm -rf "${TMP_DIR}"
 mkdir -p "${TMP_DIR}"
@@ -26,8 +26,19 @@ docker run --rm \
     apt-get update && apt-get install -y git python3 make g++ bash >/dev/null
     corepack enable
     corepack prepare pnpm@10.23.0 --activate
+
+    # 构建阶段需要完整依赖
     pnpm install --no-frozen-lockfile
     OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+
+    # 仅保留生产依赖，避免将 devDependencies 带入镜像
+    pnpm prune --prod
+
+    # 防御性清理（历史问题：@typescript/native-preview 导致镜像暴涨）
+    rm -rf node_modules/.pnpm/@typescript+native-preview* \
+           node_modules/@typescript/native-preview* \
+           node_modules/.cache
+
     mkdir -p /out/dist
     cp -r dist/* /out/dist/
     cp -r extensions /out/extensions
