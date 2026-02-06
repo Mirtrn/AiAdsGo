@@ -145,7 +145,17 @@ const FEISHU_GROUPS_PLACEHOLDER = `{
 }`
 
 const FEISHU_ACCOUNTS_PLACEHOLDER = `{
-  "main": { "appId": "cli_xxx", "appSecret": "xxx", "botName": "AutoAds" },
+  "main": {
+    "appId": "cli_xxx",
+    "appSecret": "xxx",
+    "botName": "AutoAds",
+    "cardCallbackPath": "/feishu/card-action",
+    "cardVerificationToken": "your_feishu_verification_token",
+    "cardEncryptKey": "your_feishu_encrypt_key",
+    "cardConfirmUrl": "https://your-domain.com/api/openclaw/commands/confirm",
+    "cardConfirmAuthToken": "your_openclaw_gateway_token",
+    "cardConfirmTimeoutMs": 10000
+  },
   "backup": { "appId": "cli_yyy", "appSecret": "yyy", "enabled": false }
 }`
 
@@ -2070,7 +2080,7 @@ export default function OpenClawPage() {
                 </div>
               )}
               <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                快速起步：填写 App ID、App Secret、推送目标，即可完成最小飞书联通配置。
+                快速起步：填写 App ID、App Secret、推送目标即可联通；如需高风险动作卡片确认，请在「飞书多账号 JSON」中补充 card* 字段。
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <InputWithLabel

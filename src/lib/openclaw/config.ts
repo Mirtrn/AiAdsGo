@@ -242,7 +242,15 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   } else {
     delete feishuAccountsConfig.main
   }
-  const mergedFeishuAccounts = { ...feishuAccountsConfig, ...userFeishuAccounts }
+  const mergedFeishuAccounts: Record<string, any> = { ...feishuAccountsConfig }
+  for (const [accountId, userAccount] of Object.entries(userFeishuAccounts)) {
+    const existing = mergedFeishuAccounts[accountId]
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+      mergedFeishuAccounts[accountId] = { ...existing, ...userAccount }
+    } else {
+      mergedFeishuAccounts[accountId] = userAccount
+    }
+  }
   config.channels.feishu.accounts = mergedFeishuAccounts
 
   if (sessionOverrides && Object.keys(sessionOverrides).length > 0) {

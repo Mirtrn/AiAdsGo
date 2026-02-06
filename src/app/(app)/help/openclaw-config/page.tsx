@@ -38,7 +38,7 @@ const FEISHU_PARAMS: ParamRow[] = [
   { key: 'feishu_media_max_mb', desc: '媒体最大 MB' },
   { key: 'feishu_response_prefix', desc: '回复前缀' },
   { key: 'feishu_groups_json', desc: '群组级配置 JSON', note: 'groups.<chat_id>' },
-  { key: 'feishu_accounts_json', desc: '多账号 JSON', note: 'accounts.<id>' },
+  { key: 'feishu_accounts_json', desc: '多账号 JSON', note: 'accounts.<id>（支持 cardCallbackPath/cardVerificationToken/cardConfirmUrl 等 card* 字段）' },
 ]
 
 const FEISHU_DOC_PARAMS: ParamRow[] = [

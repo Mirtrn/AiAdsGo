@@ -30,6 +30,46 @@ PROXY_POOL=host1:port1:user1:pass1,host2:port2:user2:pass2
 
 ---
 
+## 🌐 Nginx 80端口分流（OpenClaw + AutoAds）
+
+生产环境仅暴露 `80` 端口时，推荐由 Nginx 内部分流：
+
+- `/feishu/card-action`
+- `/feishu/<accountId>/card-action`
+
+转发到 OpenClaw Gateway（`127.0.0.1:18789`），其余请求继续转发到 Next.js（`127.0.0.1:3000`）。
+
+### 分流规则检查
+
+- [ ] `nginx.conf` 已包含 `upstream openclaw_gateway`（`127.0.0.1:18789`）
+- [ ] `location ~ ^/feishu(?:/[^/]+)?/card-action$` 已指向 `openclaw_gateway`
+- [ ] 其他路径仍走 `nextjs`
+- [ ] `nginx -t` 通过
+- [ ] `supervisorctl status openclaw-gateway` 为 `RUNNING`
+
+### 飞书多账号 JSON 建议（关键）
+
+在 OpenClaw 页面将 `feishu_accounts_json` 配置为（按实际替换）：
+
+```json
+{
+  "main": {
+    "appId": "cli_xxx",
+    "appSecret": "xxx",
+    "cardCallbackPath": "/feishu/card-action",
+    "cardVerificationToken": "your_feishu_verification_token",
+    "cardEncryptKey": "your_feishu_encrypt_key",
+    "cardConfirmUrl": "https://your-domain.com/api/openclaw/commands/confirm",
+    "cardConfirmAuthToken": "your_openclaw_gateway_token",
+    "cardConfirmTimeoutMs": 10000
+  }
+}
+```
+
+> `cardConfirmUrl` 必须指向 AutoAds API；`cardConfirmAuthToken` 需与网关鉴权 token 一致。
+
+---
+
 ## 🚀 部署步骤
 
 ### 1. 启动时初始化队列
