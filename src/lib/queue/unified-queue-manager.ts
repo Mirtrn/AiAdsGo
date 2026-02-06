@@ -90,7 +90,8 @@ export class UnifiedQueueManager {
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
         'click-farm': 50,           // 🆕 补点击任务并发限制（默认保守，避免小规格容器内存/FD被打爆；可在管理台调整）
         'url-swap': 3,              // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
-        'openclaw-strategy': 2      // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
+        'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
+        'affiliate-product-sync': 2 // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）

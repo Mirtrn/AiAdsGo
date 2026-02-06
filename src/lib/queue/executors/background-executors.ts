@@ -9,9 +9,11 @@ import type { UnifiedQueueManager } from '../unified-queue-manager'
 import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
+import { executeAffiliateProductSync } from './affiliate-product-sync-executor'
 
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('click-farm', createClickFarmExecutor())
   queue.registerExecutor('url-swap', executeUrlSwapTask)
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
+  queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
 }

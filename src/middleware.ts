@@ -42,6 +42,7 @@ async function verifyTokenEdge(token: string): Promise<any | null> {
 // 需要认证的路径前缀（仅API路由，页面路由在客户端组件中检查）
 const protectedPaths = [
   '/api/offers',
+  '/api/products',
   '/api/campaigns',
   '/api/settings',
   '/api/creatives',
@@ -217,6 +218,7 @@ const LEGITIMATE_PATHS = [
   /^\/api\//,                                // API路由
   /^\/settings/,                             // 设置页面
   /^\/dashboard/,                            // 仪表盘
+  /^\/products/,                             // 商品管理
   /^\/offers/,                               // Offer管理
   /^\/campaigns/,                            // 广告系列
   /^\/creatives/,                            // 创意管理

@@ -4,6 +4,19 @@ import { getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 
 const USER_SCOPED_KEYS = new Set([
+  'yeahpromos_token',
+  'yeahpromos_site_id',
+  'yeahpromos_page',
+  'yeahpromos_limit',
+  'partnerboost_base_url',
+  'partnerboost_token',
+  'partnerboost_products_page_size',
+  'partnerboost_products_default_filter',
+  'partnerboost_products_country_code',
+  'partnerboost_products_sort',
+  'partnerboost_products_relationship',
+  'partnerboost_products_filter_sexual_wellness',
+  'partnerboost_link_uid',
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',

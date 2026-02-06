@@ -1,0 +1,1163 @@
+import { createOffer } from '@/lib/offers'
+import { getDatabase } from '@/lib/db'
+import { generateUpsertSql, getInsertedId, toBool } from '@/lib/db-helpers'
+import { getUserOnlySetting } from '@/lib/settings'
+
+export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
+export type SyncMode = 'platform' | 'single'
+
+export type AffiliateProduct = {
+  id: number
+  user_id: number
+  platform: AffiliatePlatform
+  mid: string
+  asin: string | null
+  brand: string | null
+  product_name: string | null
+  product_url: string | null
+  promo_link: string | null
+  short_promo_link: string | null
+  allowed_countries_json: string | null
+  price_amount: number | null
+  price_currency: string | null
+  commission_rate: number | null
+  commission_amount: number | null
+  raw_json: string | null
+  is_blacklisted: boolean | number
+  last_synced_at: string | null
+  last_seen_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type AffiliateProductListItem = {
+  id: number
+  serial: number
+  platform: AffiliatePlatform
+  mid: string
+  asin: string | null
+  brand: string | null
+  productName: string | null
+  productUrl: string | null
+  allowedCountries: string[]
+  priceAmount: number | null
+  priceCurrency: string | null
+  commissionRate: number | null
+  commissionAmount: number | null
+  promoLink: string | null
+  shortPromoLink: string | null
+  relatedOfferCount: number
+  isBlacklisted: boolean
+  lastSyncedAt: string | null
+  updatedAt: string
+}
+
+type NormalizedAffiliateProduct = {
+  platform: AffiliatePlatform
+  mid: string
+  asin: string | null
+  brand: string | null
+  productName: string | null
+  productUrl: string | null
+  promoLink: string | null
+  shortPromoLink: string | null
+  allowedCountries: string[]
+  priceAmount: number | null
+  priceCurrency: string | null
+  commissionRate: number | null
+  commissionAmount: number | null
+  rawJson: string
+}
+
+export type ProductSortField =
+  | 'serial'
+  | 'platform'
+  | 'mid'
+  | 'asin'
+  | 'allowedCountries'
+  | 'priceAmount'
+  | 'commissionRate'
+  | 'commissionAmount'
+  | 'promoLink'
+  | 'relatedOfferCount'
+  | 'updatedAt'
+
+export type ProductSortOrder = 'asc' | 'desc'
+
+export type ProductListOptions = {
+  page?: number
+  pageSize?: number
+  search?: string
+  platform?: AffiliatePlatform | 'all'
+  sortBy?: ProductSortField
+  sortOrder?: ProductSortOrder
+}
+
+export type ProductListResult = {
+  items: AffiliateProductListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export class ConfigRequiredError extends Error {
+  code = 'CONFIG_REQUIRED' as const
+  platform: AffiliatePlatform
+  missingKeys: string[]
+
+  constructor(platform: AffiliatePlatform, missingKeys: string[]) {
+    super(`${platform} 配置不完整`)
+    this.name = 'ConfigRequiredError'
+    this.platform = platform
+    this.missingKeys = missingKeys
+  }
+}
+
+type PlatformConfigCheck = {
+  configured: boolean
+  missingKeys: string[]
+  values: Record<string, string>
+}
+
+const PLATFORM_KEY_REQUIREMENTS: Record<AffiliatePlatform, string[]> = {
+  yeahpromos: ['yeahpromos_token', 'yeahpromos_site_id'],
+  partnerboost: ['partnerboost_token'],
+}
+
+const DEFAULT_PB_BASE_URL = 'https://app.partnerboost.com'
+
+type PartnerboostProduct = {
+  product_id?: string
+  product_name?: string
+  asin?: string
+  brand_name?: string
+  url?: string
+  country_code?: string
+  original_price?: string | number
+  discount_price?: string | number
+  currency?: string
+  commission?: string | number
+  acc_commission?: string | number
+}
+
+type PartnerboostProductsResponse = {
+  status?: { code?: number; msg?: string }
+  data?: {
+    list?: PartnerboostProduct[]
+    has_more?: boolean
+  }
+}
+
+type PartnerboostLinkItem = {
+  product_id?: string
+  link?: string
+}
+
+type PartnerboostLinkResponse = {
+  status?: { code?: number; msg?: string }
+  data?: PartnerboostLinkItem[]
+}
+
+type YeahPromosMerchant = {
+  mid?: string | number
+  merchant_name?: string
+  url?: string
+  tracking_url?: string
+  country?: string
+  avg_payout?: string | number
+  payout_unit?: string
+  advert_status?: string | number
+}
+
+type YeahPromosResponse = {
+  Code?: number
+  code?: number
+  PageTotal?: number
+  pageTotal?: number
+  PageNow?: number
+  pageNow?: number
+  Data?: YeahPromosMerchant[]
+  data?: YeahPromosMerchant[]
+}
+
+function normalizeUrl(value?: string | null): string | null {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  return trimmed || null
+}
+
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parsePercentage(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    if (value >= 0 && value <= 1) return value * 100
+    return value
+  }
+
+  const raw = String(value).trim()
+  if (!raw) return null
+  const normalized = raw.replace('%', '')
+  const parsed = Number(normalized)
+  if (!Number.isFinite(parsed)) return null
+  if (raw.includes('%')) return parsed
+  if (parsed >= 0 && parsed <= 1) return parsed * 100
+  return parsed
+}
+
+function parsePriceAmount(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+
+  const raw = String(value).trim()
+  if (!raw) return null
+  const numeric = raw.replace(/[^0-9.-]+/g, '')
+  if (!numeric) return null
+  const parsed = Number(numeric)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function computeCommissionAmount(priceAmount: number | null, commissionRate: number | null): number | null {
+  if (priceAmount === null || commissionRate === null) return null
+  return roundTo2(priceAmount * (commissionRate / 100))
+}
+
+function normalizeCountryCode(value: string): string | null {
+  const code = value.trim().toUpperCase()
+  if (!code) return null
+  if (code.length === 2 || code.length === 3) return code
+  return code
+}
+
+function normalizeCountries(input: unknown): string[] {
+  if (!input) return []
+
+  const fromArray = (arr: unknown[]): string[] => {
+    const deduped = new Set<string>()
+    for (const value of arr) {
+      if (value === null || value === undefined) continue
+      const code = normalizeCountryCode(String(value))
+      if (code) deduped.add(code)
+    }
+    return Array.from(deduped)
+  }
+
+  if (Array.isArray(input)) {
+    return fromArray(input)
+  }
+
+  const text = String(input).trim()
+  if (!text) return []
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) {
+        return fromArray(parsed)
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return fromArray(text.split(/[;,|/\s]+/g).filter(Boolean))
+}
+
+function toJsonString(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? {})
+  } catch {
+    return '{}'
+  }
+}
+
+function parseAllowedCountries(value: string | null | undefined): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return normalizeCountries(parsed)
+  } catch {
+    return normalizeCountries(value)
+  }
+}
+
+function normalizePlatformValue(value: unknown): AffiliatePlatform | null {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return null
+  if (raw === 'yp' || raw === 'yeahpromos') return 'yeahpromos'
+  if (raw === 'pb' || raw === 'partnerboost') return 'partnerboost'
+  return null
+}
+
+export function normalizeAffiliatePlatform(value: unknown): AffiliatePlatform | null {
+  return normalizePlatformValue(value)
+}
+
+function chooseOfferUrl(product: AffiliateProduct): string | null {
+  const candidateUrls = [
+    normalizeUrl(product.product_url),
+    normalizeUrl(product.promo_link),
+    product.asin ? `https://www.amazon.com/dp/${product.asin}` : null,
+  ]
+
+  for (const url of candidateUrls) {
+    if (!url) continue
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return url
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+function formatPriceForOffer(product: AffiliateProduct): string | undefined {
+  if (product.price_amount === null || product.price_amount === undefined) return undefined
+  if (product.price_currency) {
+    return `${String(product.price_currency).toUpperCase()} ${product.price_amount}`
+  }
+  return `${product.price_amount}`
+}
+
+function formatCommissionForOffer(product: AffiliateProduct): string | undefined {
+  if (product.commission_rate === null || product.commission_rate === undefined) return undefined
+  return `${roundTo2(product.commission_rate)}%`
+}
+
+async function getUserScopedSettingMap(userId: number, keys: string[]): Promise<Record<string, string>> {
+  const values = await Promise.all(
+    keys.map(async (key) => {
+      const record = await getUserOnlySetting('openclaw', key, userId)
+      return [key, (record?.value || '').trim()] as const
+    })
+  )
+
+  return values.reduce<Record<string, string>>((acc, [key, value]) => {
+    acc[key] = value
+    return acc
+  }, {})
+}
+
+export async function checkAffiliatePlatformConfig(userId: number, platform: AffiliatePlatform): Promise<PlatformConfigCheck> {
+  const requiredKeys = PLATFORM_KEY_REQUIREMENTS[platform]
+  const optionalKeys = platform === 'partnerboost'
+    ? [
+        'partnerboost_base_url',
+        'partnerboost_products_page_size',
+        'partnerboost_products_default_filter',
+        'partnerboost_products_country_code',
+        'partnerboost_products_sort',
+        'partnerboost_products_relationship',
+        'partnerboost_products_filter_sexual_wellness',
+        'partnerboost_link_uid',
+      ]
+    : [
+        'yeahpromos_page',
+        'yeahpromos_limit',
+      ]
+
+  const values = await getUserScopedSettingMap(userId, [...requiredKeys, ...optionalKeys])
+  const missingKeys = requiredKeys.filter((key) => !values[key])
+
+  return {
+    configured: missingKeys.length === 0,
+    missingKeys,
+    values,
+  }
+}
+
+function ensurePlatformConfigured(check: PlatformConfigCheck, platform: AffiliatePlatform): void {
+  if (check.configured) return
+  throw new ConfigRequiredError(platform, check.missingKeys)
+}
+
+async function fetchJsonOrThrow<T>(url: string, init: RequestInit, errorPrefix: string): Promise<T> {
+  const response = await fetch(url, init)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`${errorPrefix} (${response.status}): ${text || '请求失败'}`)
+  }
+  return await response.json() as T
+}
+
+async function fetchPartnerboostPromotableProducts(params: {
+  userId: number
+  asins?: string[]
+  maxPages?: number
+}): Promise<NormalizedAffiliateProduct[]> {
+  const check = await checkAffiliatePlatformConfig(params.userId, 'partnerboost')
+  ensurePlatformConfigured(check, 'partnerboost')
+
+  const token = check.values.partnerboost_token
+  const baseUrl = (check.values.partnerboost_base_url || DEFAULT_PB_BASE_URL).replace(/\/+$/, '')
+  const pageSize = Number(check.values.partnerboost_products_page_size || '100')
+  const defaultFilter = Number(check.values.partnerboost_products_default_filter || '0')
+  const countryCode = check.values.partnerboost_products_country_code || ''
+  const sort = check.values.partnerboost_products_sort || ''
+  const relationship = Number(check.values.partnerboost_products_relationship || '1')
+  const filterSexual = Number(check.values.partnerboost_products_filter_sexual_wellness || '0')
+  const uid = check.values.partnerboost_link_uid || ''
+  const asins = params.asins?.filter(Boolean) || []
+  const maxPages = Math.max(1, Math.min(params.maxPages || 20, 30))
+
+  const products: PartnerboostProduct[] = []
+  let page = 1
+  let hasMore = true
+
+  while (hasMore && page <= maxPages) {
+    const payload = await fetchJsonOrThrow<PartnerboostProductsResponse>(
+      `${baseUrl}/api/datafeed/get_fba_products`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          page_size: pageSize,
+          page,
+          default_filter: defaultFilter,
+          country_code: countryCode,
+          sort,
+          asins: asins.join(','),
+          relationship,
+          filter_sexual_wellness: filterSexual,
+        }),
+      },
+      'PartnerBoost 商品拉取失败'
+    )
+
+    if (payload.status?.code !== 0) {
+      throw new Error(`PartnerBoost 商品拉取失败: ${payload.status?.msg || payload.status?.code}`)
+    }
+
+    const list = payload.data?.list || []
+    products.push(...list)
+    hasMore = Boolean(payload.data?.has_more)
+    page += 1
+
+    if (asins.length > 0) {
+      hasMore = false
+    }
+  }
+
+  if (products.length === 0) return []
+
+  const productIds = products
+    .map((item) => String(item.product_id || '').trim())
+    .filter(Boolean)
+
+  const linkMap = new Map<string, string>()
+  const batchSize = 50
+  for (let index = 0; index < productIds.length; index += batchSize) {
+    const batchIds = productIds.slice(index, index + batchSize)
+    const payload = await fetchJsonOrThrow<PartnerboostLinkResponse>(
+      `${baseUrl}/api/datafeed/get_fba_products_link`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          product_ids: batchIds.join(','),
+          uid,
+        }),
+      },
+      'PartnerBoost 推广链接拉取失败'
+    )
+
+    if (payload.status?.code !== 0) {
+      throw new Error(`PartnerBoost 推广链接拉取失败: ${payload.status?.msg || payload.status?.code}`)
+    }
+
+    for (const item of payload.data || []) {
+      const productId = String(item.product_id || '').trim()
+      const link = normalizeUrl(item.link)
+      if (!productId || !link) continue
+      linkMap.set(productId, link)
+    }
+  }
+
+  const normalized: NormalizedAffiliateProduct[] = []
+  for (const item of products) {
+    const mid = String(item.product_id || '').trim()
+    if (!mid) continue
+
+    const promoLink = linkMap.get(mid) || null
+    if (!promoLink) {
+      continue
+    }
+
+    const priceAmount = parsePriceAmount(item.discount_price ?? item.original_price)
+    const priceCurrency = normalizeUrl(item.currency) || null
+    const commissionRate = parsePercentage(item.commission ?? item.acc_commission)
+    const allowedCountries = normalizeCountries(item.country_code)
+
+    normalized.push({
+      platform: 'partnerboost',
+      mid,
+      asin: normalizeUrl(item.asin),
+      brand: normalizeUrl(item.brand_name),
+      productName: normalizeUrl(item.product_name),
+      productUrl: normalizeUrl(item.url),
+      promoLink,
+      shortPromoLink: null,
+      allowedCountries,
+      priceAmount,
+      priceCurrency,
+      commissionRate,
+      commissionAmount: computeCommissionAmount(priceAmount, commissionRate),
+      rawJson: toJsonString(item),
+    })
+  }
+
+  return normalized
+}
+
+async function fetchYeahPromosPromotableProducts(params: {
+  userId: number
+  maxPages?: number
+}): Promise<NormalizedAffiliateProduct[]> {
+  const check = await checkAffiliatePlatformConfig(params.userId, 'yeahpromos')
+  ensurePlatformConfigured(check, 'yeahpromos')
+
+  const token = check.values.yeahpromos_token
+  const siteId = check.values.yeahpromos_site_id
+  const limit = Number(check.values.yeahpromos_limit || '1000') || 1000
+  const maxPages = Math.max(1, Math.min(params.maxPages || 20, 50))
+  let page = Number(check.values.yeahpromos_page || '1') || 1
+  let pageTotal = page
+
+  const merchants: YeahPromosMerchant[] = []
+
+  while (page <= pageTotal && page - (Number(check.values.yeahpromos_page || '1') || 1) < maxPages) {
+    const url = new URL('https://yeahpromos.com/index/getadvert/getadvert')
+    url.searchParams.set('site_id', siteId)
+    url.searchParams.set('page', String(page))
+    url.searchParams.set('limit', String(limit))
+
+    const payload = await fetchJsonOrThrow<YeahPromosResponse>(
+      url.toString(),
+      {
+        method: 'GET',
+        headers: {
+          token,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      },
+      'YeahPromos 商品拉取失败'
+    )
+
+    const code = payload.Code ?? payload.code
+    if (code && code !== 100000) {
+      throw new Error(`YeahPromos 商品拉取失败: ${code}`)
+    }
+
+    const list = payload.Data || payload.data || []
+    merchants.push(...list)
+
+    pageTotal = Number(payload.PageTotal ?? payload.pageTotal ?? page) || page
+    page += 1
+  }
+
+  const normalized: NormalizedAffiliateProduct[] = []
+  for (const item of merchants) {
+    const mid = String(item.mid || '').trim()
+    if (!mid) continue
+
+    const promoLink = normalizeUrl(item.tracking_url)
+    if (!promoLink) continue
+
+    const advertStatus = String(item.advert_status ?? '').trim()
+    if (advertStatus && advertStatus !== '1') continue
+
+    const rateFromAvg = parsePercentage(item.avg_payout)
+    const rateFromUnit = parsePercentage(item.payout_unit)
+    const commissionRate = rateFromAvg ?? rateFromUnit
+    const allowedCountries = normalizeCountries(item.country)
+
+    normalized.push({
+      platform: 'yeahpromos',
+      mid,
+      asin: null,
+      brand: normalizeUrl(item.merchant_name),
+      productName: normalizeUrl(item.merchant_name),
+      productUrl: normalizeUrl(item.url),
+      promoLink,
+      shortPromoLink: null,
+      allowedCountries,
+      priceAmount: null,
+      priceCurrency: null,
+      commissionRate,
+      commissionAmount: null,
+      rawJson: toJsonString(item),
+    })
+  }
+
+  return normalized
+}
+
+function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): NormalizedAffiliateProduct[] {
+  const deduped = new Map<string, NormalizedAffiliateProduct>()
+  for (const item of items) {
+    if (!item.mid || !item.promoLink) continue
+    const key = `${item.platform}:${item.mid}`
+    if (!deduped.has(key)) {
+      deduped.set(key, item)
+    }
+  }
+  return Array.from(deduped.values())
+}
+
+async function loadExistingMidSet(userId: number, platform: AffiliatePlatform, mids: string[]): Promise<Set<string>> {
+  if (mids.length === 0) return new Set<string>()
+  const db = await getDatabase()
+  const placeholders = mids.map(() => '?').join(', ')
+  const rows = await db.query<{ mid: string }>(
+    `
+      SELECT mid
+      FROM affiliate_products
+      WHERE user_id = ?
+        AND platform = ?
+        AND mid IN (${placeholders})
+    `,
+    [userId, platform, ...mids]
+  )
+  return new Set(rows.map((row) => row.mid))
+}
+
+export async function upsertAffiliateProducts(userId: number, platform: AffiliatePlatform, items: NormalizedAffiliateProduct[]): Promise<{
+  totalFetched: number
+  createdCount: number
+  updatedCount: number
+}> {
+  const db = await getDatabase()
+  const deduped = dedupeNormalizedProducts(items)
+  if (deduped.length === 0) {
+    return {
+      totalFetched: 0,
+      createdCount: 0,
+      updatedCount: 0,
+    }
+  }
+
+  const mids = deduped.map((item) => item.mid)
+  const existingMidSet = await loadExistingMidSet(userId, platform, mids)
+
+  const upsertSql = generateUpsertSql(
+    'affiliate_products',
+    ['user_id', 'platform', 'mid'],
+    [
+      'user_id',
+      'platform',
+      'mid',
+      'asin',
+      'brand',
+      'product_name',
+      'product_url',
+      'promo_link',
+      'short_promo_link',
+      'allowed_countries_json',
+      'price_amount',
+      'price_currency',
+      'commission_rate',
+      'commission_amount',
+      'raw_json',
+      'last_synced_at',
+      'last_seen_at',
+      'updated_at',
+    ],
+    [
+      'asin',
+      'brand',
+      'product_name',
+      'product_url',
+      'promo_link',
+      'short_promo_link',
+      'allowed_countries_json',
+      'price_amount',
+      'price_currency',
+      'commission_rate',
+      'commission_amount',
+      'raw_json',
+      'last_synced_at',
+      'last_seen_at',
+      'updated_at',
+    ],
+    db.type
+  )
+
+  let createdCount = 0
+  let updatedCount = 0
+  const nowIso = new Date().toISOString()
+
+  for (const item of deduped) {
+    const existed = existingMidSet.has(item.mid)
+    if (existed) {
+      updatedCount += 1
+    } else {
+      createdCount += 1
+    }
+
+    await db.exec(upsertSql, [
+      userId,
+      platform,
+      item.mid,
+      item.asin,
+      item.brand,
+      item.productName,
+      item.productUrl,
+      item.promoLink,
+      item.shortPromoLink,
+      JSON.stringify(item.allowedCountries || []),
+      item.priceAmount,
+      item.priceCurrency,
+      item.commissionRate,
+      item.commissionAmount,
+      item.rawJson,
+      nowIso,
+      nowIso,
+      nowIso,
+    ])
+  }
+
+  return {
+    totalFetched: deduped.length,
+    createdCount,
+    updatedCount,
+  }
+}
+
+const SORT_FIELD_SQL: Record<ProductSortField, string> = {
+  serial: 'p.id',
+  platform: 'p.platform',
+  mid: 'p.mid',
+  asin: 'p.asin',
+  allowedCountries: 'p.allowed_countries_json',
+  priceAmount: 'p.price_amount',
+  commissionRate: 'p.commission_rate',
+  commissionAmount: 'p.commission_amount',
+  promoLink: 'COALESCE(p.short_promo_link, p.promo_link)',
+  relatedOfferCount: 'related_offer_count',
+  updatedAt: 'p.updated_at',
+}
+
+export async function listAffiliateProducts(userId: number, options: ProductListOptions = {}): Promise<ProductListResult> {
+  const db = await getDatabase()
+  const page = Math.max(1, options.page || 1)
+  const pageSize = Math.min(100, Math.max(10, options.pageSize || 20))
+  const offset = (page - 1) * pageSize
+  const sortBy = options.sortBy || 'serial'
+  const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc'
+  const sortSql = SORT_FIELD_SQL[sortBy] || SORT_FIELD_SQL.serial
+
+  const whereConditions: string[] = ['p.user_id = ?']
+  const whereParams: any[] = [userId]
+
+  const platform = normalizePlatformValue(options.platform)
+  if (platform) {
+    whereConditions.push('p.platform = ?')
+    whereParams.push(platform)
+  }
+
+  const search = (options.search || '').trim().toLowerCase()
+  if (search) {
+    const like = `%${search}%`
+    whereConditions.push(`(
+      LOWER(COALESCE(p.mid, '')) LIKE ?
+      OR LOWER(COALESCE(p.asin, '')) LIKE ?
+      OR LOWER(COALESCE(p.product_name, '')) LIKE ?
+      OR LOWER(COALESCE(p.brand, '')) LIKE ?
+    )`)
+    whereParams.push(like, like, like, like)
+  }
+
+  const whereSql = whereConditions.join(' AND ')
+
+  const totalRow = await db.queryOne<{ total: number }>(
+    `
+      SELECT COUNT(*) AS total
+      FROM affiliate_products p
+      WHERE ${whereSql}
+    `,
+    whereParams
+  )
+
+  const rows = await db.query<(AffiliateProduct & { related_offer_count?: number })>(
+    `
+      SELECT
+        p.*,
+        COALESCE(link_counts.offer_count, 0) AS related_offer_count
+      FROM affiliate_products p
+      LEFT JOIN (
+        SELECT product_id, COUNT(*) AS offer_count
+        FROM affiliate_product_offer_links
+        WHERE user_id = ?
+        GROUP BY product_id
+      ) link_counts ON link_counts.product_id = p.id
+      WHERE ${whereSql}
+      ORDER BY ${sortSql} ${sortOrder.toUpperCase()}, p.id DESC
+      LIMIT ?
+      OFFSET ?
+    `,
+    [userId, ...whereParams, pageSize, offset]
+  )
+
+  return {
+    items: rows.map((row) => mapAffiliateProductRow(row)),
+    total: Number(totalRow?.total || 0),
+    page,
+    pageSize,
+  }
+}
+
+function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: number }): AffiliateProductListItem {
+  return {
+    id: row.id,
+    serial: row.id,
+    platform: row.platform,
+    mid: row.mid,
+    asin: row.asin,
+    brand: row.brand,
+    productName: row.product_name,
+    productUrl: row.product_url,
+    allowedCountries: parseAllowedCountries(row.allowed_countries_json),
+    priceAmount: row.price_amount,
+    priceCurrency: row.price_currency,
+    commissionRate: row.commission_rate,
+    commissionAmount: row.commission_amount,
+    promoLink: row.short_promo_link || row.promo_link,
+    shortPromoLink: row.short_promo_link,
+    relatedOfferCount: Number(row.related_offer_count || 0),
+    isBlacklisted: toBool(row.is_blacklisted),
+    lastSyncedAt: row.last_synced_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getAffiliateProductById(userId: number, productId: number): Promise<AffiliateProduct | null> {
+  const db = await getDatabase()
+  const row = await db.queryOne<AffiliateProduct>(
+    `SELECT * FROM affiliate_products WHERE id = ? AND user_id = ? LIMIT 1`,
+    [productId, userId]
+  )
+  return row || null
+}
+
+export async function setAffiliateProductBlacklist(userId: number, productId: number, blacklisted: boolean): Promise<AffiliateProduct | null> {
+  const db = await getDatabase()
+  const value = db.type === 'postgres' ? blacklisted : (blacklisted ? 1 : 0)
+  const nowIso = new Date().toISOString()
+
+  await db.exec(
+    `
+      UPDATE affiliate_products
+      SET is_blacklisted = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `,
+    [value, nowIso, productId, userId]
+  )
+
+  return await getAffiliateProductById(userId, productId)
+}
+
+export async function recordAffiliateProductOfferLink(params: {
+  userId: number
+  productId: number
+  offerId: number
+  createdVia?: 'single' | 'batch'
+}): Promise<void> {
+  const db = await getDatabase()
+  await db.exec(
+    `
+      INSERT INTO affiliate_product_offer_links (user_id, product_id, offer_id, created_via)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (user_id, product_id, offer_id) DO NOTHING
+    `,
+    [params.userId, params.productId, params.offerId, params.createdVia || 'single']
+  )
+}
+
+export async function createOfferFromAffiliateProduct(params: {
+  userId: number
+  productId: number
+  targetCountry?: string
+  createdVia?: 'single' | 'batch'
+}): Promise<{ product: AffiliateProduct; offerId: number }> {
+  const product = await getAffiliateProductById(params.userId, params.productId)
+  if (!product) {
+    throw new Error('商品不存在')
+  }
+
+  const offerUrl = chooseOfferUrl(product)
+  if (!offerUrl) {
+    throw new Error('该商品缺少可用落地页链接，无法创建Offer')
+  }
+
+  const allowedCountries = parseAllowedCountries(product.allowed_countries_json)
+  const targetCountry = (params.targetCountry || allowedCountries[0] || 'US').toUpperCase()
+  const brand = (product.brand || product.product_name || product.mid || 'Unknown').trim()
+
+  const offer = await createOffer(params.userId, {
+    url: offerUrl,
+    brand,
+    target_country: targetCountry,
+    affiliate_link: product.promo_link || undefined,
+    product_price: formatPriceForOffer(product),
+    commission_payout: formatCommissionForOffer(product),
+    page_type: 'product',
+  })
+
+  await recordAffiliateProductOfferLink({
+    userId: params.userId,
+    productId: product.id,
+    offerId: offer.id,
+    createdVia: params.createdVia || 'single',
+  })
+
+  return {
+    product,
+    offerId: offer.id,
+  }
+}
+
+export async function batchCreateOffersFromAffiliateProducts(params: {
+  userId: number
+  items: Array<{ productId: number; targetCountry?: string }>
+}): Promise<{
+  total: number
+  successCount: number
+  failureCount: number
+  results: Array<{ productId: number; success: boolean; offerId?: number; error?: string }>
+}> {
+  const results: Array<{ productId: number; success: boolean; offerId?: number; error?: string }> = []
+  let successCount = 0
+  let failureCount = 0
+
+  for (const item of params.items) {
+    try {
+      const result = await createOfferFromAffiliateProduct({
+        userId: params.userId,
+        productId: item.productId,
+        targetCountry: item.targetCountry,
+        createdVia: 'batch',
+      })
+      successCount += 1
+      results.push({ productId: item.productId, success: true, offerId: result.offerId })
+    } catch (error: any) {
+      failureCount += 1
+      results.push({
+        productId: item.productId,
+        success: false,
+        error: error?.message || '创建Offer失败',
+      })
+    }
+  }
+
+  return {
+    total: params.items.length,
+    successCount,
+    failureCount,
+    results,
+  }
+}
+
+export async function createAffiliateProductSyncRun(params: {
+  userId: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  triggerSource?: string
+  status?: 'queued' | 'running' | 'completed' | 'failed'
+}): Promise<number> {
+  const db = await getDatabase()
+  const nowIso = new Date().toISOString()
+  const result = await db.exec(
+    `
+      INSERT INTO affiliate_product_sync_runs
+      (user_id, platform, mode, status, trigger_source, started_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      params.userId,
+      params.platform,
+      params.mode,
+      params.status || 'queued',
+      params.triggerSource || null,
+      params.status === 'running' ? nowIso : null,
+      nowIso,
+      nowIso,
+    ]
+  )
+
+  return getInsertedId(result, db.type)
+}
+
+export async function updateAffiliateProductSyncRun(params: {
+  runId: number
+  status?: 'queued' | 'running' | 'completed' | 'failed'
+  totalItems?: number
+  createdCount?: number
+  updatedCount?: number
+  failedCount?: number
+  errorMessage?: string | null
+  startedAt?: string | null
+  completedAt?: string | null
+}): Promise<void> {
+  const db = await getDatabase()
+  const updates: string[] = []
+  const values: any[] = []
+
+  if (params.status !== undefined) {
+    updates.push('status = ?')
+    values.push(params.status)
+  }
+  if (params.totalItems !== undefined) {
+    updates.push('total_items = ?')
+    values.push(params.totalItems)
+  }
+  if (params.createdCount !== undefined) {
+    updates.push('created_count = ?')
+    values.push(params.createdCount)
+  }
+  if (params.updatedCount !== undefined) {
+    updates.push('updated_count = ?')
+    values.push(params.updatedCount)
+  }
+  if (params.failedCount !== undefined) {
+    updates.push('failed_count = ?')
+    values.push(params.failedCount)
+  }
+  if (params.errorMessage !== undefined) {
+    updates.push('error_message = ?')
+    values.push(params.errorMessage)
+  }
+  if (params.startedAt !== undefined) {
+    updates.push('started_at = ?')
+    values.push(params.startedAt)
+  }
+  if (params.completedAt !== undefined) {
+    updates.push('completed_at = ?')
+    values.push(params.completedAt)
+  }
+
+  if (updates.length === 0) return
+
+  updates.push('updated_at = ?')
+  values.push(new Date().toISOString())
+  values.push(params.runId)
+
+  await db.exec(
+    `
+      UPDATE affiliate_product_sync_runs
+      SET ${updates.join(', ')}
+      WHERE id = ?
+    `,
+    values
+  )
+}
+
+export async function getAffiliateProductSyncRuns(userId: number, limit: number = 20): Promise<Array<{
+  id: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  status: string
+  trigger_source: string | null
+  total_items: number
+  created_count: number
+  updated_count: number
+  failed_count: number
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+}>> {
+  const db = await getDatabase()
+  const safeLimit = Math.max(1, Math.min(limit, 100))
+  return await db.query(
+    `
+      SELECT
+        id,
+        platform,
+        mode,
+        status,
+        trigger_source,
+        total_items,
+        created_count,
+        updated_count,
+        failed_count,
+        error_message,
+        started_at,
+        completed_at,
+        created_at
+      FROM affiliate_product_sync_runs
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `,
+    [userId, safeLimit]
+  )
+}
+
+export async function syncAffiliateProducts(params: {
+  userId: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  productId?: number
+}): Promise<{
+  totalFetched: number
+  createdCount: number
+  updatedCount: number
+}> {
+  let normalizedItems: NormalizedAffiliateProduct[] = []
+
+  if (params.mode === 'single') {
+    if (!params.productId) {
+      throw new Error('缺少商品ID')
+    }
+
+    const existing = await getAffiliateProductById(params.userId, params.productId)
+    if (!existing) {
+      throw new Error('商品不存在')
+    }
+    if (existing.platform !== params.platform) {
+      throw new Error('商品平台与同步请求不匹配')
+    }
+
+    if (params.platform === 'partnerboost') {
+      if (!existing.asin) {
+        throw new Error('该PB商品缺少ASIN，无法执行单商品同步')
+      }
+      const fetched = await fetchPartnerboostPromotableProducts({
+        userId: params.userId,
+        asins: [existing.asin],
+        maxPages: 1,
+      })
+      normalizedItems = fetched.filter((item) => item.mid === existing.mid)
+    } else {
+      const fetched = await fetchYeahPromosPromotableProducts({ userId: params.userId, maxPages: 20 })
+      normalizedItems = fetched.filter((item) => item.mid === existing.mid)
+    }
+
+    if (normalizedItems.length === 0) {
+      throw new Error('联盟平台未返回该商品，可能已失去推广资格')
+    }
+  } else {
+    if (params.platform === 'partnerboost') {
+      normalizedItems = await fetchPartnerboostPromotableProducts({ userId: params.userId })
+    } else {
+      normalizedItems = await fetchYeahPromosPromotableProducts({ userId: params.userId })
+    }
+  }
+
+  return await upsertAffiliateProducts(params.userId, params.platform, normalizedItems)
+}

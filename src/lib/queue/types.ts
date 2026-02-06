@@ -24,6 +24,7 @@ export type TaskType =
   | 'click-farm'            // 🆕 补点击任务（单次点击执行，带代理和超时控制）
   | 'url-swap'              // 🆕 换链接任务（自动监测和更新Google Ads广告链接）
   | 'openclaw-strategy'     // 🆕 OpenClaw 自进化策略任务
+  | 'affiliate-product-sync' // 🆕 联盟商品同步任务（YP/PB）
 
 /**
  * 任务优先级

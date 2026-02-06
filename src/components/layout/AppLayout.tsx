@@ -86,6 +86,11 @@ const navigationItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
+    label: '商品管理',
+    href: '/products',
+    icon: Package,
+  },
+  {
     label: 'Offer管理',
     href: '/offers',
     icon: Package,
@@ -144,7 +149,7 @@ const navigationItems: NavItem[] = [
 
 function filterNavigationItemsByUser(items: NavItem[], user: UserInfo): NavItem[] {
   return items.filter(item => {
-    if (item.href === '/openclaw') {
+    if (item.href === '/openclaw' || item.href === '/products') {
       return Boolean(user.openclawEnabled)
     }
     return true

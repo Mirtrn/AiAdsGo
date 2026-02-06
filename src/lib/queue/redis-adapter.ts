@@ -630,7 +630,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       'ad-creative',
       'campaign-publish',
       'click-farm',
-      'url-swap'
+      'url-swap',
+      'openclaw-strategy',
+      'affiliate-product-sync'
     ]
     for (const taskType of taskTypes) {
       pipeline.del(this.getKey(`pending:${taskType}`))
