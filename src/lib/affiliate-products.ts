@@ -1,4 +1,4 @@
-import { createOffer } from '@/lib/offers'
+import { createOffer, deleteOffer } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { generateUpsertSql, getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
@@ -98,6 +98,36 @@ export type ProductListResult = {
   total: number
   page: number
   pageSize: number
+}
+
+export type AffiliateProductOfflineFailure = {
+  offerId: number
+  error: string
+}
+
+export type AffiliateProductOfflineResult = {
+  productId: number
+  totalLinkedOffers: number
+  deletedOfferCount: number
+  deletedOfferIds: number[]
+  failedOffers: AffiliateProductOfflineFailure[]
+  offlined: boolean
+  product: AffiliateProduct | null
+}
+
+export type BatchOfflineAffiliateProductsResult = {
+  total: number
+  successCount: number
+  failureCount: number
+  results: Array<{
+    productId: number
+    success: boolean
+    deletedOfferCount?: number
+    totalLinkedOffers?: number
+    offlined?: boolean
+    failedOffers?: AffiliateProductOfflineFailure[]
+    error?: string
+  }>
 }
 
 export class ConfigRequiredError extends Error {
@@ -1105,6 +1135,135 @@ export async function getAffiliateProductById(userId: number, productId: number)
   return row || null
 }
 
+async function listActiveLinkedOfferIdsForProduct(userId: number, productId: number): Promise<number[]> {
+  const db = await getDatabase()
+  const offerNotDeletedCondition = db.type === 'postgres'
+    ? '(o.is_deleted = false OR o.is_deleted IS NULL)'
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
+
+  const rows = await db.query<{ offer_id: number }>(
+    `
+      SELECT DISTINCT link.offer_id
+      FROM affiliate_product_offer_links link
+      INNER JOIN offers o ON o.id = link.offer_id AND o.user_id = link.user_id
+      WHERE link.user_id = ?
+        AND link.product_id = ?
+        AND ${offerNotDeletedCondition}
+      ORDER BY link.offer_id ASC
+    `,
+    [userId, productId]
+  )
+
+  return rows
+    .map((row) => Number(row.offer_id))
+    .filter((value) => Number.isFinite(value) && value > 0)
+}
+
+export async function offlineAffiliateProduct(params: {
+  userId: number
+  productId: number
+}): Promise<AffiliateProductOfflineResult> {
+  const product = await getAffiliateProductById(params.userId, params.productId)
+  if (!product) {
+    throw new Error('商品不存在')
+  }
+
+  const linkedOfferIds = await listActiveLinkedOfferIdsForProduct(params.userId, params.productId)
+  const deletedOfferIds: number[] = []
+  const failedOffers: AffiliateProductOfflineFailure[] = []
+
+  for (const offerId of linkedOfferIds) {
+    try {
+      const result = await deleteOffer(offerId, params.userId, true, true)
+      if (!result.success) {
+        throw new Error(result.message || '删除Offer失败')
+      }
+      deletedOfferIds.push(offerId)
+    } catch (error: any) {
+      failedOffers.push({
+        offerId,
+        error: error?.message || '删除Offer失败',
+      })
+    }
+  }
+
+  const offlined = failedOffers.length === 0
+  const updatedProduct = offlined
+    ? await setAffiliateProductBlacklist(params.userId, params.productId, true)
+    : product
+
+  return {
+    productId: params.productId,
+    totalLinkedOffers: linkedOfferIds.length,
+    deletedOfferCount: deletedOfferIds.length,
+    deletedOfferIds,
+    failedOffers,
+    offlined,
+    product: updatedProduct,
+  }
+}
+
+export async function batchOfflineAffiliateProducts(params: {
+  userId: number
+  productIds: number[]
+}): Promise<BatchOfflineAffiliateProductsResult> {
+  const dedupedProductIds = Array.from(new Set(
+    params.productIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  ))
+
+  const results: BatchOfflineAffiliateProductsResult['results'] = []
+  let successCount = 0
+  let failureCount = 0
+
+  for (const productId of dedupedProductIds) {
+    try {
+      const result = await offlineAffiliateProduct({
+        userId: params.userId,
+        productId,
+      })
+
+      if (!result.offlined) {
+        failureCount += 1
+        results.push({
+          productId,
+          success: false,
+          deletedOfferCount: result.deletedOfferCount,
+          totalLinkedOffers: result.totalLinkedOffers,
+          offlined: result.offlined,
+          failedOffers: result.failedOffers,
+          error: `下线失败：${result.failedOffers.length}/${result.totalLinkedOffers} 个关联Offer删除失败`,
+        })
+        continue
+      }
+
+      successCount += 1
+      results.push({
+        productId,
+        success: true,
+        deletedOfferCount: result.deletedOfferCount,
+        totalLinkedOffers: result.totalLinkedOffers,
+        offlined: result.offlined,
+      })
+    } catch (error: any) {
+      failureCount += 1
+      results.push({
+        productId,
+        success: false,
+        error: error?.message || '下线商品失败',
+      })
+    }
+  }
+
+  return {
+    total: dedupedProductIds.length,
+    successCount,
+    failureCount,
+    results,
+  }
+}
+
 export async function setAffiliateProductBlacklist(userId: number, productId: number, blacklisted: boolean): Promise<AffiliateProduct | null> {
   const db = await getDatabase()
   const value = db.type === 'postgres' ? blacklisted : (blacklisted ? 1 : 0)
@@ -1148,6 +1307,10 @@ export async function createOfferFromAffiliateProduct(params: {
   const product = await getAffiliateProductById(params.userId, params.productId)
   if (!product) {
     throw new Error('商品不存在')
+  }
+
+  if (toBool(product.is_blacklisted)) {
+    throw new Error('商品已下线，无法创建Offer')
   }
 
   const offerUrl = chooseOfferUrl(product)

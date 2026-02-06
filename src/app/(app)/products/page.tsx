@@ -37,17 +37,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
-import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import {
   ArrowUpRight,
-  XCircle,
-  CheckCircle2,
   ExternalLink,
   Link,
   Loader2,
   Plus,
+  PowerOff,
   RefreshCw,
   Search,
 } from 'lucide-react'
@@ -191,10 +189,15 @@ export default function ProductsPage() {
   const [latestRuns, setLatestRuns] = useState<SyncRunItem[]>([])
   const [syncingProductId, setSyncingProductId] = useState<number | null>(null)
   const [creatingOfferId, setCreatingOfferId] = useState<number | null>(null)
+  const [offliningProductId, setOffliningProductId] = useState<number | null>(null)
   const [batchCreating, setBatchCreating] = useState(false)
+  const [batchOfflining, setBatchOfflining] = useState(false)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
+  const [singleOfflineDialogOpen, setSingleOfflineDialogOpen] = useState(false)
+  const [batchOfflineDialogOpen, setBatchOfflineDialogOpen] = useState(false)
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
+  const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
   const [runPollingTick, setRunPollingTick] = useState(0)
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -204,7 +207,13 @@ export default function ProductsPage() {
     return items.filter((item) => selected.has(item.id))
   }, [items, selectedProductIds])
 
-  const canBatchCreate = selectedProducts.length > 0
+  const creatableSelectedProducts = useMemo(
+    () => selectedProducts.filter((item) => !item.isBlacklisted),
+    [selectedProducts]
+  )
+
+  const canBatchCreate = creatableSelectedProducts.length > 0
+  const canBatchOffline = selectedProducts.length > 0
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -410,28 +419,94 @@ export default function ProductsPage() {
     }
   }
 
-  const handleToggleBlacklist = async (product: ProductListItem) => {
+  const openSingleOfflineDialog = (product: ProductListItem) => {
+    if (offliningProductId !== null || product.isBlacklisted) return
+    setOfflineProduct(product)
+    setSingleOfflineDialogOpen(true)
+  }
+
+  const submitSingleOffline = async () => {
+    if (!offlineProduct || offliningProductId !== null) return
+
+    setOffliningProductId(offlineProduct.id)
     try {
-      const method = product.isBlacklisted ? 'DELETE' : 'POST'
-      const response = await fetch(`/api/products/${product.id}/blacklist`, {
-        method,
+      const response = await fetch(`/api/products/${offlineProduct.id}/offline`, {
+        method: 'POST',
         credentials: 'include',
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data?.error || `${product.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || '下线商品失败')
       }
 
-      showSuccess('操作成功', data?.message || '状态已更新')
+      showSuccess('商品已下线', `已删除 ${data?.deletedOfferCount || 0} 个关联Offer`)
+      setSingleOfflineDialogOpen(false)
+      setOfflineProduct(null)
+      setSelectedProductIds((prev) => {
+        const next = new Set(prev)
+        next.delete(offlineProduct.id)
+        return next
+      })
       fetchProducts(true)
     } catch (error: any) {
-      showError('操作失败', error?.message || '状态更新失败')
+      showError('下线失败', error?.message || '下线商品失败')
+    } finally {
+      setOffliningProductId(null)
+    }
+  }
+
+  const openBatchOfflineConfirm = () => {
+    if (!canBatchOffline || batchOfflining) return
+    setBatchOfflineDialogOpen(true)
+  }
+
+  const submitBatchOffline = async () => {
+    if (!canBatchOffline || batchOfflining) return
+
+    setBatchOfflining(true)
+    try {
+      const response = await fetch('/api/products/batch-offline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          productIds: selectedProducts.map((item) => item.id),
+        }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || '批量下线商品失败')
+      }
+
+      const total = Number(data?.total || 0)
+      const successCount = Number(data?.successCount || 0)
+      const failureCount = Number(data?.failureCount || 0)
+
+      showSuccess('批量下线完成', `成功 ${successCount} / ${total}`)
+      if (failureCount > 0) {
+        showError('部分商品下线失败', `${failureCount} 个商品下线失败，请稍后重试`)
+      }
+
+      const failedIds = new Set<number>(
+        Array.isArray(data?.results)
+          ? data.results.filter((item: any) => !item?.success).map((item: any) => Number(item?.productId)).filter((id: number) => Number.isFinite(id) && id > 0)
+          : []
+      )
+
+      setSelectedProductIds(failedIds)
+      setBatchOfflineDialogOpen(false)
+      fetchProducts(true)
+    } catch (error: any) {
+      showError('批量下线失败', error?.message || '批量下线商品失败')
+    } finally {
+      setBatchOfflining(false)
     }
   }
 
   const openBatchDialog = () => {
     if (!canBatchCreate) return
-    const rows: BatchRow[] = selectedProducts.map((product) => ({
+    const rows: BatchRow[] = creatableSelectedProducts.map((product) => ({
       productId: product.id,
       linkType: '单品',
       promoLink: product.promoLink || '',
@@ -550,7 +625,7 @@ export default function ProductsPage() {
         <CardHeader>
           <CardTitle>商品列表</CardTitle>
           <CardDescription>
-            共 {total} 个商品，支持排序、单商品同步、创建Offer、拉黑投放、批量创建Offer
+            共 {total} 个商品，支持排序、单商品同步、创建Offer、下线商品、批量操作
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -584,7 +659,13 @@ export default function ProductsPage() {
               {canBatchCreate && (
                 <Button onClick={openBatchDialog}>
                   <Plus className="mr-2 h-4 w-4" />
-                  批量创建Offer ({selectedProducts.length})
+                  批量创建Offer ({creatableSelectedProducts.length})
+                </Button>
+              )}
+              {canBatchOffline && (
+                <Button variant="destructive" onClick={openBatchOfflineConfirm}>
+                  <PowerOff className="mr-2 h-4 w-4" />
+                  批量下线商品 ({selectedProducts.length})
                 </Button>
               )}
             </div>
@@ -654,7 +735,7 @@ export default function ProductsPage() {
                     const promoLink = item.shortPromoLink || item.promoLink
 
                     return (
-                      <TableRow key={item.id} className={item.isBlacklisted ? 'bg-muted/30' : ''}>
+                      <TableRow key={item.id} className={`hover:bg-gray-50/50 ${item.isBlacklisted ? 'bg-gray-100' : ''}`}>
                         <TableCell>
                           <Checkbox
                             checked={selected}
@@ -662,12 +743,16 @@ export default function ProductsPage() {
                             aria-label={`选择商品 ${item.id}`}
                           />
                         </TableCell>
-                        <TableCell className="font-medium">#{item.serial}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{PLATFORM_SHORT_LABEL[item.platform]}</Badge>
+                        <TableCell className="font-medium">
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>#{item.serial}</div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1">
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>
+                            <Badge variant="outline">{PLATFORM_SHORT_LABEL[item.platform]}</Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={`flex items-center gap-1 ${item.isBlacklisted ? 'opacity-50' : ''}`}>
                             <span className="font-medium">{item.mid}</span>
                             {item.productUrl && (
                               <button
@@ -680,57 +765,72 @@ export default function ProductsPage() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{item.asin || '-'}</TableCell>
                         <TableCell>
-                          {item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'}
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>{item.asin || '-'}</div>
                         </TableCell>
-                        <TableCell>{formatCurrency(item.priceAmount, item.priceCurrency)}</TableCell>
-                        <TableCell>{formatPercent(item.commissionRate)}</TableCell>
-                        <TableCell>{formatCurrency(item.commissionAmount, item.priceCurrency)}</TableCell>
                         <TableCell>
-                          {promoLink ? (
-                            <button
-                              className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-                              onClick={() => safeOpenExternal(promoLink)}
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>
+                            {item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>{formatCurrency(item.priceAmount, item.priceCurrency)}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>{formatPercent(item.commissionRate)}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>{formatCurrency(item.commissionAmount, item.priceCurrency)}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>
+                            {promoLink ? (
+                              <button
+                                className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                                onClick={() => safeOpenExternal(promoLink)}
+                              >
+                                <Link className="h-3.5 w-3.5" />
+                                查看链接
+                              </button>
+                            ) : (
+                              '-'
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className={item.isBlacklisted ? 'opacity-50' : ''}>{item.relatedOfferCount}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleCreateOffer(item)}
+                              disabled={creatingOfferId !== null || !item.promoLink || item.isBlacklisted}
+                              title={item.isBlacklisted ? '商品已下线，无法创建Offer' : '创建Offer'}
                             >
-                              <Link className="h-3.5 w-3.5" />
-                              查看链接
-                            </button>
-                          ) : (
-                            '-'
-                          )}
-                        </TableCell>
-                        <TableCell>{item.relatedOfferCount}</TableCell>
-                        <TableCell>
-                          <ResponsiveActionCell
-                            primaryAction={{
-                              icon: creatingOfferId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />,
-                              label: '创建Offer',
-                              onClick: () => handleCreateOffer(item),
-                              disabled: creatingOfferId !== null || !item.promoLink,
-                              variant: 'default',
-                            }}
-                            secondaryActions={[
-                              {
-                                icon: syncingProductId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />,
-                                label: '同步数据',
-                                onClick: () => handleProductSync(item),
-                                disabled: syncingProductId !== null,
-                              },
-                              {
-                                icon: item.isBlacklisted ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />,
-                                label: item.isBlacklisted ? '取消拉黑' : '拉黑投放',
-                                onClick: () => handleToggleBlacklist(item),
-                                className: item.isBlacklisted ? 'text-green-600' : 'text-orange-600',
-                              },
-                              {
-                                icon: <ArrowUpRight className="h-4 w-4" />,
-                                label: '打开推广链接',
-                                onClick: () => safeOpenExternal(promoLink),
-                                disabled: !promoLink,
-                              },
-                            ]}
-                          />
+                              {creatingOfferId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleProductSync(item)}
+                              disabled={syncingProductId !== null}
+                              title="同步数据"
+                            >
+                              {syncingProductId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => openSingleOfflineDialog(item)}
+                              disabled={offliningProductId !== null || item.isBlacklisted}
+                              title={item.isBlacklisted ? '商品已下线' : '下线商品'}
+                              className={item.isBlacklisted ? 'text-muted-foreground' : 'text-red-600 hover:text-red-600'}
+                            >
+                              {offliningProductId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <PowerOff className="h-4 w-4" />}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -754,6 +854,75 @@ export default function ProductsPage() {
           />
         </CardContent>
       </Card>
+
+      <Dialog
+        open={singleOfflineDialogOpen}
+        onOpenChange={(open) => {
+          setSingleOfflineDialogOpen(open)
+          if (!open && offliningProductId === null) {
+            setOfflineProduct(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认下线商品</DialogTitle>
+            <DialogDescription>
+              确认下线商品 <strong className="text-foreground">{offlineProduct?.mid || '-'}</strong>？
+              系统会删除该商品所有关联Offer，并自动附带删除对应广告系列。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSingleOfflineDialogOpen(false)
+                setOfflineProduct(null)
+              }}
+              disabled={offliningProductId !== null}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitSingleOffline}
+              disabled={!offlineProduct || offliningProductId !== null}
+            >
+              {offliningProductId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PowerOff className="mr-2 h-4 w-4" />}
+              确认下线
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={batchOfflineDialogOpen} onOpenChange={setBatchOfflineDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认批量下线商品</DialogTitle>
+            <DialogDescription>
+              已选择 <strong className="text-foreground">{selectedProducts.length}</strong> 个商品。
+              确认后将删除这些商品的所有关联Offer，并自动附带删除对应广告系列。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBatchOfflineDialogOpen(false)}
+              disabled={batchOfflining}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={submitBatchOffline}
+              disabled={!canBatchOffline || batchOfflining}
+            >
+              {batchOfflining ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PowerOff className="mr-2 h-4 w-4" />}
+              确认批量下线
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
         <DialogContent className="max-w-5xl">
