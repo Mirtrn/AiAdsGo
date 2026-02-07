@@ -56,6 +56,38 @@ type RankedAsinItem = {
   isPreferred: boolean
 }
 
+type ThompsonBudgetArmInput = {
+  itemId: number
+  asin: string | null
+  brand: string | null
+  priority: number
+  isPreferred: boolean
+  outcome: Partial<AsinOutcomeStats> | null
+  signalSource: RankedAsinItem['signalSource']
+}
+
+type ThompsonBudgetAllocationArm = {
+  itemId: number
+  asin: string | null
+  brand: string | null
+  signalSource: RankedAsinItem['signalSource']
+  alpha: number
+  beta: number
+  posteriorMean: number
+  sampledTheta: number
+  weight: number
+  assignedBudget: number
+}
+
+type ThompsonBudgetAllocationResult = {
+  method: 'thompson_sampling'
+  totalBudget: number
+  allocatedBudget: number
+  perCampaignCap: number
+  armCount: number
+  arms: ThompsonBudgetAllocationArm[]
+}
+
 type AdsAccount = {
   id: number
   customer_id?: string
@@ -472,6 +504,413 @@ function roundCurrency(value: number): number {
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+function sampleGamma(shape: number, randomFn: () => number): number {
+  const safeShape = Math.max(0.0001, shape)
+
+  if (safeShape < 1) {
+    const u = Math.max(1e-12, randomFn())
+    return sampleGamma(safeShape + 1, randomFn) * Math.pow(u, 1 / safeShape)
+  }
+
+  const d = safeShape - 1 / 3
+  const c = 1 / Math.sqrt(9 * d)
+
+  while (true) {
+    const u1 = Math.max(1e-12, randomFn())
+    const u2 = Math.max(1e-12, randomFn())
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
+    const v = Math.pow(1 + c * z, 3)
+
+    if (v <= 0) continue
+
+    const u = Math.max(1e-12, randomFn())
+    const z2 = z * z
+    if (u < 1 - 0.0331 * z2 * z2) {
+      return d * v
+    }
+
+    if (Math.log(u) < 0.5 * z2 + d * (1 - v + Math.log(v))) {
+      return d * v
+    }
+  }
+}
+
+function sampleBeta(alpha: number, beta: number, randomFn: () => number): number {
+  const a = Math.max(0.0001, alpha)
+  const b = Math.max(0.0001, beta)
+  const x = sampleGamma(a, randomFn)
+  const y = sampleGamma(b, randomFn)
+  const total = x + y
+  if (!(total > 0)) {
+    return a / (a + b)
+  }
+  return x / total
+}
+
+export function allocateBudgetsWithThompsonSampling(params: {
+  totalBudget: number
+  perCampaignCap: number
+  arms: ThompsonBudgetArmInput[]
+  randomFn?: () => number
+}): ThompsonBudgetAllocationResult {
+  const totalBudget = roundCurrency(Math.max(0, toNumber(params.totalBudget, 0)))
+  const perCampaignCap = roundCurrency(Math.max(0.01, toNumber(params.perCampaignCap, 1)))
+  const randomFn = params.randomFn || Math.random
+
+  const preparedArms = params.arms.map((arm) => {
+    const published = Math.max(0, toNumber(arm.outcome?.published, 0))
+    const failed = Math.max(0, toNumber(arm.outcome?.failed, 0))
+    const priorityBoost = Math.min(2, Math.max(0, toNumber(arm.priority, 0)) * 0.05)
+    const preferredBoost = arm.isPreferred ? 0.5 : 0
+
+    const alpha = 1 + published + priorityBoost + preferredBoost
+    const beta = 1 + failed
+    const posteriorMean = alpha / (alpha + beta)
+    const sampledTheta = sampleBeta(alpha, beta, randomFn)
+    const weight = Math.max(0.0001, sampledTheta * 0.7 + posteriorMean * 0.3)
+
+    return {
+      ...arm,
+      alpha,
+      beta,
+      posteriorMean,
+      sampledTheta,
+      weight,
+      assignedBudget: 0,
+    }
+  })
+
+  if (preparedArms.length === 0 || totalBudget <= 0) {
+    return {
+      method: 'thompson_sampling',
+      totalBudget,
+      allocatedBudget: 0,
+      perCampaignCap,
+      armCount: preparedArms.length,
+      arms: preparedArms.map((arm) => ({
+        itemId: arm.itemId,
+        asin: arm.asin,
+        brand: arm.brand,
+        signalSource: arm.signalSource,
+        alpha: roundCurrency(arm.alpha),
+        beta: roundCurrency(arm.beta),
+        posteriorMean: roundCurrency(arm.posteriorMean),
+        sampledTheta: roundCurrency(arm.sampledTheta),
+        weight: roundCurrency(arm.weight),
+        assignedBudget: 0,
+      })),
+    }
+  }
+
+  let remainingBudget = totalBudget
+  let activeIndexes = preparedArms.map((_, idx) => idx)
+
+  while (remainingBudget > 0.001 && activeIndexes.length > 0) {
+    const activeWeightSum = activeIndexes.reduce(
+      (sum, idx) => sum + preparedArms[idx].weight,
+      0
+    )
+    if (!(activeWeightSum > 0)) break
+
+    let distributedThisRound = 0
+    for (const idx of activeIndexes) {
+      const arm = preparedArms[idx]
+      const remainingCap = perCampaignCap - arm.assignedBudget
+      if (remainingCap <= 0) continue
+
+      const share = remainingBudget * (arm.weight / activeWeightSum)
+      const assigned = Math.min(remainingCap, share)
+      if (assigned <= 0) continue
+
+      arm.assignedBudget += assigned
+      distributedThisRound += assigned
+    }
+
+    if (distributedThisRound <= 0) break
+
+    remainingBudget = Math.max(0, remainingBudget - distributedThisRound)
+    activeIndexes = activeIndexes.filter((idx) => {
+      const arm = preparedArms[idx]
+      return arm.assignedBudget < perCampaignCap - 0.001
+    })
+  }
+
+  const roundedArms = preparedArms.map((arm) => ({
+    ...arm,
+    assignedBudget: roundCurrency(arm.assignedBudget),
+  }))
+
+  const roundedAllocated = roundCurrency(
+    roundedArms.reduce((sum, arm) => sum + arm.assignedBudget, 0)
+  )
+  const budgetGap = roundCurrency(totalBudget - roundedAllocated)
+  if (budgetGap > 0 && roundedArms.length > 0) {
+    const sorted = [...roundedArms].sort((a, b) => b.weight - a.weight)
+    for (const arm of sorted) {
+      const current = roundedArms.find((entry) => entry.itemId === arm.itemId)
+      if (!current) continue
+      const remainingCap = roundCurrency(perCampaignCap - current.assignedBudget)
+      if (remainingCap <= 0) continue
+
+      const patch = roundCurrency(Math.min(remainingCap, budgetGap))
+      if (patch <= 0) continue
+      current.assignedBudget = roundCurrency(current.assignedBudget + patch)
+      break
+    }
+  }
+
+  const sortedArms = [...roundedArms].sort((a, b) => {
+    if (b.sampledTheta !== a.sampledTheta) {
+      return b.sampledTheta - a.sampledTheta
+    }
+    return b.posteriorMean - a.posteriorMean
+  })
+
+  return {
+    method: 'thompson_sampling',
+    totalBudget,
+    allocatedBudget: roundCurrency(sortedArms.reduce((sum, arm) => sum + arm.assignedBudget, 0)),
+    perCampaignCap,
+    armCount: sortedArms.length,
+    arms: sortedArms.map((arm) => ({
+      itemId: arm.itemId,
+      asin: arm.asin,
+      brand: arm.brand,
+      signalSource: arm.signalSource,
+      alpha: roundCurrency(arm.alpha),
+      beta: roundCurrency(arm.beta),
+      posteriorMean: roundCurrency(arm.posteriorMean),
+      sampledTheta: roundCurrency(arm.sampledTheta),
+      weight: roundCurrency(arm.weight),
+      assignedBudget: arm.assignedBudget,
+    })),
+  }
+}
+
+export function buildStrategyRunExplanations(params: {
+  run: {
+    id: string
+    mode: string | null
+    status: string | null
+    runDate: string | null
+    startedAt: string | null
+    completedAt: string | null
+    createdAt: string | null
+    errorMessage: string | null
+    statsJson: unknown
+  }
+  actions: Array<{
+    id: number
+    actionType: string
+    targetType: string | null
+    targetId: string | null
+    status: string | null
+    errorMessage: string | null
+    requestJson: unknown
+    responseJson: unknown
+    createdAt: string | null
+  }>
+}) {
+  const runStats = parseJson<Record<string, any>>(params.run.statsJson, {})
+
+  const byType = params.actions.reduce((acc, action) => {
+    const key = action.actionType
+    if (!acc[key]) {
+      acc[key] = [] as typeof params.actions
+    }
+    acc[key].push(action)
+    return acc
+  }, {} as Record<string, typeof params.actions>)
+
+  const pushPublishedReasons = () => {
+    const reasons: any[] = []
+
+    if (runStats?.adaptiveInsight?.adjustment) {
+      reasons.push({
+        trigger: 'adaptive_tune',
+        summary: '根据近7日ROI样本进行参数自适应',
+        evidence: runStats.adaptiveInsight,
+      })
+    }
+
+    if (runStats?.failureGuardInsight?.guardLevel) {
+      reasons.push({
+        trigger: 'failure_guard_tune',
+        summary: '根据历史发布失败率进行防守式调参',
+        evidence: runStats.failureGuardInsight,
+      })
+    }
+
+    if (runStats?.budgetAllocation?.method) {
+      reasons.push({
+        trigger: 'budget_allocate',
+        summary: runStats.budgetAllocation.method === 'thompson_sampling'
+          ? '采用 Thompson Sampling 对候选臂进行预算分配'
+          : '预算分配回退到默认预算策略',
+        evidence: runStats.budgetAllocation,
+      })
+    }
+
+    const cpcActions = (byType.adjust_cpc || [])
+      .filter((action) => action.status === 'success')
+      .map((action) => ({
+        actionId: action.id,
+        targetId: action.targetId,
+        details: parseJson<Record<string, any>>(action.responseJson, {}),
+      }))
+
+    if (cpcActions.length > 0) {
+      reasons.push({
+        trigger: 'adjust_cpc',
+        summary: '根据ROAS阈值规则动态调整CPC',
+        evidence: {
+          adjustedCount: cpcActions.length,
+          samples: cpcActions.slice(0, 5),
+        },
+      })
+    }
+
+    return reasons
+  }
+
+  const pushPauseReasons = () => {
+    const pauseActions = (byType.pause_campaign || [])
+      .map((action) => ({
+        actionId: action.id,
+        status: action.status,
+        targetId: action.targetId,
+        reason: action.errorMessage || null,
+        request: parseJson<Record<string, any>>(action.requestJson, {}),
+      }))
+
+    const reasons: any[] = []
+    if (pauseActions.length > 0) {
+      reasons.push({
+        trigger: 'pause_campaign',
+        summary: '触发品牌冲突处理，暂停冲突Campaign',
+        evidence: {
+          pauseAttempts: pauseActions.length,
+          pauseSuccess: pauseActions.filter((action) => action.status === 'success').length,
+          pauseFailed: pauseActions.filter((action) => action.status !== 'success').length,
+          samples: pauseActions.slice(0, 10),
+        },
+      })
+    }
+
+    if (runStats?.brandSnapshot) {
+      reasons.push({
+        trigger: 'active_brand_snapshot',
+        summary: '基于账号品牌快照识别冲突与未知品牌风险',
+        evidence: runStats.brandSnapshot,
+      })
+    }
+
+    if (runStats?.unresolvedConflicts) {
+      reasons.push({
+        trigger: 'unresolved_conflicts',
+        summary: '存在无法自动处理的品牌冲突，策略跳过发布',
+        evidence: {
+          unresolvedConflicts: runStats.unresolvedConflicts,
+          unknownBrandConflicts: runStats.unknownBrandConflicts || 0,
+        },
+      })
+    }
+
+    return reasons
+  }
+
+  const pushCircuitBreakReasons = () => {
+    const reasons: any[] = []
+
+    const circuitBreakAction = (byType.spend_cap_circuit_break || [])[0]
+    if (circuitBreakAction) {
+      reasons.push({
+        trigger: 'spend_cap_circuit_break',
+        summary: '当日花费触发上限，执行全账号熔断暂停',
+        evidence: {
+          request: parseJson<Record<string, any>>(circuitBreakAction.requestJson, {}),
+          response: parseJson<Record<string, any>>(circuitBreakAction.responseJson, {}),
+          status: circuitBreakAction.status,
+          errorMessage: circuitBreakAction.errorMessage,
+        },
+      })
+    }
+
+    if (runStats?.realtimeSpend) {
+      reasons.push({
+        trigger: 'spend_realtime_check',
+        summary: '基于实时花费接口进行熔断前校验',
+        evidence: runStats.realtimeSpend,
+      })
+    }
+
+    if (runStats?.circuitBreak) {
+      reasons.push({
+        trigger: 'circuit_break_result',
+        summary: '记录熔断执行结果（API优先，失败时本地兜底）',
+        evidence: runStats.circuitBreak,
+      })
+    }
+
+    return reasons
+  }
+
+  const publishActions = byType.publish_campaign || []
+  const publishedSummary = {
+    attempts: publishActions.length,
+    success: publishActions.filter((action) => action.status === 'success').length,
+    failed: publishActions.filter((action) => action.status !== 'success').length,
+  }
+
+  const stopLossAction = (byType.stop_loss || [])[0]
+
+  return {
+    run: {
+      id: params.run.id,
+      mode: params.run.mode,
+      status: params.run.status,
+      runDate: params.run.runDate,
+      startedAt: params.run.startedAt,
+      completedAt: params.run.completedAt,
+      createdAt: params.run.createdAt,
+      errorMessage: params.run.errorMessage,
+    },
+    summary: {
+      reason: runStats.reason || null,
+      offersConsidered: toNumber(runStats.offersConsidered, 0),
+      campaignsPublished: toNumber(runStats.campaignsPublished, 0),
+      campaignsPaused: toNumber(runStats.campaignsPaused, 0),
+      publishFailed: toNumber(runStats.publishFailed, 0),
+      skipped: toNumber(runStats.skipped, 0),
+      projectedSpend: toNumber(runStats.projectedSpend, 0),
+      dailySpent: toNumber(runStats.dailySpent, 0),
+      publishedSummary,
+      stopLoss: stopLossAction
+        ? {
+          actionId: stopLossAction.id,
+          status: stopLossAction.status,
+          details: parseJson<Record<string, any>>(stopLossAction.responseJson, {}),
+          errorMessage: stopLossAction.errorMessage,
+        }
+        : (runStats.stopLoss || null),
+    },
+    explanations: {
+      publish: pushPublishedReasons(),
+      pause: pushPauseReasons(),
+      circuitBreak: pushCircuitBreakReasons(),
+    },
+    actionTimeline: params.actions.map((action) => ({
+      id: action.id,
+      actionType: action.actionType,
+      targetType: action.targetType,
+      targetId: action.targetId,
+      status: action.status,
+      errorMessage: action.errorMessage,
+      createdAt: action.createdAt,
+    })),
+  }
 }
 
 const DEFAULT_PUBLISH_STOP_LOSS_THRESHOLD = 3
@@ -1605,6 +2044,13 @@ export async function executeOpenclawStrategy(
     })
 
     let executionItems = items.slice(0, config.maxOffersPerRun)
+    let selectedRankEntries: RankedAsinItem[] = executionItems.map((item) => ({
+      item,
+      score: toNumber(item.priority, 0),
+      signalSource: 'none',
+      outcome: null,
+      isPreferred: false,
+    }))
     try {
       const outcomeIndex = await loadAsinOutcomeIndex(userId)
       const rankedCandidates = rankAsinItemsForExecution(items, outcomeIndex, {
@@ -1612,6 +2058,7 @@ export async function executeOpenclawStrategy(
       })
       const selected = rankedCandidates.slice(0, config.maxOffersPerRun)
       executionItems = selected.map(entry => entry.item)
+      selectedRankEntries = selected
 
       const selectedAverageScore = selected.length > 0
         ? roundCurrency(selected.reduce((sum, entry) => sum + entry.score, 0) / selected.length)
@@ -1656,6 +2103,13 @@ export async function executeOpenclawStrategy(
         status: 'failed',
         errorMessage: error?.message || '候选ASIN排序失败',
       })
+      selectedRankEntries = executionItems.map((item) => ({
+        item,
+        score: toNumber(item.priority, 0),
+        signalSource: 'none',
+        outcome: null,
+        isPreferred: false,
+      }))
       stats.rankModel = {
         candidateCount: items.length,
         selectedCount: executionItems.length,
@@ -1663,6 +2117,82 @@ export async function executeOpenclawStrategy(
         signalSourceCount: { none: executionItems.length },
         preferredSelected: 0,
       }
+    }
+
+    const budgetAllocationActionId = await recordStrategyAction({
+      runId,
+      userId,
+      actionType: 'budget_allocate',
+      requestJson: JSON.stringify({
+        method: 'thompson_sampling',
+        selectedCount: executionItems.length,
+        defaultBudget: config.defaultBudget,
+        dailyBudgetCap: config.dailyBudgetCap,
+        dailySpendCap: config.dailySpendCap,
+        totalBudget,
+        projectedSpend,
+      }),
+    })
+
+    let budgetByItemId = new Map<number, number>()
+    try {
+      const availableBudgetAllowance = roundCurrency(Math.max(0, config.dailyBudgetCap - totalBudget))
+      const availableSpendAllowance = roundCurrency(Math.max(0, config.dailySpendCap - projectedSpend))
+      const totalBudgetForAllocation = roundCurrency(Math.min(availableBudgetAllowance, availableSpendAllowance))
+      const perCampaignCap = roundCurrency(Math.max(0.01, Math.min(config.defaultBudget, config.dailyBudgetCap, config.dailySpendCap)))
+
+      const allocation = allocateBudgetsWithThompsonSampling({
+        totalBudget: totalBudgetForAllocation,
+        perCampaignCap,
+        arms: selectedRankEntries.map((entry) => ({
+          itemId: entry.item.id,
+          asin: entry.item.asin,
+          brand: entry.item.brand,
+          priority: Math.max(0, toNumber(entry.item.priority, 0)),
+          isPreferred: entry.isPreferred,
+          outcome: entry.outcome,
+          signalSource: entry.signalSource,
+        })),
+      })
+
+      budgetByItemId = new Map(
+        allocation.arms.map((arm) => [
+          arm.itemId,
+          roundCurrency(Math.max(0, arm.assignedBudget)),
+        ])
+      )
+
+      stats.budgetAllocation = {
+        ...allocation,
+        unallocatedBudget: roundCurrency(Math.max(0, allocation.totalBudget - allocation.allocatedBudget)),
+        armBudgetMap: allocation.arms.reduce((acc, arm) => {
+          acc[String(arm.itemId)] = arm.assignedBudget
+          return acc
+        }, {} as Record<string, number>),
+      }
+
+      await updateStrategyAction({
+        actionId: budgetAllocationActionId,
+        userId,
+        status: 'success',
+        responseJson: JSON.stringify(stats.budgetAllocation),
+      })
+    } catch (error: any) {
+      budgetByItemId = new Map(
+        executionItems.map((item) => [item.id, roundCurrency(Math.max(0.01, config.defaultBudget))])
+      )
+      stats.budgetAllocation = {
+        method: 'fallback_default_budget',
+        selectedCount: executionItems.length,
+        defaultBudget: roundCurrency(config.defaultBudget),
+        error: error?.message || '预算分配模型计算失败',
+      }
+      await updateStrategyAction({
+        actionId: budgetAllocationActionId,
+        userId,
+        status: 'failed',
+        errorMessage: error?.message || '预算分配模型计算失败',
+      })
     }
 
     let consecutivePublishFailures = 0
@@ -2106,7 +2636,8 @@ export async function executeOpenclawStrategy(
 
       const budgetAllowance = Math.max(0, config.dailyBudgetCap - totalBudget)
       const spendAllowance = Math.max(0, config.dailySpendCap - projectedSpend)
-      const budgetForCampaign = roundCurrency(Math.min(config.defaultBudget, budgetAllowance, spendAllowance))
+      const allocatedBudgetForItem = roundCurrency(Math.max(0, budgetByItemId.get(item.id) || 0))
+      const budgetForCampaign = roundCurrency(Math.min(allocatedBudgetForItem, budgetAllowance, spendAllowance))
       const campaignMaxCpc = roundCurrency(Math.max(config.minCpc, Math.min(config.maxCpc, config.maxCpc)))
 
       if (spendAllowance <= 0) {
@@ -2158,6 +2689,17 @@ export async function executeOpenclawStrategy(
         negativeKeywords: normalizeNegativeKeywords(negativeKeywordsRaw),
       }
 
+      const budgetDecision = {
+        itemId: item.id,
+        asin: item.asin,
+        offerId,
+        accountId: Number(account.id),
+        allocatedBudgetForItem,
+        budgetAllowance: roundCurrency(budgetAllowance),
+        spendAllowance: roundCurrency(spendAllowance),
+        finalBudget: budgetForCampaign,
+      }
+
       const publishActionId = await recordStrategyAction({
         runId,
         userId,
@@ -2169,6 +2711,7 @@ export async function executeOpenclawStrategy(
           adCreativeId: creativeId,
           googleAdsAccountId: account.id,
           campaignConfig,
+          budgetDecision,
         }),
       })
 
@@ -2182,6 +2725,7 @@ export async function executeOpenclawStrategy(
             adCreativeId: creativeId,
             googleAdsAccountId: account.id,
             campaignConfig,
+            budgetDecision,
             pauseOldCampaigns: shouldAutoPauseConflicts,
             enableCampaignImmediately: true,
             enableSmartOptimization: false,

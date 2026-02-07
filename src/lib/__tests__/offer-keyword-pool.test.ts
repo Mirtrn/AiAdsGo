@@ -445,7 +445,7 @@ describe('OfferKeywordPool', () => {
     it('should be case-insensitive and trim whitespace', () => {
       const result = getPureBrandKeywords('  Eufy Security  ')
       expect(result).toContain('eufy security')
-      expect(result).toContain('eufy')
+      expect(result).toHaveLength(1)
     })
 
     it('should normalize punctuation and avoid generic prefixes (Dr. Mercola)', () => {
