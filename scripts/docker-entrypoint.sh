@@ -27,6 +27,8 @@ if [ -f /app/dist/openclaw-sync.js ]; then
     node dist/openclaw-sync.js || echo "⚠️  OpenClaw 配置同步失败，已跳过"
 fi
 
+chown -R nextjs:nodejs /app/.openclaw
+
 echo ""
 echo "========================================"
 echo "✅ 初始化完成，启动服务..."

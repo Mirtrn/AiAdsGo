@@ -1,9 +1,14 @@
 import { getSetting } from '@/lib/settings'
 import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
 
-function parseNumber(value: string | null | undefined, fallback: number): number {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return fallback
+const DEFAULT_GATEWAY_PORT = 18789
+
+function parseGatewayPort(value: string | null | undefined, fallback: number): number {
+  if (value === null || value === undefined) return fallback
+  const trimmed = String(value).trim()
+  if (!trimmed) return fallback
+  const parsed = Number(trimmed)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return fallback
   return parsed
 }
 
@@ -24,7 +29,7 @@ export async function resolveOpenclawGatewayBaseUrl(): Promise<string> {
 
   const portSetting = await getSetting('openclaw', 'gateway_port')
   const bindSetting = await getSetting('openclaw', 'gateway_bind')
-  const port = parseNumber(portSetting?.value, 18789)
+  const port = parseGatewayPort(portSetting?.value, DEFAULT_GATEWAY_PORT)
   const host = resolveGatewayHost(bindSetting?.value)
 
   return `http://${host}:${port}`
@@ -55,4 +60,3 @@ export async function invokeOpenclawTool(payload: {
 
   return await response.json()
 }
-
