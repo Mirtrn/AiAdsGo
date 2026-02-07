@@ -84,4 +84,15 @@ describe('resolvePartnerboostPromoLinks', () => {
     expect(fromProductId.shortPromoLink).toBeNull()
     expect(fromProductId.promoLink).toBe('https://amazon.example/product')
   })
+
+  it('uses short link when ASIN lookup returns partnerboost_link', () => {
+    const resolved = resolvePartnerboostPromoLinks({
+      productIdLink: 'https://www.amazon.com/dp/B000000001?tag=long',
+      asinLink: 'https://www.amazon.com/dp/B000000001?tag=asin-long',
+      asinPartnerboostLink: 'https://pboost.me/abc123',
+    })
+
+    expect(resolved.shortPromoLink).toBe('https://pboost.me/abc123')
+    expect(resolved.promoLink).toBe('https://pboost.me/abc123')
+  })
 })

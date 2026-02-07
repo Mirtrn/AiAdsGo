@@ -231,6 +231,53 @@ type YeahPromosResponse = {
   data?: YeahPromosMerchant[] | YeahPromosResponseData
 }
 
+type YeahPromosTransaction = {
+  id?: string | number
+  advert_id?: string | number
+  oid?: string | number
+  creationDate_time?: string
+  amount?: string | number
+  sale_comm?: string | number
+  status?: string | number
+  sku?: string
+  tag1?: string
+  tag2?: string
+  tag3?: string
+}
+
+type YeahPromosTransactionsResponseData = {
+  PageTotal?: number | string
+  pageTotal?: number | string
+  PageNow?: number | string
+  pageNow?: number | string
+  Data?: YeahPromosTransaction[] | Record<string, YeahPromosTransaction>
+  data?: YeahPromosTransaction[] | Record<string, YeahPromosTransaction>
+}
+
+type YeahPromosTransactionsResponse = {
+  Code?: number | string
+  code?: number | string
+  PageTotal?: number | string
+  pageTotal?: number | string
+  PageNow?: number | string
+  pageNow?: number | string
+  Data?: YeahPromosTransaction[] | Record<string, YeahPromosTransaction>
+  data?: YeahPromosTransaction[] | YeahPromosTransactionsResponseData
+}
+
+type YeahPromosTransactionMetric = {
+  priceAmount: number | null
+  commissionAmount: number | null
+  commissionRate: number | null
+  sampleCount: number
+}
+
+type ParsedYeahPromosCommission = {
+  mode: 'rate' | 'amount'
+  rate: number | null
+  amount: number | null
+}
+
 export function normalizeYeahPromosResultCode(code: unknown): number | null {
   if (code === null || code === undefined || code === '') {
     return null
@@ -343,6 +390,19 @@ function normalizeYeahPromosMerchants(value: unknown): YeahPromosMerchant[] {
   return []
 }
 
+function normalizeYeahPromosTransactions(value: unknown): YeahPromosTransaction[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value && typeof value === 'object') {
+    const candidates = Object.values(value as Record<string, unknown>)
+    return candidates.filter((item) => item && typeof item === 'object') as YeahPromosTransaction[]
+  }
+
+  return []
+}
+
 export function extractYeahPromosPayload(payload: YeahPromosResponse): {
   merchants: YeahPromosMerchant[]
   pageTotal: number | null
@@ -364,6 +424,32 @@ export function extractYeahPromosPayload(payload: YeahPromosResponse): {
 
   return {
     merchants,
+    pageTotal,
+    pageNow,
+  }
+}
+
+export function extractYeahPromosTransactionsPayload(payload: YeahPromosTransactionsResponse): {
+  transactions: YeahPromosTransaction[]
+  pageTotal: number | null
+  pageNow: number | null
+} {
+  const nested = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data as YeahPromosTransactionsResponseData
+    : null
+
+  const transactions = normalizeYeahPromosTransactions(
+    payload.Data
+    ?? (Array.isArray(payload.data) ? payload.data : undefined)
+    ?? nested?.Data
+    ?? nested?.data
+  )
+
+  const pageTotal = toNumber(payload.PageTotal ?? payload.pageTotal ?? nested?.PageTotal ?? nested?.pageTotal)
+  const pageNow = toNumber(payload.PageNow ?? payload.pageNow ?? nested?.PageNow ?? nested?.pageNow)
+
+  return {
+    transactions,
     pageTotal,
     pageNow,
   }
@@ -410,6 +496,50 @@ function parsePriceAmount(value: unknown): number | null {
   if (!numeric) return null
   const parsed = Number(numeric)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function hasCurrencySymbol(value: string): boolean {
+  return /[$€£¥₴₽₩₹]/.test(value)
+}
+
+function looksLikeCurrencyUnit(value: string): boolean {
+  const raw = value.trim()
+  if (!raw) return false
+  if (raw.includes('%')) return false
+  if (hasCurrencySymbol(raw)) return true
+
+  const upper = raw.toUpperCase()
+  if (/^[A-Z]{3}$/.test(upper)) return true
+  return false
+}
+
+export function parseYeahPromosMerchantCommission(avgPayout: unknown, payoutUnit: unknown): ParsedYeahPromosCommission {
+  const avgText = String(avgPayout || '').trim()
+  const unitText = String(payoutUnit || '').trim()
+
+  const isRate = avgText.includes('%') || unitText.includes('%')
+  if (isRate) {
+    return {
+      mode: 'rate',
+      rate: parsePercentage(avgPayout),
+      amount: null,
+    }
+  }
+
+  const isAmount = hasCurrencySymbol(avgText) || looksLikeCurrencyUnit(unitText)
+  if (isAmount) {
+    return {
+      mode: 'amount',
+      rate: null,
+      amount: parsePriceAmount(avgPayout),
+    }
+  }
+
+  return {
+    mode: 'rate',
+    rate: parsePercentage(avgPayout),
+    amount: null,
+  }
 }
 
 function roundTo2(value: number): number {
@@ -459,6 +589,17 @@ function normalizeCountries(input: unknown): string[] {
   }
 
   return fromArray(text.split(/[;,|/\s]+/g).filter(Boolean))
+}
+
+function normalizeYmdDate(value: unknown): string | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null
+  return text
+}
+
+function formatYmdDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
 }
 
 function toJsonString(value: unknown): string {
@@ -562,6 +703,9 @@ export async function checkAffiliatePlatformConfig(userId: number, platform: Aff
         'partnerboost_link_return_partnerboost_link',
       ]
     : [
+        'yeahpromos_start_date',
+        'yeahpromos_end_date',
+        'yeahpromos_is_amazon',
         'yeahpromos_page',
         'yeahpromos_limit',
       ]
@@ -711,15 +855,14 @@ async function fetchPartnerboostPromotableProducts(params: {
   }
 
   const asinLinkMap = new Map<string, { link: string | null; partnerboostLink: string | null }>()
-  const missingAsins = Array.from(new Set(
+  const linkLookupAsins = Array.from(new Set(
     products
-      .filter((item) => !linkMap.get(String(item.product_id || '').trim()))
       .map((item) => normalizeAsin(item.asin))
       .filter((asin): asin is string => Boolean(asin))
   ))
 
-  for (let index = 0; index < missingAsins.length; index += batchSize) {
-    const batchAsins = missingAsins.slice(index, index + batchSize)
+  for (let index = 0; index < linkLookupAsins.length; index += batchSize) {
+    const batchAsins = linkLookupAsins.slice(index, index + batchSize)
     const payload = await fetchJsonOrThrow<PartnerboostAsinLinkResponse>(
       `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
       {
@@ -810,12 +953,13 @@ async function fetchYeahPromosPromotableProducts(params: {
   const siteId = check.values.yeahpromos_site_id
   const limit = Number(check.values.yeahpromos_limit || '1000') || 1000
   const maxPages = Math.max(1, Math.min(params.maxPages || 20, 50))
-  let page = Number(check.values.yeahpromos_page || '1') || 1
+  const startPage = Number(check.values.yeahpromos_page || '1') || 1
+  let page = startPage
   let pageTotal = page
 
   const merchants: YeahPromosMerchant[] = []
 
-  while (page <= pageTotal && page - (Number(check.values.yeahpromos_page || '1') || 1) < maxPages) {
+  while (page <= pageTotal && page - startPage < maxPages) {
     const url = new URL('https://yeahpromos.com/index/getadvert/getadvert')
     url.searchParams.set('site_id', siteId)
     url.searchParams.set('page', String(page))
@@ -851,6 +995,103 @@ async function fetchYeahPromosPromotableProducts(params: {
     page += 1
   }
 
+  const configuredStartDate = normalizeYmdDate(check.values.yeahpromos_start_date)
+  const configuredEndDate = normalizeYmdDate(check.values.yeahpromos_end_date)
+  const now = new Date()
+  const defaultEndDate = formatYmdDate(now)
+  const defaultStartDate = formatYmdDate(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000))
+  const startDate = configuredStartDate || defaultStartDate
+  const endDate = configuredEndDate || defaultEndDate
+  const isAmazon = String(check.values.yeahpromos_is_amazon || '').trim() === '1' ? '1' : null
+
+  const transactionMetrics = new Map<string, YeahPromosTransactionMetric>()
+
+  try {
+    let orderPage = startPage
+    let orderPageTotal = orderPage
+
+    while (orderPage <= orderPageTotal && orderPage - startPage < maxPages) {
+      const url = new URL('https://yeahpromos.com/index/Getorder/getorder')
+      url.searchParams.set('site_id', siteId)
+      url.searchParams.set('startDate', startDate)
+      url.searchParams.set('endDate', endDate)
+      url.searchParams.set('page', String(orderPage))
+      url.searchParams.set('limit', String(limit))
+      if (isAmazon) {
+        url.searchParams.set('is_amazon', isAmazon)
+      }
+
+      const payload = await fetchJsonOrThrow<YeahPromosTransactionsResponse>(
+        url.toString(),
+        {
+          method: 'GET',
+          headers: {
+            token,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        },
+        'YeahPromos 交易拉取失败'
+      )
+
+      const codeRaw = payload.Code ?? payload.code
+      const code = normalizeYeahPromosResultCode(codeRaw)
+
+      if (codeRaw !== undefined && codeRaw !== null && codeRaw !== '' && code === null) {
+        throw new Error(`YeahPromos 交易拉取失败: Invalid code ${String(codeRaw)}`)
+      }
+
+      if (code !== null && code !== 100000) {
+        throw new Error(`YeahPromos 交易拉取失败: ${code}`)
+      }
+
+      const extracted = extractYeahPromosTransactionsPayload(payload)
+      for (const row of extracted.transactions) {
+        const mid = String(row.advert_id || '').trim()
+        if (!mid) continue
+
+        const amount = parsePriceAmount(row.amount)
+        const saleCommission = parsePriceAmount(row.sale_comm)
+        if (amount === null && saleCommission === null) continue
+
+        const previous = transactionMetrics.get(mid) || {
+          priceAmount: null,
+          commissionAmount: null,
+          commissionRate: null,
+          sampleCount: 0,
+        }
+
+        const nextSampleCount = previous.sampleCount + 1
+        const nextPriceAmount = amount === null
+          ? previous.priceAmount
+          : previous.priceAmount === null
+            ? amount
+            : roundTo2(((previous.priceAmount * previous.sampleCount) + amount) / nextSampleCount)
+
+        const nextCommissionAmount = saleCommission === null
+          ? previous.commissionAmount
+          : previous.commissionAmount === null
+            ? saleCommission
+            : roundTo2(((previous.commissionAmount * previous.sampleCount) + saleCommission) / nextSampleCount)
+
+        const inferredRate = nextPriceAmount !== null && nextPriceAmount > 0 && nextCommissionAmount !== null
+          ? roundTo2((nextCommissionAmount / nextPriceAmount) * 100)
+          : previous.commissionRate
+
+        transactionMetrics.set(mid, {
+          priceAmount: nextPriceAmount,
+          commissionAmount: nextCommissionAmount,
+          commissionRate: inferredRate,
+          sampleCount: nextSampleCount,
+        })
+      }
+
+      orderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
+      orderPage += 1
+    }
+  } catch (error: any) {
+    console.warn(`[affiliate-products] YeahPromos 交易数据补充失败，继续使用商家接口数据: ${error?.message || error}`)
+  }
+
   const normalized: NormalizedAffiliateProduct[] = []
   for (const item of merchants) {
     const mid = String(item.mid || '').trim()
@@ -862,9 +1103,13 @@ async function fetchYeahPromosPromotableProducts(params: {
     const advertStatus = String(item.advert_status ?? '').trim()
     if (advertStatus && advertStatus !== '1') continue
 
-    const rateFromAvg = parsePercentage(item.avg_payout)
-    const rateFromUnit = parsePercentage(item.payout_unit)
-    const commissionRate = rateFromAvg ?? rateFromUnit
+    const parsedCommission = parseYeahPromosMerchantCommission(item.avg_payout, item.payout_unit)
+    const txMetric = transactionMetrics.get(mid)
+    const commissionRate = parsedCommission.rate ?? txMetric?.commissionRate ?? null
+    const priceAmount = txMetric?.priceAmount ?? null
+    const commissionAmount = txMetric?.commissionAmount
+      ?? parsedCommission.amount
+      ?? computeCommissionAmount(priceAmount, commissionRate)
     const allowedCountries = normalizeCountries(item.country)
 
     normalized.push({
@@ -877,11 +1122,11 @@ async function fetchYeahPromosPromotableProducts(params: {
       promoLink,
       shortPromoLink: null,
       allowedCountries,
-      priceAmount: null,
+      priceAmount,
       priceCurrency: null,
       commissionRate,
-      commissionAmount: null,
-      rawJson: toJsonString(item),
+      commissionAmount,
+      rawJson: toJsonString(txMetric ? { ...item, transaction_metric: txMetric } : item),
     })
   }
 
