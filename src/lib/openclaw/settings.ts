@@ -20,7 +20,9 @@ export function parseBoolean(value: string | null | undefined, fallback: boolean
 
 export function parseNumber(value: string | null | undefined, fallback?: number): number | undefined {
   if (value === null || value === undefined) return fallback
-  const parsed = Number(value)
+  const trimmed = String(value).trim()
+  if (!trimmed) return fallback
+  const parsed = Number(trimmed)
   if (!Number.isFinite(parsed)) return fallback
   return parsed
 }

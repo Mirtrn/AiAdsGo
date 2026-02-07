@@ -4,6 +4,9 @@ import { getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 
 const USER_SCOPED_KEYS = new Set([
+  'ai_models_json',
+  'openclaw_models_mode',
+  'openclaw_models_bedrock_discovery_json',
   'yeahpromos_token',
   'yeahpromos_site_id',
   'yeahpromos_page',
@@ -28,7 +31,25 @@ const USER_SCOPED_KEYS = new Set([
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',
+  'feishu_app_secret_file',
   'feishu_domain',
+  'feishu_dm_policy',
+  'feishu_group_policy',
+  'feishu_allow_from',
+  'feishu_group_allow_from',
+  'feishu_require_mention',
+  'feishu_history_limit',
+  'feishu_dm_history_limit',
+  'feishu_streaming',
+  'feishu_block_streaming',
+  'feishu_config_writes',
+  'feishu_text_chunk_limit',
+  'feishu_chunk_mode',
+  'feishu_markdown_tables',
+  'feishu_media_max_mb',
+  'feishu_response_prefix',
+  'feishu_groups_json',
+  'feishu_accounts_json',
   'feishu_target',
   'feishu_doc_folder_token',
   'feishu_doc_title_prefix',
@@ -55,14 +76,35 @@ const USER_SCOPED_KEYS = new Set([
 ])
 
 const USER_SYNC_KEYS = new Set([
+  'ai_models_json',
+  'openclaw_models_mode',
+  'openclaw_models_bedrock_discovery_json',
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',
+  'feishu_app_secret_file',
   'feishu_domain',
+  'feishu_dm_policy',
+  'feishu_group_policy',
+  'feishu_allow_from',
+  'feishu_group_allow_from',
+  'feishu_require_mention',
+  'feishu_history_limit',
+  'feishu_dm_history_limit',
+  'feishu_streaming',
+  'feishu_block_streaming',
+  'feishu_config_writes',
+  'feishu_text_chunk_limit',
+  'feishu_chunk_mode',
+  'feishu_markdown_tables',
+  'feishu_media_max_mb',
+  'feishu_response_prefix',
+  'feishu_groups_json',
+  'feishu_accounts_json',
 ])
 
 const updateSchema = z.object({
-  scope: z.enum(['global', 'user']),
+  scope: z.literal('user'),
   updates: z.array(
     z.object({
       key: z.string(),
@@ -77,20 +119,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const isAdmin = auth.user.role === 'admin'
-  const globalSettingsRaw = await getSettingsByCategory('openclaw')
-  const globalSettings = isAdmin
-    ? globalSettingsRaw
-    : globalSettingsRaw.map(setting => (
-      setting.isSensitive ? { ...setting, value: null } : setting
-    ))
   const userSettings = (await getSettingsByCategory('openclaw', auth.user.userId))
     .filter(setting => USER_SCOPED_KEYS.has(setting.key))
 
   return NextResponse.json({
     success: true,
-    isAdmin,
-    global: globalSettings,
+    isAdmin: auth.user.role === 'admin',
     user: userSettings,
   })
 }
@@ -110,43 +144,26 @@ export async function PUT(request: NextRequest) {
     )
   }
 
-  const { scope, updates } = parsed.data
+  const { updates } = parsed.data
 
-  if (scope === 'global') {
-    if (auth.user.role !== 'admin') {
-      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
-    }
+  const invalidKey = updates.find(item => !USER_SCOPED_KEYS.has(item.key))
+  if (invalidKey) {
+    return NextResponse.json({ error: `不允许修改配置: ${invalidKey.key}` }, { status: 400 })
+  }
 
-    await updateSettings(
-      updates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
-      undefined
-    )
+  await updateSettings(
+    updates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
+    auth.user.userId
+  )
 
-    try {
-      const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
-      await syncOpenclawConfig({ reason: 'openclaw-global-settings', actorUserId: auth.user.userId })
-    } catch (error) {
-      console.error('❌ OpenClaw配置同步失败:', error)
-    }
-  } else {
-    const invalidKey = updates.find(item => !USER_SCOPED_KEYS.has(item.key))
-    if (invalidKey) {
-      return NextResponse.json({ error: `不允许修改配置: ${invalidKey.key}` }, { status: 400 })
-    }
-
-    await updateSettings(
-      updates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
-      auth.user.userId
-    )
-
-    if (updates.some(item => USER_SYNC_KEYS.has(item.key))) {
-      try {
-        const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
-        await syncOpenclawConfig({ reason: 'openclaw-user-settings', actorUserId: auth.user.userId })
-      } catch (error) {
-        console.error('❌ OpenClaw配置同步失败:', error)
-      }
-    }
+  try {
+    const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
+    const reason = updates.some(item => USER_SYNC_KEYS.has(item.key))
+      ? 'openclaw-user-settings'
+      : 'openclaw-user-settings-nonsync'
+    await syncOpenclawConfig({ reason, actorUserId: auth.user.userId })
+  } catch (error) {
+    console.error('❌ OpenClaw配置同步失败:', error)
   }
 
   return NextResponse.json({ success: true })
