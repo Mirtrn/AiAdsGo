@@ -61,6 +61,7 @@ const publicPaths = [
   '/contact',        // 联系我们
   '/api/auth/login', // 登录API
   '/api/auth/google', // Google OAuth
+  '/api/health',     // 容器内健康检查（nginx/supervisor 启动探针）
   '/robots.txt',     // SEO - robots.txt
   '/sitemap.xml',    // SEO - sitemap.xml
 ]
