@@ -829,7 +829,7 @@ async function pauseConflictingCampaigns(params: {
         method: 'PUT',
         body: { status: 'PAUSED' },
       })
-      await updateStrategyAction({ actionId, status: 'success' })
+      await updateStrategyAction({ actionId, userId: params.userId, status: 'success' })
       await recordOpenclawAction({
         userId: params.userId,
         channel: 'strategy',
@@ -844,6 +844,7 @@ async function pauseConflictingCampaigns(params: {
       failedCampaignIds.push(String(campaign.id || ''))
       await updateStrategyAction({
         actionId,
+        userId: params.userId,
         status: 'failed',
         errorMessage: error?.message || '暂停失败',
       })
@@ -1052,6 +1053,7 @@ async function enforceDailySpendCircuitBreak(params: {
   const status = accountErrors.length === 0 ? 'success' : 'failed'
   await updateStrategyAction({
     actionId,
+    userId: params.userId,
     status,
     responseJson: JSON.stringify({
       attempted,
@@ -1112,6 +1114,7 @@ export async function executeOpenclawStrategy(
   if (!config.enabled && task.data?.mode !== 'manual') {
     await updateStrategyRun({
       runId,
+      userId,
       status: 'skipped',
       statsJson: JSON.stringify({ reason: 'strategy_disabled' }),
       completedAt: nowIso,
@@ -1126,6 +1129,7 @@ export async function executeOpenclawStrategy(
   if (running) {
     await updateStrategyRun({
       runId,
+      userId,
       status: 'skipped',
       errorMessage: '已有运行中的策略',
       completedAt: nowIso,
@@ -1135,6 +1139,7 @@ export async function executeOpenclawStrategy(
 
   await updateStrategyRun({
     runId,
+    userId,
     status: 'running',
     startedAt: nowIso,
   })
@@ -1186,12 +1191,14 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyAction({
         actionId: adaptiveActionId,
+        userId,
         status: 'success',
         responseJson: JSON.stringify(adaptiveInsight),
       })
     } catch (error: any) {
       await updateStrategyAction({
         actionId: adaptiveActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '策略自适应失败',
       })
@@ -1224,12 +1231,14 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyAction({
         actionId: failureGuardActionId,
+        userId,
         status: 'success',
         responseJson: JSON.stringify(guard.insight),
       })
     } catch (error: any) {
       await updateStrategyAction({
         actionId: failureGuardActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '失败率防守调参失败',
       })
@@ -1250,12 +1259,14 @@ export async function executeOpenclawStrategy(
       budgetSummary = budget?.data?.overall || null
       await updateStrategyAction({
         actionId: budgetActionId,
+        userId,
         status: 'success',
         responseJson: JSON.stringify(budgetSummary),
       })
     } catch (error: any) {
       await updateStrategyAction({
         actionId: budgetActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '预算查询失败',
       })
@@ -1329,6 +1340,7 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyAction({
         actionId: brandSnapshotActionId,
+        userId,
         status: failedAccounts > 0 && loadedAccounts === 0 ? 'failed' : 'success',
         responseJson: JSON.stringify({
           summary: stats.brandSnapshot,
@@ -1345,6 +1357,7 @@ export async function executeOpenclawStrategy(
     } catch (error: any) {
       await updateStrategyAction({
         actionId: brandSnapshotActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '品牌快照获取失败',
       })
@@ -1399,6 +1412,7 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyAction({
         actionId: spendRealtimeActionId,
+        userId,
         status: 'success',
         responseJson: JSON.stringify({
           hasRealtime,
@@ -1409,6 +1423,7 @@ export async function executeOpenclawStrategy(
     } catch (error: any) {
       await updateStrategyAction({
         actionId: spendRealtimeActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '实时花费校验失败',
       })
@@ -1427,6 +1442,7 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyRun({
         runId,
+        userId,
         status: 'completed',
         statsJson: JSON.stringify({ ...stats, reason: 'daily_spend_cap' }),
         completedAt: new Date().toISOString(),
@@ -1437,6 +1453,7 @@ export async function executeOpenclawStrategy(
     if (filteredAccounts.length === 0) {
       await updateStrategyRun({
         runId,
+        userId,
         status: 'completed',
         statsJson: JSON.stringify({ ...stats, reason: 'no_ads_accounts' }),
         completedAt: new Date().toISOString(),
@@ -1495,6 +1512,7 @@ export async function executeOpenclawStrategy(
 
           await updateStrategyAction({
             actionId,
+            userId,
             status: 'success',
             responseJson: JSON.stringify({ roas, currentCpc: roundCurrency(currentCpc), newCpc }),
           })
@@ -1503,6 +1521,7 @@ export async function executeOpenclawStrategy(
         } catch (error: any) {
           await updateStrategyAction({
             actionId,
+            userId,
             status: 'failed',
             errorMessage: error?.message || 'CPC调整失败',
           })
@@ -1550,12 +1569,14 @@ export async function executeOpenclawStrategy(
           }
           await updateStrategyAction({
             actionId,
+            userId,
             status: 'success',
             responseJson: JSON.stringify({ inserted: Math.min(associates.length, config.maxOffersPerRun) }),
           })
         } catch (error: any) {
           await updateStrategyAction({
             actionId,
+            userId,
             status: 'failed',
             errorMessage: error?.message || '联盟平台获取失败',
           })
@@ -1564,6 +1585,7 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyRun({
         runId,
+        userId,
         status: 'completed',
         statsJson: JSON.stringify({ ...stats, reason: 'no_asin_items' }),
         completedAt: new Date().toISOString(),
@@ -1610,6 +1632,7 @@ export async function executeOpenclawStrategy(
 
       await updateStrategyAction({
         actionId: rankActionId,
+        userId,
         status: 'success',
         responseJson: JSON.stringify({
           summary: stats.rankModel,
@@ -1629,6 +1652,7 @@ export async function executeOpenclawStrategy(
     } catch (error: any) {
       await updateStrategyAction({
         actionId: rankActionId,
+        userId,
         status: 'failed',
         errorMessage: error?.message || '候选ASIN排序失败',
       })
@@ -1727,6 +1751,7 @@ export async function executeOpenclawStrategy(
             })
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'success',
               responseJson: JSON.stringify(extractRes),
             })
@@ -1768,6 +1793,7 @@ export async function executeOpenclawStrategy(
           } catch (error: any) {
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'failed',
               errorMessage: error?.message || 'Offer提取失败',
             })
@@ -1804,6 +1830,7 @@ export async function executeOpenclawStrategy(
             offerId = createRes?.offer?.id
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'success',
               responseJson: JSON.stringify(createRes),
             })
@@ -1819,6 +1846,7 @@ export async function executeOpenclawStrategy(
           } catch (error: any) {
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'failed',
               errorMessage: error?.message || 'Offer创建失败',
             })
@@ -1931,6 +1959,7 @@ export async function executeOpenclawStrategy(
             const taskId = createRes?.taskId
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'success',
               responseJson: JSON.stringify(createRes),
             })
@@ -1960,6 +1989,7 @@ export async function executeOpenclawStrategy(
           } catch (error: any) {
             await updateStrategyAction({
               actionId,
+              userId,
               status: 'failed',
               errorMessage: error?.message || '创意生成失败',
             })
@@ -2160,6 +2190,7 @@ export async function executeOpenclawStrategy(
 
         await updateStrategyAction({
           actionId: publishActionId,
+          userId,
           status: 'success',
           responseJson: JSON.stringify(publishRes),
         })
@@ -2195,6 +2226,7 @@ export async function executeOpenclawStrategy(
         const publishError = error?.message || '发布失败'
         await updateStrategyAction({
           actionId: publishActionId,
+          userId,
           status: 'failed',
           errorMessage: publishError,
         })
@@ -2227,6 +2259,7 @@ export async function executeOpenclawStrategy(
           const topFailureReasons = summarizeTopErrorMessages(publishFailureReasons)
           await updateStrategyAction({
             actionId: stopLossActionId,
+            userId,
             status: 'success',
             responseJson: JSON.stringify({
               threshold: publishStopLossThreshold,
@@ -2257,6 +2290,7 @@ export async function executeOpenclawStrategy(
 
     await updateStrategyRun({
       runId,
+      userId,
       status: 'completed',
       statsJson: JSON.stringify(stats),
       completedAt: new Date().toISOString(),
@@ -2266,6 +2300,7 @@ export async function executeOpenclawStrategy(
   } catch (error: any) {
     await updateStrategyRun({
       runId,
+      userId,
       status: 'failed',
       errorMessage: error?.message || '策略执行失败',
       statsJson: JSON.stringify(stats),

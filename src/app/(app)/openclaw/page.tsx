@@ -497,6 +497,13 @@ export default function OpenClawPage() {
   const [strategyPriorityAsinsDraft, setStrategyPriorityAsinsDraft] = useState('')
   const [showAdvancedFeishu, setShowAdvancedFeishu] = useState(false)
   const [showAdvancedStrategy, setShowAdvancedStrategy] = useState(false)
+  const [feishuSectionBasic, setFeishuSectionBasic] = useState(true)
+  const [feishuSectionPolicy, setFeishuSectionPolicy] = useState(false)
+  const [feishuSectionMessage, setFeishuSectionMessage] = useState(false)
+  const [feishuSectionAdvanced, setFeishuSectionAdvanced] = useState(false)
+  const [feishuTestLoading, setFeishuTestLoading] = useState(false)
+  const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [aiJsonError, setAiJsonError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!simpleMode) return
@@ -835,6 +842,46 @@ export default function OpenClawPage() {
     }))
   }
 
+  const handleFeishuTestConnection = async () => {
+    setFeishuTestLoading(true)
+    setFeishuTestResult(null)
+    try {
+      const response = await fetch('/api/openclaw/gateway/status', { credentials: 'include' })
+      const payload = await response.json().catch(() => null)
+      if (response.ok && payload?.success && payload?.health?.ok) {
+        setFeishuTestResult({ ok: true, message: 'Gateway 连接正常' })
+      } else {
+        setFeishuTestResult({ ok: false, message: payload?.error || payload?.health?.error || '连接失败' })
+      }
+    } catch (error: any) {
+      setFeishuTestResult({ ok: false, message: error?.message || '连接测试失败' })
+    } finally {
+      setFeishuTestLoading(false)
+    }
+  }
+
+  const handleFormatAiJson = () => {
+    const raw = userValues.ai_models_json || ''
+    if (!raw.trim()) return
+    try {
+      const parsed = JSON.parse(raw)
+      setUserValue('ai_models_json', JSON.stringify(parsed, null, 2))
+      setAiJsonError(null)
+    } catch (e: any) {
+      setAiJsonError(e?.message || 'JSON 格式错误')
+    }
+  }
+
+  const validateAiJson = (value: string): string | null => {
+    if (!value.trim()) return null
+    try {
+      JSON.parse(value)
+      return null
+    } catch (e: any) {
+      return e?.message || 'JSON 格式错误'
+    }
+  }
+
   const handleRunStrategy = async () => {
     setStrategyRunning(true)
     try {
@@ -1036,6 +1083,16 @@ export default function OpenClawPage() {
         </TabsList>
 
         <TabsContent value="config" className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-500">完成以下配置以启用 OpenClaw 全部功能</div>
+            <Link
+              href="/help/openclaw-config"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              查看配置指南
+            </Link>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle>配置向导</CardTitle>
@@ -1281,27 +1338,57 @@ export default function OpenClawPage() {
               <CardDescription>用户级配置：最小仅需 Providers JSON</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                JSON 格式：顶层 providers 对象，每个 provider 包含 baseUrl、apiKey、api 和 models 数组。详见配置指南。
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Providers JSON</span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setUserValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)}
-                >
-                  最小模板
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFormatAiJson}
+                  >
+                    格式化JSON
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUserValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)}
+                  >
+                    最小模板
+                  </Button>
+                </div>
               </div>
+              {aiJsonError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                  JSON 格式错误：{aiJsonError}
+                </div>
+              )}
               <Textarea
                 value={userValues.ai_models_json || ''}
-                onChange={(e) => setUserValue('ai_models_json', e.target.value)}
+                onChange={(e) => {
+                  setUserValue('ai_models_json', e.target.value)
+                  setAiJsonError(validateAiJson(e.target.value))
+                }}
                 placeholder={AI_MINIMAL_PLACEHOLDER}
                 rows={10}
               />
               <div className="flex justify-end">
                 <Button
                   type="button"
-                  onClick={() => saveSettings({ scope: 'user', keys: [...AI_USER_KEYS], successMessage: 'AI 配置已保存' })}
+                  onClick={() => {
+                    const jsonErr = validateAiJson(userValues.ai_models_json || '')
+                    if (jsonErr) {
+                      setAiJsonError(jsonErr)
+                      toast.error('AI Providers JSON 格式错误，请修正后再保存')
+                      return
+                    }
+                    setAiJsonError(null)
+                    saveSettings({ scope: 'user', keys: [...AI_USER_KEYS], successMessage: 'AI 配置已保存' })
+                  }}
                   disabled={savingUser}
                 >
                   {savingUser ? '保存中...' : aiDirty ? '保存 AI 配置 *' : '保存 AI 配置'}
@@ -1337,133 +1424,232 @@ export default function OpenClawPage() {
                 快速起步：填写 App ID、App Secret、推送目标即可联通；如需高风险动作卡片确认，请在「飞书多账号 JSON」中补充 card* 字段。
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <InputWithLabel
-                  label="飞书 App ID"
-                  value={userValues.feishu_app_id || ''}
-                  onChange={(v) => setUserValue('feishu_app_id', v)}
-                />
-                <InputWithLabel
-                  label="飞书 App Secret"
-                  type="password"
-                  value={userValues.feishu_app_secret || ''}
-                  onChange={(v) => setUserValue('feishu_app_secret', v)}
-                />
-                <InputWithLabel
-                  label="飞书推送目标 (open_id / union_id / chat_id)"
-                  value={userValues.feishu_target || ''}
-                  onChange={(v) => setUserValue('feishu_target', v)}
-                />
+              {/* -- 基础配置 -- */}
+              <div className="rounded-md border">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
+                  onClick={() => setFeishuSectionBasic((prev) => !prev)}
+                >
+                  <span>基础配置</span>
+                  <span className="text-xs text-slate-400">{feishuSectionBasic ? '收起' : '展开'}</span>
+                </button>
+                {feishuSectionBasic && (
+                  <div className="border-t px-4 py-4 space-y-4">
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <InputWithLabel
+                        label="飞书 App ID"
+                        value={userValues.feishu_app_id || ''}
+                        onChange={(v) => setUserValue('feishu_app_id', v)}
+                      />
+                      <InputWithLabel
+                        label="飞书 App Secret"
+                        type="password"
+                        value={userValues.feishu_app_secret || ''}
+                        onChange={(v) => setUserValue('feishu_app_secret', v)}
+                      />
+                      <InputWithLabel
+                        label="飞书推送目标 (open_id / union_id / chat_id)"
+                        value={userValues.feishu_target || ''}
+                        onChange={(v) => setUserValue('feishu_target', v)}
+                      />
+                    </div>
+                    {showFeishuAdvanced && (
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">域名</label>
+                          <Select
+                            value={userValues.feishu_domain || 'feishu'}
+                            onValueChange={(v) => setUserValue('feishu_domain', v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择域名" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="feishu">feishu</SelectItem>
+                              <SelectItem value="lark">lark</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <InputWithLabel
+                          label="飞书 Bot Name"
+                          value={userValues.feishu_bot_name || ''}
+                          onChange={(v) => setUserValue('feishu_bot_name', v)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
+              {/* -- 策略配置 -- */}
               {showFeishuAdvanced && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  <InputWithLabel
-                    label="飞书 Bot Name"
-                    value={userValues.feishu_bot_name || ''}
-                    onChange={(v) => setUserValue('feishu_bot_name', v)}
-                  />
-                  <InputWithLabel
-                    label="Domain"
-                    value={userValues.feishu_domain || ''}
-                    onChange={(v) => setUserValue('feishu_domain', v)}
-                    placeholder="feishu / lark / https://..."
-                  />
-                  <InputWithLabel
-                    label="飞书文档目录 Token"
-                    value={userValues.feishu_doc_folder_token || ''}
-                    onChange={(v) => setUserValue('feishu_doc_folder_token', v)}
-                    placeholder="fldc_xxx"
-                  />
-                  <InputWithLabel
-                    label="文档标题前缀"
-                    value={userValues.feishu_doc_title_prefix || ''}
-                    onChange={(v) => setUserValue('feishu_doc_title_prefix', v)}
-                    placeholder="OpenClaw 每日报表"
-                  />
-                  <InputWithLabel
-                    label="Bitable App Token"
-                    value={userValues.feishu_bitable_app_token || ''}
-                    onChange={(v) => setUserValue('feishu_bitable_app_token', v)}
-                    placeholder="basc_xxx"
-                  />
-                  <InputWithLabel
-                    label="Bitable Table ID"
-                    value={userValues.feishu_bitable_table_id || ''}
-                    onChange={(v) => setUserValue('feishu_bitable_table_id', v)}
-                    placeholder="tbl_xxx (可留空自动创建)"
-                  />
-                  <InputWithLabel
-                    label="Bitable Table Name"
-                    value={userValues.feishu_bitable_table_name || ''}
-                    onChange={(v) => setUserValue('feishu_bitable_table_name', v)}
-                    placeholder="OpenClaw Daily Report"
-                  />
+                <div className="rounded-md border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
+                    onClick={() => setFeishuSectionPolicy((prev) => !prev)}
+                  >
+                    <span>策略配置</span>
+                    <span className="text-xs text-slate-400">{feishuSectionPolicy ? '收起' : '展开'}</span>
+                  </button>
+                  {feishuSectionPolicy && (
+                    <div className="border-t px-4 py-4 space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">DM 策略</label>
+                          <Select
+                            value={userValues.feishu_dm_policy || ''}
+                            onValueChange={(v) => setUserValue('feishu_dm_policy', v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择 DM 策略" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pairing">pairing</SelectItem>
+                              <SelectItem value="allowlist">allowlist</SelectItem>
+                              <SelectItem value="open">open</SelectItem>
+                              <SelectItem value="disabled">disabled</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">群聊策略</label>
+                          <Select
+                            value={userValues.feishu_group_policy || ''}
+                            onValueChange={(v) => setUserValue('feishu_group_policy', v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择群聊策略" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open">open</SelectItem>
+                              <SelectItem value="allowlist">allowlist</SelectItem>
+                              <SelectItem value="disabled">disabled</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">DM 白名单</label>
+                          <Textarea
+                            value={userValues.feishu_allow_from || ''}
+                            onChange={(e) => setUserValue('feishu_allow_from', e.target.value)}
+                            placeholder='["open_id_1", "open_id_2"]'
+                            rows={3}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">群聊白名单</label>
+                          <Textarea
+                            value={userValues.feishu_group_allow_from || ''}
+                            onChange={(e) => setUserValue('feishu_group_allow_from', e.target.value)}
+                            placeholder='["chat_id_1", "chat_id_2"]'
+                            rows={3}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-
+              {/* -- 消息配置 -- */}
               {showFeishuAdvanced && (
-                <>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <InputWithLabel label="App Secret File" value={userValues.feishu_app_secret_file || ''} onChange={(v) => setUserValue('feishu_app_secret_file', v)} placeholder="/path/to/secret" />
-                    <InputWithLabel label="DM Policy" value={userValues.feishu_dm_policy || ''} onChange={(v) => setUserValue('feishu_dm_policy', v)} placeholder="pairing / allowlist / open / disabled" />
-                    <InputWithLabel label="Group Policy" value={userValues.feishu_group_policy || ''} onChange={(v) => setUserValue('feishu_group_policy', v)} placeholder="open / allowlist / disabled" />
-                    <InputWithLabel label="DM Allowlist" value={userValues.feishu_allow_from || ''} onChange={(v) => setUserValue('feishu_allow_from', v)} placeholder='["open_id"]' />
-                    <InputWithLabel label="Group Allowlist" value={userValues.feishu_group_allow_from || ''} onChange={(v) => setUserValue('feishu_group_allow_from', v)} placeholder='["open_id"]' />
-                    <SwitchWithLabel label="Require Mention (group)" checked={(userValues.feishu_require_mention || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_require_mention', val ? 'true' : 'false')} />
-                    <InputWithLabel label="History Limit" value={userValues.feishu_history_limit || ''} onChange={(v) => setUserValue('feishu_history_limit', v)} />
-                    <InputWithLabel label="DM History Limit" value={userValues.feishu_dm_history_limit || ''} onChange={(v) => setUserValue('feishu_dm_history_limit', v)} />
-                    <SwitchWithLabel label="Streaming" checked={(userValues.feishu_streaming || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_streaming', val ? 'true' : 'false')} />
-                    <SwitchWithLabel label="Block Streaming" checked={(userValues.feishu_block_streaming || 'false') === 'true'} onChange={(val) => setUserValue('feishu_block_streaming', val ? 'true' : 'false')} />
-                    <SwitchWithLabel label="Config Writes" checked={(userValues.feishu_config_writes || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_config_writes', val ? 'true' : 'false')} />
-                    <InputWithLabel label="Text Chunk Limit" value={userValues.feishu_text_chunk_limit || ''} onChange={(v) => setUserValue('feishu_text_chunk_limit', v)} />
-                    <InputWithLabel label="Chunk Mode" value={userValues.feishu_chunk_mode || ''} onChange={(v) => setUserValue('feishu_chunk_mode', v)} placeholder="length / newline" />
-                    <InputWithLabel label="Markdown Tables" value={userValues.feishu_markdown_tables || ''} onChange={(v) => setUserValue('feishu_markdown_tables', v)} placeholder="off / bullets / code" />
-                    <InputWithLabel label="Media Max MB" value={userValues.feishu_media_max_mb || ''} onChange={(v) => setUserValue('feishu_media_max_mb', v)} />
-                    <InputWithLabel label="Response Prefix" value={userValues.feishu_response_prefix || ''} onChange={(v) => setUserValue('feishu_response_prefix', v)} />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Groups JSON (高级)</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setUserValue('feishu_groups_json', FEISHU_GROUPS_PLACEHOLDER)}
-                        >
-                          填充示例
-                        </Button>
+                <div className="rounded-md border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
+                    onClick={() => setFeishuSectionMessage((prev) => !prev)}
+                  >
+                    <span>消息配置</span>
+                    <span className="text-xs text-slate-400">{feishuSectionMessage ? '收起' : '展开'}</span>
+                  </button>
+                  {feishuSectionMessage && (
+                    <div className="border-t px-4 py-4 space-y-4">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <SwitchWithLabel label="流式回复" checked={(userValues.feishu_streaming || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_streaming', val ? 'true' : 'false')} />
+                        <SwitchWithLabel label="强制@Bot" checked={(userValues.feishu_require_mention || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_require_mention', val ? 'true' : 'false')} />
+                        <SwitchWithLabel label="Block Streaming" checked={(userValues.feishu_block_streaming || 'false') === 'true'} onChange={(val) => setUserValue('feishu_block_streaming', val ? 'true' : 'false')} />
+                        <SwitchWithLabel label="Config Writes" checked={(userValues.feishu_config_writes || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_config_writes', val ? 'true' : 'false')} />
+                        <InputWithLabel label="历史消息数" value={userValues.feishu_history_limit || ''} onChange={(v) => setUserValue('feishu_history_limit', v)} />
+                        <InputWithLabel label="DM 历史消息数" value={userValues.feishu_dm_history_limit || ''} onChange={(v) => setUserValue('feishu_dm_history_limit', v)} />
+                        <InputWithLabel label="Text Chunk Limit" value={userValues.feishu_text_chunk_limit || ''} onChange={(v) => setUserValue('feishu_text_chunk_limit', v)} />
+                        <InputWithLabel label="Chunk Mode" value={userValues.feishu_chunk_mode || ''} onChange={(v) => setUserValue('feishu_chunk_mode', v)} placeholder="length / newline" />
+                        <InputWithLabel label="Markdown Tables" value={userValues.feishu_markdown_tables || ''} onChange={(v) => setUserValue('feishu_markdown_tables', v)} placeholder="off / bullets / code" />
+                        <InputWithLabel label="Media Max MB" value={userValues.feishu_media_max_mb || ''} onChange={(v) => setUserValue('feishu_media_max_mb', v)} />
+                        <InputWithLabel label="Response Prefix" value={userValues.feishu_response_prefix || ''} onChange={(v) => setUserValue('feishu_response_prefix', v)} />
+                        <InputWithLabel label="App Secret File" value={userValues.feishu_app_secret_file || ''} onChange={(v) => setUserValue('feishu_app_secret_file', v)} placeholder="/path/to/secret" />
                       </div>
-                      <Textarea
-                        value={userValues.feishu_groups_json || ''}
-                        onChange={(e) => setUserValue('feishu_groups_json', e.target.value)}
-                        placeholder={FEISHU_GROUPS_PLACEHOLDER}
-                        rows={6}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Accounts JSON (高级)</label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setUserValue('feishu_accounts_json', FEISHU_ACCOUNTS_PLACEHOLDER)}
-                        >
-                          填充示例
-                        </Button>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel label="飞书文档目录 Token" value={userValues.feishu_doc_folder_token || ''} onChange={(v) => setUserValue('feishu_doc_folder_token', v)} placeholder="fldc_xxx" />
+                        <InputWithLabel label="文档标题前缀" value={userValues.feishu_doc_title_prefix || ''} onChange={(v) => setUserValue('feishu_doc_title_prefix', v)} placeholder="OpenClaw 每日报表" />
+                        <InputWithLabel label="Bitable App Token" value={userValues.feishu_bitable_app_token || ''} onChange={(v) => setUserValue('feishu_bitable_app_token', v)} placeholder="basc_xxx" />
+                        <InputWithLabel label="Bitable Table ID" value={userValues.feishu_bitable_table_id || ''} onChange={(v) => setUserValue('feishu_bitable_table_id', v)} placeholder="tbl_xxx (可留空自动创建)" />
+                        <InputWithLabel label="Bitable Table Name" value={userValues.feishu_bitable_table_name || ''} onChange={(v) => setUserValue('feishu_bitable_table_name', v)} placeholder="OpenClaw Daily Report" />
                       </div>
-                      <Textarea
-                        value={userValues.feishu_accounts_json || ''}
-                        onChange={(e) => setUserValue('feishu_accounts_json', e.target.value)}
-                        placeholder={FEISHU_ACCOUNTS_PLACEHOLDER}
-                        rows={6}
-                      />
                     </div>
-                  </div>
-                </>
+                  )}
+                </div>
+              )}
+
+              {/* -- 高级配置 -- */}
+              {showFeishuAdvanced && (
+                <div className="rounded-md border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
+                    onClick={() => setFeishuSectionAdvanced((prev) => !prev)}
+                  >
+                    <span>高级配置</span>
+                    <span className="text-xs text-slate-400">{feishuSectionAdvanced ? '收起' : '展开'}</span>
+                  </button>
+                  {feishuSectionAdvanced && (
+                    <div className="border-t px-4 py-4 space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Groups JSON (高级)</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setUserValue('feishu_groups_json', FEISHU_GROUPS_PLACEHOLDER)}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={userValues.feishu_groups_json || ''}
+                            onChange={(e) => setUserValue('feishu_groups_json', e.target.value)}
+                            placeholder={FEISHU_GROUPS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Accounts JSON (高级)</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setUserValue('feishu_accounts_json', FEISHU_ACCOUNTS_PLACEHOLDER)}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={userValues.feishu_accounts_json || ''}
+                            onChange={(e) => setUserValue('feishu_accounts_json', e.target.value)}
+                            placeholder={FEISHU_ACCOUNTS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="grid gap-2 md:grid-cols-3 text-xs">
@@ -1491,6 +1677,19 @@ export default function OpenClawPage() {
                   <Button variant="outline" size="sm" onClick={applyFeishuDocExample}>
                     文档示例
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFeishuTestConnection}
+                    disabled={feishuTestLoading}
+                  >
+                    {feishuTestLoading ? '测试中...' : '测试连接'}
+                  </Button>
+                  {feishuTestResult && (
+                    <Badge variant={feishuTestResult.ok ? 'default' : 'destructive'}>
+                      {feishuTestResult.ok ? '连接成功' : feishuTestResult.message}
+                    </Badge>
+                  )}
                 </div>
                 <Button
                   onClick={() => saveSettings({ scope: 'user', keys: [...FEISHU_CHAT_USER_KEYS], successMessage: '飞书配置已保存' })}
@@ -1517,66 +1716,91 @@ export default function OpenClawPage() {
                 </div>
               )}
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <InputWithLabel
-                  label="YP Token"
-                  type="password"
-                  value={userValues.yeahpromos_token || ''}
-                  onChange={(v) => setUserValue('yeahpromos_token', v)}
-                  placeholder="YeahPromos API Token"
-                />
-                <InputWithLabel
-                  label="YP Site ID"
-                  value={userValues.yeahpromos_site_id || ''}
-                  onChange={(v) => setUserValue('yeahpromos_site_id', v)}
-                />
-                <InputWithLabel
-                  label="PB Token"
-                  type="password"
-                  value={userValues.partnerboost_token || ''}
-                  onChange={(v) => setUserValue('partnerboost_token', v)}
-                />
-              </div>
+              {/* YeahPromos 子区域 */}
+              <Card className="border-slate-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">YeahPromos</CardTitle>
+                  <CardDescription className="text-xs">YeahPromos 联盟平台鉴权配置</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InputWithLabel
+                      label="Token"
+                      type="password"
+                      value={userValues.yeahpromos_token || ''}
+                      onChange={(v) => setUserValue('yeahpromos_token', v)}
+                      placeholder="YeahPromos API Token"
+                    />
+                    <InputWithLabel
+                      label="Site ID"
+                      value={userValues.yeahpromos_site_id || ''}
+                      onChange={(v) => setUserValue('yeahpromos_site_id', v)}
+                    />
+                  </div>
+                  {!simpleMode && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <InputWithLabel
+                        label="Page"
+                        value={userValues.yeahpromos_page || ''}
+                        onChange={(v) => setUserValue('yeahpromos_page', v)}
+                        placeholder="默认 1"
+                      />
+                      <InputWithLabel
+                        label="Limit"
+                        value={userValues.yeahpromos_limit || ''}
+                        onChange={(v) => setUserValue('yeahpromos_limit', v)}
+                        placeholder="默认 1000"
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-              {!simpleMode && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  <InputWithLabel
-                    label="YP Page"
-                    value={userValues.yeahpromos_page || ''}
-                    onChange={(v) => setUserValue('yeahpromos_page', v)}
-                    placeholder="默认 1"
-                  />
-                  <InputWithLabel
-                    label="YP Limit"
-                    value={userValues.yeahpromos_limit || ''}
-                    onChange={(v) => setUserValue('yeahpromos_limit', v)}
-                    placeholder="默认 1000"
-                  />
-                  <InputWithLabel
-                    label="PB Base URL"
-                    value={userValues.partnerboost_base_url || ''}
-                    onChange={(v) => setUserValue('partnerboost_base_url', v)}
-                    placeholder="https://app.partnerboost.com"
-                  />
-                  <InputWithLabel
-                    label="PB country_code"
-                    value={userValues.partnerboost_products_country_code || ''}
-                    onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
-                    placeholder="US"
-                  />
-                  <InputWithLabel
-                    label="PB link country"
-                    value={userValues.partnerboost_link_country_code || ''}
-                    onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
-                    placeholder="US"
-                  />
-                  <InputWithLabel
-                    label="PB link uid"
-                    value={userValues.partnerboost_link_uid || ''}
-                    onChange={(v) => setUserValue('partnerboost_link_uid', v)}
-                  />
-                </div>
-              )}
+              {/* PartnerBoost 子区域 */}
+              <Card className="border-slate-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">PartnerBoost</CardTitle>
+                  <CardDescription className="text-xs">PartnerBoost 联盟平台鉴权与链接配置</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InputWithLabel
+                      label="Token"
+                      type="password"
+                      value={userValues.partnerboost_token || ''}
+                      onChange={(v) => setUserValue('partnerboost_token', v)}
+                      placeholder="PartnerBoost API Token"
+                    />
+                    <InputWithLabel
+                      label="Base URL"
+                      value={userValues.partnerboost_base_url || ''}
+                      onChange={(v) => setUserValue('partnerboost_base_url', v)}
+                      placeholder="https://app.partnerboost.com"
+                    />
+                  </div>
+                  {!simpleMode && (
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <InputWithLabel
+                        label="默认国家"
+                        value={userValues.partnerboost_products_country_code || ''}
+                        onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
+                        placeholder="US"
+                      />
+                      <InputWithLabel
+                        label="链接国家"
+                        value={userValues.partnerboost_link_country_code || ''}
+                        onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
+                        placeholder="US"
+                      />
+                      <InputWithLabel
+                        label="链接 UID"
+                        value={userValues.partnerboost_link_uid || ''}
+                        onChange={(v) => setUserValue('partnerboost_link_uid', v)}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
 
               <div className="flex justify-end">

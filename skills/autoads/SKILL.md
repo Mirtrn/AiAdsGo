@@ -144,3 +144,48 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/runs?status=failed&limit=20" \
   -H "Authorization: Bearer $OPENCLAW_TOKEN"
 ```
 
+## 附加 API 端点
+
+以下端点通过 Next.js 路由提供，不走 proxy/commands 链路，直接调用即可。
+
+### /api/openclaw/offer-scores
+
+Offer 评分查询与管理。
+
+- `GET /api/openclaw/offer-scores` — 获取 Offer 评分列表
+- `POST /api/openclaw/offer-scores` — 提交/更新 Offer 评分
+
+### /api/openclaw/experiments
+
+实验管理（A/B 测试、策略实验）。
+
+- `GET /api/openclaw/experiments` — 获取实验列表
+- `POST /api/openclaw/experiments` — 创建实验
+- `PUT /api/openclaw/experiments/:id` — 更新实验配置
+- `DELETE /api/openclaw/experiments/:id` — 删除实验
+
+### /api/openclaw/affiliate-products
+
+联盟商品管理。
+
+- `GET /api/openclaw/affiliate-products` — 获取联盟商品列表
+- `POST /api/openclaw/affiliate-products` — 添加联盟商品
+- `PUT /api/openclaw/affiliate-products/:id` — 更新联盟商品
+- `DELETE /api/openclaw/affiliate-products/:id` — 删除联盟商品
+
+### /api/openclaw/knowledge
+
+知识库查询与管理。
+
+- `GET /api/openclaw/knowledge` — 获取知识库条目
+- `POST /api/openclaw/knowledge` — 添加知识库条目
+- `PUT /api/openclaw/knowledge/:id` — 更新知识库条目
+- `DELETE /api/openclaw/knowledge/:id` — 删除知识库条目
+
+### /api/openclaw/config
+
+用户级 OpenClaw 配置管理。
+
+- `GET /api/openclaw/config` — 获取当前用户的 OpenClaw 配置
+- `PUT /api/openclaw/config` — 更新当前用户的 OpenClaw 配置
+
