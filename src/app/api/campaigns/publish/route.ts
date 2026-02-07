@@ -326,7 +326,7 @@ export async function POST(request: NextRequest) {
         return campaignBrand !== currentBrandNormalized
       })
 
-      if (enabledOtherBrandCampaigns.length > 0) {
+      if (enabledOtherBrandCampaigns.length > 0 && !_pauseOldCampaigns) {
         return NextResponse.json({
           action: 'ACCOUNT_BRAND_CONFLICT',
           message: '同一Ads账号同一时间只能投放一个品牌，请先暂停其他品牌Campaign。',
@@ -378,10 +378,11 @@ export async function POST(request: NextRequest) {
       }, { status: 422 })
     }
 
-    // 计算需要暂停的广告系列总数（属于当前Offer + 用户手动创建）
+    // 计算需要暂停的广告系列总数（属于当前Offer + 用户手动创建 + 其他Offer/品牌）
     const campaignsToPause = [
       ...activeCampaignsResult.ownCampaigns,
-      ...activeCampaignsResult.manualCampaigns
+      ...activeCampaignsResult.manualCampaigns,
+      ...activeCampaignsResult.otherCampaigns
     ]
 
     // 记录暂停结果（用于前端展示）
@@ -391,6 +392,7 @@ export async function POST(request: NextRequest) {
       failedCount: number
       ownCount: number
       manualCount: number
+      otherCount: number
     } | undefined
 
     // ⚠️ 验证3：如果有需要暂停的广告系列且用户未确认，返回确认提示
@@ -412,21 +414,31 @@ export async function POST(request: NextRequest) {
         type: '用户手动创建'
       }))
 
+      const otherCampaignsInfo = activeCampaignsResult.otherCampaigns.map(c => ({
+        id: c.id,
+        name: c.name,
+        budget: c.budget,
+        type: '属于其他Offer/品牌'
+      }))
+
       return NextResponse.json({
         action: 'CONFIRM_PAUSE_OLD_CAMPAIGNS',
         existingCampaigns: {
           own: ownCampaignsInfo,
-          manual: manualCampaignsInfo
+          manual: manualCampaignsInfo,
+          other: otherCampaignsInfo
         },
         total: {
           own: ownCampaignsInfo.length,
           manual: manualCampaignsInfo.length,
+          other: otherCampaignsInfo.length,
           all: campaignsToPause.length
         },
         message: `在Google Ads账号中检测到${campaignsToPause.length}个已激活的广告系列需要处理`,
         details: {
           own: `属于当前Offer（通过命名规范匹配）: ${ownCampaignsInfo.length}个`,
-          manual: `用户手动创建（无命名规范）: ${manualCampaignsInfo.length}个`
+          manual: `用户手动创建（无命名规范）: ${manualCampaignsInfo.length}个`,
+          other: `属于其他Offer/品牌: ${otherCampaignsInfo.length}个`
         },
         question: '是否暂停这些广告系列后再发布新创意？',
         options: [
@@ -464,12 +476,14 @@ export async function POST(request: NextRequest) {
       // 使用之前查询的真实广告系列数据
       const campaignsToPause = [
         ...activeCampaignsResult.ownCampaigns,
-        ...activeCampaignsResult.manualCampaigns
+        ...activeCampaignsResult.manualCampaigns,
+        ...activeCampaignsResult.otherCampaigns
       ]
 
       console.log(`   - 需要暂停的广告系列数量: ${campaignsToPause.length}`)
       console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
       console.log(`   - 用户手动创建: ${activeCampaignsResult.manualCampaigns.length}`)
+      console.log(`   - 属于其他Offer/品牌: ${activeCampaignsResult.otherCampaigns.length}`)
 
       // 批量暂停（串行执行，避免并发冲突）
       const { pauseCampaigns } = await import('@/lib/active-campaigns-query')
@@ -479,7 +493,8 @@ export async function POST(request: NextRequest) {
         pausedCount: pauseResult.pausedCount,
         failedCount: pauseResult.failedCount,
         ownCount: activeCampaignsResult.ownCampaigns.length,
-        manualCount: activeCampaignsResult.manualCampaigns.length
+        manualCount: activeCampaignsResult.manualCampaigns.length,
+        otherCount: activeCampaignsResult.otherCampaigns.length
       }
 
       if (enforceAutoadsOnly && activeCampaignsResult.manualCampaigns.length > 0) {
