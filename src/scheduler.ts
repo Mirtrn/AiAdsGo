@@ -17,6 +17,7 @@ import { getDatabase, getSQLiteDatabase } from './lib/db'
 import { getQueueManagerForTaskType } from './lib/queue/queue-routing'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
+import { resolveBackupDir } from './lib/backup'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
 // import { runABTestMonitor } from './scheduler/ab-test-monitor'
 import fs from 'fs'
@@ -353,7 +354,7 @@ async function openclawDailyReportTask() {
  * 清理旧备份文件
  */
 async function cleanupOldBackups(daysToKeep: number) {
-  const backupDir = path.join(process.cwd(), 'data', 'backups')
+  const backupDir = resolveBackupDir()
 
   if (!fs.existsSync(backupDir)) {
     return

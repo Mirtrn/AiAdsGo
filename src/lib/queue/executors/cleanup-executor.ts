@@ -12,6 +12,7 @@
 
 import type { Task, TaskExecutor } from '../types'
 import { getDatabase } from '@/lib/db'
+import { resolveBackupDir } from '@/lib/backup'
 import fs from 'fs'
 import path from 'path'
 
@@ -42,7 +43,7 @@ export interface CleanupTaskResult {
  * 清理旧备份文件
  */
 async function cleanupOldBackups(daysToKeep: number): Promise<number> {
-  const backupDir = path.join(process.cwd(), 'backups')
+  const backupDir = resolveBackupDir()
 
   if (!fs.existsSync(backupDir)) {
     return 0
