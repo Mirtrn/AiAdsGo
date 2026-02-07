@@ -229,9 +229,11 @@ export default function ProductsPage() {
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
   const [singleOfflineDialogOpen, setSingleOfflineDialogOpen] = useState(false)
   const [batchOfflineDialogOpen, setBatchOfflineDialogOpen] = useState(false)
+  const [createOfferDialogOpen, setCreateOfferDialogOpen] = useState(false)
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
   const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
+  const [pendingCreateOfferProduct, setPendingCreateOfferProduct] = useState<ProductListItem | null>(null)
   const [runPollingTick, setRunPollingTick] = useState(0)
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -442,7 +444,7 @@ export default function ProductsPage() {
     }
   }
 
-  const handleCreateOffer = async (product: ProductListItem, targetCountry?: string) => {
+  const handleCreateOffer = async (product: ProductListItem, targetCountry?: string): Promise<boolean> => {
     setCreatingOfferId(product.id)
     try {
       const response = await fetch(`/api/products/${product.id}/create-offer`, {
@@ -459,10 +461,28 @@ export default function ProductsPage() {
 
       showSuccess('创建成功', `Offer #${data.offerId} 已创建`)
       fetchProducts(true)
+      return true
     } catch (error: any) {
       showError('创建失败', error?.message || '创建Offer失败')
+      return false
     } finally {
       setCreatingOfferId(null)
+    }
+  }
+
+  const openCreateOfferDialog = (product: ProductListItem) => {
+    if (creatingOfferId !== null || !product.promoLink || product.isBlacklisted) return
+    setPendingCreateOfferProduct(product)
+    setCreateOfferDialogOpen(true)
+  }
+
+  const submitCreateOffer = async () => {
+    if (!pendingCreateOfferProduct || creatingOfferId !== null) return
+
+    const created = await handleCreateOffer(pendingCreateOfferProduct)
+    if (created) {
+      setCreateOfferDialogOpen(false)
+      setPendingCreateOfferProduct(null)
     }
   }
 
@@ -740,7 +760,7 @@ export default function ProductsPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => handleCreateOffer(item)}
+                      onClick={() => openCreateOfferDialog(item)}
                       disabled={creatingOfferId !== null || !item.promoLink || item.isBlacklisted}
                       title={item.isBlacklisted ? '商品已下线，无法创建Offer' : '创建Offer'}
                     >
@@ -991,6 +1011,45 @@ export default function ProductsPage() {
       </main>
 
       <Dialog
+        open={createOfferDialogOpen}
+        onOpenChange={(open) => {
+          setCreateOfferDialogOpen(open)
+          if (!open && creatingOfferId === null) {
+            setPendingCreateOfferProduct(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认创建 Offer</DialogTitle>
+            <DialogDescription>
+              确认为商品 <strong className="text-foreground">{pendingCreateOfferProduct?.mid || '-'}</strong> 创建 Offer？
+              系统将使用当前商品推广链接生成 Offer，创建后可在 Offer 页面继续编辑。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCreateOfferDialogOpen(false)
+                setPendingCreateOfferProduct(null)
+              }}
+              disabled={creatingOfferId !== null}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={submitCreateOffer}
+              disabled={!pendingCreateOfferProduct || creatingOfferId !== null}
+            >
+              {creatingOfferId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              确认创建
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={singleOfflineDialogOpen}
         onOpenChange={(open) => {
           setSingleOfflineDialogOpen(open)
@@ -1004,7 +1063,7 @@ export default function ProductsPage() {
             <DialogTitle>确认下线商品</DialogTitle>
             <DialogDescription>
               确认下线商品 <strong className="text-foreground">{offlineProduct?.mid || '-'}</strong>？
-              系统会删除该商品所有关联Offer，并自动附带删除对应广告系列。
+              此操作不可撤销，系统会删除该商品所有关联Offer，并自动附带删除对应广告系列。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
