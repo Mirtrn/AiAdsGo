@@ -177,6 +177,8 @@ const OPENCLAW_ADVANCED_PARAMS: ParamRow[] = [
   { key: 'openclaw_session_json', desc: 'session (JSON)' },
   { key: 'openclaw_messages_json', desc: 'messages (JSON)' },
   { key: 'openclaw_commands_json', desc: 'commands (JSON)' },
+  { key: 'openclaw_skills_entries_json', desc: 'skills.entries (JSON)' },
+  { key: 'openclaw_skills_allow_bundled_json', desc: 'skills.allowBundled (JSON array)' },
   { key: 'openclaw_approvals_exec_json', desc: 'approvals.exec (JSON)' },
   { key: 'openclaw_models_mode', desc: 'models.mode', note: 'merge / replace' },
   { key: 'openclaw_models_bedrock_discovery_json', desc: 'models.bedrockDiscovery (JSON)' },

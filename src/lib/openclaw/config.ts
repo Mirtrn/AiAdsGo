@@ -173,6 +173,8 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const approvalsExec = parseJsonObject(settingMap.openclaw_approvals_exec_json)
   const redactPatterns = parseJsonArray(settingMap.openclaw_logging_redact_patterns_json)
   const diagnosticsOtel = parseJsonObject(settingMap.openclaw_diagnostics_otel_json)
+  const skillsEntries = parseJsonObject(settingMap.openclaw_skills_entries_json)
+  const skillsAllowBundled = parseJsonArray(settingMap.openclaw_skills_allow_bundled_json)
 
   const config: Record<string, any> = {
     meta: {
@@ -218,6 +220,8 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     skills: {
       entries: {
         autoads: { enabled: true },
+        'autoads-report-qa': { enabled: true },
+        'autoads-prd-writer': { enabled: true },
       },
     },
   }
@@ -275,6 +279,23 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
 
   if (diagnosticsOtel && Object.keys(diagnosticsOtel).length > 0) {
     config.diagnostics = { ...(config.diagnostics || {}), otel: diagnosticsOtel }
+  }
+
+  if (skillsEntries && Object.keys(skillsEntries).length > 0) {
+    config.skills = {
+      ...(config.skills || {}),
+      entries: {
+        ...((config.skills && config.skills.entries) || {}),
+        ...skillsEntries,
+      },
+    }
+  }
+
+  if (skillsAllowBundled.length > 0) {
+    config.skills = {
+      ...(config.skills || {}),
+      allowBundled: skillsAllowBundled.map((entry) => String(entry)),
+    }
   }
 
   if (agentDefaults || (agentList && agentList.length > 0)) {

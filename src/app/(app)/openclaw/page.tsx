@@ -183,6 +183,14 @@ const COMMANDS_PLACEHOLDER = `{
   "config": false
 }`
 
+const SKILLS_ENTRIES_PLACEHOLDER = `{
+  "autoads": { "enabled": true },
+  "autoads-report-qa": { "enabled": true },
+  "autoads-prd-writer": { "enabled": true }
+}`
+
+const SKILLS_ALLOW_BUNDLED_PLACEHOLDER = `["autoads"]`
+
 const APPROVALS_PLACEHOLDER = `{
   "enabled": true,
   "mode": "targets",
@@ -360,11 +368,21 @@ const GLOBAL_JSON_CHECK_LABELS: Record<string, string> = {
   openclaw_session_json: 'Session 配置',
   openclaw_messages_json: 'Messages 配置',
   openclaw_commands_json: 'Commands 配置',
+  openclaw_skills_entries_json: 'Skills Entries 配置',
+  openclaw_skills_allow_bundled_json: 'Skills Allow Bundled 配置',
   openclaw_approvals_exec_json: '审批配置',
   openclaw_models_bedrock_discovery_json: 'Bedrock Discovery 配置',
   openclaw_logging_redact_patterns_json: '日志脱敏规则',
   openclaw_diagnostics_otel_json: 'OTel 配置',
 }
+
+const GLOBAL_JSON_ARRAY_KEYS = new Set([
+  'feishu_allow_from',
+  'feishu_group_allow_from',
+  'openclaw_agent_list_json',
+  'openclaw_logging_redact_patterns_json',
+  'openclaw_skills_allow_bundled_json',
+])
 
 const USER_KEYS = new Set([
   'yeahpromos_token',
@@ -746,7 +764,12 @@ export default function OpenClawPage() {
 
       for (const key of keysToCheck) {
         const label = GLOBAL_JSON_CHECK_LABELS[key] || key
-        if (!validateJsonField(globalValues[key] || '', label)) return
+        const value = globalValues[key] || ''
+        if (GLOBAL_JSON_ARRAY_KEYS.has(key)) {
+          if (!validateJsonArrayField(value, label)) return
+          continue
+        }
+        if (!validateJsonField(value, label)) return
       }
     }
 
@@ -1953,6 +1976,51 @@ export default function OpenClawPage() {
                             onChange={(e) => setGlobalValue('openclaw_commands_json', e.target.value)}
                             disabled={!settings?.isAdmin}
                             placeholder={COMMANDS_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Skills Entries JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_skills_entries_json', SKILLS_ENTRIES_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_skills_entries_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_skills_entries_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={SKILLS_ENTRIES_PLACEHOLDER}
+                            rows={6}
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium">Skills Allow Bundled JSON</label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGlobalValue('openclaw_skills_allow_bundled_json', SKILLS_ALLOW_BUNDLED_PLACEHOLDER)}
+                              disabled={!settings?.isAdmin}
+                            >
+                              填充示例
+                            </Button>
+                          </div>
+                          <Textarea
+                            value={globalValues.openclaw_skills_allow_bundled_json || ''}
+                            onChange={(e) => setGlobalValue('openclaw_skills_allow_bundled_json', e.target.value)}
+                            disabled={!settings?.isAdmin}
+                            placeholder={SKILLS_ALLOW_BUNDLED_PLACEHOLDER}
                             rows={6}
                           />
                         </div>
