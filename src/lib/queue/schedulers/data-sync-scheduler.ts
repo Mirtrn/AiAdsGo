@@ -16,6 +16,27 @@ import { triggerDataSync } from '../../queue-triggers'
 import { getUserAuthType, getGoogleAdsCredentials } from '../../google-ads-oauth'
 import { getServiceAccountConfig } from '../../google-ads-service-account'
 
+function parseBooleanEnv(rawValue: string | undefined, defaultValue: boolean): boolean {
+  if (rawValue === undefined) return defaultValue
+
+  const normalized = rawValue.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+
+  return defaultValue
+}
+
+function parseNonNegativeIntEnv(rawValue: string | undefined, defaultValue: number): number {
+  if (rawValue === undefined) return defaultValue
+
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return defaultValue
+  }
+
+  return parsed
+}
+
 interface UserSyncConfig {
   user_id: number
   data_sync_enabled: string | boolean
@@ -25,8 +46,14 @@ interface UserSyncConfig {
 
 export class DataSyncScheduler {
   private intervalHandle: NodeJS.Timeout | null = null
+  private startupTimeoutHandle: NodeJS.Timeout | null = null
   private isRunning: boolean = false
   private readonly CHECK_INTERVAL_MS = 60 * 60 * 1000  // 每小时检查一次
+  private readonly RUN_ON_START = parseBooleanEnv(process.env.QUEUE_DATA_SYNC_RUN_ON_START, true)
+  private readonly STARTUP_DELAY_MS = parseNonNegativeIntEnv(
+    process.env.QUEUE_DATA_SYNC_STARTUP_DELAY_MS,
+    30_000
+  )
 
   /**
    * 启动调度器
@@ -40,8 +67,20 @@ export class DataSyncScheduler {
     console.log('🔄 启动数据同步调度器...')
     this.isRunning = true
 
-    // 立即执行一次检查
-    this.checkAndScheduleSync()
+    // 启动时执行一次检查（支持延迟，降低冷启动竞争）
+    if (this.RUN_ON_START) {
+      if (this.STARTUP_DELAY_MS === 0) {
+        this.checkAndScheduleSync()
+      } else {
+        console.log(`⏳ 数据同步首次检查将在 ${Math.round(this.STARTUP_DELAY_MS / 1000)} 秒后执行`)
+        this.startupTimeoutHandle = setTimeout(() => {
+          this.startupTimeoutHandle = null
+          this.checkAndScheduleSync()
+        }, this.STARTUP_DELAY_MS)
+      }
+    } else {
+      console.log('⏭️ 已禁用启动时数据同步首轮检查')
+    }
 
     // 设置定时检查（每小时）
     this.intervalHandle = setInterval(() => {
@@ -66,6 +105,11 @@ export class DataSyncScheduler {
       this.intervalHandle = null
     }
 
+    if (this.startupTimeoutHandle) {
+      clearTimeout(this.startupTimeoutHandle)
+      this.startupTimeoutHandle = null
+    }
+
     this.isRunning = false
     console.log('✅ 数据同步调度器已停止')
   }
@@ -74,6 +118,8 @@ export class DataSyncScheduler {
    * 检查并调度同步任务
    */
   private async checkAndScheduleSync(): Promise<void> {
+    const checkStartAt = Date.now()
+
     try {
       console.log(`\n[${new Date().toISOString()}] 🔄 检查数据同步任务...`)
 
@@ -207,9 +253,11 @@ export class DataSyncScheduler {
         }
       }
 
-      console.log(`\n✅ 检查完成: 触发了 ${triggeredCount}/${configs.length} 个同步任务${skippedCount > 0 ? `，跳过 ${skippedCount} 个未配置凭证的用户` : ''}`)
+      const elapsedMs = Date.now() - checkStartAt
+      console.log(`\n✅ 检查完成: 触发了 ${triggeredCount}/${configs.length} 个同步任务${skippedCount > 0 ? `，跳过 ${skippedCount} 个未配置凭证的用户` : ''}（耗时${elapsedMs}ms）`)
     } catch (error) {
-      console.error('❌ 检查数据同步任务失败:', error)
+      const elapsedMs = Date.now() - checkStartAt
+      console.error(`❌ 检查数据同步任务失败（耗时${elapsedMs}ms）:`, error)
     }
   }
 

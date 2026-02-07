@@ -13,6 +13,27 @@
 
 import { getDatabase } from '../../db'
 
+function parseBooleanEnv(rawValue: string | undefined, defaultValue: boolean): boolean {
+  if (rawValue === undefined) return defaultValue
+
+  const normalized = rawValue.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+
+  return defaultValue
+}
+
+function parseNonNegativeIntEnv(rawValue: string | undefined, defaultValue: number): number {
+  if (rawValue === undefined) return defaultValue
+
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return defaultValue
+  }
+
+  return parsed
+}
+
 interface UrlSwapTaskInfo {
   id: string
   user_id: number
@@ -25,8 +46,14 @@ interface UrlSwapTaskInfo {
 
 export class UrlSwapScheduler {
   private intervalHandle: NodeJS.Timeout | null = null
+  private startupTimeoutHandle: NodeJS.Timeout | null = null
   private isRunning: boolean = false
   private readonly CHECK_INTERVAL_MS = 5 * 60 * 1000  // 每5分钟检查一次（与Cron间隔一致）
+  private readonly RUN_ON_START = parseBooleanEnv(process.env.QUEUE_URL_SWAP_RUN_ON_START, true)
+  private readonly STARTUP_DELAY_MS = parseNonNegativeIntEnv(
+    process.env.QUEUE_URL_SWAP_STARTUP_DELAY_MS,
+    10_000
+  )
 
   /**
    * 启动调度器
@@ -40,8 +67,20 @@ export class UrlSwapScheduler {
     console.log('🔄 启动URL Swap调度器...')
     this.isRunning = true
 
-    // 立即执行一次检查
-    this.checkAndScheduleSwaps()
+    // 启动时执行一次检查（支持延迟，降低冷启动竞争）
+    if (this.RUN_ON_START) {
+      if (this.STARTUP_DELAY_MS === 0) {
+        this.checkAndScheduleSwaps()
+      } else {
+        console.log(`⏳ URL Swap首次检查将在 ${Math.round(this.STARTUP_DELAY_MS / 1000)} 秒后执行`)
+        this.startupTimeoutHandle = setTimeout(() => {
+          this.startupTimeoutHandle = null
+          this.checkAndScheduleSwaps()
+        }, this.STARTUP_DELAY_MS)
+      }
+    } else {
+      console.log('⏭️ 已禁用启动时URL Swap首轮检查')
+    }
 
     // 设置定时检查（每5分钟）
     this.intervalHandle = setInterval(() => {
@@ -66,6 +105,11 @@ export class UrlSwapScheduler {
       this.intervalHandle = null
     }
 
+    if (this.startupTimeoutHandle) {
+      clearTimeout(this.startupTimeoutHandle)
+      this.startupTimeoutHandle = null
+    }
+
     this.isRunning = false
     console.log('✅ URL Swap调度器已停止')
   }
@@ -75,6 +119,8 @@ export class UrlSwapScheduler {
    * 使用动态导入避免循环依赖
    */
   private async checkAndScheduleSwaps(): Promise<void> {
+    const checkStartAt = Date.now()
+
     try {
       const now = new Date()
       console.log(`\n[${now.toISOString()}] 🔄 检查URL Swap任务...`)
@@ -130,13 +176,15 @@ export class UrlSwapScheduler {
       const { triggerAllUrlSwapTasks } = await import('../../url-swap-scheduler')
       const result = await triggerAllUrlSwapTasks()
 
-      console.log(`\n✅ URL Swap检查完成:`)
+      const elapsedMs = Date.now() - checkStartAt
+      console.log(`\n✅ URL Swap检查完成（耗时${elapsedMs}ms）:`)
       console.log(`   - 已处理: ${result.processed}`)
       console.log(`   - 已入队: ${result.executed}`)
       console.log(`   - 已跳过: ${result.skipped}`)
       console.log(`   - 错误数: ${result.errors}`)
     } catch (error) {
-      console.error('❌ 检查URL Swap任务失败:', error)
+      const elapsedMs = Date.now() - checkStartAt
+      console.error(`❌ 检查URL Swap任务失败（耗时${elapsedMs}ms）:`, error)
     }
   }
 

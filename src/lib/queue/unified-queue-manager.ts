@@ -239,6 +239,7 @@ export class UnifiedQueueManager {
 
     // 开始启动
     this.startingPromise = (async () => {
+      const startAt = Date.now()
       if (this.running) return
 
       this.running = true
@@ -246,27 +247,39 @@ export class UnifiedQueueManager {
 
       // 🔥 启启动修复：重启后 running 任务会变成“僵尸”，应回到 pending 而不是直接清空
       if (this.adapter.requeueAllRunningOnStartup) {
+        const requeueStartedAt = Date.now()
         const result = await this.adapter.requeueAllRunningOnStartup()
+        const requeueElapsedMs = Date.now() - requeueStartedAt
         if (result.requeuedCount > 0 || result.cleanedMissingCount > 0) {
           console.log(
-            `🧹 队列启动修复: requeued=${result.requeuedCount}, cleanedMissing=${result.cleanedMissingCount}`
+            `🧹 队列启动修复: requeued=${result.requeuedCount}, cleanedMissing=${result.cleanedMissingCount}, elapsed=${requeueElapsedMs}ms`
           )
+        } else {
+          console.log(`🧹 队列启动修复: 无需处理 (elapsed=${requeueElapsedMs}ms)`)
         }
       } else {
         // 旧适配器兼容：不支持 requeue 时仍然保留原行为（仅清理 running 僵尸可能会丢任务）
+        const zombieCleanupStartedAt = Date.now()
         await this.cleanupZombieTasks('startup')
+        console.log(`🧹 僵尸任务清理完成 (elapsed=${Date.now() - zombieCleanupStartedAt}ms)`)
       }
 
       // 🔥 修复 pending 索引：避免 tasks hash 中的 pending 任务因缺失 zset 索引而永远无法执行
       if (this.adapter.repairPendingIndexes) {
+        const repairStartedAt = Date.now()
         const repair = await this.adapter.repairPendingIndexes()
+        const repairElapsedMs = Date.now() - repairStartedAt
         if (repair.repairedCount > 0) {
-          console.log(`🧩 pending 索引修复: repaired=${repair.repairedCount}, scanned=${repair.scannedCount}`)
+          console.log(`🧩 pending 索引修复: repaired=${repair.repairedCount}, scanned=${repair.scannedCount}, elapsed=${repairElapsedMs}ms`)
+        } else {
+          console.log(`🧩 pending 索引修复: 无需处理 (scanned=${repair.scannedCount}, elapsed=${repairElapsedMs}ms)`)
         }
       }
 
       // 🔥 启动时清理URL Swap队列任务（避免重复执行）
+      const urlSwapCleanupStartedAt = Date.now()
       await this.cleanupUrlSwapTasksOnStartup()
+      console.log(`🧹 URL Swap 启动清理完成 (elapsed=${Date.now() - urlSwapCleanupStartedAt}ms)`)
 
       // 启动处理循环（每100ms检查一次）
       this.processingLoop = setInterval(() => {
@@ -277,7 +290,7 @@ export class UnifiedQueueManager {
       this.startHealthCheckLoop()
 
       this.started = true
-      console.log('🚀 队列处理已启动')
+      console.log(`🚀 队列处理已启动 (totalElapsed=${Date.now() - startAt}ms)`)
     })()
 
     await this.startingPromise

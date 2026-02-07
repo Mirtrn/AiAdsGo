@@ -650,20 +650,37 @@ async function insertIndustryBenchmarks(): Promise<void> {
  * 主初始化函数
  */
 export async function initializeDatabase(): Promise<void> {
+  const startupBeginAt = Date.now()
   console.log('🔍 Checking database initialization status...')
+
+  async function runStep(stepName: string, fn: () => Promise<void>): Promise<void> {
+    const stepStartedAt = Date.now()
+    await fn()
+    const stepElapsedMs = Date.now() - stepStartedAt
+    console.log(`⏱️  ${stepName} 完成 (${stepElapsedMs}ms)`)
+  }
 
   const isInitialized = await isDatabaseInitialized()
 
   if (isInitialized) {
     console.log('✅ Database already initialized, checking for pending migrations...')
     // 数据库已初始化，执行增量迁移
-    await runPendingMigrations()
+    await runStep('增量迁移检查', async () => {
+      await runPendingMigrations()
+    })
     // 🆕 确保管理员账号存在（如果不存在则创建，如果存在则更新密码）
-    await ensureAdminAccount()
+    await runStep('管理员账号检查', async () => {
+      await ensureAdminAccount()
+    })
     // 检查未完成的队列任务
-    await checkUnfinishedQueueTasks()
+    await runStep('启动任务清理', async () => {
+      await checkUnfinishedQueueTasks()
+    })
     // 🆕 初始化队列系统（统一开发和生产环境）
-    await initializeQueueSystem()
+    await runStep('统一队列初始化', async () => {
+      await initializeQueueSystem()
+    })
+    console.log(`✅ 启动初始化完成（总耗时${Date.now() - startupBeginAt}ms）`)
     return
   }
 
@@ -672,15 +689,25 @@ export async function initializeDatabase(): Promise<void> {
   const db = await getDatabase()
 
   if (db.type === 'sqlite') {
-    await initializeSQLite()
+    await runStep('SQLite初始化', async () => {
+      await initializeSQLite()
+    })
   } else {
-    await initializePostgreSQL()
+    await runStep('PostgreSQL初始化', async () => {
+      await initializePostgreSQL()
+    })
   }
 
   // 初始化完成后也执行迁移（确保所有增量迁移都被应用）
-  await runPendingMigrations()
+  await runStep('增量迁移检查', async () => {
+    await runPendingMigrations()
+  })
   // 🆕 初始化队列系统（统一开发和生产环境）
-  await initializeQueueSystem()
+  await runStep('统一队列初始化', async () => {
+    await initializeQueueSystem()
+  })
+
+  console.log(`✅ 启动初始化完成（总耗时${Date.now() - startupBeginAt}ms）`)
 }
 
 /**
