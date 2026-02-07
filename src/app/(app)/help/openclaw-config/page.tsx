@@ -38,7 +38,44 @@ const FEISHU_PARAMS: ParamRow[] = [
   { key: 'feishu_media_max_mb', desc: '媒体最大 MB' },
   { key: 'feishu_response_prefix', desc: '回复前缀' },
   { key: 'feishu_groups_json', desc: '群组级配置 JSON', note: 'groups.<chat_id>' },
-  { key: 'feishu_accounts_json', desc: '多账号 JSON', note: 'accounts.<id>（支持 cardCallbackPath/cardVerificationToken/cardConfirmUrl 等 card* 字段）' },
+  {
+    key: 'feishu_accounts_json',
+    desc: '多账号 JSON',
+    note: 'accounts.<id>（支持 cardCallbackPath/cardVerificationToken/cardConfirmUrl 等 card* 字段）',
+  },
+]
+
+const FEISHU_CARD_ACCOUNT_FIELDS: ParamRow[] = [
+  {
+    key: 'feishu_accounts_json.<account>.cardCallbackPath',
+    desc: '卡片回调路径',
+    note: '默认 main=/feishu/card-action；子账号=/feishu/<accountId>/card-action',
+  },
+  {
+    key: 'feishu_accounts_json.<account>.cardVerificationToken',
+    desc: '飞书卡片回调 Verification Token',
+    note: '来自飞书开放平台卡片回传设置',
+  },
+  {
+    key: 'feishu_accounts_json.<account>.cardEncryptKey',
+    desc: '飞书卡片回调 Encrypt Key',
+    note: '飞书开启加密传输时必填',
+  },
+  {
+    key: 'feishu_accounts_json.<account>.cardConfirmUrl',
+    desc: '确认接口地址',
+    note: '建议 https://<domain>/api/openclaw/commands/confirm',
+  },
+  {
+    key: 'feishu_accounts_json.<account>.cardConfirmAuthToken',
+    desc: '确认接口鉴权 Token',
+    note: '建议与 gateway_token 一致',
+  },
+  {
+    key: 'feishu_accounts_json.<account>.cardConfirmTimeoutMs',
+    desc: '确认请求超时（毫秒）',
+    note: '推荐 10000（范围 1000~60000）',
+  },
 ]
 
 const FEISHU_DOC_PARAMS: ParamRow[] = [
@@ -168,14 +205,52 @@ const AI_JSON_EXAMPLE = `{
   }
 }`
 
+const FEISHU_ACCOUNTS_JSON_EXAMPLE = `{
+  "main": {
+    "appId": "cli_xxx",
+    "appSecret": "xxx",
+    "botName": "AutoAds",
+    "cardCallbackPath": "/feishu/card-action",
+    "cardVerificationToken": "your_feishu_verification_token",
+    "cardEncryptKey": "your_feishu_encrypt_key",
+    "cardConfirmUrl": "https://your-domain.com/api/openclaw/commands/confirm",
+    "cardConfirmAuthToken": "your_gateway_token",
+    "cardConfirmTimeoutMs": 10000
+  }
+}`
+
+const NGINX_SPLIT_SNIPPET = `upstream nextjs {
+  server 127.0.0.1:3000;
+}
+
+upstream openclaw_gateway {
+  server 127.0.0.1:18789;
+}
+
+# 飞书卡片回调路径转发给 OpenClaw Gateway
+location ~ ^/feishu(?:/[^/]+)?/card-action$ {
+  proxy_pass http://openclaw_gateway;
+}
+
+# 其余请求仍交给 Next.js
+location / {
+  proxy_pass http://nextjs;
+}`
+
+const CARD_CONFIRM_ENV_EXAMPLE = `# 可选环境变量（同机部署常不需要覆盖）
+OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
+OPENCLAW_CARD_CONFIRM_URL=https://your-domain.com/api/openclaw/commands/confirm
+OPENCLAW_CARD_CONFIRM_TOKEN=replace_with_gateway_token
+OPENCLAW_CARD_CONFIRM_TIMEOUT_MS=10000`
+
 export default function OpenClawConfigGuidePage() {
   return (
     <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold">OpenClaw 配置指南</h1>
-            <p className="text-slate-600 mt-2">
+            <p className="mt-2 text-slate-600">
               解释 OpenClaw 在 AutoAds 中的配置参数、作用与配置方法。配置优先在「OpenClaw → 配置中心」完成。
             </p>
           </div>
@@ -203,6 +278,27 @@ export default function OpenClawConfigGuidePage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>生产上线最小清单</CardTitle>
+            <CardDescription>按此顺序配置，最快完成可用闭环</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-slate-700">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">1. Gateway</Badge>
+              <Badge variant="secondary">2. Feishu Bot</Badge>
+              <Badge variant="secondary">3. 卡片回调</Badge>
+              <Badge variant="secondary">4. 用户绑定</Badge>
+              <Badge variant="secondary">5. 联调验证</Badge>
+            </div>
+            <div>1）先确认 Gateway 正常启动并记录 <code className="rounded bg-slate-100 px-1 py-0.5">gateway_token</code>。</div>
+            <div>2）完成飞书应用配置（App ID / Secret + Bot 权限 + 事件订阅）。</div>
+            <div>3）配置卡片回调地址（默认 <code className="rounded bg-slate-100 px-1 py-0.5">/feishu/card-action</code>）。</div>
+            <div>4）将飞书用户绑定到 AutoAds 用户（<code className="rounded bg-slate-100 px-1 py-0.5">openclaw_user_bindings</code>）。</div>
+            <div>5）发起一个高风险动作，验证“卡片确认 → 入队执行”全链路。</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Gateway 参数</CardTitle>
             <CardDescription>OpenClaw Gateway 的连接与鉴权配置</CardDescription>
           </CardHeader>
@@ -217,11 +313,11 @@ export default function OpenClawConfigGuidePage() {
             <CardDescription>配置 OpenClaw 模型提供商与模型列表</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-slate-700">
-            <div>支持直接传入 <strong>providers</strong> 或 <strong>models.providers</strong> 结构。</div>
+            <div>
+              支持直接传入 <strong>providers</strong> 或 <strong>models.providers</strong> 结构。
+            </div>
             <div className="text-xs text-slate-500">建议只填写实际可用的模型与 API Key。</div>
-            <pre className="bg-slate-900 text-slate-100 rounded-md p-4 text-xs overflow-auto">
-              {AI_JSON_EXAMPLE}
-            </pre>
+            <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{AI_JSON_EXAMPLE}</pre>
           </CardContent>
         </Card>
 
@@ -232,6 +328,63 @@ export default function OpenClawConfigGuidePage() {
           </CardHeader>
           <CardContent>
             <ParamTable rows={FEISHU_PARAMS} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>高风险动作卡片确认（必须）</CardTitle>
+            <CardDescription>OpenClaw 发送确认卡片，点击后回调 AutoAds 进行确认执行</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <ParamTable rows={FEISHU_CARD_ACCOUNT_FIELDS} />
+            <div className="space-y-2 text-sm text-slate-700">
+              <div>推荐在 <code className="rounded bg-slate-100 px-1 py-0.5">feishu_accounts_json</code> 中显式配置 card 字段：</div>
+              <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{FEISHU_ACCOUNTS_JSON_EXAMPLE}</pre>
+            </div>
+            <div className="space-y-2 text-sm text-slate-700">
+              <div>也可通过环境变量兜底（配置优先级低于 account JSON）：</div>
+              <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{CARD_CONFIRM_ENV_EXAMPLE}</pre>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Nginx 80 端口分流</CardTitle>
+            <CardDescription>对外仅开放 80，内部将飞书卡片回调分流到 OpenClaw Gateway</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-slate-700">
+            <div>
+              回调路径建议使用 <code className="rounded bg-slate-100 px-1 py-0.5">/feishu/card-action</code>（或
+              <code className="rounded bg-slate-100 px-1 py-0.5">/feishu/&lt;accountId&gt;/card-action</code>）。
+            </div>
+            <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{NGINX_SPLIT_SNIPPET}</pre>
+            <div className="text-xs text-slate-500">生效前请执行：<code className="rounded bg-slate-100 px-1 py-0.5">nginx -t</code>，然后 reload。</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>用户级隔离与回调映射</CardTitle>
+            <CardDescription>回调地址可共用，但用户身份必须严格映射，避免跨用户数据混用</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-slate-700">
+            <div>
+              1）飞书回调不要求“每用户一个 URL”；推荐共用入口，再通过头信息做用户映射。
+            </div>
+            <div>
+              2）网关会透传 <code className="rounded bg-slate-100 px-1 py-0.5">x-openclaw-account-id</code>、
+              <code className="rounded bg-slate-100 px-1 py-0.5">x-openclaw-tenant-key</code>、
+              <code className="rounded bg-slate-100 px-1 py-0.5">x-openclaw-sender</code>。
+            </div>
+            <div>
+              3）AutoAds 侧使用 <code className="rounded bg-slate-100 px-1 py-0.5">openclaw_user_bindings</code> 解析用户；
+              Feishu 渠道要求 tenant/account 至少命中其一。
+            </div>
+            <div>
+              4）确认执行时还会校验 <code className="rounded bg-slate-100 px-1 py-0.5">runId + userId</code> 一致性，防止跨用户确认。
+            </div>
           </CardContent>
         </Card>
 
@@ -308,20 +461,10 @@ export default function OpenClawConfigGuidePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>用户级配置</CardTitle>
-            <CardDescription>每个用户独立绑定飞书推送目标</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ParamTable rows={[{ key: 'feishu_target', desc: '推送目标', note: 'open_id / union_id / chat_id' }]} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>OpenClaw Access Token</CardTitle>
             <CardDescription>OpenClaw 调用 AutoAds API 的用户级 Token</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-slate-700 space-y-2">
+          <CardContent className="space-y-2 text-sm text-slate-700">
             <div>路径：OpenClaw → 配置中心 → OpenClaw Access Tokens → 生成新 Token</div>
             <div className="text-xs text-slate-500">每个 Token 都绑定用户身份，调用时会进行授权校验。</div>
           </CardContent>
@@ -333,9 +476,12 @@ export default function OpenClawConfigGuidePage() {
             <CardDescription>OpenClaw 日志默认输出到容器 stdout</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-700">
-            <div>默认：<code className="bg-slate-100 px-2 py-0.5 rounded">logging.file=/proc/self/fd/1</code></div>
+            <div>
+              默认：
+              <code className="rounded bg-slate-100 px-2 py-0.5">logging.file=/proc/self/fd/1</code>
+            </div>
             <div>可用环境变量覆盖：</div>
-            <pre className="bg-slate-900 text-slate-100 rounded-md p-4 text-xs overflow-auto">
+            <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">
 OPENCLAW_LOG_FILE=/tmp/openclaw/openclaw-YYYY-MM-DD.log
 OPENCLAW_CONSOLE_LEVEL=info
 OPENCLAW_CONSOLE_STYLE=compact
@@ -348,10 +494,10 @@ OPENCLAW_CONSOLE_STYLE=compact
             <CardTitle>安全提示</CardTitle>
             <CardDescription>敏感信息建议</CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-slate-700 space-y-2">
-            <div>1. Gateway Token 与 OpenClaw Token 均为高敏感信息，禁止外泄。</div>
+          <CardContent className="space-y-2 text-sm text-slate-700">
+            <div>1. Gateway Token、Card Confirm Token、OpenClaw Token 均为高敏感信息，禁止外泄。</div>
             <div>2. 建议按用户独立生成 Token，并定期轮换。</div>
-            <div>3. 如怀疑泄露，请立即撤销 Token 并重新生成。</div>
+            <div>3. 如怀疑泄露，请立即撤销 Token、更新回调 Token 并复测卡片确认链路。</div>
           </CardContent>
         </Card>
       </div>
