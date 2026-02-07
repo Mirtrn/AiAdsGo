@@ -33,5 +33,15 @@ echo "✅ 初始化完成，启动服务..."
 echo "========================================"
 echo ""
 
+# 为 supervisord 变量插值提供默认值（避免未注入时启动失败）
+: "${NODE_MAX_OLD_SPACE_SIZE_WEB:=6144}"
+: "${NODE_MAX_OLD_SPACE_SIZE_SCHEDULER:=1024}"
+: "${NODE_MAX_OLD_SPACE_SIZE_BACKGROUND_WORKER:=2048}"
+: "${NODE_MAX_OLD_SPACE_SIZE_OPENCLAW:=1536}"
+export NODE_MAX_OLD_SPACE_SIZE_WEB
+export NODE_MAX_OLD_SPACE_SIZE_SCHEDULER
+export NODE_MAX_OLD_SPACE_SIZE_BACKGROUND_WORKER
+export NODE_MAX_OLD_SPACE_SIZE_OPENCLAW
+
 # 启动supervisord
 exec /usr/bin/supervisord -c /etc/supervisord.conf
