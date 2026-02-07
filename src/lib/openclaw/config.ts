@@ -3,6 +3,7 @@ import path from 'path'
 import { getSettingsByCategory } from '@/lib/settings'
 import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
 import { collectUserFeishuAccounts } from '@/lib/openclaw/feishu-accounts'
+import { parseAiModelsJson } from '@/lib/openclaw/ai-models'
 
 type SyncOpenclawConfigOptions = {
   reason?: string
@@ -75,25 +76,6 @@ function parseJsonObject(value: string | null | undefined): Record<string, any> 
   }
 }
 
-function parseModelsProviders(value: string | null | undefined): Record<string, any> | undefined {
-  if (!value) return undefined
-  try {
-    const parsed = JSON.parse(value)
-    if (parsed && typeof parsed === 'object') {
-      if (parsed.providers && typeof parsed.providers === 'object') {
-        return parsed.providers as Record<string, any>
-      }
-      if (parsed.models && typeof parsed.models === 'object' && parsed.models.providers) {
-        return parsed.models.providers as Record<string, any>
-      }
-      return parsed as Record<string, any>
-    }
-  } catch (error) {
-    console.error('❌ OpenClaw models JSON 解析失败:', error)
-  }
-  return undefined
-}
-
 function resolveConfigPath(): { configPath: string; stateDir: string } {
   const configPath = (process.env.OPENCLAW_CONFIG_PATH || '').trim()
     || path.join(process.cwd(), '.openclaw', 'openclaw.json')
@@ -162,7 +144,13 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     ;(feishuAccount as any).groups = mergedGroups
   }
 
-  const modelsProviders = parseModelsProviders(settingMap.ai_models_json)
+  const aiModelsConfig = parseAiModelsJson(settingMap.ai_models_json)
+  if (aiModelsConfig.parseError && (settingMap.ai_models_json || '').trim()) {
+    console.error('❌ OpenClaw models JSON 解析失败:', aiModelsConfig.parseError)
+  }
+  const modelsProviders = aiModelsConfig.providers
+  const aiSelectedModelRef = aiModelsConfig.explicitSelectedModelRef
+  const aiFallbackModelRef = aiModelsConfig.selectedModelRef
   const modelsMode = (settingMap.openclaw_models_mode || '').trim()
   const bedrockDiscovery = parseJsonObject(settingMap.openclaw_models_bedrock_discovery_json)
   const agentDefaults = parseJsonObject(settingMap.openclaw_agent_defaults_json)
@@ -298,10 +286,42 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     }
   }
 
-  if (agentDefaults || (agentList && agentList.length > 0)) {
+  const mergedAgentDefaults = (() => {
+    const base = agentDefaults && Object.keys(agentDefaults).length > 0
+      ? { ...agentDefaults }
+      : {}
+
+    const hasExistingPrimaryModel = (() => {
+      const existingModel = base.model
+      if (typeof existingModel === 'string') {
+        return Boolean(existingModel.trim())
+      }
+      if (existingModel && typeof existingModel === 'object' && !Array.isArray(existingModel)) {
+        return typeof existingModel.primary === 'string' && Boolean(existingModel.primary.trim())
+      }
+      return false
+    })()
+
+    const preferredModelRef =
+      aiSelectedModelRef ||
+      (!hasExistingPrimaryModel ? aiFallbackModelRef : null)
+
+    if (preferredModelRef) {
+      const existingModel = base.model
+      if (existingModel && typeof existingModel === 'object' && !Array.isArray(existingModel)) {
+        base.model = { ...existingModel, primary: preferredModelRef }
+      } else {
+        base.model = { primary: preferredModelRef }
+      }
+    }
+
+    return Object.keys(base).length > 0 ? base : undefined
+  })()
+
+  if (mergedAgentDefaults || (agentList && agentList.length > 0)) {
     config.agents = {}
-    if (agentDefaults && Object.keys(agentDefaults).length > 0) {
-      config.agents.defaults = agentDefaults
+    if (mergedAgentDefaults) {
+      config.agents.defaults = mergedAgentDefaults
     }
     if (agentList && agentList.length > 0) {
       config.agents.list = agentList

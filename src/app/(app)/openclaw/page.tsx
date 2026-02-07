@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { TrendChartDynamic } from '@/components/charts/dynamic'
 import { toast } from 'sonner'
+import { parseAiModelsJson, setAiModelsSelectedModel } from '@/lib/openclaw/ai-models'
 
 type SettingItem = {
   key: string
@@ -873,13 +874,27 @@ export default function OpenClawPage() {
   }
 
   const validateAiJson = (value: string): string | null => {
-    if (!value.trim()) return null
-    try {
-      JSON.parse(value)
-      return null
-    } catch (e: any) {
-      return e?.message || 'JSON 格式错误'
+    return parseAiModelsJson(value).parseError
+  }
+
+  const aiModelsInfo = useMemo(
+    () => parseAiModelsJson(userValues.ai_models_json || ''),
+    [userValues.ai_models_json]
+  )
+  const aiModelOptions = aiModelsInfo.modelOptions
+  const aiSelectedModelRef = aiModelsInfo.selectedModelRef
+  const aiSelectedModelMeta = aiModelOptions.find((option) => option.modelRef === aiSelectedModelRef) || null
+
+  const handleAiModelChange = (nextModelRef: string) => {
+    const result = setAiModelsSelectedModel(userValues.ai_models_json || '', nextModelRef)
+    if (result.error) {
+      setAiJsonError(result.error)
+      toast.error(result.error)
+      return
     }
+
+    setUserValue('ai_models_json', result.json)
+    setAiJsonError(null)
   }
 
   const handleRunStrategy = async () => {
@@ -983,6 +998,9 @@ export default function OpenClawPage() {
   const showFeishuAdvanced = !simpleMode || showAdvancedFeishu
   const showStrategyAdvanced = !simpleMode || showAdvancedStrategy
   const aiConfigured = Boolean((userValues.ai_models_json || '').trim())
+  const aiModelLabel = aiSelectedModelMeta
+    ? `${aiSelectedModelMeta.modelName}（${aiSelectedModelMeta.modelRef}）`
+    : aiSelectedModelRef
   const feishuDomain = (userValues.feishu_domain || '').trim().toLowerCase()
   const feishuDomainValid =
     !feishuDomain ||
@@ -1004,7 +1022,7 @@ export default function OpenClawPage() {
       id: 'ai',
       label: 'AI引擎',
       done: aiConfigured,
-      note: aiConfigured ? '已配置 Providers JSON' : '未配置',
+      note: aiConfigured ? (aiModelLabel ? '当前：' + aiModelLabel : '已配置 Providers JSON') : '未配置',
     },
     {
       id: 'feishu_user',
@@ -1341,6 +1359,40 @@ export default function OpenClawPage() {
               <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 JSON 格式：顶层 providers 对象，每个 provider 包含 baseUrl、apiKey、api 和 models 数组。详见配置指南。
               </div>
+              <div className="grid gap-4 rounded-md border px-3 py-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-xs text-slate-500">当前给 OpenClaw 使用的模型</div>
+                  <div className="truncate text-sm font-medium" title={aiModelLabel || '未识别'}>
+                    {aiModelLabel || '未识别（请检查 Providers JSON）'}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">切换模型</label>
+                  <Select
+                    value={aiSelectedModelRef || undefined}
+                    onValueChange={handleAiModelChange}
+                    disabled={Boolean(aiModelsInfo.parseError) || aiModelOptions.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={aiModelOptions.length > 0 ? '选择可用模型' : '暂无可用模型'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {aiModelOptions.map((option) => (
+                        <SelectItem key={option.modelRef} value={option.modelRef}>
+                          {option.modelName} ({option.modelRef})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {!aiModelsInfo.parseError && aiConfigured && aiModelOptions.length === 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  当前 JSON 中未解析到可用模型，请确认 models.providers.[provider].models 配置。
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Providers JSON</span>
                 <div className="flex items-center gap-2">
@@ -1356,7 +1408,10 @@ export default function OpenClawPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setUserValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)}
+                    onClick={() => {
+                      setUserValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)
+                      setAiJsonError(null)
+                    }}
                   >
                     最小模板
                   </Button>
