@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Zap, ZapOff } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -177,7 +177,6 @@ export default function UserManagementPage() {
     const [editExpiry, setEditExpiry] = useState('')
     // 🔧 修复(2025-12-30): 改为boolean类型匹配API
     const [editStatus, setEditStatus] = useState(true)
-    const [editOpenclawEnabled, setEditOpenclawEnabled] = useState(false)
 
     // Reset password dialog
     const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false)
@@ -341,8 +340,7 @@ export default function UserManagementPage() {
                     email: editEmail || null,
                     packageType: editPackage,
                     packageExpiresAt: editExpiry || null,
-                    isActive: editStatus,
-                    openclawEnabled: editOpenclawEnabled
+                    isActive: editStatus
                 })
             })
 
@@ -390,6 +388,23 @@ export default function UserManagementPage() {
                 setConfirmDialog(prev => ({ ...prev, open: false }))
             }
         })
+    }
+
+    const handleToggleOpenclaw = async (userId: number, username: string, currentEnabled: boolean) => {
+        const action = currentEnabled ? '关闭' : '开启'
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ openclawEnabled: !currentEnabled })
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error)
+            toast.success(`已${action}用户 "${username}" 的 OpenClaw 访问`)
+            fetchUsers(pagination.page)
+        } catch (error: any) {
+            toast.error(error.message)
+        }
     }
 
     const handleDeleteUser = (userId: number, username: string, isActive: boolean) => {
@@ -508,7 +523,6 @@ export default function UserManagementPage() {
         setEditPackage(user.packageType)
         setEditExpiry(user.packageExpiresAt ? new Date(user.packageExpiresAt).toISOString().split('T')[0] : '')
         setEditStatus(user.isActive)
-        setEditOpenclawEnabled(user.openclawEnabled)
         setIsEditOpen(true)
     }
 
@@ -873,6 +887,19 @@ export default function UserManagementPage() {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
+                                                        className={user.openclawEnabled ? 'text-violet-600 hover:text-violet-700' : 'text-gray-400 hover:text-gray-500'}
+                                                        onClick={() => handleToggleOpenclaw(user.id, user.username, user.openclawEnabled)}
+                                                        title={user.openclawEnabled ? 'OpenClaw 已开启（点击关闭）' : 'OpenClaw 已关闭（点击开启）'}
+                                                    >
+                                                        {user.openclawEnabled ? (
+                                                            <Zap className="w-4 h-4" />
+                                                        ) : (
+                                                            <ZapOff className="w-4 h-4" />
+                                                        )}
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         onClick={() => handleResetPassword(user.id, user.username)}
                                                         title="重置密码"
                                                     >
@@ -1105,18 +1132,6 @@ export default function UserManagementPage() {
                                 <SelectContent>
                                     <SelectItem value="true">正常</SelectItem>
                                     <SelectItem value="false">禁用</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>OpenClaw 访问</Label>
-                            <Select value={String(editOpenclawEnabled)} onValueChange={(v) => setEditOpenclawEnabled(v === 'true')}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="true">开启</SelectItem>
-                                    <SelectItem value="false">关闭</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
