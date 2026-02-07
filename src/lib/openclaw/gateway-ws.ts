@@ -5,6 +5,8 @@ import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
 const PROTOCOL_VERSION = 3
 const DEFAULT_TIMEOUT_MS = 10_000
 const DEFAULT_CACHE_MS = 15_000
+const DEFAULT_RETRY_COUNT = 2
+const DEFAULT_RETRY_DELAY_MS = 350
 
 type GatewayResponse = {
   type: 'res'
@@ -50,6 +52,20 @@ function resolveTimeoutMs(): number {
   return parseNumber(process.env.OPENCLAW_GATEWAY_STATUS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)
 }
 
+function resolveRetryCount(): number {
+  const parsed = parseNumber(process.env.OPENCLAW_GATEWAY_STATUS_RETRIES, DEFAULT_RETRY_COUNT)
+  return Math.max(1, Math.min(3, Math.floor(parsed)))
+}
+
+function resolveRetryDelayMs(): number {
+  const parsed = parseNumber(process.env.OPENCLAW_GATEWAY_STATUS_RETRY_DELAY_MS, DEFAULT_RETRY_DELAY_MS)
+  return Math.max(100, Math.min(5_000, Math.floor(parsed)))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function resolveWebSocketImpl(): Promise<any> {
   if (typeof WebSocket !== 'undefined') {
     return WebSocket
@@ -65,7 +81,7 @@ async function resolveWebSocketImpl(): Promise<any> {
 function toWsUrl(httpUrl: string): string {
   const url = new URL(httpUrl)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString().replace(/\/$/, '')
+  return url.toString().replace(/\/+$/, '')
 }
 
 function attachListener(
@@ -240,44 +256,85 @@ async function fetchGatewaySnapshot(): Promise<OpenclawGatewaySnapshot> {
   const wsUrl = toWsUrl(baseUrl)
   const timeoutMs = resolveTimeoutMs()
   const token = await getOpenclawGatewayToken()
-  const ws = await openGatewaySocket(wsUrl, timeoutMs)
-  const client = createGatewayClient(ws)
+
+  let ws: any = null
+  let client: GatewayClient | null = null
+
   try {
+    ws = await openGatewaySocket(wsUrl, timeoutMs)
+    client = createGatewayClient(ws)
+
     await connectGateway(client, token, timeoutMs)
+
     const [healthRes, skillsRes] = await Promise.allSettled([
       client.request('health', {}, timeoutMs),
       client.request('skills.status', {}, timeoutMs),
     ])
+
     const errors: string[] = []
     const health = healthRes.status === 'fulfilled' ? healthRes.value : null
     if (healthRes.status === 'rejected') {
       errors.push(healthRes.reason?.message || 'health 请求失败')
     }
+
     const skills = skillsRes.status === 'fulfilled' ? skillsRes.value : null
     if (skillsRes.status === 'rejected') {
       errors.push(skillsRes.reason?.message || 'skills.status 请求失败')
     }
+
     return {
       fetchedAt: new Date().toISOString(),
       health,
       skills,
       errors,
     }
+  } catch (error: any) {
+    const message = error?.message || '未知错误'
+    throw new Error(`Gateway 状态查询失败 (${wsUrl}): ${message}`)
   } finally {
-    client.close()
+    if (client) {
+      client.close()
+    } else if (ws) {
+      try {
+        ws.close()
+      } catch {}
+    }
   }
+}
+
+async function fetchGatewaySnapshotWithRetry(): Promise<OpenclawGatewaySnapshot> {
+  const attempts = resolveRetryCount()
+  const delayMs = resolveRetryDelayMs()
+  let lastError: any = null
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fetchGatewaySnapshot()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) {
+        await sleep(delayMs * attempt)
+      }
+    }
+  }
+
+  throw lastError || new Error('Gateway 状态查询失败')
 }
 
 export async function getOpenclawGatewaySnapshot(opts?: { force?: boolean }): Promise<OpenclawGatewaySnapshot> {
   const force = opts?.force === true
   const ttlMs = resolveCacheTtlMs()
+
   if (!force && cachedSnapshot && Date.now() < cacheExpiresAt) {
     return cachedSnapshot
   }
+
   if (!force && inflight) {
     return await inflight
   }
-  inflight = fetchGatewaySnapshot()
+
+  inflight = fetchGatewaySnapshotWithRetry()
+
   try {
     const snapshot = await inflight
     cachedSnapshot = snapshot
