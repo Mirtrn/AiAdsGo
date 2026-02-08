@@ -106,6 +106,7 @@ export type ProductListOptions = {
 export type ProductListResult = {
   items: AffiliateProductListItem[]
   total: number
+  productsWithLinkCount: number
   page: number
   pageSize: number
 }
@@ -1515,9 +1516,16 @@ export async function listAffiliateProducts(userId: number, options: ProductList
 
   const whereSql = whereConditions.join(' AND ')
 
-  const totalRow = await db.queryOne<{ total: number }>(
+  const summaryRow = await db.queryOne<{ total: number; products_with_link_count: number }>(
     `
-      SELECT COUNT(*) AS total
+      SELECT
+        COUNT(*) AS total,
+        SUM(
+          CASE
+            WHEN COALESCE(NULLIF(TRIM(p.short_promo_link), ''), NULLIF(TRIM(p.promo_link), '')) IS NOT NULL THEN 1
+            ELSE 0
+          END
+        ) AS products_with_link_count
       FROM affiliate_products p
       WHERE ${whereSql}
     `,
@@ -1546,7 +1554,8 @@ export async function listAffiliateProducts(userId: number, options: ProductList
 
   return {
     items: rows.map((row) => mapAffiliateProductRow(row)),
-    total: Number(totalRow?.total || 0),
+    total: Number(summaryRow?.total || 0),
+    productsWithLinkCount: Number(summaryRow?.products_with_link_count || 0),
     page,
     pageSize,
   }

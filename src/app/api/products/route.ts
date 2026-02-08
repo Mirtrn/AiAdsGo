@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
       success: true as const,
       items: result.items,
       total: result.total,
+      productsWithLinkCount: result.productsWithLinkCount,
       page: result.page,
       pageSize: result.pageSize,
     }

@@ -117,6 +117,7 @@ type ProductListResponse = {
   success: boolean
   items: ProductListItem[]
   total: number
+  productsWithLinkCount: number
   page: number
   pageSize: number
 }
@@ -250,6 +251,7 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
+  const [productsWithLinkCount, setProductsWithLinkCount] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [searchText, setSearchText] = useState('')
@@ -297,12 +299,10 @@ export default function ProductsPage() {
   const stats = useMemo(() => {
     const activeSyncRuns = latestRuns.filter((run) => run.status === 'queued' || run.status === 'running').length
     const blacklistedCount = items.filter((item) => item.isBlacklisted).length
-    const productsWithLinkCount = items.filter((item) => Boolean(item.shortPromoLink || item.promoLink)).length
 
     return {
       activeSyncRuns,
       blacklistedCount,
-      productsWithLinkCount,
     }
   }, [items, latestRuns])
 
@@ -343,6 +343,7 @@ export default function ProductsPage() {
 
       setItems(data.items || [])
       setTotal(data.total || 0)
+      setProductsWithLinkCount(Number(data.productsWithLinkCount || 0))
 
       setSelectedProductIds((prev) => {
         if (prev.size === 0) return prev
@@ -988,10 +989,10 @@ export default function ProductsPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">当前页商品</div>
+              <div className="text-xs text-muted-foreground">所有商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <Package className="h-4 w-4 text-blue-600" />
-                <span className="text-xl font-semibold">{items.length}</span>
+                <span className="text-xl font-semibold">{total}</span>
               </div>
             </CardContent>
           </Card>
@@ -1000,7 +1001,7 @@ export default function ProductsPage() {
               <div className="text-xs text-muted-foreground">有推广链接</div>
               <div className="mt-1 flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-xl font-semibold">{stats.productsWithLinkCount}</span>
+                <span className="text-xl font-semibold">{productsWithLinkCount}</span>
               </div>
             </CardContent>
           </Card>
@@ -1130,8 +1131,8 @@ export default function ProductsPage() {
                 <NoDataState
                   title="暂无商品数据"
                   description="请先执行联盟平台同步，系统会自动拉取可推广商品。"
-                  actionLabel="立即同步 YP"
-                  onAction={() => handlePlatformSync('yeahpromos')}
+                  actionLabel="立即同步PB商品"
+                  onAction={() => handlePlatformSync('partnerboost')}
                 />
               )
             ) : (
