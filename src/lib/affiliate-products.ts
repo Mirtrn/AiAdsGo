@@ -5,6 +5,12 @@ import { getUserOnlySetting } from '@/lib/settings'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single'
+export type AffiliateLandingPageType =
+  | 'amazon_product'
+  | 'amazon_store'
+  | 'independent_product'
+  | 'independent_store'
+  | 'unknown'
 
 export type AffiliateProduct = {
   id: number
@@ -36,6 +42,8 @@ export type AffiliateProductListItem = {
   platform: AffiliatePlatform
   mid: string
   asin: string | null
+  landingPageType: AffiliateLandingPageType
+  isDeepLink: boolean | null
   brand: string | null
   productName: string | null
   productUrl: string | null
@@ -155,6 +163,7 @@ const PLATFORM_KEY_REQUIREMENTS: Record<AffiliatePlatform, string[]> = {
 }
 
 const DEFAULT_PB_BASE_URL = 'https://app.partnerboost.com'
+const DEFAULT_PB_COUNTRY_CODE = 'US'
 
 type PartnerboostProduct = {
   product_id?: string
@@ -205,6 +214,7 @@ type YeahPromosMerchant = {
   url?: string
   site_url?: string
   tracking_url?: string
+  is_deeplink?: string | number | boolean
   country?: string
   avg_payout?: string | number
   payout_unit?: string
@@ -375,6 +385,16 @@ export function resolvePartnerboostPromoLinks(input: {
     promoLink,
     shortPromoLink,
   }
+}
+
+export function resolvePartnerboostCountryCode(value: unknown, fallback: unknown = DEFAULT_PB_COUNTRY_CODE): string {
+  const primary = normalizeCountryCode(String(value || ''))
+  if (primary) return primary
+
+  const backup = normalizeCountryCode(String(fallback || ''))
+  if (backup) return backup
+
+  return DEFAULT_PB_COUNTRY_CODE
 }
 
 function normalizeYeahPromosMerchants(value: unknown): YeahPromosMerchant[] {
@@ -628,6 +648,86 @@ function normalizePlatformValue(value: unknown): AffiliatePlatform | null {
   return null
 }
 
+function normalizeTriStateBool(value: unknown): boolean | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+
+  const raw = String(value).trim().toLowerCase()
+  if (!raw) return null
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true
+  if (raw === '0' || raw === 'false' || raw === 'no') return false
+  return null
+}
+
+export function detectAffiliateLandingPageType(params: {
+  asin?: string | null
+  productUrl?: string | null
+  promoLink?: string | null
+  shortPromoLink?: string | null
+}): AffiliateLandingPageType {
+  if (params.asin && String(params.asin).trim()) {
+    return 'amazon_product'
+  }
+
+  const candidateUrls = [params.productUrl, params.shortPromoLink, params.promoLink]
+
+  let parsedUrl: URL | null = null
+  for (const value of candidateUrls) {
+    const normalized = normalizeUrl(value)
+    if (!normalized) continue
+    try {
+      parsedUrl = new URL(normalized)
+      break
+    } catch {
+      continue
+    }
+  }
+
+  if (!parsedUrl) return 'unknown'
+
+  const hostname = parsedUrl.hostname.toLowerCase()
+  const pathname = parsedUrl.pathname.toLowerCase()
+  const isAmazonDomain = hostname.includes('amazon.')
+
+  if (isAmazonDomain) {
+    if (
+      pathname.includes('/stores/')
+      || pathname.includes('/store/')
+      || pathname.includes('/storefront/')
+    ) {
+      return 'amazon_store'
+    }
+
+    if (pathname.includes('/dp/') || pathname.includes('/gp/product/')) {
+      return 'amazon_product'
+    }
+  }
+
+  const isIndependentProduct =
+    pathname.includes('/products/')
+    || pathname.includes('/product/')
+    || pathname.includes('/p/')
+    || pathname.includes('/item/')
+
+  if (isIndependentProduct) {
+    return 'independent_product'
+  }
+
+  const isIndependentStore =
+    pathname === '/'
+    || pathname === ''
+    || pathname.includes('/collections')
+    || pathname.includes('/shop')
+    || pathname.includes('/store')
+
+  if (isIndependentStore) {
+    return 'independent_store'
+  }
+
+  return 'unknown'
+}
+
 export function normalizeAffiliatePlatform(value: unknown): AffiliatePlatform | null {
   return normalizePlatformValue(value)
 }
@@ -747,7 +847,7 @@ async function fetchPartnerboostPromotableProducts(params: {
   const pageSize = Math.max(1, Math.min(parseInteger(check.values.partnerboost_products_page_size || '100', 100), 200))
   const startPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
   const defaultFilter = parseInteger(check.values.partnerboost_products_default_filter || '0', 0)
-  const countryCode = (check.values.partnerboost_products_country_code || '').trim().toUpperCase()
+  const countryCode = resolvePartnerboostCountryCode(check.values.partnerboost_products_country_code)
   const brandId = (check.values.partnerboost_products_brand_id || '').trim() || null
   const sort = check.values.partnerboost_products_sort || ''
   const relationship = parseInteger(check.values.partnerboost_products_relationship || '1', 1)
@@ -759,7 +859,7 @@ async function fetchPartnerboostPromotableProducts(params: {
   const allAsins = Array.from(new Set([...(params.asins || []), ...configuredAsins]))
     .map((asin) => normalizeAsin(asin))
     .filter((asin): asin is string => Boolean(asin))
-  const linkCountryCode = (check.values.partnerboost_link_country_code || countryCode).trim().toUpperCase()
+  const linkCountryCode = resolvePartnerboostCountryCode(check.values.partnerboost_link_country_code, countryCode)
   const uid = check.values.partnerboost_link_uid || ''
   const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
   const maxPages = Math.max(1, Math.min(params.maxPages || 20, 30))
@@ -1348,12 +1448,31 @@ export async function listAffiliateProducts(userId: number, options: ProductList
 }
 
 function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: number }): AffiliateProductListItem {
+  const rawJson = (() => {
+    if (!row.raw_json) return null
+    try {
+      return JSON.parse(row.raw_json)
+    } catch {
+      return null
+    }
+  })()
+
+  const isDeepLink = normalizeTriStateBool(rawJson?.is_deeplink)
+  const landingPageType = detectAffiliateLandingPageType({
+    asin: row.asin,
+    productUrl: row.product_url,
+    promoLink: row.promo_link,
+    shortPromoLink: row.short_promo_link,
+  })
+
   return {
     id: row.id,
     serial: row.id,
     platform: row.platform,
     mid: row.mid,
     asin: row.asin,
+    landingPageType,
+    isDeepLink,
     brand: row.brand,
     productName: row.product_name,
     productUrl: row.product_url,
@@ -1378,6 +1497,24 @@ export async function getAffiliateProductById(userId: number, productId: number)
     [productId, userId]
   )
   return row || null
+}
+
+export async function clearAllAffiliateProducts(userId: number): Promise<{ deletedCount: number }> {
+  const db = await getDatabase()
+
+  const totalRow = await db.queryOne<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM affiliate_products WHERE user_id = ?`,
+    [userId]
+  )
+
+  await db.exec(
+    `DELETE FROM affiliate_products WHERE user_id = ?`,
+    [userId]
+  )
+
+  return {
+    deletedCount: Number(totalRow?.total || 0),
+  }
 }
 
 async function listActiveLinkedOfferIdsForProduct(userId: number, productId: number): Promise<number[]> {

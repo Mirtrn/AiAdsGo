@@ -36,6 +36,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { NoDataState, NoResultsState } from '@/components/ui/empty-state'
@@ -57,9 +67,12 @@ import {
   RefreshCw,
   Search,
   AlertCircle,
+  Info,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
+type LandingPageType = 'amazon_product' | 'amazon_store' | 'independent_product' | 'independent_store' | 'unknown'
 type SortOrder = 'asc' | 'desc'
 type SortField =
   | 'serial'
@@ -80,6 +93,8 @@ type ProductListItem = {
   platform: ProductPlatform
   mid: string
   asin: string | null
+  landingPageType: LandingPageType
+  isDeepLink: boolean | null
   brand: string | null
   productName: string | null
   productUrl: string | null
@@ -138,6 +153,14 @@ const PLATFORM_SHORT_LABEL: Record<ProductPlatform, string> = {
   partnerboost: 'PB',
 }
 
+const LANDING_PAGE_TYPE_LABEL: Record<LandingPageType, string> = {
+  amazon_product: '亚马逊商品',
+  amazon_store: '亚马逊店铺',
+  independent_product: '独立站商品',
+  independent_store: '独立站店铺',
+  unknown: '未知',
+}
+
 function formatCurrency(amount: number | null, currency: string | null): string {
   if (amount === null || amount === undefined) return '-'
   if (!currency) return `${amount}`
@@ -147,6 +170,11 @@ function formatCurrency(amount: number | null, currency: string | null): string 
 function formatPercent(rate: number | null): string {
   if (rate === null || rate === undefined) return '-'
   return `${rate}%`
+}
+
+function formatDeepLink(value: boolean | null): string {
+  if (value === null) return '-'
+  return value ? '是' : '否'
 }
 
 function normalizeCountries(countries: string[]): string[] {
@@ -230,6 +258,8 @@ export default function ProductsPage() {
   const [singleOfflineDialogOpen, setSingleOfflineDialogOpen] = useState(false)
   const [batchOfflineDialogOpen, setBatchOfflineDialogOpen] = useState(false)
   const [createOfferDialogOpen, setCreateOfferDialogOpen] = useState(false)
+  const [clearAllConfirmOpen, setClearAllConfirmOpen] = useState(false)
+  const [clearingAll, setClearingAll] = useState(false)
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
   const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
@@ -586,6 +616,40 @@ export default function ProductsPage() {
     setBatchDialogOpen(true)
   }
 
+  const openClearAllDialog = () => {
+    if (clearingAll) return
+    setClearAllConfirmOpen(true)
+  }
+
+  const submitClearAll = async () => {
+    if (clearingAll) return
+
+    setClearingAll(true)
+    try {
+      const response = await fetch('/api/products/clear', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || '清空商品失败')
+      }
+
+      const deletedCount = Number(data?.deletedCount || 0)
+      showSuccess('清空完成', `已清空 ${deletedCount} 条商品数据`)
+
+      setClearAllConfirmOpen(false)
+      setSelectedProductIds(new Set())
+      setPage(1)
+      await fetchProducts(true)
+      await fetchSyncRuns()
+    } catch (error: any) {
+      showError('清空失败', error?.message || '清空商品失败')
+    } finally {
+      setClearingAll(false)
+    }
+  }
+
   const updateBatchRowCountry = (productId: number, country: string) => {
     setBatchRows((prev) => prev.map((row) => {
       if (row.productId !== productId) return row
@@ -646,12 +710,52 @@ export default function ProductsPage() {
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
               联盟平台
             </SortableTableHead>
-            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[140px] whitespace-nowrap">
-              MID
+            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[170px] whitespace-nowrap">
+              <span className="inline-flex items-center gap-1">
+                平台商品ID
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex items-center text-muted-foreground"
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label="平台商品ID说明"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs leading-5">
+                      <div>PB: product_id（联盟平台商品ID）</div>
+                      <div>YP: mid / advert_id（联盟商家ID）</div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </span>
             </SortableTableHead>
-            <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[130px] whitespace-nowrap">
-              ASIN
+            <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[160px] whitespace-nowrap">
+              <span className="inline-flex items-center gap-1">
+                ASIN
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex items-center text-muted-foreground"
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label="ASIN说明"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs leading-5">
+                      <div>Amazon 商品唯一标识</div>
+                      <div>PB: 通常有值；YP: 通常为空</div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </span>
             </SortableTableHead>
+            <TableHead className="w-[140px] whitespace-nowrap">落地页类型</TableHead>
+            <TableHead className="w-[120px] whitespace-nowrap">DeepLink</TableHead>
             <SortableTableHead field="allowedCountries" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[140px] whitespace-nowrap">
               允许投放国家
             </SortableTableHead>
@@ -679,6 +783,8 @@ export default function ProductsPage() {
             const promoLink = item.shortPromoLink || item.promoLink
             const midTargetUrl = resolveMidTargetUrl(item)
             const asinText = item.asin || '-'
+            const landingPageTypeText = LANDING_PAGE_TYPE_LABEL[item.landingPageType] || LANDING_PAGE_TYPE_LABEL.unknown
+            const deepLinkText = formatDeepLink(item.isDeepLink)
             const allowedCountriesText = item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'
             const priceText = formatCurrency(item.priceAmount, item.priceCurrency)
             const commissionRateText = formatPercent(item.commissionRate)
@@ -721,6 +827,14 @@ export default function ProductsPage() {
                 </TableCell>
                 <TableCell>
                   <div className={`max-w-[120px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={asinText}>{asinText}</div>
+                </TableCell>
+                <TableCell>
+                  <div className={item.isBlacklisted ? 'opacity-50' : ''}>
+                    <Badge variant="outline">{landingPageTypeText}</Badge>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className={item.isBlacklisted ? 'opacity-50' : ''}>{deepLinkText}</div>
                 </TableCell>
                 <TableCell>
                   <div className={`max-w-[130px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={allowedCountriesText}>
@@ -816,6 +930,15 @@ export default function ProductsPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                variant="destructive"
+                onClick={openClearAllDialog}
+                disabled={clearingAll || total <= 0}
+                title={total > 0 ? '清空当前用户下全部商品数据' : '暂无可清空商品'}
+              >
+                {clearingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                一键清空
+              </Button>
+              <Button
                 variant="outline"
                 onClick={() => handlePlatformSync('yeahpromos')}
                 disabled={syncingPlatform !== null}
@@ -843,7 +966,7 @@ export default function ProductsPage() {
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">当前页商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <Package className="h-4 w-4 text-blue-600" />
@@ -852,7 +975,7 @@ export default function ProductsPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">有推广链接</div>
               <div className="mt-1 flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-emerald-600" />
@@ -861,7 +984,7 @@ export default function ProductsPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">已下线商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <ShieldOff className="h-4 w-4 text-rose-600" />
@@ -870,7 +993,7 @@ export default function ProductsPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">同步进行中</div>
               <div className="mt-1 flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-amber-600" />
@@ -925,7 +1048,7 @@ export default function ProductsPage() {
                   <Input
                     value={searchText}
                     onChange={(event) => setSearchText(event.target.value)}
-                    placeholder="搜索 MID / ASIN / 商品名 / 品牌"
+                    placeholder="搜索 平台商品ID / ASIN / 商品名 / 品牌"
                     className="pl-9"
                   />
                 </div>
@@ -1189,6 +1312,29 @@ export default function ProductsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={clearAllConfirmOpen} onOpenChange={setClearAllConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认清空全部商品？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作会清空你在“商品管理”中已同步的全部商家/商品数据（共 <strong className="text-foreground">{total}</strong> 条）。
+              不会删除已经创建的 Offer。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={clearingAll}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={submitClearAll}
+              disabled={clearingAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {clearingAll ? '清空中...' : '确认清空全部'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   )
 }

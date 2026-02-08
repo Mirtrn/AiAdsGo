@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  detectAffiliateLandingPageType,
   extractPartnerboostProductsPayload,
   normalizePartnerboostStatusCode,
+  resolvePartnerboostCountryCode,
   resolvePartnerboostPromoLinks,
 } from '@/lib/affiliate-products'
 
@@ -94,5 +96,44 @@ describe('resolvePartnerboostPromoLinks', () => {
 
     expect(resolved.shortPromoLink).toBe('https://pboost.me/abc123')
     expect(resolved.promoLink).toBe('https://pboost.me/abc123')
+  })
+})
+
+describe('resolvePartnerboostCountryCode', () => {
+  it('returns uppercase country when configured', () => {
+    expect(resolvePartnerboostCountryCode('ca')).toBe('CA')
+    expect(resolvePartnerboostCountryCode(' us ')).toBe('US')
+  })
+
+  it('falls back to provided fallback value', () => {
+    expect(resolvePartnerboostCountryCode('', 'gb')).toBe('GB')
+    expect(resolvePartnerboostCountryCode(undefined, 'jp')).toBe('JP')
+  })
+
+  it('falls back to US when both are empty', () => {
+    expect(resolvePartnerboostCountryCode('')).toBe('US')
+    expect(resolvePartnerboostCountryCode(undefined, '')).toBe('US')
+  })
+})
+
+describe('detectAffiliateLandingPageType', () => {
+  it('returns amazon_product when asin exists', () => {
+    expect(detectAffiliateLandingPageType({ asin: 'B0ABC12345' })).toBe('amazon_product')
+  })
+
+  it('returns amazon_store for amazon store url', () => {
+    expect(detectAffiliateLandingPageType({ productUrl: 'https://www.amazon.com/stores/page/ABC123' })).toBe('amazon_store')
+  })
+
+  it('returns independent_product for product-like path', () => {
+    expect(detectAffiliateLandingPageType({ productUrl: 'https://brand.example.com/products/camera-x1' })).toBe('independent_product')
+  })
+
+  it('returns independent_store for root path', () => {
+    expect(detectAffiliateLandingPageType({ productUrl: 'https://brand.example.com/' })).toBe('independent_store')
+  })
+
+  it('returns unknown when no valid signal', () => {
+    expect(detectAffiliateLandingPageType({})).toBe('unknown')
   })
 })

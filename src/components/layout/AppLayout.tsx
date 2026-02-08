@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   Megaphone,
   Lightbulb,
   Rocket,
@@ -88,7 +89,7 @@ const navigationItems: NavItem[] = [
   {
     label: '商品管理',
     href: '/products',
-    icon: Package,
+    icon: Boxes,
   },
   {
     label: 'Offer管理',

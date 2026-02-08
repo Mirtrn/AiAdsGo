@@ -1,4 +1,5 @@
 import { getOpenclawSettingsMap, parseBoolean, parseNumber } from '@/lib/openclaw/settings'
+import { resolvePartnerboostCountryCode } from '@/lib/affiliate-products'
 
 type PartnerboostAssociateItem = {
   asin: string
@@ -72,7 +73,7 @@ export async function fetchPartnerboostLinkByAsin(params: {
   if (!token) return null
 
   const baseUrl = (settings.partnerboost_base_url || 'https://app.partnerboost.com').trim().replace(/\/+$/, '')
-  const countryCode = (params.countryCode || settings.partnerboost_link_country_code || '').trim()
+  const countryCode = resolvePartnerboostCountryCode(params.countryCode, settings.partnerboost_link_country_code)
   const uid = (settings.partnerboost_link_uid || '').trim()
   const returnPartnerboostLink = parseNumber(settings.partnerboost_link_return_partnerboost_link, 0) || 0
 

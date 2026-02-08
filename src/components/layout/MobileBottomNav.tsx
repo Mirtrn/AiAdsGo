@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   Package,
+  Boxes,
   Megaphone,
   Lightbulb,
   Bot,
@@ -22,7 +23,7 @@ interface MobileBottomNavUser {
 
 const mainNavItems: NavItem[] = [
   { label: '仪表盘', href: '/dashboard', icon: LayoutDashboard },
-  { label: '商品', href: '/products', icon: Package },
+  { label: '商品', href: '/products', icon: Boxes },
   { label: 'Offer', href: '/offers', icon: Package },
   { label: '广告', href: '/campaigns', icon: Megaphone },
   { label: '创意', href: '/creatives', icon: Lightbulb },
