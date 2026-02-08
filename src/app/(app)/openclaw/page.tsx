@@ -563,6 +563,7 @@ export default function OpenClawPage() {
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatusResponse | null>(null)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
+  const [gatewayReloading, setGatewayReloading] = useState(false)
   const [gatewaySkillsCollapsed, setGatewaySkillsCollapsed] = useState(true)
   const [gatewayShowAvailableOnly, setGatewayShowAvailableOnly] = useState(true)
   const [asinData, setAsinData] = useState<AsinDataResponse | null>(null)
@@ -752,6 +753,38 @@ export default function OpenClawPage() {
     } finally {
       if (isActive && !isActive()) return
       setGatewayLoading(false)
+    }
+  }
+
+  const handleGatewayHotReload = async () => {
+    if (settings?.isAdmin !== true) {
+      toast.error('仅管理员可执行配置热加载')
+      return
+    }
+
+    setGatewayReloading(true)
+    try {
+      const response = await fetch('/api/openclaw/gateway/reload', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error || '配置热加载失败')
+      }
+
+      const nextGatewayStatus = payload?.gatewayStatus
+      if (nextGatewayStatus && typeof nextGatewayStatus === 'object') {
+        setGatewayStatus(nextGatewayStatus as GatewayStatusResponse)
+      } else {
+        await loadGatewayStatus(true)
+      }
+
+      toast.success(payload?.message || '配置已同步并触发 Gateway 热加载')
+    } catch (error: any) {
+      toast.error(error?.message || '配置热加载失败')
+    } finally {
+      setGatewayReloading(false)
     }
   }
 
@@ -1330,15 +1363,28 @@ export default function OpenClawPage() {
                 <CardTitle>Gateway / 技能状态</CardTitle>
                 <CardDescription>实时查看 OpenClaw Gateway 健康度与技能依赖</CardDescription>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => loadGatewayStatus(true)}
-                disabled={gatewayLoading}
-              >
-                {gatewayLoading ? '刷新中...' : '刷新'}
-              </Button>
+              <div className="flex items-center gap-2">
+                {canEditAiSettings && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleGatewayHotReload}
+                    disabled={gatewayLoading || gatewayReloading}
+                  >
+                    {gatewayReloading ? '热加载中...' : '配置热加载'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadGatewayStatus(true)}
+                  disabled={gatewayLoading || gatewayReloading}
+                >
+                  {gatewayLoading ? '刷新中...' : '刷新'}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               {!gatewayStatus && <div className="text-sm text-slate-500">状态加载中...</div>}
