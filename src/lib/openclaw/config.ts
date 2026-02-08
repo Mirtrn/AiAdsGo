@@ -76,6 +76,44 @@ function parseJsonObject(value: string | null | undefined): Record<string, any> 
   }
 }
 
+function resolveOpenclawPublicBaseUrl(): string | undefined {
+  const raw = (process.env.NEXT_PUBLIC_APP_URL || process.env.OPENCLAW_PUBLIC_BASE_URL || '').trim()
+  if (!raw) return undefined
+  return raw.replace(/\/+$/, '')
+}
+
+function applyFeishuCardAutoDefaults(params: {
+  accountId: string
+  accountConfig: Record<string, any>
+  gatewayToken: string
+  appBaseUrl?: string
+}): Record<string, any> {
+  const next = { ...params.accountConfig }
+
+  const callbackPath = params.accountId === 'main'
+    ? '/feishu/card-action'
+    : `/feishu/${encodeURIComponent(params.accountId)}/card-action`
+
+  if (!(typeof next.cardCallbackPath === 'string' && next.cardCallbackPath.trim())) {
+    next.cardCallbackPath = callbackPath
+  }
+
+  if (params.appBaseUrl && !(typeof next.cardConfirmUrl === 'string' && next.cardConfirmUrl.trim())) {
+    next.cardConfirmUrl = `${params.appBaseUrl}/api/openclaw/commands/confirm`
+  }
+
+  if (!(typeof next.cardConfirmAuthToken === 'string' && next.cardConfirmAuthToken.trim())) {
+    next.cardConfirmAuthToken = params.gatewayToken
+  }
+
+  const timeoutMs = Number(next.cardConfirmTimeoutMs)
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    next.cardConfirmTimeoutMs = 10000
+  }
+
+  return next
+}
+
 function resolveConfigPath(): { configPath: string; stateDir: string } {
   const configPath = (process.env.OPENCLAW_CONFIG_PATH || '').trim()
     || path.join(process.cwd(), '.openclaw', 'openclaw.json')
@@ -92,6 +130,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const settingMap = buildSettingMap(settings)
 
   const gatewayToken = await getOpenclawGatewayToken()
+  const appBaseUrl = resolveOpenclawPublicBaseUrl()
   const gatewayPort = parseNumber(settingMap.gateway_port, DEFAULT_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT
   const gatewayBind = (settingMap.gateway_bind || 'loopback').trim() || 'loopback'
 
@@ -243,6 +282,19 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       mergedFeishuAccounts[accountId] = userAccount
     }
   }
+
+  for (const [accountId, accountConfig] of Object.entries(mergedFeishuAccounts)) {
+    if (!accountConfig || typeof accountConfig !== 'object' || Array.isArray(accountConfig)) {
+      continue
+    }
+    mergedFeishuAccounts[accountId] = applyFeishuCardAutoDefaults({
+      accountId,
+      accountConfig: accountConfig as Record<string, any>,
+      gatewayToken,
+      appBaseUrl,
+    })
+  }
+
   config.channels.feishu.accounts = mergedFeishuAccounts
 
   if (sessionOverrides && Object.keys(sessionOverrides).length > 0) {

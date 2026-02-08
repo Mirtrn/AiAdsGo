@@ -192,16 +192,34 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
       }
       return issues;
     },
-    buildChannelSummary: async ({ snapshot }) => ({
-      configured: snapshot.configured ?? false,
-      tokenSource: snapshot.tokenSource ?? "none",
-      running: snapshot.running ?? false,
-      lastStartAt: snapshot.lastStartAt ?? null,
-      lastStopAt: snapshot.lastStopAt ?? null,
-      lastError: snapshot.lastError ?? null,
-      probe: snapshot.probe,
-      lastProbeAt: snapshot.lastProbeAt ?? null,
-    }),
+    buildChannelSummary: async ({ snapshot }) => {
+      const configured = snapshot.configured ?? false;
+      const probeRecord =
+        snapshot.probe && typeof snapshot.probe === "object"
+          ? (snapshot.probe as { ok?: unknown })
+          : null;
+      const probeOk = typeof probeRecord?.ok === "boolean" ? probeRecord.ok : undefined;
+      // Feishu has no persistent "linked session" artifact (unlike WhatsApp),
+      // so health should infer linkage from probe when available.
+      const linked =
+        typeof snapshot.linked === "boolean"
+          ? snapshot.linked
+          : typeof probeOk === "boolean"
+            ? probeOk
+            : configured;
+
+      return {
+        configured,
+        linked,
+        tokenSource: snapshot.tokenSource ?? "none",
+        running: snapshot.running ?? false,
+        lastStartAt: snapshot.lastStartAt ?? null,
+        lastStopAt: snapshot.lastStopAt ?? null,
+        lastError: snapshot.lastError ?? null,
+        probe: snapshot.probe,
+        lastProbeAt: snapshot.lastProbeAt ?? null,
+      };
+    },
     probeAccount: async ({ account, timeoutMs }) =>
       probeFeishu(account.config.appId, account.config.appSecret, timeoutMs, account.config.domain),
     buildAccountSnapshot: ({ account, runtime, probe }) => {

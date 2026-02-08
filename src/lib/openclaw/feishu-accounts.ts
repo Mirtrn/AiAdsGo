@@ -7,15 +7,36 @@ const FEISHU_USER_ACCOUNT_PREFIX = 'user-'
 const FEISHU_USER_KEYS = [
   'feishu_app_id',
   'feishu_app_secret',
+  'feishu_app_secret_file',
   'feishu_bot_name',
   'feishu_domain',
+  'feishu_dm_policy',
+  'feishu_group_policy',
+  'feishu_allow_from',
+  'feishu_group_allow_from',
+  'feishu_accounts_json',
+  'feishu_target',
 ]
 
+type FeishuDmPolicy = 'pairing' | 'allowlist' | 'open' | 'disabled'
+type FeishuGroupPolicy = 'open' | 'allowlist' | 'disabled'
+
 type FeishuAccountConfig = {
-  appId: string
-  appSecret: string
+  appId?: string
+  appSecret?: string
+  appSecretFile?: string
   botName?: string
   domain?: string
+  dmPolicy?: FeishuDmPolicy
+  groupPolicy?: FeishuGroupPolicy
+  allowFrom?: string[]
+  groupAllowFrom?: string[]
+  cardCallbackPath?: string
+  cardVerificationToken?: string
+  cardEncryptKey?: string
+  cardConfirmUrl?: string
+  cardConfirmAuthToken?: string
+  cardConfirmTimeoutMs?: number
   enabled?: boolean
   name?: string
 }
@@ -37,7 +58,9 @@ export function parseFeishuAccountUserId(accountId?: string | null): number | nu
 export async function resolveUserFeishuAccountId(userId: number): Promise<string | null> {
   const appId = await getUserOnlySetting('openclaw', 'feishu_app_id', userId)
   const appSecret = await getUserOnlySetting('openclaw', 'feishu_app_secret', userId)
-  if (!appId?.value || !appSecret?.value) return null
+  const appSecretFile = await getUserOnlySetting('openclaw', 'feishu_app_secret_file', userId)
+  const hasSecret = Boolean(appSecret?.value) || Boolean(appSecretFile?.value)
+  if (!appId?.value || !hasSecret) return null
   return getFeishuAccountIdForUser(userId)
 }
 
@@ -47,6 +70,160 @@ function resolveSettingValue(setting: Pick<SystemSetting, 'value' | 'encrypted_v
     return decrypt(setting.encrypted_value) ?? ''
   }
   return setting.value ?? ''
+}
+
+function readString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (value === 1) return true
+    if (value === 0) return false
+  }
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false
+  return undefined
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+function normalizeFeishuAllowFromEntries(entries: unknown[]): string[] {
+  return entries
+    .map((entry) => String(entry).trim())
+    .map((entry) => entry.replace(/^(feishu|lark):/i, ''))
+    .filter(Boolean)
+}
+
+function parseFeishuAllowFrom(value?: string): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return normalizeFeishuAllowFromEntries(parsed)
+  } catch {
+    return []
+  }
+}
+
+function normalizeFeishuDmPolicy(value?: string): FeishuDmPolicy | undefined {
+  const normalized = (value || '').trim().toLowerCase()
+  if (normalized === 'pairing' || normalized === 'allowlist' || normalized === 'open' || normalized === 'disabled') {
+    return normalized
+  }
+  return undefined
+}
+
+function normalizeFeishuGroupPolicy(value?: string): FeishuGroupPolicy | undefined {
+  const normalized = (value || '').trim().toLowerCase()
+  if (normalized === 'open' || normalized === 'allowlist' || normalized === 'disabled') {
+    return normalized
+  }
+  return undefined
+}
+
+function resolveFeishuIdFromTarget(value?: string): string | undefined {
+  const raw = (value || '').trim()
+  if (!raw) return undefined
+
+  const normalized = raw
+    .replace(/^(feishu|lark):/i, '')
+    .replace(/^(user|dm|chat|group):/i, '')
+    .trim()
+
+  const lowered = normalized.toLowerCase()
+  if (lowered.startsWith('ou_') || lowered.startsWith('on_')) {
+    return normalized
+  }
+  return undefined
+}
+
+function parseUserMainAccountFromJson(value?: string): Partial<FeishuAccountConfig> {
+  if (!value) return {}
+
+  try {
+    const parsed = JSON.parse(value)
+    const root = asRecord(parsed)
+    const main = root ? asRecord(root.main) : null
+    if (!main) return {}
+
+    const config: Partial<FeishuAccountConfig> = {}
+
+    const appId = readString(main.appId)
+    if (appId) config.appId = appId
+
+    const appSecret = readString(main.appSecret)
+    if (appSecret) config.appSecret = appSecret
+
+    const appSecretFile = readString(main.appSecretFile)
+    if (appSecretFile) config.appSecretFile = appSecretFile
+
+    const botName = readString(main.botName)
+    if (botName) config.botName = botName
+
+    const domain = readString(main.domain)
+    if (domain) config.domain = domain
+
+    const dmPolicy = normalizeFeishuDmPolicy(readString(main.dmPolicy))
+    if (dmPolicy) config.dmPolicy = dmPolicy
+
+    const groupPolicy = normalizeFeishuGroupPolicy(readString(main.groupPolicy))
+    if (groupPolicy) config.groupPolicy = groupPolicy
+
+    if (Array.isArray(main.allowFrom)) {
+      const allowFrom = normalizeFeishuAllowFromEntries(main.allowFrom)
+      if (allowFrom.length > 0) config.allowFrom = allowFrom
+    }
+
+    if (Array.isArray(main.groupAllowFrom)) {
+      const groupAllowFrom = normalizeFeishuAllowFromEntries(main.groupAllowFrom)
+      if (groupAllowFrom.length > 0) config.groupAllowFrom = groupAllowFrom
+    }
+
+    const cardCallbackPath = readString(main.cardCallbackPath)
+    if (cardCallbackPath) config.cardCallbackPath = cardCallbackPath
+
+    const cardVerificationToken = readString(main.cardVerificationToken)
+    if (cardVerificationToken) config.cardVerificationToken = cardVerificationToken
+
+    const cardEncryptKey = readString(main.cardEncryptKey)
+    if (cardEncryptKey) config.cardEncryptKey = cardEncryptKey
+
+    const cardConfirmUrl = readString(main.cardConfirmUrl)
+    if (cardConfirmUrl) config.cardConfirmUrl = cardConfirmUrl
+
+    const cardConfirmAuthToken = readString(main.cardConfirmAuthToken)
+    if (cardConfirmAuthToken) config.cardConfirmAuthToken = cardConfirmAuthToken
+
+    const timeout = Number(main.cardConfirmTimeoutMs)
+    if (Number.isFinite(timeout) && timeout > 0) {
+      config.cardConfirmTimeoutMs = Math.round(timeout)
+    }
+
+    const enabled = readBoolean(main.enabled)
+    if (enabled !== undefined) {
+      config.enabled = enabled
+    }
+
+    const name = readString(main.name)
+    if (name) {
+      config.name = name
+    }
+
+    return config
+  } catch {
+    return {}
+  }
 }
 
 export async function collectUserFeishuAccounts(): Promise<Record<string, FeishuAccountConfig>> {
@@ -73,17 +250,56 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
 
   const accounts: Record<string, FeishuAccountConfig> = {}
   for (const [userId, values] of byUser.entries()) {
-    const appId = values.feishu_app_id?.trim()
-    const appSecret = values.feishu_app_secret?.trim()
-    if (!appId || !appSecret) continue
+    const jsonMain = parseUserMainAccountFromJson(values.feishu_accounts_json)
+
+    const appId = jsonMain.appId || values.feishu_app_id?.trim()
+    const appSecret = jsonMain.appSecret || values.feishu_app_secret?.trim()
+    const appSecretFile = jsonMain.appSecretFile || values.feishu_app_secret_file?.trim()
+    if (!appId || (!appSecret && !appSecretFile)) continue
+
+    const configuredAllowFrom = parseFeishuAllowFrom(values.feishu_allow_from)
+    const targetFeishuId = resolveFeishuIdFromTarget(values.feishu_target)
+    const mergedAllowFrom = Array.from(
+      new Set([
+        ...(jsonMain.allowFrom || []),
+        ...configuredAllowFrom,
+        ...(targetFeishuId ? [targetFeishuId] : []),
+      ])
+    )
+
+    const configuredDmPolicy = normalizeFeishuDmPolicy(values.feishu_dm_policy)
+    const effectiveDmPolicy: FeishuDmPolicy | undefined =
+      mergedAllowFrom.length > 0 ? 'allowlist' : jsonMain.dmPolicy || configuredDmPolicy
+
+    const configuredGroupAllowFrom = parseFeishuAllowFrom(values.feishu_group_allow_from)
+    const mergedGroupAllowFrom = Array.from(
+      new Set([
+        ...(jsonMain.groupAllowFrom || []),
+        ...configuredGroupAllowFrom,
+      ])
+    )
+
+    const configuredGroupPolicy = normalizeFeishuGroupPolicy(values.feishu_group_policy)
+
     const accountId = getFeishuAccountIdForUser(userId)
     accounts[accountId] = {
       appId,
       appSecret,
-      botName: values.feishu_bot_name?.trim() || undefined,
-      domain: values.feishu_domain?.trim() || undefined,
-      enabled: true,
-      name: `user-${userId}`,
+      appSecretFile,
+      botName: jsonMain.botName || values.feishu_bot_name?.trim() || undefined,
+      domain: jsonMain.domain || values.feishu_domain?.trim() || undefined,
+      dmPolicy: effectiveDmPolicy,
+      groupPolicy: jsonMain.groupPolicy || configuredGroupPolicy,
+      allowFrom: mergedAllowFrom.length > 0 ? mergedAllowFrom : undefined,
+      groupAllowFrom: mergedGroupAllowFrom.length > 0 ? mergedGroupAllowFrom : undefined,
+      cardCallbackPath: jsonMain.cardCallbackPath,
+      cardVerificationToken: jsonMain.cardVerificationToken,
+      cardEncryptKey: jsonMain.cardEncryptKey,
+      cardConfirmUrl: jsonMain.cardConfirmUrl,
+      cardConfirmAuthToken: jsonMain.cardConfirmAuthToken,
+      cardConfirmTimeoutMs: jsonMain.cardConfirmTimeoutMs,
+      enabled: jsonMain.enabled ?? true,
+      name: jsonMain.name || `user-${userId}`,
     }
   }
 

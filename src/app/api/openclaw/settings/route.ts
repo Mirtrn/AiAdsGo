@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getSettingsByCategory, updateSettings } from '@/lib/settings'
+import { getUserOnlySettingsByCategory, updateSettings } from '@/lib/settings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 
 const USER_SCOPED_KEYS = new Set([
@@ -119,12 +119,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const userSettings = (await getSettingsByCategory('openclaw', auth.user.userId))
+  const userSettings = (await getUserOnlySettingsByCategory('openclaw', auth.user.userId))
     .filter(setting => USER_SCOPED_KEYS.has(setting.key))
 
   return NextResponse.json({
     success: true,
     isAdmin: auth.user.role === 'admin',
+    userId: auth.user.userId,
     user: userSettings,
   })
 }

@@ -128,6 +128,39 @@ export async function getSettingsByCategory(category: string, userId?: number): 
 }
 
 /**
+ * 获取指定分类的用户级配置（严格不回退到全局）
+ */
+export async function getUserOnlySettingsByCategory(category: string, userId: number): Promise<SettingValue[]> {
+  if (!userId || userId <= 0) {
+    return []
+  }
+
+  const db = await getDatabase()
+  const settings = await db.query(
+    'SELECT * FROM system_settings WHERE category = ? AND user_id = ? ORDER BY key',
+    [category, userId]
+  ) as SystemSetting[]
+
+  return settings.map(setting => {
+    const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    return {
+      category: setting.category,
+      key: setting.key,
+      value: isSensitive && setting.encrypted_value
+        ? decrypt(setting.encrypted_value)
+        : setting.value,
+      dataType: setting.data_type,
+      isSensitive,
+      isRequired: setting.is_required === true || setting.is_required === 1,
+      validationStatus: setting.validation_status,
+      validationMessage: setting.validation_message,
+      lastValidatedAt: setting.last_validated_at,
+      description: setting.description,
+    }
+  })
+}
+
+/**
  * 获取单个配置项
  */
 export async function getSetting(category: string, key: string, userId?: number): Promise<SettingValue | null> {

@@ -1,5 +1,5 @@
 import fs from 'fs'
-import { getSettingsByCategory, type SettingValue } from '@/lib/settings'
+import { getUserOnlySettingsByCategory, getSettingsByCategory, type SettingValue } from '@/lib/settings'
 
 export type OpenclawSettingMap = Record<string, string | null>
 
@@ -49,7 +49,9 @@ export function parseJsonObject(value: string | null | undefined): Record<string
 }
 
 export async function getOpenclawSettingsMap(userId?: number): Promise<OpenclawSettingMap> {
-  const settings = await getSettingsByCategory('openclaw', userId)
+  const settings = userId
+    ? await getUserOnlySettingsByCategory('openclaw', userId)
+    : await getSettingsByCategory('openclaw')
   return buildSettingMap(settings)
 }
 

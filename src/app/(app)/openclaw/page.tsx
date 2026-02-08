@@ -27,6 +27,7 @@ type SettingItem = {
 type OpenclawSettingsResponse = {
   success: boolean
   isAdmin: boolean
+  userId: number
   user: SettingItem[]
 }
 
@@ -112,30 +113,6 @@ const AI_MINIMAL_PLACEHOLDER = `{
       ]
     }
   }
-}`
-
-const FEISHU_GROUPS_PLACEHOLDER = `{
-  "*": { "requireMention": true },
-  "oc_xxx": {
-    "requireMention": false,
-    "systemPrompt": "You are the AutoAds assistant.",
-    "skills": ["autoads"]
-  }
-}`
-
-const FEISHU_ACCOUNTS_PLACEHOLDER = `{
-  "main": {
-    "appId": "cli_xxx",
-    "appSecret": "xxx",
-    "botName": "AutoAds",
-    "cardCallbackPath": "/feishu/card-action",
-    "cardVerificationToken": "your_feishu_verification_token",
-    "cardEncryptKey": "your_feishu_encrypt_key",
-    "cardConfirmUrl": "https://your-domain.com/api/openclaw/commands/confirm",
-    "cardConfirmAuthToken": "your_openclaw_gateway_token",
-    "cardConfirmTimeoutMs": 10000
-  },
-  "backup": { "appId": "cli_yyy", "appSecret": "yyy", "enabled": false }
 }`
 
 const STRATEGY_EXAMPLE_VALUES: Record<string, string> = {
@@ -252,7 +229,6 @@ const FEISHU_CHAT_USER_KEYS = [
   'feishu_markdown_tables',
   'feishu_media_max_mb',
   'feishu_response_prefix',
-  'feishu_groups_json',
   'feishu_accounts_json',
 ] as const
 
@@ -326,6 +302,89 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
 }
 
 const hasText = (value?: string | null) => Boolean(value && value.trim())
+
+function parseFeishuCardSettingsFromAccountsJson(value?: string | null): {
+  verificationToken: string
+  encryptKey: string
+} {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return { verificationToken: '', encryptKey: '' }
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { verificationToken: '', encryptKey: '' }
+    }
+
+    const main = (parsed as Record<string, unknown>).main
+    if (!main || typeof main !== 'object' || Array.isArray(main)) {
+      return { verificationToken: '', encryptKey: '' }
+    }
+
+    const verificationTokenValue = (main as Record<string, unknown>).cardVerificationToken
+    const encryptKeyValue = (main as Record<string, unknown>).cardEncryptKey
+
+    const verificationToken = typeof verificationTokenValue === 'string'
+      ? verificationTokenValue.trim()
+      : ''
+
+    const encryptKey = typeof encryptKeyValue === 'string'
+      ? encryptKeyValue.trim()
+      : ''
+
+    return {
+      verificationToken,
+      encryptKey,
+    }
+  } catch {
+    return { verificationToken: '', encryptKey: '' }
+  }
+}
+
+function buildAutoFeishuAccountsJson(params: {
+  existingValue?: string
+  userId: number
+  appBaseUrl?: string
+  verificationToken: string
+  encryptKey: string
+}): string {
+  const root: Record<string, any> = (() => {
+    const raw = String(params.existingValue || '').trim()
+    if (!raw) return {}
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  })()
+
+  const main = root.main && typeof root.main === 'object' && !Array.isArray(root.main)
+    ? { ...root.main }
+    : {}
+
+  const callbackPath = `/feishu/user-${params.userId}/card-action`
+  const trimmedBaseUrl = String(params.appBaseUrl || '').trim().replace(/\/+$/, '')
+
+  main.cardCallbackPath = callbackPath
+  main.cardVerificationToken = params.verificationToken.trim()
+  main.cardEncryptKey = params.encryptKey.trim()
+  if (trimmedBaseUrl) {
+    main.cardConfirmUrl = `${trimmedBaseUrl}/api/openclaw/commands/confirm`
+  }
+
+  if (!Number.isFinite(Number(main.cardConfirmTimeoutMs)) || Number(main.cardConfirmTimeoutMs) <= 0) {
+    main.cardConfirmTimeoutMs = 10000
+  }
+
+  root.main = main
+  return JSON.stringify(root, null, 2)
+}
 
 const normalizeStrategyAccountId = (value: unknown): number | string | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -501,9 +560,10 @@ export default function OpenClawPage() {
   const [feishuSectionBasic, setFeishuSectionBasic] = useState(true)
   const [feishuSectionPolicy, setFeishuSectionPolicy] = useState(false)
   const [feishuSectionMessage, setFeishuSectionMessage] = useState(false)
-  const [feishuSectionAdvanced, setFeishuSectionAdvanced] = useState(false)
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
+  const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -566,6 +626,11 @@ export default function OpenClawPage() {
           userMap[item.key] = item.value ?? ''
         })
         userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
+
+        const cardSettings = parseFeishuCardSettingsFromAccountsJson(userMap.feishu_accounts_json)
+        setFeishuCardVerificationToken(cardSettings.verificationToken)
+        setFeishuCardEncryptKey(cardSettings.encryptKey)
+
         setUserValues(userMap)
         setSavedUserValues(userMap)
       } catch (error: any) {
@@ -589,6 +654,25 @@ export default function OpenClawPage() {
   const strategySaveKeys = supportsStrategyPriorityAsins
     ? [...STRATEGY_USER_KEYS]
     : STRATEGY_USER_KEYS.filter((key) => key !== 'openclaw_strategy_priority_asins')
+
+  const appBaseUrl = useMemo(() => {
+    const fromEnv = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
+    if (fromEnv) return fromEnv.replace(/\/+$/, '')
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin.replace(/\/+$/, '')
+    }
+    return ''
+  }, [])
+
+  const feishuCardCallbackPath = settings?.userId
+    ? `/feishu/user-${settings.userId}/card-action`
+    : '/feishu/card-action'
+  const feishuCardCallbackUrl = appBaseUrl
+    ? `${appBaseUrl}${feishuCardCallbackPath}`
+    : feishuCardCallbackPath
+  const feishuCardConfirmUrl = appBaseUrl
+    ? `${appBaseUrl}/api/openclaw/commands/confirm`
+    : '/api/openclaw/commands/confirm'
 
   const applyStrategyValueSupport = (values: Record<string, string>): Record<string, string> => {
     if (supportsStrategyPriorityAsins) return values
@@ -662,6 +746,8 @@ export default function OpenClawPage() {
       [AUTOADS_ONLY_SETTING_KEY]: 'true',
     }
 
+    const selectedKeySet = keys && keys.length > 0 ? new Set(keys) : null
+
     if (scope === 'user') {
       const needsStrategyAccountNormalization = !keys || keys.length === 0 || keys.includes('openclaw_strategy_ads_account_ids')
       if (needsStrategyAccountNormalization) {
@@ -688,9 +774,36 @@ export default function OpenClawPage() {
         normalizedUserValues.openclaw_strategy_priority_asins = normalizedPriorityAsins
         setUserValues(prev => ({ ...prev, openclaw_strategy_priority_asins: normalizedPriorityAsins }))
       }
-    }
 
-    const selectedKeySet = keys && keys.length > 0 ? new Set(keys) : null
+      const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
+      if (isSavingFeishuSettings) {
+        const hasVerificationToken = hasText(feishuCardVerificationToken)
+        const hasEncryptKey = hasText(feishuCardEncryptKey)
+
+        if (hasVerificationToken !== hasEncryptKey) {
+          toast.error('飞书卡片配置需要同时填写 Verification Token 和 Encrypt Key')
+          return
+        }
+
+        if (hasVerificationToken && hasEncryptKey) {
+          if (!settings?.userId) {
+            toast.error('无法识别当前用户ID，请刷新页面后重试')
+            return
+          }
+
+          const generatedFeishuAccountsJson = buildAutoFeishuAccountsJson({
+            existingValue: normalizedUserValues.feishu_accounts_json,
+            userId: settings.userId,
+            appBaseUrl,
+            verificationToken: feishuCardVerificationToken,
+            encryptKey: feishuCardEncryptKey,
+          })
+
+          normalizedUserValues.feishu_accounts_json = generatedFeishuAccountsJson
+          setUserValues((prev) => ({ ...prev, feishu_accounts_json: generatedFeishuAccountsJson }))
+        }
+      }
+    }
     const updates = Object.entries(normalizedUserValues)
       .filter(([key]) => USER_KEYS.has(key))
       .filter(([key]) => !selectedKeySet || selectedKeySet.has(key))
@@ -1066,7 +1179,13 @@ export default function OpenClawPage() {
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
   const strategyPriorityAsinsHasError = supportsStrategyPriorityAsins && strategyPriorityAsinsNormalized === null
   const aiDirty = hasUserDirtyFields(AI_USER_KEYS)
-  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
+  const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
+  const feishuCardDirty =
+    feishuCardVerificationToken !== savedFeishuCardSettings.verificationToken ||
+    feishuCardEncryptKey !== savedFeishuCardSettings.encryptKey
+  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS) || feishuCardDirty
+  const feishuCardPairConfigured = hasText(feishuCardVerificationToken) && hasText(feishuCardEncryptKey)
+  const feishuCardPairInvalid = hasText(feishuCardVerificationToken) !== hasText(feishuCardEncryptKey)
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
@@ -1088,7 +1207,7 @@ export default function OpenClawPage() {
       <div className="flex items-center justify-between rounded-md border bg-slate-50 px-4 py-3">
         <div>
           <div className="text-sm font-medium">简化模式</div>
-          <div className="text-xs text-slate-500">仅显示必填项，其余使用默认值或隐藏</div>
+          <div className="text-xs text-slate-500">仅显示核心项，其余使用默认值或隐藏</div>
         </div>
         <Switch checked={simpleMode} onCheckedChange={setSimpleMode} />
       </div>
@@ -1394,7 +1513,10 @@ export default function OpenClawPage() {
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Providers JSON</span>
+                <span className="text-sm font-medium">
+                  Providers JSON
+                  <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>
+                </span>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -1475,8 +1597,19 @@ export default function OpenClawPage() {
                 </div>
               )}
 
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                快速起步：填写 App ID、App Secret、推送目标即可联通；如需高风险动作卡片确认，请在「飞书多账号 JSON」中补充 card* 字段。
+              <div className="grid gap-3 md:grid-cols-2 text-xs">
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
+                  <div className="font-medium text-slate-800">聊天参数（* 为必需）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
+                </div>
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
+                  <div className="font-medium text-slate-800">操作卡片参数</div>
+                  <div>1. 卡片 Verification Token</div>
+                  <div>2. 卡片 Encrypt Key</div>
+                  <div>卡片回调 URL、确认回调 URL、Auth Token 均自动生成。</div>
+                </div>
               </div>
 
               {/* -- 基础配置 -- */}
@@ -1494,20 +1627,44 @@ export default function OpenClawPage() {
                     <div className="grid gap-4 md:grid-cols-3">
                       <InputWithLabel
                         label="飞书 App ID"
+                        required
                         value={userValues.feishu_app_id || ''}
                         onChange={(v) => setUserValue('feishu_app_id', v)}
                       />
                       <InputWithLabel
                         label="飞书 App Secret"
+                        required
                         type="password"
                         value={userValues.feishu_app_secret || ''}
                         onChange={(v) => setUserValue('feishu_app_secret', v)}
                       />
                       <InputWithLabel
-                        label="飞书推送目标 (open_id / union_id / chat_id)"
+                        label="飞书推送目标（open_id / union_id / chat_id）"
+                        required
                         value={userValues.feishu_target || ''}
                         onChange={(v) => setUserValue('feishu_target', v)}
                       />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <InputWithLabel
+                        label="卡片 Verification Token"
+                        value={feishuCardVerificationToken}
+                        onChange={setFeishuCardVerificationToken}
+                        placeholder="v1_verify_xxx"
+                      />
+                      <InputWithLabel
+                        label="卡片 Encrypt Key"
+                        value={feishuCardEncryptKey}
+                        onChange={setFeishuCardEncryptKey}
+                        placeholder="encrypt_key_xxx"
+                      />
+                    </div>
+                    <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
+                      <div>卡片回调路径（自动）: <code>{feishuCardCallbackPath}</code></div>
+                      <div>飞书回调 URL（自动）: <code>{feishuCardCallbackUrl}</code></div>
+                      <div>确认回调 URL（自动）: <code>{feishuCardConfirmUrl}</code></div>
+                      <div>cardConfirmAuthToken 自动使用 Gateway Token，无需手填。</div>
+                      <div>提示：Verification Token 与 Encrypt Key 需同时填写或同时留空。</div>
                     </div>
                     {showFeishuAdvanced && (
                       <div className="grid gap-4 md:grid-cols-3">
@@ -1649,73 +1806,30 @@ export default function OpenClawPage() {
                 </div>
               )}
 
-              {/* -- 高级配置 -- */}
-              {showFeishuAdvanced && (
-                <div className="rounded-md border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
-                    onClick={() => setFeishuSectionAdvanced((prev) => !prev)}
-                  >
-                    <span>高级配置</span>
-                    <span className="text-xs text-slate-400">{feishuSectionAdvanced ? '收起' : '展开'}</span>
-                  </button>
-                  {feishuSectionAdvanced && (
-                    <div className="border-t px-4 py-4 space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium">Groups JSON (高级)</label>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setUserValue('feishu_groups_json', FEISHU_GROUPS_PLACEHOLDER)}
-                            >
-                              填充示例
-                            </Button>
-                          </div>
-                          <Textarea
-                            value={userValues.feishu_groups_json || ''}
-                            onChange={(e) => setUserValue('feishu_groups_json', e.target.value)}
-                            placeholder={FEISHU_GROUPS_PLACEHOLDER}
-                            rows={6}
-                          />
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium">Accounts JSON (高级)</label>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setUserValue('feishu_accounts_json', FEISHU_ACCOUNTS_PLACEHOLDER)}
-                            >
-                              填充示例
-                            </Button>
-                          </div>
-                          <Textarea
-                            value={userValues.feishu_accounts_json || ''}
-                            onChange={(e) => setUserValue('feishu_accounts_json', e.target.value)}
-                            placeholder={FEISHU_ACCOUNTS_PLACEHOLDER}
-                            rows={6}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="grid gap-2 md:grid-cols-3 text-xs">
+              <div className="grid gap-2 md:grid-cols-4 text-xs">
                 <div className={hasText(userValues.feishu_app_id) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_app_id) ? '✓ App ID 已填写' : '• App ID 未填写'}
                 </div>
-                <div className={hasText(userValues.feishu_app_secret) ? 'text-emerald-600' : 'text-slate-500'}>
-                  {hasText(userValues.feishu_app_secret) ? '✓ App Secret 已填写' : '• App Secret 未填写'}
+                <div className={hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file)
+                    ? '✓ App Secret 已填写'
+                    : '• App Secret 未填写'}
                 </div>
                 <div className={hasText(userValues.feishu_target) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_target) ? '✓ 推送目标已填写' : '• 推送目标未填写'}
+                </div>
+                <div className={
+                  feishuCardPairInvalid
+                    ? 'text-amber-600'
+                    : feishuCardPairConfigured
+                      ? 'text-emerald-600'
+                      : 'text-slate-500'
+                }>
+                  {feishuCardPairInvalid
+                    ? '⚠ 卡片参数需成对填写'
+                    : feishuCardPairConfigured
+                      ? '✓ 卡片参数已配置'
+                      : '• 卡片参数未配置'}
                 </div>
               </div>
               <p className={`text-xs ${feishuDomainValid ? 'text-slate-500' : 'text-red-600'}`}>
@@ -1782,12 +1896,14 @@ export default function OpenClawPage() {
                     <InputWithLabel
                       label="Token"
                       type="password"
+                      required={Boolean((userValues.yeahpromos_site_id || '').trim())}
                       value={userValues.yeahpromos_token || ''}
                       onChange={(v) => setUserValue('yeahpromos_token', v)}
                       placeholder="YeahPromos API Token"
                     />
                     <InputWithLabel
                       label="Site ID"
+                      required={Boolean((userValues.yeahpromos_token || '').trim())}
                       value={userValues.yeahpromos_site_id || ''}
                       onChange={(v) => setUserValue('yeahpromos_site_id', v)}
                     />
@@ -1986,11 +2102,15 @@ export default function OpenClawPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <SwitchWithLabel
                   label="启用策略"
+                  required
                   checked={isTruthy(userValues.openclaw_strategy_enabled, false)}
                   onChange={(val) => setUserValue('openclaw_strategy_enabled', val ? 'true' : 'false')}
                 />
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">调度频率</label>
+                  <label className="text-sm font-medium">
+                    调度频率
+                    <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>
+                  </label>
                   <Select value={strategyCronPreset} onValueChange={handleStrategyCronPresetChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="选择执行频率" />
@@ -2004,6 +2124,7 @@ export default function OpenClawPage() {
                 </div>
                 <SwitchWithLabel
                   label="仅AutoAds链路（锁定）"
+                  required
                   checked={isTruthy(userValues.openclaw_strategy_enforce_autoads_only, true)}
                   onChange={(val) => setUserValue(AUTOADS_ONLY_SETTING_KEY, val ? 'true' : 'false')}
                   disabled
@@ -2066,7 +2187,10 @@ export default function OpenClawPage() {
               )}
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Ads账号ID列表</label>
+                <label className="text-sm font-medium">
+                  Ads账号ID列表
+                  <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>
+                </label>
                 <Textarea
                   value={strategyAccountIdsDraft}
                   onChange={(e) => handleStrategyAccountIdsDraftChange(e.target.value)}
@@ -2085,7 +2209,7 @@ export default function OpenClawPage() {
 
               {showStrategyAdvanced && !simpleMode && supportsStrategyPriorityAsins && (
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">优先ASIN列表（可选）</label>
+                  <label className="text-sm font-medium">优先ASIN列表</label>
                   <Textarea
                     value={strategyPriorityAsinsDraft}
                     onChange={(e) => handleStrategyPriorityAsinsDraftChange(e.target.value)}
@@ -2343,13 +2467,16 @@ export default function OpenClawPage() {
               <CardTitle>每日报表</CardTitle>
               <CardDescription>统计数据 + 操作记录</CardDescription>
             </CardHeader>
-            <CardContent className="flex items-center gap-4">
-              <Input
-                type="date"
-                value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
-                className="max-w-[200px]"
-              />
+            <CardContent className="flex items-end gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">报表日期</label>
+                <Input
+                  type="date"
+                  value={reportDate}
+                  onChange={(e) => setReportDate(e.target.value)}
+                  className="max-w-[200px]"
+                />
+              </div>
               {loading && <span className="text-sm text-slate-500">加载中...</span>}
             </CardContent>
           </Card>
@@ -2586,11 +2713,15 @@ function InputWithLabel(props: {
   placeholder?: string
   type?: string
   disabled?: boolean
+  required?: boolean
   onChange: (value: string) => void
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{props.label}</label>
+      <label className="text-sm font-medium">
+        {props.label}
+        {props.required && <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>}
+      </label>
       <Input
         type={props.type}
         value={props.value}
@@ -2606,11 +2737,15 @@ function SwitchWithLabel(props: {
   label: string
   checked: boolean
   disabled?: boolean
+  required?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
     <div className="flex items-center justify-between border rounded-md px-3 py-2">
-      <span className="text-sm">{props.label}</span>
+      <span className="text-sm">
+        {props.label}
+        {props.required && <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>}
+      </span>
       <Switch checked={props.checked} onCheckedChange={props.onChange} disabled={props.disabled} />
     </div>
   )
