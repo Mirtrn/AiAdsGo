@@ -246,6 +246,16 @@ export default function Step4PublishSummary({
     })
   }
 
+  const addServerWarnings = (warnings: unknown) => {
+    const warningMessages = Array.isArray(warnings)
+      ? warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : []
+
+    if (warningMessages.length > 0) {
+      addPublishStep('warnings', `提示: ${warningMessages.join('; ').replace(/\[警告\]\s*/g, '')}`, 'warning')
+    }
+  }
+
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
   const getPollDelayMs = (elapsedMs: number) => {
@@ -466,6 +476,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', '创建广告系列结构', 'success')
         addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
         setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+        addServerWarnings(data.warnings)
 
         const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
         setLastPublishCampaignIds(campaignIds)
@@ -761,6 +772,7 @@ export default function Step4PublishSummary({
           message: '正在后台处理，请稍候...',
           success: false
         })
+        addServerWarnings(data.warnings)
 
         const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
         setLastPublishCampaignIds(campaignIds)
@@ -948,6 +960,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', '创建广告系列结构', 'success')
         addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
         setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+        addServerWarnings(data.warnings)
 
         const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
         setLastPublishCampaignIds(campaignIds)
@@ -1125,6 +1138,7 @@ export default function Step4PublishSummary({
         addPublishStep('creating', '创建广告系列结构', 'success')
         addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
         setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+        addServerWarnings(data.warnings)
 
         const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
         setLastPublishCampaignIds(campaignIds)

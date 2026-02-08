@@ -318,6 +318,7 @@ export async function POST(request: NextRequest) {
     console.log(`   - 属于其他Offer: ${activeCampaignsResult.otherCampaigns.length}`)
 
     const currentBrandNormalized = normalizeBrand(offer.brand)
+    const publishWarnings: string[] = []
 
     if (SINGLE_BRAND_PER_ACCOUNT_ENFORCED && currentBrandNormalized) {
       const enabledOtherBrandCampaigns = activeCampaignsResult.otherCampaigns.filter((campaign) => {
@@ -327,20 +328,18 @@ export async function POST(request: NextRequest) {
       })
 
       if (enabledOtherBrandCampaigns.length > 0 && !_pauseOldCampaigns) {
-        return NextResponse.json({
-          action: 'ACCOUNT_BRAND_CONFLICT',
-          message: '同一Ads账号同一时间只能投放一个品牌，请先暂停其他品牌Campaign。',
-          details: {
-            accountId: _googleAdsAccountId,
-            currentOfferId: _offerId,
-            currentBrand: offer.brand || null,
-            conflictCampaigns: enabledOtherBrandCampaigns.map((campaign) => ({
-              id: campaign.id,
-              name: campaign.name,
-              status: campaign.status,
-            })),
-          },
-        }, { status: 422 })
+        const warningMessage = '检测到Ads账号中存在其他品牌Campaign，当前发布将继续执行。建议尽快评估并暂停其他品牌Campaign，避免多品牌并行投放。'
+        publishWarnings.push(warningMessage)
+        console.warn('⚠️ 检测到品牌冲突（仅警告，不阻断发布）', {
+          accountId: _googleAdsAccountId,
+          currentOfferId: _offerId,
+          currentBrand: offer.brand || null,
+          conflictCampaigns: enabledOtherBrandCampaigns.map((campaign) => ({
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+          })),
+        })
       }
 
       if (!enforceAutoadsOnly && !_pauseOldCampaigns && activeCampaignsResult.manualCampaigns.length > 0) {
@@ -385,6 +384,12 @@ export async function POST(request: NextRequest) {
       ...activeCampaignsResult.otherCampaigns
     ]
 
+    // 仅对“当前Offer + 手工Campaign”弹确认；跨品牌Campaign仅警告不拦截
+    const campaignsRequireConfirm = [
+      ...activeCampaignsResult.ownCampaigns,
+      ...activeCampaignsResult.manualCampaigns
+    ]
+
     // 记录暂停结果（用于前端展示）
     let pausedOldCampaignsSummary: {
       attemptedCount: number
@@ -396,8 +401,8 @@ export async function POST(request: NextRequest) {
     } | undefined
 
     // ⚠️ 验证3：如果有需要暂停的广告系列且用户未确认，返回确认提示
-    if (campaignsToPause.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
-      console.log(`⚠️ 需要用户确认: 是否暂停${campaignsToPause.length}个已激活的Campaign`)
+    if (campaignsRequireConfirm.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
+      console.log(`⚠️ 需要用户确认: 是否暂停${campaignsRequireConfirm.length}个已激活的Campaign`)
 
       // 构建确认信息
       const ownCampaignsInfo = activeCampaignsResult.ownCampaigns.map(c => ({
@@ -423,6 +428,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         action: 'CONFIRM_PAUSE_OLD_CAMPAIGNS',
+        warnings: publishWarnings.length > 0 ? publishWarnings : undefined,
         existingCampaigns: {
           own: ownCampaignsInfo,
           manual: manualCampaignsInfo,
@@ -432,9 +438,9 @@ export async function POST(request: NextRequest) {
           own: ownCampaignsInfo.length,
           manual: manualCampaignsInfo.length,
           other: otherCampaignsInfo.length,
-          all: campaignsToPause.length
+          all: campaignsRequireConfirm.length
         },
-        message: `在Google Ads账号中检测到${campaignsToPause.length}个已激活的广告系列需要处理`,
+        message: `在Google Ads账号中检测到${campaignsRequireConfirm.length}个已激活的广告系列需要处理`,
         details: {
           own: `属于当前Offer（通过命名规范匹配）: ${ownCampaignsInfo.length}个`,
           manual: `用户手动创建（无命名规范）: ${manualCampaignsInfo.length}个`,
@@ -1108,6 +1114,7 @@ export async function POST(request: NextRequest) {
         campaigns: publishResults,
         failed: failedCampaigns,
         pausedOldCampaigns: pausedOldCampaignsSummary,
+        warnings: publishWarnings.length > 0 ? publishWarnings : undefined,
         summary: {
           total: createdCampaigns.length,
           successful: publishResults.length,
