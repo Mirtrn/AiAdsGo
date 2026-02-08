@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_DIR="${ROOT_DIR}/openclaw"
 OUT_DIR="${ROOT_DIR}/openclaw-prebuilt"
 TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
+ROOT_SKILLS_DIR="${ROOT_DIR}/skills"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
@@ -54,6 +55,13 @@ docker run --rm \
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
 cp -r "${TMP_DIR}/"* "${OUT_DIR}/"
+
+# 合并仓库根目录技能（autoads-report-qa 等）到预编译产物
+if [[ -d "${ROOT_SKILLS_DIR}" ]]; then
+  mkdir -p "${OUT_DIR}/skills"
+  cp -r "${ROOT_SKILLS_DIR}/." "${OUT_DIR}/skills/"
+fi
+
 rm -rf "${TMP_DIR}"
 
 echo "✅ OpenClaw 预编译产物已生成 -> ${OUT_DIR}"
