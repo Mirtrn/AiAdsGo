@@ -106,6 +106,14 @@ export type ProductListOptions = {
   platform?: AffiliatePlatform | 'all'
   sortBy?: ProductSortField
   sortOrder?: ProductSortOrder
+  reviewCountMin?: number
+  reviewCountMax?: number
+  priceAmountMin?: number
+  priceAmountMax?: number
+  commissionRateMin?: number
+  commissionRateMax?: number
+  commissionAmountMin?: number
+  commissionAmountMax?: number
 }
 
 export type ProductListResult = {
@@ -1832,6 +1840,44 @@ export function buildAffiliateProductsOrderBy(params: {
   return `${sortSql} ${direction}, p.id DESC`
 }
 
+function normalizeNumericRangeBounds(params: {
+  min?: number | null
+  max?: number | null
+}): { min: number | null; max: number | null } {
+  const min = typeof params.min === 'number' && Number.isFinite(params.min)
+    ? params.min
+    : null
+  const max = typeof params.max === 'number' && Number.isFinite(params.max)
+    ? params.max
+    : null
+
+  if (min !== null && max !== null && min > max) {
+    return { min: max, max: min }
+  }
+
+  return { min, max }
+}
+
+function appendNumericRangeWhere(params: {
+  whereConditions: string[]
+  whereParams: any[]
+  columnSql: string
+  min?: number | null
+  max?: number | null
+}): void {
+  const { min, max } = normalizeNumericRangeBounds({ min: params.min, max: params.max })
+
+  if (min !== null) {
+    params.whereConditions.push(`${params.columnSql} >= ?`)
+    params.whereParams.push(min)
+  }
+
+  if (max !== null) {
+    params.whereConditions.push(`${params.columnSql} <= ?`)
+    params.whereParams.push(max)
+  }
+}
+
 export async function listAffiliateProducts(userId: number, options: ProductListOptions = {}): Promise<ProductListResult> {
   const db = await getDatabase()
   const page = Math.max(1, options.page || 1)
@@ -1861,6 +1907,38 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     )`)
     whereParams.push(like, like, like, like)
   }
+
+  appendNumericRangeWhere({
+    whereConditions,
+    whereParams,
+    columnSql: 'p.review_count',
+    min: options.reviewCountMin,
+    max: options.reviewCountMax,
+  })
+
+  appendNumericRangeWhere({
+    whereConditions,
+    whereParams,
+    columnSql: 'p.price_amount',
+    min: options.priceAmountMin,
+    max: options.priceAmountMax,
+  })
+
+  appendNumericRangeWhere({
+    whereConditions,
+    whereParams,
+    columnSql: 'p.commission_rate',
+    min: options.commissionRateMin,
+    max: options.commissionRateMax,
+  })
+
+  appendNumericRangeWhere({
+    whereConditions,
+    whereParams,
+    columnSql: 'p.commission_amount',
+    min: options.commissionAmountMin,
+    max: options.commissionAmountMax,
+  })
 
   const whereSql = whereConditions.join(' AND ')
 
@@ -1997,6 +2075,7 @@ export const __testOnly = {
   calculateExponentialBackoffDelay,
   isPartnerboostRateLimited,
   isYeahPromosRateLimited,
+  normalizeNumericRangeBounds,
   mapAffiliateProductRow,
 }
 

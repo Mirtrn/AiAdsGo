@@ -28,6 +28,18 @@ const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
   'updatedAt',
 ])
 
+function parseNumericFilter(searchParams: URLSearchParams, key: string): number | null {
+  const raw = (searchParams.get(key) || '').trim()
+  if (!raw) return null
+
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return parsed
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userIdRaw = request.headers.get('x-user-id')
@@ -54,6 +66,16 @@ export async function GET(request: NextRequest) {
       ? 'asc'
       : 'desc' as ProductSortOrder
     const platform = normalizeAffiliatePlatform(searchParams.get('platform')) || 'all'
+
+    const reviewCountMin = parseNumericFilter(searchParams, 'reviewCountMin')
+    const reviewCountMax = parseNumericFilter(searchParams, 'reviewCountMax')
+    const priceAmountMin = parseNumericFilter(searchParams, 'priceAmountMin')
+    const priceAmountMax = parseNumericFilter(searchParams, 'priceAmountMax')
+    const commissionRateMin = parseNumericFilter(searchParams, 'commissionRateMin')
+    const commissionRateMax = parseNumericFilter(searchParams, 'commissionRateMax')
+    const commissionAmountMin = parseNumericFilter(searchParams, 'commissionAmountMin')
+    const commissionAmountMax = parseNumericFilter(searchParams, 'commissionAmountMax')
+
     const noCache = (searchParams.get('noCache') || '').toLowerCase() === 'true'
 
     const cachePayload = {
@@ -63,6 +85,14 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      reviewCountMin,
+      reviewCountMax,
+      priceAmountMin,
+      priceAmountMax,
+      commissionRateMin,
+      commissionRateMax,
+      commissionAmountMin,
+      commissionAmountMax,
     }
     const cacheHash = buildProductListCacheHash(cachePayload)
     await setLatestProductListQuery(userId, cachePayload)
@@ -87,6 +117,14 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      reviewCountMin: reviewCountMin ?? undefined,
+      reviewCountMax: reviewCountMax ?? undefined,
+      priceAmountMin: priceAmountMin ?? undefined,
+      priceAmountMax: priceAmountMax ?? undefined,
+      commissionRateMin: commissionRateMin ?? undefined,
+      commissionRateMax: commissionRateMax ?? undefined,
+      commissionAmountMin: commissionAmountMin ?? undefined,
+      commissionAmountMax: commissionAmountMax ?? undefined,
     })
 
     const responsePayload = {

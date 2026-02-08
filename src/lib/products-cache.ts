@@ -34,10 +34,31 @@ export type ProductListCachePayload = {
   sortBy: string
   sortOrder: string
   platform: string
+  reviewCountMin: number | null
+  reviewCountMax: number | null
+  priceAmountMin: number | null
+  priceAmountMax: number | null
+  commissionRateMin: number | null
+  commissionRateMax: number | null
+  commissionAmountMin: number | null
+  commissionAmountMax: number | null
 }
 
 export function buildProductListCacheHash(payload: ProductListCachePayload): string {
   return crypto.createHash('md5').update(JSON.stringify(payload)).digest('hex')
+}
+
+function parseNumericBound(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return parsed
 }
 
 function normalizeProductListCachePayload(input: unknown): ProductListCachePayload | null {
@@ -76,6 +97,14 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     sortBy,
     sortOrder,
     platform,
+    reviewCountMin: parseNumericBound(obj.reviewCountMin),
+    reviewCountMax: parseNumericBound(obj.reviewCountMax),
+    priceAmountMin: parseNumericBound(obj.priceAmountMin),
+    priceAmountMax: parseNumericBound(obj.priceAmountMax),
+    commissionRateMin: parseNumericBound(obj.commissionRateMin),
+    commissionRateMax: parseNumericBound(obj.commissionRateMax),
+    commissionAmountMin: parseNumericBound(obj.commissionAmountMin),
+    commissionAmountMax: parseNumericBound(obj.commissionAmountMax),
   }
 }
 

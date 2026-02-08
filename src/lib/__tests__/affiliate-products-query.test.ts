@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAffiliateProductsOrderBy } from '../affiliate-products'
+import { __testOnly, buildAffiliateProductsOrderBy } from '../affiliate-products'
 
 describe('affiliate-products order by', () => {
   it('keeps null values last for numeric sort fields in asc', () => {
@@ -32,5 +32,9 @@ describe('affiliate-products order by', () => {
     expect(orderBy).toContain('p.mid ASC')
     expect(orderBy).toContain('p.id DESC')
     expect(orderBy).not.toContain('IS NULL')
+  })
+
+  it('normalizes numeric range when min is greater than max', () => {
+    expect(__testOnly.normalizeNumericRangeBounds({ min: 10, max: 5 })).toEqual({ min: 5, max: 10 })
   })
 })

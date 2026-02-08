@@ -147,6 +147,19 @@ type BatchRow = {
   commissionRate: string
 }
 
+type NumericRangeFilters = {
+  reviewCountMin: number | null
+  reviewCountMax: number | null
+  priceAmountMin: number | null
+  priceAmountMax: number | null
+  commissionRateMin: number | null
+  commissionRateMax: number | null
+  commissionAmountMin: number | null
+  commissionAmountMax: number | null
+}
+
+type NumericRangeFilterDrafts = Record<keyof NumericRangeFilters, string>
+
 const PLATFORM_LABEL: Record<ProductPlatform, string> = {
   yeahpromos: 'YeahPromos',
   partnerboost: 'PartnerBoost',
@@ -163,6 +176,28 @@ const LANDING_PAGE_TYPE_LABEL: Record<LandingPageType, string> = {
   independent_product: '独立站商品',
   independent_store: '独立站店铺',
   unknown: '未知',
+}
+
+const EMPTY_NUMERIC_RANGE_FILTERS: NumericRangeFilters = {
+  reviewCountMin: null,
+  reviewCountMax: null,
+  priceAmountMin: null,
+  priceAmountMax: null,
+  commissionRateMin: null,
+  commissionRateMax: null,
+  commissionAmountMin: null,
+  commissionAmountMax: null,
+}
+
+const EMPTY_NUMERIC_RANGE_FILTER_DRAFTS: NumericRangeFilterDrafts = {
+  reviewCountMin: '',
+  reviewCountMax: '',
+  priceAmountMin: '',
+  priceAmountMax: '',
+  commissionRateMin: '',
+  commissionRateMax: '',
+  commissionAmountMin: '',
+  commissionAmountMax: '',
 }
 
 function formatCurrency(amount: number | null, currency: string | null): string {
@@ -248,6 +283,44 @@ function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
 
+function parseNumericRangeInput(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  return parsed
+}
+
+function buildNumericRangeFiltersFromDraft(drafts: NumericRangeFilterDrafts): NumericRangeFilters {
+  return {
+    reviewCountMin: parseNumericRangeInput(drafts.reviewCountMin),
+    reviewCountMax: parseNumericRangeInput(drafts.reviewCountMax),
+    priceAmountMin: parseNumericRangeInput(drafts.priceAmountMin),
+    priceAmountMax: parseNumericRangeInput(drafts.priceAmountMax),
+    commissionRateMin: parseNumericRangeInput(drafts.commissionRateMin),
+    commissionRateMax: parseNumericRangeInput(drafts.commissionRateMax),
+    commissionAmountMin: parseNumericRangeInput(drafts.commissionAmountMin),
+    commissionAmountMax: parseNumericRangeInput(drafts.commissionAmountMax),
+  }
+}
+
+function isNumericRangeFiltersEqual(a: NumericRangeFilters, b: NumericRangeFilters): boolean {
+  return (
+    a.reviewCountMin === b.reviewCountMin
+    && a.reviewCountMax === b.reviewCountMax
+    && a.priceAmountMin === b.priceAmountMin
+    && a.priceAmountMax === b.priceAmountMax
+    && a.commissionRateMin === b.commissionRateMin
+    && a.commissionRateMax === b.commissionRateMax
+    && a.commissionAmountMin === b.commissionAmountMin
+    && a.commissionAmountMax === b.commissionAmountMax
+  )
+}
+
 export default function ProductsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -259,6 +332,12 @@ export default function ProductsPage() {
   const [searchText, setSearchText] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [platformFilter, setPlatformFilter] = useState<'all' | ProductPlatform>('all')
+  const [numericRangeDrafts, setNumericRangeDrafts] = useState<NumericRangeFilterDrafts>({
+    ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS,
+  })
+  const [numericRangeFilters, setNumericRangeFilters] = useState<NumericRangeFilters>({
+    ...EMPTY_NUMERIC_RANGE_FILTERS,
+  })
   const [sortBy, setSortBy] = useState<SortField>('serial')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set())
@@ -296,7 +375,46 @@ export default function ProductsPage() {
 
   const canBatchCreate = creatableSelectedProducts.length > 0
   const canBatchOffline = selectedProducts.length > 0
-  const hasFilters = searchQuery.length > 0 || platformFilter !== 'all'
+  const hasFilters = searchQuery.length > 0
+    || platformFilter !== 'all'
+    || Object.values(numericRangeFilters).some((value) => value !== null)
+
+  const numericRangeFilterCards: Array<{
+    label: string
+    minKey: keyof NumericRangeFilterDrafts
+    maxKey: keyof NumericRangeFilterDrafts
+    minPlaceholder: string
+    maxPlaceholder: string
+  }> = [
+    {
+      label: '商品评论数',
+      minKey: 'reviewCountMin',
+      maxKey: 'reviewCountMax',
+      minPlaceholder: '最小值',
+      maxPlaceholder: '最大值',
+    },
+    {
+      label: '商品价格',
+      minKey: 'priceAmountMin',
+      maxKey: 'priceAmountMax',
+      minPlaceholder: '最低价',
+      maxPlaceholder: '最高价',
+    },
+    {
+      label: '佣金比例(%)',
+      minKey: 'commissionRateMin',
+      maxKey: 'commissionRateMax',
+      minPlaceholder: '最小比例',
+      maxPlaceholder: '最大比例',
+    },
+    {
+      label: '佣金金额',
+      minKey: 'commissionAmountMin',
+      maxKey: 'commissionAmountMax',
+      minPlaceholder: '最小金额',
+      maxPlaceholder: '最大金额',
+    },
+  ]
 
   const stats = useMemo(() => {
     const activeSyncRuns = latestRuns.filter((run) => run.status === 'queued' || run.status === 'running').length
@@ -316,6 +434,19 @@ export default function ProductsPage() {
     return () => window.clearTimeout(timer)
   }, [searchText])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextFilters = buildNumericRangeFiltersFromDraft(numericRangeDrafts)
+      if (isNumericRangeFiltersEqual(nextFilters, numericRangeFilters)) {
+        return
+      }
+      setNumericRangeFilters(nextFilters)
+      setPage(1)
+    }, 350)
+
+    return () => window.clearTimeout(timer)
+  }, [numericRangeDrafts, numericRangeFilters])
+
   const fetchProducts = async (forceNoCache: boolean = false) => {
     setLoading(true)
     try {
@@ -326,6 +457,22 @@ export default function ProductsPage() {
       params.set('sortOrder', sortOrder)
       if (searchQuery) params.set('search', searchQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
+
+      const numericRangeParams: Array<[string, number | null]> = [
+        ['reviewCountMin', numericRangeFilters.reviewCountMin],
+        ['reviewCountMax', numericRangeFilters.reviewCountMax],
+        ['priceAmountMin', numericRangeFilters.priceAmountMin],
+        ['priceAmountMax', numericRangeFilters.priceAmountMax],
+        ['commissionRateMin', numericRangeFilters.commissionRateMin],
+        ['commissionRateMax', numericRangeFilters.commissionRateMax],
+        ['commissionAmountMin', numericRangeFilters.commissionAmountMin],
+        ['commissionAmountMax', numericRangeFilters.commissionAmountMax],
+      ]
+      for (const [key, value] of numericRangeParams) {
+        if (value === null) continue
+        params.set(key, String(value))
+      }
+
       if (forceNoCache) params.set('noCache', 'true')
 
       const response = await fetch(`/api/products?${params.toString()}`, {
@@ -381,7 +528,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts()
     fetchSyncRuns()
-  }, [page, pageSize, searchQuery, platformFilter, sortBy, sortOrder])
+  }, [page, pageSize, searchQuery, platformFilter, numericRangeFilters, sortBy, sortOrder])
 
   useEffect(() => {
     fetchSyncRuns()
@@ -407,6 +554,13 @@ export default function ProductsPage() {
     }
     setSortBy(target)
     setSortOrder('desc')
+  }
+
+  const updateNumericRangeDraft = (key: keyof NumericRangeFilterDrafts, value: string) => {
+    setNumericRangeDrafts((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
   }
 
   const handleSelectAll = (checked: boolean) => {
@@ -1116,6 +1270,8 @@ export default function ProductsPage() {
                       setSearchText('')
                       setSearchQuery('')
                       setPlatformFilter('all')
+                      setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })
+                      setNumericRangeFilters({ ...EMPTY_NUMERIC_RANGE_FILTERS })
                       setPage(1)
                     }}
                   >
@@ -1136,6 +1292,28 @@ export default function ProductsPage() {
                   </Button>
                 )}
               </div>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {numericRangeFilterCards.map((card) => (
+                <div key={card.label} className="rounded-md border p-3 space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">{card.label}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={numericRangeDrafts[card.minKey]}
+                      onChange={(event) => updateNumericRangeDraft(card.minKey, event.target.value)}
+                      placeholder={card.minPlaceholder}
+                      inputMode="decimal"
+                    />
+                    <Input
+                      value={numericRangeDrafts[card.maxKey]}
+                      onChange={(event) => updateNumericRangeDraft(card.maxKey, event.target.value)}
+                      placeholder={card.maxPlaceholder}
+                      inputMode="decimal"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
 
             {loading ? (

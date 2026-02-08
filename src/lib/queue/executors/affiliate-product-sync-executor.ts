@@ -34,6 +34,14 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all'
+  reviewCountMin: number | null
+  reviewCountMax: number | null
+  priceAmountMin: number | null
+  priceAmountMax: number | null
+  commissionRateMin: number | null
+  commissionRateMax: number | null
+  commissionAmountMin: number | null
+  commissionAmountMax: number | null
 } = {
   page: 1,
   pageSize: 20,
@@ -41,6 +49,14 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   sortBy: 'serial',
   sortOrder: 'desc',
   platform: 'all',
+  reviewCountMin: null,
+  reviewCountMax: null,
+  priceAmountMin: null,
+  priceAmountMax: null,
+  commissionRateMin: null,
+  commissionRateMax: null,
+  commissionAmountMin: null,
+  commissionAmountMax: null,
 }
 
 const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
@@ -65,6 +81,25 @@ type CacheWarmParams = {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all' | AffiliatePlatform
+  reviewCountMin: number | null
+  reviewCountMax: number | null
+  priceAmountMin: number | null
+  priceAmountMax: number | null
+  commissionRateMin: number | null
+  commissionRateMax: number | null
+  commissionAmountMin: number | null
+  commissionAmountMax: number | null
+}
+
+function normalizeOptionalBound(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  return parsed
 }
 
 function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams {
@@ -90,15 +125,34 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     sortBy,
     sortOrder,
     platform,
+    reviewCountMin: normalizeOptionalBound(payload.reviewCountMin),
+    reviewCountMax: normalizeOptionalBound(payload.reviewCountMax),
+    priceAmountMin: normalizeOptionalBound(payload.priceAmountMin),
+    priceAmountMax: normalizeOptionalBound(payload.priceAmountMax),
+    commissionRateMin: normalizeOptionalBound(payload.commissionRateMin),
+    commissionRateMax: normalizeOptionalBound(payload.commissionRateMax),
+    commissionAmountMin: normalizeOptionalBound(payload.commissionAmountMin),
+    commissionAmountMax: normalizeOptionalBound(payload.commissionAmountMax),
   }
 }
 
 async function warmProductListCacheByParams(userId: number, params: CacheWarmParams): Promise<void> {
-  const listResult = await listAffiliateProducts(userId, params)
+  const listResult = await listAffiliateProducts(userId, {
+    ...params,
+    reviewCountMin: params.reviewCountMin ?? undefined,
+    reviewCountMax: params.reviewCountMax ?? undefined,
+    priceAmountMin: params.priceAmountMin ?? undefined,
+    priceAmountMax: params.priceAmountMax ?? undefined,
+    commissionRateMin: params.commissionRateMin ?? undefined,
+    commissionRateMax: params.commissionRateMax ?? undefined,
+    commissionAmountMin: params.commissionAmountMin ?? undefined,
+    commissionAmountMax: params.commissionAmountMax ?? undefined,
+  })
   const responsePayload = {
     success: true as const,
     items: listResult.items,
     total: listResult.total,
+    productsWithLinkCount: listResult.productsWithLinkCount,
     page: listResult.page,
     pageSize: listResult.pageSize,
   }
