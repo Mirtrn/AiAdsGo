@@ -1,0 +1,167 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const {
+  getSettingsByCategoryMock,
+  getOpenclawGatewayTokenMock,
+  collectUserFeishuAccountsMock,
+} = vi.hoisted(() => ({
+  getSettingsByCategoryMock: vi.fn(),
+  getOpenclawGatewayTokenMock: vi.fn(),
+  collectUserFeishuAccountsMock: vi.fn(),
+}))
+
+vi.mock('@/lib/settings', () => ({
+  getSettingsByCategory: getSettingsByCategoryMock,
+}))
+
+vi.mock('@/lib/openclaw/auth', () => ({
+  getOpenclawGatewayToken: getOpenclawGatewayTokenMock,
+}))
+
+vi.mock('@/lib/openclaw/feishu-accounts', () => ({
+  collectUserFeishuAccounts: collectUserFeishuAccountsMock,
+}))
+
+import { syncOpenclawConfig } from '@/lib/openclaw/config'
+
+describe('syncOpenclawConfig user scope', () => {
+  let tempDir = ''
+  let configPath = ''
+  const previousConfigPath = process.env.OPENCLAW_CONFIG_PATH
+  const previousStateDir = process.env.OPENCLAW_STATE_DIR
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-sync-'))
+    configPath = path.join(tempDir, 'openclaw.json')
+    process.env.OPENCLAW_CONFIG_PATH = configPath
+    process.env.OPENCLAW_STATE_DIR = tempDir
+
+    getSettingsByCategoryMock.mockReset()
+    getOpenclawGatewayTokenMock.mockReset()
+    collectUserFeishuAccountsMock.mockReset()
+
+    getOpenclawGatewayTokenMock.mockResolvedValue('gateway-test-token')
+    collectUserFeishuAccountsMock.mockResolvedValue({})
+  })
+
+  afterEach(() => {
+    if (previousConfigPath === undefined) {
+      delete process.env.OPENCLAW_CONFIG_PATH
+    } else {
+      process.env.OPENCLAW_CONFIG_PATH = previousConfigPath
+    }
+
+    if (previousStateDir === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR
+    } else {
+      process.env.OPENCLAW_STATE_DIR = previousStateDir
+    }
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  it('uses actor user settings when syncing from openclaw settings API', async () => {
+    const aiModelsJson = JSON.stringify({
+      providers: {
+        openai: {
+          api: 'openai-responses',
+          apiKey: 'sk-test',
+          models: [{ id: 'gpt-5' }],
+        },
+      },
+      selectedModel: 'openai/gpt-5',
+    })
+
+    getSettingsByCategoryMock.mockResolvedValueOnce([
+      { key: 'ai_models_json', value: aiModelsJson },
+    ])
+
+    await syncOpenclawConfig({ reason: 'test-user-sync', actorUserId: 42 })
+
+    expect(getSettingsByCategoryMock).toHaveBeenCalledWith('openclaw', 42)
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.agents.defaults.model.primary).toBe('openai/gpt-5')
+    expect(written.models.providers.openai).toBeDefined()
+  })
+
+  it('keeps existing model config on startup sync without actor user', async () => {
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: {
+            primary: 'openai/gpt-5.2',
+          },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            api: 'openai-responses',
+            apiKey: 'sk-existing',
+            models: [{ id: 'gpt-5.2' }],
+          },
+        },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2), 'utf-8')
+
+    getSettingsByCategoryMock.mockResolvedValueOnce([])
+
+    await syncOpenclawConfig({ reason: 'startup-sync' })
+
+    expect(getSettingsByCategoryMock).toHaveBeenCalledWith('openclaw')
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.agents.defaults.model.primary).toBe('openai/gpt-5.2')
+    expect(written.models.providers.openai).toBeDefined()
+  })
+
+  it('prefers global AI settings when startup sync has global rows', async () => {
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: {
+            primary: 'openai/gpt-5.2',
+          },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            api: 'openai-responses',
+            apiKey: 'sk-existing',
+            models: [{ id: 'gpt-5.2' }],
+          },
+        },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2), 'utf-8')
+
+    const globalAiModelsJson = JSON.stringify({
+      providers: {
+        anthropic: {
+          api: 'anthropic',
+          apiKey: 'sk-global',
+          models: [{ id: 'claude-opus-4-5' }],
+        },
+      },
+      selectedModel: 'anthropic/claude-opus-4-5',
+    })
+
+    getSettingsByCategoryMock.mockResolvedValueOnce([
+      { key: 'ai_models_json', value: globalAiModelsJson },
+      { key: 'openclaw_models_mode', value: 'replace' },
+    ])
+
+    await syncOpenclawConfig({ reason: 'startup-sync' })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.agents.defaults.model.primary).toBe('anthropic/claude-opus-4-5')
+    expect(written.models.mode).toBe('replace')
+    expect(written.models.providers.anthropic).toBeDefined()
+  })
+})

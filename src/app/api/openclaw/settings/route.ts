@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getUserOnlySettingsByCategory, updateSettings } from '@/lib/settings'
+import { getSettingsByCategory, getUserOnlySettingsByCategory, updateSettings } from '@/lib/settings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 
-const USER_SCOPED_KEYS = new Set([
+const GLOBAL_AI_KEYS = new Set([
   'ai_models_json',
   'openclaw_models_mode',
   'openclaw_models_bedrock_discovery_json',
+])
+
+const USER_SCOPED_KEYS = new Set([
   'yeahpromos_token',
   'yeahpromos_site_id',
   'yeahpromos_page',
@@ -75,10 +78,13 @@ const USER_SCOPED_KEYS = new Set([
   'openclaw_strategy_dry_run',
 ])
 
-const USER_SYNC_KEYS = new Set([
+const GLOBAL_SYNC_KEYS = new Set([
   'ai_models_json',
   'openclaw_models_mode',
   'openclaw_models_bedrock_discovery_json',
+])
+
+const USER_SYNC_KEYS = new Set([
   'feishu_app_id',
   'feishu_app_secret',
   'feishu_bot_name',
@@ -103,8 +109,13 @@ const USER_SYNC_KEYS = new Set([
   'feishu_accounts_json',
 ])
 
+const ALL_ALLOWED_KEYS = new Set([
+  ...Array.from(USER_SCOPED_KEYS),
+  ...Array.from(GLOBAL_AI_KEYS),
+])
+
 const updateSchema = z.object({
-  scope: z.literal('user'),
+  scope: z.enum(['user', 'global']).default('user'),
   updates: z.array(
     z.object({
       key: z.string(),
@@ -121,12 +132,14 @@ export async function GET(request: NextRequest) {
 
   const userSettings = (await getUserOnlySettingsByCategory('openclaw', auth.user.userId))
     .filter(setting => USER_SCOPED_KEYS.has(setting.key))
+  const globalAiSettings = (await getSettingsByCategory('openclaw'))
+    .filter(setting => GLOBAL_AI_KEYS.has(setting.key))
 
   return NextResponse.json({
     success: true,
     isAdmin: auth.user.role === 'admin',
     userId: auth.user.userId,
-    user: userSettings,
+    user: [...userSettings, ...globalAiSettings],
   })
 }
 
@@ -145,24 +158,52 @@ export async function PUT(request: NextRequest) {
     )
   }
 
-  const { updates } = parsed.data
+  const { updates, scope } = parsed.data
 
-  const invalidKey = updates.find(item => !USER_SCOPED_KEYS.has(item.key))
+  const invalidKey = updates.find(item => !ALL_ALLOWED_KEYS.has(item.key))
   if (invalidKey) {
     return NextResponse.json({ error: `不允许修改配置: ${invalidKey.key}` }, { status: 400 })
   }
 
-  await updateSettings(
-    updates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
-    auth.user.userId
-  )
+  const globalUpdates = updates.filter(item => GLOBAL_AI_KEYS.has(item.key))
+  const userUpdates = updates.filter(item => USER_SCOPED_KEYS.has(item.key))
+
+  if (scope === 'global' && userUpdates.length > 0) {
+    return NextResponse.json({ error: '全局保存仅允许 AI 引擎配置' }, { status: 400 })
+  }
+
+  if (globalUpdates.length > 0 && auth.user.role !== 'admin') {
+    return NextResponse.json({ error: '仅管理员可修改全局 AI 配置' }, { status: 403 })
+  }
+
+  if (globalUpdates.length > 0) {
+    await updateSettings(
+      globalUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value }))
+    )
+  }
+
+  if (userUpdates.length > 0) {
+    await updateSettings(
+      userUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
+      auth.user.userId
+    )
+  }
 
   try {
     const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
-    const reason = updates.some(item => USER_SYNC_KEYS.has(item.key))
-      ? 'openclaw-user-settings'
-      : 'openclaw-user-settings-nonsync'
-    await syncOpenclawConfig({ reason, actorUserId: auth.user.userId })
+    const hasGlobalSync = updates.some(item => GLOBAL_SYNC_KEYS.has(item.key))
+    const hasUserSync = updates.some(item => USER_SYNC_KEYS.has(item.key))
+    const reason = hasGlobalSync
+      ? 'openclaw-global-ai-settings'
+      : hasUserSync
+        ? 'openclaw-user-settings'
+        : 'openclaw-user-settings-nonsync'
+
+    await syncOpenclawConfig(
+      hasGlobalSync
+        ? { reason }
+        : { reason, actorUserId: auth.user.userId }
+    )
   } catch (error) {
     console.error('❌ OpenClaw配置同步失败:', error)
   }

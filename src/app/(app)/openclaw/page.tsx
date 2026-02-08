@@ -213,6 +213,12 @@ const AI_USER_KEYS = [
   'ai_models_json',
 ] as const
 
+const AI_GLOBAL_KEYS = [
+  'ai_models_json',
+  'openclaw_models_mode',
+  'openclaw_models_bedrock_discovery_json',
+] as const
+
 const FEISHU_CHAT_USER_KEYS = [
   'feishu_app_id',
   'feishu_app_secret',
@@ -748,7 +754,7 @@ export default function OpenClawPage() {
   }
 
   const saveSettings = async (params: {
-    scope: 'user'
+    scope: 'user' | 'global'
     keys?: string[]
     successMessage?: string
   }) => {
@@ -1159,6 +1165,7 @@ export default function OpenClawPage() {
     : gatewaySkillsRows
   const showFeishuAdvanced = !simpleMode || showAdvancedFeishu
   const showStrategyAdvanced = !simpleMode || showAdvancedStrategy
+  const canEditAiSettings = settings?.isAdmin === true
   const aiConfigured = Boolean((userValues.ai_models_json || '').trim())
   const aiModelLabel = aiSelectedModelMeta
     ? `${aiSelectedModelMeta.modelName}（${aiSelectedModelMeta.modelRef}）`
@@ -1183,8 +1190,10 @@ export default function OpenClawPage() {
     {
       id: 'ai',
       label: 'AI引擎',
-      done: aiConfigured,
-      note: aiConfigured ? (aiModelLabel ? '当前：' + aiModelLabel : '已配置 Providers JSON') : '未配置',
+      done: canEditAiSettings ? aiConfigured : true,
+      note: canEditAiSettings
+        ? (aiConfigured ? (aiModelLabel ? '当前：' + aiModelLabel : '已配置 Providers JSON') : '未配置')
+        : '成员无需配置（管理员统一维护）',
     },
     {
       id: 'feishu_user',
@@ -1228,6 +1237,7 @@ export default function OpenClawPage() {
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
   const strategyPriorityAsinsHasError = supportsStrategyPriorityAsins && strategyPriorityAsinsNormalized === null
   const aiDirty = hasUserDirtyFields(AI_USER_KEYS)
+  const aiSectionDirty = canEditAiSettings && aiDirty
   const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
   const feishuCardDirty =
     feishuCardVerificationToken !== savedFeishuCardSettings.verificationToken ||
@@ -1534,11 +1544,22 @@ export default function OpenClawPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 AI 引擎
-                {aiDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="AI 配置未保存" />}
+                <Badge variant="secondary" className="text-[11px]">全局配置</Badge>
+                <Badge variant={canEditAiSettings ? 'default' : 'outline'} className="text-[11px]">
+                  {canEditAiSettings ? '管理员可编辑' : '成员只读'}
+                </Badge>
+                {aiSectionDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="AI 配置未保存" />}
               </CardTitle>
-              <CardDescription>用户级配置：最小仅需 Providers JSON</CardDescription>
+              <CardDescription>
+                全局配置：仅管理员可修改；普通成员只读查看当前生效模型
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!canEditAiSettings && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  当前账号为普通成员，仅可查看 AI 引擎配置。请联系管理员修改。
+                </div>
+              )}
               <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 JSON 格式：顶层 providers 对象，每个 provider 包含 baseUrl、apiKey、api 和 models 数组。详见配置指南。
               </div>
@@ -1554,7 +1575,7 @@ export default function OpenClawPage() {
                   <Select
                     value={aiSelectedModelRef || undefined}
                     onValueChange={handleAiModelChange}
-                    disabled={Boolean(aiModelsInfo.parseError) || aiModelOptions.length === 0}
+                    disabled={!canEditAiSettings || Boolean(aiModelsInfo.parseError) || aiModelOptions.length === 0}
                   >
                     <SelectTrigger>
                       <SelectValue
@@ -1587,6 +1608,7 @@ export default function OpenClawPage() {
                     variant="outline"
                     size="sm"
                     onClick={handleFormatAiJson}
+                    disabled={!canEditAiSettings}
                   >
                     格式化JSON
                   </Button>
@@ -1598,6 +1620,7 @@ export default function OpenClawPage() {
                       setUserValue('ai_models_json', AI_MINIMAL_PLACEHOLDER)
                       setAiJsonError(null)
                     }}
+                    disabled={!canEditAiSettings}
                   >
                     最小模板
                   </Button>
@@ -1616,6 +1639,7 @@ export default function OpenClawPage() {
                 }}
                 placeholder={AI_MINIMAL_PLACEHOLDER}
                 rows={10}
+                disabled={!canEditAiSettings}
               />
               <div className="flex justify-end">
                 <Button
@@ -1628,11 +1652,11 @@ export default function OpenClawPage() {
                       return
                     }
                     setAiJsonError(null)
-                    saveSettings({ scope: 'user', keys: [...AI_USER_KEYS], successMessage: 'AI 配置已保存' })
+                    saveSettings({ scope: 'global', keys: [...AI_GLOBAL_KEYS], successMessage: 'AI 配置已保存（全局）' })
                   }}
-                  disabled={savingUser}
+                  disabled={savingUser || !canEditAiSettings}
                 >
-                  {savingUser ? '保存中...' : aiDirty ? '保存 AI 配置 *' : '保存 AI 配置'}
+                  {savingUser ? '保存中...' : aiSectionDirty ? '保存 AI 配置 *' : '保存 AI 配置'}
                 </Button>
               </div>
             </CardContent>

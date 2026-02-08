@@ -76,6 +76,28 @@ function parseJsonObject(value: string | null | undefined): Record<string, any> 
   }
 }
 
+function asObject(value: unknown): Record<string, any> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  return value as Record<string, any>
+}
+
+function readExistingConfig(configPath: string): Record<string, any> | undefined {
+  try {
+    if (!fs.existsSync(configPath)) {
+      return undefined
+    }
+    const raw = fs.readFileSync(configPath, 'utf-8')
+    if (!raw.trim()) {
+      return undefined
+    }
+    return asObject(JSON.parse(raw))
+  } catch {
+    return undefined
+  }
+}
+
 function resolveOpenclawPublicBaseUrl(): string | undefined {
   const raw = (process.env.NEXT_PUBLIC_APP_URL || process.env.OPENCLAW_PUBLIC_BASE_URL || '').trim()
   if (!raw) return undefined
@@ -126,7 +148,32 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const { configPath, stateDir } = resolveConfigPath()
   fs.mkdirSync(stateDir, { recursive: true })
 
-  const settings = await getSettingsByCategory('openclaw')
+  const actorUserId = Number.isInteger(options.actorUserId) && (options.actorUserId || 0) > 0
+    ? Number(options.actorUserId)
+    : undefined
+
+  const settings = actorUserId
+    ? await getSettingsByCategory('openclaw', actorUserId)
+    : await getSettingsByCategory('openclaw')
+
+  const useExistingConfigFallback = !actorUserId
+  const existingConfig = useExistingConfigFallback ? readExistingConfig(configPath) : undefined
+  const existingModelsNode = asObject(existingConfig?.models)
+  const existingAgentDefaults = asObject(asObject(existingConfig?.agents)?.defaults)
+  const existingModelPrimary = (() => {
+    const modelNode = existingAgentDefaults?.model
+    if (typeof modelNode === 'string' && modelNode.trim()) {
+      return modelNode.trim()
+    }
+    if (modelNode && typeof modelNode === 'object' && !Array.isArray(modelNode)) {
+      const primary = (modelNode as { primary?: string }).primary
+      if (typeof primary === 'string' && primary.trim()) {
+        return primary.trim()
+      }
+    }
+    return null
+  })()
+
   const settingMap = buildSettingMap(settings)
 
   const gatewayToken = await getOpenclawGatewayToken()
@@ -188,11 +235,21 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     console.error('❌ OpenClaw models JSON 解析失败:', aiModelsConfig.parseError)
   }
   const modelsProviders = aiModelsConfig.providers
+    || (useExistingConfigFallback ? asObject(existingModelsNode?.providers) : undefined)
   const aiSelectedModelRef = aiModelsConfig.explicitSelectedModelRef
+    || (useExistingConfigFallback ? existingModelPrimary : null)
   const aiFallbackModelRef = aiModelsConfig.selectedModelRef
-  const modelsMode = (settingMap.openclaw_models_mode || '').trim()
+    || (useExistingConfigFallback ? existingModelPrimary : null)
+  const modelsModeFromSettings = (settingMap.openclaw_models_mode || '').trim()
+  const modelsMode = modelsModeFromSettings || (
+    useExistingConfigFallback && typeof existingModelsNode?.mode === 'string'
+      ? existingModelsNode.mode.trim()
+      : ''
+  )
   const bedrockDiscovery = parseJsonObject(settingMap.openclaw_models_bedrock_discovery_json)
+    || (useExistingConfigFallback ? asObject(existingModelsNode?.bedrockDiscovery) : undefined)
   const agentDefaults = parseJsonObject(settingMap.openclaw_agent_defaults_json)
+    || (useExistingConfigFallback ? existingAgentDefaults : undefined)
   const agentList = parseJsonArrayValue(settingMap.openclaw_agent_list_json)
   const sessionOverrides = parseJsonObject(settingMap.openclaw_session_json)
   const messagesConfig = parseJsonObject(settingMap.openclaw_messages_json)
