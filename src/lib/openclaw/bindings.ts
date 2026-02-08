@@ -1,5 +1,42 @@
 import { getDatabase } from '@/lib/db'
-import { parseFeishuAccountUserId } from '@/lib/openclaw/feishu-accounts'
+import { collectUserFeishuAccounts, parseFeishuAccountUserId } from '@/lib/openclaw/feishu-accounts'
+
+function normalizeFeishuId(value?: string | null): string {
+  return String(value || '').trim().replace(/^(feishu|lark):/i, '').toLowerCase()
+}
+
+async function resolveFeishuUserFromAllowlist(senderId: string): Promise<number | null> {
+  const normalizedSenderId = normalizeFeishuId(senderId)
+  if (!normalizedSenderId) return null
+
+  let accounts: Record<string, { allowFrom?: string[] }>
+  try {
+    accounts = await collectUserFeishuAccounts()
+  } catch (error) {
+    console.warn('[openclaw] failed to collect feishu accounts for binding fallback:', error)
+    return null
+  }
+
+  const matchedUserIds = new Set<number>()
+
+  for (const [accountId, accountConfig] of Object.entries(accounts)) {
+    const userId = parseFeishuAccountUserId(accountId)
+    if (!userId) continue
+
+    const allowFrom = Array.isArray(accountConfig?.allowFrom)
+      ? accountConfig.allowFrom
+      : []
+    if (allowFrom.length === 0) continue
+
+    const isAllowed = allowFrom.some((entry) => normalizeFeishuId(entry) === normalizedSenderId)
+    if (isAllowed) {
+      matchedUserIds.add(userId)
+    }
+  }
+
+  if (matchedUserIds.size !== 1) return null
+  return Array.from(matchedUserIds)[0] ?? null
+}
 
 export async function resolveOpenclawUserFromBinding(
   channel?: string | null,
@@ -17,6 +54,8 @@ export async function resolveOpenclawUserFromBinding(
   const isFeishu = normalizedChannel.toLowerCase() === 'feishu'
 
   if (isFeishu && !tenantKey) {
+    const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId)
+    if (feishuFallback) return feishuFallback
     return null
   }
 
@@ -36,11 +75,15 @@ export async function resolveOpenclawUserFromBinding(
     if (scoped?.user_id) return scoped.user_id
 
     if (isFeishu) {
+      const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId)
+      if (feishuFallback) return feishuFallback
       return null
     }
   }
 
   if (isFeishu) {
+    const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId)
+    if (feishuFallback) return feishuFallback
     return null
   }
 
