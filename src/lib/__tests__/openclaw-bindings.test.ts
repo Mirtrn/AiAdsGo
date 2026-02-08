@@ -26,10 +26,37 @@ vi.mock('../openclaw/feishu-accounts', () => ({
 import { resolveOpenclawUserFromBinding } from '../openclaw/bindings'
 
 describe('openclaw bindings isolation', () => {
+  const previousAuthMode = process.env.OPENCLAW_FEISHU_AUTH_MODE
+  const previousRequireTenant = process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY
+  const previousStrictAutoBind = process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND
+
   beforeEach(() => {
     getDatabaseMock.mockReset()
     collectUserFeishuAccountsMock.mockReset()
     collectUserFeishuAccountsMock.mockResolvedValue({})
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'compat'
+    process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = 'true'
+    process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = 'true'
+  })
+
+  afterEach(() => {
+    if (previousAuthMode === undefined) {
+      delete process.env.OPENCLAW_FEISHU_AUTH_MODE
+    } else {
+      process.env.OPENCLAW_FEISHU_AUTH_MODE = previousAuthMode
+    }
+
+    if (previousRequireTenant === undefined) {
+      delete process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY
+    } else {
+      process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = previousRequireTenant
+    }
+
+    if (previousStrictAutoBind === undefined) {
+      delete process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND
+    } else {
+      process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = previousStrictAutoBind
+    }
   })
 
   it('returns user id directly from feishu accountId', async () => {
@@ -127,5 +154,75 @@ describe('openclaw bindings isolation', () => {
 
     expect(result).toBe(9)
     expect(queryOne).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses strict mode: requires tenant key when configured', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = 'true'
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_abc', {
+      accountId: 'user-7',
+      tenantKey: null,
+    })
+
+    expect(result).toBeNull()
+    expect(getDatabaseMock).not.toHaveBeenCalled()
+  })
+
+  it('uses strict mode: resolves via tenant binding', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    collectUserFeishuAccountsMock.mockResolvedValue({
+      'user-7': { authMode: 'strict' },
+    })
+
+    const queryOne = vi.fn().mockResolvedValue({ user_id: 7 })
+    getDatabaseMock.mockResolvedValue({ queryOne, exec: vi.fn() })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_abc', {
+      accountId: 'user-7',
+      tenantKey: 'tenant-1',
+    })
+
+    expect(result).toBe(7)
+    expect(queryOne).toHaveBeenCalledTimes(1)
+    expect(collectUserFeishuAccountsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses strict mode: auto-binds when tenant binding is missing', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = 'true'
+
+    const queryOne = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    const exec = vi.fn().mockResolvedValue({ changes: 1 })
+    getDatabaseMock.mockResolvedValue({ queryOne, exec, type: 'postgres' })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_new', {
+      accountId: 'user-11',
+      tenantKey: 'tenant-11',
+    })
+
+    expect(result).toBe(11)
+    expect(exec).toHaveBeenCalledTimes(1)
+    expect(exec.mock.calls[0]?.[0]).toContain('INSERT INTO openclaw_user_bindings')
+  })
+
+  it('uses strict mode: blocks conflicting existing binding', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+
+    const queryOne = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 99, user_id: 5 })
+    const exec = vi.fn()
+    getDatabaseMock.mockResolvedValue({ queryOne, exec, type: 'postgres' })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_conflict', {
+      accountId: 'user-7',
+      tenantKey: 'tenant-7',
+    })
+
+    expect(result).toBeNull()
+    expect(exec).not.toHaveBeenCalled()
   })
 })

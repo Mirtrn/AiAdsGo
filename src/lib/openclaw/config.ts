@@ -200,6 +200,10 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const userFeishuAccounts = await collectUserFeishuAccounts()
   const feishuMarkdownTables = (settingMap.feishu_markdown_tables || '').trim()
   const feishuMediaMaxMb = parseNumber(settingMap.feishu_media_max_mb, undefined)
+  const feishuAuthModeRaw = (settingMap.feishu_auth_mode || '').trim().toLowerCase()
+  const feishuAuthMode = feishuAuthModeRaw === 'compat' ? 'compat' : 'strict'
+  const feishuRequireTenantKey = parseBoolean(settingMap.feishu_require_tenant_key, true)
+  const feishuStrictAutoBind = parseBoolean(settingMap.feishu_strict_auto_bind, true)
 
   const feishuAccount = {
     appId: (settingMap.feishu_app_id || '').trim() || undefined,
@@ -221,6 +225,9 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     configWrites: parseBoolean(settingMap.feishu_config_writes, true),
     mediaMaxMb: feishuMediaMaxMb,
     responsePrefix: (settingMap.feishu_response_prefix || '').trim() || undefined,
+    authMode: feishuAuthMode,
+    requireTenantKey: feishuRequireTenantKey,
+    strictAutoBind: feishuStrictAutoBind,
     enabled: true,
   }
 

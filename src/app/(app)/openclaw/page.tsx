@@ -197,16 +197,6 @@ const STRATEGY_CRON_OPTIONS: Array<{ id: string; label: string; cron: string }> 
   { id: 'custom', label: '自定义 Cron', cron: '' },
 ]
 
-const FEISHU_DOC_EXAMPLE_VALUES: Record<string, string> = {
-  feishu_doc_title_prefix: 'OpenClaw 每日报表',
-  feishu_bitable_table_name: 'OpenClaw Daily Report',
-}
-
-const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
-  feishu_domain: 'feishu',
-  feishu_bot_name: 'AutoAds 助手',
-}
-
 const AUTOADS_ONLY_SETTING_KEY = 'openclaw_strategy_enforce_autoads_only'
 
 const AI_GLOBAL_KEYS = [
@@ -221,81 +211,39 @@ const AI_GLOBAL_EDIT_KEYS = [
   'ai_models_json',
 ] as const
 
-const FEISHU_CHAT_USER_KEYS = [
+const FEISHU_CHAT_MINIMAL_USER_KEYS = [
   'feishu_app_id',
   'feishu_app_secret',
-  'feishu_bot_name',
-  'feishu_domain',
-  'feishu_target',
-  'feishu_doc_folder_token',
-  'feishu_doc_title_prefix',
-  'feishu_bitable_app_token',
-  'feishu_bitable_table_id',
-  'feishu_bitable_table_name',
   'feishu_app_secret_file',
-  'feishu_dm_policy',
-  'feishu_group_policy',
-  'feishu_allow_from',
-  'feishu_group_allow_from',
-  'feishu_require_mention',
-  'feishu_history_limit',
-  'feishu_dm_history_limit',
-  'feishu_streaming',
-  'feishu_block_streaming',
-  'feishu_config_writes',
-  'feishu_text_chunk_limit',
-  'feishu_chunk_mode',
-  'feishu_markdown_tables',
-  'feishu_media_max_mb',
-  'feishu_response_prefix',
-  'feishu_accounts_json',
+  'feishu_target',
 ] as const
 
-const AFFILIATE_USER_KEYS = [
+const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
+  feishu_app_id: 'cli_xxx',
+  feishu_app_secret: '',
+  feishu_target: 'ou_xxx',
+}
+
+const AFFILIATE_MINIMAL_USER_KEYS = [
   'yeahpromos_token',
   'yeahpromos_site_id',
-  'yeahpromos_page',
-  'yeahpromos_limit',
-  'yeahpromos_request_delay_ms',
-  'yeahpromos_rate_limit_max_retries',
-  'yeahpromos_rate_limit_base_delay_ms',
-  'yeahpromos_rate_limit_max_delay_ms',
-  'partnerboost_base_url',
   'partnerboost_token',
-  'partnerboost_products_country_code',
-  'partnerboost_products_link_batch_size',
-  'partnerboost_asin_link_batch_size',
-  'partnerboost_request_delay_ms',
-  'partnerboost_rate_limit_max_retries',
-  'partnerboost_rate_limit_base_delay_ms',
-  'partnerboost_rate_limit_max_delay_ms',
-  'partnerboost_link_country_code',
-  'partnerboost_link_uid',
 ] as const
 
-const STRATEGY_USER_KEYS = [
+const STRATEGY_MINIMAL_USER_KEYS = [
   'openclaw_strategy_enabled',
   'openclaw_strategy_cron',
-  'openclaw_strategy_max_offers_per_run',
-  'openclaw_strategy_default_budget',
-  'openclaw_strategy_max_cpc',
-  'openclaw_strategy_min_cpc',
-  'openclaw_strategy_daily_budget_cap',
-  'openclaw_strategy_daily_spend_cap',
-  'openclaw_strategy_target_roas',
   'openclaw_strategy_ads_account_ids',
-  'openclaw_strategy_priority_asins',
-  'openclaw_strategy_enable_auto_publish',
-  'openclaw_strategy_enable_auto_pause',
-  'openclaw_strategy_enable_auto_adjust_cpc',
-  'openclaw_strategy_allow_affiliate_fetch',
   'openclaw_strategy_enforce_autoads_only',
-  'openclaw_strategy_dry_run',
 ] as const
+
+const FEISHU_CHAT_USER_KEYS = FEISHU_CHAT_MINIMAL_USER_KEYS
+const AFFILIATE_USER_KEYS = AFFILIATE_MINIMAL_USER_KEYS
+const STRATEGY_USER_KEYS = STRATEGY_MINIMAL_USER_KEYS
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
-  ...AFFILIATE_USER_KEYS,
+  ...AFFILIATE_MINIMAL_USER_KEYS,
   'partnerboost_products_page_size',
   'partnerboost_products_page',
   'partnerboost_products_default_filter',
@@ -308,8 +256,8 @@ const USER_KEYS = new Set([
   'partnerboost_products_has_acc',
   'partnerboost_products_filter_sexual_wellness',
   'partnerboost_link_return_partnerboost_link',
-  ...FEISHU_CHAT_USER_KEYS,
-  ...STRATEGY_USER_KEYS,
+  ...FEISHU_CHAT_MINIMAL_USER_KEYS,
+  ...STRATEGY_MINIMAL_USER_KEYS,
 ])
 
 const parseLocalDate = (value?: string | null) => {
@@ -331,89 +279,6 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
 }
 
 const hasText = (value?: string | null) => Boolean(value && value.trim())
-
-function parseFeishuCardSettingsFromAccountsJson(value?: string | null): {
-  verificationToken: string
-  encryptKey: string
-} {
-  const raw = String(value || '').trim()
-  if (!raw) {
-    return { verificationToken: '', encryptKey: '' }
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { verificationToken: '', encryptKey: '' }
-    }
-
-    const main = (parsed as Record<string, unknown>).main
-    if (!main || typeof main !== 'object' || Array.isArray(main)) {
-      return { verificationToken: '', encryptKey: '' }
-    }
-
-    const verificationTokenValue = (main as Record<string, unknown>).cardVerificationToken
-    const encryptKeyValue = (main as Record<string, unknown>).cardEncryptKey
-
-    const verificationToken = typeof verificationTokenValue === 'string'
-      ? verificationTokenValue.trim()
-      : ''
-
-    const encryptKey = typeof encryptKeyValue === 'string'
-      ? encryptKeyValue.trim()
-      : ''
-
-    return {
-      verificationToken,
-      encryptKey,
-    }
-  } catch {
-    return { verificationToken: '', encryptKey: '' }
-  }
-}
-
-function buildAutoFeishuAccountsJson(params: {
-  existingValue?: string
-  userId: number
-  appBaseUrl?: string
-  verificationToken: string
-  encryptKey: string
-}): string {
-  const root: Record<string, any> = (() => {
-    const raw = String(params.existingValue || '').trim()
-    if (!raw) return {}
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, any>
-      }
-      return {}
-    } catch {
-      return {}
-    }
-  })()
-
-  const main = root.main && typeof root.main === 'object' && !Array.isArray(root.main)
-    ? { ...root.main }
-    : {}
-
-  const callbackPath = `/feishu/user-${params.userId}/card-action`
-  const trimmedBaseUrl = String(params.appBaseUrl || '').trim().replace(/\/+$/, '')
-
-  main.cardCallbackPath = callbackPath
-  main.cardVerificationToken = params.verificationToken.trim()
-  main.cardEncryptKey = params.encryptKey.trim()
-  if (trimmedBaseUrl) {
-    main.cardConfirmUrl = `${trimmedBaseUrl}/api/openclaw/commands/confirm`
-  }
-
-  if (!Number.isFinite(Number(main.cardConfirmTimeoutMs)) || Number(main.cardConfirmTimeoutMs) <= 0) {
-    main.cardConfirmTimeoutMs = 10000
-  }
-
-  root.main = main
-  return JSON.stringify(root, null, 2)
-}
 
 const normalizeStrategyAccountId = (value: unknown): number | string | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -468,57 +333,7 @@ const normalizeStrategyAccountIdsForStorage = (value: string): string | null => 
   return JSON.stringify(normalized)
 }
 
-const normalizeStrategyPriorityAsin = (value: unknown): string | null => {
-  if (value === null || value === undefined) return null
-  const normalized = String(value).trim().toUpperCase()
-  if (!normalized) return null
-  return /^[A-Z0-9_-]{4,20}$/.test(normalized) ? normalized : null
-}
-
-const formatStrategyPriorityAsinsForDraft = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (!Array.isArray(parsed)) return value
-    return parsed
-      .map((item) => normalizeStrategyPriorityAsin(item))
-      .filter((item): item is string => item !== null)
-      .join('\n')
-  } catch {
-    return value
-  }
-}
-
-const normalizeStrategyPriorityAsinsForStorage = (value: string): string | null => {
-  const trimmed = value.trim()
-  if (!trimmed) return '[]'
-
-  if (/^[\[{]/.test(trimmed)) {
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (!Array.isArray(parsed)) return null
-      const normalized = Array.from(new Set(
-        parsed
-          .map((item) => normalizeStrategyPriorityAsin(item))
-          .filter((item): item is string => item !== null)
-      ))
-      return JSON.stringify(normalized)
-    } catch {
-      return null
-    }
-  }
-
-  const normalized = Array.from(new Set(
-    trimmed
-      .split(/[\n,，\s]+/)
-      .map((item) => normalizeStrategyPriorityAsin(item))
-      .filter((item): item is string => item !== null)
-  ))
-
-  return JSON.stringify(normalized)
-}
+// minimal mode only: advanced priority ASIN helpers removed
 
 const resolveStrategyCronPreset = (cron: string) => {
   const normalized = cron.trim().replace(/\s+/g, ' ')
@@ -582,35 +397,16 @@ export default function OpenClawPage() {
   const [asinSource, setAsinSource] = useState('manual')
   const [asinDefaultCountry, setAsinDefaultCountry] = useState('US')
   const [strategyRunning, setStrategyRunning] = useState(false)
-  const [simpleMode, setSimpleMode] = useState(true)
   const [strategyPreset, setStrategyPreset] = useState('balanced')
   const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
   const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
-  const [strategyPriorityAsinsDraft, setStrategyPriorityAsinsDraft] = useState('')
-  const [showAdvancedFeishu, setShowAdvancedFeishu] = useState(false)
-  const [showAdvancedStrategy, setShowAdvancedStrategy] = useState(false)
-  const [feishuSectionBasic, setFeishuSectionBasic] = useState(true)
-  const [feishuSectionPolicy, setFeishuSectionPolicy] = useState(false)
-  const [feishuSectionMessage, setFeishuSectionMessage] = useState(false)
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
-  const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!simpleMode) return
-    setShowAdvancedFeishu(false)
-    setShowAdvancedStrategy(false)
-  }, [simpleMode])
 
   useEffect(() => {
     setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
   }, [userValues.openclaw_strategy_ads_account_ids])
-
-  useEffect(() => {
-    setStrategyPriorityAsinsDraft(formatStrategyPriorityAsinsForDraft(userValues.openclaw_strategy_priority_asins || ''))
-  }, [userValues.openclaw_strategy_priority_asins])
 
   useEffect(() => {
     setStrategyCronPreset(resolveStrategyCronPreset(userValues.openclaw_strategy_cron || ''))
@@ -659,10 +455,6 @@ export default function OpenClawPage() {
         })
         userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
 
-        const cardSettings = parseFeishuCardSettingsFromAccountsJson(userMap.feishu_accounts_json)
-        setFeishuCardVerificationToken(cardSettings.verificationToken)
-        setFeishuCardEncryptKey(cardSettings.encryptKey)
-
         setUserValues(userMap)
         setSavedUserValues(userMap)
       } catch (error: any) {
@@ -680,37 +472,7 @@ export default function OpenClawPage() {
     }
   }, [reportDate, refreshKey])
 
-  const supportsStrategyPriorityAsins = settings?.user.some(
-    (item) => item.key === 'openclaw_strategy_priority_asins'
-  ) ?? false
-  const strategySaveKeys = supportsStrategyPriorityAsins
-    ? [...STRATEGY_USER_KEYS]
-    : STRATEGY_USER_KEYS.filter((key) => key !== 'openclaw_strategy_priority_asins')
-
-  const appBaseUrl = useMemo(() => {
-    const fromEnv = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
-    if (fromEnv) return fromEnv.replace(/\/+$/, '')
-    if (typeof window !== 'undefined' && window.location?.origin) {
-      return window.location.origin.replace(/\/+$/, '')
-    }
-    return ''
-  }, [])
-
-  const feishuCardCallbackPath = settings?.userId
-    ? `/feishu/user-${settings.userId}/card-action`
-    : '/feishu/card-action'
-  const feishuCardCallbackUrl = appBaseUrl
-    ? `${appBaseUrl}${feishuCardCallbackPath}`
-    : feishuCardCallbackPath
-  const feishuCardConfirmUrl = appBaseUrl
-    ? `${appBaseUrl}/api/openclaw/commands/confirm`
-    : '/api/openclaw/commands/confirm'
-
-  const applyStrategyValueSupport = (values: Record<string, string>): Record<string, string> => {
-    if (supportsStrategyPriorityAsins) return values
-    const { openclaw_strategy_priority_asins: _unused, ...rest } = values
-    return rest
-  }
+  const strategySaveKeys = [...STRATEGY_USER_KEYS]
 
   const setUserValue = (key: string, value: string) => {
     if (key === AUTOADS_ONLY_SETTING_KEY) {
@@ -826,45 +588,13 @@ export default function OpenClawPage() {
         setUserValues(prev => ({ ...prev, openclaw_strategy_ads_account_ids: normalizedAccountIds }))
       }
 
-      const needsStrategyPriorityNormalization = !keys || keys.length === 0 || keys.includes('openclaw_strategy_priority_asins')
-      if (supportsStrategyPriorityAsins && needsStrategyPriorityNormalization) {
-        const normalizedPriorityAsins = normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
-        if (normalizedPriorityAsins === null) {
-          toast.error('优先ASIN格式错误，请输入逗号/换行分隔的ASIN，或合法JSON数组')
-          return
-        }
-
-        if (!validateJsonArrayField(normalizedPriorityAsins, '优先ASIN列表')) return
-        normalizedUserValues.openclaw_strategy_priority_asins = normalizedPriorityAsins
-        setUserValues(prev => ({ ...prev, openclaw_strategy_priority_asins: normalizedPriorityAsins }))
-      }
-
       const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
       if (isSavingFeishuSettings) {
-        const hasVerificationToken = hasText(feishuCardVerificationToken)
-        const hasEncryptKey = hasText(feishuCardEncryptKey)
-
-        if (hasVerificationToken !== hasEncryptKey) {
-          toast.error('飞书卡片配置需要同时填写 Verification Token 和 Encrypt Key')
+        const hasAppSecret = hasText(normalizedUserValues.feishu_app_secret)
+        const hasAppSecretFile = hasText(normalizedUserValues.feishu_app_secret_file)
+        if (!hasAppSecret && !hasAppSecretFile) {
+          toast.error('飞书 App Secret 或 App Secret File 至少填写一项')
           return
-        }
-
-        if (hasVerificationToken && hasEncryptKey) {
-          if (!settings?.userId) {
-            toast.error('无法识别当前用户ID，请刷新页面后重试')
-            return
-          }
-
-          const generatedFeishuAccountsJson = buildAutoFeishuAccountsJson({
-            existingValue: normalizedUserValues.feishu_accounts_json,
-            userId: settings.userId,
-            appBaseUrl,
-            verificationToken: feishuCardVerificationToken,
-            encryptKey: feishuCardEncryptKey,
-          })
-
-          normalizedUserValues.feishu_accounts_json = generatedFeishuAccountsJson
-          setUserValues((prev) => ({ ...prev, feishu_accounts_json: generatedFeishuAccountsJson }))
         }
       }
     }
@@ -954,7 +684,12 @@ export default function OpenClawPage() {
 
   const applyStrategyExample = () => {
     setStrategyPreset('balanced')
-    const exampleValues = applyStrategyValueSupport(STRATEGY_EXAMPLE_VALUES)
+    const exampleValues: Record<string, string> = {
+      openclaw_strategy_enabled: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_enabled,
+      openclaw_strategy_cron: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_cron,
+      openclaw_strategy_ads_account_ids: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_ads_account_ids,
+      openclaw_strategy_enforce_autoads_only: 'true',
+    }
     setUserValues(prev => ({
       ...prev,
       ...exampleValues,
@@ -965,7 +700,12 @@ export default function OpenClawPage() {
     setStrategyPreset(presetId)
     const preset = STRATEGY_PRESET_OPTIONS.find(option => option.id === presetId)
     if (!preset) return
-    const presetValues = applyStrategyValueSupport(preset.values)
+    const presetValues: Record<string, string> = {
+      openclaw_strategy_enabled: preset.values.openclaw_strategy_enabled,
+      openclaw_strategy_cron: preset.values.openclaw_strategy_cron,
+      openclaw_strategy_ads_account_ids: preset.values.openclaw_strategy_ads_account_ids,
+      openclaw_strategy_enforce_autoads_only: 'true',
+    }
     setUserValues(prev => ({
       ...prev,
       ...presetValues,
@@ -996,22 +736,6 @@ export default function OpenClawPage() {
     if (normalized !== null) {
       setUserValue('openclaw_strategy_ads_account_ids', normalized)
     }
-  }
-
-  const handleStrategyPriorityAsinsDraftChange = (value: string) => {
-    if (!supportsStrategyPriorityAsins) return
-    setStrategyPriorityAsinsDraft(value)
-    const normalized = normalizeStrategyPriorityAsinsForStorage(value)
-    if (normalized !== null) {
-      setUserValue('openclaw_strategy_priority_asins', normalized)
-    }
-  }
-
-  const applyFeishuDocExample = () => {
-    setUserValues(prev => ({
-      ...prev,
-      ...FEISHU_DOC_EXAMPLE_VALUES,
-    }))
   }
 
   const applyFeishuBasicExample = () => {
@@ -1209,20 +933,11 @@ export default function OpenClawPage() {
   const gatewayVisibleSkills = gatewayShowAvailableOnly
     ? gatewaySkillsRows.filter((item) => item.isReady)
     : gatewaySkillsRows
-  const showFeishuAdvanced = !simpleMode || showAdvancedFeishu
-  const showStrategyAdvanced = !simpleMode || showAdvancedStrategy
   const canEditAiSettings = settings?.isAdmin === true
   const aiConfigured = Boolean((userValues.ai_models_json || '').trim())
   const aiModelLabel = aiSelectedModelMeta
     ? `${aiSelectedModelMeta.modelName}（${aiSelectedModelMeta.modelRef}）`
     : aiSelectedModelRef
-  const feishuDomain = (userValues.feishu_domain || '').trim().toLowerCase()
-  const feishuDomainValid =
-    !feishuDomain ||
-    feishuDomain === 'feishu' ||
-    feishuDomain === 'lark' ||
-    feishuDomain.startsWith('http://') ||
-    feishuDomain.startsWith('https://')
 
   const setupCards = [
     {
@@ -1258,9 +973,6 @@ export default function OpenClawPage() {
   const setupProgressPercent = Math.round((setupCompletedCount / setupCards.length) * 100)
   const strategyCronValue = userValues.openclaw_strategy_cron || ''
   const strategyAccountIdsNormalized = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
-  const strategyPriorityAsinsNormalized = supportsStrategyPriorityAsins
-    ? normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
-    : '[]'
   const strategyAccountIdsCount = (() => {
     if (!strategyAccountIdsNormalized) return 0
     try {
@@ -1270,27 +982,11 @@ export default function OpenClawPage() {
       return 0
     }
   })()
-  const strategyPriorityAsinsCount = (() => {
-    if (!strategyPriorityAsinsNormalized) return 0
-    try {
-      const parsed = JSON.parse(strategyPriorityAsinsNormalized)
-      return Array.isArray(parsed) ? parsed.length : 0
-    } catch {
-      return 0
-    }
-  })()
   const strategyCronHasError = Boolean(strategyCronValue.trim()) && !isLikelyCronExpression(strategyCronValue)
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
-  const strategyPriorityAsinsHasError = supportsStrategyPriorityAsins && strategyPriorityAsinsNormalized === null
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
-  const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
-  const feishuCardDirty =
-    feishuCardVerificationToken !== savedFeishuCardSettings.verificationToken ||
-    feishuCardEncryptKey !== savedFeishuCardSettings.encryptKey
-  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS) || feishuCardDirty
-  const feishuCardPairConfigured = hasText(feishuCardVerificationToken) && hasText(feishuCardEncryptKey)
-  const feishuCardPairInvalid = hasText(feishuCardVerificationToken) !== hasText(feishuCardEncryptKey)
+  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
@@ -1307,14 +1003,6 @@ export default function OpenClawPage() {
         >
           配置指南
         </Link>
-      </div>
-
-      <div className="flex items-center justify-between rounded-md border bg-slate-50 px-4 py-3">
-        <div>
-          <div className="text-sm font-medium">简化模式</div>
-          <div className="text-xs text-slate-500">仅显示核心项，其余使用默认值或隐藏</div>
-        </div>
-        <Switch checked={simpleMode} onCheckedChange={setSimpleMode} />
       </div>
 
       <Tabs defaultValue="config">
@@ -1727,271 +1415,61 @@ export default function OpenClawPage() {
                 飞书聊天
                 {feishuChatDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="飞书配置未保存" />}
               </CardTitle>
-              <CardDescription>用户级配置：最小仅需 App ID / App Secret / 推送目标</CardDescription>
+              <CardDescription>仅保留最小必填：App ID / App Secret（或 Secret File）/ 推送目标</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {simpleMode && (
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>仅显示必要字段，其余采用默认或可选配置</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAdvancedFeishu((prev) => !prev)}
-                  >
-                    {showFeishuAdvanced ? '收起高级' : '高级设置'}
-                  </Button>
-                </div>
-              )}
-
-              <div className="grid gap-3 md:grid-cols-2 text-xs">
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
-                  <div className="font-medium text-slate-800">聊天参数（* 为必需）</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
-                </div>
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
-                  <div className="font-medium text-slate-800">操作卡片参数</div>
-                  <div>1. 卡片 Verification Token</div>
-                  <div>2. 卡片 Encrypt Key</div>
-                  <div>卡片回调 URL、确认回调 URL、Auth Token 均自动生成。</div>
-                </div>
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
+                <div className="font-medium text-slate-800">最小参数（* 为必需）</div>
+                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
+                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
+                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
               </div>
 
-              {/* -- 基础配置 -- */}
-              <div className="rounded-md border">
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
-                  onClick={() => setFeishuSectionBasic((prev) => !prev)}
-                >
-                  <span>基础配置</span>
-                  <span className="text-xs text-slate-400">{feishuSectionBasic ? '收起' : '展开'}</span>
-                </button>
-                {feishuSectionBasic && (
-                  <div className="border-t px-4 py-4 space-y-4">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel
-                        label="飞书 App ID"
-                        required
-                        value={userValues.feishu_app_id || ''}
-                        onChange={(v) => setUserValue('feishu_app_id', v)}
-                      />
-                      <InputWithLabel
-                        label="飞书 App Secret"
-                        required
-                        type="password"
-                        value={userValues.feishu_app_secret || ''}
-                        onChange={(v) => setUserValue('feishu_app_secret', v)}
-                      />
-                      <InputWithLabel
-                        label="飞书推送目标（open_id / union_id / chat_id）"
-                        required
-                        value={userValues.feishu_target || ''}
-                        onChange={(v) => setUserValue('feishu_target', v)}
-                      />
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <InputWithLabel
-                        label="卡片 Verification Token"
-                        value={feishuCardVerificationToken}
-                        onChange={setFeishuCardVerificationToken}
-                        placeholder="v1_verify_xxx"
-                      />
-                      <InputWithLabel
-                        label="卡片 Encrypt Key"
-                        value={feishuCardEncryptKey}
-                        onChange={setFeishuCardEncryptKey}
-                        placeholder="encrypt_key_xxx"
-                      />
-                    </div>
-                    <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                      <div>卡片回调路径（自动）: <code>{feishuCardCallbackPath}</code></div>
-                      <div>飞书回调 URL（自动）: <code>{feishuCardCallbackUrl}</code></div>
-                      <div>确认回调 URL（自动）: <code>{feishuCardConfirmUrl}</code></div>
-                      <div>cardConfirmAuthToken 自动使用 Gateway Token，无需手填。</div>
-                      <div>提示：Verification Token 与 Encrypt Key 需同时填写或同时留空。</div>
-                    </div>
-                    {showFeishuAdvanced && (
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">域名</label>
-                          <Select
-                            value={userValues.feishu_domain || 'feishu'}
-                            onValueChange={(v) => setUserValue('feishu_domain', v)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="选择域名" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="feishu">feishu</SelectItem>
-                              <SelectItem value="lark">lark</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <InputWithLabel
-                          label="飞书 Bot Name"
-                          value={userValues.feishu_bot_name || ''}
-                          onChange={(v) => setUserValue('feishu_bot_name', v)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <InputWithLabel
+                  label="飞书 App ID"
+                  required
+                  value={userValues.feishu_app_id || ''}
+                  onChange={(v) => setUserValue('feishu_app_id', v)}
+                />
+                <InputWithLabel
+                  label="飞书推送目标（open_id / union_id / chat_id）"
+                  required
+                  value={userValues.feishu_target || ''}
+                  onChange={(v) => setUserValue('feishu_target', v)}
+                />
+                <InputWithLabel
+                  label="飞书 App Secret"
+                  type="password"
+                  value={userValues.feishu_app_secret || ''}
+                  onChange={(v) => setUserValue('feishu_app_secret', v)}
+                />
+                <InputWithLabel
+                  label="App Secret File"
+                  value={userValues.feishu_app_secret_file || ''}
+                  onChange={(v) => setUserValue('feishu_app_secret_file', v)}
+                  placeholder="/path/to/secret"
+                />
               </div>
 
-              {/* -- 策略配置 -- */}
-              {showFeishuAdvanced && (
-                <div className="rounded-md border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
-                    onClick={() => setFeishuSectionPolicy((prev) => !prev)}
-                  >
-                    <span>策略配置</span>
-                    <span className="text-xs text-slate-400">{feishuSectionPolicy ? '收起' : '展开'}</span>
-                  </button>
-                  {feishuSectionPolicy && (
-                    <div className="border-t px-4 py-4 space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">DM 策略</label>
-                          <Select
-                            value={userValues.feishu_dm_policy || ''}
-                            onValueChange={(v) => setUserValue('feishu_dm_policy', v)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="选择 DM 策略" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pairing">pairing</SelectItem>
-                              <SelectItem value="allowlist">allowlist</SelectItem>
-                              <SelectItem value="open">open</SelectItem>
-                              <SelectItem value="disabled">disabled</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">群聊策略</label>
-                          <Select
-                            value={userValues.feishu_group_policy || ''}
-                            onValueChange={(v) => setUserValue('feishu_group_policy', v)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="选择群聊策略" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="open">open</SelectItem>
-                              <SelectItem value="allowlist">allowlist</SelectItem>
-                              <SelectItem value="disabled">disabled</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">DM 白名单</label>
-                          <Textarea
-                            value={userValues.feishu_allow_from || ''}
-                            onChange={(e) => setUserValue('feishu_allow_from', e.target.value)}
-                            placeholder='["open_id_1", "open_id_2"]'
-                            rows={3}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">群聊白名单</label>
-                          <Textarea
-                            value={userValues.feishu_group_allow_from || ''}
-                            onChange={(e) => setUserValue('feishu_group_allow_from', e.target.value)}
-                            placeholder='["chat_id_1", "chat_id_2"]'
-                            rows={3}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* -- 消息配置 -- */}
-              {showFeishuAdvanced && (
-                <div className="rounded-md border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-slate-50"
-                    onClick={() => setFeishuSectionMessage((prev) => !prev)}
-                  >
-                    <span>消息配置</span>
-                    <span className="text-xs text-slate-400">{feishuSectionMessage ? '收起' : '展开'}</span>
-                  </button>
-                  {feishuSectionMessage && (
-                    <div className="border-t px-4 py-4 space-y-4">
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <SwitchWithLabel label="流式回复" checked={(userValues.feishu_streaming || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_streaming', val ? 'true' : 'false')} />
-                        <SwitchWithLabel label="强制@Bot" checked={(userValues.feishu_require_mention || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_require_mention', val ? 'true' : 'false')} />
-                        <SwitchWithLabel label="Block Streaming" checked={(userValues.feishu_block_streaming || 'false') === 'true'} onChange={(val) => setUserValue('feishu_block_streaming', val ? 'true' : 'false')} />
-                        <SwitchWithLabel label="Config Writes" checked={(userValues.feishu_config_writes || 'true') !== 'false'} onChange={(val) => setUserValue('feishu_config_writes', val ? 'true' : 'false')} />
-                        <InputWithLabel label="历史消息数" value={userValues.feishu_history_limit || ''} onChange={(v) => setUserValue('feishu_history_limit', v)} />
-                        <InputWithLabel label="DM 历史消息数" value={userValues.feishu_dm_history_limit || ''} onChange={(v) => setUserValue('feishu_dm_history_limit', v)} />
-                        <InputWithLabel label="Text Chunk Limit" value={userValues.feishu_text_chunk_limit || ''} onChange={(v) => setUserValue('feishu_text_chunk_limit', v)} />
-                        <InputWithLabel label="Chunk Mode" value={userValues.feishu_chunk_mode || ''} onChange={(v) => setUserValue('feishu_chunk_mode', v)} placeholder="length / newline" />
-                        <InputWithLabel label="Markdown Tables" value={userValues.feishu_markdown_tables || ''} onChange={(v) => setUserValue('feishu_markdown_tables', v)} placeholder="off / bullets / code" />
-                        <InputWithLabel label="Media Max MB" value={userValues.feishu_media_max_mb || ''} onChange={(v) => setUserValue('feishu_media_max_mb', v)} />
-                        <InputWithLabel label="Response Prefix" value={userValues.feishu_response_prefix || ''} onChange={(v) => setUserValue('feishu_response_prefix', v)} />
-                        <InputWithLabel label="App Secret File" value={userValues.feishu_app_secret_file || ''} onChange={(v) => setUserValue('feishu_app_secret_file', v)} placeholder="/path/to/secret" />
-                      </div>
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <InputWithLabel label="飞书文档目录 Token" value={userValues.feishu_doc_folder_token || ''} onChange={(v) => setUserValue('feishu_doc_folder_token', v)} placeholder="fldc_xxx" />
-                        <InputWithLabel label="文档标题前缀" value={userValues.feishu_doc_title_prefix || ''} onChange={(v) => setUserValue('feishu_doc_title_prefix', v)} placeholder="OpenClaw 每日报表" />
-                        <InputWithLabel label="Bitable App Token" value={userValues.feishu_bitable_app_token || ''} onChange={(v) => setUserValue('feishu_bitable_app_token', v)} placeholder="basc_xxx" />
-                        <InputWithLabel label="Bitable Table ID" value={userValues.feishu_bitable_table_id || ''} onChange={(v) => setUserValue('feishu_bitable_table_id', v)} placeholder="tbl_xxx (可留空自动创建)" />
-                        <InputWithLabel label="Bitable Table Name" value={userValues.feishu_bitable_table_name || ''} onChange={(v) => setUserValue('feishu_bitable_table_name', v)} placeholder="OpenClaw Daily Report" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="grid gap-2 md:grid-cols-4 text-xs">
+              <div className="grid gap-2 md:grid-cols-3 text-xs">
                 <div className={hasText(userValues.feishu_app_id) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_app_id) ? '✓ App ID 已填写' : '• App ID 未填写'}
                 </div>
                 <div className={hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file)
-                    ? '✓ App Secret 已填写'
-                    : '• App Secret 未填写'}
+                    ? '✓ Secret 已填写'
+                    : '• Secret 未填写'}
                 </div>
                 <div className={hasText(userValues.feishu_target) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_target) ? '✓ 推送目标已填写' : '• 推送目标未填写'}
                 </div>
-                <div className={
-                  feishuCardPairInvalid
-                    ? 'text-amber-600'
-                    : feishuCardPairConfigured
-                      ? 'text-emerald-600'
-                      : 'text-slate-500'
-                }>
-                  {feishuCardPairInvalid
-                    ? '⚠ 卡片参数需成对填写'
-                    : feishuCardPairConfigured
-                      ? '✓ 卡片参数已配置'
-                      : '• 卡片参数未配置'}
-                </div>
               </div>
-              <p className={`text-xs ${feishuDomainValid ? 'text-slate-500' : 'text-red-600'}`}>
-                {feishuDomainValid
-                  ? 'Domain 可填写 feishu / lark，或完整 https:// 地址。'
-                  : 'Domain 格式无效，请填写 feishu、lark 或 http(s) 地址。'}
-              </p>
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" onClick={applyFeishuBasicExample}>
-                    填充基础项
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={applyFeishuDocExample}>
-                    文档示例
+                    填充示例
                   </Button>
                   <Button
                     variant="outline"
@@ -2023,187 +1501,32 @@ export default function OpenClawPage() {
                 联盟平台
                 {affiliateDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="联盟平台配置未保存" />}
               </CardTitle>
-              <CardDescription>用户级可选配置：未填写时走平台默认参数</CardDescription>
+              <CardDescription>仅保留最小鉴权：YeahPromos（Token + Site ID）或 PartnerBoost Token</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {simpleMode && (
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  推荐仅填写必要鉴权：YP Token + Site ID 或 PB Token，其余参数留空使用默认值。
-                </div>
-              )}
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                推荐优先填写一个可用渠道即可；其余高级参数使用系统默认值。
+              </div>
 
-              {/* YeahPromos 子区域 */}
-              <Card className="border-slate-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">YeahPromos</CardTitle>
-                  <CardDescription className="text-xs">YeahPromos 联盟平台鉴权配置</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <InputWithLabel
-                      label="Token"
-                      type="password"
-                      required={Boolean((userValues.yeahpromos_site_id || '').trim())}
-                      value={userValues.yeahpromos_token || ''}
-                      onChange={(v) => setUserValue('yeahpromos_token', v)}
-                      placeholder="YeahPromos API Token"
-                    />
-                    <InputWithLabel
-                      label="Site ID"
-                      required={Boolean((userValues.yeahpromos_token || '').trim())}
-                      value={userValues.yeahpromos_site_id || ''}
-                      onChange={(v) => setUserValue('yeahpromos_site_id', v)}
-                    />
-                  </div>
-                  {!simpleMode && (
-                    <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <InputWithLabel
-                          label="Page"
-                          value={userValues.yeahpromos_page || ''}
-                          onChange={(v) => setUserValue('yeahpromos_page', v)}
-                          placeholder="默认 1"
-                        />
-                        <InputWithLabel
-                          label="Limit"
-                          value={userValues.yeahpromos_limit || ''}
-                          onChange={(v) => setUserValue('yeahpromos_limit', v)}
-                          placeholder="默认 1000"
-                        />
-                      </div>
-
-                      <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                        YP 限流优化参数（可选）：建议先用默认值，若出现 429/限流提示，再提高延迟或重试。
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <InputWithLabel
-                          label="请求间隔(ms)"
-                          value={userValues.yeahpromos_request_delay_ms || ''}
-                          onChange={(v) => setUserValue('yeahpromos_request_delay_ms', v)}
-                          placeholder="默认 120"
-                        />
-                        <InputWithLabel
-                          label="429重试次数"
-                          value={userValues.yeahpromos_rate_limit_max_retries || ''}
-                          onChange={(v) => setUserValue('yeahpromos_rate_limit_max_retries', v)}
-                          placeholder="默认 3"
-                        />
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <InputWithLabel
-                          label="429基准延迟(ms)"
-                          value={userValues.yeahpromos_rate_limit_base_delay_ms || ''}
-                          onChange={(v) => setUserValue('yeahpromos_rate_limit_base_delay_ms', v)}
-                          placeholder="默认 600"
-                        />
-                        <InputWithLabel
-                          label="429最大延迟(ms)"
-                          value={userValues.yeahpromos_rate_limit_max_delay_ms || ''}
-                          onChange={(v) => setUserValue('yeahpromos_rate_limit_max_delay_ms', v)}
-                          placeholder="默认 10000"
-                        />
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* PartnerBoost 子区域 */}
-              <Card className="border-slate-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">PartnerBoost</CardTitle>
-                  <CardDescription className="text-xs">PartnerBoost 联盟平台鉴权与链接配置</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <InputWithLabel
-                      label="Token"
-                      type="password"
-                      value={userValues.partnerboost_token || ''}
-                      onChange={(v) => setUserValue('partnerboost_token', v)}
-                      placeholder="PartnerBoost API Token"
-                    />
-                    <InputWithLabel
-                      label="Base URL"
-                      value={userValues.partnerboost_base_url || ''}
-                      onChange={(v) => setUserValue('partnerboost_base_url', v)}
-                      placeholder="https://app.partnerboost.com"
-                    />
-                  </div>
-                  {!simpleMode && (
-                    <>
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <InputWithLabel
-                          label="默认国家"
-                          value={userValues.partnerboost_products_country_code || ''}
-                          onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
-                          placeholder="US"
-                        />
-                        <InputWithLabel
-                          label="链接国家"
-                          value={userValues.partnerboost_link_country_code || ''}
-                          onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
-                          placeholder="US"
-                        />
-                        <InputWithLabel
-                          label="链接 UID"
-                          value={userValues.partnerboost_link_uid || ''}
-                          onChange={(v) => setUserValue('partnerboost_link_uid', v)}
-                        />
-                      </div>
-
-                      <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                        PB 限流优化参数（可选）：建议先用默认值；若 429 仍较多，再降低批次或增大间隔。
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <InputWithLabel
-                          label="商品链接批次"
-                          value={userValues.partnerboost_products_link_batch_size || ''}
-                          onChange={(v) => setUserValue('partnerboost_products_link_batch_size', v)}
-                          placeholder="默认 20"
-                        />
-                        <InputWithLabel
-                          label="ASIN链接批次"
-                          value={userValues.partnerboost_asin_link_batch_size || ''}
-                          onChange={(v) => setUserValue('partnerboost_asin_link_batch_size', v)}
-                          placeholder="默认 20"
-                        />
-                        <InputWithLabel
-                          label="批次间隔(ms)"
-                          value={userValues.partnerboost_request_delay_ms || ''}
-                          onChange={(v) => setUserValue('partnerboost_request_delay_ms', v)}
-                          placeholder="默认 150"
-                        />
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <InputWithLabel
-                          label="429重试次数"
-                          value={userValues.partnerboost_rate_limit_max_retries || ''}
-                          onChange={(v) => setUserValue('partnerboost_rate_limit_max_retries', v)}
-                          placeholder="默认 4"
-                        />
-                        <InputWithLabel
-                          label="429基准延迟(ms)"
-                          value={userValues.partnerboost_rate_limit_base_delay_ms || ''}
-                          onChange={(v) => setUserValue('partnerboost_rate_limit_base_delay_ms', v)}
-                          placeholder="默认 800"
-                        />
-                        <InputWithLabel
-                          label="429最大延迟(ms)"
-                          value={userValues.partnerboost_rate_limit_max_delay_ms || ''}
-                          onChange={(v) => setUserValue('partnerboost_rate_limit_max_delay_ms', v)}
-                          placeholder="默认 12000"
-                        />
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
+              <div className="grid gap-4 md:grid-cols-3">
+                <InputWithLabel
+                  label="YeahPromos Token"
+                  type="password"
+                  value={userValues.yeahpromos_token || ''}
+                  onChange={(v) => setUserValue('yeahpromos_token', v)}
+                />
+                <InputWithLabel
+                  label="YeahPromos Site ID"
+                  value={userValues.yeahpromos_site_id || ''}
+                  onChange={(v) => setUserValue('yeahpromos_site_id', v)}
+                />
+                <InputWithLabel
+                  label="PartnerBoost Token"
+                  type="password"
+                  value={userValues.partnerboost_token || ''}
+                  onChange={(v) => setUserValue('partnerboost_token', v)}
+                />
+              </div>
 
               <div className="flex justify-end">
                 <Button
@@ -2278,34 +1601,12 @@ export default function OpenClawPage() {
                 策略配置
                 {strategyDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="策略配置未保存" />}
               </CardTitle>
-              <CardDescription>OpenClaw 自我进化策略参数（用户级配置）</CardDescription>
+              <CardDescription>仅保留最小参数：启用、调度、Ads账号ID</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {simpleMode && (
-                <div className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  建议顺序：①选预设 → ②确认调度频率 → ③填写 Ads 账号ID → ④保存策略配置
-                </div>
-              )}
-
-              {!simpleMode && (
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                  高级参数（预算/CPC/自动化开关）均有默认值，通常只需启用策略 + 调度 + Ads账号ID。
-                </div>
-              )}
-
-              {simpleMode && (
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>仅显示关键参数，其余使用默认值</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAdvancedStrategy((prev) => !prev)}
-                  >
-                    {showStrategyAdvanced ? '收起高级' : '更多参数'}
-                  </Button>
-                </div>
-              )}
+              <div className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                建议顺序：①选预设 → ②确认调度频率 → ③填写 Ads 账号ID → ④保存策略配置
+              </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">策略预设</label>
@@ -2363,59 +1664,17 @@ export default function OpenClawPage() {
               </div>
               <p className="text-xs text-slate-500">仅通过 AutoAds 接口执行 Offer创建 / 创意生成 / 广告发布，手工Campaign冲突将被阻断。</p>
 
-              {(showStrategyAdvanced || strategyCronPreset === 'custom') && (
-                <div className="space-y-2">
-                  <InputWithLabel
-                    label="Cron 表达式"
-                    value={strategyCronValue}
-                    onChange={handleStrategyCronInputChange}
-                    placeholder="0 9 * * *"
-                  />
-                  <p className={`text-xs ${strategyCronHasError ? 'text-red-600' : 'text-slate-500'}`}>
-                    {strategyCronHasError ? 'Cron 格式建议为 5 段，例如：0 9 * * *' : '格式：分 时 日 月 周（例如：0 9 * * *）'}
-                  </p>
-                </div>
-              )}
-
-              {showStrategyAdvanced && !simpleMode && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  <InputWithLabel
-                    label="每次最大Offer数"
-                    value={userValues.openclaw_strategy_max_offers_per_run || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_max_offers_per_run', v)}
-                  />
-                  <InputWithLabel
-                    label="默认日预算"
-                    value={userValues.openclaw_strategy_default_budget || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_default_budget', v)}
-                  />
-                  <InputWithLabel
-                    label="最大CPC"
-                    value={userValues.openclaw_strategy_max_cpc || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_max_cpc', v)}
-                  />
-                  <InputWithLabel
-                    label="最小CPC"
-                    value={userValues.openclaw_strategy_min_cpc || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_min_cpc', v)}
-                  />
-                  <InputWithLabel
-                    label="每日预算上限"
-                    value={userValues.openclaw_strategy_daily_budget_cap || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_daily_budget_cap', v)}
-                  />
-                  <InputWithLabel
-                    label="每日花费上限"
-                    value={userValues.openclaw_strategy_daily_spend_cap || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_daily_spend_cap', v)}
-                  />
-                  <InputWithLabel
-                    label="目标ROAS"
-                    value={userValues.openclaw_strategy_target_roas || ''}
-                    onChange={(v) => setUserValue('openclaw_strategy_target_roas', v)}
-                  />
-                </div>
-              )}
+              <div className="space-y-2">
+                <InputWithLabel
+                  label="Cron 表达式"
+                  value={strategyCronValue}
+                  onChange={handleStrategyCronInputChange}
+                  placeholder="0 9 * * *"
+                />
+                <p className={`text-xs ${strategyCronHasError ? 'text-red-600' : 'text-slate-500'}`}>
+                  {strategyCronHasError ? 'Cron 格式建议为 5 段，例如：0 9 * * *' : '格式：分 时 日 月 周（例如：0 9 * * *）'}
+                </p>
+              </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
@@ -2437,56 +1696,6 @@ export default function OpenClawPage() {
                   <span className="text-slate-500">已识别 {strategyAccountIdsCount} 个账号</span>
                 </div>
               </div>
-
-              {showStrategyAdvanced && !simpleMode && supportsStrategyPriorityAsins && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">优先ASIN列表</label>
-                  <Textarea
-                    value={strategyPriorityAsinsDraft}
-                    onChange={(e) => handleStrategyPriorityAsinsDraftChange(e.target.value)}
-                    placeholder={'B0ABC12345\nB0XYZ67890 或 B0ABC12345,B0XYZ67890'}
-                    rows={3}
-                  />
-                  <div className="flex items-center justify-between text-xs">
-                    <span className={strategyPriorityAsinsHasError ? 'text-red-600' : 'text-slate-500'}>
-                      {strategyPriorityAsinsHasError
-                        ? '优先ASIN格式错误，请用逗号/换行分隔，或输入JSON数组'
-                        : '支持逗号、换行或 JSON 数组输入，保存时自动标准化'}
-                    </span>
-                    <span className="text-slate-500">已识别 {strategyPriorityAsinsCount} 个ASIN</span>
-                  </div>
-                </div>
-              )}
-
-              {showStrategyAdvanced && !simpleMode && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  <SwitchWithLabel
-                    label="自动发布"
-                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_publish, true)}
-                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_publish', val ? 'true' : 'false')}
-                  />
-                  <SwitchWithLabel
-                    label="自动暂停冲突Campaign"
-                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_pause, true)}
-                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_pause', val ? 'true' : 'false')}
-                  />
-                  <SwitchWithLabel
-                    label="自动调整CPC"
-                    checked={isTruthy(userValues.openclaw_strategy_enable_auto_adjust_cpc, true)}
-                    onChange={(val) => setUserValue('openclaw_strategy_enable_auto_adjust_cpc', val ? 'true' : 'false')}
-                  />
-                  <SwitchWithLabel
-                    label="允许联盟平台补全"
-                    checked={isTruthy(userValues.openclaw_strategy_allow_affiliate_fetch, true)}
-                    onChange={(val) => setUserValue('openclaw_strategy_allow_affiliate_fetch', val ? 'true' : 'false')}
-                  />
-                  <SwitchWithLabel
-                    label="Dry Run"
-                    checked={isTruthy(userValues.openclaw_strategy_dry_run, false)}
-                    onChange={(val) => setUserValue('openclaw_strategy_dry_run', val ? 'true' : 'false')}
-                  />
-                </div>
-              )}
 
               <div className="flex items-center justify-between">
                 <Button variant="outline" size="sm" onClick={applyStrategyExample}>
@@ -2533,157 +1742,51 @@ export default function OpenClawPage() {
                   placeholder="US"
                 />
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium">文件上传</label>
+                  <label className="text-sm font-medium">上传文件</label>
                   <Input
                     type="file"
                     accept=".csv,.json,.xlsx,.xls"
-                    disabled={asinUploading}
                     onChange={(e) => handleAsinUpload(e.target.files?.[0] || null)}
+                    disabled={asinUploading}
                   />
+                  <p className="text-xs text-slate-500">支持列：asin/country_code/priority。导入后可在下方预览。</p>
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card className="border-slate-200">
-                  <CardHeader>
-                    <CardTitle className="text-base">导入记录</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>文件</TableHead>
-                          <TableHead>状态</TableHead>
-                          <TableHead>解析</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(asinData?.inputs || []).map((input) => (
-                          <TableRow key={input.id}>
-                            <TableCell>{input.filename || input.source}</TableCell>
-                            <TableCell>{input.status}</TableCell>
-                            <TableCell>{input.parsed_items}/{input.total_items}</TableCell>
-                          </TableRow>
-                        ))}
-                        {(asinData?.inputs || []).length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={3} className="text-center text-slate-500">
-                              暂无导入记录
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-slate-200">
-                  <CardHeader>
-                    <CardTitle className="text-base">最近ASIN</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>ASIN</TableHead>
-                          <TableHead>国家</TableHead>
-                          <TableHead>状态</TableHead>
-                          <TableHead>Offer</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(asinData?.items || []).map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.asin || '-'}</TableCell>
-                            <TableCell>{item.country_code || '-'}</TableCell>
-                            <TableCell>{item.status}</TableCell>
-                            <TableCell>{item.offer_id || '-'}</TableCell>
-                          </TableRow>
-                        ))}
-                        {(asinData?.items || []).length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-slate-500">
-                              暂无ASIN数据
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
+              <div className="grid gap-3 md:grid-cols-4">
+                <KpiCard title="输入批次" value={asinData?.stats?.inputs || 0} />
+                <KpiCard title="总条目" value={asinData?.stats?.items || 0} />
+                <KpiCard title="待处理" value={asinData?.stats?.pending || 0} />
+                <KpiCard title="失败" value={asinData?.stats?.error || 0} />
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>策略执行概览</CardTitle>
-              <CardDescription>最近一次策略运行状态</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm text-slate-600">
-              {strategyRunLatest ? (
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div>
-                    <div className="text-xs text-slate-500">状态</div>
-                    <div className="font-medium">{strategyRunLatest.status}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-500">运行日期</div>
-                    <div className="font-medium">{strategyRunLatest.run_date}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-500">完成时间</div>
-                    <div className="font-medium">{strategyRunLatest.completed_at || '-'}</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-slate-500">暂无策略运行记录</div>
-              )}
-
-              {strategyStats && (
-                <div className="grid gap-3 md:grid-cols-4">
-                  <KpiCard title="Offers" value={strategyStats.offersConsidered ?? 0} />
-                  <KpiCard title="Creatives" value={strategyStats.creativesGenerated ?? 0} />
-                  <KpiCard title="Published" value={strategyStats.campaignsPublished ?? 0} />
-                  <KpiCard title="Paused" value={strategyStats.campaignsPaused ?? 0} />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>策略动作记录</CardTitle>
-              <CardDescription>OpenClaw 策略执行产生的动作</CardDescription>
-            </CardHeader>
-            <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>时间</TableHead>
-                    <TableHead>动作</TableHead>
-                    <TableHead>目标</TableHead>
+                    <TableHead>ID</TableHead>
+                    <TableHead>ASIN</TableHead>
+                    <TableHead>国家</TableHead>
                     <TableHead>状态</TableHead>
+                    <TableHead>优先级</TableHead>
+                    <TableHead>创建时间</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(strategyStatus?.actions || []).map((action) => (
-                    <TableRow key={action.id}>
-                      <TableCell>{action.created_at}</TableCell>
-                      <TableCell>{action.action_type}</TableCell>
-                      <TableCell>{action.target_type} {action.target_id}</TableCell>
+                  {(asinData?.items || []).slice(0, 30).map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.id}</TableCell>
+                      <TableCell>{item.asin || '-'}</TableCell>
+                      <TableCell>{item.country_code || '-'}</TableCell>
                       <TableCell>
-                        <Badge variant={action.status === 'success' ? 'default' : 'secondary'}>
-                          {action.status}
-                        </Badge>
+                        <Badge variant={item.status === 'error' ? 'destructive' : 'secondary'}>{item.status}</Badge>
                       </TableCell>
+                      <TableCell>{item.priority ?? '-'}</TableCell>
+                      <TableCell>{item.created_at}</TableCell>
                     </TableRow>
                   ))}
-                  {(strategyStatus?.actions || []).length === 0 && (
+                  {(asinData?.items || []).length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-slate-500">
-                        暂无策略动作
-                      </TableCell>
+                      <TableCell colSpan={6} className="text-center text-slate-500">暂无ASIN数据</TableCell>
                     </TableRow>
                   )}
                 </TableBody>

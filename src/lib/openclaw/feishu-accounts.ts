@@ -14,14 +14,18 @@ const FEISHU_USER_KEYS = [
   'feishu_group_policy',
   'feishu_allow_from',
   'feishu_group_allow_from',
+  'feishu_auth_mode',
+  'feishu_require_tenant_key',
+  'feishu_strict_auto_bind',
   'feishu_accounts_json',
   'feishu_target',
 ]
 
 type FeishuDmPolicy = 'pairing' | 'allowlist' | 'open' | 'disabled'
 type FeishuGroupPolicy = 'open' | 'allowlist' | 'disabled'
+type FeishuAuthMode = 'strict' | 'compat'
 
-type FeishuAccountConfig = {
+export type FeishuAccountConfig = {
   appId?: string
   appSecret?: string
   appSecretFile?: string
@@ -37,6 +41,9 @@ type FeishuAccountConfig = {
   cardConfirmUrl?: string
   cardConfirmAuthToken?: string
   cardConfirmTimeoutMs?: number
+  authMode?: FeishuAuthMode
+  requireTenantKey?: boolean
+  strictAutoBind?: boolean
   enabled?: boolean
   name?: string
 }
@@ -132,6 +139,14 @@ function normalizeFeishuGroupPolicy(value?: string): FeishuGroupPolicy | undefin
   return undefined
 }
 
+function normalizeFeishuAuthMode(value?: string): FeishuAuthMode | undefined {
+  const normalized = (value || '').trim().toLowerCase()
+  if (normalized === 'strict' || normalized === 'compat') {
+    return normalized
+  }
+  return undefined
+}
+
 function resolveFeishuIdFromTarget(value?: string): string | undefined {
   const raw = (value || '').trim()
   if (!raw) return undefined
@@ -210,6 +225,21 @@ function parseUserMainAccountFromJson(value?: string): Partial<FeishuAccountConf
       config.cardConfirmTimeoutMs = Math.round(timeout)
     }
 
+    const authMode = normalizeFeishuAuthMode(readString(main.authMode))
+    if (authMode) {
+      config.authMode = authMode
+    }
+
+    const requireTenantKey = readBoolean(main.requireTenantKey)
+    if (requireTenantKey !== undefined) {
+      config.requireTenantKey = requireTenantKey
+    }
+
+    const strictAutoBind = readBoolean(main.strictAutoBind)
+    if (strictAutoBind !== undefined) {
+      config.strictAutoBind = strictAutoBind
+    }
+
     const enabled = readBoolean(main.enabled)
     if (enabled !== undefined) {
       config.enabled = enabled
@@ -280,6 +310,9 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
     )
 
     const configuredGroupPolicy = normalizeFeishuGroupPolicy(values.feishu_group_policy)
+    const configuredAuthMode = normalizeFeishuAuthMode(values.feishu_auth_mode)
+    const configuredRequireTenantKey = readBoolean(values.feishu_require_tenant_key)
+    const configuredStrictAutoBind = readBoolean(values.feishu_strict_auto_bind)
 
     const accountId = getFeishuAccountIdForUser(userId)
     accounts[accountId] = {
@@ -298,6 +331,9 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
       cardConfirmUrl: jsonMain.cardConfirmUrl,
       cardConfirmAuthToken: jsonMain.cardConfirmAuthToken,
       cardConfirmTimeoutMs: jsonMain.cardConfirmTimeoutMs,
+      authMode: jsonMain.authMode || configuredAuthMode,
+      requireTenantKey: jsonMain.requireTenantKey ?? configuredRequireTenantKey,
+      strictAutoBind: jsonMain.strictAutoBind ?? configuredStrictAutoBind,
       enabled: jsonMain.enabled ?? true,
       name: jsonMain.name || `user-${userId}`,
     }
