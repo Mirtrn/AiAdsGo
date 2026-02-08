@@ -172,6 +172,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: '全局保存仅允许 AI 引擎配置' }, { status: 400 })
   }
 
+  if (scope === 'user' && globalUpdates.length > 0) {
+    return NextResponse.json({ error: '用户保存不允许包含全局 AI 配置' }, { status: 400 })
+  }
+
   if (globalUpdates.length > 0 && auth.user.role !== 'admin') {
     return NextResponse.json({ error: '仅管理员可修改全局 AI 配置' }, { status: 403 })
   }

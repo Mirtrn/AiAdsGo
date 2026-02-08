@@ -70,6 +70,30 @@ describe('openclaw settings route AI global permissions', () => {
     )
   })
 
+  it('blocks scope=user payloads that include global AI keys', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [{ key: 'ai_models_json', value: '{"providers":{}}' }],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(payload.error).toContain('用户保存不允许包含全局 AI 配置')
+    expect(settingsFns.updateSettings).not.toHaveBeenCalled()
+  })
+
   it('blocks non-admin from modifying global AI settings', async () => {
     authFns.verifyOpenclawSessionAuth.mockResolvedValue({
       authenticated: true,

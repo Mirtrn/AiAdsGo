@@ -63,29 +63,46 @@ describe('syncOpenclawConfig user scope', () => {
     fs.rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('uses actor user settings when syncing from openclaw settings API', async () => {
-    const aiModelsJson = JSON.stringify({
+  it('uses global AI settings during actor user sync', async () => {
+    const userAiModelsJson = JSON.stringify({
       providers: {
         openai: {
           api: 'openai-responses',
-          apiKey: 'sk-test',
+          apiKey: 'sk-user',
           models: [{ id: 'gpt-5' }],
         },
       },
       selectedModel: 'openai/gpt-5',
     })
 
-    getSettingsByCategoryMock.mockResolvedValueOnce([
-      { key: 'ai_models_json', value: aiModelsJson },
-    ])
+    const globalAiModelsJson = JSON.stringify({
+      providers: {
+        anthropic: {
+          api: 'anthropic',
+          apiKey: 'sk-global',
+          models: [{ id: 'claude-opus-4-5' }],
+        },
+      },
+      selectedModel: 'anthropic/claude-opus-4-5',
+    })
+
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        { key: 'ai_models_json', value: userAiModelsJson },
+      ])
+      .mockResolvedValueOnce([
+        { key: 'ai_models_json', value: globalAiModelsJson },
+      ])
 
     await syncOpenclawConfig({ reason: 'test-user-sync', actorUserId: 42 })
 
-    expect(getSettingsByCategoryMock).toHaveBeenCalledWith('openclaw', 42)
+    expect(getSettingsByCategoryMock).toHaveBeenNthCalledWith(1, 'openclaw', 42)
+    expect(getSettingsByCategoryMock).toHaveBeenNthCalledWith(2, 'openclaw')
 
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-    expect(written.agents.defaults.model.primary).toBe('openai/gpt-5')
-    expect(written.models.providers.openai).toBeDefined()
+    expect(written.agents.defaults.model.primary).toBe('anthropic/claude-opus-4-5')
+    expect(written.models.providers.anthropic).toBeDefined()
+    expect(written.models.providers.openai).toBeUndefined()
   })
 
   it('keeps existing model config on startup sync without actor user', async () => {
@@ -163,5 +180,73 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.agents.defaults.model.primary).toBe('anthropic/claude-opus-4-5')
     expect(written.models.mode).toBe('replace')
     expect(written.models.providers.anthropic).toBeDefined()
+  })
+
+  it('keeps existing AI config when global AI settings are missing', async () => {
+    const existingConfig = {
+      agents: {
+        defaults: {
+          model: {
+            primary: 'openai/gpt-5.2',
+          },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            api: 'openai-responses',
+            apiKey: 'sk-existing',
+            models: [{ id: 'gpt-5.2' }],
+          },
+        },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2), 'utf-8')
+
+    const userAiModelsJson = JSON.stringify({
+      providers: {
+        openai: {
+          api: 'openai-responses',
+          apiKey: 'sk-user',
+          models: [{ id: 'gpt-5' }],
+        },
+      },
+      selectedModel: 'openai/gpt-5',
+    })
+
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        { key: 'ai_models_json', value: userAiModelsJson },
+      ])
+      .mockResolvedValueOnce([])
+
+    await syncOpenclawConfig({ reason: 'test-user-sync-missing-global-ai', actorUserId: 42 })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.agents.defaults.model.primary).toBe('openai/gpt-5.2')
+    expect(written.models.providers.openai).toBeDefined()
+  })
+
+  it('drops duplicated main Feishu account during actor user sync', async () => {
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        { key: 'feishu_app_id', value: 'cli_actor' },
+        { key: 'feishu_app_secret', value: 'sec_actor' },
+      ])
+      .mockResolvedValueOnce([])
+
+    collectUserFeishuAccountsMock.mockResolvedValueOnce({
+      'user-42': {
+        appId: 'cli_actor',
+        appSecret: 'sec_actor',
+        dmPolicy: 'allowlist',
+      },
+    })
+
+    await syncOpenclawConfig({ reason: 'test-user-feishu-dedupe', actorUserId: 42 })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.channels.feishu.accounts['user-42']).toBeDefined()
+    expect(written.channels.feishu.accounts.main).toBeUndefined()
   })
 })

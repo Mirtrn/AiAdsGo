@@ -209,14 +209,16 @@ const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
 
 const AUTOADS_ONLY_SETTING_KEY = 'openclaw_strategy_enforce_autoads_only'
 
-const AI_USER_KEYS = [
-  'ai_models_json',
-] as const
-
 const AI_GLOBAL_KEYS = [
   'ai_models_json',
   'openclaw_models_mode',
   'openclaw_models_bedrock_discovery_json',
+] as const
+
+const AI_GLOBAL_KEY_SET = new Set<string>([...AI_GLOBAL_KEYS])
+
+const AI_GLOBAL_EDIT_KEYS = [
+  'ai_models_json',
 ] as const
 
 const FEISHU_CHAT_USER_KEYS = [
@@ -282,7 +284,7 @@ const STRATEGY_USER_KEYS = [
 ] as const
 
 const USER_KEYS = new Set([
-  ...AI_USER_KEYS,
+  ...AI_GLOBAL_KEYS,
   ...AFFILIATE_USER_KEYS,
   'partnerboost_products_page_size',
   'partnerboost_products_page',
@@ -826,6 +828,7 @@ export default function OpenClawPage() {
     const updates = Object.entries(normalizedUserValues)
       .filter(([key]) => USER_KEYS.has(key))
       .filter(([key]) => !selectedKeySet || selectedKeySet.has(key))
+      .filter(([key]) => (scope === 'global' ? AI_GLOBAL_KEY_SET.has(key) : !AI_GLOBAL_KEY_SET.has(key)))
       .map(([key, value]) => ({ key, value: value ?? '' }))
     const updateKeys = updates.map((item) => item.key)
 
@@ -1236,7 +1239,7 @@ export default function OpenClawPage() {
   const strategyCronHasError = Boolean(strategyCronValue.trim()) && !isLikelyCronExpression(strategyCronValue)
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
   const strategyPriorityAsinsHasError = supportsStrategyPriorityAsins && strategyPriorityAsinsNormalized === null
-  const aiDirty = hasUserDirtyFields(AI_USER_KEYS)
+  const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
   const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
   const feishuCardDirty =

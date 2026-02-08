@@ -156,8 +156,12 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     ? await getSettingsByCategory('openclaw', actorUserId)
     : await getSettingsByCategory('openclaw')
 
+  const globalSettings = actorUserId
+    ? await getSettingsByCategory('openclaw')
+    : settings
+
   const useExistingConfigFallback = !actorUserId
-  const existingConfig = useExistingConfigFallback ? readExistingConfig(configPath) : undefined
+  const existingConfig = readExistingConfig(configPath)
   const existingModelsNode = asObject(existingConfig?.models)
   const existingAgentDefaults = asObject(asObject(existingConfig?.agents)?.defaults)
   const existingModelPrimary = (() => {
@@ -175,6 +179,14 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   })()
 
   const settingMap = buildSettingMap(settings)
+  const globalSettingMap = buildSettingMap(globalSettings)
+
+  const hasGlobalAiSettings = [
+    globalSettingMap.ai_models_json,
+    globalSettingMap.openclaw_models_mode,
+    globalSettingMap.openclaw_models_bedrock_discovery_json,
+  ].some((value) => Boolean((value || '').trim()))
+  const useExistingModelsFallback = !actorUserId || !hasGlobalAiSettings
 
   const gatewayToken = await getOpenclawGatewayToken()
   const appBaseUrl = resolveOpenclawPublicBaseUrl()
@@ -230,24 +242,27 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     ;(feishuAccount as any).groups = mergedGroups
   }
 
-  const aiModelsConfig = parseAiModelsJson(settingMap.ai_models_json)
-  if (aiModelsConfig.parseError && (settingMap.ai_models_json || '').trim()) {
+  const aiModelsConfig = parseAiModelsJson(globalSettingMap.ai_models_json)
+  const aiModelsModeValue = globalSettingMap.openclaw_models_mode
+  const aiBedrockDiscoveryValue = globalSettingMap.openclaw_models_bedrock_discovery_json
+
+  if (aiModelsConfig.parseError && (globalSettingMap.ai_models_json || '').trim()) {
     console.error('❌ OpenClaw models JSON 解析失败:', aiModelsConfig.parseError)
   }
   const modelsProviders = aiModelsConfig.providers
-    || (useExistingConfigFallback ? asObject(existingModelsNode?.providers) : undefined)
+    || (useExistingModelsFallback ? asObject(existingModelsNode?.providers) : undefined)
   const aiSelectedModelRef = aiModelsConfig.explicitSelectedModelRef
-    || (useExistingConfigFallback ? existingModelPrimary : null)
+    || (useExistingModelsFallback ? existingModelPrimary : null)
   const aiFallbackModelRef = aiModelsConfig.selectedModelRef
-    || (useExistingConfigFallback ? existingModelPrimary : null)
-  const modelsModeFromSettings = (settingMap.openclaw_models_mode || '').trim()
+    || (useExistingModelsFallback ? existingModelPrimary : null)
+  const modelsModeFromSettings = (aiModelsModeValue || '').trim()
   const modelsMode = modelsModeFromSettings || (
-    useExistingConfigFallback && typeof existingModelsNode?.mode === 'string'
+    useExistingModelsFallback && typeof existingModelsNode?.mode === 'string'
       ? existingModelsNode.mode.trim()
       : ''
   )
-  const bedrockDiscovery = parseJsonObject(settingMap.openclaw_models_bedrock_discovery_json)
-    || (useExistingConfigFallback ? asObject(existingModelsNode?.bedrockDiscovery) : undefined)
+  const bedrockDiscovery = parseJsonObject(aiBedrockDiscoveryValue)
+    || (useExistingModelsFallback ? asObject(existingModelsNode?.bedrockDiscovery) : undefined)
   const agentDefaults = parseJsonObject(settingMap.openclaw_agent_defaults_json)
     || (useExistingConfigFallback ? existingAgentDefaults : undefined)
   const agentList = parseJsonArrayValue(settingMap.openclaw_agent_list_json)
@@ -350,6 +365,26 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       gatewayToken,
       appBaseUrl,
     })
+  }
+
+  if (actorUserId) {
+    const actorAccountId = `user-${actorUserId}`
+    const actorAccount = mergedFeishuAccounts[actorAccountId]
+    const mainAccount = mergedFeishuAccounts.main
+    if (
+      actorAccount &&
+      mainAccount &&
+      typeof actorAccount === 'object' &&
+      typeof mainAccount === 'object' &&
+      !Array.isArray(actorAccount) &&
+      !Array.isArray(mainAccount)
+    ) {
+      const actorAppId = String((actorAccount as Record<string, any>).appId || '').trim()
+      const mainAppId = String((mainAccount as Record<string, any>).appId || '').trim()
+      if (actorAppId && actorAppId === mainAppId) {
+        delete mergedFeishuAccounts.main
+      }
+    }
   }
 
   config.channels.feishu.accounts = mergedFeishuAccounts
