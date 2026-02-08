@@ -55,8 +55,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     return NextResponse.json({
       success: true,
       offerId: result.offerId,
+      taskId: result.taskId,
       productId,
-      message: 'Offer创建成功',
+      message: 'Offer创建成功，完整流程任务已入队',
     })
   } catch (error: any) {
     console.error('[POST /api/products/:id/create-offer] failed:', error)

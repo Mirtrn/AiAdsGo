@@ -504,7 +504,11 @@ export default function ProductsPage() {
         throw new Error(data?.error || '创建Offer失败')
       }
 
-      showSuccess('创建成功', `Offer #${data.offerId} 已创建`)
+      if (data?.taskId) {
+        showSuccess('创建成功', `Offer #${data.offerId} 已创建并加入完整处理队列`)
+      } else {
+        showSuccess('创建成功', `Offer #${data.offerId} 已创建`)
+      }
       fetchProducts(true)
       return true
     } catch (error: any) {
@@ -702,7 +706,16 @@ export default function ProductsPage() {
         throw new Error(data?.error || '批量创建Offer失败')
       }
 
-      showSuccess('批量创建完成', `成功 ${data.successCount} / ${data.total}`)
+      const queuedCount = Array.isArray(data?.results)
+        ? data.results.filter((item: any) => item?.success && item?.taskId).length
+        : 0
+
+      showSuccess(
+        '批量创建完成',
+        queuedCount > 0
+          ? `成功 ${data.successCount} / ${data.total}，已入队完整流程 ${queuedCount} 条`
+          : `成功 ${data.successCount} / ${data.total}`
+      )
       setBatchDialogOpen(false)
       setSelectedProductIds(new Set())
       fetchProducts(true)

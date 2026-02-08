@@ -2,6 +2,7 @@ import { createOffer, deleteOffer } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { generateUpsertSql, getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
+import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single'
@@ -171,6 +172,11 @@ const PLATFORM_KEY_REQUIREMENTS: Record<AffiliatePlatform, string[]> = {
 
 const DEFAULT_PB_BASE_URL = 'https://app.partnerboost.com'
 const DEFAULT_PB_COUNTRY_CODE = 'US'
+const DEFAULT_PB_PRODUCTS_PAGE_SIZE = 100
+const DEFAULT_PB_SYNC_MAX_PAGES = 500
+const MAX_PB_SYNC_MAX_PAGES = 1000
+const DEFAULT_YP_SYNC_MAX_PAGES = 500
+const MAX_YP_SYNC_MAX_PAGES = 1000
 
 type PartnerboostProduct = {
   product_id?: string
@@ -967,7 +973,10 @@ async function fetchPartnerboostPromotableProducts(params: {
 
   const token = check.values.partnerboost_token
   const baseUrl = (check.values.partnerboost_base_url || DEFAULT_PB_BASE_URL).replace(/\/+$/, '')
-  const pageSize = Math.max(1, Math.min(parseInteger(check.values.partnerboost_products_page_size || '100', 100), 200))
+  const pageSize = Math.max(1, Math.min(
+    parseInteger(check.values.partnerboost_products_page_size || String(DEFAULT_PB_PRODUCTS_PAGE_SIZE), DEFAULT_PB_PRODUCTS_PAGE_SIZE),
+    200
+  ))
   const startPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
   const defaultFilter = parseInteger(check.values.partnerboost_products_default_filter || '0', 0)
   const countryCode = resolvePartnerboostCountryCode(check.values.partnerboost_products_country_code)
@@ -985,7 +994,9 @@ async function fetchPartnerboostPromotableProducts(params: {
   const linkCountryCode = resolvePartnerboostCountryCode(check.values.partnerboost_link_country_code, countryCode)
   const uid = check.values.partnerboost_link_uid || ''
   const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
-  const maxPages = Math.max(1, Math.min(params.maxPages || 20, 30))
+  const isAsinTargetedSync = allAsins.length > 0
+  const defaultMaxPages = isAsinTargetedSync ? 1 : DEFAULT_PB_SYNC_MAX_PAGES
+  const maxPages = Math.max(1, Math.min(params.maxPages || defaultMaxPages, MAX_PB_SYNC_MAX_PAGES))
 
   const products: PartnerboostProduct[] = []
   let page = startPage
@@ -1032,9 +1043,13 @@ async function fetchPartnerboostPromotableProducts(params: {
     fetchedPages += 1
     page += 1
 
-    if (allAsins.length > 0) {
+    if (isAsinTargetedSync) {
       hasMore = false
     }
+  }
+
+  if (!isAsinTargetedSync && hasMore && fetchedPages >= maxPages) {
+    console.warn(`[partnerboost] reached page limit (${maxPages}) while has_more=true; results may be truncated`)
   }
 
   if (products.length === 0) return []
@@ -1190,7 +1205,7 @@ async function fetchYeahPromosPromotableProducts(params: {
   const token = check.values.yeahpromos_token
   const siteId = check.values.yeahpromos_site_id
   const limit = Number(check.values.yeahpromos_limit || '1000') || 1000
-  const maxPages = Math.max(1, Math.min(params.maxPages || 20, 50))
+  const maxPages = Math.max(1, Math.min(params.maxPages || DEFAULT_YP_SYNC_MAX_PAGES, MAX_YP_SYNC_MAX_PAGES))
   const startPage = Number(check.values.yeahpromos_page || '1') || 1
   let page = startPage
   let pageTotal = page
@@ -1231,6 +1246,10 @@ async function fetchYeahPromosPromotableProducts(params: {
 
     pageTotal = Number(extracted.pageTotal ?? page) || page
     page += 1
+  }
+
+  if (page <= pageTotal && page - startPage >= maxPages) {
+    console.warn(`[yeahpromos] reached page limit (${maxPages}) while page_total=${pageTotal}; product results may be truncated`)
   }
 
   const configuredStartDate = normalizeYmdDate(check.values.yeahpromos_start_date)
@@ -1325,6 +1344,10 @@ async function fetchYeahPromosPromotableProducts(params: {
 
       orderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
       orderPage += 1
+    }
+
+    if (orderPage <= orderPageTotal && orderPage - startPage >= maxPages) {
+      console.warn(`[yeahpromos] reached order page limit (${maxPages}) while page_total=${orderPageTotal}; transaction enrichment may be partial`)
     }
   } catch (error: any) {
     console.warn(`[affiliate-products] YeahPromos 交易数据补充失败，继续使用商家接口数据: ${error?.message || error}`)
@@ -1910,7 +1933,8 @@ export async function createOfferFromAffiliateProduct(params: {
   productId: number
   targetCountry?: string
   createdVia?: 'single' | 'batch'
-}): Promise<{ product: AffiliateProduct; offerId: number }> {
+}): Promise<{ product: AffiliateProduct; offerId: number; taskId: string }> {
+  const db = await getDatabase()
   const product = await getAffiliateProductById(params.userId, params.productId)
   if (!product) {
     throw new Error('商品不存在')
@@ -1939,16 +1963,44 @@ export async function createOfferFromAffiliateProduct(params: {
     page_type: 'product',
   })
 
-  await recordAffiliateProductOfferLink({
-    userId: params.userId,
-    productId: product.id,
-    offerId: offer.id,
-    createdVia: params.createdVia || 'single',
-  })
+  try {
+    await recordAffiliateProductOfferLink({
+      userId: params.userId,
+      productId: product.id,
+      offerId: offer.id,
+      createdVia: params.createdVia || 'single',
+    })
 
-  return {
-    product,
-    offerId: offer.id,
+    const extractionTaskId = await createOfferExtractionTaskForExistingOffer({
+      userId: params.userId,
+      offerId: offer.id,
+      affiliateLink: product.promo_link || offer.affiliate_link || offer.url,
+      targetCountry: offer.target_country,
+      productPrice: offer.product_price,
+      commissionPayout: offer.commission_payout,
+      brandName: offer.brand,
+      pageType: offer.page_type === 'store' ? 'store' : 'product',
+      priority: params.createdVia === 'single' ? 'high' : 'normal',
+      skipCache: false,
+      skipWarmup: false,
+    })
+
+    return {
+      product,
+      offerId: offer.id,
+      taskId: extractionTaskId,
+    }
+  } catch (error) {
+    await db.exec(
+      `DELETE FROM affiliate_product_offer_links WHERE user_id = ? AND product_id = ? AND offer_id = ?`,
+      [params.userId, product.id, offer.id]
+    )
+    await db.exec(
+      `DELETE FROM offers WHERE id = ? AND user_id = ?`,
+      [offer.id, params.userId]
+    )
+
+    throw error
   }
 }
 
@@ -1959,9 +2011,9 @@ export async function batchCreateOffersFromAffiliateProducts(params: {
   total: number
   successCount: number
   failureCount: number
-  results: Array<{ productId: number; success: boolean; offerId?: number; error?: string }>
+  results: Array<{ productId: number; success: boolean; offerId?: number; taskId?: string; error?: string }>
 }> {
-  const results: Array<{ productId: number; success: boolean; offerId?: number; error?: string }> = []
+  const results: Array<{ productId: number; success: boolean; offerId?: number; taskId?: string; error?: string }> = []
   let successCount = 0
   let failureCount = 0
 
@@ -1974,7 +2026,12 @@ export async function batchCreateOffersFromAffiliateProducts(params: {
         createdVia: 'batch',
       })
       successCount += 1
-      results.push({ productId: item.productId, success: true, offerId: result.offerId })
+      results.push({
+        productId: item.productId,
+        success: true,
+        offerId: result.offerId,
+        taskId: result.taskId,
+      })
     } catch (error: any) {
       failureCount += 1
       results.push({
