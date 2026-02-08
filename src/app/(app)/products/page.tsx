@@ -83,6 +83,7 @@ type SortField =
   | 'priceAmount'
   | 'commissionRate'
   | 'commissionAmount'
+  | 'reviewCount'
   | 'promoLink'
   | 'relatedOfferCount'
   | 'updatedAt'
@@ -94,7 +95,6 @@ type ProductListItem = {
   mid: string
   asin: string | null
   landingPageType: LandingPageType
-  isDeepLink: boolean | null
   brand: string | null
   productName: string | null
   productUrl: string | null
@@ -105,6 +105,7 @@ type ProductListItem = {
   commissionRateMode: 'percent' | 'amount'
   commissionAmount: number | null
   commissionCurrency: string | null
+  reviewCount: number | null
   promoLink: string | null
   shortPromoLink: string | null
   relatedOfferCount: number
@@ -175,6 +176,11 @@ function formatPercent(rate: number | null): string {
   return `${rate}%`
 }
 
+function formatReviewCount(count: number | null): string {
+  if (count === null || count === undefined) return '-'
+  return String(count)
+}
+
 function resolveDisplayCurrency(product: ProductListItem): string | null {
   const normalizedCommissionCurrency = String(product.commissionCurrency || '').trim()
   if (normalizedCommissionCurrency) return normalizedCommissionCurrency
@@ -185,10 +191,6 @@ function resolveDisplayCurrency(product: ProductListItem): string | null {
   return null
 }
 
-function formatDeepLink(value: boolean | null): string {
-  if (value === null) return '-'
-  return value ? '是' : '否'
-}
 
 function normalizeCountries(countries: string[]): string[] {
   const deduped = new Set<string>()
@@ -774,7 +776,9 @@ export default function ProductsPage() {
               </span>
             </SortableTableHead>
             <TableHead className="w-[140px] whitespace-nowrap">落地页类型</TableHead>
-            <TableHead className="w-[120px] whitespace-nowrap">DeepLink</TableHead>
+            <SortableTableHead field="reviewCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+              商品评论数
+            </SortableTableHead>
             <SortableTableHead field="allowedCountries" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[140px] whitespace-nowrap">
               允许投放国家
             </SortableTableHead>
@@ -803,7 +807,6 @@ export default function ProductsPage() {
             const midTargetUrl = resolveMidTargetUrl(item)
             const asinText = item.asin || '-'
             const landingPageTypeText = LANDING_PAGE_TYPE_LABEL[item.landingPageType] || LANDING_PAGE_TYPE_LABEL.unknown
-            const deepLinkText = formatDeepLink(item.isDeepLink)
             const allowedCountriesText = item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'
             const displayCurrency = resolveDisplayCurrency(item)
             const priceText = formatCurrency(item.priceAmount, item.priceCurrency || displayCurrency)
@@ -811,6 +814,7 @@ export default function ProductsPage() {
             const commissionRateText = item.commissionRateMode === 'amount'
               ? formatCurrency(item.commissionRate, displayCurrency)
               : formatPercent(item.commissionRate)
+            const reviewCountText = formatReviewCount(item.reviewCount)
             const relatedOfferCountText = String(item.relatedOfferCount)
 
             return (
@@ -856,7 +860,9 @@ export default function ProductsPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={item.isBlacklisted ? 'opacity-50' : ''}>{deepLinkText}</div>
+                  <div className={`max-w-[90px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={reviewCountText}>
+                    {reviewCountText}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className={`max-w-[130px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={allowedCountriesText}>

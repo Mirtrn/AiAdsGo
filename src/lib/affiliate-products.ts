@@ -28,6 +28,7 @@ export type AffiliateProduct = {
   price_currency: string | null
   commission_rate: number | null
   commission_amount: number | null
+  review_count: number | null
   raw_json: string | null
   is_blacklisted: boolean | number
   last_synced_at: string | null
@@ -54,6 +55,7 @@ export type AffiliateProductListItem = {
   commissionRateMode: 'percent' | 'amount'
   commissionAmount: number | null
   commissionCurrency: string | null
+  reviewCount: number | null
   promoLink: string | null
   shortPromoLink: string | null
   relatedOfferCount: number
@@ -76,6 +78,7 @@ type NormalizedAffiliateProduct = {
   priceCurrency: string | null
   commissionRate: number | null
   commissionAmount: number | null
+  reviewCount: number | null
   rawJson: string
 }
 
@@ -88,6 +91,7 @@ export type ProductSortField =
   | 'priceAmount'
   | 'commissionRate'
   | 'commissionAmount'
+  | 'reviewCount'
   | 'promoLink'
   | 'relatedOfferCount'
   | 'updatedAt'
@@ -180,6 +184,11 @@ type PartnerboostProduct = {
   currency?: string
   commission?: string | number
   acc_commission?: string | number
+  reviews?: string | number
+  review_count?: string | number
+  reviewCount?: string | number
+  rating_count?: string | number
+  ratings_total?: string | number
 }
 
 type PartnerboostProductsResponse = {
@@ -222,6 +231,11 @@ type YeahPromosMerchant = {
   avg_payout?: string | number
   payout_unit?: string
   advert_status?: string | number
+  reviews?: string | number
+  review_count?: string | number
+  reviewCount?: string | number
+  rating_count?: string | number
+  ratings_total?: string | number
 }
 
 type YeahPromosResponseData = {
@@ -356,6 +370,37 @@ export function extractPartnerboostProductsPayload(payload: PartnerboostProducts
 function parseInteger(value: unknown, fallback: number): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback
+}
+
+function parseReviewCount(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    return Math.max(0, Math.trunc(value))
+  }
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const compact = raw.toLowerCase().replace(/[，,\s]/g, '')
+  const shortMatch = compact.match(/^(\d+(?:\.\d+)?)([kmb])$/i)
+  if (shortMatch) {
+    const base = Number(shortMatch[1])
+    const unit = shortMatch[2].toLowerCase()
+    const multiplier = unit === 'k' ? 1000 : unit === 'm' ? 1000000 : 1000000000
+    if (Number.isFinite(base)) {
+      return Math.max(0, Math.trunc(base * multiplier))
+    }
+  }
+
+  const numeric = compact.replace(/[^0-9]/g, '')
+  if (!numeric) return null
+
+  const parsed = Number(numeric)
+  if (!Number.isFinite(parsed)) return null
+
+  return Math.max(0, Math.trunc(parsed))
 }
 
 function parseCsvValues(value: string): string[] {
@@ -1099,6 +1144,13 @@ async function fetchPartnerboostPromotableProducts(params: {
     const parsedCommission = parsePartnerboostCommission(item.acc_commission ?? item.commission, priceCurrency)
     const commissionRate = parsedCommission.mode === 'percent' ? parsedCommission.rate : parsedCommission.amount
     const allowedCountries = normalizeCountries(item.country_code)
+    const reviewCount = parseReviewCount(
+      item.review_count
+      ?? item.reviewCount
+      ?? item.reviews
+      ?? item.rating_count
+      ?? item.ratings_total
+    )
 
     normalized.push({
       platform: 'partnerboost',
@@ -1116,6 +1168,7 @@ async function fetchPartnerboostPromotableProducts(params: {
       commissionAmount: parsedCommission.mode === 'amount'
         ? parsedCommission.amount
         : computeCommissionAmount(priceAmount, commissionRate),
+      reviewCount,
       rawJson: toJsonString({
         ...item,
         commission_mode: parsedCommission.mode,
@@ -1296,6 +1349,13 @@ async function fetchYeahPromosPromotableProducts(params: {
       ?? parsedCommission.amount
       ?? computeCommissionAmount(priceAmount, commissionRate)
     const allowedCountries = normalizeCountries(item.country)
+    const reviewCount = parseReviewCount(
+      item.review_count
+      ?? item.reviewCount
+      ?? item.reviews
+      ?? item.rating_count
+      ?? item.ratings_total
+    )
 
     normalized.push({
       platform: 'yeahpromos',
@@ -1311,6 +1371,7 @@ async function fetchYeahPromosPromotableProducts(params: {
       priceCurrency: null,
       commissionRate,
       commissionAmount,
+      reviewCount,
       rawJson: toJsonString(txMetric ? { ...item, transaction_metric: txMetric } : item),
     })
   }
@@ -1383,6 +1444,7 @@ export async function upsertAffiliateProducts(userId: number, platform: Affiliat
       'price_currency',
       'commission_rate',
       'commission_amount',
+      'review_count',
       'raw_json',
       'last_synced_at',
       'last_seen_at',
@@ -1400,6 +1462,7 @@ export async function upsertAffiliateProducts(userId: number, platform: Affiliat
       'price_currency',
       'commission_rate',
       'commission_amount',
+      'review_count',
       'raw_json',
       'last_synced_at',
       'last_seen_at',
@@ -1435,6 +1498,7 @@ export async function upsertAffiliateProducts(userId: number, platform: Affiliat
       item.priceCurrency,
       item.commissionRate,
       item.commissionAmount,
+      item.reviewCount,
       item.rawJson,
       nowIso,
       nowIso,
@@ -1458,6 +1522,7 @@ const SORT_FIELD_SQL: Record<ProductSortField, string> = {
   priceAmount: 'p.price_amount',
   commissionRate: 'p.commission_rate',
   commissionAmount: 'p.commission_amount',
+  reviewCount: 'p.review_count',
   promoLink: 'COALESCE(p.short_promo_link, p.promo_link)',
   relatedOfferCount: 'related_offer_count',
   updatedAt: 'p.updated_at',
@@ -1467,6 +1532,7 @@ const NUMERIC_SORT_FIELDS_WITH_NULLS_LAST: Set<ProductSortField> = new Set([
   'priceAmount',
   'commissionRate',
   'commissionAmount',
+  'reviewCount',
 ])
 
 export function buildAffiliateProductsOrderBy(params: {
@@ -1600,6 +1666,15 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     ? (row.commission_amount ?? row.commission_rate)
     : row.commission_rate
 
+  const normalizedReviewCount = row.review_count
+    ?? parseReviewCount(
+      rawJson?.review_count
+      ?? rawJson?.reviewCount
+      ?? rawJson?.reviews
+      ?? rawJson?.rating_count
+      ?? rawJson?.ratings_total
+    )
+
   const isDeepLink = normalizeTriStateBool(rawJson?.is_deeplink)
   const landingPageType = detectAffiliateLandingPageType({
     asin: row.asin,
@@ -1626,6 +1701,7 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     commissionRateMode,
     commissionAmount: normalizedCommissionAmount,
     commissionCurrency: inferredCommissionCurrency,
+    reviewCount: normalizedReviewCount,
     promoLink: row.short_promo_link || row.promo_link,
     shortPromoLink: row.short_promo_link,
     relatedOfferCount: Number(row.related_offer_count || 0),

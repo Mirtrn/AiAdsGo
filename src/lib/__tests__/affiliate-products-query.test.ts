@@ -18,6 +18,14 @@ describe('affiliate-products order by', () => {
     expect(orderBy).toContain('p.id DESC')
   })
 
+  it('supports review count sorting with nulls last', () => {
+    const orderBy = buildAffiliateProductsOrderBy({ sortBy: 'reviewCount', sortOrder: 'desc' })
+
+    expect(orderBy).toContain('(p.review_count IS NULL) ASC')
+    expect(orderBy).toContain('p.review_count DESC')
+    expect(orderBy).toContain('p.id DESC')
+  })
+
   it('uses normal sort for non-numeric fields', () => {
     const orderBy = buildAffiliateProductsOrderBy({ sortBy: 'mid', sortOrder: 'asc' })
 

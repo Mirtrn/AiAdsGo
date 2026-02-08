@@ -52,6 +52,7 @@ const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
   'priceAmount',
   'commissionRate',
   'commissionAmount',
+  'reviewCount',
   'promoLink',
   'relatedOfferCount',
   'updatedAt',

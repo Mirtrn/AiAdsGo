@@ -18,6 +18,7 @@ function buildBaseRow(overrides: Partial<AffiliateProduct> = {}): AffiliateProdu
     price_currency: 'USD',
     commission_rate: 15,
     commission_amount: 15,
+    review_count: null,
     raw_json: '{}',
     is_blacklisted: 0,
     last_synced_at: null,
@@ -59,6 +60,18 @@ describe('affiliate-products display mapping', () => {
     expect(mapped.commissionRate).toBe(32.5)
     expect(mapped.commissionAmount).toBe(32.5)
     expect(mapped.commissionCurrency).toBe('USD')
+  })
+
+  it('falls back to raw reviews when review_count column is empty', () => {
+    const row = buildBaseRow({
+      review_count: null,
+      raw_json: JSON.stringify({
+        reviews: '1,234',
+      }),
+    })
+
+    const mapped = __testOnly.mapAffiliateProductRow(row)
+    expect(mapped.reviewCount).toBe(1234)
   })
 
   it('uses commission_currency from raw json when present', () => {
