@@ -256,9 +256,19 @@ const AFFILIATE_USER_KEYS = [
   'yeahpromos_site_id',
   'yeahpromos_page',
   'yeahpromos_limit',
+  'yeahpromos_request_delay_ms',
+  'yeahpromos_rate_limit_max_retries',
+  'yeahpromos_rate_limit_base_delay_ms',
+  'yeahpromos_rate_limit_max_delay_ms',
   'partnerboost_base_url',
   'partnerboost_token',
   'partnerboost_products_country_code',
+  'partnerboost_products_link_batch_size',
+  'partnerboost_asin_link_batch_size',
+  'partnerboost_request_delay_ms',
+  'partnerboost_rate_limit_max_retries',
+  'partnerboost_rate_limit_base_delay_ms',
+  'partnerboost_rate_limit_max_delay_ms',
   'partnerboost_link_country_code',
   'partnerboost_link_uid',
 ] as const
@@ -2046,20 +2056,56 @@ export default function OpenClawPage() {
                     />
                   </div>
                   {!simpleMode && (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <InputWithLabel
-                        label="Page"
-                        value={userValues.yeahpromos_page || ''}
-                        onChange={(v) => setUserValue('yeahpromos_page', v)}
-                        placeholder="默认 1"
-                      />
-                      <InputWithLabel
-                        label="Limit"
-                        value={userValues.yeahpromos_limit || ''}
-                        onChange={(v) => setUserValue('yeahpromos_limit', v)}
-                        placeholder="默认 1000"
-                      />
-                    </div>
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <InputWithLabel
+                          label="Page"
+                          value={userValues.yeahpromos_page || ''}
+                          onChange={(v) => setUserValue('yeahpromos_page', v)}
+                          placeholder="默认 1"
+                        />
+                        <InputWithLabel
+                          label="Limit"
+                          value={userValues.yeahpromos_limit || ''}
+                          onChange={(v) => setUserValue('yeahpromos_limit', v)}
+                          placeholder="默认 1000"
+                        />
+                      </div>
+
+                      <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        YP 限流优化参数（可选）：建议先用默认值，若出现 429/限流提示，再提高延迟或重试。
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <InputWithLabel
+                          label="请求间隔(ms)"
+                          value={userValues.yeahpromos_request_delay_ms || ''}
+                          onChange={(v) => setUserValue('yeahpromos_request_delay_ms', v)}
+                          placeholder="默认 120"
+                        />
+                        <InputWithLabel
+                          label="429重试次数"
+                          value={userValues.yeahpromos_rate_limit_max_retries || ''}
+                          onChange={(v) => setUserValue('yeahpromos_rate_limit_max_retries', v)}
+                          placeholder="默认 3"
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <InputWithLabel
+                          label="429基准延迟(ms)"
+                          value={userValues.yeahpromos_rate_limit_base_delay_ms || ''}
+                          onChange={(v) => setUserValue('yeahpromos_rate_limit_base_delay_ms', v)}
+                          placeholder="默认 600"
+                        />
+                        <InputWithLabel
+                          label="429最大延迟(ms)"
+                          value={userValues.yeahpromos_rate_limit_max_delay_ms || ''}
+                          onChange={(v) => setUserValue('yeahpromos_rate_limit_max_delay_ms', v)}
+                          placeholder="默认 10000"
+                        />
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -2087,25 +2133,73 @@ export default function OpenClawPage() {
                     />
                   </div>
                   {!simpleMode && (
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <InputWithLabel
-                        label="默认国家"
-                        value={userValues.partnerboost_products_country_code || ''}
-                        onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
-                        placeholder="US"
-                      />
-                      <InputWithLabel
-                        label="链接国家"
-                        value={userValues.partnerboost_link_country_code || ''}
-                        onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
-                        placeholder="US"
-                      />
-                      <InputWithLabel
-                        label="链接 UID"
-                        value={userValues.partnerboost_link_uid || ''}
-                        onChange={(v) => setUserValue('partnerboost_link_uid', v)}
-                      />
-                    </div>
+                    <>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel
+                          label="默认国家"
+                          value={userValues.partnerboost_products_country_code || ''}
+                          onChange={(v) => setUserValue('partnerboost_products_country_code', v)}
+                          placeholder="US"
+                        />
+                        <InputWithLabel
+                          label="链接国家"
+                          value={userValues.partnerboost_link_country_code || ''}
+                          onChange={(v) => setUserValue('partnerboost_link_country_code', v)}
+                          placeholder="US"
+                        />
+                        <InputWithLabel
+                          label="链接 UID"
+                          value={userValues.partnerboost_link_uid || ''}
+                          onChange={(v) => setUserValue('partnerboost_link_uid', v)}
+                        />
+                      </div>
+
+                      <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        PB 限流优化参数（可选）：建议先用默认值；若 429 仍较多，再降低批次或增大间隔。
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel
+                          label="商品链接批次"
+                          value={userValues.partnerboost_products_link_batch_size || ''}
+                          onChange={(v) => setUserValue('partnerboost_products_link_batch_size', v)}
+                          placeholder="默认 20"
+                        />
+                        <InputWithLabel
+                          label="ASIN链接批次"
+                          value={userValues.partnerboost_asin_link_batch_size || ''}
+                          onChange={(v) => setUserValue('partnerboost_asin_link_batch_size', v)}
+                          placeholder="默认 20"
+                        />
+                        <InputWithLabel
+                          label="批次间隔(ms)"
+                          value={userValues.partnerboost_request_delay_ms || ''}
+                          onChange={(v) => setUserValue('partnerboost_request_delay_ms', v)}
+                          placeholder="默认 150"
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <InputWithLabel
+                          label="429重试次数"
+                          value={userValues.partnerboost_rate_limit_max_retries || ''}
+                          onChange={(v) => setUserValue('partnerboost_rate_limit_max_retries', v)}
+                          placeholder="默认 4"
+                        />
+                        <InputWithLabel
+                          label="429基准延迟(ms)"
+                          value={userValues.partnerboost_rate_limit_base_delay_ms || ''}
+                          onChange={(v) => setUserValue('partnerboost_rate_limit_base_delay_ms', v)}
+                          placeholder="默认 800"
+                        />
+                        <InputWithLabel
+                          label="429最大延迟(ms)"
+                          value={userValues.partnerboost_rate_limit_max_delay_ms || ''}
+                          onChange={(v) => setUserValue('partnerboost_rate_limit_max_delay_ms', v)}
+                          placeholder="默认 12000"
+                        />
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </Card>

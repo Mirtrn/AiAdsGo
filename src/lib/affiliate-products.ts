@@ -175,6 +175,20 @@ const DEFAULT_PB_COUNTRY_CODE = 'US'
 const DEFAULT_PB_PRODUCTS_PAGE_SIZE = 100
 const DEFAULT_PB_SYNC_MAX_PAGES = 500
 const MAX_PB_SYNC_MAX_PAGES = 1000
+const DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE = 20
+const MAX_PB_PRODUCTS_LINK_BATCH_SIZE = 50
+const DEFAULT_PB_ASIN_LINK_BATCH_SIZE = 20
+const MAX_PB_ASIN_LINK_BATCH_SIZE = 50
+const DEFAULT_PB_REQUEST_DELAY_MS = 150
+const MAX_PB_REQUEST_DELAY_MS = 5000
+const DEFAULT_PB_RATE_LIMIT_MAX_RETRIES = 4
+const DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS = 800
+const DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS = 12000
+const DEFAULT_YP_REQUEST_DELAY_MS = 120
+const MAX_YP_REQUEST_DELAY_MS = 5000
+const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 3
+const DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS = 600
+const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 10000
 const DEFAULT_YP_SYNC_MAX_PAGES = 500
 const MAX_YP_SYNC_MAX_PAGES = 1000
 
@@ -376,6 +390,44 @@ export function extractPartnerboostProductsPayload(payload: PartnerboostProducts
 function parseInteger(value: unknown, fallback: number): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback
+}
+
+function parseIntegerInRange(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = parseInteger(value, fallback)
+  return Math.max(min, Math.min(parsed, max))
+}
+
+function sleep(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve()
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function calculateExponentialBackoffDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
+  if (attempt <= 0) return 0
+  const delay = baseDelayMs * Math.pow(2, attempt - 1)
+  return Math.min(delay, maxDelayMs)
+}
+
+function isPartnerboostRateLimited(payloadStatusCode: number | null, payloadStatusMessage: string, responseStatus?: number): boolean {
+  if (responseStatus === 429) return true
+  if (payloadStatusCode === 1002) return true
+
+  const normalizedMessage = payloadStatusMessage.toLowerCase()
+  return normalizedMessage.includes('too many request')
+    || normalizedMessage.includes('rate limit')
+}
+
+function isYeahPromosRateLimited(code: number | null, message: string, responseStatus?: number): boolean {
+  if (responseStatus === 429) return true
+
+  if (code !== null) {
+    if (code === 429 || code === 100429 || code === 200429) return true
+  }
+
+  const normalizedMessage = message.toLowerCase()
+  return normalizedMessage.includes('too many request')
+    || normalizedMessage.includes('rate limit')
+    || normalizedMessage.includes('too many requests')
 }
 
 function parseReviewCount(value: unknown): number | null {
@@ -927,6 +979,12 @@ export async function checkAffiliatePlatformConfig(userId: number, platform: Aff
         'partnerboost_products_has_promo_code',
         'partnerboost_products_has_acc',
         'partnerboost_products_filter_sexual_wellness',
+        'partnerboost_products_link_batch_size',
+        'partnerboost_asin_link_batch_size',
+        'partnerboost_request_delay_ms',
+        'partnerboost_rate_limit_max_retries',
+        'partnerboost_rate_limit_base_delay_ms',
+        'partnerboost_rate_limit_max_delay_ms',
         'partnerboost_link_country_code',
         'partnerboost_link_uid',
         'partnerboost_link_return_partnerboost_link',
@@ -937,6 +995,10 @@ export async function checkAffiliatePlatformConfig(userId: number, platform: Aff
         'yeahpromos_is_amazon',
         'yeahpromos_page',
         'yeahpromos_limit',
+        'yeahpromos_request_delay_ms',
+        'yeahpromos_rate_limit_max_retries',
+        'yeahpromos_rate_limit_base_delay_ms',
+        'yeahpromos_rate_limit_max_delay_ms',
       ]
 
   const values = await getUserScopedSettingMap(userId, [...requiredKeys, ...optionalKeys])
@@ -963,6 +1025,113 @@ async function fetchJsonOrThrow<T>(url: string, init: RequestInit, errorPrefix: 
   return await response.json() as T
 }
 
+type PartnerboostRequestRateLimitOptions = {
+  maxRetries: number
+  baseDelayMs: number
+  maxDelayMs: number
+}
+
+type YeahPromosRequestRateLimitOptions = {
+  maxRetries: number
+  baseDelayMs: number
+  maxDelayMs: number
+}
+
+async function fetchPartnerboostJsonWithRateLimitRetry<T extends { status?: { code?: number | string; msg?: string } }>(
+  url: string,
+  init: RequestInit,
+  errorPrefix: string,
+  options: PartnerboostRequestRateLimitOptions
+): Promise<T> {
+  let attempt = 0
+  while (true) {
+    let responseStatus: number | undefined
+    try {
+      const payload = await fetchJsonOrThrow<T>(url, init, errorPrefix)
+      const payloadStatusCode = normalizePartnerboostStatusCode(payload?.status?.code)
+      const payloadStatusMessage = String(payload?.status?.msg || '')
+
+      if (
+        isPartnerboostRateLimited(payloadStatusCode, payloadStatusMessage, responseStatus)
+        && attempt < options.maxRetries
+      ) {
+        attempt += 1
+        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        console.warn(`[partnerboost] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+
+      return payload
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      const statusMatch = message.match(/\((\d{3})\):/)
+      responseStatus = statusMatch ? Number(statusMatch[1]) : undefined
+      const payloadStatusCode = normalizePartnerboostStatusCode(error?.status?.code)
+      const payloadStatusMessage = String(error?.status?.msg || message)
+
+      if (
+        isPartnerboostRateLimited(payloadStatusCode, payloadStatusMessage, responseStatus)
+        && attempt < options.maxRetries
+      ) {
+        attempt += 1
+        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        console.warn(`[partnerboost] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+
+      throw error
+    }
+  }
+}
+
+async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
+  Code?: number | string
+  code?: number | string
+  message?: string
+  msg?: string
+}>(
+  url: string,
+  init: RequestInit,
+  errorPrefix: string,
+  options: YeahPromosRequestRateLimitOptions
+): Promise<T> {
+  let attempt = 0
+  while (true) {
+    let responseStatus: number | undefined
+    try {
+      const payload = await fetchJsonOrThrow<T>(url, init, errorPrefix)
+      const code = normalizeYeahPromosResultCode(payload?.Code ?? payload?.code)
+      const message = String(payload?.message || payload?.msg || '')
+
+      if (isYeahPromosRateLimited(code, message, responseStatus) && attempt < options.maxRetries) {
+        attempt += 1
+        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        console.warn(`[yeahpromos] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+
+      return payload
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      const statusMatch = message.match(/\((\d{3})\):/)
+      responseStatus = statusMatch ? Number(statusMatch[1]) : undefined
+
+      if (isYeahPromosRateLimited(null, message, responseStatus) && attempt < options.maxRetries) {
+        attempt += 1
+        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        console.warn(`[yeahpromos] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+
+      throw error
+    }
+  }
+}
+
 async function fetchPartnerboostPromotableProducts(params: {
   userId: number
   asins?: string[]
@@ -987,6 +1156,44 @@ async function fetchPartnerboostPromotableProducts(params: {
   const hasPromoCode = parseInteger(check.values.partnerboost_products_has_promo_code || '0', 0)
   const hasAcc = parseInteger(check.values.partnerboost_products_has_acc || '0', 0)
   const filterSexual = parseInteger(check.values.partnerboost_products_filter_sexual_wellness || '0', 0)
+  const productLinkBatchSize = parseIntegerInRange(
+    check.values.partnerboost_products_link_batch_size || String(DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE),
+    DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE,
+    1,
+    MAX_PB_PRODUCTS_LINK_BATCH_SIZE
+  )
+  const asinLinkBatchSize = parseIntegerInRange(
+    check.values.partnerboost_asin_link_batch_size || String(DEFAULT_PB_ASIN_LINK_BATCH_SIZE),
+    DEFAULT_PB_ASIN_LINK_BATCH_SIZE,
+    1,
+    MAX_PB_ASIN_LINK_BATCH_SIZE
+  )
+  const requestDelayMs = parseIntegerInRange(
+    check.values.partnerboost_request_delay_ms || String(DEFAULT_PB_REQUEST_DELAY_MS),
+    DEFAULT_PB_REQUEST_DELAY_MS,
+    0,
+    MAX_PB_REQUEST_DELAY_MS
+  )
+  const rateLimitRetryOptions: PartnerboostRequestRateLimitOptions = {
+    maxRetries: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_max_retries || String(DEFAULT_PB_RATE_LIMIT_MAX_RETRIES),
+      DEFAULT_PB_RATE_LIMIT_MAX_RETRIES,
+      0,
+      10
+    ),
+    baseDelayMs: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_base_delay_ms || String(DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS),
+      DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS,
+      100,
+      60000
+    ),
+    maxDelayMs: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_max_delay_ms || String(DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS),
+      DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS,
+      500,
+      120000
+    ),
+  }
   const configuredAsins = parseCsvValues(check.values.partnerboost_products_asins || '')
   const allAsins = Array.from(new Set([...(params.asins || []), ...configuredAsins]))
     .map((asin) => normalizeAsin(asin))
@@ -1004,7 +1211,7 @@ async function fetchPartnerboostPromotableProducts(params: {
   let fetchedPages = 0
 
   while (hasMore && fetchedPages < maxPages) {
-    const payload = await fetchJsonOrThrow<PartnerboostProductsResponse>(
+    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostProductsResponse>(
       `${baseUrl}/api/datafeed/get_fba_products`,
       {
         method: 'POST',
@@ -1025,7 +1232,8 @@ async function fetchPartnerboostPromotableProducts(params: {
           filter_sexual_wellness: filterSexual,
         }),
       },
-      'PartnerBoost 商品拉取失败'
+      'PartnerBoost 商品拉取失败',
+      rateLimitRetryOptions
     )
 
     const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
@@ -1046,6 +1254,10 @@ async function fetchPartnerboostPromotableProducts(params: {
     if (isAsinTargetedSync) {
       hasMore = false
     }
+
+    if (hasMore && requestDelayMs > 0) {
+      await sleep(requestDelayMs)
+    }
   }
 
   if (!isAsinTargetedSync && hasMore && fetchedPages >= maxPages) {
@@ -1059,10 +1271,9 @@ async function fetchPartnerboostPromotableProducts(params: {
     .filter(Boolean)
 
   const linkMap = new Map<string, string>()
-  const batchSize = 50
-  for (let index = 0; index < productIds.length; index += batchSize) {
-    const batchIds = productIds.slice(index, index + batchSize)
-    const payload = await fetchJsonOrThrow<PartnerboostLinkResponse>(
+  for (let index = 0; index < productIds.length; index += productLinkBatchSize) {
+    const batchIds = productIds.slice(index, index + productLinkBatchSize)
+    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostLinkResponse>(
       `${baseUrl}/api/datafeed/get_fba_products_link`,
       {
         method: 'POST',
@@ -1073,7 +1284,8 @@ async function fetchPartnerboostPromotableProducts(params: {
           uid,
         }),
       },
-      'PartnerBoost 推广链接拉取失败'
+      'PartnerBoost 推广链接拉取失败',
+      rateLimitRetryOptions
     )
 
     const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
@@ -1090,6 +1302,11 @@ async function fetchPartnerboostPromotableProducts(params: {
       if (!productId || !link) continue
       linkMap.set(productId, link)
     }
+
+    const hasRemaining = index + productLinkBatchSize < productIds.length
+    if (hasRemaining && requestDelayMs > 0) {
+      await sleep(requestDelayMs)
+    }
   }
 
   const asinLinkMap = new Map<string, { link: string | null; partnerboostLink: string | null }>()
@@ -1099,9 +1316,9 @@ async function fetchPartnerboostPromotableProducts(params: {
       .filter((asin): asin is string => Boolean(asin))
   ))
 
-  for (let index = 0; index < linkLookupAsins.length; index += batchSize) {
-    const batchAsins = linkLookupAsins.slice(index, index + batchSize)
-    const payload = await fetchJsonOrThrow<PartnerboostAsinLinkResponse>(
+  for (let index = 0; index < linkLookupAsins.length; index += asinLinkBatchSize) {
+    const batchAsins = linkLookupAsins.slice(index, index + asinLinkBatchSize)
+    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostAsinLinkResponse>(
       `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
       {
         method: 'POST',
@@ -1114,7 +1331,8 @@ async function fetchPartnerboostPromotableProducts(params: {
           return_partnerboost_link: returnPartnerboostLink,
         }),
       },
-      'PartnerBoost ASIN推广链接拉取失败'
+      'PartnerBoost ASIN推广链接拉取失败',
+      rateLimitRetryOptions
     )
 
     const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
@@ -1133,6 +1351,11 @@ async function fetchPartnerboostPromotableProducts(params: {
         link: normalizeUrl(item.link),
         partnerboostLink: normalizeUrl(item.partnerboost_link),
       })
+    }
+
+    const hasRemaining = index + asinLinkBatchSize < linkLookupAsins.length
+    if (hasRemaining && requestDelayMs > 0) {
+      await sleep(requestDelayMs)
     }
   }
 
@@ -1205,6 +1428,32 @@ async function fetchYeahPromosPromotableProducts(params: {
   const token = check.values.yeahpromos_token
   const siteId = check.values.yeahpromos_site_id
   const limit = Number(check.values.yeahpromos_limit || '1000') || 1000
+  const requestDelayMs = parseIntegerInRange(
+    check.values.yeahpromos_request_delay_ms || String(DEFAULT_YP_REQUEST_DELAY_MS),
+    DEFAULT_YP_REQUEST_DELAY_MS,
+    0,
+    MAX_YP_REQUEST_DELAY_MS
+  )
+  const rateLimitRetryOptions: YeahPromosRequestRateLimitOptions = {
+    maxRetries: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_max_retries || String(DEFAULT_YP_RATE_LIMIT_MAX_RETRIES),
+      DEFAULT_YP_RATE_LIMIT_MAX_RETRIES,
+      0,
+      10
+    ),
+    baseDelayMs: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_base_delay_ms || String(DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS),
+      DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS,
+      100,
+      60000
+    ),
+    maxDelayMs: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_max_delay_ms || String(DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS),
+      DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS,
+      500,
+      120000
+    ),
+  }
   const maxPages = Math.max(1, Math.min(params.maxPages || DEFAULT_YP_SYNC_MAX_PAGES, MAX_YP_SYNC_MAX_PAGES))
   const startPage = Number(check.values.yeahpromos_page || '1') || 1
   let page = startPage
@@ -1218,7 +1467,7 @@ async function fetchYeahPromosPromotableProducts(params: {
     url.searchParams.set('page', String(page))
     url.searchParams.set('limit', String(limit))
 
-    const payload = await fetchJsonOrThrow<YeahPromosResponse>(
+    const payload = await fetchYeahPromosJsonWithRateLimitRetry<YeahPromosResponse>(
       url.toString(),
       {
         method: 'GET',
@@ -1227,7 +1476,8 @@ async function fetchYeahPromosPromotableProducts(params: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       },
-      'YeahPromos 商品拉取失败'
+      'YeahPromos 商品拉取失败',
+      rateLimitRetryOptions
     )
 
     const codeRaw = payload.Code ?? payload.code
@@ -1246,6 +1496,10 @@ async function fetchYeahPromosPromotableProducts(params: {
 
     pageTotal = Number(extracted.pageTotal ?? page) || page
     page += 1
+
+    if (page <= pageTotal && requestDelayMs > 0) {
+      await sleep(requestDelayMs)
+    }
   }
 
   if (page <= pageTotal && page - startPage >= maxPages) {
@@ -1278,7 +1532,7 @@ async function fetchYeahPromosPromotableProducts(params: {
         url.searchParams.set('is_amazon', isAmazon)
       }
 
-      const payload = await fetchJsonOrThrow<YeahPromosTransactionsResponse>(
+      const payload = await fetchYeahPromosJsonWithRateLimitRetry<YeahPromosTransactionsResponse>(
         url.toString(),
         {
           method: 'GET',
@@ -1287,7 +1541,8 @@ async function fetchYeahPromosPromotableProducts(params: {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
         },
-        'YeahPromos 交易拉取失败'
+        'YeahPromos 交易拉取失败',
+        rateLimitRetryOptions
       )
 
       const codeRaw = payload.Code ?? payload.code
@@ -1344,6 +1599,10 @@ async function fetchYeahPromosPromotableProducts(params: {
 
       orderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
       orderPage += 1
+
+      if (orderPage <= orderPageTotal && requestDelayMs > 0) {
+        await sleep(requestDelayMs)
+      }
     }
 
     if (orderPage <= orderPageTotal && orderPage - startPage >= maxPages) {
@@ -1735,6 +1994,9 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
 }
 
 export const __testOnly = {
+  calculateExponentialBackoffDelay,
+  isPartnerboostRateLimited,
+  isYeahPromosRateLimited,
   mapAffiliateProductRow,
 }
 

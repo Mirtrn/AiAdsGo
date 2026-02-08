@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  __testOnly,
   detectAffiliateLandingPageType,
   extractPartnerboostProductsPayload,
   normalizePartnerboostStatusCode,
@@ -19,6 +20,32 @@ describe('normalizePartnerboostStatusCode', () => {
     expect(normalizePartnerboostStatusCode(null)).toBeNull()
     expect(normalizePartnerboostStatusCode('')).toBeNull()
     expect(normalizePartnerboostStatusCode('ERROR')).toBeNull()
+  })
+})
+
+describe('isPartnerboostRateLimited', () => {
+  it('detects HTTP 429 and PB status code 1002', () => {
+    expect(__testOnly.isPartnerboostRateLimited(null, '', 429)).toBe(true)
+    expect(__testOnly.isPartnerboostRateLimited(1002, '')).toBe(true)
+  })
+
+  it('detects message-based rate-limit signals', () => {
+    expect(__testOnly.isPartnerboostRateLimited(1, 'Too many request')).toBe(true)
+    expect(__testOnly.isPartnerboostRateLimited(1, 'rate limit exceeded')).toBe(true)
+  })
+
+  it('returns false for non-rate-limit cases', () => {
+    expect(__testOnly.isPartnerboostRateLimited(0, 'success')).toBe(false)
+    expect(__testOnly.isPartnerboostRateLimited(1001, 'user not exist')).toBe(false)
+  })
+})
+
+describe('calculateExponentialBackoffDelay', () => {
+  it('grows exponentially and caps at max delay', () => {
+    expect(__testOnly.calculateExponentialBackoffDelay(0, 800, 12000)).toBe(0)
+    expect(__testOnly.calculateExponentialBackoffDelay(1, 800, 12000)).toBe(800)
+    expect(__testOnly.calculateExponentialBackoffDelay(2, 800, 12000)).toBe(1600)
+    expect(__testOnly.calculateExponentialBackoffDelay(5, 800, 12000)).toBe(12000)
   })
 })
 

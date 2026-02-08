@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  __testOnly,
   extractYeahPromosPayload,
   extractYeahPromosTransactionsPayload,
   normalizeYeahPromosResultCode,
@@ -87,5 +88,22 @@ describe('normalizeYeahPromosResultCode', () => {
     expect(parsed.mode).toBe('rate')
     expect(parsed.rate).toBe(7.2)
     expect(parsed.amount).toBeNull()
+  })
+})
+
+describe('isYeahPromosRateLimited', () => {
+  it('detects HTTP 429 and common YP rate-limit code', () => {
+    expect(__testOnly.isYeahPromosRateLimited(null, '', 429)).toBe(true)
+    expect(__testOnly.isYeahPromosRateLimited(429, '')).toBe(true)
+  })
+
+  it('detects message-based rate-limit signals', () => {
+    expect(__testOnly.isYeahPromosRateLimited(null, 'Too many request')).toBe(true)
+    expect(__testOnly.isYeahPromosRateLimited(null, 'rate limit exceeded')).toBe(true)
+  })
+
+  it('returns false for normal cases', () => {
+    expect(__testOnly.isYeahPromosRateLimited(100000, 'success')).toBe(false)
+    expect(__testOnly.isYeahPromosRateLimited(100001, 'invalid token')).toBe(false)
   })
 })

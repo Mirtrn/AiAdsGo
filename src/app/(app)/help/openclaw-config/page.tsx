@@ -86,8 +86,18 @@ const AFFILIATE_MINIMAL_PARAMS: ParamRow[] = [
 const AFFILIATE_OPTIONAL_PARAMS: ParamRow[] = [
   { key: 'yeahpromos_page', desc: 'YP 默认页码', note: '默认 1' },
   { key: 'yeahpromos_limit', desc: 'YP 默认条数', note: '默认 1000' },
+  { key: 'yeahpromos_request_delay_ms', desc: 'YP 请求间隔(ms)', note: '默认 120' },
+  { key: 'yeahpromos_rate_limit_max_retries', desc: 'YP 429 最大重试次数', note: '默认 3' },
+  { key: 'yeahpromos_rate_limit_base_delay_ms', desc: 'YP 429 重试基准延迟(ms)', note: '默认 600' },
+  { key: 'yeahpromos_rate_limit_max_delay_ms', desc: 'YP 429 重试最大延迟(ms)', note: '默认 10000' },
   { key: 'partnerboost_base_url', desc: 'PB API Base URL', note: '默认 https://app.partnerboost.com' },
   { key: 'partnerboost_products_country_code', desc: 'PB products country_code', note: '默认 US' },
+  { key: 'partnerboost_products_link_batch_size', desc: 'PB 商品链接批次大小', note: '默认 20（建议 10~30）' },
+  { key: 'partnerboost_asin_link_batch_size', desc: 'PB ASIN 链接批次大小', note: '默认 20（建议 10~30）' },
+  { key: 'partnerboost_request_delay_ms', desc: 'PB 批次间隔(ms)', note: '默认 150' },
+  { key: 'partnerboost_rate_limit_max_retries', desc: 'PB 429 最大重试次数', note: '默认 4' },
+  { key: 'partnerboost_rate_limit_base_delay_ms', desc: 'PB 429 重试基准延迟(ms)', note: '默认 800' },
+  { key: 'partnerboost_rate_limit_max_delay_ms', desc: 'PB 429 重试最大延迟(ms)', note: '默认 12000' },
   { key: 'partnerboost_link_country_code', desc: 'PB link country_code', note: '默认 US' },
   { key: 'partnerboost_link_uid', desc: 'PB link uid', note: '可选' },
 ]
