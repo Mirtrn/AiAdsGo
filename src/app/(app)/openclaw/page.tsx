@@ -71,6 +71,17 @@ type GatewayStatusResponse = {
   error?: string
 }
 
+type GatewaySkillRow = {
+  skill: any
+  missingItems: string[]
+  isReady: boolean
+  status: {
+    label: string
+    variant: 'default' | 'secondary' | 'outline' | 'destructive'
+  }
+  installHint: string
+}
+
 type AsinInputRecord = {
   id: number
   source: string
@@ -544,6 +555,8 @@ export default function OpenClawPage() {
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatusResponse | null>(null)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
+  const [gatewaySkillsCollapsed, setGatewaySkillsCollapsed] = useState(true)
+  const [gatewayShowAvailableOnly, setGatewayShowAvailableOnly] = useState(true)
   const [asinData, setAsinData] = useState<AsinDataResponse | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [asinUploading, setAsinUploading] = useState(false)
@@ -1108,6 +1121,42 @@ export default function OpenClawPage() {
     },
     { total: 0, ready: 0, missing: 0, disabled: 0, blocked: 0 }
   )
+  const gatewaySkillsRows = useMemo<GatewaySkillRow[]>(() => {
+    return gatewaySkillsList.map((skill: any) => {
+      const missing = skill?.missing || {}
+      const missingItems = [
+        ...(missing?.bins || []),
+        ...(missing?.anyBins || []),
+        ...(missing?.env || []),
+        ...(missing?.config || []),
+        ...(missing?.os || []),
+      ].filter((value): value is string => Boolean(value))
+      const isReady = !skill?.disabled && !skill?.blockedByAllowlist && Boolean(skill?.eligible) && missingItems.length === 0
+      const status = skill?.disabled
+        ? { label: '已禁用', variant: 'secondary' as const }
+        : skill?.blockedByAllowlist
+          ? { label: '被阻止', variant: 'outline' as const }
+          : missingItems.length > 0
+            ? { label: '缺少依赖', variant: 'destructive' as const }
+            : skill?.eligible
+              ? { label: '可用', variant: 'default' as const }
+              : { label: '未知', variant: 'secondary' as const }
+      const installHint = Array.isArray(skill?.install)
+        ? skill.install.map((item: any) => item?.label).filter(Boolean).join('; ')
+        : ''
+
+      return {
+        skill,
+        missingItems,
+        isReady,
+        status,
+        installHint,
+      }
+    })
+  }, [gatewaySkillsList])
+  const gatewayVisibleSkills = gatewayShowAvailableOnly
+    ? gatewaySkillsRows.filter((item) => item.isReady)
+    : gatewaySkillsRows
   const showFeishuAdvanced = !simpleMode || showAdvancedFeishu
   const showStrategyAdvanced = !simpleMode || showAdvancedStrategy
   const aiConfigured = Boolean((userValues.ai_models_json || '').trim())
@@ -1404,59 +1453,74 @@ export default function OpenClawPage() {
                   </div>
 
                   <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">技能状态</div>
-                    {gatewaySkillsList.length > 0 ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>技能</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead>缺失项</TableHead>
-                            <TableHead>安装建议</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {gatewaySkillsList.map((skill: any) => {
-                            const missing = skill?.missing || {}
-                            const missingItems = [
-                              ...(missing?.bins || []),
-                              ...(missing?.anyBins || []),
-                              ...(missing?.env || []),
-                              ...(missing?.config || []),
-                              ...(missing?.os || []),
-                            ].filter(Boolean)
-                            const status = skill?.disabled
-                              ? { label: '已禁用', variant: 'secondary' as const }
-                              : skill?.blockedByAllowlist
-                                ? { label: '被阻止', variant: 'outline' as const }
-                                : missingItems.length > 0
-                                  ? { label: '缺少依赖', variant: 'destructive' as const }
-                                  : skill?.eligible
-                                    ? { label: '可用', variant: 'default' as const }
-                                    : { label: '未知', variant: 'secondary' as const }
-                            const installHint = Array.isArray(skill?.install)
-                              ? skill.install.map((item: any) => item?.label).filter(Boolean).join('; ')
-                              : ''
-                            return (
-                              <TableRow key={skill?.skillKey || skill?.name}>
-                                <TableCell>
-                                  <div className="font-medium">{skill?.name || skill?.skillKey}</div>
-                                  <div className="text-xs text-slate-500">{skill?.description}</div>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant={status.variant}>{status.label}</Badge>
-                                </TableCell>
-                                <TableCell className="text-xs text-slate-500">
-                                  {missingItems.length > 0 ? missingItems.join(', ') : '—'}
-                                </TableCell>
-                                <TableCell className="text-xs text-slate-500">
-                                  {installHint || '—'}
-                                </TableCell>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-700">技能状态</div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="whitespace-nowrap">
+                          可用 {gatewaySkillsSummary.ready}/{gatewaySkillsSummary.total}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setGatewaySkillsCollapsed((prev) => !prev)}
+                        >
+                          {gatewaySkillsCollapsed ? '展开列表' : '收起列表'}
+                        </Button>
+                      </div>
+                    </div>
+                    {gatewaySkillsCollapsed ? (
+                      <div className="text-sm text-slate-500">
+                        默认仅展示“可用”技能，点击“展开列表”查看明细。
+                      </div>
+                    ) : gatewaySkillsList.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex justify-end">
+                          <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                            <span>仅看可用</span>
+                            <Switch
+                              checked={gatewayShowAvailableOnly}
+                              onCheckedChange={setGatewayShowAvailableOnly}
+                              aria-label="仅显示可用技能"
+                            />
+                          </label>
+                        </div>
+                        {gatewayVisibleSkills.length > 0 ? (
+                          <Table className="table-fixed">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[34%]">技能</TableHead>
+                                <TableHead className="w-[110px] whitespace-nowrap">状态</TableHead>
+                                <TableHead className="w-[34%]">缺失项</TableHead>
+                                <TableHead className="w-[22%]">安装建议</TableHead>
                               </TableRow>
-                            )
-                          })}
-                        </TableBody>
-                      </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {gatewayVisibleSkills.map((item) => (
+                                <TableRow key={item.skill?.skillKey || item.skill?.name}>
+                                  <TableCell className="align-top">
+                                    <div className="font-medium">{item.skill?.name || item.skill?.skillKey}</div>
+                                    <div className="text-xs text-slate-500">{item.skill?.description}</div>
+                                  </TableCell>
+                                  <TableCell className="whitespace-nowrap align-top">
+                                    <Badge variant={item.status.variant} className="whitespace-nowrap">
+                                      {item.status.label}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="align-top text-xs text-slate-500">
+                                    {item.missingItems.length > 0 ? item.missingItems.join(', ') : '—'}
+                                  </TableCell>
+                                  <TableCell className="align-top text-xs text-slate-500">
+                                    {item.installHint || '—'}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <div className="text-sm text-slate-500">暂无可用技能，点击“显示全部状态”查看其他状态。</div>
+                        )}
+                      </div>
                     ) : (
                       <div className="text-sm text-slate-500">暂无技能数据</div>
                     )}
