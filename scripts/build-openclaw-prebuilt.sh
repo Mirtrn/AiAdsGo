@@ -44,6 +44,7 @@ docker run --rm \
     mkdir -p /out/dist
     cp -r dist/* /out/dist/
     cp -r extensions /out/extensions
+    cp -r skills /out/skills
     cp openclaw.mjs /out/openclaw.mjs
     cp package.json /out/package.json
     cp -a node_modules /out/node_modules

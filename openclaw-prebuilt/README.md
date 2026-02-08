@@ -15,6 +15,17 @@ openclaw-prebuilt/
     entry.js
     index.js
     ...
+  extensions/
+    feishu/
+    memory-core/
+    ...
+  skills/
+    autoads/
+      SKILL.md
+    autoads-report-qa/
+      SKILL.md
+    autoads-prd-writer/
+      SKILL.md
 ```
 
 生成方式：

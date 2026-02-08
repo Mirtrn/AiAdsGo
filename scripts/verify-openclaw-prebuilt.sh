@@ -19,9 +19,21 @@ if [[ ! -d "${PREBUILT_DIR}/extensions" ]]; then
   exit 1
 fi
 
+if [[ ! -d "${PREBUILT_DIR}/skills" ]]; then
+  echo "❌ openclaw-prebuilt/skills 不存在（Gateway 将无法加载内置技能）"
+  exit 1
+fi
+
 for plugin in feishu memory-core; do
   if [[ ! -f "${PREBUILT_DIR}/extensions/${plugin}/package.json" ]]; then
     echo "❌ openclaw-prebuilt/extensions/${plugin} 缺失（插件未打包）"
+    exit 1
+  fi
+done
+
+for skill in autoads autoads-report-qa autoads-prd-writer; do
+  if [[ ! -f "${PREBUILT_DIR}/skills/${skill}/SKILL.md" ]]; then
+    echo "❌ openclaw-prebuilt/skills/${skill}/SKILL.md 缺失（内置技能未打包）"
     exit 1
   fi
 done
