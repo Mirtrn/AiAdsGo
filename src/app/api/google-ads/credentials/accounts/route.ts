@@ -25,10 +25,9 @@ function jsonNoStore(body: any, init?: { status?: number }) {
 }
 
 // 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
-// 注意：这些常量会在 db.ts 的 convertSqliteSyntax 中转换为实际的 SQL 条件
+// 注意：该常量会在 db.ts 的 convertSqliteSyntax 中转换为实际的 SQL 条件
 // PostgreSQL 使用 TRUE/FALSE 布尔值，SQLite 使用 0/1 整数
 const IS_DELETED_TRUE = 'IS_DELETED_TRUE'
-const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
@@ -1648,6 +1647,16 @@ async function get(request: NextRequest) {
       currentOfferBrand = currentOffer?.brand || null
     }
 
+    // 🔧 修复(2026-02-08): 关联Offer查询使用更稳健的“未删除”判定
+    // 兼容历史数据（is_deleted 为空）并兜底 deleted_at 软删除标记，避免已删除Offer仍显示在关联列表中。
+    const offerNotDeletedCondition = db.type === 'postgres'
+      ? '(o.is_deleted = FALSE OR o.is_deleted IS NULL) AND o.deleted_at IS NULL'
+      : '(o.is_deleted = 0 OR o.is_deleted IS NULL) AND o.deleted_at IS NULL'
+
+    const campaignNotDeletedCondition = db.type === 'postgres'
+      ? '(c.is_deleted = FALSE OR c.is_deleted IS NULL) AND c.deleted_at IS NULL'
+      : '(c.is_deleted = 0 OR c.is_deleted IS NULL) AND c.deleted_at IS NULL'
+
     const accountsWithOffers = await Promise.all(allAccounts.map(async (account) => {
       const dbAccountId = account.db_account_id
       if (!dbAccountId) {
@@ -1684,19 +1693,24 @@ async function get(request: NextRequest) {
           o.offer_name,
           o.brand,
           o.target_country,
-          CASE WHEN o.is_deleted = IS_DELETED_TRUE THEN 0 ELSE 1 END as is_active,
+          CASE
+            WHEN o.is_deleted = IS_DELETED_TRUE OR o.deleted_at IS NOT NULL THEN 0
+            ELSE 1
+          END as is_active,
           COUNT(DISTINCT c.id) as campaign_count
         FROM offers o
         INNER JOIN campaigns c ON o.id = c.offer_id
         WHERE c.google_ads_account_id = ?
           AND c.user_id = ?
-          AND o.is_deleted = IS_DELETED_FALSE
-          AND c.status != 'REMOVED'
+          AND o.user_id = ?
+          AND ${offerNotDeletedCondition}
+          AND ${campaignNotDeletedCondition}
+          AND UPPER(TRIM(COALESCE(c.status, ''))) != 'REMOVED'
           -- 仅把“已成功发布到Google Ads”的campaign计为绑定，避免 failed/pending 造成误绑定展示
           AND c.google_campaign_id IS NOT NULL
           AND c.google_campaign_id != ''
-        GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
-      `, [dbAccountId, userId])
+        GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted, o.deleted_at
+      `, [dbAccountId, userId, userId])
 
       // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
       const linkedOffersMapped = linkedOffers.map((offer: any) => ({
