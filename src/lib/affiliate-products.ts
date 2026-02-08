@@ -51,7 +51,9 @@ export type AffiliateProductListItem = {
   priceAmount: number | null
   priceCurrency: string | null
   commissionRate: number | null
+  commissionRateMode: 'percent' | 'amount'
   commissionAmount: number | null
+  commissionCurrency: string | null
   promoLink: string | null
   shortPromoLink: string | null
   relatedOfferCount: number
@@ -531,6 +533,81 @@ function looksLikeCurrencyUnit(value: string): boolean {
   const upper = raw.toUpperCase()
   if (/^[A-Z]{3}$/.test(upper)) return true
   return false
+}
+
+function normalizeCurrencyUnit(value: unknown): string | null {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+
+  if (/^[A-Za-z]{3}$/.test(raw)) {
+    return raw.toUpperCase()
+  }
+
+  if (hasCurrencySymbol(raw)) {
+    return raw
+  }
+
+  return null
+}
+
+function extractCurrencyUnitFromText(value: unknown): string | null {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+
+  const symbolMatch = raw.match(/[$€£¥₴₽₩₹]/)
+  if (symbolMatch) {
+    return symbolMatch[0]
+  }
+
+  const codeMatch = raw.match(/\b([A-Za-z]{3})\b/)
+  if (codeMatch) {
+    return codeMatch[1].toUpperCase()
+  }
+
+  return null
+}
+
+function parsePartnerboostCommission(value: unknown, fallbackCurrency: string | null): {
+  mode: 'percent' | 'amount'
+  rate: number | null
+  amount: number | null
+  currency: string | null
+} {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return {
+      mode: 'percent',
+      rate: null,
+      amount: null,
+      currency: fallbackCurrency,
+    }
+  }
+
+  if (raw.includes('%')) {
+    return {
+      mode: 'percent',
+      rate: parsePercentage(value),
+      amount: null,
+      currency: fallbackCurrency,
+    }
+  }
+
+  const extractedCurrency = extractCurrencyUnitFromText(raw)
+  if (extractedCurrency) {
+    return {
+      mode: 'amount',
+      rate: null,
+      amount: parsePriceAmount(value),
+      currency: extractedCurrency,
+    }
+  }
+
+  return {
+    mode: 'percent',
+    rate: parsePercentage(value),
+    amount: null,
+    currency: fallbackCurrency,
+  }
 }
 
 export function parseYeahPromosMerchantCommission(avgPayout: unknown, payoutUnit: unknown): ParsedYeahPromosCommission {
@@ -1017,8 +1094,9 @@ async function fetchPartnerboostPromotableProducts(params: {
     }
 
     const priceAmount = parsePriceAmount(item.discount_price ?? item.original_price)
-    const priceCurrency = normalizeUrl(item.currency) || null
-    const commissionRate = parsePercentage(item.acc_commission ?? item.commission)
+    const priceCurrency = normalizeCurrencyUnit(item.currency)
+    const parsedCommission = parsePartnerboostCommission(item.acc_commission ?? item.commission, priceCurrency)
+    const commissionRate = parsedCommission.mode === 'percent' ? parsedCommission.rate : parsedCommission.amount
     const allowedCountries = normalizeCountries(item.country_code)
 
     normalized.push({
@@ -1034,8 +1112,14 @@ async function fetchPartnerboostPromotableProducts(params: {
       priceAmount,
       priceCurrency,
       commissionRate,
-      commissionAmount: computeCommissionAmount(priceAmount, commissionRate),
-      rawJson: toJsonString(item),
+      commissionAmount: parsedCommission.mode === 'amount'
+        ? parsedCommission.amount
+        : computeCommissionAmount(priceAmount, commissionRate),
+      rawJson: toJsonString({
+        ...item,
+        commission_mode: parsedCommission.mode,
+        commission_currency: parsedCommission.currency,
+      }),
     })
   }
 
@@ -1378,6 +1462,27 @@ const SORT_FIELD_SQL: Record<ProductSortField, string> = {
   updatedAt: 'p.updated_at',
 }
 
+const NUMERIC_SORT_FIELDS_WITH_NULLS_LAST: Set<ProductSortField> = new Set([
+  'priceAmount',
+  'commissionRate',
+  'commissionAmount',
+])
+
+export function buildAffiliateProductsOrderBy(params: {
+  sortBy: ProductSortField
+  sortOrder: ProductSortOrder
+}): string {
+  const { sortBy, sortOrder } = params
+  const direction = sortOrder === 'asc' ? 'ASC' : 'DESC'
+  const sortSql = SORT_FIELD_SQL[sortBy] || SORT_FIELD_SQL.serial
+
+  if (NUMERIC_SORT_FIELDS_WITH_NULLS_LAST.has(sortBy)) {
+    return `(${sortSql} IS NULL) ASC, ${sortSql} ${direction}, p.id DESC`
+  }
+
+  return `${sortSql} ${direction}, p.id DESC`
+}
+
 export async function listAffiliateProducts(userId: number, options: ProductListOptions = {}): Promise<ProductListResult> {
   const db = await getDatabase()
   const page = Math.max(1, options.page || 1)
@@ -1385,7 +1490,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const offset = (page - 1) * pageSize
   const sortBy = options.sortBy || 'serial'
   const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc'
-  const sortSql = SORT_FIELD_SQL[sortBy] || SORT_FIELD_SQL.serial
+  const orderBySql = buildAffiliateProductsOrderBy({ sortBy, sortOrder })
 
   const whereConditions: string[] = ['p.user_id = ?']
   const whereParams: any[] = [userId]
@@ -1432,7 +1537,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
         GROUP BY product_id
       ) link_counts ON link_counts.product_id = p.id
       WHERE ${whereSql}
-      ORDER BY ${sortSql} ${sortOrder.toUpperCase()}, p.id DESC
+      ORDER BY ${orderBySql}
       LIMIT ?
       OFFSET ?
     `,
@@ -1457,6 +1562,35 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     }
   })()
 
+  const commissionUnitText = String(rawJson?.payout_unit || '').trim()
+  const inferredCommissionCurrency = normalizeCurrencyUnit(commissionUnitText)
+    || normalizeCurrencyUnit(rawJson?.commission_currency)
+    || normalizeCurrencyUnit(rawJson?.currency)
+    || normalizeCurrencyUnit(rawJson?.transaction_metric?.currency)
+    || normalizeCurrencyUnit(row.price_currency)
+
+  const inferredCommissionModeFromRaw = (() => {
+    const rawMode = String(rawJson?.commission_mode || '').trim().toLowerCase()
+    if (rawMode === 'amount') return 'amount' as const
+    if (rawMode === 'rate' || rawMode === 'percent' || rawMode === 'percentage') return 'percent' as const
+    return null
+  })()
+
+  const commissionRateMode: 'percent' | 'amount' =
+    inferredCommissionModeFromRaw === 'amount'
+      || Boolean(rawJson?.avg_payout && String(rawJson.avg_payout).includes('$'))
+      || looksLikeCurrencyUnit(commissionUnitText)
+      ? 'amount'
+      : 'percent'
+
+  const normalizedCommissionAmount = commissionRateMode === 'amount'
+    ? (row.commission_amount ?? row.commission_rate)
+    : row.commission_amount
+
+  const normalizedCommissionRate = commissionRateMode === 'amount'
+    ? (row.commission_amount ?? row.commission_rate)
+    : row.commission_rate
+
   const isDeepLink = normalizeTriStateBool(rawJson?.is_deeplink)
   const landingPageType = detectAffiliateLandingPageType({
     asin: row.asin,
@@ -1479,8 +1613,10 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     allowedCountries: parseAllowedCountries(row.allowed_countries_json),
     priceAmount: row.price_amount,
     priceCurrency: row.price_currency,
-    commissionRate: row.commission_rate,
-    commissionAmount: row.commission_amount,
+    commissionRate: normalizedCommissionRate,
+    commissionRateMode,
+    commissionAmount: normalizedCommissionAmount,
+    commissionCurrency: inferredCommissionCurrency,
     promoLink: row.short_promo_link || row.promo_link,
     shortPromoLink: row.short_promo_link,
     relatedOfferCount: Number(row.related_offer_count || 0),
@@ -1488,6 +1624,10 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     lastSyncedAt: row.last_synced_at,
     updatedAt: row.updated_at,
   }
+}
+
+export const __testOnly = {
+  mapAffiliateProductRow,
 }
 
 export async function getAffiliateProductById(userId: number, productId: number): Promise<AffiliateProduct | null> {

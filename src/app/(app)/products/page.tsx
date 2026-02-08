@@ -102,7 +102,9 @@ type ProductListItem = {
   priceAmount: number | null
   priceCurrency: string | null
   commissionRate: number | null
+  commissionRateMode: 'percent' | 'amount'
   commissionAmount: number | null
+  commissionCurrency: string | null
   promoLink: string | null
   shortPromoLink: string | null
   relatedOfferCount: number
@@ -170,6 +172,16 @@ function formatCurrency(amount: number | null, currency: string | null): string 
 function formatPercent(rate: number | null): string {
   if (rate === null || rate === undefined) return '-'
   return `${rate}%`
+}
+
+function resolveDisplayCurrency(product: ProductListItem): string | null {
+  const normalizedCommissionCurrency = String(product.commissionCurrency || '').trim()
+  if (normalizedCommissionCurrency) return normalizedCommissionCurrency
+
+  const normalizedPriceCurrency = String(product.priceCurrency || '').trim()
+  if (normalizedPriceCurrency) return normalizedPriceCurrency
+
+  return null
 }
 
 function formatDeepLink(value: boolean | null): string {
@@ -603,15 +615,21 @@ export default function ProductsPage() {
 
   const openBatchDialog = () => {
     if (!canBatchCreate) return
-    const rows: BatchRow[] = creatableSelectedProducts.map((product) => ({
-      productId: product.id,
-      linkType: '单品',
-      promoLink: product.promoLink || '',
-      targetCountry: defaultCountryFromProduct(product),
-      availableCountries: normalizeCountries(product.allowedCountries),
-      productPrice: formatCurrency(product.priceAmount, product.priceCurrency),
-      commissionRate: formatPercent(product.commissionRate),
-    }))
+    const rows: BatchRow[] = creatableSelectedProducts.map((product) => {
+      const displayCurrency = resolveDisplayCurrency(product)
+
+      return {
+        productId: product.id,
+        linkType: '单品',
+        promoLink: product.promoLink || '',
+        targetCountry: defaultCountryFromProduct(product),
+        availableCountries: normalizeCountries(product.allowedCountries),
+        productPrice: formatCurrency(product.priceAmount, product.priceCurrency || displayCurrency),
+        commissionRate: product.commissionRateMode === 'amount'
+          ? formatCurrency(product.commissionRate, displayCurrency)
+          : formatPercent(product.commissionRate),
+      }
+    })
     setBatchRows(rows)
     setBatchDialogOpen(true)
   }
@@ -786,9 +804,12 @@ export default function ProductsPage() {
             const landingPageTypeText = LANDING_PAGE_TYPE_LABEL[item.landingPageType] || LANDING_PAGE_TYPE_LABEL.unknown
             const deepLinkText = formatDeepLink(item.isDeepLink)
             const allowedCountriesText = item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'
-            const priceText = formatCurrency(item.priceAmount, item.priceCurrency)
-            const commissionRateText = formatPercent(item.commissionRate)
-            const commissionAmountText = formatCurrency(item.commissionAmount, item.priceCurrency)
+            const displayCurrency = resolveDisplayCurrency(item)
+            const priceText = formatCurrency(item.priceAmount, item.priceCurrency || displayCurrency)
+            const commissionAmountText = formatCurrency(item.commissionAmount, displayCurrency)
+            const commissionRateText = item.commissionRateMode === 'amount'
+              ? formatCurrency(item.commissionRate, displayCurrency)
+              : formatPercent(item.commissionRate)
             const relatedOfferCountText = String(item.relatedOfferCount)
 
             return (
