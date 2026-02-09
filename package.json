@@ -16,6 +16,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:queue-redis": "tsx scripts/test-queue-redis.ts",
+    "openclaw:binding:smoke": "tsx scripts/openclaw-binding-smoke.ts",
     "db:init": "mkdir -p data && tsx scripts/db-init-smart.ts",
     "db:reset": "rm -f data/autoads.db && npm run db:init",
     "db:migrate": "tsx scripts/migrate.ts",

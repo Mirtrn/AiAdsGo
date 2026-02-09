@@ -1,5 +1,8 @@
 import { getDatabase } from '@/lib/db'
-import { collectUserFeishuAccounts, parseFeishuAccountUserId } from '@/lib/openclaw/feishu-accounts'
+import {
+  collectUserFeishuBindingAccounts,
+  parseFeishuAccountUserId,
+} from '@/lib/openclaw/feishu-accounts'
 
 type FeishuAuthMode = 'strict' | 'compat'
 type FeishuAuthSettings = {
@@ -12,6 +15,35 @@ type FeishuAccountConfigForBinding = {
   authMode?: string
   requireTenantKey?: boolean
   strictAutoBind?: boolean
+}
+
+export type OpenclawBindingResolutionReason =
+  | 'invalid_input'
+  | 'strict_no_account_match'
+  | 'strict_allowlist_without_tenant'
+  | 'strict_require_tenant_key'
+  | 'strict_account_without_tenant'
+  | 'strict_tenant_binding_match'
+  | 'strict_tenant_binding_conflict'
+  | 'strict_auto_bind_disabled'
+  | 'strict_auto_bind_success'
+  | 'strict_auto_bind_failed'
+  | 'account_id_resolved'
+  | 'feishu_allowlist_no_tenant_match'
+  | 'feishu_allowlist_tenant_fallback_match'
+  | 'tenant_binding_match'
+  | 'tenant_binding_no_match'
+  | 'channel_binding_match'
+  | 'channel_binding_no_match'
+
+export type OpenclawBindingResolution = {
+  userId: number | null
+  reason: OpenclawBindingResolutionReason
+  channel: string
+  senderId: string
+  accountId?: string
+  tenantKeyProvided: boolean
+  authMode?: FeishuAuthMode
 }
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -51,7 +83,7 @@ function resolveFeishuAuthSettingsFromOptions(params: {
 
 async function collectFeishuAccountsSafe(): Promise<Record<string, FeishuAccountConfigForBinding> | null> {
   try {
-    return await collectUserFeishuAccounts()
+    return await collectUserFeishuBindingAccounts()
   } catch (error) {
     console.warn('[openclaw] failed to collect feishu accounts for binding fallback:', error)
     return null
@@ -173,18 +205,18 @@ async function resolveStrictFeishuUser(params: {
   requireTenantKey: boolean
   strictAutoBind: boolean
   allowFrom?: string[]
-}): Promise<number | null> {
+}): Promise<{ userId: number | null; reason: OpenclawBindingResolutionReason }> {
   if (!params.accountUserId) {
-    return null
+    return { userId: null, reason: 'strict_no_account_match' }
   }
 
   if (!params.tenantKey) {
     if (params.requireTenantKey) {
       return isFeishuSenderAllowlisted(params.senderId, params.allowFrom)
-        ? params.accountUserId
-        : null
+        ? { userId: params.accountUserId, reason: 'strict_allowlist_without_tenant' }
+        : { userId: null, reason: 'strict_require_tenant_key' }
     }
-    return params.accountUserId
+    return { userId: params.accountUserId, reason: 'strict_account_without_tenant' }
   }
 
   const tenantBindingUserId = await findFeishuTenantBinding({
@@ -194,13 +226,13 @@ async function resolveStrictFeishuUser(params: {
 
   if (tenantBindingUserId) {
     if (tenantBindingUserId !== params.accountUserId) {
-      return null
+      return { userId: null, reason: 'strict_tenant_binding_conflict' }
     }
-    return tenantBindingUserId
+    return { userId: tenantBindingUserId, reason: 'strict_tenant_binding_match' }
   }
 
   if (!params.strictAutoBind) {
-    return null
+    return { userId: null, reason: 'strict_auto_bind_disabled' }
   }
 
   const bound = await ensureStrictFeishuBinding({
@@ -209,7 +241,9 @@ async function resolveStrictFeishuUser(params: {
     senderId: params.senderId,
   })
 
-  return bound ? params.accountUserId : null
+  return bound
+    ? { userId: params.accountUserId, reason: 'strict_auto_bind_success' }
+    : { userId: null, reason: 'strict_auto_bind_failed' }
 }
 
 async function resolveFeishuUserFromAllowlist(
@@ -245,16 +279,25 @@ async function resolveFeishuUserFromAllowlist(
   return Array.from(matchedUserIds)[0] ?? null
 }
 
-export async function resolveOpenclawUserFromBinding(
+export async function resolveOpenclawUserFromBindingDebug(
   channel?: string | null,
   senderId?: string | null,
   options?: { accountId?: string | null; tenantKey?: string | null }
-): Promise<number | null> {
+): Promise<OpenclawBindingResolution> {
   const accountId = (options?.accountId || '').trim()
   const accountUserId = parseFeishuAccountUserId(accountId)
   const normalizedChannel = (channel || '').trim()
   const normalizedSenderId = (senderId || '').trim()
-  if (!normalizedChannel || !normalizedSenderId) return null
+  if (!normalizedChannel || !normalizedSenderId) {
+    return {
+      userId: null,
+      reason: 'invalid_input',
+      channel: normalizedChannel,
+      senderId: normalizedSenderId,
+      accountId: accountId || undefined,
+      tenantKeyProvided: Boolean((options?.tenantKey || '').trim()),
+    }
+  }
 
   const tenantKey = (options?.tenantKey || '').trim() || undefined
   const isFeishu = normalizedChannel.toLowerCase() === 'feishu'
@@ -268,15 +311,16 @@ export async function resolveOpenclawUserFromBinding(
   }
 
   if (isFeishu && feishuSettings?.authMode === 'strict') {
+    const strictAccounts = feishuAccounts ?? await collectFeishuAccountsSafe()
     const strictAccountUserId = accountUserId
-      || await resolveFeishuUserFromAllowlist(normalizedSenderId, feishuAccounts)
+      || await resolveFeishuUserFromAllowlist(normalizedSenderId, strictAccounts)
     const strictAccountAllowFrom = strictAccountUserId
-      ? (Array.isArray(feishuAccounts?.[`user-${strictAccountUserId}`]?.allowFrom)
-        ? feishuAccounts?.[`user-${strictAccountUserId}`]?.allowFrom
+      ? (Array.isArray(strictAccounts?.[`user-${strictAccountUserId}`]?.allowFrom)
+        ? strictAccounts?.[`user-${strictAccountUserId}`]?.allowFrom
         : undefined)
       : undefined
 
-    return await resolveStrictFeishuUser({
+    const strictResolution = await resolveStrictFeishuUser({
       accountUserId: strictAccountUserId,
       senderId: normalizedSenderId,
       tenantKey,
@@ -284,14 +328,41 @@ export async function resolveOpenclawUserFromBinding(
       strictAutoBind: feishuSettings.strictAutoBind,
       allowFrom: strictAccountAllowFrom,
     })
+
+    return {
+      userId: strictResolution.userId,
+      reason: strictResolution.reason,
+      channel: normalizedChannel,
+      senderId: normalizedSenderId,
+      accountId: accountId || undefined,
+      tenantKeyProvided: Boolean(tenantKey),
+      authMode: 'strict',
+    }
   }
 
-  if (accountUserId) return accountUserId
+  if (accountUserId) {
+    return {
+      userId: accountUserId,
+      reason: 'account_id_resolved',
+      channel: normalizedChannel,
+      senderId: normalizedSenderId,
+      accountId: accountId || undefined,
+      tenantKeyProvided: Boolean(tenantKey),
+      authMode: isFeishu ? 'compat' : undefined,
+    }
+  }
 
   if (isFeishu && !tenantKey) {
     const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId, feishuAccounts)
-    if (feishuFallback) return feishuFallback
-    return null
+    return {
+      userId: feishuFallback,
+      reason: feishuFallback ? 'feishu_allowlist_no_tenant_match' : 'channel_binding_no_match',
+      channel: normalizedChannel,
+      senderId: normalizedSenderId,
+      accountId: accountId || undefined,
+      tenantKeyProvided: false,
+      authMode: 'compat',
+    }
   }
 
   const db = await getDatabase()
@@ -307,19 +378,43 @@ export async function resolveOpenclawUserFromBinding(
       [normalizedChannel, tenantKey, normalizedSenderId, normalizedSenderId]
     )
 
-    if (scoped?.user_id) return scoped.user_id
+    if (scoped?.user_id) {
+      return {
+        userId: scoped.user_id,
+        reason: 'tenant_binding_match',
+        channel: normalizedChannel,
+        senderId: normalizedSenderId,
+        accountId: accountId || undefined,
+        tenantKeyProvided: true,
+        authMode: isFeishu ? 'compat' : undefined,
+      }
+    }
 
     if (isFeishu) {
       const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId, feishuAccounts)
-      if (feishuFallback) return feishuFallback
-      return null
+      return {
+        userId: feishuFallback,
+        reason: feishuFallback ? 'feishu_allowlist_tenant_fallback_match' : 'tenant_binding_no_match',
+        channel: normalizedChannel,
+        senderId: normalizedSenderId,
+        accountId: accountId || undefined,
+        tenantKeyProvided: true,
+        authMode: 'compat',
+      }
     }
   }
 
   if (isFeishu) {
     const feishuFallback = await resolveFeishuUserFromAllowlist(normalizedSenderId, feishuAccounts)
-    if (feishuFallback) return feishuFallback
-    return null
+    return {
+      userId: feishuFallback,
+      reason: feishuFallback ? 'feishu_allowlist_no_tenant_match' : 'channel_binding_no_match',
+      channel: normalizedChannel,
+      senderId: normalizedSenderId,
+      accountId: accountId || undefined,
+      tenantKeyProvided: false,
+      authMode: 'compat',
+    }
   }
 
   const record = await db.queryOne<{ user_id: number }>(
@@ -331,5 +426,21 @@ export async function resolveOpenclawUserFromBinding(
     [normalizedChannel, normalizedSenderId, normalizedSenderId]
   )
 
-  return record?.user_id ?? null
+  return {
+    userId: record?.user_id ?? null,
+    reason: record?.user_id ? 'channel_binding_match' : 'channel_binding_no_match',
+    channel: normalizedChannel,
+    senderId: normalizedSenderId,
+    accountId: accountId || undefined,
+    tenantKeyProvided: Boolean(tenantKey),
+  }
+}
+
+export async function resolveOpenclawUserFromBinding(
+  channel?: string | null,
+  senderId?: string | null,
+  options?: { accountId?: string | null; tenantKey?: string | null }
+): Promise<number | null> {
+  const resolved = await resolveOpenclawUserFromBindingDebug(channel, senderId, options)
+  return resolved.userId
 }

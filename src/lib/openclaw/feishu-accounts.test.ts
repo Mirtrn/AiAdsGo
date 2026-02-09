@@ -24,7 +24,7 @@ vi.mock('@/lib/settings', async () => {
   }
 })
 
-import { collectUserFeishuAccounts } from './feishu-accounts'
+import { collectUserFeishuAccounts, collectUserFeishuBindingAccounts } from './feishu-accounts'
 
 describe('collectUserFeishuAccounts', () => {
   beforeEach(() => {
@@ -142,5 +142,31 @@ describe('collectUserFeishuAccounts', () => {
     expect(accounts['user-5'].appId).toBe('cli_file')
     expect(accounts['user-5'].appSecret).toBeUndefined()
     expect(accounts['user-5'].appSecretFile).toBe('/secrets/feishu-app-secret')
+  })
+
+  it('collects binding accounts without decrypting sensitive fields', async () => {
+    hoisted.queryMock.mockResolvedValueOnce([
+      { user_id: 6, key: 'feishu_allow_from', value: '["ou_cfg"]', encrypted_value: null, is_sensitive: false },
+      { user_id: 6, key: 'feishu_target', value: 'feishu:ou_target_6', encrypted_value: null, is_sensitive: false },
+      { user_id: 6, key: 'feishu_auth_mode', value: 'strict', encrypted_value: null, is_sensitive: false },
+      { user_id: 6, key: 'feishu_require_tenant_key', value: 'true', encrypted_value: null, is_sensitive: false },
+      { user_id: 6, key: 'feishu_strict_auto_bind', value: 'false', encrypted_value: null, is_sensitive: false },
+      {
+        user_id: 6,
+        key: 'feishu_app_secret',
+        value: null,
+        encrypted_value: 'never-read-in-binding-collector',
+        is_sensitive: true,
+      },
+    ])
+
+    const accounts = await collectUserFeishuBindingAccounts()
+
+    expect(accounts['user-6']).toBeDefined()
+    expect(accounts['user-6'].allowFrom).toEqual(['ou_cfg', 'ou_target_6'])
+    expect(accounts['user-6'].authMode).toBe('strict')
+    expect(accounts['user-6'].requireTenantKey).toBe(true)
+    expect(accounts['user-6'].strictAutoBind).toBe(false)
+    expect(hoisted.decryptMock).not.toHaveBeenCalled()
   })
 })

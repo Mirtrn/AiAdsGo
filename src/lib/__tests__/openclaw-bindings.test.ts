@@ -20,10 +20,13 @@ vi.mock('../openclaw/feishu-accounts', () => ({
     const parsed = Number(normalized.slice('user-'.length))
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null
   },
-  collectUserFeishuAccounts: collectUserFeishuAccountsMock,
+  collectUserFeishuBindingAccounts: collectUserFeishuAccountsMock,
 }))
 
-import { resolveOpenclawUserFromBinding } from '../openclaw/bindings'
+import {
+  resolveOpenclawUserFromBinding,
+  resolveOpenclawUserFromBindingDebug,
+} from '../openclaw/bindings'
 
 describe('openclaw bindings isolation', () => {
   const previousAuthMode = process.env.OPENCLAW_FEISHU_AUTH_MODE
@@ -256,5 +259,57 @@ describe('openclaw bindings isolation', () => {
 
     expect(result).toBeNull()
     expect(exec).not.toHaveBeenCalled()
+  })
+
+  it('returns debug reason for strict require tenant key rejection', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = 'true'
+    collectUserFeishuAccountsMock.mockResolvedValue({
+      'user-7': { authMode: 'strict', allowFrom: ['ou_abc'] },
+    })
+
+    const resolution = await resolveOpenclawUserFromBindingDebug('feishu', 'ou_not_allowed', {
+      accountId: 'user-7',
+      tenantKey: null,
+    })
+
+    expect(resolution.userId).toBeNull()
+    expect(resolution.reason).toBe('strict_require_tenant_key')
+    expect(resolution.tenantKeyProvided).toBe(false)
+    expect(resolution.authMode).toBe('strict')
+  })
+
+  it('returns debug reason for strict auto bind success', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = 'true'
+
+    const queryOne = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    const exec = vi.fn().mockResolvedValue({ changes: 1 })
+    getDatabaseMock.mockResolvedValue({ queryOne, exec, type: 'postgres' })
+
+    const resolution = await resolveOpenclawUserFromBindingDebug('feishu', 'ou_new', {
+      accountId: 'user-11',
+      tenantKey: 'tenant-11',
+    })
+
+    expect(resolution.userId).toBe(11)
+    expect(resolution.reason).toBe('strict_auto_bind_success')
+    expect(resolution.tenantKeyProvided).toBe(true)
+    expect(resolution.authMode).toBe('strict')
+  })
+
+  it('returns debug reason for compat feishu no match', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'compat'
+    collectUserFeishuAccountsMock.mockResolvedValue({})
+
+    const resolution = await resolveOpenclawUserFromBindingDebug('feishu', 'ou_missing', {
+      tenantKey: null,
+    })
+
+    expect(resolution.userId).toBeNull()
+    expect(resolution.reason).toBe('channel_binding_no_match')
+    expect(resolution.authMode).toBe('compat')
   })
 })

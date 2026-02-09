@@ -21,6 +21,14 @@ const FEISHU_USER_KEYS = [
   'feishu_target',
 ]
 
+const FEISHU_BINDING_USER_KEYS = [
+  'feishu_allow_from',
+  'feishu_target',
+  'feishu_auth_mode',
+  'feishu_require_tenant_key',
+  'feishu_strict_auto_bind',
+]
+
 type FeishuDmPolicy = 'pairing' | 'allowlist' | 'open' | 'disabled'
 type FeishuGroupPolicy = 'open' | 'allowlist' | 'disabled'
 type FeishuAuthMode = 'strict' | 'compat'
@@ -47,6 +55,11 @@ export type FeishuAccountConfig = {
   enabled?: boolean
   name?: string
 }
+
+export type FeishuBindingAccountConfig = Pick<
+  FeishuAccountConfig,
+  'allowFrom' | 'authMode' | 'requireTenantKey' | 'strictAutoBind'
+>
 
 export function getFeishuAccountIdForUser(userId: number): string {
   return `${FEISHU_USER_ACCOUNT_PREFIX}${userId}`
@@ -337,6 +350,55 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
       strictAutoBind: configuredStrictAutoBind ?? jsonMain.strictAutoBind,
       enabled: true,
       name: jsonMain.name || `user-${userId}`,
+    }
+  }
+
+  return accounts
+}
+
+export async function collectUserFeishuBindingAccounts(): Promise<Record<string, FeishuBindingAccountConfig>> {
+  const db = await getDatabase()
+  const placeholders = FEISHU_BINDING_USER_KEYS.map(() => '?').join(', ')
+  const rows = await db.query<SystemSetting>(
+    `SELECT user_id, key, value
+     FROM system_settings
+     WHERE category = ?
+       AND user_id IS NOT NULL
+       AND key IN (${placeholders})`,
+    ['openclaw', ...FEISHU_BINDING_USER_KEYS]
+  )
+
+  const byUser = new Map<number, Record<string, string>>()
+  for (const row of rows) {
+    if (!row.user_id) continue
+    const value = String(row.value || '').trim()
+    if (!value) continue
+    const existing = byUser.get(row.user_id) || {}
+    existing[row.key] = value
+    byUser.set(row.user_id, existing)
+  }
+
+  const accounts: Record<string, FeishuBindingAccountConfig> = {}
+  for (const [userId, values] of byUser.entries()) {
+    const configuredAllowFrom = parseFeishuAllowFrom(values.feishu_allow_from)
+    const targetFeishuId = resolveFeishuIdFromTarget(values.feishu_target)
+    const mergedAllowFrom = Array.from(
+      new Set([
+        ...configuredAllowFrom,
+        ...(targetFeishuId ? [targetFeishuId] : []),
+      ])
+    )
+
+    const configuredAuthMode = normalizeFeishuAuthMode(values.feishu_auth_mode)
+    const configuredRequireTenantKey = readBoolean(values.feishu_require_tenant_key)
+    const configuredStrictAutoBind = readBoolean(values.feishu_strict_auto_bind)
+
+    const accountId = getFeishuAccountIdForUser(userId)
+    accounts[accountId] = {
+      allowFrom: mergedAllowFrom.length > 0 ? mergedAllowFrom : undefined,
+      authMode: configuredAuthMode,
+      requireTenantKey: configuredRequireTenantKey,
+      strictAutoBind: configuredStrictAutoBind,
     }
   }
 
