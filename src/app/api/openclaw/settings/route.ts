@@ -196,37 +196,57 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: '仅管理员可修改全局 AI 配置' }, { status: 403 })
   }
 
-  if (globalUpdates.length > 0) {
+  const templateSettings = await getSettingsByCategory('openclaw')
+  const templateKeySet = new Set(templateSettings.map((setting) => setting.key))
+  const filteredGlobalUpdates = globalUpdates.filter(item => templateKeySet.has(item.key))
+  const filteredUserUpdates = userUpdates.filter(item => templateKeySet.has(item.key))
+  const skippedKeys = Array.from(new Set(
+    updates
+      .filter(item => !templateKeySet.has(item.key))
+      .map(item => item.key)
+  ))
+
+  if (skippedKeys.length > 0) {
+    console.warn('⚠️ OpenClaw配置模板缺失，已跳过保存键:', skippedKeys)
+  }
+
+  if (filteredGlobalUpdates.length > 0) {
     await updateSettings(
-      globalUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value }))
+      filteredGlobalUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value }))
     )
   }
 
-  if (userUpdates.length > 0) {
+  if (filteredUserUpdates.length > 0) {
     await updateSettings(
-      userUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
+      filteredUserUpdates.map(item => ({ category: 'openclaw', key: item.key, value: item.value })),
       auth.user.userId
     )
   }
 
-  try {
-    const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
-    const hasGlobalSync = updates.some(item => GLOBAL_SYNC_KEYS.has(item.key))
-    const hasUserSync = updates.some(item => USER_SYNC_KEYS.has(item.key))
-    const reason = hasGlobalSync
-      ? 'openclaw-global-ai-settings'
-      : hasUserSync
-        ? 'openclaw-user-settings'
-        : 'openclaw-user-settings-nonsync'
+  const appliedUpdates = [...filteredGlobalUpdates, ...filteredUserUpdates]
+  if (appliedUpdates.length > 0) {
+    try {
+      const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
+      const hasGlobalSync = appliedUpdates.some(item => GLOBAL_SYNC_KEYS.has(item.key))
+      const hasUserSync = appliedUpdates.some(item => USER_SYNC_KEYS.has(item.key))
+      const reason = hasGlobalSync
+        ? 'openclaw-global-ai-settings'
+        : hasUserSync
+          ? 'openclaw-user-settings'
+          : 'openclaw-user-settings-nonsync'
 
-    await syncOpenclawConfig(
-      hasGlobalSync
-        ? { reason }
-        : { reason, actorUserId: auth.user.userId }
-    )
-  } catch (error) {
-    console.error('❌ OpenClaw配置同步失败:', error)
+      await syncOpenclawConfig(
+        hasGlobalSync
+          ? { reason }
+          : { reason, actorUserId: auth.user.userId }
+      )
+    } catch (error) {
+      console.error('❌ OpenClaw配置同步失败:', error)
+    }
   }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({
+    success: true,
+    skippedKeys,
+  })
 }

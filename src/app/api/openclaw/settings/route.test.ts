@@ -35,7 +35,14 @@ describe('openclaw settings route AI global permissions', () => {
     vi.clearAllMocks()
 
     settingsFns.getUserOnlySettingsByCategory.mockResolvedValue([])
-    settingsFns.getSettingsByCategory.mockResolvedValue([])
+    settingsFns.getSettingsByCategory.mockResolvedValue([
+      { key: 'ai_models_json', value: '', dataType: 'text' },
+      { key: 'openclaw_models_mode', value: 'merge', dataType: 'string' },
+      { key: 'openclaw_models_bedrock_discovery_json', value: '[]', dataType: 'text' },
+      { key: 'feishu_app_id', value: '', dataType: 'string' },
+      { key: 'feishu_app_secret', value: '', dataType: 'string' },
+      { key: 'feishu_accounts_json', value: '{}', dataType: 'text' },
+    ])
     settingsFns.updateSettings.mockResolvedValue(undefined)
     syncFns.syncOpenclawConfig.mockResolvedValue(undefined)
   })
@@ -147,5 +154,45 @@ describe('openclaw settings route AI global permissions', () => {
       { category: 'openclaw', key: 'openclaw_models_mode', value: 'merge' },
     ])
     expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({ reason: 'openclaw-global-ai-settings' })
+  })
+
+  it('skips missing template keys instead of throwing 500', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    settingsFns.getSettingsByCategory.mockResolvedValueOnce([
+      { key: 'feishu_app_id', value: '', dataType: 'string' },
+      { key: 'feishu_app_secret', value: '', dataType: 'string' },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          { key: 'feishu_app_id', value: 'cli_new' },
+          { key: 'feishu_auth_mode', value: 'strict' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.skippedKeys).toEqual(['feishu_auth_mode'])
+    expect(settingsFns.updateSettings).toHaveBeenCalledWith(
+      [{ category: 'openclaw', key: 'feishu_app_id', value: 'cli_new' }],
+      9
+    )
+    expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({
+      reason: 'openclaw-user-settings',
+      actorUserId: 9,
+    })
   })
 })
