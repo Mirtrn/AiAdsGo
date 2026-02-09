@@ -382,6 +382,10 @@ function buildAutoFeishuAccountsJson(params: {
     ? { ...root.main }
     : {}
 
+  delete (main as Record<string, any>).appId
+  delete (main as Record<string, any>).appSecret
+  delete (main as Record<string, any>).appSecretFile
+
   const callbackPath = `/feishu/user-${params.userId}/card-action`
   const trimmedBaseUrl = String(params.appBaseUrl || '').trim().replace(/\/+$/, '')
 

@@ -76,6 +76,16 @@ function parseJsonObject(value: string | null | undefined): Record<string, any> 
   }
 }
 
+function mergeDefinedValues<T extends Record<string, any>>(base: T, overrides: Record<string, any>): T {
+  const next: Record<string, any> = { ...base }
+  for (const [key, value] of Object.entries(overrides || {})) {
+    if (value === undefined || value === null) continue
+    if (typeof value === 'string' && value.trim() === '') continue
+    next[key] = value
+  }
+  return next as T
+}
+
 function asObject(value: unknown): Record<string, any> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined
@@ -349,7 +359,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       (feishuAccount.appSecret || feishuAccount.appSecretFile)
   )
   if (existingMain && typeof existingMain === 'object' && !Array.isArray(existingMain)) {
-    const mergedMain = { ...feishuAccount, ...existingMain }
+    const mergedMain = mergeDefinedValues(existingMain as Record<string, any>, feishuAccount)
     if (mergedMain.appId && (mergedMain.appSecret || mergedMain.appSecretFile)) {
       feishuAccountsConfig.main = mergedMain
     } else {
@@ -364,7 +374,10 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   for (const [accountId, userAccount] of Object.entries(userFeishuAccounts)) {
     const existing = mergedFeishuAccounts[accountId]
     if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
-      mergedFeishuAccounts[accountId] = { ...existing, ...userAccount }
+      mergedFeishuAccounts[accountId] = mergeDefinedValues(
+        existing as Record<string, any>,
+        userAccount as Record<string, any>
+      )
     } else {
       mergedFeishuAccounts[accountId] = userAccount
     }

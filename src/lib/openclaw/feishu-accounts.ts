@@ -282,9 +282,9 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
   for (const [userId, values] of byUser.entries()) {
     const jsonMain = parseUserMainAccountFromJson(values.feishu_accounts_json)
 
-    const appId = jsonMain.appId || values.feishu_app_id?.trim()
-    const appSecret = jsonMain.appSecret || values.feishu_app_secret?.trim()
-    const appSecretFile = jsonMain.appSecretFile || values.feishu_app_secret_file?.trim()
+    const appId = values.feishu_app_id?.trim() || jsonMain.appId
+    const appSecret = values.feishu_app_secret?.trim() || jsonMain.appSecret
+    const appSecretFile = values.feishu_app_secret_file?.trim() || jsonMain.appSecretFile
     if (!appId || (!appSecret && !appSecretFile)) continue
 
     const configuredAllowFrom = parseFeishuAllowFrom(values.feishu_allow_from)
@@ -298,8 +298,9 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
     )
 
     const configuredDmPolicy = normalizeFeishuDmPolicy(values.feishu_dm_policy)
-    const effectiveDmPolicy: FeishuDmPolicy | undefined =
-      mergedAllowFrom.length > 0 ? 'allowlist' : jsonMain.dmPolicy || configuredDmPolicy
+    const effectiveDmPolicy: FeishuDmPolicy | undefined = mergedAllowFrom.length > 0
+      ? 'allowlist'
+      : configuredDmPolicy || jsonMain.dmPolicy
 
     const configuredGroupAllowFrom = parseFeishuAllowFrom(values.feishu_group_allow_from)
     const mergedGroupAllowFrom = Array.from(
@@ -319,10 +320,10 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
       appId,
       appSecret,
       appSecretFile,
-      botName: jsonMain.botName || values.feishu_bot_name?.trim() || undefined,
-      domain: jsonMain.domain || values.feishu_domain?.trim() || undefined,
+      botName: values.feishu_bot_name?.trim() || jsonMain.botName || undefined,
+      domain: values.feishu_domain?.trim() || jsonMain.domain || undefined,
       dmPolicy: effectiveDmPolicy,
-      groupPolicy: jsonMain.groupPolicy || configuredGroupPolicy,
+      groupPolicy: configuredGroupPolicy || jsonMain.groupPolicy,
       allowFrom: mergedAllowFrom.length > 0 ? mergedAllowFrom : undefined,
       groupAllowFrom: mergedGroupAllowFrom.length > 0 ? mergedGroupAllowFrom : undefined,
       cardCallbackPath: jsonMain.cardCallbackPath,
@@ -331,10 +332,10 @@ export async function collectUserFeishuAccounts(): Promise<Record<string, Feishu
       cardConfirmUrl: jsonMain.cardConfirmUrl,
       cardConfirmAuthToken: jsonMain.cardConfirmAuthToken,
       cardConfirmTimeoutMs: jsonMain.cardConfirmTimeoutMs,
-      authMode: jsonMain.authMode || configuredAuthMode,
-      requireTenantKey: jsonMain.requireTenantKey ?? configuredRequireTenantKey,
-      strictAutoBind: jsonMain.strictAutoBind ?? configuredStrictAutoBind,
-      enabled: jsonMain.enabled ?? true,
+      authMode: configuredAuthMode || jsonMain.authMode,
+      requireTenantKey: configuredRequireTenantKey ?? jsonMain.requireTenantKey,
+      strictAutoBind: configuredStrictAutoBind ?? jsonMain.strictAutoBind,
+      enabled: true,
       name: jsonMain.name || `user-${userId}`,
     }
   }

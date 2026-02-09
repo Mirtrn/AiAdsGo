@@ -112,8 +112,8 @@ describe('collectUserFeishuAccounts', () => {
     const accounts = await collectUserFeishuAccounts()
 
     expect(accounts['user-4']).toBeDefined()
-    expect(accounts['user-4'].appId).toBe('cli_json')
-    expect(accounts['user-4'].appSecret).toBe('sec_json')
+    expect(accounts['user-4'].appId).toBe('cli_base')
+    expect(accounts['user-4'].appSecret).toBe('sec_base')
     expect(accounts['user-4'].dmPolicy).toBe('allowlist')
     expect(accounts['user-4'].allowFrom).toEqual(['ou_json', 'ou_cfg', 'ou_target_4'])
     expect(accounts['user-4'].cardCallbackPath).toBe('/feishu/user-4/card-action')
