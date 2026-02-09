@@ -1170,8 +1170,36 @@ export default function OpenClawPage() {
   const reportKpis = report?.kpis?.data || {}
   const reportRoi = report?.roi?.data?.overall || {}
   const totalCost = Number(reportRoi.totalCost) || 0
-  const totalRevenue = Number(reportRoi.totalRevenue) || 0
-  const reportRoas = totalCost > 0 ? totalRevenue / totalCost : 0
+  const totalRevenueRaw = reportRoi?.totalRevenue
+  const totalRevenue = totalRevenueRaw === null || totalRevenueRaw === undefined
+    ? null
+    : Number(totalRevenueRaw)
+  const roiRevenueAvailable = reportRoi?.revenueAvailable !== false
+    && totalRevenue !== null
+    && Number.isFinite(totalRevenue)
+  const reportRoas = roiRevenueAvailable
+    ? (reportRoi?.roas !== undefined
+      ? (Number(reportRoi.roas) || 0)
+      : (totalCost > 0 ? (totalRevenue || 0) / totalCost : 0))
+    : null
+  const roiRevenueSource = String(reportRoi.revenueSource || 'unavailable')
+  const usingAffiliateCommissionRevenue = roiRevenueAvailable && roiRevenueSource === 'affiliate_commission'
+  const roiUnavailableReason = String(reportRoi.unavailableReason || '')
+  const affiliateRevenueBreakdown = Array.isArray(reportRoi.affiliateBreakdown)
+    ? reportRoi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number }>
+    : []
+  const revenueTitle = 'Commission Revenue'
+  const reportRevenueValue: string | number = roiRevenueAvailable ? (totalRevenue || 0) : '—'
+  const reportRoasValue = roiRevenueAvailable && reportRoas !== null ? `${reportRoas.toFixed(2)}x` : '—'
+  const reportRoiValue = roiRevenueAvailable && reportRoi.roi !== null && reportRoi.roi !== undefined
+    ? `${reportRoi.roi}%`
+    : '—'
+  const reportProfitValue: string | number = roiRevenueAvailable && reportRoi.totalProfit !== null && reportRoi.totalProfit !== undefined
+    ? reportRoi.totalProfit
+    : '—'
+  const roiUnavailableHint = roiUnavailableReason === 'affiliate_not_configured'
+    ? '未配置联盟平台参数，严格模式下不回退 AutoAds 收益。'
+    : '联盟平台佣金查询失败或暂无返回，严格模式下不回退 AutoAds 收益。'
   const offerRows = report?.roi?.data?.byOffer || []
   const trendData = report?.trends?.data?.trends || []
   const budgetOverall = report?.budget?.data?.overall || {}
@@ -2359,7 +2387,7 @@ export default function OpenClawPage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:auto-rows-fr md:grid-cols-4">
                 <KpiCard title="输入批次" value={asinData?.stats?.inputs || 0} />
                 <KpiCard title="总条目" value={asinData?.stats?.items || 0} />
                 <KpiCard title="待处理" value={asinData?.stats?.pending || 0} />
@@ -2407,7 +2435,7 @@ export default function OpenClawPage() {
               <CardTitle>每日报表</CardTitle>
               <CardDescription>统计数据 + 操作记录</CardDescription>
             </CardHeader>
-            <CardContent className="flex items-end gap-4">
+            <CardContent className="flex items-center gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">报表日期</label>
                 <Input
@@ -2421,14 +2449,14 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:auto-rows-fr md:grid-cols-4">
             <KpiCard title="Offers" value={reportSummary.totalOffers ?? 0} />
             <KpiCard title="Campaigns" value={reportSummary.totalCampaigns ?? 0} />
-            <KpiCard title="Revenue" value={totalRevenue} />
-            <KpiCard title="ROAS" value={`${reportRoas.toFixed(2)}x`} />
+            <KpiCard title={revenueTitle} value={reportRevenueValue} />
+            <KpiCard title="ROAS" value={reportRoasValue} />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:auto-rows-fr md:grid-cols-4">
             <KpiCard title="Impressions" value={reportKpis.current?.impressions ?? 0} />
             <KpiCard title="Clicks" value={reportKpis.current?.clicks ?? 0} />
             <KpiCard title="Conversions" value={reportKpis.current?.conversions ?? 0} />
@@ -2440,7 +2468,7 @@ export default function OpenClawPage() {
               <CardTitle>预算与消耗</CardTitle>
               <CardDescription>基于当日预算统计</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-5">
+            <CardContent className="grid gap-4 md:auto-rows-fr md:grid-cols-5">
               <KpiCard title="Total Budget" value={budgetOverall.totalBudget ?? 0} />
               <KpiCard title="Total Spent" value={budgetOverall.totalSpent ?? 0} />
               <KpiCard title="Remaining" value={budgetOverall.remaining ?? 0} />
@@ -2465,21 +2493,38 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle>ROI / ROAS 分析</CardTitle>
-              <CardDescription>基于当日报表币种计算</CardDescription>
+              <CardDescription>
+                {usingAffiliateCommissionRevenue
+                  ? '收益口径：联盟平台佣金（PartnerBoost / YeahPromos）'
+                  : '收益口径：联盟平台佣金（严格模式，当前不可用）'}
+              </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-5">
-              <KpiCard title="Cost" value={totalCost} />
-              <KpiCard title="Revenue" value={totalRevenue} />
-              <KpiCard title="Profit" value={reportRoi.totalProfit ?? 0} />
-              <KpiCard title="ROAS" value={`${reportRoas.toFixed(2)}x`} />
-              <KpiCard title="ROI" value={`${reportRoi.roi ?? 0}%`} />
+            <CardContent className="space-y-3">
+              {usingAffiliateCommissionRevenue && affiliateRevenueBreakdown.length > 0 && (
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  平台拆分：
+                  {affiliateRevenueBreakdown.map((item) => `${item.platform || 'unknown'} ${Number(item.totalCommission || 0).toFixed(2)}（${item.records || 0}条）`).join(' | ')}
+                </div>
+              )}
+              {!roiRevenueAvailable && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  {roiUnavailableHint}
+                </div>
+              )}
+              <div className="grid gap-4 md:auto-rows-fr md:grid-cols-5">
+                <KpiCard title="Cost" value={totalCost} />
+                <KpiCard title={revenueTitle} value={reportRevenueValue} />
+                <KpiCard title="Profit" value={reportProfitValue} />
+                <KpiCard title="ROAS" value={reportRoasValue} />
+                <KpiCard title="ROI" value={reportRoiValue} />
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Offer ROI Top 10</CardTitle>
-              <CardDescription>按收入排序的Offer表现</CardDescription>
+              <CardDescription>该表仍基于 AutoAds ROI 接口（按 Offer 聚合），用于投放表现对比</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -2693,11 +2738,11 @@ function SwitchWithLabel(props: {
 
 function KpiCard(props: { title: string; value: string | number }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{props.title}</CardDescription>
-        <CardTitle className="text-2xl">{props.value}</CardTitle>
-      </CardHeader>
+    <Card className="h-full">
+      <CardContent className="flex h-full min-h-[96px] flex-col justify-center gap-2 py-4">
+        <CardDescription className="leading-none">{props.title}</CardDescription>
+        <CardTitle className="text-2xl leading-none tracking-tight tabular-nums">{props.value}</CardTitle>
+      </CardContent>
     </Card>
   )
 }

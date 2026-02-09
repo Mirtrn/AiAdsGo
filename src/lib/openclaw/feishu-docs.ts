@@ -176,8 +176,21 @@ function buildDocLines(report: DailyReportPayload): string[] {
   const summary = report.summary?.kpis || {}
   const roi = report.roi?.data?.overall || {}
   const totalCost = Number(roi.totalCost) || 0
-  const totalRevenue = Number(roi.totalRevenue) || 0
-  const roas = totalCost > 0 ? totalRevenue / totalCost : 0
+  const totalRevenueRaw = roi?.totalRevenue
+  const totalRevenue = totalRevenueRaw === null || totalRevenueRaw === undefined
+    ? null
+    : Number(totalRevenueRaw)
+  const revenueAvailable = roi?.revenueAvailable !== false
+    && totalRevenue !== null
+    && Number.isFinite(totalRevenue)
+  const roas = revenueAvailable
+    ? (roi?.roas !== undefined
+      ? Number(roi.roas) || 0
+      : (totalCost > 0 ? (totalRevenue || 0) / totalCost : 0))
+    : null
+  const affiliateBreakdown = Array.isArray(roi?.affiliateBreakdown)
+    ? roi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number }>
+    : []
   const strategySummary = buildBitableStrategySummary(report)
 
   const lines: string[] = []
@@ -188,9 +201,27 @@ function buildDocLines(report: DailyReportPayload): string[] {
   lines.push(`Campaigns: ${summary.totalCampaigns ?? 0}`)
   lines.push(`Clicks: ${summary.totalClicks ?? 0}`)
   lines.push(`Cost: ${totalCost}`)
-  lines.push(`Revenue: ${totalRevenue}`)
-  lines.push(`ROAS: ${roas.toFixed(2)}x`)
-  lines.push(`ROI: ${roi.roi ?? 0}%`)
+
+  if (revenueAvailable) {
+    lines.push(`Commission Revenue: ${Number(totalRevenue || 0).toFixed(2)}`)
+    lines.push(`ROAS: ${(roas || 0).toFixed(2)}x`)
+    lines.push(`ROI: ${roi.roi ?? 0}%`)
+    lines.push('Revenue Source: Affiliate Commission (PartnerBoost / YeahPromos)')
+
+    if (affiliateBreakdown.length > 0) {
+      lines.push(
+        `Affiliate Breakdown: ${affiliateBreakdown
+          .map((item) => `${item.platform || 'unknown'} ${Number(item.totalCommission || 0).toFixed(2)} (records ${Number(item.records) || 0})`)
+          .join(' | ')}`
+      )
+    }
+  } else {
+    lines.push('Commission Revenue: 数据不可用（待联盟平台返回）')
+    lines.push('ROAS: 数据不可用')
+    lines.push('ROI: 数据不可用')
+    lines.push('Revenue Source: Strict Affiliate Mode（不回退 AutoAds）')
+  }
+
   lines.push(`操作记录: ${(report.actions || []).length}`)
   if (strategySummary.recommendedMaxOffersPerRun > 0) {
     lines.push(
@@ -203,6 +234,7 @@ function buildDocLines(report: DailyReportPayload): string[] {
   }
   return lines
 }
+
 
 async function ensureBitableFields(params: {
   appToken: string
@@ -329,17 +361,27 @@ export async function writeDailyReportToBitable(userId: number, report: DailyRep
 
   const roi = report.roi?.data?.overall || {}
   const totalCost = Number(roi.totalCost) || 0
-  const totalRevenue = Number(roi.totalRevenue) || 0
-  const roas = totalCost > 0 ? totalRevenue / totalCost : 0
+  const totalRevenueRaw = roi?.totalRevenue
+  const totalRevenue = totalRevenueRaw === null || totalRevenueRaw === undefined
+    ? null
+    : Number(totalRevenueRaw)
+  const revenueAvailable = roi?.revenueAvailable !== false
+    && totalRevenue !== null
+    && Number.isFinite(totalRevenue)
+  const roas = revenueAvailable
+    ? (roi?.roas !== undefined
+      ? Number(roi.roas) || 0
+      : (totalCost > 0 ? (totalRevenue || 0) / totalCost : 0))
+    : null
   const strategySummary = buildBitableStrategySummary(report)
   const fields = {
     Date: report.date,
     Offers: String(report.summary?.kpis?.totalOffers ?? 0),
     Campaigns: String(report.summary?.kpis?.totalCampaigns ?? 0),
-    Revenue: String(totalRevenue),
+    Revenue: revenueAvailable ? String(totalRevenue) : '-',
     Cost: String(totalCost),
-    ROAS: roas.toFixed(2),
-    ROI: String(roi.roi ?? 0),
+    ROAS: revenueAvailable ? roas!.toFixed(2) : '-',
+    ROI: revenueAvailable ? String(roi.roi ?? 0) : '-',
     Actions: String((report.actions || []).length),
     GuardLevel: strategySummary.guardLevel,
     PublishFailureRate: `${(strategySummary.publishFailureRate * 100).toFixed(1)}%`,
@@ -349,7 +391,9 @@ export async function writeDailyReportToBitable(userId: number, report: DailyRep
     RecommendationSource: strategySummary.recommendationSource,
     TomorrowAdvice: strategySummary.recommendationNote,
     StrategyReason: strategySummary.reason || '',
-    Notes: '',
+    Notes: revenueAvailable
+      ? 'Revenue source: affiliate commission'
+      : 'Revenue unavailable: strict affiliate mode',
   }
 
   let existingRecordId: string | null = null

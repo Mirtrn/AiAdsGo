@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { fetchAutoadsJson } from '@/lib/openclaw/autoads-client'
+import { fetchAffiliateCommissionRevenue, type AffiliateCommissionRevenue } from '@/lib/openclaw/affiliate-revenue'
 import { invokeOpenclawTool } from '@/lib/openclaw/gateway'
 import { resolveUserFeishuAccountId } from '@/lib/openclaw/feishu-accounts'
 import { writeDailyReportToBitable, writeDailyReportToDoc } from '@/lib/openclaw/feishu-docs'
@@ -78,6 +79,80 @@ function parseMaybeJson<T>(value: unknown, fallback: T): T {
 function toNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function asObject(value: unknown): Record<string, any> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  return value as Record<string, any>
+}
+
+function mergeRoiWithAffiliateRevenue(params: {
+  roi: unknown
+  summary: any
+  affiliateRevenue: AffiliateCommissionRevenue
+  errors: DailyReportPayload['errors']
+}) {
+  const roiRoot = asObject(params.roi) ? { ...(params.roi as Record<string, any>) } : {}
+  const roiData = asObject(roiRoot.data) ? { ...(roiRoot.data as Record<string, any>) } : {}
+  const roiOverall = asObject(roiData.overall)
+    ? { ...(roiData.overall as Record<string, any>) }
+    : {}
+
+  const totalCost = roundTo2(toNumber(roiOverall.totalCost, toNumber(params.summary?.kpis?.totalCost, 0)))
+  const hasAffiliateConfigured = params.affiliateRevenue.configuredPlatforms.length > 0
+  const hasAffiliateData = params.affiliateRevenue.queriedPlatforms.length > 0
+  const revenueAvailable = hasAffiliateConfigured && hasAffiliateData
+
+  const totalRevenue = revenueAvailable
+    ? roundTo2(params.affiliateRevenue.totalCommission)
+    : null
+  const totalProfit = revenueAvailable
+    ? roundTo2((totalRevenue || 0) - totalCost)
+    : null
+  const roiPercent = revenueAvailable
+    ? (totalCost > 0 ? roundTo2(((totalProfit || 0) / totalCost) * 100) : 0)
+    : null
+  const roas = revenueAvailable
+    ? (totalCost > 0 ? roundTo2((totalRevenue || 0) / totalCost) : 0)
+    : null
+
+  for (const item of params.affiliateRevenue.errors) {
+    params.errors?.push({
+      source: `affiliate.${item.platform}`,
+      message: item.message,
+    })
+  }
+
+  roiData.overall = {
+    ...roiOverall,
+    totalCost,
+    totalRevenue,
+    totalProfit,
+    roi: roiPercent,
+    roas,
+    revenueAvailable,
+    revenueSource: revenueAvailable ? 'affiliate_commission' : 'unavailable',
+    unavailableReason: revenueAvailable
+      ? null
+      : hasAffiliateConfigured
+        ? 'affiliate_query_failed'
+        : 'affiliate_not_configured',
+    affiliateCommissionRevenue: roundTo2(params.affiliateRevenue.totalCommission),
+    affiliateConfiguredPlatforms: params.affiliateRevenue.configuredPlatforms,
+    affiliateQueriedPlatforms: params.affiliateRevenue.queriedPlatforms,
+    affiliateBreakdown: params.affiliateRevenue.breakdown,
+  }
+
+  return {
+    ...roiRoot,
+    data: roiData,
+  }
 }
 
 function getTopReasons(messages: unknown[], limit = 3): string[] {
@@ -220,7 +295,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
   const reportDate = dateStr || formatLocalDate(new Date())
   const errors: DailyReportPayload['errors'] = []
 
-  const [summary, kpis, trends, roi, campaigns, budget, performance] = await Promise.all([
+  const [summary, kpis, trends, roi, campaigns, budget, performance, affiliateRevenue] = await Promise.all([
     fetchWithGuard('dashboard.summary', () => fetchAutoadsJson({
       userId,
       path: '/api/dashboard/summary',
@@ -256,7 +331,25 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
       path: '/api/campaigns/performance',
       query: { daysBack: 7 },
     }), errors),
+    fetchWithGuard('affiliate.commission', () => fetchAffiliateCommissionRevenue({
+      userId,
+      reportDate,
+    }), errors),
   ])
+
+  const normalizedRoi = mergeRoiWithAffiliateRevenue({
+    roi,
+    summary,
+    affiliateRevenue: affiliateRevenue || {
+      reportDate,
+      configuredPlatforms: [],
+      queriedPlatforms: [],
+      totalCommission: 0,
+      breakdown: [],
+      errors: [],
+    },
+    errors,
+  })
 
   const db = await getDatabase()
   const actions = await db.query<any>(
@@ -294,7 +387,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     summary,
     kpis,
     trends,
-    roi,
+    roi: normalizedRoi,
     campaigns,
     budget,
     performance,
@@ -383,8 +476,21 @@ function formatReportMessage(report: DailyReportPayload): string {
   const kpis = report.kpis?.data
   const roi = report.roi?.data?.overall
   const totalCost = roi ? Number(roi.totalCost) || 0 : 0
-  const totalRevenue = roi ? Number(roi.totalRevenue) || 0 : 0
-  const roas = totalCost > 0 ? totalRevenue / totalCost : 0
+  const totalRevenueRaw = roi?.totalRevenue
+  const totalRevenue = totalRevenueRaw === null || totalRevenueRaw === undefined
+    ? null
+    : Number(totalRevenueRaw)
+  const revenueAvailable = roi?.revenueAvailable !== false
+    && totalRevenue !== null
+    && Number.isFinite(totalRevenue)
+  const roas = revenueAvailable
+    ? (roi?.roas !== undefined
+      ? Number(roi.roas) || 0
+      : (totalCost > 0 ? (totalRevenue || 0) / totalCost : 0))
+    : null
+  const affiliateBreakdown = Array.isArray(roi?.affiliateBreakdown)
+    ? roi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number }>
+    : []
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
 
   const lines: string[] = []
@@ -398,10 +504,27 @@ function formatReportMessage(report: DailyReportPayload): string {
   if (kpis?.current) {
     lines.push(`- Impressions: ${kpis.current.impressions ?? 0} | Conversions: ${kpis.current.conversions ?? 0}`)
   }
+
   if (roi) {
-    lines.push(`- Revenue: ${totalRevenue} | Cost: ${totalCost} | Profit: ${roi.totalProfit ?? 0}`)
-    lines.push(`- ROAS: ${roas.toFixed(2)}x | ROI: ${roi.roi ?? 0}%`)
+    if (revenueAvailable) {
+      lines.push(`- Commission Revenue: ${roundTo2(totalRevenue || 0)} | Cost: ${totalCost} | Profit: ${roi.totalProfit ?? 0}`)
+      lines.push(`- ROAS: ${(roas || 0).toFixed(2)}x | ROI: ${roi.roi ?? 0}%`)
+      lines.push('- Revenue Source: Affiliate Commission (PartnerBoost / YeahPromos)')
+
+      if (affiliateBreakdown.length > 0) {
+        const detail = affiliateBreakdown
+          .map((item) => `${item.platform || 'unknown'}: ${roundTo2(Number(item.totalCommission) || 0)} (records ${Number(item.records) || 0})`)
+          .join(' | ')
+        lines.push(`- Affiliate Breakdown: ${detail}`)
+      }
+    } else {
+      lines.push(`- Cost: ${totalCost}`)
+      lines.push('- Commission Revenue: 数据不可用（待联盟平台返回）')
+      lines.push('- ROAS: 数据不可用 | ROI: 数据不可用')
+      lines.push('- Revenue Source: Strict Affiliate Mode（不回退 AutoAds）')
+    }
   }
+
   if (report.budget?.data?.overall) {
     const overall = report.budget.data.overall
     lines.push(`- Budget: ${overall.totalBudget ?? 0} | Spent: ${overall.totalSpent ?? 0} | Remaining: ${overall.remaining ?? 0}`)
