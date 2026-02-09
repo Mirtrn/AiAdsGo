@@ -18,7 +18,7 @@ describe("resolveWorkspaceTemplateDir", () => {
     const root = await makeTempRoot();
     await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "openclaw" }));
 
-    const templatesDir = path.join(root, "docs", "reference", "templates");
+    const templatesDir = path.join(root, "workspace-templates");
     await fs.mkdir(templatesDir, { recursive: true });
     await fs.writeFile(path.join(templatesDir, "AGENTS.md"), "# ok\n");
 
@@ -28,5 +28,26 @@ describe("resolveWorkspaceTemplateDir", () => {
 
     const resolved = await resolveWorkspaceTemplateDir({ cwd: distDir, moduleUrl });
     expect(resolved).toBe(templatesDir);
+  });
+
+  it("prefers workspace-templates over docs templates", async () => {
+    resetWorkspaceTemplateDirCache();
+    const root = await makeTempRoot();
+    await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "openclaw" }));
+
+    const workspaceTemplatesDir = path.join(root, "workspace-templates");
+    await fs.mkdir(workspaceTemplatesDir, { recursive: true });
+    await fs.writeFile(path.join(workspaceTemplatesDir, "AGENTS.md"), "# workspace\n");
+
+    const docsTemplatesDir = path.join(root, "docs", "reference", "templates");
+    await fs.mkdir(docsTemplatesDir, { recursive: true });
+    await fs.writeFile(path.join(docsTemplatesDir, "AGENTS.md"), "# docs\n");
+
+    const distDir = path.join(root, "dist");
+    await fs.mkdir(distDir, { recursive: true });
+    const moduleUrl = pathToFileURL(path.join(distDir, "workspace.mjs")).toString();
+
+    const resolved = await resolveWorkspaceTemplateDir({ cwd: distDir, moduleUrl });
+    expect(resolved).toBe(workspaceTemplatesDir);
   });
 });

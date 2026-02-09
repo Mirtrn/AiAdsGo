@@ -5,6 +5,11 @@ import { resolveOpenClawPackageRoot } from "../infra/openclaw-root.js";
 
 const FALLBACK_TEMPLATE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
+  "../../workspace-templates",
+);
+
+const FALLBACK_DOCS_TEMPLATE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
   "../../docs/reference/templates",
 );
 
@@ -39,9 +44,12 @@ export async function resolveWorkspaceTemplateDir(opts?: {
 
     const packageRoot = await resolveOpenClawPackageRoot({ moduleUrl, argv1, cwd });
     const candidates = [
+      packageRoot ? path.join(packageRoot, "workspace-templates") : null,
       packageRoot ? path.join(packageRoot, "docs", "reference", "templates") : null,
+      cwd ? path.resolve(cwd, "workspace-templates") : null,
       cwd ? path.resolve(cwd, "docs", "reference", "templates") : null,
       FALLBACK_TEMPLATE_DIR,
+      FALLBACK_DOCS_TEMPLATE_DIR,
     ].filter(Boolean) as string[];
 
     for (const candidate of candidates) {

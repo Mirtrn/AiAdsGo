@@ -13,6 +13,7 @@
     "CHANGELOG.md",
     "dist/",
     "docs/",
+    "workspace-templates/",
     "extensions/",
     "LICENSE",
     "openclaw.mjs",
