@@ -8,6 +8,7 @@ import { enums } from 'google-ads-api'
 import { getDatabase } from './db'
 import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { listGoogleAdsCampaigns } from './google-ads-api'
+import { resolveLoginCustomerId } from './google-ads-login-customer'
 import {
   categorizeCampaigns,
   type GoogleAdsCampaignInfo
@@ -99,28 +100,26 @@ export async function queryActiveCampaigns(
 
   const auth = await getUserAuthType(userId)
 
-  // 🔧 处理MCC子账号的login-customer-id参数
-  // 优先使用用户配置的login_customer_id（OAuth）或服务账号MCC（service_account）
-  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+  let serviceAccountMccId: string | undefined
 
-  if (auth.authType === 'oauth') {
-    if (credentials?.login_customer_id) {
-      effectiveLoginCustomerId = credentials.login_customer_id
-    }
-  } else if (auth.authType === 'service_account') {
+  if (auth.authType === 'service_account') {
     try {
       const { getServiceAccountConfig } = await import('./google-ads-service-account')
       const saConfig = await getServiceAccountConfig(userId, auth.serviceAccountId)
       if (saConfig?.mccCustomerId) {
-        effectiveLoginCustomerId = saConfig.mccCustomerId
+        serviceAccountMccId = saConfig.mccCustomerId
       }
     } catch (error) {
       console.warn('⚠️ 无法获取服务账号MCC Customer ID:', error)
     }
   }
 
-  // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
-  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+  const finalLoginCustomerId = resolveLoginCustomerId({
+    authType: auth.authType,
+    accountParentMccId: adsAccount.parent_mcc_id,
+    oauthLoginCustomerId: credentials?.login_customer_id,
+    serviceAccountMccId,
+  })
 
   if (!credentials?.refresh_token && !serviceAccount) {
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
@@ -220,27 +219,26 @@ export async function pauseCampaigns(
 
   const auth = await getUserAuthType(userId)
 
-  // 🔧 处理MCC子账号的login-customer-id参数
-  // 优先使用用户配置的login_customer_id（OAuth）或服务账号MCC（service_account）
-  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+  let serviceAccountMccId2: string | undefined
 
-  if (auth.authType === 'oauth') {
-    if (credentials2?.login_customer_id) {
-      effectiveLoginCustomerId = credentials2.login_customer_id
-    }
-  } else if (auth.authType === 'service_account') {
+  if (auth.authType === 'service_account') {
     try {
       const { getServiceAccountConfig } = await import('./google-ads-service-account')
       const saConfig = await getServiceAccountConfig(userId, auth.serviceAccountId)
       if (saConfig?.mccCustomerId) {
-        effectiveLoginCustomerId = saConfig.mccCustomerId
+        serviceAccountMccId2 = saConfig.mccCustomerId
       }
     } catch (error) {
       console.warn('⚠️ 无法获取服务账号MCC Customer ID:', error)
     }
   }
 
-  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+  const finalLoginCustomerId = resolveLoginCustomerId({
+    authType: auth.authType,
+    accountParentMccId: adsAccount.parent_mcc_id,
+    oauthLoginCustomerId: credentials2?.login_customer_id,
+    serviceAccountMccId: serviceAccountMccId2,
+  })
 
   if (!credentials2?.refresh_token && !serviceAccount2) {
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
