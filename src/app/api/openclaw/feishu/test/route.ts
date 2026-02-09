@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
-import { getOpenclawSettingsMap, readSecretFile } from '@/lib/openclaw/settings'
+import { getOpenclawSettingsMap } from '@/lib/openclaw/settings'
 import { feishuRequest, getTenantAccessToken, resolveFeishuApiBase } from '@/lib/openclaw/feishu-api'
 
 const feishuTestSchema = z.object({
   appId: z.string().optional(),
   appSecret: z.string().optional(),
-  appSecretFile: z.string().optional(),
   domain: z.string().optional(),
   target: z.string().optional(),
 })
@@ -90,12 +89,7 @@ export async function POST(request: NextRequest) {
   const settingMap = await getOpenclawSettingsMap(auth.user.userId)
 
   const appId = pickFirstText(payload.appId, settingMap.feishu_app_id)
-  const appSecretFile = pickFirstText(payload.appSecretFile, settingMap.feishu_app_secret_file)
-  const appSecret = pickFirstText(
-    payload.appSecret,
-    settingMap.feishu_app_secret,
-    readSecretFile(appSecretFile),
-  )
+  const appSecret = pickFirstText(payload.appSecret, settingMap.feishu_app_secret)
   const domain = pickFirstText(payload.domain, settingMap.feishu_domain, 'feishu')
   const targetInput = pickFirstText(payload.target, settingMap.feishu_target)
 
@@ -103,7 +97,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '请先填写飞书 App ID' }, { status: 400 })
   }
   if (!appSecret) {
-    return NextResponse.json({ error: '请先填写飞书 App Secret（或可读的 App Secret File）' }, { status: 400 })
+    return NextResponse.json({ error: '请先填写飞书 App Secret' }, { status: 400 })
   }
   if (!targetInput) {
     return NextResponse.json({ error: '请先填写飞书推送目标（open_id / union_id / chat_id）' }, { status: 400 })
@@ -166,4 +160,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

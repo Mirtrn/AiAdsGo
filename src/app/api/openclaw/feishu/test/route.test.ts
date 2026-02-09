@@ -8,7 +8,6 @@ const authFns = vi.hoisted(() => ({
 
 const settingsFns = vi.hoisted(() => ({
   getOpenclawSettingsMap: vi.fn(),
-  readSecretFile: vi.fn(),
 }))
 
 const feishuApiFns = vi.hoisted(() => ({
@@ -23,7 +22,6 @@ vi.mock('@/lib/openclaw/request-auth', () => ({
 
 vi.mock('@/lib/openclaw/settings', () => ({
   getOpenclawSettingsMap: settingsFns.getOpenclawSettingsMap,
-  readSecretFile: settingsFns.readSecretFile,
 }))
 
 vi.mock('@/lib/openclaw/feishu-api', () => ({
@@ -46,10 +44,30 @@ describe('openclaw feishu test route', () => {
       feishu_domain: 'feishu',
       feishu_target: 'ou_target_123',
     })
-    settingsFns.readSecretFile.mockReturnValue(undefined)
     feishuApiFns.getTenantAccessToken.mockResolvedValue('tenant_token_xxx')
     feishuApiFns.resolveFeishuApiBase.mockReturnValue('https://open.feishu.cn/open-apis')
     feishuApiFns.feishuRequest.mockResolvedValue({ bot: { app_name: 'OpenClaw Bot' } })
+  })
+
+  it('returns 400 when app secret is missing', async () => {
+    settingsFns.getOpenclawSettingsMap.mockResolvedValue({
+      feishu_app_id: 'cli_xxx',
+      feishu_app_secret: '',
+      feishu_domain: 'feishu',
+      feishu_target: 'ou_target_123',
+    })
+
+    const req = new NextRequest('http://localhost/api/openclaw/feishu/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: 'ou_target_123' }),
+    })
+
+    const res = await POST(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(payload.error).toContain('请先填写飞书 App Secret')
   })
 
   it('returns 400 when target format is invalid', async () => {
@@ -108,4 +126,3 @@ describe('openclaw feishu test route', () => {
     )
   })
 })
-

@@ -214,7 +214,6 @@ const AI_GLOBAL_EDIT_KEYS = [
 const FEISHU_CHAT_MINIMAL_USER_KEYS = [
   'feishu_app_id',
   'feishu_app_secret',
-  'feishu_app_secret_file',
   'feishu_target',
   'feishu_accounts_json',
 ] as const
@@ -229,7 +228,7 @@ const FEISHU_CHAT_COMMUNICATION_USER_KEYS = [
 
 const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
   feishu_app_id: 'cli_xxx',
-  feishu_app_secret: '',
+  feishu_app_secret: 'app_secret_xxx',
   feishu_target: 'ou_xxx',
   feishu_domain: 'feishu',
   feishu_auth_mode: 'strict',
@@ -759,9 +758,8 @@ export default function OpenClawPage() {
         setUserValues((prev) => ({ ...prev, feishu_accounts_json: generatedFeishuAccountsJson }))
 
         const hasAppSecret = hasText(normalizedUserValues.feishu_app_secret)
-        const hasAppSecretFile = hasText(normalizedUserValues.feishu_app_secret_file)
-        if (!hasAppSecret && !hasAppSecretFile) {
-          toast.error('飞书 App Secret 或 App Secret File 至少填写一项')
+        if (!hasAppSecret) {
+          toast.error('飞书 App Secret 为必填项')
           return
         }
       }
@@ -906,17 +904,9 @@ export default function OpenClawPage() {
     }
   }
 
-  const applyFeishuBasicExample = () => {
-    setUserValues(prev => ({
-      ...prev,
-      ...FEISHU_BASIC_EXAMPLE_VALUES,
-    }))
-  }
-
   const handleFeishuTestConnection = async () => {
     const appId = (userValues.feishu_app_id || '').trim()
     const appSecret = (userValues.feishu_app_secret || '').trim()
-    const appSecretFile = (userValues.feishu_app_secret_file || '').trim()
     const target = (userValues.feishu_target || '').trim()
     const cardVerificationToken = feishuCardVerificationToken.trim()
     const cardEncryptKey = feishuCardEncryptKey.trim()
@@ -925,8 +915,8 @@ export default function OpenClawPage() {
       toast.error('请先填写飞书 App ID')
       return
     }
-    if (!appSecret && !appSecretFile) {
-      toast.error('请先填写飞书 App Secret 或 App Secret File')
+    if (!appSecret) {
+      toast.error('请先填写飞书 App Secret')
       return
     }
     if (!target) {
@@ -948,7 +938,6 @@ export default function OpenClawPage() {
         body: JSON.stringify({
           appId,
           appSecret,
-          appSecretFile,
           domain: userValues.feishu_domain || 'feishu',
           target,
         }),
@@ -1144,7 +1133,7 @@ export default function OpenClawPage() {
 
   const canRunFeishuConnectionTest =
     hasText(userValues.feishu_app_id)
-    && (hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file))
+    && hasText(userValues.feishu_app_secret)
     && hasText(userValues.feishu_target)
     && hasText(feishuCardVerificationToken)
     && hasText(feishuCardEncryptKey)
@@ -1623,14 +1612,14 @@ export default function OpenClawPage() {
                 飞书聊天
                 {feishuChatDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="飞书配置未保存" />}
               </CardTitle>
-              <CardDescription>最小必填：App ID / App Secret（或 Secret File）/ 推送目标 / 交互卡片参数</CardDescription>
+              <CardDescription>最小必填：App ID / App Secret / 推送目标 / 交互卡片参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-3 md:grid-cols-2 text-xs">
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
                   <div className="font-medium text-slate-800">聊天参数（* 为必需）</div>
                   <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret</div>
                   <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
                 </div>
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
@@ -1659,24 +1648,22 @@ export default function OpenClawPage() {
                   required
                   value={userValues.feishu_app_id || ''}
                   onChange={(v) => setUserValue('feishu_app_id', v)}
+                  placeholder={FEISHU_BASIC_EXAMPLE_VALUES.feishu_app_id}
                 />
                 <InputWithLabel
                   label="飞书推送目标（open_id / union_id / chat_id）"
                   required
                   value={userValues.feishu_target || ''}
                   onChange={(v) => setUserValue('feishu_target', v)}
+                  placeholder={FEISHU_BASIC_EXAMPLE_VALUES.feishu_target}
                 />
                 <InputWithLabel
                   label="飞书 App Secret"
+                  required
                   type="password"
                   value={userValues.feishu_app_secret || ''}
                   onChange={(v) => setUserValue('feishu_app_secret', v)}
-                />
-                <InputWithLabel
-                  label="App Secret File"
-                  value={userValues.feishu_app_secret_file || ''}
-                  onChange={(v) => setUserValue('feishu_app_secret_file', v)}
-                  placeholder="/path/to/secret"
+                  placeholder={FEISHU_BASIC_EXAMPLE_VALUES.feishu_app_secret}
                 />
                 <InputWithLabel
                   label="卡片 Verification Token"
@@ -1761,8 +1748,8 @@ export default function OpenClawPage() {
                 <div className={hasText(userValues.feishu_app_id) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_app_id) ? '✓ App ID 已填写' : '• App ID 未填写'}
                 </div>
-                <div className={hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file) ? 'text-emerald-600' : 'text-slate-500'}>
-                  {hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file)
+                <div className={hasText(userValues.feishu_app_secret) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(userValues.feishu_app_secret)
                     ? '✓ Secret 已填写'
                     : '• Secret 未填写'}
                 </div>
@@ -1812,9 +1799,6 @@ export default function OpenClawPage() {
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={applyFeishuBasicExample}>
-                    填充示例
-                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
