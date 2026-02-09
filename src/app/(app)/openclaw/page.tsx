@@ -272,6 +272,12 @@ const AFFILIATE_MINIMAL_USER_KEYS = [
   'partnerboost_token',
 ] as const
 
+const AFFILIATE_SYNC_USER_KEYS = [
+  'openclaw_affiliate_sync_enabled',
+  'openclaw_affiliate_sync_interval_hours',
+  'openclaw_affiliate_sync_mode',
+] as const
+
 const PARTNERBOOST_USER_KEYS = [
   'partnerboost_base_url',
   'partnerboost_products_country_code',
@@ -293,12 +299,17 @@ const STRATEGY_MINIMAL_USER_KEYS = [
 ] as const
 
 const FEISHU_CHAT_USER_KEYS = [...FEISHU_CHAT_MINIMAL_USER_KEYS, ...FEISHU_CHAT_COMMUNICATION_USER_KEYS] as const
-const AFFILIATE_USER_KEYS = [...AFFILIATE_MINIMAL_USER_KEYS, 'partnerboost_base_url'] as const
+const AFFILIATE_USER_KEYS = [
+  ...AFFILIATE_MINIMAL_USER_KEYS,
+  'partnerboost_base_url',
+  ...AFFILIATE_SYNC_USER_KEYS,
+] as const
 const STRATEGY_USER_KEYS = STRATEGY_MINIMAL_USER_KEYS
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
   ...AFFILIATE_MINIMAL_USER_KEYS,
+  ...AFFILIATE_SYNC_USER_KEYS,
   ...PARTNERBOOST_USER_KEYS,
   'partnerboost_products_page_size',
   'partnerboost_products_page',
@@ -322,6 +333,9 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   feishu_require_tenant_key: 'true',
   feishu_strict_auto_bind: 'true',
   partnerboost_base_url: 'https://app.partnerboost.com',
+  openclaw_affiliate_sync_enabled: 'true',
+  openclaw_affiliate_sync_interval_hours: '1',
+  openclaw_affiliate_sync_mode: 'incremental',
   openclaw_strategy_enabled: 'false',
   openclaw_strategy_cron: '0 9 * * *',
   openclaw_strategy_ads_account_ids: '[]',
@@ -886,6 +900,23 @@ export default function OpenClawPage() {
           toast.error('飞书 App Secret 为必填项')
           return
         }
+      }
+
+      const isSavingAffiliateSettings = !selectedKeySet || AFFILIATE_USER_KEYS.some((key) => selectedKeySet.has(key))
+      if (isSavingAffiliateSettings) {
+        const syncEnabled = isTruthy(normalizedUserValues.openclaw_affiliate_sync_enabled, true)
+        normalizedUserValues.openclaw_affiliate_sync_enabled = syncEnabled ? 'true' : 'false'
+
+        const syncIntervalRaw = String(normalizedUserValues.openclaw_affiliate_sync_interval_hours || '').trim()
+        const syncIntervalParsed = Number(syncIntervalRaw || USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours)
+        if (!Number.isFinite(syncIntervalParsed) || syncIntervalParsed <= 0) {
+          toast.error('联盟成交/佣金同步间隔必须为正整数（小时）')
+          return
+        }
+        normalizedUserValues.openclaw_affiliate_sync_interval_hours = String(Math.min(24, Math.max(1, Math.round(syncIntervalParsed))))
+
+        const syncModeRaw = String(normalizedUserValues.openclaw_affiliate_sync_mode || '').trim().toLowerCase()
+        normalizedUserValues.openclaw_affiliate_sync_mode = syncModeRaw === 'realtime' ? 'realtime' : 'incremental'
       }
     }
     const updates = Object.entries(normalizedUserValues)
@@ -2159,6 +2190,45 @@ export default function OpenClawPage() {
                       placeholder="https://app.partnerboost.com"
                     />
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border px-4 py-3 space-y-3">
+                <div className="text-sm font-medium">联盟成交 / 佣金数据同步</div>
+                <p className="text-xs text-slate-500">
+                  参考系统配置“广告数据自动同步”：按间隔刷新当日佣金快照，并支持 Feishu 查询实时拉取。
+                </p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <SwitchWithLabel
+                    label="启用自动同步"
+                    checked={isTruthy(userValues.openclaw_affiliate_sync_enabled, true)}
+                    onChange={(val) => setUserValue('openclaw_affiliate_sync_enabled', val ? 'true' : 'false')}
+                  />
+                  <InputWithLabel
+                    label="同步间隔（小时）"
+                    value={userValues.openclaw_affiliate_sync_interval_hours || USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours}
+                    onChange={(v) => setUserValue('openclaw_affiliate_sync_interval_hours', v)}
+                    placeholder={USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">同步模式</label>
+                    <Select
+                      value={userValues.openclaw_affiliate_sync_mode || USER_DEFAULT_VALUES.openclaw_affiliate_sync_mode}
+                      onValueChange={(v) => setUserValue('openclaw_affiliate_sync_mode', v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="选择模式" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="incremental">incremental（推荐）</SelectItem>
+                        <SelectItem value="realtime">realtime（Feishu实时）</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
+                  <div>incremental：每小时任务按配置间隔刷新当日佣金快照。</div>
+                  <div>realtime：在上述基础上，Feishu 查询日报默认强制实时拉取联盟佣金。</div>
                 </div>
               </div>
 

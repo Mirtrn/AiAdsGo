@@ -89,6 +89,9 @@ const USER_SCOPED_KEYS = new Set([
   'openclaw_strategy_allow_affiliate_fetch',
   'openclaw_strategy_enforce_autoads_only',
   'openclaw_strategy_dry_run',
+  'openclaw_affiliate_sync_enabled',
+  'openclaw_affiliate_sync_interval_hours',
+  'openclaw_affiliate_sync_mode',
 ])
 
 const GLOBAL_SYNC_KEYS = new Set([

@@ -11,6 +11,7 @@ import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
 import { executeAffiliateProductSync } from './affiliate-product-sync-executor'
 import { executeOpenclawCommandTask } from './openclaw-command-executor'
+import { executeOpenclawAffiliateSync } from './openclaw-affiliate-sync-executor'
 import { executeOpenclawReportSend } from './openclaw-report-send-executor'
 
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
@@ -19,5 +20,6 @@ export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
   queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
   queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+  queue.registerExecutor('openclaw-affiliate-sync', executeOpenclawAffiliateSync)
   queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
 }

@@ -106,6 +106,7 @@ export class UnifiedQueueManager {
         'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
         'affiliate-product-sync': 2, // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
         'openclaw-command': 3,       // 🆕 OpenClaw 指令执行任务并发限制
+        'openclaw-affiliate-sync': 2, // 🆕 OpenClaw 联盟佣金快照同步任务并发限制
         'openclaw-report-send': 2    // 🆕 OpenClaw 报表投递任务并发限制
       },
       maxQueueSize: config.maxQueueSize || 1000,

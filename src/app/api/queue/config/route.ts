@@ -34,6 +34,7 @@ const DEFAULT_QUEUE_CONFIG = {
     'openclaw-strategy': 2,  // OpenClaw 策略任务并发限制
     'affiliate-product-sync': 2, // 联盟商品同步任务并发限制
     'openclaw-command': 3, // OpenClaw 指令执行任务并发限制
+    'openclaw-affiliate-sync': 2, // OpenClaw 联盟佣金快照同步任务并发限制
     'openclaw-report-send': 2, // OpenClaw 报表投递任务并发限制
   },
   maxQueueSize: 1000,
@@ -60,6 +61,7 @@ const ALL_TASK_TYPES = [
   'openclaw-strategy',
   'affiliate-product-sync',
   'openclaw-command',
+  'openclaw-affiliate-sync',
   'openclaw-report-send',
 ] as const
 

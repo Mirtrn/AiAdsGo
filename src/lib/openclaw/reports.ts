@@ -54,6 +54,10 @@ type StrategyKnowledgeSummary = {
 const DEFAULT_TIMEZONE = process.env.TZ || 'Asia/Shanghai'
 const reportInflight = new Map<string, Promise<DailyReportPayload>>()
 
+type DailyReportLoadOptions = {
+  forceRefresh?: boolean
+}
+
 function formatLocalDate(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: DEFAULT_TIMEZONE,
@@ -398,9 +402,14 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
   }
 }
 
-export async function getOrCreateDailyReport(userId: number, dateStr?: string): Promise<DailyReportPayload> {
+export async function getOrCreateDailyReport(
+  userId: number,
+  dateStr?: string,
+  options?: DailyReportLoadOptions
+): Promise<DailyReportPayload> {
   const reportDate = dateStr || formatLocalDate(new Date())
-  const inflightKey = `${userId}:${reportDate}`
+  const forceRefresh = options?.forceRefresh === true
+  const inflightKey = `${userId}:${reportDate}:${forceRefresh ? 'refresh' : 'cache'}`
 
   const inflight = reportInflight.get(inflightKey)
   if (inflight) {
@@ -410,16 +419,18 @@ export async function getOrCreateDailyReport(userId: number, dateStr?: string): 
   const task = (async () => {
     const db = await getDatabase()
 
-    const existing = await db.queryOne<{ payload_json: string | null }>(
-      'SELECT payload_json FROM openclaw_daily_reports WHERE user_id = ? AND report_date = ?',
-      [userId, reportDate]
-    )
+    if (!forceRefresh) {
+      const existing = await db.queryOne<{ payload_json: string | null }>(
+        'SELECT payload_json FROM openclaw_daily_reports WHERE user_id = ? AND report_date = ?',
+        [userId, reportDate]
+      )
 
-    if (existing?.payload_json) {
-      try {
-        return JSON.parse(existing.payload_json) as DailyReportPayload
-      } catch {
-        // fall through to rebuild
+      if (existing?.payload_json) {
+        try {
+          return JSON.parse(existing.payload_json) as DailyReportPayload
+        } catch {
+          // fall through to rebuild
+        }
       }
     }
 
@@ -469,6 +480,13 @@ export async function getOrCreateDailyReport(userId: number, dateStr?: string): 
   } finally {
     reportInflight.delete(inflightKey)
   }
+}
+
+export async function refreshOpenclawDailyReportSnapshot(params: {
+  userId: number
+  date?: string
+}): Promise<DailyReportPayload> {
+  return getOrCreateDailyReport(params.userId, params.date, { forceRefresh: true })
 }
 
 function formatReportMessage(report: DailyReportPayload): string {

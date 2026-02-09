@@ -40,6 +40,34 @@ function parseBoolean(value: string | null | undefined): boolean {
   return ['true', '1', 'yes', 'on'].includes(normalized)
 }
 
+function parsePositiveInt(value: string | null | undefined, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  const normalized = Math.round(parsed)
+  if (normalized <= 0) return fallback
+  return normalized
+}
+
+function normalizeAffiliateSyncMode(value: string | null | undefined): 'incremental' | 'realtime' {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'realtime' ? 'realtime' : 'incremental'
+}
+
+function parseReportGeneratedAt(payloadJson?: string | null): Date | null {
+  const raw = String(payloadJson || '').trim()
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { generatedAt?: string }
+    const generatedAt = String(parsed?.generatedAt || '').trim()
+    if (!generatedAt) return null
+    const generatedDate = new Date(generatedAt)
+    if (Number.isNaN(generatedDate.getTime())) return null
+    return generatedDate
+  } catch {
+    return null
+  }
+}
+
 const openclawStrategySchedules = new Map<number, { cron: string; task: cron.ScheduledTask }>()
 
 async function enqueueOpenclawStrategy(userId: number, mode: string) {
@@ -351,6 +379,131 @@ async function openclawDailyReportTask() {
 }
 
 /**
+ * 任务6.1: OpenClaw 联盟成交/佣金快照刷新
+ * 频率：每小时执行一次（按用户配置的 interval 过滤）
+ */
+async function openclawAffiliateRevenueSnapshotTask() {
+  log('🧾 开始刷新 OpenClaw 联盟成交/佣金快照...')
+
+  const db = await getDatabase()
+  const reportDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+
+  try {
+    const rows = await db.query<{
+      user_id: number
+      sync_enabled: string | null
+      sync_interval_hours: string | null
+      sync_mode: string | null
+      partnerboost_token: string | null
+      yeahpromos_token: string | null
+      yeahpromos_site_id: string | null
+    }>(`
+      SELECT
+        u.id as user_id,
+        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_enabled' THEN ss.value END) as sync_enabled,
+        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_interval_hours' THEN ss.value END) as sync_interval_hours,
+        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_mode' THEN ss.value END) as sync_mode,
+        MAX(CASE WHEN ss.key = 'partnerboost_token' THEN ss.value END) as partnerboost_token,
+        MAX(CASE WHEN ss.key = 'yeahpromos_token' THEN ss.value END) as yeahpromos_token,
+        MAX(CASE WHEN ss.key = 'yeahpromos_site_id' THEN ss.value END) as yeahpromos_site_id
+      FROM users u
+      LEFT JOIN system_settings ss ON ss.user_id = u.id
+        AND ss.category = 'openclaw'
+        AND ss.key IN (
+          'openclaw_affiliate_sync_enabled',
+          'openclaw_affiliate_sync_interval_hours',
+          'openclaw_affiliate_sync_mode',
+          'partnerboost_token',
+          'yeahpromos_token',
+          'yeahpromos_site_id'
+        )
+      WHERE u.is_active = ?
+        AND u.openclaw_enabled = ?
+      GROUP BY u.id
+    `, [true, true])
+
+    if (!rows || rows.length === 0) {
+      log('📭 未找到可刷新的 OpenClaw 用户')
+      return
+    }
+
+    const queue = getQueueManagerForTaskType('openclaw-affiliate-sync')
+
+    let queuedCount = 0
+    let skippedDisabled = 0
+    let skippedInterval = 0
+    let skippedNoPlatform = 0
+    let failedCount = 0
+    const nowMs = Date.now()
+
+    for (const row of rows) {
+      const syncEnabled = row.sync_enabled === null || row.sync_enabled === undefined || String(row.sync_enabled).trim() === ''
+        ? true
+        : parseBoolean(row.sync_enabled)
+      if (!syncEnabled) {
+        skippedDisabled += 1
+        continue
+      }
+
+      const hasPartnerBoost = Boolean(String(row.partnerboost_token || '').trim())
+      const hasYeahPromos = Boolean(String(row.yeahpromos_token || '').trim() && String(row.yeahpromos_site_id || '').trim())
+      if (!hasPartnerBoost && !hasYeahPromos) {
+        skippedNoPlatform += 1
+        continue
+      }
+
+      const syncIntervalHours = Math.min(24, Math.max(1, parsePositiveInt(row.sync_interval_hours, 1)))
+      const syncMode = normalizeAffiliateSyncMode(row.sync_mode)
+
+      const existing = await db.queryOne<{ payload_json: string | null }>(
+        'SELECT payload_json FROM openclaw_daily_reports WHERE user_id = ? AND report_date = ? LIMIT 1',
+        [row.user_id, reportDate]
+      )
+      const generatedAt = parseReportGeneratedAt(existing?.payload_json)
+      if (generatedAt) {
+        const hoursSinceLastRefresh = (nowMs - generatedAt.getTime()) / (1000 * 60 * 60)
+        if (hoursSinceLastRefresh < syncIntervalHours) {
+          skippedInterval += 1
+          continue
+        }
+      }
+
+      try {
+        const taskId = await queue.enqueue(
+          'openclaw-affiliate-sync',
+          {
+            userId: row.user_id,
+            date: reportDate,
+            syncMode,
+            trigger: 'cron',
+          },
+          row.user_id,
+          {
+            priority: 'normal',
+            maxRetries: 1,
+          }
+        )
+
+        queuedCount += 1
+        log(`📥 OpenClaw 联盟佣金快照同步任务已入队 (user=${row.user_id}, task=${taskId}, mode=${syncMode}, interval=${syncIntervalHours}h)`)
+      } catch (error) {
+        failedCount += 1
+        logError(`❌ OpenClaw 联盟佣金快照同步任务入队失败 (user=${row.user_id})`, error)
+      }
+    }
+
+    log(`🧾 OpenClaw 联盟佣金快照刷新入队完成 - 入队: ${queuedCount}/${rows.length}, 跳过禁用: ${skippedDisabled}, 跳过未配置平台: ${skippedNoPlatform}, 跳过间隔: ${skippedInterval}, 失败: ${failedCount}`)
+  } catch (error) {
+    logError('❌ OpenClaw 联盟佣金快照任务执行失败:', error)
+  }
+}
+
+/**
  * 清理旧备份文件
  */
 async function cleanupOldBackups(daysToKeep: number) {
@@ -473,6 +626,7 @@ function startScheduler() {
   log('  - 数据清理: 每天凌晨3点')
   log('  - 禁用/过期用户任务暂停: 每天一次 (默认凌晨4点)')
   log('  - OpenClaw 每日报表推送: 每天上午9点')
+  log('  - OpenClaw 联盟佣金快照刷新: 每小时（按用户配置）')
   log('  - OpenClaw 策略调度: 按用户配置')
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
 
@@ -553,6 +707,22 @@ function startScheduler() {
     timezone: 'Asia/Shanghai'
   })
 
+  // 任务6.1: OpenClaw 联盟成交/佣金快照刷新（每小时）
+  const openclawAffiliateSyncEnabled = process.env.OPENCLAW_AFFILIATE_SYNC_ENABLED !== 'false'
+  const openclawAffiliateSyncCron = process.env.OPENCLAW_AFFILIATE_SYNC_CRON || '5 * * * *'
+
+  if (openclawAffiliateSyncEnabled) {
+    cron.schedule(openclawAffiliateSyncCron, async () => {
+      await openclawAffiliateRevenueSnapshotTask()
+    }, {
+      scheduled: true,
+      timezone: 'Asia/Shanghai'
+    })
+    log(`✅ OpenClaw 联盟佣金快照刷新任务已启动 (cron: ${openclawAffiliateSyncCron})`)
+  } else {
+    log('⏸️  OpenClaw 联盟佣金快照刷新任务已禁用 (OPENCLAW_AFFILIATE_SYNC_ENABLED=false)')
+  }
+
   // 任务7: OpenClaw 策略调度（按用户配置）
   refreshOpenclawStrategySchedules().catch((error) => {
     logError('❌ OpenClaw策略调度初始化失败:', error)
@@ -590,6 +760,13 @@ function startScheduler() {
     log('🔄 启动时立即执行数据同步...')
     syncDataTask().catch((error) => {
       logError('启动同步失败:', error)
+    })
+  }
+
+  if (process.env.OPENCLAW_AFFILIATE_SYNC_ON_START === 'true') {
+    log('🧾 启动时立即刷新 OpenClaw 联盟成交/佣金快照...')
+    openclawAffiliateRevenueSnapshotTask().catch((error) => {
+      logError('启动 OpenClaw 联盟佣金快照刷新失败:', error)
     })
   }
 }

@@ -26,6 +26,7 @@ export type TaskType =
   | 'openclaw-strategy'      // 🆕 OpenClaw 自进化策略任务
   | 'affiliate-product-sync'  // 🆕 联盟商品同步任务（YP/PB）
   | 'openclaw-command'        // 🆕 OpenClaw 指令执行任务（可含确认流）
+  | 'openclaw-affiliate-sync' // 🆕 OpenClaw 联盟成交/佣金快照同步任务
   | 'openclaw-report-send'    // 🆕 OpenClaw 每日报表投递任务
 
 /**

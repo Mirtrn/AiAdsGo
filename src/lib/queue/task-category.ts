@@ -8,6 +8,7 @@ const BACKGROUND_TASK_TYPES: ReadonlySet<TaskType> = new Set([
   'openclaw-strategy',
   'affiliate-product-sync',
   'openclaw-command',
+  'openclaw-affiliate-sync',
   'openclaw-report-send',
 ])
 

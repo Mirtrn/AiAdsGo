@@ -22,6 +22,7 @@ import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
 import { executeAffiliateProductSync } from './affiliate-product-sync-executor'
 import { executeOpenclawCommandTask } from './openclaw-command-executor'
+import { executeOpenclawAffiliateSync } from './openclaw-affiliate-sync-executor'
 import { executeOpenclawReportSend } from './openclaw-report-send-executor'
 import { logger } from '@/lib/structured-logger'
 
@@ -106,6 +107,9 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
     // 🆕 注册 openclaw-command 执行器（OpenClaw 指令执行）
     queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
 
+    // 🆕 注册 openclaw-affiliate-sync 执行器（OpenClaw 联盟佣金快照同步）
+    queue.registerExecutor('openclaw-affiliate-sync', executeOpenclawAffiliateSync)
+
     // 🆕 注册 openclaw-report-send 执行器（OpenClaw 每日报表投递）
     queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
   } else {
@@ -129,6 +133,7 @@ export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
   queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
   queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+  queue.registerExecutor('openclaw-affiliate-sync', executeOpenclawAffiliateSync)
   queue.registerExecutor('openclaw-report-send', executeOpenclawReportSend)
 }
 
@@ -154,4 +159,5 @@ export type { ClickFarmTaskData } from './click-farm-executor'
 export type { UrlSwapTaskData } from './url-swap-executor'
 export type { AffiliateProductSyncTaskData } from './affiliate-product-sync-executor'
 export type { OpenclawCommandTaskData } from './openclaw-command-executor'
+export type { OpenclawAffiliateSyncTaskData } from './openclaw-affiliate-sync-executor'
 export type { OpenclawReportSendTaskData } from './openclaw-report-send-executor'

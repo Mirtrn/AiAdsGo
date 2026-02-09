@@ -71,6 +71,7 @@ interface PerTypeConcurrency {
   'openclaw-strategy': number // 🆕 OpenClaw 策略任务
   'affiliate-product-sync': number // 🆕 联盟商品同步任务
   'openclaw-command': number // 🆕 OpenClaw 指令执行任务
+  'openclaw-affiliate-sync': number // 🆕 OpenClaw 联盟佣金快照同步任务
   'openclaw-report-send': number // 🆕 OpenClaw 报表投递任务
   [key: string]: number  // 允许其他自定义类型
 }
@@ -94,6 +95,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   'openclaw-strategy': 'OpenClaw策略', // 🆕 OpenClaw 策略任务
   'affiliate-product-sync': '商品同步', // 🆕 联盟商品同步任务
   'openclaw-command': 'OpenClaw指令', // 🆕 OpenClaw 指令执行任务
+  'openclaw-affiliate-sync': '联盟佣金同步', // 🆕 OpenClaw 联盟佣金快照同步任务
   'openclaw-report-send': '报表投递', // 🆕 OpenClaw 报表投递任务
 }
 
@@ -339,6 +341,7 @@ export default function QueueManagementPage() {
         'openclaw-strategy': 2, // 🆕 OpenClaw 策略任务
         'affiliate-product-sync': 2, // 🆕 联盟商品同步任务
         'openclaw-command': 3, // 🆕 OpenClaw 指令执行任务
+        'openclaw-affiliate-sync': 2, // 🆕 OpenClaw 联盟佣金快照同步任务
         'openclaw-report-send': 2, // 🆕 OpenClaw 报表投递任务
       },
       maxQueueSize: 1000,

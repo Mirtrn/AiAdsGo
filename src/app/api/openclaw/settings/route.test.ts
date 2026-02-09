@@ -195,4 +195,50 @@ describe('openclaw settings route AI global permissions', () => {
       actorUserId: 9,
     })
   })
+  it('accepts affiliate sync user-scoped keys', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    settingsFns.getSettingsByCategory.mockResolvedValueOnce([
+      { key: 'openclaw_affiliate_sync_enabled', value: 'true', dataType: 'boolean' },
+      { key: 'openclaw_affiliate_sync_interval_hours', value: '1', dataType: 'number' },
+      { key: 'openclaw_affiliate_sync_mode', value: 'incremental', dataType: 'string' },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          { key: 'openclaw_affiliate_sync_enabled', value: 'true' },
+          { key: 'openclaw_affiliate_sync_interval_hours', value: '2' },
+          { key: 'openclaw_affiliate_sync_mode', value: 'realtime' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.skippedKeys).toEqual([])
+    expect(settingsFns.updateSettings).toHaveBeenCalledWith(
+      [
+        { category: 'openclaw', key: 'openclaw_affiliate_sync_enabled', value: 'true' },
+        { category: 'openclaw', key: 'openclaw_affiliate_sync_interval_hours', value: '2' },
+        { category: 'openclaw', key: 'openclaw_affiliate_sync_mode', value: 'realtime' },
+      ],
+      9
+    )
+    expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({
+      reason: 'openclaw-user-settings-nonsync',
+      actorUserId: 9,
+    })
+  })
+
 })

@@ -634,6 +634,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       'openclaw-strategy',
       'affiliate-product-sync',
       'openclaw-command',
+      'openclaw-affiliate-sync',
       'openclaw-report-send'
     ]
     for (const taskType of taskTypes) {
