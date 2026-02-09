@@ -75,10 +75,12 @@ interface PerformanceSummary {
   impressions: number
   clicks: number
   conversions: number
+  commission: number
   costUsd: number
   ctr: number
   avgCpcUsd: number
   conversionRate: number
+  commissionPerClick: number
   dateRange: {
     start: string
     end: string
@@ -93,10 +95,12 @@ interface CampaignPerformance {
   impressions: number
   clicks: number
   conversions: number
+  commission: number
   costUsd: number
   ctr: number
   cpcUsd: number
   conversionRate: number
+  commissionPerClick: number
 }
 
 interface ROIData {
@@ -105,6 +109,7 @@ interface ROIData {
   roiPercentage: number
   profitUsd: number
   conversions: number
+  commission: number
   avgOrderValue: number
 }
 
@@ -679,9 +684,9 @@ export default function OfferDetailPage() {
                       <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-gray-600">转化次数</p>
+                            <p className="text-sm font-medium text-gray-600">佣金</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              {(performanceSummary.conversions ?? 0).toLocaleString()}
+                              {formatMoney(Number(performanceSummary.commission ?? performanceSummary.conversions) || 0)}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -689,7 +694,7 @@ export default function OfferDetailPage() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          转化率: {(Number(performanceSummary.conversionRate) || 0).toFixed(2)}%
+                          每次点击佣金: {formatMoney(Number(performanceSummary.commissionPerClick ?? performanceSummary.conversionRate) || 0)}
                         </p>
                       </CardContent>
                     </Card>
@@ -745,8 +750,8 @@ export default function OfferDetailPage() {
                             </p>
                           </div>
                           <div>
-                            <p className="text-sm text-gray-600">转化次数</p>
-                            <p className="text-lg font-bold text-gray-900">{roi.conversions}</p>
+                            <p className="text-sm text-gray-600">佣金</p>
+                            <p className="text-lg font-bold text-gray-900">{formatMoney(Number(roi.commission ?? roi.conversions) || 0)}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -769,8 +774,8 @@ export default function OfferDetailPage() {
                           color: '#10b981',  // emerald-500
                         },
                         {
-                          key: 'conversions',
-                          label: '转化次数',
+                          key: 'commission',
+                          label: '佣金',
                           color: '#8b5cf6',  // violet-500
                         },
                         {
@@ -778,7 +783,7 @@ export default function OfferDetailPage() {
                           label: `花费 (${selectedCurrency})`,
                           color: '#f59e0b',  // amber-500
                           formatter: (value) => formatMoney(value),
-                          yAxisId: 'right',  // 花费使用右侧Y轴（与展示/点击/转化的量级不同）
+                          yAxisId: 'right',  // 花费使用右侧Y轴（与展示/点击的量级不同）
                         },
                       ]}
                       title="投放趋势"
@@ -806,8 +811,8 @@ export default function OfferDetailPage() {
                                 <TableHead className="text-right">点击</TableHead>
                                 <TableHead className="text-right">CTR</TableHead>
                                 <TableHead className="text-right">CPC</TableHead>
-                                <TableHead className="text-right">转化</TableHead>
-                                <TableHead className="text-right">转化率</TableHead>
+                                <TableHead className="text-right">佣金</TableHead>
+                                <TableHead className="text-right">每次点击佣金</TableHead>
                                 <TableHead className="text-right">花费</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -830,8 +835,12 @@ export default function OfferDetailPage() {
                                   <TableCell className="text-right">
                                     {formatMoney(Number(campaign.cpcUsd) || 0, campaign.adsAccountCurrency || selectedCurrency)}
                                   </TableCell>
-                                  <TableCell className="text-right">{(Number(campaign.conversions) || 0).toFixed(1)}</TableCell>
-                                  <TableCell className="text-right">{(Number(campaign.conversionRate) || 0).toFixed(2)}%</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatMoney(Number(campaign.commission ?? campaign.conversions) || 0, campaign.adsAccountCurrency || selectedCurrency)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatMoney(Number(campaign.commissionPerClick ?? campaign.conversionRate) || 0, campaign.adsAccountCurrency || selectedCurrency)}
+                                  </TableCell>
                                   <TableCell className="text-right">
                                     {formatMoney(Number(campaign.costUsd) || 0, campaign.adsAccountCurrency || selectedCurrency)}
                                   </TableCell>

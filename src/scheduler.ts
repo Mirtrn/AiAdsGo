@@ -443,7 +443,7 @@ async function openclawAffiliateRevenueSnapshotTask() {
 
     for (const row of rows) {
       const syncEnabled = row.sync_enabled === null || row.sync_enabled === undefined || String(row.sync_enabled).trim() === ''
-        ? true
+        ? false
         : parseBoolean(row.sync_enabled)
       if (!syncEnabled) {
         skippedDisabled += 1

@@ -7,7 +7,6 @@ function formatAsYmd(value: unknown): string | null {
   const raw = String(value)
   if (!raw.trim()) return null
 
-  // Fast path: ISO-like prefix
   const m = raw.match(/^(\d{4}-\d{2}-\d{2})/)
   if (m) return m[1]
 
@@ -21,10 +20,13 @@ function normalizeCurrency(value: unknown): string {
   return normalized || 'USD'
 }
 
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 type Agg = {
   impressions: number
   clicks: number
-  conversions: number
   cost: number
 }
 
@@ -38,7 +40,6 @@ type Agg = {
  */
 export async function GET(request: NextRequest) {
   try {
-    // 1. Verify authentication
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json(
@@ -55,13 +56,11 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase()
 
-    // 2. Calculate date range (current period)
     const endDate = new Date().toISOString().split('T')[0]
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - daysBack)
     const startDateStr = startDate.toISOString().split('T')[0]
 
-    // Calculate previous period date range (for comparison)
     const prevEndDate = new Date(startDate)
     prevEndDate.setDate(prevEndDate.getDate() - 1)
     const prevStartDate = new Date(prevEndDate)
@@ -69,7 +68,6 @@ export async function GET(request: NextRequest) {
     const prevStartDateStr = prevStartDate.toISOString().split('T')[0]
     const prevEndDateStr = prevEndDate.toISOString().split('T')[0]
 
-    // 2.5 计算币种列表（按花费排序），默认选择花费最高的币种，避免多币种混算
     const currencyRows = await db.query<any>(
       `
         SELECT
@@ -104,8 +102,6 @@ export async function GET(request: NextRequest) {
       }))
       .filter((c: any) => c.currency && Number.isFinite(c.amount))
 
-    // 3. Query base campaigns (no performance aggregation)
-    // 🔧 修复: 不过滤is_deleted，保留历史删除的campaigns用于展示
     const campaigns = await db.query(`
       SELECT
         c.id,
@@ -138,7 +134,6 @@ export async function GET(request: NextRequest) {
       ORDER BY c.created_at DESC
     `, [userId]) as any[]
 
-    // 4. Query performance aggregated by (campaign_id, currency) for current/previous period
     const aggregateByCampaignCurrency = async (params: {
       start: string
       end: string
@@ -149,7 +144,6 @@ export async function GET(request: NextRequest) {
           COALESCE(currency, 'USD') as currency,
           COALESCE(SUM(impressions), 0) as impressions,
           COALESCE(SUM(clicks), 0) as clicks,
-          COALESCE(SUM(conversions), 0) as conversions,
           COALESCE(SUM(cost), 0) as cost
         FROM campaign_performance
         WHERE user_id = ?
@@ -167,7 +161,6 @@ export async function GET(request: NextRequest) {
         const agg: Agg = {
           impressions: Number(row.impressions) || 0,
           clicks: Number(row.clicks) || 0,
-          conversions: Number(row.conversions) || 0,
           cost: Number(row.cost) || 0,
         }
 
@@ -178,19 +171,50 @@ export async function GET(request: NextRequest) {
       return map
     }
 
+    const queryCommissionByCampaign = async (params: {
+      start: string
+      end: string
+    }): Promise<Map<number, number>> => {
+      const rows = await db.query<{ campaign_id: number; commission: number }>(
+        `
+          SELECT
+            campaign_id,
+            COALESCE(SUM(commission_amount), 0) AS commission
+          FROM affiliate_commission_attributions
+          WHERE user_id = ?
+            AND report_date >= ?
+            AND report_date <= ?
+            AND campaign_id IS NOT NULL
+          GROUP BY campaign_id
+        `,
+        [userId, params.start, params.end]
+      )
+
+      const map = new Map<number, number>()
+      for (const row of rows) {
+        const campaignId = Number(row.campaign_id)
+        if (!Number.isFinite(campaignId)) continue
+        map.set(campaignId, Number(row.commission) || 0)
+      }
+      return map
+    }
+
     const currentAggByCampaign = await aggregateByCampaignCurrency({
       start: startDateStr,
       end: endDate,
     })
-    const prevAggByCampaign = await aggregateByCampaignCurrency({
-      start: prevStartDateStr,
-      end: prevEndDateStr,
+    const currentCommissionByCampaign = await queryCommissionByCampaign({
+      start: startDateStr,
+      end: endDate,
     })
-
     const pickCampaignCurrency = (params: {
       accountCurrency: string
       currentAgg?: Map<string, Agg>
     }): string => {
+      if (reportingCurrency) {
+        return reportingCurrency
+      }
+
       const accountCurrency = normalizeCurrency(params.accountCurrency)
       const currentAgg = params.currentAgg
       if (!currentAgg || currentAgg.size === 0) return accountCurrency
@@ -208,7 +232,6 @@ export async function GET(request: NextRequest) {
       return top
     }
 
-    // 4. Format response
     const formattedCampaigns = campaigns.map(c => {
       const hasLinkedAdsAccountId = c.google_ads_account_id !== null && c.google_ads_account_id !== undefined
       const hasAccountRow = c.ads_account_id !== null && c.ads_account_id !== undefined
@@ -225,55 +248,52 @@ export async function GET(request: NextRequest) {
       const selectedCurrent = currentAgg?.get(selectedCurrency)
       const impressions = Number(selectedCurrent?.impressions) || 0
       const clicks = Number(selectedCurrent?.clicks) || 0
-      const conversions = Number(selectedCurrent?.conversions) || 0
       const cost = Number(selectedCurrent?.cost) || 0
 
+      const commission = Number(currentCommissionByCampaign.get(Number(c.id))) || 0
+      const commissionPerClick = clicks > 0 ? commission / clicks : 0
+
       return {
-      id: c.id,
-      campaignName: c.campaign_name,
-      offerId: c.offer_id,
-      offerBrand: c.offer_brand,
-      offerUrl: c.offer_url,
-      status: c.status,
-      googleCampaignId: c.google_campaign_id,
-      googleAdsAccountId: c.google_ads_account_id,
-      campaignId: c.campaign_id,
-      creationStatus: c.creation_status,
-      creationError: c.creation_error ?? null,
-      // 投放日期：以“成功发布到 Ads 账号”的时间为准（published_at）；旧数据兜底为 created_at
-      servingStartDate: formatAsYmd(c.published_at ?? c.created_at),
-      adsAccountAvailable,
-      // 🔧 展示币种：优先用 performance.currency（避免账号币种缺失/默认值导致全站显示$）
-      adsAccountCurrency: selectedCurrency,
-      // 🔧 修复(2025-12-29): 确保预算金额是数字类型
-      budgetAmount: Number(c.budget_amount) || 0,
-      budgetType: c.budget_type,
-      lastSyncAt: c.last_sync_at,
-      createdAt: c.created_at,
-      // 🔧 新增: 删除状态字段，前端可据此区分显示
-      isDeleted: c.is_deleted,
-      deletedAt: c.deleted_at,
-      offerIsDeleted: c.offer_is_deleted,
-      performance: {
-        // 🔧 修复(2025-12-29): 确保性能指标是数字类型，不是字符串
-        // 这样前端排序时能正确进行数值比较而不是字符串比较
-        impressions,
-        clicks,
-        conversions,
-        // 🔧 修复(2025-12-30): 字段名与前端接口一致 (costUsd/cpcUsd)
-        costUsd: cost,
-        ctr: impressions > 0 ? Math.round((clicks * 10000) / impressions) / 100 : 0,
-        cpcUsd: clicks > 0 ? Math.round((cost * 100) / clicks) / 100 : 0,
-        conversionRate: clicks > 0 ? Math.round((conversions * 10000) / clicks) / 100 : 0,
-        dateRange: {
-          start: startDateStr,
-          end: endDate,
-          days: daysBack
+        id: c.id,
+        campaignName: c.campaign_name,
+        offerId: c.offer_id,
+        offerBrand: c.offer_brand,
+        offerUrl: c.offer_url,
+        status: c.status,
+        googleCampaignId: c.google_campaign_id,
+        googleAdsAccountId: c.google_ads_account_id,
+        campaignId: c.campaign_id,
+        creationStatus: c.creation_status,
+        creationError: c.creation_error ?? null,
+        servingStartDate: formatAsYmd(c.published_at ?? c.created_at),
+        adsAccountAvailable,
+        adsAccountCurrency: selectedCurrency,
+        budgetAmount: Number(c.budget_amount) || 0,
+        budgetType: c.budget_type,
+        lastSyncAt: c.last_sync_at,
+        createdAt: c.created_at,
+        isDeleted: c.is_deleted,
+        deletedAt: c.deleted_at,
+        offerIsDeleted: c.offer_is_deleted,
+        performance: {
+          impressions,
+          clicks,
+          conversions: roundTo2(commission),
+          commission: roundTo2(commission),
+          costUsd: cost,
+          ctr: impressions > 0 ? Math.round((clicks * 10000) / impressions) / 100 : 0,
+          cpcUsd: clicks > 0 ? Math.round((cost * 100) / clicks) / 100 : 0,
+          conversionRate: roundTo2(commissionPerClick),
+          commissionPerClick: roundTo2(commissionPerClick),
+          dateRange: {
+            start: startDateStr,
+            end: endDate,
+            days: daysBack
+          }
         }
       }
-    }})
+    })
 
-    // 5. Calculate current/previous period totals（按每条campaign选中的币种聚合，避免混币种相加）
     const queryTotalsAll = async (params: {
       start: string
       end: string
@@ -283,7 +303,6 @@ export async function GET(request: NextRequest) {
           SELECT
             COALESCE(SUM(impressions), 0) as impressions,
             COALESCE(SUM(clicks), 0) as clicks,
-            COALESCE(SUM(conversions), 0) as conversions,
             COALESCE(SUM(cost), 0) as cost
           FROM campaign_performance
           WHERE user_id = ?
@@ -296,7 +315,6 @@ export async function GET(request: NextRequest) {
       return {
         impressions: Number(row?.impressions) || 0,
         clicks: Number(row?.clicks) || 0,
-        conversions: Number(row?.conversions) || 0,
         cost: Number(row?.cost) || 0,
       }
     }
@@ -311,7 +329,6 @@ export async function GET(request: NextRequest) {
           SELECT
             COALESCE(SUM(impressions), 0) as impressions,
             COALESCE(SUM(clicks), 0) as clicks,
-            COALESCE(SUM(conversions), 0) as conversions,
             COALESCE(SUM(cost), 0) as cost
           FROM campaign_performance
           WHERE user_id = ?
@@ -325,9 +342,26 @@ export async function GET(request: NextRequest) {
       return {
         impressions: Number(row?.impressions) || 0,
         clicks: Number(row?.clicks) || 0,
-        conversions: Number(row?.conversions) || 0,
         cost: Number(row?.cost) || 0,
       }
+    }
+
+    const queryCommissionTotals = async (params: {
+      start: string
+      end: string
+    }): Promise<number> => {
+      const row = await db.queryOne<{ total_commission: number }>(
+        `
+          SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
+          FROM affiliate_commission_attributions
+          WHERE user_id = ?
+            AND report_date >= ?
+            AND report_date <= ?
+        `,
+        [userId, params.start, params.end]
+      )
+
+      return Number(row?.total_commission) || 0
     }
 
     const isFilteredByCurrency = Boolean(reportingCurrency)
@@ -354,7 +388,15 @@ export async function GET(request: NextRequest) {
           end: prevEndDateStr,
         })
 
-    // 7. Calculate percentage changes (环比增长)
+    const currentCommissionTotal = await queryCommissionTotals({
+      start: startDateStr,
+      end: endDate,
+    })
+    const prevCommissionTotal = await queryCommissionTotals({
+      start: prevStartDateStr,
+      end: prevEndDateStr,
+    })
+
     const calcChange = (current: number, previous: number): number | null => {
       if (previous === 0) return current > 0 ? 100 : null
       return Math.round(((current - previous) / previous) * 10000) / 100
@@ -363,7 +405,7 @@ export async function GET(request: NextRequest) {
     const changes = {
       impressions: calcChange(currentTotals.impressions, prevTotals.impressions),
       clicks: calcChange(currentTotals.clicks, prevTotals.clicks),
-      conversions: calcChange(currentTotals.conversions, prevTotals.conversions),
+      conversions: calcChange(currentCommissionTotal, prevCommissionTotal),
       cost: isFilteredByCurrency ? calcChange(currentTotals.cost, prevTotals.cost) : null
     }
 
@@ -375,13 +417,13 @@ export async function GET(request: NextRequest) {
         activeCampaigns: formattedCampaigns.filter(c => c.status === 'ENABLED').length,
         totalImpressions: currentTotals.impressions,
         totalClicks: currentTotals.clicks,
-        totalConversions: currentTotals.conversions,
+        totalConversions: roundTo2(currentCommissionTotal),
+        totalCommission: roundTo2(currentCommissionTotal),
         totalCostUsd: currentTotals.cost,
         currency: hasMixedCurrency && !isFilteredByCurrency ? 'MIXED' : (reportingCurrency || currencies[0] || 'USD'),
         currencies,
         hasMixedCurrency,
         costs: hasMixedCurrency && !isFilteredByCurrency ? costs : undefined,
-        // 环比增长数据
         changes: {
           impressions: changes.impressions,
           clicks: changes.clicks,

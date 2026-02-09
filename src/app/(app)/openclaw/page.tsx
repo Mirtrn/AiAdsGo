@@ -333,7 +333,7 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   feishu_require_tenant_key: 'true',
   feishu_strict_auto_bind: 'true',
   partnerboost_base_url: 'https://app.partnerboost.com',
-  openclaw_affiliate_sync_enabled: 'true',
+  openclaw_affiliate_sync_enabled: 'false',
   openclaw_affiliate_sync_interval_hours: '1',
   openclaw_affiliate_sync_mode: 'incremental',
   openclaw_strategy_enabled: 'false',
@@ -904,7 +904,7 @@ export default function OpenClawPage() {
 
       const isSavingAffiliateSettings = !selectedKeySet || AFFILIATE_USER_KEYS.some((key) => selectedKeySet.has(key))
       if (isSavingAffiliateSettings) {
-        const syncEnabled = isTruthy(normalizedUserValues.openclaw_affiliate_sync_enabled, true)
+        const syncEnabled = isTruthy(normalizedUserValues.openclaw_affiliate_sync_enabled, false)
         normalizedUserValues.openclaw_affiliate_sync_enabled = syncEnabled ? 'true' : 'false'
 
         const syncIntervalRaw = String(normalizedUserValues.openclaw_affiliate_sync_interval_hours || '').trim()
@@ -2201,7 +2201,7 @@ export default function OpenClawPage() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <SwitchWithLabel
                     label="启用自动同步"
-                    checked={isTruthy(userValues.openclaw_affiliate_sync_enabled, true)}
+                    checked={isTruthy(userValues.openclaw_affiliate_sync_enabled, false)}
                     onChange={(val) => setUserValue('openclaw_affiliate_sync_enabled', val ? 'true' : 'false')}
                   />
                   <InputWithLabel

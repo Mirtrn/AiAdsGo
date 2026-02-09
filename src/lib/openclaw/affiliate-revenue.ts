@@ -1,9 +1,12 @@
+import {
+  persistAffiliateCommissionAttributions,
+  type AffiliateCommissionRawEntry,
+  type AffiliatePlatform,
+} from '@/lib/openclaw/affiliate-commission-attribution'
 import { getOpenclawSettingsMap, parseNumber } from '@/lib/openclaw/settings'
 
-type AffiliatePlatform = 'partnerboost' | 'yeahpromos'
-
 type PlatformQueryError = {
-  platform: AffiliatePlatform
+  platform: AffiliatePlatform | 'attribution'
   message: string
 }
 
@@ -14,6 +17,14 @@ type PlatformBreakdown = {
   currency: string
 }
 
+type AttributionSummary = {
+  attributedCommission: number
+  unattributedCommission: number
+  attributedOffers: number
+  attributedCampaigns: number
+  writtenRows: number
+}
+
 export type AffiliateCommissionRevenue = {
   reportDate: string
   configuredPlatforms: AffiliatePlatform[]
@@ -21,6 +32,7 @@ export type AffiliateCommissionRevenue = {
   totalCommission: number
   breakdown: PlatformBreakdown[]
   errors: PlatformQueryError[]
+  attribution: AttributionSummary
 }
 
 const DEFAULT_PARTNERBOOST_BASE_URL = 'https://app.partnerboost.com'
@@ -117,17 +129,41 @@ function normalizeYeahPromosPayloadRows(payload: any): { rows: any[]; pageTotal:
   }
 }
 
+function normalizeAsin(value: unknown): string | null {
+  const text = String(value || '').trim().toUpperCase()
+  if (!text) return null
+  const cleaned = text.replace(/[^A-Z0-9]/g, '')
+  if (!cleaned) return null
+  return cleaned.length > 10 ? cleaned.slice(0, 10) : cleaned
+}
+
+function pickString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    const text = String(value).trim()
+    if (text) return text
+  }
+  return null
+}
+
+type CommissionCollection = {
+  totalCommission: number
+  records: number
+  entries: AffiliateCommissionRawEntry[]
+}
+
 async function fetchPartnerboostCommission(params: {
   token: string
   baseUrl: string
   reportDate: string
-}): Promise<{ totalCommission: number; records: number }> {
+}): Promise<CommissionCollection> {
   const startDate = toPartnerboostDate(params.reportDate)
   const endDate = toPartnerboostDate(params.reportDate)
 
   let page = 1
   let totalCommission = 0
   let records = 0
+  const entries: AffiliateCommissionRawEntry[] = []
 
   while (page <= PARTNERBOOST_MAX_PAGES) {
     const response = await fetch(`${params.baseUrl}/api/datafeed/get_amazon_report`, {
@@ -159,7 +195,38 @@ async function fetchPartnerboostCommission(params: {
 
     const rows = normalizePartnerboostReportRows(payload)
     for (const row of rows) {
-      totalCommission += parseNumberish(row?.estCommission, 0)
+      const commission = parseNumberish(row?.estCommission, 0)
+      totalCommission += commission
+
+      if (commission > 0) {
+        entries.push({
+          platform: 'partnerboost',
+          reportDate: params.reportDate,
+          commission,
+          currency: 'USD',
+          sourceOrderId: pickString(
+            row?.order_id,
+            row?.orderId,
+            row?.orderID,
+            row?.oid,
+          ),
+          sourceMid: pickString(
+            row?.product_id,
+            row?.productId,
+            row?.mid,
+            row?.advert_id,
+            row?.advertId,
+          ),
+          sourceAsin: normalizeAsin(
+            row?.asin
+            ?? row?.ASIN
+            ?? row?.sku
+            ?? row?.product_asin
+            ?? row?.productAsin
+          ),
+          raw: row,
+        })
+      }
     }
 
     records += rows.length
@@ -175,6 +242,7 @@ async function fetchPartnerboostCommission(params: {
   return {
     totalCommission: roundTo2(totalCommission),
     records,
+    entries,
   }
 }
 
@@ -185,12 +253,13 @@ async function fetchYeahPromosCommission(params: {
   isAmazonOnly: boolean
   pageStart: number
   limit: number
-}): Promise<{ totalCommission: number; records: number }> {
+}): Promise<CommissionCollection> {
   let page = params.pageStart
   let pageTotal: number | null = null
   let pagesFetched = 0
   let totalCommission = 0
   let records = 0
+  const entries: AffiliateCommissionRawEntry[] = []
 
   while (pagesFetched < YEAHPROMOS_MAX_PAGES) {
     const url = new URL('https://yeahpromos.com/index/Getorder/getorder')
@@ -226,7 +295,34 @@ async function fetchYeahPromosCommission(params: {
     const rows = normalized.rows
 
     for (const row of rows) {
-      totalCommission += parseNumberish(row?.sale_comm, 0)
+      const commission = parseNumberish(row?.sale_comm, 0)
+      totalCommission += commission
+
+      if (commission > 0) {
+        entries.push({
+          platform: 'yeahpromos',
+          reportDate: params.reportDate,
+          commission,
+          currency: 'USD',
+          sourceOrderId: pickString(
+            row?.oid,
+            row?.order_id,
+            row?.orderId,
+            row?.id,
+          ),
+          sourceMid: pickString(
+            row?.advert_id,
+            row?.advertId,
+            row?.mid,
+          ),
+          sourceAsin: normalizeAsin(
+            row?.sku
+            ?? row?.asin
+            ?? row?.ASIN
+          ),
+          raw: row,
+        })
+      }
     }
 
     records += rows.length
@@ -251,6 +347,7 @@ async function fetchYeahPromosCommission(params: {
   return {
     totalCommission: roundTo2(totalCommission),
     records,
+    entries,
   }
 }
 
@@ -265,6 +362,7 @@ export async function fetchAffiliateCommissionRevenue(params: {
   const queriedPlatforms: AffiliatePlatform[] = []
   const breakdown: PlatformBreakdown[] = []
   const errors: PlatformQueryError[] = []
+  const attributionEntries: AffiliateCommissionRawEntry[] = []
 
   const partnerboostToken = String(settings.partnerboost_token || '').trim()
   if (partnerboostToken) {
@@ -287,6 +385,7 @@ export async function fetchAffiliateCommissionRevenue(params: {
         records: metrics.records,
         currency: 'USD',
       })
+      attributionEntries.push(...metrics.entries)
     } catch (error: any) {
       errors.push({
         platform: 'partnerboost',
@@ -320,6 +419,7 @@ export async function fetchAffiliateCommissionRevenue(params: {
         records: metrics.records,
         currency: 'USD',
       })
+      attributionEntries.push(...metrics.entries)
     } catch (error: any) {
       errors.push({
         platform: 'yeahpromos',
@@ -332,6 +432,37 @@ export async function fetchAffiliateCommissionRevenue(params: {
     breakdown.reduce((sum, item) => sum + (Number(item.totalCommission) || 0), 0)
   )
 
+  const shouldReplaceAttribution = queriedPlatforms.length > 0 || configuredPlatforms.length === 0
+  let attribution: AttributionSummary = {
+    attributedCommission: 0,
+    unattributedCommission: totalCommission,
+    attributedOffers: 0,
+    attributedCampaigns: 0,
+    writtenRows: 0,
+  }
+
+  try {
+    const attributionResult = await persistAffiliateCommissionAttributions({
+      userId: params.userId,
+      reportDate,
+      entries: attributionEntries,
+      replaceExisting: shouldReplaceAttribution,
+    })
+
+    attribution = {
+      attributedCommission: roundTo2(attributionResult.attributedCommission),
+      unattributedCommission: roundTo2(attributionResult.unattributedCommission),
+      attributedOffers: attributionResult.attributedOffers,
+      attributedCampaigns: attributionResult.attributedCampaigns,
+      writtenRows: attributionResult.writtenRows,
+    }
+  } catch (error: any) {
+    errors.push({
+      platform: 'attribution',
+      message: `[attribution] ${error?.message || 'Attribution persistence failed'}`,
+    })
+  }
+
   return {
     reportDate,
     configuredPlatforms,
@@ -339,5 +470,6 @@ export async function fetchAffiliateCommissionRevenue(params: {
     totalCommission,
     breakdown,
     errors,
+    attribution,
   }
 }

@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
 import { findOfferById } from '@/lib/offers'
-import { getOfferCurrencyInfo } from '@/lib/offer-performance'
+import { getOfferCurrencyInfo, getOfferPerformanceTrend } from '@/lib/offer-performance'
 
 /**
  * GET /api/offers/:id/trends
  *
- * 获取Offer的趋势数据（按日期聚合）
+ * 获取 Offer 趋势数据（按日期聚合，转化口径改为佣金）
  *
  * Query Parameters:
  * - daysBack: number (可选，默认30天)
@@ -17,7 +16,6 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    // 1. 验证用户身份
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
@@ -26,7 +24,6 @@ export async function GET(
     const userId = authResult.user.userId
     const offerId = parseInt(params.id)
 
-    // 2. 验证Offer存在且属于当前用户
     const offer = await findOfferById(offerId, userId)
     if (!offer) {
       return NextResponse.json(
@@ -35,15 +32,11 @@ export async function GET(
       )
     }
 
-    // 3. 获取查询参数
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
     const requestedCurrencyRaw = searchParams.get('currency')
     const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
-    const db = await getDatabase()
-
-    // 4. 计算日期范围
     const endDate = new Date()
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - daysBack)
@@ -56,56 +49,27 @@ export async function GET(
       ? requestedCurrency
       : currencyInfo.currency
 
-    // 5. 查询每日趋势数据（使用 campaign_performance via campaigns）
-    const trends = await db.query(
-      `
-      SELECT
-        cp.date as date,
-        SUM(cp.impressions) as impressions,
-        SUM(cp.clicks) as clicks,
-        SUM(cp.conversions) as conversions,
-        SUM(cp.cost) as cost,
-        CASE
-          WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
-          ELSE 0
-        END as ctr,
-        CASE
-          WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
-          ELSE 0
-        END as conversionRate
-      FROM campaigns c
-      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
-      LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
-      WHERE c.offer_id = ?
-        AND c.user_id = ?
-        AND cp.date >= ?
-        AND cp.date <= ?
-        AND COALESCE(cp.currency, gaa.currency, 'USD') = ?
-      GROUP BY cp.date
-      ORDER BY cp.date ASC
-    `,
-      [offerId, userId, startDateStr, endDateStr, reportingCurrency]
-    ) as any[]
+    const trends = await getOfferPerformanceTrend(offerId, userId, daysBack, reportingCurrency)
 
-    // 6. 格式化数据
     const formattedTrends = trends.map((row) => {
-      const cost = row.cost || 0
-      const clicks = row.clicks || 0
+      const cost = Number(row.cost) || 0
+      const clicks = Number(row.clicks) || 0
       const avgCpcUsd = clicks > 0 ? cost / clicks : 0
 
       return {
         date: row.date,
-        impressions: row.impressions || 0,
-        clicks: clicks,
-        conversions: row.conversions || 0,
+        impressions: Number(row.impressions) || 0,
+        clicks,
+        conversions: Math.round((Number(row.conversions) || 0) * 100) / 100,
+        commission: Math.round((Number(row.commission) || 0) * 100) / 100,
         costUsd: Math.round(cost * 100) / 100,
-        ctr: Math.round((row.ctr || 0) * 100) / 100,
-        conversionRate: Math.round((row.conversionRate || 0) * 100) / 100,
+        ctr: Math.round((Number(row.ctr) || 0) * 100) / 100,
+        conversionRate: Math.round((Number(row.conversion_rate) || 0) * 100) / 100,
+        commissionPerClick: Math.round((Number(row.commission_per_click) || 0) * 100) / 100,
         avgCpcUsd: Math.round(avgCpcUsd * 100) / 100,
       }
     })
 
-    // 7. 返回结果
     return NextResponse.json({
       success: true,
       trends: formattedTrends,

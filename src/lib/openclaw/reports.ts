@@ -151,6 +151,7 @@ function mergeRoiWithAffiliateRevenue(params: {
     affiliateConfiguredPlatforms: params.affiliateRevenue.configuredPlatforms,
     affiliateQueriedPlatforms: params.affiliateRevenue.queriedPlatforms,
     affiliateBreakdown: params.affiliateRevenue.breakdown,
+    affiliateAttribution: params.affiliateRevenue.attribution,
   }
 
   return {
@@ -351,6 +352,13 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
       totalCommission: 0,
       breakdown: [],
       errors: [],
+      attribution: {
+        attributedCommission: 0,
+        unattributedCommission: 0,
+        attributedOffers: 0,
+        attributedCampaigns: 0,
+        writtenRows: 0,
+      },
     },
     errors,
   })
@@ -520,7 +528,7 @@ function formatReportMessage(report: DailyReportPayload): string {
     lines.push(`- Clicks: ${summary.totalClicks ?? 0} | Cost: ${summary.totalCost ?? 0}`)
   }
   if (kpis?.current) {
-    lines.push(`- Impressions: ${kpis.current.impressions ?? 0} | Conversions: ${kpis.current.conversions ?? 0}`)
+    lines.push(`- Impressions: ${kpis.current.impressions ?? 0} | Commission: ${kpis.current.conversions ?? 0}`)
   }
 
   if (roi) {

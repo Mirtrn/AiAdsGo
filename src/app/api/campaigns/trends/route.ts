@@ -7,17 +7,40 @@ function normalizeCurrency(value: unknown): string {
   return normalized || 'USD'
 }
 
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function normalizeDateKey(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (match) return match[1]
+
+  const parsed = Date.parse(raw)
+  if (Number.isFinite(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10)
+  }
+
+  return raw
+}
+
 /**
  * GET /api/campaigns/trends
  *
- * 获取所有Campaigns的趋势数据（按日期聚合）
+ * 获取所有 Campaign 的趋势数据（按日期聚合）
+ * 转化口径改为佣金。
  *
  * Query Parameters:
  * - daysBack: number (可选，默认7天)
  */
 export async function GET(request: NextRequest) {
   try {
-    // 1. 验证用户身份
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
@@ -30,16 +53,13 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase()
 
-    // 2. 计算日期范围
-    // 🔧 修复(2025-01-02): 当选择7天时，应该返回7天的数据（今天 + 过去6天 = 7天）
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - daysBack + 1)  // +1 确保包含今天，共 daysBack 天数据
+    startDate.setDate(startDate.getDate() - daysBack + 1)
 
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
-    // 3. 计算币种列表：默认选花费最高的币种，避免多币种混合汇总
     const currencyRows = await db.query<any>(
       `
       SELECT
@@ -65,14 +85,12 @@ export async function GET(request: NextRequest) {
         ? requestedCurrency
         : (currencies[0] || 'USD')
 
-    // 4. 查询每日趋势数据（按币种过滤，避免混币种汇总）
-    const trends = await db.query<any>(
+    const adTrends = await db.query<any>(
       `
       SELECT
         DATE(date) as date,
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
-        SUM(conversions) as conversions,
         SUM(cost) as cost
       FROM campaign_performance
       WHERE user_id = ?
@@ -85,31 +103,68 @@ export async function GET(request: NextRequest) {
       [userId, startDateStr, endDateStr, reportingCurrency]
     )
 
-    // 5. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
-    const formattedTrends = trends.map((row) => {
-      const impressions = Number(row.impressions) || 0
-      const clicks = Number(row.clicks) || 0
-      const conversions = Number(row.conversions) || 0
-      const cost = Number(row.cost) || 0
+    const commissionTrends = await db.query<any>(
+      `
+      SELECT
+        report_date as date,
+        COALESCE(SUM(commission_amount), 0) as commission
+      FROM affiliate_commission_attributions
+      WHERE user_id = ?
+        AND report_date >= ?
+        AND report_date <= ?
+      GROUP BY report_date
+      ORDER BY report_date ASC
+      `,
+      [userId, startDateStr, endDateStr]
+    )
+
+    const adMap = new Map<string, { impressions: number; clicks: number; cost: number }>()
+    for (const row of adTrends) {
+      const date = normalizeDateKey(row.date)
+      adMap.set(date, {
+        impressions: Number(row.impressions) || 0,
+        clicks: Number(row.clicks) || 0,
+        cost: Number(row.cost) || 0,
+      })
+    }
+
+    const commissionMap = new Map<string, number>()
+    for (const row of commissionTrends) {
+      const date = normalizeDateKey(row.date)
+      commissionMap.set(date, Number(row.commission) || 0)
+    }
+
+    const dates = Array.from(new Set<string>([
+      ...Array.from(adMap.keys()),
+      ...Array.from(commissionMap.keys()),
+    ])).sort((a, b) => a.localeCompare(b))
+
+    const formattedTrends = dates.map((date) => {
+      const ad = adMap.get(date)
+      const impressions = ad?.impressions || 0
+      const clicks = ad?.clicks || 0
+      const cost = ad?.cost || 0
+      const commission = commissionMap.get(date) || 0
+
+      const commissionPerClick = clicks > 0 ? commission / clicks : 0
+      const costPerCommission = commission > 0 ? cost / commission : 0
 
       return {
-        date: row.date,
+        date,
         impressions,
         clicks,
-        conversions,
-        cost: Math.round(cost * 100) / 100,
-        // CTR = 点击数 / 展示数 * 100（正确的加权计算）
+        conversions: roundTo2(commission),
+        commission: roundTo2(commission),
+        cost: roundTo2(cost),
         ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
-        // 转化率 = 转化数 / 点击数 * 100（正确的加权计算）
-        conversionRate: clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0,
-        // CPC = 花费 / 点击数
-        avgCpc: clicks > 0 ? Math.round((cost / clicks) * 100) / 100 : 0,
-        // CPA = 花费 / 转化数（新增）
-        avgCpa: conversions > 0 ? Math.round((cost / conversions) * 100) / 100 : 0,
+        conversionRate: roundTo2(commissionPerClick),
+        commissionPerClick: roundTo2(commissionPerClick),
+        avgCpc: clicks > 0 ? roundTo2(cost / clicks) : 0,
+        avgCpa: roundTo2(costPerCommission),
+        costPerCommission: roundTo2(costPerCommission),
       }
     })
 
-    // 6. 返回结果
     return NextResponse.json({
       success: true,
       trends: formattedTrends,

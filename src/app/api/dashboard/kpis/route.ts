@@ -6,7 +6,7 @@ import { withPerformanceMonitoring } from '@/lib/api-performance'
 
 /**
  * KPI数据响应
- * 🔧 修复(2025-12-30): 添加货币信息支持多货币账户
+ * 转化口径改为佣金。
  */
 interface KPIData {
   current: {
@@ -14,23 +14,27 @@ interface KPIData {
     clicks: number
     cost: number
     conversions: number
+    commission: number
     ctr: number
     cpc: number
     conversionRate: number
-    currency?: string // 单一货币时的货币代码
-    costs?: Array<{ currency: string; amount: number }> // 多货币时的详细信息
+    commissionPerClick: number
+    currency?: string
+    costs?: Array<{ currency: string; amount: number }>
   }
   previous: {
     impressions: number
     clicks: number
     cost: number
     conversions: number
+    commission: number
   }
   changes: {
-    impressions: number // 百分比变化
+    impressions: number
     clicks: number
     cost: number
     conversions: number
+    commission: number
   }
   period: {
     current: { start: string; end: string }
@@ -40,7 +44,7 @@ interface KPIData {
 
 /**
  * GET /api/dashboard/kpis
- * 获取核心KPI指标（展示、点击、花费、转化）
+ * 获取核心KPI指标（展示、点击、花费、佣金）
  * Query参数：
  * - days: 统计天数（默认7天）
  */
@@ -50,20 +54,16 @@ export async function GET(request: NextRequest) {
 
 const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) => {
   try {
-    // 验证用户身份
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
     const userId = authResult.user.userId
-
-    // 获取查询参数
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '7', 10)
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('noCache') === 'true'
 
-    // 尝试从缓存获取（支持 refresh/noCache 旁路，避免牺牲数据实时性）
     const cacheKey = generateCacheKey('kpis', userId, { days })
     if (!refresh) {
       const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
@@ -73,7 +73,6 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     }
 
     const buildResult = async () => {
-      // 计算日期范围
       const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - days)
@@ -85,7 +84,6 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
 
       const db = await getDatabase()
 
-      // 🔧 修复(2025-12-30): 查询货币分布以支持多货币账户
       const currencyQuery = `
         SELECT DISTINCT currency
         FROM campaign_performance
@@ -102,16 +100,12 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       const isSingleCurrency = uniqueCurrencies.length === 1
       const isMultiCurrency = uniqueCurrencies.length > 1
 
-      // 查询当前周期数据
-      // 🔧 修复(2025-12-30): 按货币分组以支持多货币场景
-      // 🔧 修复(2025-12-30): PostgreSQL GROUP BY兼容性 - 单货币场景不SELECT currency字段
       const currentPeriodQuery = isMultiCurrency ? `
         SELECT
           currency,
           SUM(impressions) as impressions,
           SUM(clicks) as clicks,
-          SUM(cost) as cost,
-          SUM(conversions) as conversions
+          SUM(cost) as cost
         FROM campaign_performance
         WHERE user_id = ?
           AND date >= ?
@@ -121,8 +115,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         SELECT
           SUM(impressions) as impressions,
           SUM(clicks) as clicks,
-          SUM(cost) as cost,
-          SUM(conversions) as conversions
+          SUM(cost) as cost
         FROM campaign_performance
         WHERE user_id = ?
           AND date >= ?
@@ -138,16 +131,13 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         impressions: number | null
         clicks: number | null
         cost: number | null
-        conversions: number | null
       }>
 
-      // 查询上个周期数据（用于环比）
       const previousPeriodQuery = `
         SELECT
           SUM(impressions) as impressions,
           SUM(clicks) as clicks,
-          SUM(cost) as cost,
-          SUM(conversions) as conversions
+          SUM(cost) as cost
         FROM campaign_performance
         WHERE user_id = ?
           AND date >= ?
@@ -165,25 +155,45 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         impressions: number | null
         clicks: number | null
         cost: number | null
-        conversions: number | null
       } | undefined
 
-      // 处理数据
-      // 🔧 修复(2025-12-30): 聚合多货币数据
+      const commissionCurrentRow = await db.queryOne<{ commission: number }>(
+        `
+          SELECT COALESCE(SUM(commission_amount), 0) AS commission
+          FROM affiliate_commission_attributions
+          WHERE user_id = ?
+            AND report_date >= ?
+            AND report_date <= ?
+        `,
+        [userId, formatDate(startDate), formatDate(endDate)]
+      )
+
+      const commissionPreviousRow = await db.queryOne<{ commission: number }>(
+        `
+          SELECT COALESCE(SUM(commission_amount), 0) AS commission
+          FROM affiliate_commission_attributions
+          WHERE user_id = ?
+            AND report_date >= ?
+            AND report_date <= ?
+        `,
+        [userId, formatDate(previousStartDate), formatDate(previousEndDate)]
+      )
+
       const totalImpressions = currentData.reduce((sum, row) => sum + (Number(row?.impressions) || 0), 0)
       const totalClicks = currentData.reduce((sum, row) => sum + (Number(row?.clicks) || 0), 0)
       const totalCost = currentData.reduce((sum, row) => sum + (Number(row?.cost) || 0), 0)
-      const totalConversions = currentData.reduce((sum, row) => sum + (Number(row?.conversions) || 0), 0)
+      const totalCommission = Number(commissionCurrentRow?.commission) || 0
 
       const current = {
         impressions: totalImpressions,
         clicks: totalClicks,
         cost: totalCost,
-        conversions: totalConversions,
+        conversions: totalCommission,
+        commission: totalCommission,
         ctr: 0,
         cpc: 0,
         conversionRate: 0,
-        // 货币信息
+        commissionPerClick: 0,
         currency: isSingleCurrency ? uniqueCurrencies[0] : (isMultiCurrency ? 'MIXED' : 'USD'),
         costs: isMultiCurrency
           ? currentData.map(row => ({
@@ -193,33 +203,37 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
           : undefined
       }
 
+      const previousCommission = Number(commissionPreviousRow?.commission) || 0
       const previous = {
         impressions: Number(previousData?.impressions) || 0,
         clicks: Number(previousData?.clicks) || 0,
         cost: Number(previousData?.cost) || 0,
-        conversions: Number(previousData?.conversions) || 0,
+        conversions: previousCommission,
+        commission: previousCommission,
       }
 
-      // 计算派生指标
       if (current.impressions > 0) {
         current.ctr = (current.clicks / current.impressions) * 100
       }
       if (current.clicks > 0) {
         current.cpc = current.cost / current.clicks
-        current.conversionRate = (current.conversions / current.clicks) * 100
+        current.conversionRate = current.commission / current.clicks
+        current.commissionPerClick = current.commission / current.clicks
       }
 
-      // 计算环比变化（百分比）
-      const calculateChange = (current: number, previous: number): number => {
-        if (previous === 0) return current > 0 ? 100 : 0
-        return ((current - previous) / previous) * 100
+      const calculateChange = (currentValue: number, previousValue: number): number => {
+        if (previousValue === 0) return currentValue > 0 ? 100 : 0
+        return ((currentValue - previousValue) / previousValue) * 100
       }
+
+      const commissionChange = Number(calculateChange(current.commission, previous.commission)) || 0
 
       const changes = {
         impressions: Number(calculateChange(current.impressions, previous.impressions)) || 0,
         clicks: Number(calculateChange(current.clicks, previous.clicks)) || 0,
         cost: Number(calculateChange(current.cost, previous.cost)) || 0,
-        conversions: Number(calculateChange(current.conversions, previous.conversions)) || 0,
+        conversions: commissionChange,
+        commission: commissionChange,
       }
 
       const response: KPIData = {
@@ -264,9 +278,6 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
   }
 }, { path: '/api/dashboard/kpis' })
 
-/**
- * 格式化日期为 YYYY-MM-DD
- */
 function formatDate(date: Date): string {
   return date.toISOString().split('T')[0]
 }

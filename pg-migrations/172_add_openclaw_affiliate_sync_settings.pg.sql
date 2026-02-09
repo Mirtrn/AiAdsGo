@@ -19,7 +19,7 @@ SELECT
   'openclaw_affiliate_sync_enabled',
   NULL,
   NULL,
-  'true',
+  'false',
   '启用联盟成交/佣金自动同步（按间隔刷新当日快照）',
   false,
   false,

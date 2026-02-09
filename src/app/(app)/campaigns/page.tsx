@@ -67,10 +67,12 @@ interface Campaign {
     impressions: number
     clicks: number
     conversions: number
+    commission?: number
     costUsd: number
     ctr: number
     cpcUsd: number
     conversionRate: number
+    commissionPerClick?: number
     dateRange: {
       start: string
       end: string
@@ -85,6 +87,7 @@ interface PerformanceSummary {
   totalImpressions: number
   totalClicks: number
   totalConversions: number
+  totalCommission?: number
   totalCostUsd: number
   currency?: string
   currencies?: string[]
@@ -265,8 +268,8 @@ export default function CampaignsPage() {
             break
           case 'conversions':
             // 🔧 修复(2025-12-29): 确保数值类型比较
-            aVal = Number(a.performance?.conversions) || 0
-            bVal = Number(b.performance?.conversions) || 0
+            aVal = Number(a.performance?.commission ?? a.performance?.conversions) || 0
+            bVal = Number(b.performance?.commission ?? b.performance?.conversions) || 0
             break
           case 'cost':
             // 🔧 修复(2025-12-29): 确保数值类型比较
@@ -934,9 +937,9 @@ export default function CampaignsPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">总转化次数</p>
+                    <p className="text-sm font-medium text-gray-600">总佣金</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {(summary.totalConversions ?? 0).toLocaleString()}
+                      {formatMoney(Number(summary.totalCommission ?? summary.totalConversions) || 0)}
                     </p>
                     {summary.changes?.conversions !== null && summary.changes?.conversions !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.conversions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -1029,17 +1032,17 @@ export default function CampaignsPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
-            {/* 流量趋势 - 2/5 (柱状图，双Y轴：展示在左轴，点击/转化在右轴) */}
+            {/* 流量趋势 - 2/5 (柱状图，双Y轴：展示在左轴，点击/佣金在右轴) */}
             <div className="lg:col-span-2">
               <TrendChart
                 data={trendsData}
                 metrics={[
                   { key: 'impressions', label: '展示', color: 'hsl(217, 91%, 60%)', yAxisId: 'left' },
                   { key: 'clicks', label: '点击', color: 'hsl(142, 76%, 36%)', yAxisId: 'right' },
-                  { key: 'conversions', label: '转化', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
+                  { key: 'commission', label: '佣金', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
                 ]}
                 title="流量趋势"
-                description="展示(左轴) / 点击·转化(右轴)"
+                description="展示(左轴) / 点击·佣金(右轴)"
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={fetchTrends}
@@ -1057,10 +1060,10 @@ export default function CampaignsPage() {
                 metrics={[
                   { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left' },
                   { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
-                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
+                  { key: 'costPerCommission', label: '费佣比', color: 'hsl(0, 84%, 60%)', formatter: (v) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right' },
                 ]}
                 title="成本趋势"
-                description="花费(左轴) / CPC·CPA(右轴)"
+                description="花费(左轴) / CPC·费佣比(右轴)"
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={fetchTrends}
@@ -1094,11 +1097,11 @@ export default function CampaignsPage() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-500">平均CPA</span>
+                      <span className="text-xs text-gray-500">平均费佣比</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? formatTrendsMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length)
-                          : formatTrendsMoney(0)}
+                          ? `${(trendsData.reduce((sum, d) => sum + ((d.costPerCommission as number) || 0), 0) / trendsData.length).toFixed(2)}x`
+                          : '0.00x'}
                       </span>
                     </div>
                   </div>
@@ -1239,7 +1242,7 @@ export default function CampaignsPage() {
                       <SortableHeader field="clicks" className="w-[90px]">点击</SortableHeader>
                       <SortableHeader field="ctr" className="w-[90px]">点击率</SortableHeader>
                       <SortableHeader field="cpc" className="w-[90px]">CPC</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[90px]">转化</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[90px]">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[100px]">花费</SortableHeader>
                       <SortableHeader field="status" className="w-[110px]">投放状态</SortableHeader>
                       <SortableHeader field="servingStartDate" className="w-[110px]">投放日期</SortableHeader>
@@ -1322,7 +1325,7 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          {(Number(campaign.performance?.conversions) || 0).toFixed(1)}
+                          {formatMoney(Number(campaign.performance?.commission ?? campaign.performance?.conversions) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
                       <TableCell>
