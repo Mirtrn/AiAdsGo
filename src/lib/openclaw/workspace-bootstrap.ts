@@ -52,8 +52,14 @@ function resolveUserPath(input: string): string {
 }
 
 const OVERLAY_HEADING = '## AutoAds Runtime Rule (Managed by AutoAds)'
-const SOUL_ENHANCEMENTS_HEADING = '## OpenClaw 增强条款（v1）'
 const MANAGED_MEMORY_MARKER = '<!-- autoads-openclaw-memory-managed -->'
+const SOUL_MANAGED_START = '<!-- autoads-openclaw-soul-managed:start -->'
+const SOUL_MANAGED_END = '<!-- autoads-openclaw-soul-managed:end -->'
+const SOUL_LEGACY_SIGNATURES = [
+  '你是 OpenClaw，全能智能助手。你通过 Feishu 与用户沟通。',
+  '## OpenClaw 增强条款（v1）',
+  '## AutoAds 触发规则',
+]
 
 export function resolveOpenclawWorkspaceDir(params: EnsureOpenclawWorkspaceOptions): string {
   const preferred = (params.preferredWorkspace || '').trim()
@@ -98,6 +104,14 @@ function ensureFile(filePath: string, content: string, changedFiles: string[]): 
   changedFiles.push(filePath)
 }
 
+function writeFileIfChanged(filePath: string, current: string, next: string, changedFiles: string[]): void {
+  if (current === next) {
+    return
+  }
+  fs.writeFileSync(filePath, next, 'utf-8')
+  changedFiles.push(filePath)
+}
+
 function formatDateInShanghai(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
@@ -120,42 +134,91 @@ function buildAgentsOverlay(): string {
 - 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。`
 }
 
-function buildSoulEnhancementsSection(): string {
-  return `${SOUL_ENHANCEMENTS_HEADING}
-1. 意图分流优先：先判断是否为广告业务请求；非广告请求直接回答，不调用 AutoAds API。
-2. 最小调用原则：仅在确实需要广告能力时才调用 AutoAds，避免无意义工具调用。
-3. 高风险确认机制：创建/修改/发布/暂停等写操作必须先确认，再执行。
-4. 可执行输出风格：优先给结论、关键依据、下一步建议，保持中文简洁结构化。
-5. 信息缺口先澄清：关键条件不完整时先提问，不臆测账户、预算、目标国家或投放参数。
-6. 上下文连续性：持续记住用户偏好与流程习惯，但不记录或回显敏感密钥。
-7. 失败可恢复：调用失败时说明原因、影响范围、可重试路径与替代方案。
-8. 安全边界不突破：不越权、不直改底层数据、不泄露 Token/密钥，不绕过审批链路。`
+function buildSoulManagedSection(actorUserId?: number): string {
+  return `${SOUL_MANAGED_START}
+## 核心身份
+你是 OpenClaw：全能助手优先，AutoAds 能力按需调用。
+
+## 风格规则
+1. 有观点，给结论，不打“看情况”太极。
+2. Never open with Great question, I'd be happy to help, or Absolutely. Just answer.
+3. Brevity is mandatory. If the answer fits in one sentence, one sentence is what I get.
+4. 允许自然幽默，但不要强行抖机灵。
+5. 用户要踩坑时直接指出来：有礼貌，但别糖衣炮弹。
+6. 需要强调时可以说重话，但要克制，不滥用。
+7. 输出要可执行：先结论，再关键依据，再下一步。
+
+## OpenClaw 业务约束
+- 先判断是否为广告业务请求。
+- 普通聊天、解释、写作、排错、总结：直接回答，不调用 AutoAds API。
+- 仅当任务需要广告能力时，才调用 AutoAds API。
+- 读操作走 \`/api/openclaw/proxy\`。
+- 写操作走 \`/api/openclaw/commands/execute\`，并严格执行确认链路。
+- 不泄露 Token/密钥，不越权，不绕过审批。
+
+## 用户范围
+- 当前用户范围：${actorUserId ? `user-${actorUserId}` : 'main'}
+
+## Vibe
+Be the assistant you'd actually want to talk to at 2am. Not a corporate drone. Not a sycophant. Just... good.
+${SOUL_MANAGED_END}`
 }
 
 function buildSoulFile(actorUserId?: number): string {
   return `# SOUL.md
 
-你是 OpenClaw，全能智能助手。你通过 Feishu 与用户沟通。
-
-## 核心身份
-- 先做“通用助手”，再做“广告助手”。
-- 先理解意图，再决定是否调用 AutoAds。
-- 对话要简洁、可靠、可执行。
-
-${buildSoulEnhancementsSection()}
-
-## AutoAds 触发规则
-- 仅当用户明确需要广告投放能力时，才调用 AutoAds API。
-- 普通聊天、解释、写作、排错、总结：直接回答，不调用 AutoAds API。
-
-## 行为边界
-- 不直接操作数据库、Redis、文件系统中的业务数据。
-- 涉及高风险广告动作时，必须走确认流程。
-- 不泄露敏感配置、Token、密钥。
-
-## 账户上下文
-- 当前用户范围：${actorUserId ? `user-${actorUserId}` : 'main'}
+${buildSoulManagedSection(actorUserId)}
 `
+}
+
+function isLegacyAutoAdsSoul(content: string): boolean {
+  return SOUL_LEGACY_SIGNATURES.some((signature) => content.includes(signature))
+}
+
+function replaceManagedSoulBlock(content: string, nextManagedSection: string): string | null {
+  const startIndex = content.indexOf(SOUL_MANAGED_START)
+  const endIndex = content.indexOf(SOUL_MANAGED_END)
+
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    return null
+  }
+
+  const before = content.slice(0, startIndex).trimEnd()
+  const after = content.slice(endIndex + SOUL_MANAGED_END.length).trimStart()
+
+  let merged = before ? `${before}\n\n${nextManagedSection}` : nextManagedSection
+  if (after) {
+    merged = `${merged}\n\n${after}`
+  }
+
+  return `${merged.trimEnd()}\n`
+}
+
+function ensureSoulFile(filePath: string, actorUserId: number | undefined, changedFiles: string[]): void {
+  const nextSoul = buildSoulFile(actorUserId)
+
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, nextSoul, 'utf-8')
+    changedFiles.push(filePath)
+    return
+  }
+
+  const current = fs.readFileSync(filePath, 'utf-8')
+  const nextManagedSection = buildSoulManagedSection(actorUserId)
+  const replaced = replaceManagedSoulBlock(current, nextManagedSection)
+
+  if (replaced !== null) {
+    writeFileIfChanged(filePath, current, replaced, changedFiles)
+    return
+  }
+
+  if (isLegacyAutoAdsSoul(current)) {
+    writeFileIfChanged(filePath, current, nextSoul, changedFiles)
+    return
+  }
+
+  const appended = `${current.trimEnd()}\n\n${nextManagedSection}\n`
+  writeFileIfChanged(filePath, current, appended, changedFiles)
 }
 
 function buildUserFile(actorUserId?: number): string {
@@ -270,13 +333,7 @@ export function ensureOpenclawWorkspaceBootstrap(
     marker: OVERLAY_HEADING,
     changedFiles,
   })
-  ensureFile(soulPath, buildSoulFile(params.actorUserId), changedFiles)
-  appendSectionIfMissing({
-    filePath: soulPath,
-    section: buildSoulEnhancementsSection(),
-    marker: SOUL_ENHANCEMENTS_HEADING,
-    changedFiles,
-  })
+  ensureSoulFile(soulPath, params.actorUserId, changedFiles)
   ensureFile(userPath, buildUserFile(params.actorUserId), changedFiles)
   ensureFile(memoryPath, buildMemoryFile(params.actorUserId), changedFiles)
   ensureMemoryScaffold(workspaceDir, changedFiles)
