@@ -1,4 +1,4 @@
-import { getDatabase } from '@/lib/db'
+import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 
 export type AffiliatePlatform = 'partnerboost' | 'yeahpromos'
 
@@ -73,6 +73,71 @@ function chunkArray<T>(items: T[], chunkSize = IN_CLAUSE_CHUNK_SIZE): T[][] {
     chunks.push(items.slice(index, index + chunkSize))
   }
   return chunks
+}
+
+function formatLocalYmd(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+function isHistoricalReportDate(reportDate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+    return false
+  }
+  return reportDate < formatLocalYmd(new Date())
+}
+
+type ExistingAttributionSummaryRow = {
+  written_rows: number | string | null
+  attributed_commission: number | string | null
+  attributed_offers: number | string | null
+  attributed_campaigns: number | string | null
+}
+
+async function queryExistingAttributionSummary(params: {
+  db: DatabaseAdapter
+  userId: number
+  reportDate: string
+  totalCommission: number
+}): Promise<AffiliateCommissionAttributionResult | null> {
+  const row = await params.db.queryOne<ExistingAttributionSummaryRow>(
+    `
+      SELECT
+        COUNT(*) AS written_rows,
+        COALESCE(SUM(commission_amount), 0) AS attributed_commission,
+        COUNT(DISTINCT offer_id) AS attributed_offers,
+        COUNT(DISTINCT campaign_id) AS attributed_campaigns
+      FROM affiliate_commission_attributions
+      WHERE user_id = ? AND report_date = ?
+    `,
+    [params.userId, params.reportDate]
+  )
+
+  const writtenRows = Number(row?.written_rows) || 0
+  if (writtenRows <= 0) {
+    return null
+  }
+
+  const attributedCommission = roundTo(Number(row?.attributed_commission) || 0)
+  const effectiveTotalCommission = roundTo(
+    Math.max(Number(params.totalCommission) || 0, attributedCommission)
+  )
+
+  return {
+    reportDate: params.reportDate,
+    totalCommission: effectiveTotalCommission,
+    attributedCommission,
+    unattributedCommission: roundTo(
+      Math.max(0, effectiveTotalCommission - attributedCommission)
+    ),
+    attributedOffers: Number(row?.attributed_offers) || 0,
+    attributedCampaigns: Number(row?.attributed_campaigns) || 0,
+    writtenRows,
+  }
 }
 
 function buildWeightedShares(total: number, weights: number[]): number[] {
@@ -283,6 +348,7 @@ export async function persistAffiliateCommissionAttributions(params: {
   reportDate: string
   entries: AffiliateCommissionRawEntry[]
   replaceExisting: boolean
+  lockHistorical?: boolean
 }): Promise<AffiliateCommissionAttributionResult> {
   const db = await getDatabase()
 
@@ -307,6 +373,19 @@ export async function persistAffiliateCommissionAttributions(params: {
   const totalCommission = roundTo(
     normalizedEntries.reduce((sum, entry) => sum + entry.commission, 0)
   )
+
+  if (params.lockHistorical && isHistoricalReportDate(params.reportDate)) {
+    const existingSummary = await queryExistingAttributionSummary({
+      db,
+      userId: params.userId,
+      reportDate: params.reportDate,
+      totalCommission,
+    })
+
+    if (existingSummary) {
+      return existingSummary
+    }
+  }
 
   if (!params.replaceExisting) {
     return {
