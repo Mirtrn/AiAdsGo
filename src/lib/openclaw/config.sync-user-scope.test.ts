@@ -262,4 +262,47 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.channels.feishu.accounts.main.cardCallbackPath).toBe('/feishu/card-action')
     expect(written.channels.feishu.accounts['user-42'].cardCallbackPath).toBe('/feishu/user-42/card-action')
   })
+  it('bootstraps SOUL workspace files and binds default workspace', async () => {
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    await syncOpenclawConfig({ reason: 'test-workspace-bootstrap', actorUserId: 7 })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    const workspaceDir = path.join(tempDir, 'workspace', 'user-7')
+
+    expect(written.agents.defaults.workspace).toBe(workspaceDir)
+    expect(fs.existsSync(path.join(workspaceDir, 'AGENTS.md'))).toBe(true)
+    expect(fs.existsSync(path.join(workspaceDir, 'SOUL.md'))).toBe(true)
+    expect(fs.existsSync(path.join(workspaceDir, 'USER.md'))).toBe(true)
+    expect(fs.existsSync(path.join(workspaceDir, 'MEMORY.md'))).toBe(true)
+
+    const agentsContent = fs.readFileSync(path.join(workspaceDir, 'AGENTS.md'), 'utf-8')
+    expect(agentsContent).toContain('## AutoAds Runtime Rule (Managed by AutoAds)')
+
+    const memoryDir = path.join(workspaceDir, 'memory')
+    const dailyFiles = fs.readdirSync(memoryDir).filter((name) => name.endsWith('.md'))
+    expect(dailyFiles.length).toBeGreaterThan(0)
+  })
+
+  it('respects preferred workspace from agent defaults', async () => {
+    const preferredWorkspace = path.join(tempDir, 'custom-workspace')
+
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        {
+          key: 'openclaw_agent_defaults_json',
+          value: JSON.stringify({ workspace: preferredWorkspace }),
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    await syncOpenclawConfig({ reason: 'test-preferred-workspace', actorUserId: 9 })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.agents.defaults.workspace).toBe(preferredWorkspace)
+    expect(fs.existsSync(path.join(preferredWorkspace, 'SOUL.md'))).toBe(true)
+  })
+
 })

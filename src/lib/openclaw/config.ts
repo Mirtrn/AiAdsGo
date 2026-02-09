@@ -4,6 +4,7 @@ import { getSettingsByCategory } from '@/lib/settings'
 import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
 import { collectUserFeishuAccounts } from '@/lib/openclaw/feishu-accounts'
 import { parseAiModelsJson } from '@/lib/openclaw/ai-models'
+import { ensureOpenclawWorkspaceBootstrap } from '@/lib/openclaw/workspace-bootstrap'
 
 type SyncOpenclawConfigOptions = {
   reason?: string
@@ -300,6 +301,20 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const skillsEntries = parseJsonObject(settingMap.openclaw_skills_entries_json)
   const skillsAllowBundled = parseJsonArray(settingMap.openclaw_skills_allow_bundled_json)
 
+  const preferredWorkspace = typeof agentDefaults?.workspace === 'string'
+    ? agentDefaults.workspace.trim()
+    : ''
+
+  const workspaceBootstrap = ensureOpenclawWorkspaceBootstrap({
+    stateDir,
+    actorUserId,
+    preferredWorkspace,
+  })
+
+  if (workspaceBootstrap.changedFiles.length > 0) {
+    console.log('🧠 OpenClaw workspace bootstrap updated:', workspaceBootstrap.changedFiles)
+  }
+
   const config: Record<string, any> = {
     meta: {
       lastTouchedAt: new Date().toISOString(),
@@ -442,6 +457,17 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     const base = agentDefaults && Object.keys(agentDefaults).length > 0
       ? { ...agentDefaults }
       : {}
+
+    if (typeof base.workspace !== 'string' || !base.workspace.trim()) {
+      base.workspace = workspaceBootstrap.workspaceDir
+    }
+
+    if (typeof base.userTimezone !== 'string' || !base.userTimezone.trim()) {
+      const envTimezone = (process.env.TZ || '').trim()
+      if (envTimezone) {
+        base.userTimezone = envTimezone
+      }
+    }
 
     const hasExistingPrimaryModel = (() => {
       const existingModel = base.model

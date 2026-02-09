@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -80,6 +80,36 @@ type GatewaySkillRow = {
     variant: 'default' | 'secondary' | 'outline' | 'destructive'
   }
   installHint: string
+}
+
+type WorkspaceStatusFile = {
+  name: string
+  path: string
+  exists: boolean
+  size: number | null
+  updatedAt: string | null
+}
+
+type WorkspaceStatusResponse = {
+  success: boolean
+  source?: 'runtime-config' | 'computed'
+  runtimeWorkspaceDir?: string | null
+  computedWorkspaceDir?: string
+  workspaceDir?: string
+  memoryDir?: string
+  files?: WorkspaceStatusFile[]
+  missingFiles?: string[]
+  dailyMemoryPath?: string
+  dailyMemoryExists?: boolean
+  canReloadGateway?: boolean
+  error?: string
+}
+
+type WorkspaceBootstrapResponse = {
+  success: boolean
+  changedFiles?: string[]
+  status?: WorkspaceStatusResponse
+  error?: string
 }
 
 type AsinInputRecord = {
@@ -515,6 +545,10 @@ export default function OpenClawPage() {
   const [gatewayReloading, setGatewayReloading] = useState(false)
   const [gatewaySkillsCollapsed, setGatewaySkillsCollapsed] = useState(true)
   const [gatewayShowAvailableOnly, setGatewayShowAvailableOnly] = useState(true)
+  const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatusResponse | null>(null)
+  const [workspaceLoading, setWorkspaceLoading] = useState(false)
+  const [workspaceBootstrapping, setWorkspaceBootstrapping] = useState(false)
+  const workspaceAutoBootstrapTriedRef = useRef(false)
   const [asinData, setAsinData] = useState<AsinDataResponse | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [asinUploading, setAsinUploading] = useState(false)
@@ -605,6 +639,7 @@ export default function OpenClawPage() {
 
     load()
     loadGatewayStatus(false, () => active)
+    loadWorkspaceStatus(false, () => active)
     return () => {
       active = false
     }
@@ -673,6 +708,91 @@ export default function OpenClawPage() {
       if (isActive && !isActive()) return
       setGatewayLoading(false)
     }
+  }
+
+  const loadWorkspaceStatus = async (force = false, isActive?: () => boolean) => {
+    setWorkspaceLoading(true)
+    try {
+      const response = await fetch(
+        `/api/openclaw/workspace/status${force ? '?force=1' : ''}`,
+        { credentials: 'include' }
+      )
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error || 'SOUL 工作区状态获取失败')
+      }
+      if (isActive && !isActive()) return
+
+      const missingFiles = Array.isArray(payload?.missingFiles) ? payload.missingFiles.length : 0
+      const missingDailyMemory = payload?.dailyMemoryExists === false
+      const needsBootstrap = payload?.success && (missingFiles > 0 || missingDailyMemory)
+
+      if (!force && needsBootstrap && !workspaceAutoBootstrapTriedRef.current) {
+        workspaceAutoBootstrapTriedRef.current = true
+        setWorkspaceStatus(payload)
+        await handleWorkspaceBootstrap({ silent: true })
+        return
+      }
+
+      setWorkspaceStatus(payload)
+    } catch (error: any) {
+      if (isActive && !isActive()) return
+      setWorkspaceStatus({
+        success: false,
+        error: error?.message || 'SOUL 工作区状态获取失败',
+      })
+    } finally {
+      if (isActive && !isActive()) return
+      setWorkspaceLoading(false)
+    }
+  }
+
+  const handleWorkspaceBootstrap = async (options?: { silent?: boolean }): Promise<boolean> => {
+    const silent = options?.silent === true
+    setWorkspaceBootstrapping(true)
+    try {
+      const response = await fetch('/api/openclaw/workspace/bootstrap', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const payload = (await response.json().catch(() => null)) as WorkspaceBootstrapResponse | null
+      if (!response.ok) {
+        throw new Error(payload?.error || 'SOUL 工作区补齐失败')
+      }
+
+      if (payload?.status && typeof payload.status === 'object') {
+        setWorkspaceStatus(payload.status)
+      } else {
+        await loadWorkspaceStatus(true)
+      }
+
+      const changedCount = payload?.changedFiles?.length || 0
+      if (!silent) {
+        toast.success(changedCount > 0 ? `工作区已补齐（${changedCount} 个文件）` : '工作区已是最新状态')
+      }
+      return true
+    } catch (error: any) {
+      if (!silent) {
+        toast.error(error?.message || 'SOUL 工作区补齐失败')
+      }
+      return false
+    } finally {
+      setWorkspaceBootstrapping(false)
+    }
+  }
+
+  const handleWorkspaceBootstrapAndReload = async () => {
+    if (settings?.isAdmin !== true) {
+      toast.error('仅管理员可执行补齐并热加载')
+      return
+    }
+
+    const bootstrapSuccess = await handleWorkspaceBootstrap()
+    if (!bootstrapSuccess) {
+      return
+    }
+
+    await handleGatewayHotReload()
   }
 
   const handleGatewayHotReload = async () => {
@@ -1129,6 +1249,19 @@ export default function OpenClawPage() {
   const gatewayVisibleSkills = gatewayShowAvailableOnly
     ? gatewaySkillsRows.filter((item) => item.isReady)
     : gatewaySkillsRows
+  const workspaceFiles = Array.isArray(workspaceStatus?.files) ? workspaceStatus.files : []
+  const workspaceMissingFiles = Array.isArray(workspaceStatus?.missingFiles) ? workspaceStatus.missingFiles : []
+  const workspaceReady = Boolean(
+    workspaceStatus?.success
+    && workspaceMissingFiles.length === 0
+    && workspaceStatus.dailyMemoryExists
+  )
+  const workspaceSourceLabel = workspaceStatus?.source === 'runtime-config'
+    ? '运行时配置'
+    : workspaceStatus?.source === 'computed'
+      ? '计算结果'
+      : '未知'
+  const canReloadFromWorkspace = workspaceStatus?.canReloadGateway ?? (settings?.isAdmin === true)
   const canEditAiSettings = settings?.isAdmin === true
   const aiConfigured = Boolean((userValues.ai_models_json || '').trim())
   const aiModelLabel = aiSelectedModelMeta
@@ -1483,6 +1616,125 @@ export default function OpenClawPage() {
                       <div className="text-sm text-slate-500">暂无技能数据</div>
                     )}
                   </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  SOUL 工作区
+                  <Badge variant={workspaceReady ? 'default' : 'secondary'} className="text-[11px]">{workspaceReady ? '已就绪' : '待补齐'}</Badge>
+                </CardTitle>
+                <CardDescription>检查并补齐 AGENTS/SOUL/USER/MEMORY 与每日记忆文件</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {canReloadFromWorkspace && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleWorkspaceBootstrapAndReload}
+                    disabled={workspaceLoading || workspaceBootstrapping || gatewayReloading}
+                  >
+                    {(workspaceBootstrapping || gatewayReloading) ? '处理中...' : '补齐并热加载'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadWorkspaceStatus(true)}
+                  disabled={workspaceLoading || workspaceBootstrapping}
+                >
+                  {workspaceLoading ? '刷新中...' : '刷新'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleWorkspaceBootstrap()}
+                  disabled={workspaceBootstrapping || gatewayReloading}
+                >
+                  {workspaceBootstrapping ? '补齐中...' : '一键补齐'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!workspaceStatus && <div className="text-sm text-slate-500">状态加载中...</div>}
+              {workspaceStatus && !workspaceStatus.success && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">
+                  {workspaceStatus.error || 'SOUL 工作区状态获取失败'}
+                </div>
+              )}
+              {workspaceStatus?.success && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="border rounded-md p-3">
+                      <div className="text-xs text-slate-500">工作区目录</div>
+                      <div className="mt-2 text-xs break-all">{workspaceStatus.workspaceDir || '未知'}</div>
+                    </div>
+                    <div className="border rounded-md p-3">
+                      <div className="text-xs text-slate-500">路径来源</div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant="outline">{workspaceSourceLabel}</Badge>
+                        <span className="text-xs text-slate-500">{workspaceStatus.runtimeWorkspaceDir ? 'runtime 生效' : '按规则推导'}</span>
+                      </div>
+                    </div>
+                    <div className="border rounded-md p-3">
+                      <div className="text-xs text-slate-500">缺失模板文件</div>
+                      <div className="mt-2 text-lg font-semibold">{workspaceMissingFiles.length}</div>
+                    </div>
+                    <div className="border rounded-md p-3">
+                      <div className="text-xs text-slate-500">今日记忆文件</div>
+                      <div className="mt-2">
+                        <Badge variant={workspaceStatus.dailyMemoryExists ? 'default' : 'secondary'}>
+                          {workspaceStatus.dailyMemoryExists ? '已生成' : '未生成'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {workspaceStatus.dailyMemoryPath && (
+                    <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 break-all">
+                      每日记忆路径：{workspaceStatus.dailyMemoryPath}
+                    </div>
+                  )}
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[20%]">文件</TableHead>
+                        <TableHead className="w-[16%]">状态</TableHead>
+                        <TableHead className="w-[44%]">路径</TableHead>
+                        <TableHead className="w-[20%]">更新时间</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {workspaceFiles.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-slate-500">暂无文件状态</TableCell>
+                        </TableRow>
+                      )}
+                      {workspaceFiles.map((file) => (
+                        <TableRow key={file.path}>
+                          <TableCell className="font-medium">{file.name}</TableCell>
+                          <TableCell>
+                            <Badge variant={file.exists ? 'default' : 'destructive'}>{file.exists ? '已存在' : '缺失'}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs break-all text-slate-600">{file.path}</TableCell>
+                          <TableCell className="text-xs text-slate-500">{formatTimestamp(file.updatedAt)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  {workspaceMissingFiles.length > 0 && (
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      缺失文件：{workspaceMissingFiles.join(', ')}。点击“一键补齐”自动创建。
+                    </div>
+                  )}
                 </>
               )}
             </CardContent>
