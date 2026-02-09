@@ -169,6 +169,38 @@ describe('openclaw bindings isolation', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled()
   })
 
+  it('uses strict mode: allows configured allowlist sender without tenant key', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = 'true'
+    collectUserFeishuAccountsMock.mockResolvedValue({
+      'user-7': { authMode: 'strict', allowFrom: ['ou_abc'] },
+    })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_abc', {
+      accountId: 'user-7',
+      tenantKey: null,
+    })
+
+    expect(result).toBe(7)
+    expect(getDatabaseMock).not.toHaveBeenCalled()
+  })
+
+  it('uses strict mode: resolves main account callback by unique allowlist', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_REQUIRE_TENANT_KEY = 'true'
+    collectUserFeishuAccountsMock.mockResolvedValue({
+      'user-7': { authMode: 'strict', allowFrom: ['ou_main'] },
+    })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_main', {
+      accountId: 'main',
+      tenantKey: null,
+    })
+
+    expect(result).toBe(7)
+    expect(getDatabaseMock).not.toHaveBeenCalled()
+  })
+
   it('uses strict mode: resolves via tenant binding', async () => {
     process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
     collectUserFeishuAccountsMock.mockResolvedValue({

@@ -116,7 +116,15 @@ function applyFeishuCardAutoDefaults(params: {
     ? '/feishu/card-action'
     : `/feishu/${encodeURIComponent(params.accountId)}/card-action`
 
-  if (!(typeof next.cardCallbackPath === 'string' && next.cardCallbackPath.trim())) {
+  const existingCallbackPath = typeof next.cardCallbackPath === 'string'
+    ? next.cardCallbackPath.trim()
+    : ''
+  const shouldNormalizeMainPath = params.accountId === 'main'
+    && /^\/feishu\/user-[^/]+\/card-action$/i.test(existingCallbackPath)
+  const shouldNormalizeUserPath = params.accountId !== 'main'
+    && existingCallbackPath === '/feishu/card-action'
+
+  if (!existingCallbackPath || shouldNormalizeMainPath || shouldNormalizeUserPath) {
     next.cardCallbackPath = callbackPath
   }
 
@@ -372,26 +380,6 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       gatewayToken,
       appBaseUrl,
     })
-  }
-
-  if (actorUserId) {
-    const actorAccountId = `user-${actorUserId}`
-    const actorAccount = mergedFeishuAccounts[actorAccountId]
-    const mainAccount = mergedFeishuAccounts.main
-    if (
-      actorAccount &&
-      mainAccount &&
-      typeof actorAccount === 'object' &&
-      typeof mainAccount === 'object' &&
-      !Array.isArray(actorAccount) &&
-      !Array.isArray(mainAccount)
-    ) {
-      const actorAppId = String((actorAccount as Record<string, any>).appId || '').trim()
-      const mainAppId = String((mainAccount as Record<string, any>).appId || '').trim()
-      if (actorAppId && actorAppId === mainAppId) {
-        delete mergedFeishuAccounts.main
-      }
-    }
   }
 
   config.channels.feishu.accounts = mergedFeishuAccounts

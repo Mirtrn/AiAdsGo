@@ -97,6 +97,13 @@ function normalizeFeishuId(value?: string | null): string {
   return String(value || '').trim().replace(/^(feishu|lark):/i, '').toLowerCase()
 }
 
+function isFeishuSenderAllowlisted(senderId: string, allowFrom?: string[]): boolean {
+  if (!Array.isArray(allowFrom) || allowFrom.length === 0) return false
+  const normalizedSenderId = normalizeFeishuId(senderId)
+  if (!normalizedSenderId) return false
+  return allowFrom.some((entry) => normalizeFeishuId(entry) === normalizedSenderId)
+}
+
 async function findFeishuTenantBinding(params: {
   tenantKey: string
   senderId: string
@@ -165,6 +172,7 @@ async function resolveStrictFeishuUser(params: {
   tenantKey?: string
   requireTenantKey: boolean
   strictAutoBind: boolean
+  allowFrom?: string[]
 }): Promise<number | null> {
   if (!params.accountUserId) {
     return null
@@ -172,7 +180,9 @@ async function resolveStrictFeishuUser(params: {
 
   if (!params.tenantKey) {
     if (params.requireTenantKey) {
-      return null
+      return isFeishuSenderAllowlisted(params.senderId, params.allowFrom)
+        ? params.accountUserId
+        : null
     }
     return params.accountUserId
   }
@@ -258,12 +268,21 @@ export async function resolveOpenclawUserFromBinding(
   }
 
   if (isFeishu && feishuSettings?.authMode === 'strict') {
+    const strictAccountUserId = accountUserId
+      || await resolveFeishuUserFromAllowlist(normalizedSenderId, feishuAccounts)
+    const strictAccountAllowFrom = strictAccountUserId
+      ? (Array.isArray(feishuAccounts?.[`user-${strictAccountUserId}`]?.allowFrom)
+        ? feishuAccounts?.[`user-${strictAccountUserId}`]?.allowFrom
+        : undefined)
+      : undefined
+
     return await resolveStrictFeishuUser({
-      accountUserId,
+      accountUserId: strictAccountUserId,
       senderId: normalizedSenderId,
       tenantKey,
       requireTenantKey: feishuSettings.requireTenantKey,
       strictAutoBind: feishuSettings.strictAutoBind,
+      allowFrom: strictAccountAllowFrom,
     })
   }
 

@@ -227,9 +227,19 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.models.providers.openai).toBeDefined()
   })
 
-  it('drops duplicated main Feishu account during actor user sync', async () => {
+  it('keeps main Feishu account and normalizes callback paths during actor user sync', async () => {
     getSettingsByCategoryMock
       .mockResolvedValueOnce([
+        {
+          key: 'feishu_accounts_json',
+          value: JSON.stringify({
+            main: {
+              appId: 'cli_actor',
+              appSecret: 'sec_actor',
+              cardCallbackPath: '/feishu/user-42/card-action',
+            },
+          }),
+        },
         { key: 'feishu_app_id', value: 'cli_actor' },
         { key: 'feishu_app_secret', value: 'sec_actor' },
       ])
@@ -240,13 +250,16 @@ describe('syncOpenclawConfig user scope', () => {
         appId: 'cli_actor',
         appSecret: 'sec_actor',
         dmPolicy: 'allowlist',
+        cardCallbackPath: '/feishu/card-action',
       },
     })
 
-    await syncOpenclawConfig({ reason: 'test-user-feishu-dedupe', actorUserId: 42 })
+    await syncOpenclawConfig({ reason: 'test-user-feishu-compat', actorUserId: 42 })
 
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     expect(written.channels.feishu.accounts['user-42']).toBeDefined()
-    expect(written.channels.feishu.accounts.main).toBeUndefined()
+    expect(written.channels.feishu.accounts.main).toBeDefined()
+    expect(written.channels.feishu.accounts.main.cardCallbackPath).toBe('/feishu/card-action')
+    expect(written.channels.feishu.accounts['user-42'].cardCallbackPath).toBe('/feishu/user-42/card-action')
   })
 })
