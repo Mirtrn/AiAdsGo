@@ -216,18 +216,44 @@ const FEISHU_CHAT_MINIMAL_USER_KEYS = [
   'feishu_app_secret',
   'feishu_app_secret_file',
   'feishu_target',
+  'feishu_accounts_json',
+] as const
+
+const FEISHU_CHAT_COMMUNICATION_USER_KEYS = [
+  'feishu_domain',
+  'feishu_bot_name',
+  'feishu_auth_mode',
+  'feishu_require_tenant_key',
+  'feishu_strict_auto_bind',
 ] as const
 
 const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
   feishu_app_id: 'cli_xxx',
   feishu_app_secret: '',
   feishu_target: 'ou_xxx',
+  feishu_domain: 'feishu',
+  feishu_auth_mode: 'strict',
+  feishu_require_tenant_key: 'true',
+  feishu_strict_auto_bind: 'true',
 }
 
 const AFFILIATE_MINIMAL_USER_KEYS = [
   'yeahpromos_token',
   'yeahpromos_site_id',
   'partnerboost_token',
+] as const
+
+const PARTNERBOOST_USER_KEYS = [
+  'partnerboost_base_url',
+  'partnerboost_products_country_code',
+  'partnerboost_products_link_batch_size',
+  'partnerboost_asin_link_batch_size',
+  'partnerboost_request_delay_ms',
+  'partnerboost_rate_limit_max_retries',
+  'partnerboost_rate_limit_base_delay_ms',
+  'partnerboost_rate_limit_max_delay_ms',
+  'partnerboost_link_country_code',
+  'partnerboost_link_uid',
 ] as const
 
 const STRATEGY_MINIMAL_USER_KEYS = [
@@ -237,13 +263,14 @@ const STRATEGY_MINIMAL_USER_KEYS = [
   'openclaw_strategy_enforce_autoads_only',
 ] as const
 
-const FEISHU_CHAT_USER_KEYS = FEISHU_CHAT_MINIMAL_USER_KEYS
-const AFFILIATE_USER_KEYS = AFFILIATE_MINIMAL_USER_KEYS
+const FEISHU_CHAT_USER_KEYS = [...FEISHU_CHAT_MINIMAL_USER_KEYS, ...FEISHU_CHAT_COMMUNICATION_USER_KEYS] as const
+const AFFILIATE_USER_KEYS = [...AFFILIATE_MINIMAL_USER_KEYS, 'partnerboost_base_url'] as const
 const STRATEGY_USER_KEYS = STRATEGY_MINIMAL_USER_KEYS
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
   ...AFFILIATE_MINIMAL_USER_KEYS,
+  ...PARTNERBOOST_USER_KEYS,
   'partnerboost_products_page_size',
   'partnerboost_products_page',
   'partnerboost_products_default_filter',
@@ -256,9 +283,20 @@ const USER_KEYS = new Set([
   'partnerboost_products_has_acc',
   'partnerboost_products_filter_sexual_wellness',
   'partnerboost_link_return_partnerboost_link',
-  ...FEISHU_CHAT_MINIMAL_USER_KEYS,
+  ...FEISHU_CHAT_USER_KEYS,
   ...STRATEGY_MINIMAL_USER_KEYS,
 ])
+
+const USER_DEFAULT_VALUES: Record<string, string> = {
+  feishu_domain: 'feishu',
+  feishu_auth_mode: 'strict',
+  feishu_require_tenant_key: 'true',
+  feishu_strict_auto_bind: 'true',
+  partnerboost_base_url: 'https://app.partnerboost.com',
+  openclaw_strategy_enabled: 'false',
+  openclaw_strategy_cron: '0 9 * * *',
+  openclaw_strategy_ads_account_ids: '[]',
+}
 
 const parseLocalDate = (value?: string | null) => {
   if (value) return value
@@ -279,6 +317,89 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
 }
 
 const hasText = (value?: string | null) => Boolean(value && value.trim())
+
+function parseFeishuCardSettingsFromAccountsJson(value?: string | null): {
+  verificationToken: string
+  encryptKey: string
+} {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return { verificationToken: '', encryptKey: '' }
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { verificationToken: '', encryptKey: '' }
+    }
+
+    const main = (parsed as Record<string, unknown>).main
+    if (!main || typeof main !== 'object' || Array.isArray(main)) {
+      return { verificationToken: '', encryptKey: '' }
+    }
+
+    const verificationTokenValue = (main as Record<string, unknown>).cardVerificationToken
+    const encryptKeyValue = (main as Record<string, unknown>).cardEncryptKey
+
+    const verificationToken = typeof verificationTokenValue === 'string'
+      ? verificationTokenValue.trim()
+      : ''
+
+    const encryptKey = typeof encryptKeyValue === 'string'
+      ? encryptKeyValue.trim()
+      : ''
+
+    return {
+      verificationToken,
+      encryptKey,
+    }
+  } catch {
+    return { verificationToken: '', encryptKey: '' }
+  }
+}
+
+function buildAutoFeishuAccountsJson(params: {
+  existingValue?: string
+  userId: number
+  appBaseUrl?: string
+  verificationToken: string
+  encryptKey: string
+}): string {
+  const root: Record<string, any> = (() => {
+    const raw = String(params.existingValue || '').trim()
+    if (!raw) return {}
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, any>
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  })()
+
+  const main = root.main && typeof root.main === 'object' && !Array.isArray(root.main)
+    ? { ...root.main }
+    : {}
+
+  const callbackPath = `/feishu/user-${params.userId}/card-action`
+  const trimmedBaseUrl = String(params.appBaseUrl || '').trim().replace(/\/+$/, '')
+
+  main.cardCallbackPath = callbackPath
+  main.cardVerificationToken = params.verificationToken.trim()
+  main.cardEncryptKey = params.encryptKey.trim()
+  if (trimmedBaseUrl) {
+    main.cardConfirmUrl = `${trimmedBaseUrl}/api/openclaw/commands/confirm`
+  }
+
+  if (!Number.isFinite(Number(main.cardConfirmTimeoutMs)) || Number(main.cardConfirmTimeoutMs) <= 0) {
+    main.cardConfirmTimeoutMs = 10000
+  }
+
+  root.main = main
+  return JSON.stringify(root, null, 2)
+}
 
 const normalizeStrategyAccountId = (value: unknown): number | string | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -402,6 +523,9 @@ export default function OpenClawPage() {
   const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [showFeishuAdvanced, setShowFeishuAdvanced] = useState(false)
+  const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
+  const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -455,6 +579,17 @@ export default function OpenClawPage() {
         })
         userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
 
+        Object.entries(USER_DEFAULT_VALUES).forEach(([key, defaultValue]) => {
+          const current = userMap[key]
+          if (current === undefined || current === null || String(current).trim() === '') {
+            userMap[key] = defaultValue
+          }
+        })
+
+        const cardSettings = parseFeishuCardSettingsFromAccountsJson(userMap.feishu_accounts_json)
+        setFeishuCardVerificationToken(cardSettings.verificationToken)
+        setFeishuCardEncryptKey(cardSettings.encryptKey)
+
         setUserValues(userMap)
         setSavedUserValues(userMap)
       } catch (error: any) {
@@ -471,6 +606,15 @@ export default function OpenClawPage() {
       active = false
     }
   }, [reportDate, refreshKey])
+
+  const appBaseUrl = useMemo(() => {
+    const fromEnv = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
+    if (fromEnv) return fromEnv.replace(/\/+$/, '')
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin.replace(/\/+$/, '')
+    }
+    return ''
+  }, [])
 
   const strategySaveKeys = [...STRATEGY_USER_KEYS]
 
@@ -590,6 +734,30 @@ export default function OpenClawPage() {
 
       const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
       if (isSavingFeishuSettings) {
+        const hasVerificationToken = hasText(feishuCardVerificationToken)
+        const hasEncryptKey = hasText(feishuCardEncryptKey)
+
+        if (!hasVerificationToken || !hasEncryptKey) {
+          toast.error('飞书交互卡片参数为必填，请填写 Verification Token 和 Encrypt Key')
+          return
+        }
+
+        if (!settings?.userId) {
+          toast.error('无法识别当前用户ID，请刷新页面后重试')
+          return
+        }
+
+        const generatedFeishuAccountsJson = buildAutoFeishuAccountsJson({
+          existingValue: normalizedUserValues.feishu_accounts_json,
+          userId: settings.userId,
+          appBaseUrl,
+          verificationToken: feishuCardVerificationToken,
+          encryptKey: feishuCardEncryptKey,
+        })
+
+        normalizedUserValues.feishu_accounts_json = generatedFeishuAccountsJson
+        setUserValues((prev) => ({ ...prev, feishu_accounts_json: generatedFeishuAccountsJson }))
+
         const hasAppSecret = hasText(normalizedUserValues.feishu_app_secret)
         const hasAppSecretFile = hasText(normalizedUserValues.feishu_app_secret_file)
         if (!hasAppSecret && !hasAppSecretFile) {
@@ -746,15 +914,50 @@ export default function OpenClawPage() {
   }
 
   const handleFeishuTestConnection = async () => {
+    const appId = (userValues.feishu_app_id || '').trim()
+    const appSecret = (userValues.feishu_app_secret || '').trim()
+    const appSecretFile = (userValues.feishu_app_secret_file || '').trim()
+    const target = (userValues.feishu_target || '').trim()
+    const cardVerificationToken = feishuCardVerificationToken.trim()
+    const cardEncryptKey = feishuCardEncryptKey.trim()
+
+    if (!appId) {
+      toast.error('请先填写飞书 App ID')
+      return
+    }
+    if (!appSecret && !appSecretFile) {
+      toast.error('请先填写飞书 App Secret 或 App Secret File')
+      return
+    }
+    if (!target) {
+      toast.error('请先填写飞书推送目标')
+      return
+    }
+    if (!cardVerificationToken || !cardEncryptKey) {
+      toast.error('请先填写交互卡片参数（Verification Token / Encrypt Key）')
+      return
+    }
+
     setFeishuTestLoading(true)
     setFeishuTestResult(null)
     try {
-      const response = await fetch('/api/openclaw/gateway/status', { credentials: 'include' })
+      const response = await fetch('/api/openclaw/feishu/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          appId,
+          appSecret,
+          appSecretFile,
+          domain: userValues.feishu_domain || 'feishu',
+          target,
+        }),
+      })
       const payload = await response.json().catch(() => null)
-      if (response.ok && payload?.success && payload?.health?.ok) {
-        setFeishuTestResult({ ok: true, message: 'Gateway 连接正常' })
+      if (response.ok && payload?.success) {
+        setFeishuTestResult({ ok: true, message: payload?.message || 'Feishu 连接正常' })
       } else {
-        setFeishuTestResult({ ok: false, message: payload?.error || payload?.health?.error || '连接失败' })
+        setFeishuTestResult({ ok: false, message: payload?.error || '连接失败' })
       }
     } catch (error: any) {
       setFeishuTestResult({ ok: false, message: error?.message || '连接测试失败' })
@@ -939,6 +1142,13 @@ export default function OpenClawPage() {
     ? `${aiSelectedModelMeta.modelName}（${aiSelectedModelMeta.modelRef}）`
     : aiSelectedModelRef
 
+  const canRunFeishuConnectionTest =
+    hasText(userValues.feishu_app_id)
+    && (hasText(userValues.feishu_app_secret) || hasText(userValues.feishu_app_secret_file))
+    && hasText(userValues.feishu_target)
+    && hasText(feishuCardVerificationToken)
+    && hasText(feishuCardEncryptKey)
+
   const setupCards = [
     {
       id: 'gateway',
@@ -959,8 +1169,8 @@ export default function OpenClawPage() {
     {
       id: 'feishu_user',
       label: '飞书账号',
-      done: hasText(userValues.feishu_app_id) && hasText(userValues.feishu_app_secret) && hasText(userValues.feishu_target),
-      note: hasText(userValues.feishu_target) ? '推送目标已设置' : '缺少推送目标',
+      done: canRunFeishuConnectionTest,
+      note: canRunFeishuConnectionTest ? '可进行 Feishu 连通测试' : '缺少飞书必填参数',
     },
     {
       id: 'strategy',
@@ -986,7 +1196,13 @@ export default function OpenClawPage() {
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
-  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
+  const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
+  const feishuCardDirty =
+    feishuCardVerificationToken !== savedFeishuCardSettings.verificationToken ||
+    feishuCardEncryptKey !== savedFeishuCardSettings.encryptKey
+  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS) || feishuCardDirty
+  const feishuCardPairConfigured = hasText(feishuCardVerificationToken) && hasText(feishuCardEncryptKey)
+  const feishuCardPairInvalid = hasText(feishuCardVerificationToken) !== hasText(feishuCardEncryptKey)
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
@@ -1013,15 +1229,7 @@ export default function OpenClawPage() {
         </TabsList>
 
         <TabsContent value="config" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-500">完成以下配置以启用 OpenClaw 全部功能</div>
-            <Link
-              href="/help/openclaw-config"
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-            >
-              查看配置指南
-            </Link>
-          </div>
+          <div className="text-sm text-slate-500">完成以下配置以启用 OpenClaw 全部功能</div>
 
           <Card>
             <CardHeader>
@@ -1415,14 +1623,34 @@ export default function OpenClawPage() {
                 飞书聊天
                 {feishuChatDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="飞书配置未保存" />}
               </CardTitle>
-              <CardDescription>仅保留最小必填：App ID / App Secret（或 Secret File）/ 推送目标</CardDescription>
+              <CardDescription>最小必填：App ID / App Secret（或 Secret File）/ 推送目标 / 交互卡片参数</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                <div className="font-medium text-slate-800">最小参数（* 为必需）</div>
-                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
-                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
-                <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
+              <div className="grid gap-3 md:grid-cols-2 text-xs">
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
+                  <div className="font-medium text-slate-800">聊天参数（* 为必需）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret（或 App Secret File 二选一）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
+                </div>
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
+                  <div className="font-medium text-slate-800">交互卡片参数（* 为必需）</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 卡片 Verification Token</div>
+                  <div><span className="text-red-500" aria-hidden="true">*</span> 卡片 Encrypt Key</div>
+                  <div>卡片回调路径 / 确认回调 URL 自动生成。</div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-600">高级参数（通信鉴权）默认已预置，按需展开</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFeishuAdvanced((prev) => !prev)}
+                >
+                  {showFeishuAdvanced ? '收起高级参数' : '展开高级参数'}
+                </Button>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -1450,7 +1678,84 @@ export default function OpenClawPage() {
                   onChange={(v) => setUserValue('feishu_app_secret_file', v)}
                   placeholder="/path/to/secret"
                 />
+                <InputWithLabel
+                  label="卡片 Verification Token"
+                  required
+                  value={feishuCardVerificationToken}
+                  onChange={setFeishuCardVerificationToken}
+                  placeholder="v1_verify_xxx"
+                />
+                <InputWithLabel
+                  label="卡片 Encrypt Key"
+                  required
+                  value={feishuCardEncryptKey}
+                  onChange={setFeishuCardEncryptKey}
+                  placeholder="encrypt_key_xxx"
+                />
               </div>
+
+              {showFeishuAdvanced && (
+                <>
+                  <div className="rounded-md border px-4 py-3 space-y-4">
+                    <div className="text-sm font-medium">通信与鉴权（建议配置，已预置默认值）</div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">飞书域名</label>
+                        <Select
+                          value={userValues.feishu_domain || 'feishu'}
+                          onValueChange={(v) => setUserValue('feishu_domain', v)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择域名" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="feishu">feishu</SelectItem>
+                            <SelectItem value="lark">lark</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <InputWithLabel
+                        label="Bot 展示名（可选）"
+                        value={userValues.feishu_bot_name || ''}
+                        onChange={(v) => setUserValue('feishu_bot_name', v)}
+                        placeholder="OpenClaw 助手"
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">鉴权模式</label>
+                        <Select
+                          value={userValues.feishu_auth_mode || 'strict'}
+                          onValueChange={(v) => setUserValue('feishu_auth_mode', v)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择模式" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="strict">strict（推荐）</SelectItem>
+                            <SelectItem value="compat">compat（兼容）</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <SwitchWithLabel
+                        label="Require Tenant Key"
+                        checked={isTruthy(userValues.feishu_require_tenant_key, true)}
+                        onChange={(val) => setUserValue('feishu_require_tenant_key', val ? 'true' : 'false')}
+                      />
+                      <SwitchWithLabel
+                        label="Strict Auto Bind"
+                        checked={isTruthy(userValues.feishu_strict_auto_bind, true)}
+                        onChange={(val) => setUserValue('feishu_strict_auto_bind', val ? 'true' : 'false')}
+                      />
+                    </div>
+
+                    <p className="text-xs text-slate-500">
+                      默认已自动填写：domain=feishu、authMode=strict、Require Tenant Key=true、Strict Auto Bind=true。仅在迁移历史账号时短暂使用 compat。
+                    </p>
+                  </div>
+                </>
+              )}
 
               <div className="grid gap-2 md:grid-cols-3 text-xs">
                 <div className={hasText(userValues.feishu_app_id) ? 'text-emerald-600' : 'text-slate-500'}>
@@ -1464,7 +1769,46 @@ export default function OpenClawPage() {
                 <div className={hasText(userValues.feishu_target) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_target) ? '✓ 推送目标已填写' : '• 推送目标未填写'}
                 </div>
+                <div className={hasText(feishuCardVerificationToken) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(feishuCardVerificationToken) ? '✓ Verification Token 已填写' : '• Verification Token 未填写'}
+                </div>
+                <div className={hasText(feishuCardEncryptKey) ? 'text-emerald-600' : 'text-slate-500'}>
+                  {hasText(feishuCardEncryptKey) ? '✓ Encrypt Key 已填写' : '• Encrypt Key 未填写'}
+                </div>
+                {showFeishuAdvanced && (
+                  <>
+                    <div className={isTruthy(userValues.feishu_require_tenant_key, true) ? 'text-emerald-600' : 'text-amber-600'}>
+                      {isTruthy(userValues.feishu_require_tenant_key, true)
+                        ? '✓ Tenant Key 校验已启用'
+                        : '• Tenant Key 校验未启用（兼容模式）'}
+                    </div>
+                    <div className={isTruthy(userValues.feishu_strict_auto_bind, true) ? 'text-emerald-600' : 'text-amber-600'}>
+                      {isTruthy(userValues.feishu_strict_auto_bind, true)
+                        ? '✓ Strict Auto Bind 已启用'
+                        : '• Strict Auto Bind 未启用'}
+                    </div>
+                    <div className={(userValues.feishu_auth_mode || 'strict') === 'strict' ? 'text-emerald-600' : 'text-amber-600'}>
+                      {(userValues.feishu_auth_mode || 'strict') === 'strict'
+                        ? '✓ 鉴权模式 strict'
+                        : '• 鉴权模式 compat（迁移用）'}
+                    </div>
+                  </>
+                )}
               </div>
+
+              {showFeishuAdvanced && (
+                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
+                  <div>卡片回调路径（自动）: <code>{settings?.userId ? `/feishu/user-${settings.userId}/card-action` : '/feishu/card-action'}</code></div>
+                  <div>确认回调 URL（自动）: <code>{appBaseUrl ? `${appBaseUrl}/api/openclaw/commands/confirm` : '/api/openclaw/commands/confirm'}</code></div>
+                  <div className={feishuCardPairInvalid ? 'text-red-600' : 'text-slate-600'}>
+                    {feishuCardPairInvalid
+                      ? 'Verification Token 与 Encrypt Key 需同时填写或同时留空'
+                      : feishuCardPairConfigured
+                        ? '✅ 交互卡片参数已配置'
+                        : '未配置交互卡片参数（如需卡片交互请填写）'}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1475,7 +1819,8 @@ export default function OpenClawPage() {
                     variant="outline"
                     size="sm"
                     onClick={handleFeishuTestConnection}
-                    disabled={feishuTestLoading}
+                    disabled={feishuTestLoading || !canRunFeishuConnectionTest}
+                    title={canRunFeishuConnectionTest ? undefined : '请先填写飞书必填参数（含卡片 Verification/Encrypt Key）'}
                   >
                     {feishuTestLoading ? '测试中...' : '测试连接'}
                   </Button>
@@ -1487,7 +1832,8 @@ export default function OpenClawPage() {
                 </div>
                 <Button
                   onClick={() => saveSettings({ scope: 'user', keys: [...FEISHU_CHAT_USER_KEYS], successMessage: '飞书配置已保存' })}
-                  disabled={savingUser}
+                  disabled={savingUser || !canRunFeishuConnectionTest}
+                  title={canRunFeishuConnectionTest ? undefined : '请先填写飞书必填参数（含卡片 Verification/Encrypt Key）'}
                 >
                   {savingUser ? '保存中...' : feishuChatDirty ? '保存飞书配置 *' : '保存飞书配置'}
                 </Button>
@@ -1501,31 +1847,51 @@ export default function OpenClawPage() {
                 联盟平台
                 {affiliateDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="联盟平台配置未保存" />}
               </CardTitle>
-              <CardDescription>仅保留最小鉴权：YeahPromos（Token + Site ID）或 PartnerBoost Token</CardDescription>
+              <CardDescription>按平台分行填写：YeahPromos 与 PartnerBoost，避免参数混填</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                推荐优先填写一个可用渠道即可；其余高级参数使用系统默认值。
+                只需填写你要启用的平台参数；未填写的平台不会参与本次联盟商品补全。
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <InputWithLabel
-                  label="YeahPromos Token"
-                  type="password"
-                  value={userValues.yeahpromos_token || ''}
-                  onChange={(v) => setUserValue('yeahpromos_token', v)}
-                />
-                <InputWithLabel
-                  label="YeahPromos Site ID"
-                  value={userValues.yeahpromos_site_id || ''}
-                  onChange={(v) => setUserValue('yeahpromos_site_id', v)}
-                />
-                <InputWithLabel
-                  label="PartnerBoost Token"
-                  type="password"
-                  value={userValues.partnerboost_token || ''}
-                  onChange={(v) => setUserValue('partnerboost_token', v)}
-                />
+              <div className="space-y-4">
+                <div className="rounded-md border px-4 py-3 space-y-3">
+                  <div className="text-sm font-medium">YeahPromos</div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InputWithLabel
+                      label="Token"
+                      type="password"
+                      required={Boolean((userValues.yeahpromos_site_id || '').trim())}
+                      value={userValues.yeahpromos_token || ''}
+                      onChange={(v) => setUserValue('yeahpromos_token', v)}
+                    />
+                    <InputWithLabel
+                      label="Site ID"
+                      required={Boolean((userValues.yeahpromos_token || '').trim())}
+                      value={userValues.yeahpromos_site_id || ''}
+                      onChange={(v) => setUserValue('yeahpromos_site_id', v)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md border px-4 py-3 space-y-3">
+                  <div className="text-sm font-medium">PartnerBoost</div>
+                  <p className="text-xs text-slate-500">Base URL 默认已填，可直接使用。</p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InputWithLabel
+                      label="Token"
+                      type="password"
+                      value={userValues.partnerboost_token || ''}
+                      onChange={(v) => setUserValue('partnerboost_token', v)}
+                    />
+                    <InputWithLabel
+                      label="Base URL（可选）"
+                      value={userValues.partnerboost_base_url || ''}
+                      onChange={(v) => setUserValue('partnerboost_base_url', v)}
+                      placeholder="https://app.partnerboost.com"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end">
