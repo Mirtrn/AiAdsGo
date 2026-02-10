@@ -94,6 +94,30 @@ function asObject(value: unknown): Record<string, any> | undefined {
   return value as Record<string, any>
 }
 
+function hasNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function hasFeishuAccountCredentials(accountConfig: Record<string, any>): boolean {
+  return hasNonEmptyString(accountConfig.appId)
+    && (hasNonEmptyString(accountConfig.appSecret) || hasNonEmptyString(accountConfig.appSecretFile))
+}
+
+function toConfiguredFeishuAccounts(value: unknown): Record<string, Record<string, any>> {
+  const root = asObject(value)
+  if (!root) return {}
+
+  const accounts: Record<string, Record<string, any>> = {}
+  for (const [accountId, accountConfig] of Object.entries(root)) {
+    const record = asObject(accountConfig)
+    if (!record) continue
+    if (!hasFeishuAccountCredentials(record)) continue
+    accounts[accountId] = { ...record }
+  }
+
+  return accounts
+}
+
 function readExistingConfig(configPath: string): Record<string, any> | undefined {
   try {
     if (!fs.existsSync(configPath)) {
@@ -181,6 +205,9 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
 
   const useExistingConfigFallback = !actorUserId
   const existingConfig = readExistingConfig(configPath)
+  const existingFeishuAccounts = toConfiguredFeishuAccounts(
+    asObject(asObject(existingConfig?.channels)?.feishu)?.accounts
+  )
   const existingModelsNode = asObject(existingConfig?.models)
   const existingAgentDefaults = asObject(asObject(existingConfig?.agents)?.defaults)
   const existingModelPrimary = (() => {
@@ -396,6 +423,32 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     } else {
       mergedFeishuAccounts[accountId] = userAccount
     }
+  }
+
+  for (const [accountId, accountConfig] of Object.entries(mergedFeishuAccounts)) {
+    if (!accountConfig || typeof accountConfig !== 'object' || Array.isArray(accountConfig)) {
+      continue
+    }
+
+    const accountRecord = accountConfig as Record<string, any>
+    if (hasFeishuAccountCredentials(accountRecord)) {
+      continue
+    }
+
+    const fallbackAccount = existingFeishuAccounts[accountId]
+    if (!fallbackAccount) {
+      continue
+    }
+
+    mergedFeishuAccounts[accountId] = mergeDefinedValues(
+      fallbackAccount,
+      accountRecord
+    )
+  }
+
+  if (Object.keys(mergedFeishuAccounts).length === 0 && Object.keys(existingFeishuAccounts).length > 0) {
+    console.warn('⚠️ OpenClaw Feishu accounts resolved empty, falling back to existing config accounts')
+    Object.assign(mergedFeishuAccounts, existingFeishuAccounts)
   }
 
   for (const [accountId, accountConfig] of Object.entries(mergedFeishuAccounts)) {

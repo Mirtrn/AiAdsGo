@@ -143,6 +143,23 @@ type AsinDataResponse = {
   stats: Record<string, number>
 }
 
+type FeishuReceiveIdType = 'open_id' | 'union_id' | 'chat_id'
+
+type FeishuVerifySessionState = {
+  verificationId: string
+  code: string
+  expiresAt: number
+  receiveIdType: FeishuReceiveIdType
+  target: string
+  expectedSenderOpenId: string
+}
+
+type FeishuVerifyResultState = {
+  verified: boolean
+  pending: boolean
+  message: string
+}
+
 const AI_MINIMAL_PLACEHOLDER = `{
   "providers": {
     "openai": {
@@ -361,6 +378,33 @@ const isTruthy = (value?: string | null, fallback: boolean = false) => {
 
 const hasText = (value?: string | null) => Boolean(value && value.trim())
 
+const normalizeFeishuId = (value?: string | null) => String(value || '').trim().replace(/^(feishu|lark):/i, '').toLowerCase()
+
+function parseFeishuVerifyTarget(input?: string | null): {
+  target: string
+  receiveIdType: FeishuReceiveIdType
+} | null {
+  const raw = String(input || '').trim()
+  if (!raw) return null
+
+  const normalized = raw.replace(/^(feishu|lark):/i, '').trim()
+  if (!normalized) return null
+
+  const typed = normalized.match(/^(open_id|union_id|chat_id):(.+)$/i)
+  if (typed) {
+    const receiveIdType = typed[1].toLowerCase() as FeishuReceiveIdType
+    const target = typed[2].trim()
+    if (!target) return null
+    return { target, receiveIdType }
+  }
+
+  if (normalized.startsWith('ou_')) return { target: normalized, receiveIdType: 'open_id' }
+  if (normalized.startsWith('on_')) return { target: normalized, receiveIdType: 'union_id' }
+  if (normalized.startsWith('oc_')) return { target: normalized, receiveIdType: 'chat_id' }
+
+  return null
+}
+
 function parseFeishuCardSettingsFromAccountsJson(value?: string | null): {
   verificationToken: string
   encryptKey: string
@@ -536,6 +580,15 @@ const formatDuration = (ms?: number | null) => {
   return `${hours}h`
 }
 
+const formatCountdown = (ms?: number | null) => {
+  if (!Number.isFinite(ms) || ms === null || ms === undefined) return '未知'
+  if (ms <= 0) return '已过期'
+  const totalSeconds = Math.ceil(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}分${String(seconds).padStart(2, '0')}秒`
+}
+
 const renderTriState = (value?: boolean | null) => {
   if (value === true) return '是'
   if (value === false) return '否'
@@ -574,6 +627,12 @@ export default function OpenClawPage() {
   const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [feishuVerifyLoading, setFeishuVerifyLoading] = useState(false)
+  const [feishuVerifyChecking, setFeishuVerifyChecking] = useState(false)
+  const [feishuVerifySenderOpenId, setFeishuVerifySenderOpenId] = useState('')
+  const [feishuVerifySession, setFeishuVerifySession] = useState<FeishuVerifySessionState | null>(null)
+  const [feishuVerifyResult, setFeishuVerifyResult] = useState<FeishuVerifyResultState | null>(null)
+  const [feishuVerifyNow, setFeishuVerifyNow] = useState<number>(Date.now())
   const [showFeishuAdvanced, setShowFeishuAdvanced] = useState(false)
   const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
   const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
@@ -586,6 +645,14 @@ export default function OpenClawPage() {
   useEffect(() => {
     setStrategyCronPreset(resolveStrategyCronPreset(userValues.openclaw_strategy_cron || ''))
   }, [userValues.openclaw_strategy_cron])
+
+  useEffect(() => {
+    if (!feishuVerifySession) return
+    const timer = window.setInterval(() => {
+      setFeishuVerifyNow(Date.now())
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [feishuVerifySession])
 
   useEffect(() => {
     let active = true
@@ -1110,6 +1177,135 @@ export default function OpenClawPage() {
     }
   }
 
+  const handleFeishuStartVerify = async () => {
+    const appId = (userValues.feishu_app_id || '').trim()
+    const appSecret = (userValues.feishu_app_secret || '').trim()
+    const target = (userValues.feishu_target || '').trim()
+    const expectedSenderOpenId = normalizeFeishuId(feishuVerifySenderOpenId)
+
+    if (!appId) {
+      toast.error('请先填写飞书 App ID')
+      return
+    }
+    if (!appSecret) {
+      toast.error('请先填写飞书 App Secret')
+      return
+    }
+    if (!target) {
+      toast.error('请先填写飞书推送目标')
+      return
+    }
+
+    setFeishuVerifyLoading(true)
+    setFeishuVerifyResult(null)
+
+    try {
+      const response = await fetch('/api/openclaw/feishu/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'start',
+          appId,
+          appSecret,
+          domain: userValues.feishu_domain || 'feishu',
+          target,
+          expectedSenderOpenId: expectedSenderOpenId || undefined,
+        }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.success || !payload?.verification?.verificationId) {
+        const message = payload?.error || payload?.message || '发起双向通信验证失败'
+        setFeishuVerifySession(null)
+        setFeishuVerifyResult({ verified: false, pending: false, message })
+        toast.error(message)
+        return
+      }
+
+      const verification = payload.verification as FeishuVerifySessionState
+      setFeishuVerifySession(verification)
+      setFeishuVerifyNow(Date.now())
+      setFeishuVerifySenderOpenId(verification.expectedSenderOpenId)
+      setFeishuVerifyResult({
+        verified: false,
+        pending: true,
+        message: payload?.message || '验证码已发送，请回复验证码后校验回执',
+      })
+      toast.success(payload?.message || '双向通信验证已发起')
+    } catch (error: any) {
+      const message = error?.message || '双向通信验证发起失败'
+      setFeishuVerifySession(null)
+      setFeishuVerifyResult({ verified: false, pending: false, message })
+      toast.error(message)
+    } finally {
+      setFeishuVerifyLoading(false)
+    }
+  }
+
+  const handleFeishuCheckVerify = async () => {
+    if (!feishuVerifySession?.verificationId) {
+      toast.error('请先点击“验证双向通信”发送验证码')
+      return
+    }
+
+    setFeishuVerifyChecking(true)
+    try {
+      const response = await fetch('/api/openclaw/feishu/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'check',
+          verificationId: feishuVerifySession.verificationId,
+        }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      const message = payload?.message || payload?.error || '校验双向通信状态失败'
+      const verified = Boolean(payload?.verified)
+      const pending = Boolean(payload?.pending)
+
+      setFeishuVerifyResult({
+        verified,
+        pending,
+        message,
+      })
+
+      if (response.ok && verified) {
+        toast.success(message)
+        setFeishuVerifySession(null)
+        return
+      }
+
+      if (response.ok && pending) {
+        const expiresAt = Number(payload?.expiresAt)
+        const expectedSenderOpenId = String(payload?.expectedSenderOpenId || '').trim()
+        setFeishuVerifySession((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            expiresAt: Number.isFinite(expiresAt) ? expiresAt : prev.expiresAt,
+            expectedSenderOpenId: expectedSenderOpenId || prev.expectedSenderOpenId,
+          }
+        })
+        return
+      }
+
+      if (response.status === 404 || response.status === 410) {
+        setFeishuVerifySession(null)
+      }
+
+      toast.error(message)
+    } catch (error: any) {
+      const message = error?.message || '校验双向通信状态失败'
+      setFeishuVerifyResult({ verified: false, pending: false, message })
+      toast.error(message)
+    } finally {
+      setFeishuVerifyChecking(false)
+    }
+  }
+
   const handleFormatAiJson = () => {
     const raw = userValues.ai_models_json || ''
     if (!raw.trim()) return
@@ -1333,6 +1529,17 @@ export default function OpenClawPage() {
     && hasText(userValues.feishu_target)
     && hasText(feishuCardVerificationToken)
     && hasText(feishuCardEncryptKey)
+  const canRunFeishuVerifyStart =
+    hasText(userValues.feishu_app_id)
+    && hasText(userValues.feishu_app_secret)
+    && hasText(userValues.feishu_target)
+  const feishuVerifyParsedTarget = parseFeishuVerifyTarget(userValues.feishu_target)
+  const feishuVerifyNeedsSenderOpenId = Boolean(
+    feishuVerifyParsedTarget && feishuVerifyParsedTarget.receiveIdType !== 'open_id'
+  )
+  const feishuVerifyExpiresInMs = feishuVerifySession
+    ? feishuVerifySession.expiresAt - feishuVerifyNow
+    : null
 
   const setupCards = [
     {
@@ -2112,8 +2319,48 @@ export default function OpenClawPage() {
                 </div>
               )}
 
+              <div className="rounded-md border bg-slate-50 px-3 py-3 space-y-3">
+                <div className="text-sm font-medium text-slate-800">双向通信验证（半自动）</div>
+                <p className="text-xs text-slate-600">
+                  点击“验证双向通信”后，系统会向当前 target 发送随机验证码（5分钟有效）；请在同一会话用指定 open_id 回复后，再点击“校验回执”。
+                </p>
+
+                {feishuVerifyNeedsSenderOpenId && (
+                  <InputWithLabel
+                    label="验证发送者 open_id（target 非 open_id 时建议填写）"
+                    value={feishuVerifySenderOpenId}
+                    onChange={setFeishuVerifySenderOpenId}
+                    placeholder="ou_xxx"
+                  />
+                )}
+
+                {feishuVerifySession && (
+                  <div className="grid gap-2 md:grid-cols-2 text-xs text-slate-600">
+                    <div>验证码：<code>{feishuVerifySession.code}</code></div>
+                    <div>有效期：{formatCountdown(feishuVerifyExpiresInMs)}</div>
+                    <div>验证发送者：<code>{feishuVerifySession.expectedSenderOpenId}</code></div>
+                    <div>会话ID：<code>{feishuVerifySession.verificationId}</code></div>
+                    <div className="md:col-span-2">过期时间：{formatTimestamp(feishuVerifySession.expiresAt)}</div>
+                  </div>
+                )}
+
+                {feishuVerifyResult && (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-xs ${
+                      feishuVerifyResult.verified
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                        : feishuVerifyResult.pending
+                          ? 'border-amber-300 bg-amber-50 text-amber-700'
+                          : 'border-red-300 bg-red-50 text-red-700'
+                    }`}
+                  >
+                    {feishuVerifyResult.message}
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -2122,6 +2369,24 @@ export default function OpenClawPage() {
                     title={canRunFeishuConnectionTest ? undefined : '请先填写飞书必填参数（含卡片 Verification/Encrypt Key）'}
                   >
                     {feishuTestLoading ? '测试中...' : '测试连接'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFeishuStartVerify}
+                    disabled={feishuVerifyLoading || !canRunFeishuVerifyStart}
+                    title={canRunFeishuVerifyStart ? undefined : '请先填写飞书 App ID / App Secret / 推送目标'}
+                  >
+                    {feishuVerifyLoading ? '发送中...' : '验证双向通信'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFeishuCheckVerify}
+                    disabled={feishuVerifyChecking || !feishuVerifySession?.verificationId}
+                    title={feishuVerifySession?.verificationId ? undefined : '请先发送验证码'}
+                  >
+                    {feishuVerifyChecking ? '校验中...' : '校验回执'}
                   </Button>
                   {feishuTestResult && (
                     <Badge variant={feishuTestResult.ok ? 'default' : 'destructive'}>

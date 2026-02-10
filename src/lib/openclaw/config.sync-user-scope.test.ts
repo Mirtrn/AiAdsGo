@@ -262,6 +262,72 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.channels.feishu.accounts.main.cardCallbackPath).toBe('/feishu/card-action')
     expect(written.channels.feishu.accounts['user-42'].cardCallbackPath).toBe('/feishu/user-42/card-action')
   })
+
+  it('falls back to existing Feishu account credentials when settings decrypt fails', async () => {
+    const existingConfig = {
+      channels: {
+        feishu: {
+          accounts: {
+            main: {
+              appId: 'cli_existing',
+              appSecret: 'sec_existing',
+              allowFrom: ['ou_existing'],
+              cardCallbackPath: '/feishu/card-action',
+            },
+          },
+        },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2), 'utf-8')
+
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        { key: 'feishu_app_id', value: '' },
+        { key: 'feishu_app_secret', value: '' },
+        { key: 'feishu_accounts_json', value: '' },
+      ])
+      .mockResolvedValueOnce([])
+
+    collectUserFeishuAccountsMock.mockResolvedValueOnce({})
+
+    await syncOpenclawConfig({ reason: 'test-feishu-credentials-fallback' })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.channels.feishu.accounts.main).toBeDefined()
+    expect(written.channels.feishu.accounts.main.appId).toBe('cli_existing')
+    expect(written.channels.feishu.accounts.main.appSecret).toBe('sec_existing')
+  })
+
+  it('keeps user Feishu account credentials from existing config when user aggregate is empty', async () => {
+    const existingConfig = {
+      channels: {
+        feishu: {
+          accounts: {
+            'user-1': {
+              appId: 'cli_user_existing',
+              appSecret: 'sec_user_existing',
+              allowFrom: ['ou_user_existing'],
+              cardCallbackPath: '/feishu/user-1/card-action',
+            },
+          },
+        },
+      },
+    }
+    fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2), 'utf-8')
+
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    collectUserFeishuAccountsMock.mockResolvedValueOnce({})
+
+    await syncOpenclawConfig({ reason: 'test-feishu-user-fallback', actorUserId: 1 })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.channels.feishu.accounts['user-1']).toBeDefined()
+    expect(written.channels.feishu.accounts['user-1'].appId).toBe('cli_user_existing')
+    expect(written.channels.feishu.accounts['user-1'].appSecret).toBe('sec_user_existing')
+  })
   it('bootstraps SOUL workspace files and binds default workspace', async () => {
     getSettingsByCategoryMock
       .mockResolvedValueOnce([])
