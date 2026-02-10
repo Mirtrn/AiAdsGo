@@ -8,7 +8,7 @@ const authFns = vi.hoisted(() => ({
 
 const healthFns = vi.hoisted(() => ({
   listFeishuChatHealthLogs: vi.fn(),
-  FEISHU_CHAT_HEALTH_WINDOW_HOURS: 1,
+  FEISHU_CHAT_HEALTH_WINDOW_HOURS: 168,
   FEISHU_CHAT_HEALTH_RETENTION_DAYS: 7,
   FEISHU_CHAT_HEALTH_EXCERPT_LIMIT: 500,
 }))
@@ -102,14 +102,14 @@ describe('openclaw feishu chat health route', () => {
     expect(payload.success).toBe(true)
     expect(payload.stats.total).toBe(1)
     expect(payload.rows).toHaveLength(1)
-    expect(payload.windowHours).toBe(1)
+    expect(payload.windowHours).toBe(168)
     expect(payload.retentionDays).toBe(7)
     expect(payload.excerptLimit).toBe(500)
     expect(payload.limit).toBe(500)
 
     expect(healthFns.listFeishuChatHealthLogs).toHaveBeenCalledWith({
       userId: 7,
-      withinHours: 1,
+      withinHours: 168,
       limit: 500,
     })
   })

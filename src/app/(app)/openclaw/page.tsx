@@ -1710,7 +1710,8 @@ export default function OpenClawPage() {
 
   const feishuHealthRows = feishuHealthData?.rows || []
   const feishuHealthStats = feishuHealthData?.stats || { total: 0, allowed: 0, blocked: 0, error: 0 }
-  const feishuHealthWindowHours = feishuHealthData?.windowHours || 1
+  const feishuHealthWindowHours = feishuHealthData?.windowHours || 24 * 7
+  const feishuHealthWindowDays = Math.max(1, Math.floor(feishuHealthWindowHours / 24))
   const feishuHealthRetentionDays = feishuHealthData?.retentionDays || 7
   const feishuHealthExcerptLimit = feishuHealthData?.excerptLimit || 500
 
@@ -2686,7 +2687,7 @@ export default function OpenClawPage() {
               <CardHeader className="flex flex-row items-start justify-between gap-4">
                 <div>
                   <CardTitle>飞书聊天链路健康页</CardTitle>
-                  <CardDescription>最近 {feishuHealthWindowHours} 小时消息链路诊断（保留 {feishuHealthRetentionDays} 天，列表片段最多 {feishuHealthExcerptLimit} 字）</CardDescription>
+                  <CardDescription>最近 {feishuHealthWindowDays} 天消息链路诊断（保留 {feishuHealthRetentionDays} 天，列表片段最多 {feishuHealthExcerptLimit} 字）</CardDescription>
                 </div>
                 <Button
                   type="button"
@@ -2792,7 +2793,7 @@ export default function OpenClawPage() {
                     {feishuHealthRows.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center text-slate-500">
-                          最近 {feishuHealthWindowHours} 小时暂无飞书链路日志
+                          最近 {feishuHealthWindowDays} 天暂无飞书链路日志
                         </TableCell>
                       </TableRow>
                     )}

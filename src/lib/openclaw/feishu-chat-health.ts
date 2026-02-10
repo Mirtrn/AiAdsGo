@@ -231,7 +231,7 @@ export async function listFeishuChatHealthLogs(params: {
   limit?: number
 }): Promise<FeishuChatHealthListResult> {
   const db = await getDatabase()
-  const withinHours = clamp(params.withinHours || 1, 1, 24)
+  const withinHours = clamp(params.withinHours || FEISHU_CHAT_HEALTH_WINDOW_HOURS, 1, FEISHU_HEALTH_RETENTION_HOURS)
   const limit = clamp(params.limit || 200, 20, 500)
   const cutoffExpr = datetimeMinusHours(withinHours, db.type)
 
@@ -331,5 +331,5 @@ export async function listFeishuChatHealthLogs(params: {
 }
 
 export const FEISHU_CHAT_HEALTH_RETENTION_DAYS = FEISHU_HEALTH_RETENTION_DAYS
-export const FEISHU_CHAT_HEALTH_WINDOW_HOURS = 1
+export const FEISHU_CHAT_HEALTH_WINDOW_HOURS = FEISHU_HEALTH_RETENTION_HOURS
 export const FEISHU_CHAT_HEALTH_EXCERPT_LIMIT = FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT
