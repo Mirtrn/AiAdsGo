@@ -670,7 +670,7 @@ export async function validateGeminiConfig(
 
   // Step 2: 验证模型名称
   // 🔧 更新(2026-02-10): 下线 Gemini 2.5 Pro / Flash，仅保留 Gemini 3 Flash Preview
-  const validModels = [GEMINI_ACTIVE_MODEL]
+  const validModels: string[] = [GEMINI_ACTIVE_MODEL]
   if (!validModels.includes(model)) {
     return {
       valid: false,
