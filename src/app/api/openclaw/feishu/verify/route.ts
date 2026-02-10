@@ -201,15 +201,21 @@ async function resolveChatIdForStartMessage(params: {
   token: string
   receiveIdType: FeishuReceiveIdType
   target: string
+  chatIdFromSend?: string | null
   messageId?: string | null
 }): Promise<string> {
   if (params.receiveIdType === 'chat_id') {
     return params.target
   }
 
+  const chatIdFromSend = String(params.chatIdFromSend || '').trim()
+  if (chatIdFromSend) {
+    return chatIdFromSend
+  }
+
   const messageId = String(params.messageId || '').trim()
   if (!messageId) {
-    throw new Error('发送测试消息成功，但未返回 message_id，无法建立双向验证会话')
+    throw new Error('发送验证消息成功，但未返回 chat_id/message_id，无法建立双向验证会话')
   }
 
   const detail = await feishuRequest<{ data?: { chat_id?: string } }>({
@@ -269,11 +275,13 @@ async function startVerification(params: {
   })
 
   const testMessageId = String(sendResult?.data?.message_id || '').trim() || null
+  const chatIdFromSend = String((sendResult as any)?.data?.chat_id || '').trim() || null
   const chatId = await resolveChatIdForStartMessage({
     apiBase,
     token: tenantAccessToken,
     receiveIdType: params.receiveIdType,
     target: params.target,
+    chatIdFromSend,
     messageId: testMessageId,
   })
 
@@ -471,6 +479,13 @@ export async function POST(request: NextRequest) {
         verification: result,
       })
     } catch (error: any) {
+      console.error('[openclaw][feishu-verify] start failed:', {
+        userId: auth.user.userId,
+        domain,
+        target: parsedTarget.target,
+        receiveIdType: parsedTarget.receiveIdType,
+        error: error?.message || String(error),
+      })
       return NextResponse.json(
         {
           success: false,
@@ -497,6 +512,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, ...check })
   } catch (error: any) {
+    console.error('[openclaw][feishu-verify] check failed:', {
+      userId: auth.user.userId,
+      verificationId: parsed.data.verificationId,
+      error: error?.message || String(error),
+    })
     return NextResponse.json(
       {
         success: false,
@@ -506,4 +526,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

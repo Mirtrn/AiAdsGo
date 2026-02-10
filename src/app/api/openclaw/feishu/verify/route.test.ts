@@ -161,6 +161,50 @@ describe('openclaw feishu verify route', () => {
     expect(checkPayload.message).toContain('暂未检测到有效验证码回执')
   })
 
+  it('uses chat_id from send response without querying message detail', async () => {
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({ data: { message_id: 'omsg_start_chatid', chat_id: 'oc_chat_inline' } })
+
+    const startRes = await POST(createRequest({
+      action: 'start',
+      target: 'ou_sender_inline',
+    }))
+    const startPayload = await startRes.json()
+
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'omsg_reply_inline',
+              create_time: String(Date.now()),
+              sender: { id: { open_id: 'ou_sender_inline' } },
+              body: { content: JSON.stringify({ text: `code ${startPayload.verification.code}` }) },
+            },
+          ],
+        },
+      })
+
+    const checkRes = await POST(createRequest({
+      action: 'check',
+      verificationId: startPayload.verification.verificationId,
+    }))
+    const checkPayload = await checkRes.json()
+
+    expect(startRes.status).toBe(200)
+    expect(checkRes.status).toBe(200)
+    expect(checkPayload.success).toBe(true)
+    expect(checkPayload.verified).toBe(true)
+
+    expect(feishuApiFns.feishuRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        method: 'GET',
+        url: expect.stringContaining('/im/v1/messages?container_id_type=chat&container_id=oc_chat_inline'),
+      })
+    )
+  })
+
   it('checks verification as success when sender and code match', async () => {
     feishuApiFns.feishuRequest
       .mockResolvedValueOnce({ data: { message_id: 'omsg_start_3' } })
