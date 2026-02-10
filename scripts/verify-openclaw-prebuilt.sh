@@ -29,8 +29,8 @@ if [[ ! -f "${PREBUILT_DIR}/workspace-templates/AGENTS.md" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${PREBUILT_DIR}/docs/reference/templates/AGENTS.md" ]]; then
-  echo "❌ openclaw-prebuilt/docs/reference/templates/AGENTS.md 缺失（文档模板兜底未打包）"
+if [[ -d "${PREBUILT_DIR}/docs/reference/templates" && ! -f "${PREBUILT_DIR}/docs/reference/templates/AGENTS.md" ]]; then
+  echo "❌ openclaw-prebuilt/docs/reference/templates 存在但缺少 AGENTS.md（文档模板兜底不完整）"
   exit 1
 fi
 
