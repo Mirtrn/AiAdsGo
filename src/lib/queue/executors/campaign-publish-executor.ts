@@ -17,7 +17,10 @@
 import type { Task } from '../types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
-import { resolveLoginCustomerId } from '@/lib/google-ads-login-customer'
+import {
+  resolveLoginCustomerCandidates,
+  isGoogleAdsAccountAccessError,
+} from '@/lib/google-ads-login-customer'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -34,6 +37,10 @@ import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { addUrlSwapTargetForOfferCampaign } from '@/lib/url-swap'
+
+function describeLoginCustomerId(value: string | undefined): string {
+  return value || 'null(omit)'
+}
 
 /**
  * 广告系列发布任务数据接口
@@ -289,12 +296,51 @@ export async function executeCampaignPublish(
       }
     }
 
-    const finalLoginCustomerId = resolveLoginCustomerId({
+    const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
       authType: auth.authType,
       accountParentMccId: adsAccount.parent_mcc_id,
       oauthLoginCustomerId: credentials?.login_customer_id,
       serviceAccountMccId,
+      targetCustomerId: adsAccount.customer_id,
     })
+    let preferredLoginCustomerId = loginCustomerIdCandidates[0]
+
+    const runWithLoginCustomerFallback = async <T>(
+      actionName: string,
+      callback: (loginCustomerId: string | undefined) => Promise<T>
+    ): Promise<T> => {
+      const orderedCandidates = [
+        preferredLoginCustomerId,
+        ...loginCustomerIdCandidates.filter((candidate) => candidate !== preferredLoginCustomerId)
+      ]
+
+      let lastError: any = null
+
+      for (let i = 0; i < orderedCandidates.length; i++) {
+        const loginCustomerId = orderedCandidates[i]
+        try {
+          const result = await callback(loginCustomerId)
+          preferredLoginCustomerId = loginCustomerId
+          if (i > 0) {
+            console.log(`✅ ${actionName} 使用备用 login_customer_id=${describeLoginCustomerId(loginCustomerId)} 成功`)
+          }
+          return result
+        } catch (error) {
+          lastError = error
+          const hasNextCandidate = i < orderedCandidates.length - 1
+          if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+            const nextLoginCustomerId = orderedCandidates[i + 1]
+            console.warn(
+              `⚠️ ${actionName} login_customer_id=${describeLoginCustomerId(loginCustomerId)} 失败，切换到 ${describeLoginCustomerId(nextLoginCustomerId)} 重试`
+            )
+            continue
+          }
+          throw error
+        }
+      }
+
+      throw lastError || new Error(`${actionName} 失败`)
+    }
 
     // 3. 根据货币获取CPC默认值
     const getDefaultCPC = (currency: string): number => {
@@ -344,43 +390,49 @@ export async function executeCampaignPublish(
       || `Campaign_${creative.id}`
     const adGroupName = task.data.naming?.adGroupName || `AdGroup_${creative.id}`
 
-    const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
-      customerId: adsAccount.customer_id,
-      refreshToken: refreshToken,
-      campaignName: campaignName, // 🔥 使用规范化命名
-      budgetAmount: campaignConfig.budgetAmount,
-      budgetType: campaignConfig.budgetType,
-      biddingStrategy: campaignConfig.biddingStrategy,
-      cpcBidCeilingMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用用户配置或货币默认值
-      targetCountry: campaignConfig.targetCountry,
-      targetLanguage: campaignConfig.targetLanguage,
-      finalUrlSuffix: creative.finalUrlSuffix || undefined,
-      status: 'ENABLED',
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId,
-    })
+    const { campaignId: googleCampaignId } = await runWithLoginCustomerFallback(
+      '创建Campaign',
+      (loginCustomerId) => createGoogleAdsCampaign({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        campaignName: campaignName, // 🔥 使用规范化命名
+        budgetAmount: campaignConfig.budgetAmount,
+        budgetType: campaignConfig.budgetType,
+        biddingStrategy: campaignConfig.biddingStrategy,
+        cpcBidCeilingMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用用户配置或货币默认值
+        targetCountry: campaignConfig.targetCountry,
+        targetLanguage: campaignConfig.targetLanguage,
+        finalUrlSuffix: creative.finalUrlSuffix || undefined,
+        status: 'ENABLED',
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
+      })
+    )
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
     console.log(`📝 使用命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
 
     // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
-    const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
-      customerId: adsAccount.customer_id,
-      refreshToken: refreshToken,
-      campaignId: googleCampaignId,
-      adGroupName: adGroupName, // 🔥 使用规范化命名
-      cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
-      status: 'ENABLED',
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId,
-    })
+    const { adGroupId: googleAdGroupId } = await runWithLoginCustomerFallback(
+      '创建Ad Group',
+      (loginCustomerId) => createGoogleAdsAdGroup({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        campaignId: googleCampaignId,
+        adGroupName: adGroupName, // 🔥 使用规范化命名
+        cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
+        status: 'ENABLED',
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
+      })
+    )
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
 
@@ -614,17 +666,20 @@ export async function executeCampaignPublish(
     let keywordsCount = 0
     if (keywordOperations.length > 0) {
       totalApiOperations += keywordOperations.length
-      await createGoogleAdsKeywordsBatch({
-        customerId: adsAccount.customer_id,
-        refreshToken: refreshToken,
-        adGroupId: googleAdGroupId,
-        keywords: keywordOperations,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
-      })
+      await runWithLoginCustomerFallback(
+        '创建正向关键词',
+        (loginCustomerId) => createGoogleAdsKeywordsBatch({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          adGroupId: googleAdGroupId,
+          keywords: keywordOperations,
+          accountId: adsAccount.id,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
+        })
+      )
       keywordsCount = keywordOperations.length
       console.log(`  ✅ [串行1/3] 成功添加${keywordsCount}个关键词`)
     }
@@ -633,17 +688,20 @@ export async function executeCampaignPublish(
     let negativeKeywordsCount = 0
     if (negativeKeywordOperations.length > 0) {
       totalApiOperations += negativeKeywordOperations.length
-      await createGoogleAdsKeywordsBatch({
-        customerId: adsAccount.customer_id,
-        refreshToken: refreshToken,
-        adGroupId: googleAdGroupId,
-        keywords: negativeKeywordOperations,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
-      })
+      await runWithLoginCustomerFallback(
+        '创建否定关键词',
+        (loginCustomerId) => createGoogleAdsKeywordsBatch({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          adGroupId: googleAdGroupId,
+          keywords: negativeKeywordOperations,
+          accountId: adsAccount.id,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
+        })
+      )
       negativeKeywordsCount = negativeKeywordOperations.length
       console.log(`  ✅ [串行2/3] 成功添加${negativeKeywordsCount}个否定关键词`)
     }
@@ -664,21 +722,24 @@ export async function executeCampaignPublish(
     )
 
     totalApiOperations++
-    const adResult = await createGoogleAdsResponsiveSearchAd({
-      customerId: adsAccount.customer_id,
-      refreshToken: refreshToken,
-      adGroupId: googleAdGroupId,
-      headlines: optimizedHeadlines,
-      descriptions: creative.descriptions.slice(0, 4),
-      finalUrls: [creative.finalUrl],
-      path1: creative.path1 || undefined,
-      path2: creative.path2 || undefined,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId,
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId
-    })
+    const adResult = await runWithLoginCustomerFallback(
+      '创建RSA广告',
+      (loginCustomerId) => createGoogleAdsResponsiveSearchAd({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        adGroupId: googleAdGroupId,
+        headlines: optimizedHeadlines,
+        descriptions: creative.descriptions.slice(0, 4),
+        finalUrls: [creative.finalUrl],
+        path1: creative.path1 || undefined,
+        path2: creative.path2 || undefined,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId
+      })
+    )
     console.log(`  ✅ [串行3/3] 广告创建成功 (Google ID: ${adResult.adId})`)
 
     const serialDuration = Date.now() - serialStartTime
@@ -700,17 +761,20 @@ export async function executeCampaignPublish(
     // 13.1 添加Callout Extensions（非致命，失败时记录错误但继续）
     try {
       totalApiOperations += finalCallouts.length + 1
-      await createGoogleAdsCalloutExtensions({
-        customerId: adsAccount.customer_id,
-        refreshToken: refreshToken,
-        campaignId: googleCampaignId,
-        callouts: finalCallouts,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId
-      })
+      await runWithLoginCustomerFallback(
+        '创建Callout扩展',
+        (loginCustomerId) => createGoogleAdsCalloutExtensions({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          campaignId: googleCampaignId,
+          callouts: finalCallouts,
+          accountId: adsAccount.id,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId
+        })
+      )
       console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
     } catch (calloutError: any) {
       const errorMsg = calloutError.message || String(calloutError)
@@ -721,17 +785,20 @@ export async function executeCampaignPublish(
     // 13.2 添加Sitelink Extensions（非致命，失败时记录错误但继续）
     try {
       totalApiOperations += formattedSitelinks.length + 1
-      await createGoogleAdsSitelinkExtensions({
-        customerId: adsAccount.customer_id,
-        refreshToken: refreshToken,
-        campaignId: googleCampaignId,
-        sitelinks: formattedSitelinks,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId
-      })
+      await runWithLoginCustomerFallback(
+        '创建Sitelink扩展',
+        (loginCustomerId) => createGoogleAdsSitelinkExtensions({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          campaignId: googleCampaignId,
+          sitelinks: formattedSitelinks,
+          accountId: adsAccount.id,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId
+        })
+      )
       console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
     } catch (sitelinkError: any) {
       const errorMsg = sitelinkError.message || String(sitelinkError)
@@ -745,15 +812,18 @@ export async function executeCampaignPublish(
     // 14. 配置Campaign转化目标为"网页浏览"（非阻塞操作）
     console.log(`\n🎯 配置Campaign转化目标...`)
     try {
-      await setCampaignPageViewGoalWithCredentials({
-        customerId: adsAccount.customer_id,
-        refreshToken: refreshToken,
-        campaignId: googleCampaignId,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
-      })
+      await runWithLoginCustomerFallback(
+        '配置Page View目标',
+        (loginCustomerId) => setCampaignPageViewGoalWithCredentials({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          campaignId: googleCampaignId,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
+        })
+      )
     } catch (goalError: any) {
       console.warn(`⚠️ 转化目标配置失败（非致命错误）: ${goalError.message}`)
     }
@@ -763,17 +833,20 @@ export async function executeCampaignPublish(
     if (enableCampaignImmediately) {
       try {
         totalApiOperations++
-        await updateGoogleAdsCampaignStatus({
-          customerId: adsAccount.customer_id,
-          refreshToken: refreshToken,
-          campaignId: googleCampaignId,
-          status: 'ENABLED',
-          accountId: adsAccount.id,
-          userId,
-          loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
-          authType: auth.authType,
-          serviceAccountId: auth.serviceAccountId,
-        })
+        await runWithLoginCustomerFallback(
+          '启用Campaign',
+          (loginCustomerId) => updateGoogleAdsCampaignStatus({
+            customerId: adsAccount.customer_id,
+            refreshToken: refreshToken,
+            campaignId: googleCampaignId,
+            status: 'ENABLED',
+            accountId: adsAccount.id,
+            userId,
+            loginCustomerId,
+            authType: auth.authType,
+            serviceAccountId: auth.serviceAccountId,
+          })
+        )
         finalCampaignStatus = 'ENABLED'
         console.log(`✅ Campaign已启用`)
       } catch (enableError: any) {

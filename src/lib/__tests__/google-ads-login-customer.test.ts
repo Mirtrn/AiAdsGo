@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { resolveLoginCustomerId } from '@/lib/google-ads-login-customer'
+import {
+  resolveLoginCustomerId,
+  resolveLoginCustomerCandidates,
+  isGoogleAdsAccountAccessError,
+} from '@/lib/google-ads-login-customer'
 
 describe('resolveLoginCustomerId', () => {
   it('prefers account parent MCC in oauth mode', () => {
@@ -32,5 +36,62 @@ describe('resolveLoginCustomerId', () => {
 
     expect(result).toBe('9998887776')
   })
+
+  it('returns ordered fallback candidates in oauth mode', () => {
+    const result = resolveLoginCustomerCandidates({
+      authType: 'oauth',
+      accountParentMccId: '3139800184',
+      oauthLoginCustomerId: '4077212437',
+      targetCustomerId: '7512164048',
+    })
+
+    expect(result).toEqual([
+      '3139800184',
+      '4077212437',
+      '7512164048',
+      undefined,
+    ])
+  })
+
+  it('deduplicates fallback candidates when values repeat', () => {
+    const result = resolveLoginCustomerCandidates({
+      authType: 'oauth',
+      accountParentMccId: '4077212437',
+      oauthLoginCustomerId: '4077212437',
+      targetCustomerId: '4077212437',
+    })
+
+    expect(result).toEqual(['4077212437', undefined])
+  })
 })
 
+describe('isGoogleAdsAccountAccessError', () => {
+  it('detects permission denied by nested google ads errors', () => {
+    const result = isGoogleAdsAccountAccessError({
+      errors: [
+        {
+          error_code: { authorization_error: 'USER_PERMISSION_DENIED' },
+          message: "User doesn't have permission to access customer",
+        },
+      ],
+    })
+
+    expect(result).toBe(true)
+  })
+
+  it('detects account disabled messages', () => {
+    const result = isGoogleAdsAccountAccessError({
+      message: 'The customer account is not yet enabled',
+    })
+
+    expect(result).toBe(true)
+  })
+
+  it('does not classify generic timeout as access error', () => {
+    const result = isGoogleAdsAccountAccessError({
+      message: 'fetch failed: connect timeout',
+    })
+
+    expect(result).toBe(false)
+  })
+})

@@ -28,6 +28,7 @@ import {
 } from '@/lib/launch-scores'
 import { generateNamingScheme, NAMING_CONFIG, parseAdGroupName, validateCampaignName } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 
 const SINGLE_BRAND_PER_ACCOUNT_ENFORCED = (
   process.env.CAMPAIGN_PUBLISH_ENFORCE_SINGLE_BRAND_PER_ACCOUNT
@@ -63,40 +64,7 @@ function extractGoogleAdsRequestId(error: any): string | undefined {
 }
 
 function isGoogleAdsAccountPermissionDenied(error: any): boolean {
-  const messages: string[] = []
-
-  const pushMessage = (value: unknown) => {
-    if (typeof value === 'string' && value.trim()) {
-      messages.push(value.toLowerCase())
-    }
-  }
-
-  pushMessage(error?.message)
-  pushMessage(error?.cause?.message)
-
-  const googleAdsErrors = Array.isArray(error?.errors) ? error.errors : []
-  for (const item of googleAdsErrors) {
-    pushMessage(item?.message)
-
-    const codeObj = item?.error_code || item?.errorCode
-    if (!codeObj || typeof codeObj !== 'object') continue
-
-    const keys = Object.keys(codeObj).map(key => key.toLowerCase())
-    const values = Object.values(codeObj).map(value => String(value).toLowerCase())
-
-    if (keys.includes('authorization_error') && values.some(value => value === '2' || value.includes('permission') || value.includes('access'))) {
-      return true
-    }
-
-    if (values.some(value => value.includes('permission_denied') || value.includes('access_denied'))) {
-      return true
-    }
-  }
-
-  const combined = messages.join('\n')
-  return combined.includes("user doesn't have permission to access customer")
-    || (combined.includes('login-customer-id') && combined.includes('access customer'))
-    || (combined.includes('permission denied') && combined.includes('customer'))
+  return isGoogleAdsAccountAccessError(error)
 }
 
 /**
