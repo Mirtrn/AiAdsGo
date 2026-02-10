@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Star, RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2, HelpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { showError, showSuccess } from '@/lib/toast-utils'
+import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
 import ScoreRadarChart from '@/components/charts/ScoreRadarChart'
 import { BonusScoreCard } from '@/components/BonusScoreCard'
 import { ConversionFeedbackForm } from '@/components/ConversionFeedbackForm'
@@ -822,7 +823,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   scoreExplanation: data.adStrength.suggestions.join(' '),
                   generationRound: generationCount + 1,
                   theme: data.creative.theme || '品牌导向',
-                  aiModel: 'gemini-2.5-pro',
+                  aiModel: GEMINI_ACTIVE_MODEL,
                   finalUrl: data.offer?.url || '',
                   adStrength: data.adStrength,
                   optimization: data.optimization

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateContent } from '@/lib/gemini'
 import { recordTokenUsage, estimateTokenCost } from '@/lib/ai-token-tracker'
+import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
 
 /**
  * POST /api/admin/performance-analysis
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     // 调用AI生成分析报告（使用用户级AI配置）
     const analysis = await generateContent({
-      model: 'gemini-2.5-pro',
+      model: GEMINI_ACTIVE_MODEL,
       prompt: analysisPrompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 🔴 Pro模型统一使用8192
@@ -171,7 +172,7 @@ ${i + 1}. ${ad.headline1}
 只返回具体建议，不要解释。`
 
       promptOptimization = await generateContent({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_ACTIVE_MODEL,
         prompt: optimizationPrompt,
         temperature: 0.5,
         maxOutputTokens: 4096,

@@ -24,6 +24,7 @@ import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureB
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
+import { normalizeGeminiModel } from './gemini-models'
 import { parsePrice } from './pricing-utils'
 import { sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
 
@@ -499,7 +500,7 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
   const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
   const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
   // 关键：用户的vertex_ai_model或gemini_model优先于全局VERTEX_AI_MODEL
-  const model = userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL']
+  const model = normalizeGeminiModel(userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL'])
 
   // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
   if (useVertexAI && projectId && location && model) {
@@ -516,7 +517,7 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   // 6. 检查Gemini API配置
   const apiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL']
+  const geminiModel = normalizeGeminiModel(userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'])
 
   if (apiKey && geminiModel) {
     console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)

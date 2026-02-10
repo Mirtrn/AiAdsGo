@@ -8,6 +8,7 @@
 
 import { getDatabase } from '../db'
 import type { AIConfig } from './types'
+import { normalizeGeminiModel } from '../gemini-models'
 
 /**
  * 获取AI配置（从settings表）
@@ -54,7 +55,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
   const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
   // 关键：用户的vertex_ai_model或gemini_model优先于全局VERTEX_AI_MODEL
-  const model = userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL']
+  const model = normalizeGeminiModel(userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL'])
 
   // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
   if (useVertexAI && projectId && location && model) {
@@ -71,7 +72,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   // 6. 检查Gemini API配置
   const apiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL']
+  const geminiModel = normalizeGeminiModel(userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'])
 
   if (apiKey && geminiModel) {
     console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)

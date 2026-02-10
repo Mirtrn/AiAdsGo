@@ -1,5 +1,6 @@
 import { getDatabase } from './db'
 import { getInsertedId, nowFunc } from './db-helpers'
+import { GEMINI_ACTIVE_MODEL } from './gemini-models'
 
 /**
  * 关键词搜索量数据
@@ -220,7 +221,7 @@ export async function createAdCreative(
     scoreResult.explanation,
     data.generation_round || 1,
     data.theme,
-    data.ai_model || 'gemini-2.5-flash',
+    data.ai_model || GEMINI_ACTIVE_MODEL,
     data.adStrength ? JSON.stringify(data.adStrength) : null,  // 🔧 保存完整的 Ad Strength 数据
     // 🆕 v4.10: 关键词池桶信息
     data.keyword_bucket || null,

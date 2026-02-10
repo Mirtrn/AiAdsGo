@@ -18,9 +18,10 @@
 
 import { getUserOnlySetting } from './settings'
 import { resetVertexAIClient } from './gemini-vertex'
-import { canUseFlash, selectOptimalModel, type ModelType } from './model-selector'
+import { selectOptimalModel } from './model-selector'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
+import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -77,17 +78,8 @@ export interface GeminiGenerateResult {
   apiType: 'vertex-ai' | 'direct-api'
 }
 
-function mapModelForVertexAI(model: string, operationType?: string): { model: string; reason?: string } {
-  // Vertex AI 的可用模型版本与 Gemini 官方/中转可能不同。
-  // 目前生产环境出现：gemini-3-flash-preview 在 Vertex AI 返回 404 NOT_FOUND。
-  if (model === 'gemini-3-flash-preview') {
-    const fallbackModel = operationType && canUseFlash(operationType) ? 'gemini-2.5-flash' : 'gemini-2.5-pro'
-    return {
-      model: fallbackModel,
-      reason: `Vertex AI 暂不支持 ${model}，已自动降级为 ${fallbackModel}`,
-    }
-  }
-
+function mapModelForVertexAI(model: string): { model: string; reason?: string } {
+  // 当前仅保留一个模型，不再做模型映射。
   return { model }
 }
 
@@ -280,7 +272,7 @@ export async function generateContent(
   } = params
 
   // 智能模型选择（默认启用，可通过enableAutoModelSelection=false禁用）
-  let finalModel = requestedModel || 'gemini-2.5-pro'
+  let finalModel = normalizeGeminiModel(requestedModel)
   if (enableAutoModelSelection && operationType) {
     const selection = await selectOptimalModel(operationType, userId, {
       hasResponseSchema: !!responseSchema
@@ -318,7 +310,7 @@ export async function generateContent(
       // 使用Vertex AI
       const { generateContent: vertexGenerate } = await import('./gemini-vertex')
 
-      const vertexModelSelection = mapModelForVertexAI(finalModel, operationType)
+      const vertexModelSelection = mapModelForVertexAI(finalModel)
       if (vertexModelSelection.reason && vertexModelSelection.model !== finalModel) {
         console.warn(`⚠️ ${vertexModelSelection.reason}`)
       }
@@ -406,7 +398,7 @@ async function callDirectAPI(
   // 使用代理模式调用（传递用户的API密钥和provider类型）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
-  const effectiveModel = model || 'gemini-2.5-pro'
+  const effectiveModel = normalizeGeminiModel(model)
   const baseParams = {
     model: effectiveModel,
     prompt,
@@ -424,14 +416,14 @@ async function callDirectAPI(
     const message = String(error?.message || '')
     const isMaxTokens = error?.code === 'MAX_TOKENS' || message.includes('MAX_TOKENS') || message.includes('token限制')
     const shouldFallbackModel = isMaxTokens &&
-      effectiveModel === 'gemini-3-flash-preview' &&
+      effectiveModel === GEMINI_ACTIVE_MODEL &&
       operationType === 'ad_creative_generation_main'
 
     if (shouldFallbackModel) {
-      console.warn('⚠️ ad_creative_generation_main MAX_TOKENS in gemini-3-flash-preview, fallback to gemini-2.5-pro')
+      console.warn(`⚠️ ad_creative_generation_main MAX_TOKENS in ${GEMINI_ACTIVE_MODEL}, retry same model with upstream bump`)
       result = await axiosGenerate({
         ...baseParams,
-        model: 'gemini-2.5-pro',
+        model: GEMINI_ACTIVE_MODEL,
       }, userId)
     } else {
       throw error

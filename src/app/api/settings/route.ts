@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { clearUserSettings, getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
 import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
+import { GEMINI_ACTIVE_MODEL, isDeprecatedGeminiModel } from '@/lib/gemini-models'
+import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 
@@ -24,6 +26,25 @@ export async function GET(request: NextRequest) {
     const settings = category
       ? await getSettingsByCategory(category, userIdNum)
       : await getAllSettings(userIdNum)
+
+    // 自动迁移：将用户历史配置中的 Gemini 2.5 Pro / Flash 统一迁移到 Gemini 3 Flash Preview
+    if (userIdNum) {
+      const db = await getDatabase()
+      const rawGeminiModelSetting = await db.queryOne(
+        'SELECT value FROM system_settings WHERE user_id = ? AND category = ? AND key = ? LIMIT 1',
+        [userIdNum, 'ai', 'gemini_model']
+      ) as { value: string | null } | undefined
+
+      if (isDeprecatedGeminiModel(rawGeminiModelSetting?.value)) {
+        await updateSettings([
+          {
+            category: 'ai',
+            key: 'gemini_model',
+            value: GEMINI_ACTIVE_MODEL,
+          },
+        ], userIdNum)
+      }
+    }
 
     // 按分类分组配置
     const groupedSettings: Record<string, any[]> = {}

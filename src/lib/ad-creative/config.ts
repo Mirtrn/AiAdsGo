@@ -3,6 +3,7 @@
  * 从ad-creative-generator.ts拆分出AI配置相关逻辑
  */
 import { getDatabase } from '../db'
+import { normalizeGeminiModel } from '../gemini-models'
 
 export interface AIConfig {
   type: 'vertex-ai' | 'gemini-api' | null
@@ -61,7 +62,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   // 4. 合并配置：用户配置优先
   const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
   const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
-  const model = userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL']
+  const model = normalizeGeminiModel(userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL'])
 
   // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
   if (useVertexAI && projectId && location && model) {
@@ -78,7 +79,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   // 6. 检查Gemini API配置（无需use_vertex_ai标志）
   const geminiApiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'] || 'gemini-2.5-flash'
+  const geminiModel = normalizeGeminiModel(userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'])
 
   if (geminiApiKey) {
     console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)

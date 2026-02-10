@@ -10,6 +10,7 @@ import axios, { AxiosInstance } from 'axios'
 import { getUserOnlySetting } from './settings'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
+import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
 
 function isEnvTrue(value?: string | null): boolean {
   if (!value) return false
@@ -226,7 +227,7 @@ async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
  * 重要：API密钥从用户配置获取，不使用全局配置
  *
  * @param params - 生成参数
- * @param params.model - 模型名称，默认 'gemini-2.5-pro'
+ * @param params.model - 模型名称，默认 'gemini-3-flash-preview'
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192
@@ -246,7 +247,7 @@ export async function generateContent(params: {
   responseMimeType?: string  // 🆕 Token优化：MIME类型
 }, userId: number, overrideConfig?: { provider: string; apiKey: string }): Promise<GeminiAxiosGenerateResult> {
   const {
-    model = 'gemini-2.5-pro',
+    model: requestedModel = GEMINI_ACTIVE_MODEL,
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
@@ -254,6 +255,7 @@ export async function generateContent(params: {
     responseSchema,  // 🆕 Token优化：JSON schema
     responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
+  const model = normalizeGeminiModel(requestedModel)
 
   // 🔧 关键修复(2025-12-30): 支持临时配置覆盖（用于验证未保存的配置）
   // 根据用户配置获取服务商类型和对应的 API Key
@@ -273,8 +275,8 @@ export async function generateContent(params: {
 
   // 🔧 2026-02-01: 恢复 Gemini 3 thinking 模式
   // thinking 模式可能有助于模型更好地规划结构化输出，避免生成过多 tokens
-  if (model.includes('gemini-3') || model.includes('gemini-2.5')) {
-    console.log(`🧠 Gemini 3/2.5 模型使用默认 thinking 模式 (模型: ${model})`)
+  if (model.includes('gemini-3')) {
+    console.log(`🧠 Gemini 3 模型使用默认 thinking 模式 (模型: ${model})`)
   }
 
   // 🆕 Token优化：结构化JSON输出约束

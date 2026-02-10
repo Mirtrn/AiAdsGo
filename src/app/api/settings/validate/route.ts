@@ -8,6 +8,7 @@ import {
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 import { getCountryName } from '@/lib/proxy/validate-url'
+import { normalizeGeminiModel } from '@/lib/gemini-models'
 
 const validateSchema = z.object({
   category: z.string(),
@@ -182,7 +183,7 @@ export async function POST(request: NextRequest) {
 
           // 优先使用前端传来的模型配置
           if (config.gemini_model) {
-            selectedModel = config.gemini_model
+            selectedModel = normalizeGeminiModel(config.gemini_model)
           } else {
             const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
             if (!geminiModelSetting?.value) {
@@ -191,15 +192,13 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
               )
             }
-            selectedModel = geminiModelSetting.value
+            selectedModel = normalizeGeminiModel(geminiModelSetting.value)
           }
 
           console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
 
           // 根据服务商选择验证哪个 API Key
           const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
-          const keyFieldToUpdate = geminiProvider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
-
           // 🔧 关键修复(2025-12-30): 传递服务商类型和临时 API Key 给验证函数
           // 避免 validateGeminiConfig → generateContent → getGeminiApiKey 从数据库读取空值
           result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)

@@ -1,5 +1,6 @@
 import { getDatabase } from './db'
 import { encrypt, decrypt } from './crypto'
+import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
 
 export interface SystemSetting {
   id: number
@@ -34,6 +35,14 @@ export interface SettingValue {
   description?: string | null
 }
 
+function normalizeSettingValue(category: string, key: string, value: string | null): string | null {
+  if (category === 'ai' && key === 'gemini_model') {
+    return normalizeGeminiModel(value)
+  }
+
+  return value
+}
+
 /**
  * 获取所有系统配置（包括全局和用户级）
  * 优先级：用户配置 > 全局配置
@@ -64,12 +73,13 @@ export async function getAllSettings(userId?: number): Promise<SettingValue[]> {
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   return Array.from(settingsMap.values()).map(setting => {
     const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    const rawValue = normalizeSettingValue(setting.category, setting.key, setting.value)
     return {
       category: setting.category,
       key: setting.key,
       value: isSensitive && setting.encrypted_value
         ? decrypt(setting.encrypted_value)
-        : setting.value,
+        : rawValue,
       dataType: setting.data_type,
       isSensitive,
       isRequired: setting.is_required === true || setting.is_required === 1,
@@ -110,12 +120,13 @@ export async function getSettingsByCategory(category: string, userId?: number): 
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   return Array.from(settingsMap.values()).map(setting => {
     const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    const rawValue = normalizeSettingValue(setting.category, setting.key, setting.value)
     return {
       category: setting.category,
       key: setting.key,
       value: isSensitive && setting.encrypted_value
         ? decrypt(setting.encrypted_value)
-        : setting.value,
+        : rawValue,
       dataType: setting.data_type,
       isSensitive,
       isRequired: setting.is_required === true || setting.is_required === 1,
@@ -143,12 +154,13 @@ export async function getUserOnlySettingsByCategory(category: string, userId: nu
 
   return settings.map(setting => {
     const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    const rawValue = normalizeSettingValue(setting.category, setting.key, setting.value)
     return {
       category: setting.category,
       key: setting.key,
       value: isSensitive && setting.encrypted_value
         ? decrypt(setting.encrypted_value)
-        : setting.value,
+        : rawValue,
       dataType: setting.data_type,
       isSensitive,
       isRequired: setting.is_required === true || setting.is_required === 1,
@@ -177,6 +189,9 @@ export async function getSetting(category: string, key: string, userId?: number)
 
   if (!setting) return null
 
+  // 自动迁移：已下线模型统一映射到 Gemini 3 Flash Preview
+  const rawValue = normalizeSettingValue(setting.category, setting.key, setting.value)
+
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
@@ -184,7 +199,7 @@ export async function getSetting(category: string, key: string, userId?: number)
     key: setting.key,
     value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
-      : setting.value,
+      : rawValue,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,
@@ -221,6 +236,9 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
 
   if (!setting) return null
 
+  // 自动迁移：已下线模型统一映射到 Gemini 3 Flash Preview
+  const rawValue = normalizeSettingValue(setting.category, setting.key, setting.value)
+
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
@@ -228,7 +246,7 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
     key: setting.key,
     value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
-      : setting.value,
+      : rawValue,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,
@@ -248,6 +266,11 @@ export async function updateSetting(
   value: string,
   userId?: number
 ): Promise<void> {
+  let normalizedValue = value
+  if (category === 'ai' && key === 'gemini_model') {
+    normalizedValue = normalizeGeminiModel(value)
+  }
+
   const db = await getDatabase()
 
   // 获取配置元数据（从全局模板获取字段定义）
@@ -264,8 +287,8 @@ export async function updateSetting(
   // 确定是否需要加密
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = metadata.is_sensitive === true || metadata.is_sensitive === 1
-  const configValue = isSensitive ? null : value
-  const encryptedValue = isSensitive ? encrypt(value) : null
+  const configValue = isSensitive ? null : normalizedValue
+  const encryptedValue = isSensitive ? encrypt(normalizedValue) : null
 
   // 检查是否已存在用户级配置
   if (userId) {
@@ -626,7 +649,7 @@ export async function validateGoogleAdsConfig(
  */
 export async function validateGeminiConfig(
   apiKey: string,
-  model: string = 'gemini-2.5-pro',
+  model: string = GEMINI_ACTIVE_MODEL,
   userId: number,
   provider?: string  // 🔧 关键修复(2025-12-30): 新增 provider 参数，用于验证未保存配置
 ): Promise<{ valid: boolean; message: string }> {
@@ -646,8 +669,8 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称
-  // 🔧 更新(2026-01-05): 允许 flash 模型（业务会在 Pro/Flash 间切换）
-  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview']
+  // 🔧 更新(2026-02-10): 下线 Gemini 2.5 Pro / Flash，仅保留 Gemini 3 Flash Preview
+  const validModels = [GEMINI_ACTIVE_MODEL]
   if (!validModels.includes(model)) {
     return {
       valid: false,

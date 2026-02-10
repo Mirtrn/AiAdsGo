@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GEMINI_ACTIVE_MODEL } from './gemini-models'
 
 type SettingValue = { value: any } | null
 
@@ -61,7 +62,7 @@ describe('Gemini routing prefers Vertex AI', () => {
 
     const { generateContent } = await import('./gemini')
     const result = await generateContent(
-      { prompt: 'hi', enableAutoModelSelection: false, model: 'gemini-2.5-pro' },
+      { prompt: 'hi', enableAutoModelSelection: false, model: GEMINI_ACTIVE_MODEL },
       userId
     )
 
@@ -81,7 +82,7 @@ describe('Gemini routing prefers Vertex AI', () => {
 
     const { generateContent } = await import('./gemini')
     const result = await generateContent(
-      { prompt: 'hi', enableAutoModelSelection: false, model: 'gemini-2.5-pro' },
+      { prompt: 'hi', enableAutoModelSelection: false, model: GEMINI_ACTIVE_MODEL },
       userId
     )
 
@@ -89,7 +90,7 @@ describe('Gemini routing prefers Vertex AI', () => {
     expect(result.apiType).toBe('vertex-ai')
   })
 
-  it('maps gemini-3-flash-preview to stable Pro on Vertex AI for Pro operations', async () => {
+  it('keeps gemini-3-flash-preview for Pro operations on Vertex AI', async () => {
     const userId = 62
 
     settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'true')
@@ -111,10 +112,10 @@ describe('Gemini routing prefers Vertex AI', () => {
     )
 
     expect(vertexGenerateContent).toHaveBeenCalledTimes(1)
-    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe('gemini-2.5-pro')
+    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe(GEMINI_ACTIVE_MODEL)
   })
 
-  it('maps gemini-3-flash-preview to stable Flash on Vertex AI for Flash operations', async () => {
+  it('keeps gemini-3-flash-preview for Flash operations on Vertex AI', async () => {
     const userId = 62
 
     settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'true')
@@ -136,6 +137,6 @@ describe('Gemini routing prefers Vertex AI', () => {
     )
 
     expect(vertexGenerateContent).toHaveBeenCalledTimes(1)
-    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe('gemini-2.5-flash')
+    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe(GEMINI_ACTIVE_MODEL)
   })
 })

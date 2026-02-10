@@ -35,10 +35,11 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { DEFAULTS } from './keyword-constants'
+import { GEMINI_ACTIVE_MODEL } from './gemini-models'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
 const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
-const KEYWORD_CLUSTERING_FALLBACK_MODEL = 'gemini-2.5-flash'
+const KEYWORD_CLUSTERING_FALLBACK_MODEL = GEMINI_ACTIVE_MODEL
 const KEYWORD_CLUSTERING_INPUT_LIMIT = 500
 
 type GeminiGenerateParams = Parameters<typeof generateContent>[0]

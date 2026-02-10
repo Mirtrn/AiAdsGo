@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
+import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 
 // 代理URL配置项接口
@@ -222,15 +223,11 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
-    description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本（Vertex AI 模式下如选择 gemini-3-flash-preview 将自动降级到 gemini-2.5-pro/flash）',
-    // 🔧 更新(2026-01-05): ThunderRelay 与官方均支持 Pro/Flash（业务会自动在 Pro/Flash 间切换）
-    // - 官方API: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
-    // - ThunderRelay中转: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
+    description: '当前仅保留 Gemini 3 Flash Preview；历史配置中的 Gemini 2.5 Pro / Flash 将自动迁移为 Gemini 3 Flash Preview（Vertex AI 模式下会按可用性自动降级）',
     options: [
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，稳定版）' },
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
     ],
-    defaultValue: 'gemini-2.5-pro'
+    defaultValue: GEMINI_ACTIVE_MODEL
   },
 
   // AI - Vertex AI配置
@@ -638,8 +635,7 @@ export default function SettingsPage() {
           updated.ai.gemini_api_key = ''
         }
 
-        // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持相同模型，无需重置
-        // gemini-2.5-pro 和 gemini-3-flash-preview 两个服务商都支持
+        // 当前仅保留一个模型，无需根据服务商重置
       }
 
       return updated
@@ -1462,9 +1458,7 @@ export default function SettingsPage() {
         { value: 'false', label: '否' }
       ]
 
-      // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持相同模型
-      // 两个服务商都支持：gemini-2.5-pro, gemini-3-flash-preview
-      // 无需根据服务商过滤模型选项
+      // 当前仅保留一个模型，无需根据服务商过滤模型选项
       if (category === 'ai' && setting.key === 'gemini_model') {
         // 所有模型选项都可用，无需过滤
       }

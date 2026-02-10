@@ -1233,7 +1233,7 @@ export const DEFAULT_SETTINGS = [
 
   // AI配置 - Gemini直接API模式
   { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini API密钥（直接API模式）' },
-  { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: true, defaultValue: 'gemini-2.5-pro', description: 'Gemini模型版本' },
+  { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: true, defaultValue: 'gemini-3-flash-preview', description: 'Gemini模型版本' },
 
   // AI配置 - Vertex AI模式（优先使用）
   { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false, defaultValue: 'false', description: '是否使用Vertex AI（优先于直接API）' },
