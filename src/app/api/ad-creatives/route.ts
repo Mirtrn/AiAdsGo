@@ -3,6 +3,32 @@ import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
 import { z } from 'zod'
 
+function parsePossiblyNestedJson(value: unknown, maxDepth = 2): unknown {
+  let current = value
+  for (let i = 0; i < maxDepth; i++) {
+    if (typeof current !== 'string') break
+    const trimmed = current.trim()
+    if (!trimmed) return undefined
+    try {
+      current = JSON.parse(trimmed)
+    } catch {
+      return current
+    }
+  }
+  return current
+}
+
+function normalizeArrayField(value: unknown): any[] | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  return Array.isArray(parsed) ? parsed : undefined
+}
+
+function normalizeObjectField(value: unknown): Record<string, any> | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return parsed as Record<string, any>
+}
+
 /**
  * GET /api/ad-creatives?offer_id=X
  * 获取指定Offer的所有广告创意列表
@@ -91,7 +117,7 @@ const createCreativeSchema = z.object({
   headlines: z.array(z.string()).min(3).max(15),
   descriptions: z.array(z.string()).min(2).max(4),
   keywords: z.array(z.string()).optional(),
-  keywords_with_volume: z.string().optional(),
+  keywords_with_volume: z.union([z.string(), z.array(z.any())]).optional(),
   negative_keywords: z.array(z.string()).optional(),
   callouts: z.array(z.string()).optional(),
   sitelinks: z
@@ -106,8 +132,8 @@ const createCreativeSchema = z.object({
   final_url: z.string().url(),
   final_url_suffix: z.string().optional(),
   score: z.number().min(0).max(100).optional(),
-  score_breakdown: z.string().optional(),
-  ad_strength: z.string().optional(),
+  score_breakdown: z.union([z.string(), z.record(z.any())]).optional(),
+  ad_strength: z.union([z.string(), z.record(z.any())]).optional(),
   theme: z.string().optional(),
   ai_model: z.string().optional(),
   generation_round: z.number().int().optional(),
@@ -140,6 +166,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validationResult.data
+    const normalizedKeywordsWithVolume = normalizeArrayField(data.keywords_with_volume)
+    const normalizedScoreBreakdown = normalizeObjectField(data.score_breakdown)
+    const normalizedAdStrength = normalizeObjectField(data.ad_strength)
 
     // 验证Offer是否存在且属于该用户
     const db = await getDatabase()
@@ -175,15 +204,15 @@ export async function POST(request: NextRequest) {
         JSON.stringify(data.headlines),
         JSON.stringify(data.descriptions),
         JSON.stringify(data.keywords || []),
-        data.keywords_with_volume ? JSON.stringify(data.keywords_with_volume) : null,  // 🔥 修复(2025-12-18)：JSON stringifying keywords_with_volume以保留matchType字段
+        normalizedKeywordsWithVolume ? JSON.stringify(normalizedKeywordsWithVolume) : null,
         JSON.stringify(data.negative_keywords || []),
         JSON.stringify(data.callouts || []),
         JSON.stringify(data.sitelinks || []),
         data.final_url,
         data.final_url_suffix || null,
         data.score || null,
-        data.score_breakdown || null,
-        data.ad_strength || null,
+        normalizedScoreBreakdown ? JSON.stringify(normalizedScoreBreakdown) : null,
+        normalizedAdStrength ? JSON.stringify(normalizedAdStrength) : null,
         data.theme || null,
         data.ai_model || null,
         data.generation_round || null,

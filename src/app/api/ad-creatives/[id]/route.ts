@@ -2,6 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 
+function parsePossiblyNestedJson(value: unknown, maxDepth = 2): unknown {
+  let current = value
+  for (let i = 0; i < maxDepth; i++) {
+    if (typeof current !== 'string') break
+    const trimmed = current.trim()
+    if (!trimmed) return undefined
+    try {
+      current = JSON.parse(trimmed)
+    } catch {
+      return current
+    }
+  }
+  return current
+}
+
+function normalizeArrayField(value: unknown): any[] | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  return Array.isArray(parsed) ? parsed : undefined
+}
+
+function normalizeObjectField(value: unknown): Record<string, any> | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return parsed as Record<string, any>
+}
+
 /**
  * GET /api/ad-creatives/:id
  * 获取单个广告创意详情
@@ -65,7 +91,7 @@ const updateCreativeSchema = z.object({
   headlines: z.array(z.string()).min(3).max(15).optional(),
   descriptions: z.array(z.string()).min(2).max(4).optional(),
   keywords: z.array(z.string()).optional(),
-  keywords_with_volume: z.string().optional(),
+  keywords_with_volume: z.union([z.string(), z.array(z.any())]).optional(),
   negative_keywords: z.array(z.string()).optional(),
   callouts: z.array(z.string()).optional(),
   sitelinks: z
@@ -80,8 +106,8 @@ const updateCreativeSchema = z.object({
   final_url: z.string().url().optional(),
   final_url_suffix: z.string().optional(),
   score: z.number().min(0).max(100).optional(),
-  score_breakdown: z.string().optional(),
-  ad_strength: z.string().optional(),
+  score_breakdown: z.union([z.string(), z.record(z.any())]).optional(),
+  ad_strength: z.union([z.string(), z.record(z.any())]).optional(),
   theme: z.string().optional(),
 })
 
@@ -117,6 +143,9 @@ export async function PUT(
     }
 
     const data = validationResult.data
+    const normalizedKeywordsWithVolume = normalizeArrayField(data.keywords_with_volume)
+    const normalizedScoreBreakdown = normalizeObjectField(data.score_breakdown)
+    const normalizedAdStrength = normalizeObjectField(data.ad_strength)
 
     // 验证广告创意是否存在且属于该用户
     const db = await getDatabase()
@@ -160,7 +189,7 @@ export async function PUT(
     }
     if (data.keywords_with_volume !== undefined) {
       updates.push('keywords_with_volume = ?')
-      sqlParams.push(data.keywords_with_volume ? JSON.stringify(data.keywords_with_volume) : null)  // 🔥 修复(2025-12-18)：JSON stringify保留matchType字段
+      sqlParams.push(normalizedKeywordsWithVolume ? JSON.stringify(normalizedKeywordsWithVolume) : null)
     }
     if (data.negative_keywords !== undefined) {
       updates.push('negative_keywords = ?')
@@ -188,11 +217,11 @@ export async function PUT(
     }
     if (data.score_breakdown !== undefined) {
       updates.push('score_breakdown = ?')
-      sqlParams.push(data.score_breakdown)
+      sqlParams.push(normalizedScoreBreakdown ? JSON.stringify(normalizedScoreBreakdown) : null)
     }
     if (data.ad_strength !== undefined) {
       updates.push('ad_strength = ?')
-      sqlParams.push(data.ad_strength)
+      sqlParams.push(normalizedAdStrength ? JSON.stringify(normalizedAdStrength) : null)
     }
     if (data.theme !== undefined) {
       updates.push('theme = ?')

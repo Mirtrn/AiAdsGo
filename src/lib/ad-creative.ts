@@ -144,6 +144,128 @@ export interface GeneratedAdCreativeData {
   qualityMetrics?: QualityMetrics
 }
 
+function parsePossiblyNestedJson(value: unknown, maxDepth = 2): unknown {
+  let current = value
+
+  for (let i = 0; i < maxDepth; i++) {
+    if (typeof current !== 'string') break
+    const trimmed = current.trim()
+    if (!trimmed) return undefined
+
+    try {
+      current = JSON.parse(trimmed)
+    } catch {
+      return current
+    }
+  }
+
+  return current
+}
+
+function ensureStringArray(value: unknown): string[] {
+  const parsed = parsePossiblyNestedJson(value)
+  if (!Array.isArray(parsed)) return []
+
+  return parsed
+    .map((item) => (typeof item === 'string' ? item : String(item ?? '')))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
+function ensureJsonObject(value: unknown): Record<string, any> | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return undefined
+  }
+  return parsed as Record<string, any>
+}
+
+function normalizeKeywordsWithVolume(
+  value: unknown
+): KeywordWithVolume[] | undefined {
+  const parsed = parsePossiblyNestedJson(value)
+  if (!Array.isArray(parsed)) return undefined
+
+  const normalized: KeywordWithVolume[] = []
+
+  for (const item of parsed) {
+    if (typeof item === 'string') {
+      const keyword = item.trim()
+      if (!keyword) continue
+      normalized.push({
+        keyword,
+        searchVolume: 0,
+        source: 'AI_GENERATED',
+      })
+      continue
+    }
+
+    if (!item || typeof item !== 'object') continue
+
+    const keyword = String((item as any).keyword ?? (item as any).text ?? '').trim()
+    if (!keyword) continue
+
+    const parsedSearchVolume = Number(
+      (item as any).searchVolume ?? (item as any).search_volume ?? 0
+    )
+    const parsedCompetitionIndex = Number(
+      (item as any).competitionIndex ?? (item as any).competition_index
+    )
+
+    const sourceRaw =
+      typeof (item as any).source === 'string'
+        ? (item as any).source.toUpperCase()
+        : undefined
+    const source =
+      sourceRaw &&
+      ['AI_GENERATED', 'KEYWORD_EXPANSION', 'MERGED', 'KEYWORD_POOL'].includes(
+        sourceRaw
+      )
+        ? (sourceRaw as KeywordWithVolume['source'])
+        : undefined
+
+    const matchTypeRaw =
+      typeof (item as any).matchType === 'string'
+        ? (item as any).matchType.toUpperCase()
+        : typeof (item as any).match_type === 'string'
+          ? (item as any).match_type.toUpperCase()
+          : undefined
+    const matchType =
+      matchTypeRaw && ['EXACT', 'PHRASE', 'BROAD'].includes(matchTypeRaw)
+        ? (matchTypeRaw as KeywordWithVolume['matchType'])
+        : undefined
+
+    const volumeUnavailableReasonRaw =
+      typeof (item as any).volumeUnavailableReason === 'string'
+        ? (item as any).volumeUnavailableReason.toUpperCase()
+        : undefined
+    const volumeUnavailableReason =
+      volumeUnavailableReasonRaw &&
+      ['SERVICE_ACCOUNT_UNSUPPORTED', 'DEV_TOKEN_TEST_ONLY'].includes(
+        volumeUnavailableReasonRaw
+      )
+        ? (volumeUnavailableReasonRaw as KeywordWithVolume['volumeUnavailableReason'])
+        : undefined
+
+    normalized.push({
+      keyword,
+      searchVolume: Number.isFinite(parsedSearchVolume) ? parsedSearchVolume : 0,
+      competition:
+        typeof (item as any).competition === 'string'
+          ? (item as any).competition
+          : undefined,
+      competitionIndex: Number.isFinite(parsedCompetitionIndex)
+        ? parsedCompetitionIndex
+        : undefined,
+      source,
+      matchType,
+      volumeUnavailableReason,
+    })
+  }
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
 /**
  * 创建广告创意记录
  */
@@ -182,6 +304,21 @@ export async function createAdCreative(
 ): Promise<AdCreative> {
   const db = await getDatabase()
 
+  const normalizedHeadlines = ensureStringArray(data.headlines)
+  const normalizedDescriptions = ensureStringArray(data.descriptions)
+  const normalizedKeywords = ensureStringArray(data.keywords)
+  const normalizedKeywordsWithVolume = normalizeKeywordsWithVolume(
+    data.keywordsWithVolume
+  )
+  const normalizedNegativeKeywords = ensureStringArray(data.negativeKeywords)
+  const normalizedCallouts = normalizeCallouts(
+    parsePossiblyNestedJson(data.callouts)
+  )
+  const normalizedSitelinks = normalizeSitelinks(
+    parsePossiblyNestedJson(data.sitelinks),
+    data.final_url
+  )
+
   // 如果外部传入了score，优先使用（来自Ad Strength评估）
   // 否则使用旧的评分算法计算（向后兼容）
   const scoreResult = data.score && data.score_breakdown
@@ -205,13 +342,13 @@ export async function createAdCreative(
   `, [
     offerId,
     userId,
-    JSON.stringify(data.headlines),
-    JSON.stringify(data.descriptions),
-    JSON.stringify(data.keywords),
-    data.keywordsWithVolume ? JSON.stringify(data.keywordsWithVolume) : null,
-    data.negativeKeywords ? JSON.stringify(data.negativeKeywords) : null,  // 🎯 新增：保存否定关键词
-    data.callouts ? JSON.stringify(data.callouts) : null,
-    data.sitelinks ? JSON.stringify(data.sitelinks) : null,
+    JSON.stringify(normalizedHeadlines),
+    JSON.stringify(normalizedDescriptions),
+    JSON.stringify(normalizedKeywords),
+    normalizedKeywordsWithVolume ? JSON.stringify(normalizedKeywordsWithVolume) : null,
+    normalizedNegativeKeywords.length > 0 ? JSON.stringify(normalizedNegativeKeywords) : null,  // 🎯 新增：保存否定关键词
+    normalizedCallouts ? JSON.stringify(normalizedCallouts) : null,
+    normalizedSitelinks ? JSON.stringify(normalizedSitelinks) : null,
     data.final_url,
     data.final_url_suffix || null,
     data.path1 || null,  // 🆕 v4.7: RSA Display Path
@@ -387,19 +524,30 @@ function normalizeSitelinks(
  * 解析数据库行为AdCreative对象
  */
 function parseAdCreativeRow(row: any): AdCreative {
+  const parsedScoreBreakdown = ensureJsonObject(row.score_breakdown) || {}
+  const parsedAdStrength = ensureJsonObject(row.ad_strength_data)
+
   return {
     ...row,
-    headlines: JSON.parse(row.headlines),
-    descriptions: JSON.parse(row.descriptions),
-    keywords: JSON.parse(row.keywords),
-    keywordsWithVolume: row.keywords_with_volume ? JSON.parse(row.keywords_with_volume) : undefined,
-    negativeKeywords: row.negative_keywords ? JSON.parse(row.negative_keywords) : undefined,  // 🎯 新增：解析否定关键词
-    callouts: row.callouts ? normalizeCallouts(JSON.parse(row.callouts)) : undefined,
+    headlines: ensureStringArray(row.headlines),
+    descriptions: ensureStringArray(row.descriptions),
+    keywords: ensureStringArray(row.keywords),
+    keywordsWithVolume: normalizeKeywordsWithVolume(row.keywords_with_volume),
+    negativeKeywords: ensureStringArray(row.negative_keywords),  // 🎯 新增：解析否定关键词
+    callouts: normalizeCallouts(parsePossiblyNestedJson(row.callouts)),
     // 兼容：历史/AI不稳定输出可能产生 description1/description_1 等字段
-    sitelinks: row.sitelinks ? normalizeSitelinks(JSON.parse(row.sitelinks), row.final_url) : undefined,
-    score_breakdown: JSON.parse(row.score_breakdown),
+    sitelinks: normalizeSitelinks(parsePossiblyNestedJson(row.sitelinks), row.final_url),
+    score_breakdown: {
+      relevance: Number(parsedScoreBreakdown.relevance || 0),
+      quality: Number(parsedScoreBreakdown.quality || 0),
+      engagement: Number(parsedScoreBreakdown.engagement || 0),
+      diversity: Number(parsedScoreBreakdown.diversity || 0),
+      clarity: Number(parsedScoreBreakdown.clarity || 0),
+      brandSearchVolume: Number(parsedScoreBreakdown.brandSearchVolume || 0),
+      competitivePositioning: Number(parsedScoreBreakdown.competitivePositioning || 0),
+    },
     // 🔧 解析完整的 Ad Strength 评估数据（7维度）
-    adStrength: row.ad_strength_data ? JSON.parse(row.ad_strength_data) : undefined,
+    adStrength: parsedAdStrength,
   }
 }
 
