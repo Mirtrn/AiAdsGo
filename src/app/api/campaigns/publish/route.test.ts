@@ -11,10 +11,6 @@ const dbFns = vi.hoisted(() => ({
   exec: vi.fn(),
 }))
 
-const openclawSettingsFns = vi.hoisted(() => ({
-  getOpenclawSettingsMap: vi.fn(),
-}))
-
 const campaignsFns = vi.hoisted(() => ({
   queryActiveCampaigns: vi.fn(),
 }))
@@ -31,17 +27,6 @@ vi.mock('@/lib/db', () => ({
   })),
 }))
 
-vi.mock('@/lib/openclaw/settings', () => ({
-  getOpenclawSettingsMap: openclawSettingsFns.getOpenclawSettingsMap,
-  parseBoolean: (value: any, fallback: boolean) => {
-    if (value === null || value === undefined) return fallback
-    const normalized = String(value).trim().toLowerCase()
-    if (['true', '1', 'yes', 'on'].includes(normalized)) return true
-    if (['false', '0', 'no', 'off'].includes(normalized)) return false
-    return fallback
-  },
-}))
-
 vi.mock('@/lib/active-campaigns-query', () => ({
   queryActiveCampaigns: campaignsFns.queryActiveCampaigns,
 }))
@@ -53,10 +38,6 @@ describe('POST /api/campaigns/publish AutoAds enforced', () => {
     authFns.verifyAuth.mockResolvedValue({
       authenticated: true,
       user: { userId: 7 },
-    })
-
-    openclawSettingsFns.getOpenclawSettingsMap.mockResolvedValue({
-      openclaw_strategy_enforce_autoads_only: 'true',
     })
 
     dbFns.queryOne.mockImplementation(async (sql: string) => {
@@ -123,7 +104,7 @@ describe('POST /api/campaigns/publish AutoAds enforced', () => {
     expect(res.status).toBe(401)
   })
 
-  it('blocks publishing when manual campaigns exist and AutoAds-only is enforced', async () => {
+  it('requires pause confirmation when manual campaigns exist', async () => {
     const req = new NextRequest('http://localhost/api/campaigns/publish', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -152,8 +133,9 @@ describe('POST /api/campaigns/publish AutoAds enforced', () => {
     const data = await res.json()
 
     expect(res.status).toBe(422)
-    expect(data.action).toBe('AUTOADS_ONLY_ENFORCED')
-    expect(data.details.requiresPauseOldCampaigns).toBe(true)
+    expect(data.action).toBe('CONFIRM_PAUSE_OLD_CAMPAIGNS')
+    expect(data.total.manual).toBe(1)
+    expect(data.total.all).toBe(1)
   })
 
   it('does not require pause confirmation for cross-brand campaigns and only warns', async () => {
