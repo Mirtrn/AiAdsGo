@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TrendChartDynamic } from '@/components/charts/dynamic'
 import { toast } from 'sonner'
+import { Eye } from 'lucide-react'
 import { parseAiModelsJson, setAiModelsSelectedModel } from '@/lib/openclaw/ai-models'
 
 type SettingItem = {
@@ -2733,16 +2734,16 @@ export default function OpenClawPage() {
                 <CardDescription>每条消息显示放行/拦截原因，默认展示原文前 {feishuHealthExcerptLimit} 字片段</CardDescription>
               </CardHeader>
               <CardContent>
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>时间</TableHead>
-                      <TableHead>决策</TableHead>
+                      <TableHead className="w-[96px] whitespace-nowrap">时间</TableHead>
+                      <TableHead className="w-[76px] whitespace-nowrap">决策</TableHead>
                       <TableHead>原因</TableHead>
                       <TableHead>发送者</TableHead>
                       <TableHead>会话</TableHead>
                       <TableHead>消息片段</TableHead>
-                      <TableHead>全文</TableHead>
+                      <TableHead className="w-[56px] whitespace-nowrap text-center">原文</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2756,29 +2757,32 @@ export default function OpenClawPage() {
                       return (
                         <TableRow key={row.id}>
                           <TableCell className="whitespace-nowrap">{formatTimestamp(row.createdAt)}</TableCell>
-                          <TableCell>
-                            <Badge variant={decisionBadge.variant}>{decisionBadge.label}</Badge>
+                          <TableCell className="whitespace-nowrap">
+                            <Badge className="whitespace-nowrap" variant={decisionBadge.variant}>{decisionBadge.label}</Badge>
                           </TableCell>
                           <TableCell>
-                            <div className="text-sm font-medium">{row.reasonCode || '-'}</div>
+                            <div className="text-sm font-medium break-all">{row.reasonCode || '-'}</div>
                             {row.reasonMessage && (
-                              <div className="text-xs text-slate-500 mt-0.5">{row.reasonMessage}</div>
+                              <div className="mt-0.5 text-xs text-slate-500 break-all">{row.reasonMessage}</div>
                             )}
                           </TableCell>
-                          <TableCell className="font-mono text-xs break-all max-w-[220px]">{senderText}</TableCell>
-                          <TableCell className="font-mono text-xs break-all max-w-[220px]">{chatText}</TableCell>
-                          <TableCell className="text-xs text-slate-700 max-w-[440px] break-all whitespace-pre-wrap">
+                          <TableCell className="font-mono text-xs break-all">{senderText}</TableCell>
+                          <TableCell className="font-mono text-xs break-all">{chatText}</TableCell>
+                          <TableCell className="text-xs text-slate-700 break-all whitespace-pre-wrap">
                             {excerpt}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="whitespace-nowrap text-center">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="h-8 px-2 sm:px-3"
+                              title="查看原文"
                               disabled={!canViewFullText}
                               onClick={() => setFeishuHealthDialogItem(row)}
                             >
-                              查看全文
+                              <Eye className="h-4 w-4 sm:hidden" aria-hidden="true" />
+                              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">查看原文</span>
                             </Button>
                           </TableCell>
                         </TableRow>
