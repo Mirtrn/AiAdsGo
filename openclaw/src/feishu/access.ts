@@ -9,6 +9,25 @@ export type NormalizedAllowFrom = {
 
 export type AllowFromMatch = AllowlistMatch<"wildcard" | "id">;
 
+const normalizeSenderCandidate = (value: unknown): string | null => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/^(feishu|lark):/i, "")
+    .toLowerCase();
+  return normalized || null;
+};
+
+const collectSenderCandidates = (params: {
+  senderId?: string;
+  senderIds?: Array<string | null | undefined>;
+}): string[] => {
+  const candidates = [...(params.senderIds ?? []), params.senderId]
+    .map((value) => normalizeSenderCandidate(value))
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(candidates));
+};
+
 /**
  * Normalize an allowlist for Feishu.
  * Feishu IDs are open_id (ou_xxx) or union_id (on_xxx), no usernames.
@@ -52,40 +71,56 @@ export const firstDefined = <T>(...values: Array<T | undefined>) => {
  * Check if a sender is allowed based on the normalized allowlist.
  * Feishu uses open_id (ou_xxx) or union_id (on_xxx) - no usernames.
  */
-export const isSenderAllowed = (params: { allow: NormalizedAllowFrom; senderId?: string }) => {
-  const { allow, senderId } = params;
+export const isSenderAllowed = (params: {
+  allow: NormalizedAllowFrom;
+  senderId?: string;
+  senderIds?: Array<string | null | undefined>;
+}) => {
+  const { allow, senderId, senderIds } = params;
   if (!allow.hasEntries) {
     return true;
   }
   if (allow.hasWildcard) {
     return true;
   }
-  if (senderId && allow.entries.includes(senderId)) {
-    return true;
+
+  const senderCandidates = collectSenderCandidates({
+    senderId,
+    senderIds,
+  });
+
+  for (const candidate of senderCandidates) {
+    if (allow.entries.includes(candidate) || allow.entriesLower.includes(candidate)) {
+      return true;
+    }
   }
-  // Also check case-insensitive (though Feishu IDs are typically lowercase)
-  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) {
-    return true;
-  }
+
   return false;
 };
 
 export const resolveSenderAllowMatch = (params: {
   allow: NormalizedAllowFrom;
   senderId?: string;
+  senderIds?: Array<string | null | undefined>;
 }): AllowFromMatch => {
-  const { allow, senderId } = params;
+  const { allow, senderId, senderIds } = params;
   if (allow.hasWildcard) {
     return { allowed: true, matchKey: "*", matchSource: "wildcard" };
   }
   if (!allow.hasEntries) {
     return { allowed: false };
   }
-  if (senderId && allow.entries.includes(senderId)) {
-    return { allowed: true, matchKey: senderId, matchSource: "id" };
+
+  const senderCandidates = collectSenderCandidates({
+    senderId,
+    senderIds,
+  });
+
+  for (const candidate of senderCandidates) {
+    if (allow.entries.includes(candidate) || allow.entriesLower.includes(candidate)) {
+      return { allowed: true, matchKey: candidate, matchSource: "id" };
+    }
   }
-  if (senderId && allow.entriesLower.includes(senderId.toLowerCase())) {
-    return { allowed: true, matchKey: senderId.toLowerCase(), matchSource: "id" };
-  }
+
   return { allowed: false };
 };

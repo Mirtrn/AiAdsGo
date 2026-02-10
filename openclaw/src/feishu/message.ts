@@ -22,6 +22,8 @@ import { FeishuStreamingSession } from "./streaming-card.js";
 const logger = getChildLogger({ module: "feishu-message" });
 
 type FeishuSender = {
+  id?: string;
+  id_type?: string;
   sender_id?: {
     open_id?: string;
     user_id?: string;
@@ -55,6 +57,70 @@ type FeishuEventPayload = {
 
 // Supported message types for processing
 const SUPPORTED_MSG_TYPES = new Set(["text", "image", "file", "audio", "media", "sticker"]);
+
+type FeishuSenderIdentifiers = {
+  openId?: string;
+  unionId?: string;
+  userId?: string;
+  primaryId?: string;
+  candidates: string[];
+};
+
+const normalizeSenderIdentifier = (value: unknown): string | null => {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/^(feishu|lark):/i, "")
+    .toLowerCase();
+  return normalized || null;
+};
+
+const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifiers => {
+  const rawId = normalizeSenderIdentifier(sender?.id) ?? undefined;
+  const rawIdType = String(sender?.id_type ?? "").trim().toLowerCase();
+  const openId =
+    normalizeSenderIdentifier(sender?.sender_id?.open_id) ??
+    (rawIdType === "open_id" ? rawId : undefined);
+  const unionId =
+    normalizeSenderIdentifier(sender?.sender_id?.union_id) ??
+    (rawIdType === "union_id" ? rawId : undefined);
+  const userId =
+    normalizeSenderIdentifier(sender?.sender_id?.user_id) ??
+    (rawIdType === "user_id" ? rawId : undefined);
+  const candidates = Array.from(new Set([openId, unionId, userId, rawId].filter(Boolean))) as string[];
+
+  return {
+    openId,
+    unionId,
+    userId,
+    primaryId: openId ?? unionId ?? userId ?? rawId,
+    candidates,
+  };
+};
+
+async function resolveSenderOpenIdFromMessageDetail(params: {
+  client: Client;
+  messageId?: string;
+}): Promise<string | null> {
+  const messageId = String(params.messageId ?? "").trim();
+  if (!messageId) {
+    return null;
+  }
+
+  try {
+    const detail = await params.client.im.message.get({
+      params: { user_id_type: "open_id" },
+      path: { message_id: messageId },
+    });
+    const senderId = normalizeSenderIdentifier(detail?.data?.items?.[0]?.sender?.id);
+    if (senderId?.startsWith("ou_")) {
+      return senderId;
+    }
+  } catch (err) {
+    logger.debug(`failed to resolve sender open_id from message detail: ${formatErrorMessage(err)}`);
+  }
+
+  return null;
+}
 
 export type ProcessFeishuMessageOptions = {
   cfg?: OpenClawConfig;
@@ -94,8 +160,11 @@ export async function processFeishuMessage(
   }
   const isGroup = message.chat_type === "group";
   const msgType = message.message_type;
-  const senderId = sender?.sender_id?.open_id || sender?.sender_id?.user_id || "unknown";
-  const senderUnionId = sender?.sender_id?.union_id;
+  const senderIdentifiers = resolveSenderIdentifiers(sender);
+  let senderId = senderIdentifiers.primaryId ?? "unknown";
+  let senderOpenId = senderIdentifiers.openId;
+  const senderUnionId = senderIdentifiers.unionId;
+  const senderCandidates = [...senderIdentifiers.candidates];
   const maxMediaBytes = feishuCfg.mediaMaxMb * 1024 * 1024;
 
   // Check if this is a supported message type
@@ -106,6 +175,33 @@ export async function processFeishuMessage(
 
   // Load allowlist from store
   const storeAllowFrom = await readFeishuAllowFromStore().catch(() => []);
+
+  let senderOpenIdLookupDone = false;
+  const ensureSenderOpenId = async (): Promise<string | null> => {
+    if (senderOpenId) {
+      return senderOpenId;
+    }
+    if (senderOpenIdLookupDone) {
+      return null;
+    }
+    senderOpenIdLookupDone = true;
+
+    const resolvedOpenId = await resolveSenderOpenIdFromMessageDetail({
+      client,
+      messageId: message.message_id,
+    });
+    if (!resolvedOpenId) {
+      return null;
+    }
+
+    senderOpenId = resolvedOpenId;
+    senderId = senderOpenId;
+    if (!senderCandidates.includes(senderOpenId)) {
+      senderCandidates.push(senderOpenId);
+    }
+
+    return senderOpenId;
+  };
 
   // ===== Access Control =====
 
@@ -125,7 +221,10 @@ export async function processFeishuMessage(
         allowFrom: groupConfig.allowFrom,
         storeAllowFrom,
       });
-      if (!isSenderAllowed({ allow: groupAllow, senderId })) {
+      if (groupAllow.hasEntries && !groupAllow.hasWildcard) {
+        await ensureSenderOpenId();
+      }
+      if (!isSenderAllowed({ allow: groupAllow, senderId, senderIds: senderCandidates })) {
         logVerbose(`Blocked feishu group sender ${senderId} (group allowFrom override)`);
         return;
       }
@@ -148,7 +247,10 @@ export async function processFeishuMessage(
         logVerbose(`Blocked feishu group message (groupPolicy: allowlist, no entries)`);
         return;
       }
-      if (!isSenderAllowed({ allow: groupAllow, senderId })) {
+      if (groupAllow.hasEntries && !groupAllow.hasWildcard) {
+        await ensureSenderOpenId();
+      }
+      if (!isSenderAllowed({ allow: groupAllow, senderId, senderIds: senderCandidates })) {
         logVerbose(`Blocked feishu group sender ${senderId} (groupPolicy: allowlist)`);
         return;
       }
@@ -169,28 +271,47 @@ export async function processFeishuMessage(
         allowFrom: feishuCfg.allowFrom,
         storeAllowFrom,
       });
-      const allowMatch = resolveSenderAllowMatch({ allow: dmAllow, senderId });
+      if (dmAllow.hasEntries && !dmAllow.hasWildcard) {
+        await ensureSenderOpenId();
+      }
+      const allowMatch = resolveSenderAllowMatch({
+        allow: dmAllow,
+        senderId,
+        senderIds: senderCandidates,
+      });
       const allowed = dmAllow.hasWildcard || (dmAllow.hasEntries && allowMatch.allowed);
 
       if (!allowed) {
         if (dmPolicy === "pairing") {
           // Generate pairing code for unknown sender
           try {
+            await ensureSenderOpenId();
+            const pairingIdentity =
+              senderOpenId ?? senderUnionId ?? senderIdentifiers.userId ?? senderId;
+            const pairingReceiveIdType = senderOpenId
+              ? "open_id"
+              : senderUnionId
+                ? "union_id"
+                : "user_id";
+
             const { code, created } = await upsertFeishuPairingRequest({
-              openId: senderId,
+              openId: pairingIdentity,
               unionId: senderUnionId,
               name: sender?.sender_id?.user_id,
             });
             if (created) {
-              logger.info({ openId: senderId, unionId: senderUnionId }, "feishu pairing request");
+              logger.info(
+                { openId: pairingIdentity, unionId: senderUnionId },
+                "feishu pairing request",
+              );
               await sendMessageFeishu(
                 client,
-                senderId,
+                pairingIdentity,
                 {
                   text: [
                     "OpenClaw access not configured.",
                     "",
-                    `Your Feishu Open ID: ${senderId}`,
+                    `Your Feishu Open ID: ${pairingIdentity}`,
                     "",
                     `Pairing code: ${code}`,
                     "",
@@ -198,7 +319,7 @@ export async function processFeishuMessage(
                     `openclaw pairing approve feishu ${code}`,
                   ].join("\n"),
                 },
-                { receiveIdType: "open_id" },
+                { receiveIdType: pairingReceiveIdType },
               );
             }
           } catch (err) {
