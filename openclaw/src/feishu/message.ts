@@ -96,7 +96,11 @@ export type FeishuChatHealthEvent = {
 };
 
 const normalizeSenderIdentifier = (value: unknown): string | null => {
-  const normalized = String(value ?? "")
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") {
+    return null;
+  }
+
+  const normalized = String(value)
     .trim()
     .replace(/^(feishu|lark):/i, "")
     .toLowerCase();
@@ -104,7 +108,11 @@ const normalizeSenderIdentifier = (value: unknown): string | null => {
 };
 
 const normalizeHealthText = (value: unknown): string | undefined => {
-  const text = String(value ?? "").trim();
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") {
+    return undefined;
+  }
+
+  const text = String(value).trim();
   if (!text) {
     return undefined;
   }
@@ -113,7 +121,9 @@ const normalizeHealthText = (value: unknown): string | undefined => {
 
 const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifiers => {
   const rawId = normalizeSenderIdentifier(sender?.id) ?? undefined;
-  const rawIdType = String(sender?.id_type ?? "").trim().toLowerCase();
+  const rawIdType = String(sender?.id_type ?? "")
+    .trim()
+    .toLowerCase();
   const openId =
     normalizeSenderIdentifier(sender?.sender_id?.open_id) ??
     (rawIdType === "open_id" ? rawId : undefined);
@@ -123,7 +133,9 @@ const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifier
   const userId =
     normalizeSenderIdentifier(sender?.sender_id?.user_id) ??
     (rawIdType === "user_id" ? rawId : undefined);
-  const candidates = Array.from(new Set([openId, unionId, userId, rawId].filter(Boolean))) as string[];
+  const candidates = Array.from(
+    new Set([openId, unionId, userId, rawId].filter(Boolean)),
+  ) as string[];
 
   return {
     openId,
@@ -178,7 +190,9 @@ async function resolveSenderOpenIdFromMessageDetail(params: {
       return senderId;
     }
   } catch (err) {
-    logger.debug(`failed to resolve sender open_id from message detail: ${formatErrorMessage(err)}`);
+    logger.debug(
+      `failed to resolve sender open_id from message detail: ${formatErrorMessage(err)}`,
+    );
   }
 
   return null;
@@ -579,7 +593,9 @@ export async function processFeishuMessage(
   if (!bodyText && media) {
     bodyText = media.placeholder;
   }
-  healthMessageText = normalizeHealthText(bodyText || text || media?.placeholder || healthMessageText);
+  healthMessageText = normalizeHealthText(
+    bodyText || text || media?.placeholder || healthMessageText,
+  );
 
   // Skip if no content
   if (!bodyText && !media) {

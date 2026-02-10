@@ -10,7 +10,11 @@ export type NormalizedAllowFrom = {
 export type AllowFromMatch = AllowlistMatch<"wildcard" | "id">;
 
 const normalizeSenderCandidate = (value: unknown): string | null => {
-  const normalized = String(value ?? "")
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") {
+    return null;
+  }
+
+  const normalized = String(value)
     .trim()
     .replace(/^(feishu|lark):/i, "")
     .toLowerCase();
