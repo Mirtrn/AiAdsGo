@@ -202,20 +202,18 @@ export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promi
 
   // Create event dispatcher
   const eventDispatcher = new Lark.EventDispatcher({}).register({
-    "im.message.receive_v1": async (data) => {
+    "im.message.receive_v1": (data) => {
       logger.info(`Received Feishu message event`);
-      try {
-        await processFeishuMessage(client, data, appId, {
-          cfg,
-          accountId,
-          resolvedConfig: feishuCfg,
-          credentials: { appId, appSecret, domain },
-          botName: account.name,
-          healthReporter,
-        });
-      } catch (err) {
+      void processFeishuMessage(client, data, appId, {
+        cfg,
+        accountId,
+        resolvedConfig: feishuCfg,
+        credentials: { appId, appSecret, domain },
+        botName: account.name,
+        healthReporter,
+      }).catch((err) => {
         logger.error(`Error processing Feishu message: ${String(err)}`);
-      }
+      });
     },
   });
 

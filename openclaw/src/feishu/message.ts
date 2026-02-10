@@ -22,6 +22,15 @@ import { FeishuStreamingSession } from "./streaming-card.js";
 const logger = getChildLogger({ module: "feishu-message" });
 
 const HEALTH_MESSAGE_MAX_LENGTH = 20_000;
+const CJK_TEXT_RE = /[\u3400-\u9fff]/;
+
+const FEISHU_PROCESSING_HINT_TEXT_ZH =
+  "✅ 已收到你的消息，正在为你执行任务。\n⏱️ 通常会在 10~60 秒内返回结果；复杂任务可能更久。";
+const FEISHU_PROCESSING_HINT_TEXT_EN =
+  "✅ Got your message — I'm working on it now.\n⏱️ Most replies arrive in 10-60 seconds; complex tasks may take longer.";
+
+export const resolveFeishuProcessingHintText = (messageText: string): string =>
+  CJK_TEXT_RE.test(messageText) ? FEISHU_PROCESSING_HINT_TEXT_ZH : FEISHU_PROCESSING_HINT_TEXT_EN;
 
 type FeishuSender = {
   id?: string;
@@ -593,6 +602,34 @@ export async function processFeishuMessage(
       : null;
   let streamingStarted = false;
   let lastPartialText = "";
+  const processingHintText = resolveFeishuProcessingHintText(
+    bodyText || text || healthMessageText || "",
+  );
+  let processingHintSent = false;
+  let processingHintSending = false;
+
+  const sendProcessingHint = async () => {
+    if (processingHintSent || processingHintSending) {
+      return;
+    }
+    processingHintSending = true;
+    try {
+      await sendMessageFeishu(
+        client,
+        chatId,
+        { text: processingHintText },
+        {
+          msgType: "text",
+          receiveIdType: "chat_id",
+        },
+      );
+      processingHintSent = true;
+    } catch (err) {
+      logger.warn(`Failed to send processing hint message: ${formatErrorMessage(err)}`);
+    } finally {
+      processingHintSending = false;
+    }
+  };
 
   // Context construction
   const ctx = {
@@ -626,7 +663,7 @@ export async function processFeishuMessage(
   });
 
   try {
-    await dispatchReplyWithBufferedBlockDispatcher({
+    const dispatchResult = await dispatchReplyWithBufferedBlockDispatcher({
       ctx,
       cfg,
       dispatcherOptions: {
@@ -704,14 +741,17 @@ export async function processFeishuMessage(
           // Start streaming card when reply generation begins
           if (streamingSession && !streamingStarted) {
             try {
-              await streamingSession.start(chatId, "chat_id", options.botName);
+              await streamingSession.start(chatId, "chat_id", options.botName, processingHintText);
               streamingStarted = true;
               logger.debug(`Started streaming card for chat ${chatId}`);
+              return;
             } catch (err) {
               logger.warn(`Failed to start streaming card: ${formatErrorMessage(err)}`);
               // Continue without streaming
             }
           }
+
+          await sendProcessingHint();
         },
       },
       replyOptions: {
@@ -744,6 +784,20 @@ export async function processFeishuMessage(
           : undefined,
       },
     });
+
+    if (dispatchResult.skippedDuplicate) {
+      await reportHealth({
+        decision: "blocked",
+        reasonCode: "duplicate_inbound_skipped",
+        reasonMessage: "duplicate inbound event skipped by dedupe cache",
+        messageText: bodyText,
+        metadata: {
+          wasMentioned,
+          hasMedia: Boolean(media),
+        },
+      });
+      return;
+    }
 
     await reportHealth({
       decision: "allowed",

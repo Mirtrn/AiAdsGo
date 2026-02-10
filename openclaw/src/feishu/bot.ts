@@ -16,12 +16,10 @@ export function createFeishuBot(opts: FeishuBotOptions) {
   const client = getFeishuClient(appId, appSecret);
 
   const eventDispatcher = new Lark.EventDispatcher({}).register({
-    "im.message.receive_v1": async (data) => {
-      try {
-        await processFeishuMessage(client, data, appId);
-      } catch (err) {
+    "im.message.receive_v1": (data) => {
+      void processFeishuMessage(client, data, appId).catch((err) => {
         logger.error(`Error processing Feishu message: ${formatErrorMessage(err)}`);
-      }
+      });
     },
   });
 

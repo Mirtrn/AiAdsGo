@@ -304,13 +304,13 @@ describe("dispatchReplyFromConfig", () => {
     });
     const replyResolver = vi.fn(async () => ({ text: "hi" }) as ReplyPayload);
 
-    await dispatchReplyFromConfig({
+    const firstResult = await dispatchReplyFromConfig({
       ctx,
       cfg,
       dispatcher: createDispatcher(),
       replyResolver,
     });
-    await dispatchReplyFromConfig({
+    const secondResult = await dispatchReplyFromConfig({
       ctx,
       cfg,
       dispatcher: createDispatcher(),
@@ -318,6 +318,8 @@ describe("dispatchReplyFromConfig", () => {
     });
 
     expect(replyResolver).toHaveBeenCalledTimes(1);
+    expect(firstResult.skippedDuplicate).not.toBe(true);
+    expect(secondResult.skippedDuplicate).toBe(true);
   });
 
   it("emits message_received hook with originating channel metadata", async () => {

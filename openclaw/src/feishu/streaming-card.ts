@@ -16,6 +16,7 @@ import { getChildLogger } from "../logging.js";
 import { resolveFeishuApiBase, resolveFeishuDomain } from "./domain.js";
 
 const logger = getChildLogger({ module: "feishu-streaming" });
+const DEFAULT_STREAMING_PLACEHOLDER_TEXT = "⏳ Thinking...";
 
 export type FeishuStreamingCredentials = {
   appId: string;
@@ -83,6 +84,7 @@ async function getTenantAccessToken(credentials: FeishuStreamingCredentials): Pr
 export async function createStreamingCard(
   credentials: FeishuStreamingCredentials,
   title?: string,
+  initialText: string = DEFAULT_STREAMING_PLACEHOLDER_TEXT,
 ): Promise<{ cardId: string }> {
   const cardJson = {
     schema: "2.0",
@@ -111,7 +113,7 @@ export async function createStreamingCard(
       elements: [
         {
           tag: "markdown",
-          content: "⏳ Thinking...",
+          content: initialText || DEFAULT_STREAMING_PLACEHOLDER_TEXT,
           element_id: "streaming_content",
         },
       ],
@@ -274,6 +276,7 @@ export class FeishuStreamingSession {
     receiveId: string,
     receiveIdType: "open_id" | "user_id" | "union_id" | "email" | "chat_id" = "chat_id",
     title?: string,
+    initialText?: string,
   ): Promise<void> {
     if (this.state) {
       logger.warn("Streaming session already started");
@@ -281,7 +284,7 @@ export class FeishuStreamingSession {
     }
 
     try {
-      const { cardId } = await createStreamingCard(this.credentials, title);
+      const { cardId } = await createStreamingCard(this.credentials, title, initialText);
       const { messageId } = await sendStreamingCard(this.client, receiveId, cardId, receiveIdType);
 
       this.state = {
@@ -289,7 +292,7 @@ export class FeishuStreamingSession {
         messageId,
         sequence: 1,
         elementId: "streaming_content",
-        currentText: "",
+        currentText: initialText ?? DEFAULT_STREAMING_PLACEHOLDER_TEXT,
       };
 
       logger.info(`Started streaming session: cardId=${cardId}, messageId=${messageId}`);
@@ -307,9 +310,17 @@ export class FeishuStreamingSession {
       return;
     }
 
-    // Queue updates to ensure order
+    if (text === this.state.currentText) {
+      return;
+    }
+
+    // Queue updates to ensure order, but do not block the reply pipeline.
     this.updateQueue = this.updateQueue.then(async () => {
       if (!this.state || this.closed) {
+        return;
+      }
+
+      if (text === this.state.currentText) {
         return;
       }
 
@@ -328,8 +339,6 @@ export class FeishuStreamingSession {
         logger.debug(`Streaming update failed (will retry): ${String(err)}`);
       }
     });
-
-    await this.updateQueue;
   }
 
   /**

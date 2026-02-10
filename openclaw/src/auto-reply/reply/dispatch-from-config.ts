@@ -77,6 +77,7 @@ const resolveSessionTtsAuto = (
 export type DispatchFromConfigResult = {
   queuedFinal: boolean;
   counts: Record<ReplyDispatchKind, number>;
+  skippedDuplicate?: boolean;
 };
 
 export async function dispatchReplyFromConfig(params: {
@@ -142,7 +143,7 @@ export async function dispatchReplyFromConfig(params: {
 
   if (shouldSkipDuplicateInbound(ctx)) {
     recordProcessed("skipped", { reason: "duplicate" });
-    return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+    return { queuedFinal: false, counts: dispatcher.getQueuedCounts(), skippedDuplicate: true };
   }
 
   const inboundAudio = isInboundAudioContext(ctx);
