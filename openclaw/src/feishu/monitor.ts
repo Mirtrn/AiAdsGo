@@ -1,14 +1,18 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { OpenClawConfig } from "../config/config.js";
+import type { FeishuAccountConfig } from "../config/types.feishu.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { loadConfig } from "../config/config.js";
+import { formatErrorMessage } from "../infra/errors.js";
 import { getChildLogger } from "../logging.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { resolveFeishuConfig } from "./config.js";
 import { normalizeFeishuDomain } from "./domain.js";
-import { processFeishuMessage } from "./message.js";
+import { processFeishuMessage, type FeishuChatHealthEvent } from "./message.js";
 
 const logger = getChildLogger({ module: "feishu-monitor" });
+
+const DEFAULT_HEALTH_INGEST_TIMEOUT_MS = 2500;
 
 export type MonitorFeishuOpts = {
   appId?: string;
@@ -18,6 +22,127 @@ export type MonitorFeishuOpts = {
   runtime?: RuntimeEnv;
   abortSignal?: AbortSignal;
 };
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveHealthIngestTimeoutMs(): number {
+  const raw = Number(process.env.OPENCLAW_FEISHU_CHAT_HEALTH_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_HEALTH_INGEST_TIMEOUT_MS;
+  }
+  return Math.min(10_000, Math.max(500, Math.round(raw)));
+}
+
+function resolveHealthIngestUrl(accountConfig: FeishuAccountConfig): string | null {
+  const explicit = readString(process.env.OPENCLAW_FEISHU_CHAT_HEALTH_INGEST_URL);
+  if (explicit) {
+    return explicit;
+  }
+
+  const confirmUrl =
+    readString(accountConfig.cardConfirmUrl) || readString(process.env.OPENCLAW_CARD_CONFIRM_URL);
+  if (confirmUrl) {
+    try {
+      const url = new URL(confirmUrl);
+      url.pathname = "/api/openclaw/feishu/chat-health/ingest";
+      url.search = "";
+      return url.toString();
+    } catch {
+      if (confirmUrl.startsWith("/")) {
+        return confirmUrl.replace(
+          /\/api\/openclaw\/commands\/confirm\/?$/i,
+          "/api/openclaw/feishu/chat-health/ingest",
+        );
+      }
+    }
+  }
+
+  const baseUrl =
+    readString(process.env.OPENCLAW_PUBLIC_BASE_URL) || readString(process.env.NEXT_PUBLIC_APP_URL);
+  if (!baseUrl) {
+    return null;
+  }
+  return `${baseUrl.replace(/\/+$/, "")}/api/openclaw/feishu/chat-health/ingest`;
+}
+
+function resolveHealthIngestAuthToken(accountConfig: FeishuAccountConfig): string | null {
+  return (
+    readString(accountConfig.cardConfirmAuthToken) ||
+    readString(process.env.OPENCLAW_CARD_CONFIRM_TOKEN) ||
+    readString(process.env.OPENCLAW_GATEWAY_TOKEN) ||
+    null
+  );
+}
+
+function buildFeishuHealthReporter(params: {
+  accountId: string;
+  accountConfig: FeishuAccountConfig;
+}): ((event: FeishuChatHealthEvent) => Promise<void>) | undefined {
+  const ingestUrl = resolveHealthIngestUrl(params.accountConfig);
+  if (!ingestUrl) {
+    logger.debug(`[${params.accountId}] feishu chat health ingest URL is not configured; skip health reporting`);
+    return undefined;
+  }
+
+  const authToken = resolveHealthIngestAuthToken(params.accountConfig);
+  const timeoutMs = resolveHealthIngestTimeoutMs();
+
+  return async (event: FeishuChatHealthEvent) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(ingestUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          "x-openclaw-channel": "feishu",
+          "x-openclaw-sender": event.senderOpenId || event.senderPrimaryId || "",
+          "x-openclaw-account-id": params.accountId,
+        },
+        body: JSON.stringify({
+          accountId: params.accountId,
+          messageId: event.messageId,
+          chatId: event.chatId,
+          chatType: event.chatType,
+          messageType: event.messageType,
+          senderPrimaryId: event.senderPrimaryId,
+          senderOpenId: event.senderOpenId,
+          senderUnionId: event.senderUnionId,
+          senderUserId: event.senderUserId,
+          senderCandidates: event.senderCandidates,
+          decision: event.decision,
+          reasonCode: event.reasonCode,
+          reasonMessage: event.reasonMessage,
+          messageText: event.messageText,
+          metadata: event.metadata,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        const shortBody = body.length > 180 ? `${body.slice(0, 180)}...` : body;
+        logger.debug(
+          `[${params.accountId}] feishu chat health ingest failed (${response.status}): ${shortBody || "empty"}`,
+        );
+      }
+    } catch (err) {
+      logger.debug(
+        `[${params.accountId}] feishu chat health ingest error: ${formatErrorMessage(err)}`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
 
 export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promise<void> {
   const cfg = opts.config ?? loadConfig();
@@ -45,6 +170,11 @@ export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promi
     logger.info(`Feishu account "${accountId}" is disabled, skipping monitor`);
     return;
   }
+
+  const healthReporter = buildFeishuHealthReporter({
+    accountId,
+    accountConfig: account.config,
+  });
 
   // Create Lark client for API calls
   const client = new Lark.Client({
@@ -81,6 +211,7 @@ export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promi
           resolvedConfig: feishuCfg,
           credentials: { appId, appSecret, domain },
           botName: account.name,
+          healthReporter,
         });
       } catch (err) {
         logger.error(`Error processing Feishu message: ${String(err)}`);

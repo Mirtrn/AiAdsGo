@@ -21,6 +21,8 @@ import { FeishuStreamingSession } from "./streaming-card.js";
 
 const logger = getChildLogger({ module: "feishu-message" });
 
+const HEALTH_MESSAGE_MAX_LENGTH = 20_000;
+
 type FeishuSender = {
   id?: string;
   id_type?: string;
@@ -66,12 +68,38 @@ type FeishuSenderIdentifiers = {
   candidates: string[];
 };
 
+export type FeishuChatHealthEvent = {
+  accountId: string;
+  messageId?: string;
+  chatId?: string;
+  chatType?: string;
+  messageType?: string;
+  senderPrimaryId?: string;
+  senderOpenId?: string;
+  senderUnionId?: string;
+  senderUserId?: string;
+  senderCandidates: string[];
+  decision: "allowed" | "blocked" | "error";
+  reasonCode: string;
+  reasonMessage?: string;
+  messageText?: string;
+  metadata?: Record<string, unknown>;
+};
+
 const normalizeSenderIdentifier = (value: unknown): string | null => {
   const normalized = String(value ?? "")
     .trim()
     .replace(/^(feishu|lark):/i, "")
     .toLowerCase();
   return normalized || null;
+};
+
+const normalizeHealthText = (value: unknown): string | undefined => {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  return text.slice(0, HEALTH_MESSAGE_MAX_LENGTH);
 };
 
 const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifiers => {
@@ -95,6 +123,31 @@ const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifier
     primaryId: openId ?? unionId ?? userId ?? rawId,
     candidates,
   };
+};
+
+const extractTextFromRawMessage = (message?: FeishuMessage): string | undefined => {
+  if (!message?.content) {
+    return undefined;
+  }
+
+  const raw = String(message.content).trim();
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const textValue = normalizeHealthText((parsed as { text?: unknown }).text);
+      if (textValue) {
+        return textValue;
+      }
+    }
+  } catch {
+    // ignore JSON parse failure, fall back to raw content
+  }
+
+  return normalizeHealthText(raw);
 };
 
 async function resolveSenderOpenIdFromMessageDetail(params: {
@@ -130,6 +183,8 @@ export type ProcessFeishuMessageOptions = {
   credentials?: { appId: string; appSecret: string; domain?: string };
   /** Bot name for streaming card title (optional, defaults to no title) */
   botName?: string;
+  /** Optional health reporter callback for chat pipeline diagnostics */
+  healthReporter?: (event: FeishuChatHealthEvent) => Promise<void> | void;
 };
 
 export async function processFeishuMessage(
@@ -150,12 +205,42 @@ export async function processFeishuMessage(
 
   if (!message) {
     logger.warn(`Received event without message field`);
+    if (options.healthReporter) {
+      try {
+        await options.healthReporter({
+          accountId,
+          senderCandidates: [],
+          decision: "blocked",
+          reasonCode: "missing_message",
+          reasonMessage: "message field missing in event payload",
+        });
+      } catch (err) {
+        logger.debug(`failed to report feishu chat health: ${formatErrorMessage(err)}`);
+      }
+    }
     return;
   }
 
   const chatId = message.chat_id;
   if (!chatId) {
     logger.warn("Received message without chat_id");
+    if (options.healthReporter) {
+      try {
+        await options.healthReporter({
+          accountId,
+          messageId: message.message_id,
+          chatType: message.chat_type,
+          messageType: message.message_type,
+          senderCandidates: [],
+          decision: "blocked",
+          reasonCode: "missing_chat_id",
+          reasonMessage: "chat_id is missing",
+          messageText: extractTextFromRawMessage(message),
+        });
+      } catch (err) {
+        logger.debug(`failed to report feishu chat health: ${formatErrorMessage(err)}`);
+      }
+    }
     return;
   }
   const isGroup = message.chat_type === "group";
@@ -164,12 +249,53 @@ export async function processFeishuMessage(
   let senderId = senderIdentifiers.primaryId ?? "unknown";
   let senderOpenId = senderIdentifiers.openId;
   const senderUnionId = senderIdentifiers.unionId;
+  const senderUserId = senderIdentifiers.userId;
   const senderCandidates = [...senderIdentifiers.candidates];
   const maxMediaBytes = feishuCfg.mediaMaxMb * 1024 * 1024;
+  let healthMessageText = extractTextFromRawMessage(message);
+
+  const reportHealth = async (params: {
+    decision: "allowed" | "blocked" | "error";
+    reasonCode: string;
+    reasonMessage?: string;
+    messageText?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> => {
+    if (!options.healthReporter) {
+      return;
+    }
+
+    try {
+      await options.healthReporter({
+        accountId,
+        messageId: message.message_id,
+        chatId,
+        chatType: message.chat_type,
+        messageType: msgType,
+        senderPrimaryId: senderId === "unknown" ? undefined : senderId,
+        senderOpenId,
+        senderUnionId,
+        senderUserId,
+        senderCandidates: [...senderCandidates],
+        decision: params.decision,
+        reasonCode: params.reasonCode,
+        reasonMessage: params.reasonMessage,
+        messageText: normalizeHealthText(params.messageText ?? healthMessageText),
+        metadata: params.metadata,
+      });
+    } catch (err) {
+      logger.debug(`failed to report feishu chat health: ${formatErrorMessage(err)}`);
+    }
+  };
 
   // Check if this is a supported message type
   if (!msgType || !SUPPORTED_MSG_TYPES.has(msgType)) {
     logger.debug(`Skipping unsupported message type: ${msgType ?? "unknown"}`);
+    await reportHealth({
+      decision: "blocked",
+      reasonCode: "unsupported_message_type",
+      reasonMessage: `unsupported message_type: ${msgType ?? "unknown"}`,
+    });
     return;
   }
 
@@ -210,6 +336,11 @@ export async function processFeishuMessage(
     // Check if group is enabled
     if (!resolveFeishuGroupEnabled({ cfg, accountId, chatId })) {
       logVerbose(`Blocked feishu group ${chatId} (group disabled)`);
+      await reportHealth({
+        decision: "blocked",
+        reasonCode: "group_disabled",
+        reasonMessage: "group enabled=false",
+      });
       return;
     }
 
@@ -226,6 +357,11 @@ export async function processFeishuMessage(
       }
       if (!isSenderAllowed({ allow: groupAllow, senderId, senderIds: senderCandidates })) {
         logVerbose(`Blocked feishu group sender ${senderId} (group allowFrom override)`);
+        await reportHealth({
+          decision: "blocked",
+          reasonCode: "group_allow_override_denied",
+          reasonMessage: "sender not in group allowFrom override",
+        });
         return;
       }
     }
@@ -234,6 +370,11 @@ export async function processFeishuMessage(
     const groupPolicy = feishuCfg.groupPolicy;
     if (groupPolicy === "disabled") {
       logVerbose(`Blocked feishu group message (groupPolicy: disabled)`);
+      await reportHealth({
+        decision: "blocked",
+        reasonCode: "group_policy_disabled",
+        reasonMessage: "groupPolicy=disabled",
+      });
       return;
     }
 
@@ -245,6 +386,11 @@ export async function processFeishuMessage(
       });
       if (!groupAllow.hasEntries) {
         logVerbose(`Blocked feishu group message (groupPolicy: allowlist, no entries)`);
+        await reportHealth({
+          decision: "blocked",
+          reasonCode: "group_allowlist_empty",
+          reasonMessage: "groupPolicy=allowlist but no entries",
+        });
         return;
       }
       if (groupAllow.hasEntries && !groupAllow.hasWildcard) {
@@ -252,6 +398,11 @@ export async function processFeishuMessage(
       }
       if (!isSenderAllowed({ allow: groupAllow, senderId, senderIds: senderCandidates })) {
         logVerbose(`Blocked feishu group sender ${senderId} (groupPolicy: allowlist)`);
+        await reportHealth({
+          decision: "blocked",
+          reasonCode: "group_allowlist_denied",
+          reasonMessage: "sender not in group allowlist",
+        });
         return;
       }
     }
@@ -263,6 +414,11 @@ export async function processFeishuMessage(
 
     if (dmPolicy === "disabled") {
       logVerbose(`Blocked feishu DM (dmPolicy: disabled)`);
+      await reportHealth({
+        decision: "blocked",
+        reasonCode: "dm_policy_disabled",
+        reasonMessage: "dmPolicy=disabled",
+      });
       return;
     }
 
@@ -322,14 +478,33 @@ export async function processFeishuMessage(
                 { receiveIdType: pairingReceiveIdType },
               );
             }
+
+            await reportHealth({
+              decision: "blocked",
+              reasonCode: "dm_pairing_required",
+              reasonMessage: "dmPolicy=pairing and sender not allowlisted",
+              metadata: {
+                pairingCreated: created,
+              },
+            });
           } catch (err) {
             logger.error(`Failed to create pairing request: ${formatErrorMessage(err)}`);
+            await reportHealth({
+              decision: "error",
+              reasonCode: "dm_pairing_failed",
+              reasonMessage: formatErrorMessage(err),
+            });
           }
           return;
         }
 
         // allowlist policy: silently block
         logVerbose(`Blocked feishu DM from ${senderId} (dmPolicy: allowlist)`);
+        await reportHealth({
+          decision: "blocked",
+          reasonCode: "dm_allowlist_denied",
+          reasonMessage: "dmPolicy=allowlist and sender not allowlisted",
+        });
         return;
       }
     }
@@ -345,6 +520,11 @@ export async function processFeishuMessage(
     const requireMention = groupConfig?.requireMention ?? true;
     if (requireMention && !wasMentioned) {
       logger.debug(`Ignoring group message without @mention (requireMention: true)`);
+      await reportHealth({
+        decision: "blocked",
+        reasonCode: "group_require_mention",
+        reasonMessage: "group requires @mention",
+      });
       return;
     }
   }
@@ -361,12 +541,18 @@ export async function processFeishuMessage(
       logger.error(`Failed to parse text message content: ${formatErrorMessage(err)}`);
     }
   }
+  if (text) {
+    healthMessageText = normalizeHealthText(text);
+  }
 
   // Remove @mention placeholders from text
   for (const mention of mentions) {
     if (mention.key) {
       text = text.replace(mention.key, "").trim();
     }
+  }
+  if (text) {
+    healthMessageText = normalizeHealthText(text);
   }
 
   // Resolve media if present
@@ -384,10 +570,16 @@ export async function processFeishuMessage(
   if (!bodyText && media) {
     bodyText = media.placeholder;
   }
+  healthMessageText = normalizeHealthText(bodyText || text || media?.placeholder || healthMessageText);
 
   // Skip if no content
   if (!bodyText && !media) {
     logger.debug(`Empty message after processing, skipping`);
+    await reportHealth({
+      decision: "blocked",
+      reasonCode: "empty_message",
+      reasonMessage: "empty content after mention/media processing",
+    });
     return;
   }
 
@@ -433,127 +625,148 @@ export async function processFeishuMessage(
     accountId,
   });
 
-  await dispatchReplyWithBufferedBlockDispatcher({
-    ctx,
-    cfg,
-    dispatcherOptions: {
-      ...prefixOptions,
-      deliver: async (payload, info) => {
-        const hasMedia = payload.mediaUrl || (payload.mediaUrls && payload.mediaUrls.length > 0);
-        if (!payload.text && !hasMedia) {
-          return;
-        }
+  try {
+    await dispatchReplyWithBufferedBlockDispatcher({
+      ctx,
+      cfg,
+      dispatcherOptions: {
+        ...prefixOptions,
+        deliver: async (payload, info) => {
+          const hasMedia = payload.mediaUrl || (payload.mediaUrls && payload.mediaUrls.length > 0);
+          if (!payload.text && !hasMedia) {
+            return;
+          }
 
-        // Handle block replies - update streaming card with partial text
-        if (streamingSession?.isActive() && info?.kind === "block" && payload.text) {
-          logger.debug(`Updating streaming card with block text: ${payload.text.length} chars`);
-          await streamingSession.update(payload.text);
-          return;
-        }
+          // Handle block replies - update streaming card with partial text
+          if (streamingSession?.isActive() && info?.kind === "block" && payload.text) {
+            logger.debug(`Updating streaming card with block text: ${payload.text.length} chars`);
+            await streamingSession.update(payload.text);
+            return;
+          }
 
-        // If streaming was active, close it with the final text
-        if (streamingSession?.isActive() && info?.kind === "final") {
-          await streamingSession.close(payload.text);
-          streamingStarted = false;
-          return; // Card already contains the final text
-        }
-
-        // Handle media URLs
-        const mediaUrls = payload.mediaUrls?.length
-          ? payload.mediaUrls
-          : payload.mediaUrl
-            ? [payload.mediaUrl]
-            : [];
-
-        if (mediaUrls.length > 0) {
-          // Close streaming session before sending media
-          if (streamingSession?.isActive()) {
-            await streamingSession.close();
+          // If streaming was active, close it with the final text
+          if (streamingSession?.isActive() && info?.kind === "final") {
+            await streamingSession.close(payload.text);
             streamingStarted = false;
+            return; // Card already contains the final text
           }
-          // Send each media item
-          for (let i = 0; i < mediaUrls.length; i++) {
-            const mediaUrl = mediaUrls[i];
-            const caption = i === 0 ? payload.text || "" : "";
-            await sendMessageFeishu(
-              client,
-              chatId,
-              { text: caption },
-              {
-                mediaUrl,
-                receiveIdType: "chat_id",
-              },
-            );
-          }
-        } else if (payload.text) {
-          // If streaming wasn't used, send as regular message
-          if (!streamingSession?.isActive()) {
-            await sendMessageFeishu(
-              client,
-              chatId,
-              { text: payload.text },
-              {
-                msgType: "text",
-                receiveIdType: "chat_id",
-              },
-            );
-          }
-        }
-      },
-      onError: (err) => {
-        logger.error(`Reply error: ${formatErrorMessage(err)}`);
-        // Clean up streaming session on error
-        if (streamingSession?.isActive()) {
-          streamingSession.close().catch(() => {});
-        }
-      },
-      onReplyStart: async () => {
-        // Start streaming card when reply generation begins
-        if (streamingSession && !streamingStarted) {
-          try {
-            await streamingSession.start(chatId, "chat_id", options.botName);
-            streamingStarted = true;
-            logger.debug(`Started streaming card for chat ${chatId}`);
-          } catch (err) {
-            logger.warn(`Failed to start streaming card: ${formatErrorMessage(err)}`);
-            // Continue without streaming
-          }
-        }
-      },
-    },
-    replyOptions: {
-      disableBlockStreaming: !feishuCfg.blockStreaming,
-      onModelSelected,
-      onPartialReply: streamingSession
-        ? async (payload) => {
-            if (!streamingSession.isActive() || !payload.text) {
-              return;
-            }
-            if (payload.text === lastPartialText) {
-              return;
-            }
-            lastPartialText = payload.text;
-            await streamingSession.update(payload.text);
-          }
-        : undefined,
-      onReasoningStream: streamingSession
-        ? async (payload) => {
-            // Also update on reasoning stream for extended thinking models
-            if (!streamingSession.isActive() || !payload.text) {
-              return;
-            }
-            if (payload.text === lastPartialText) {
-              return;
-            }
-            lastPartialText = payload.text;
-            await streamingSession.update(payload.text);
-          }
-        : undefined,
-    },
-  });
 
-  // Ensure streaming session is closed on completion
-  if (streamingSession?.isActive()) {
-    await streamingSession.close();
+          // Handle media URLs
+          const mediaUrls = payload.mediaUrls?.length
+            ? payload.mediaUrls
+            : payload.mediaUrl
+              ? [payload.mediaUrl]
+              : [];
+
+          if (mediaUrls.length > 0) {
+            // Close streaming session before sending media
+            if (streamingSession?.isActive()) {
+              await streamingSession.close();
+              streamingStarted = false;
+            }
+            // Send each media item
+            for (let i = 0; i < mediaUrls.length; i++) {
+              const mediaUrl = mediaUrls[i];
+              const caption = i === 0 ? payload.text || "" : "";
+              await sendMessageFeishu(
+                client,
+                chatId,
+                { text: caption },
+                {
+                  mediaUrl,
+                  receiveIdType: "chat_id",
+                },
+              );
+            }
+          } else if (payload.text) {
+            // If streaming wasn't used, send as regular message
+            if (!streamingSession?.isActive()) {
+              await sendMessageFeishu(
+                client,
+                chatId,
+                { text: payload.text },
+                {
+                  msgType: "text",
+                  receiveIdType: "chat_id",
+                },
+              );
+            }
+          }
+        },
+        onError: (err) => {
+          logger.error(`Reply error: ${formatErrorMessage(err)}`);
+          // Clean up streaming session on error
+          if (streamingSession?.isActive()) {
+            streamingSession.close().catch(() => {});
+          }
+        },
+        onReplyStart: async () => {
+          // Start streaming card when reply generation begins
+          if (streamingSession && !streamingStarted) {
+            try {
+              await streamingSession.start(chatId, "chat_id", options.botName);
+              streamingStarted = true;
+              logger.debug(`Started streaming card for chat ${chatId}`);
+            } catch (err) {
+              logger.warn(`Failed to start streaming card: ${formatErrorMessage(err)}`);
+              // Continue without streaming
+            }
+          }
+        },
+      },
+      replyOptions: {
+        disableBlockStreaming: !feishuCfg.blockStreaming,
+        onModelSelected,
+        onPartialReply: streamingSession
+          ? async (payload) => {
+              if (!streamingSession.isActive() || !payload.text) {
+                return;
+              }
+              if (payload.text === lastPartialText) {
+                return;
+              }
+              lastPartialText = payload.text;
+              await streamingSession.update(payload.text);
+            }
+          : undefined,
+        onReasoningStream: streamingSession
+          ? async (payload) => {
+              // Also update on reasoning stream for extended thinking models
+              if (!streamingSession.isActive() || !payload.text) {
+                return;
+              }
+              if (payload.text === lastPartialText) {
+                return;
+              }
+              lastPartialText = payload.text;
+              await streamingSession.update(payload.text);
+            }
+          : undefined,
+      },
+    });
+
+    await reportHealth({
+      decision: "allowed",
+      reasonCode: "reply_dispatched",
+      reasonMessage: "message passed access checks and entered reply pipeline",
+      messageText: bodyText,
+      metadata: {
+        wasMentioned,
+        hasMedia: Boolean(media),
+      },
+    });
+  } catch (err) {
+    await reportHealth({
+      decision: "error",
+      reasonCode: "reply_dispatch_failed",
+      reasonMessage: formatErrorMessage(err),
+      messageText: bodyText,
+    });
+    throw err;
+  } finally {
+    // Ensure streaming session is closed on completion
+    if (streamingSession?.isActive()) {
+      await streamingSession.close();
+    }
   }
 }

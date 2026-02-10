@@ -1,0 +1,151 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+import { POST } from '@/app/api/openclaw/feishu/chat-health/ingest/route'
+
+const gatewayAuthFns = vi.hoisted(() => ({
+  verifyOpenclawGatewayToken: vi.fn(),
+}))
+
+const sessionAuthFns = vi.hoisted(() => ({
+  verifyOpenclawSessionAuth: vi.fn(),
+}))
+
+const healthFns = vi.hoisted(() => ({
+  recordFeishuChatHealthLog: vi.fn(),
+}))
+
+const accountFns = vi.hoisted(() => ({
+  parseFeishuAccountUserId: vi.fn(),
+}))
+
+const bindingFns = vi.hoisted(() => ({
+  resolveOpenclawUserFromBinding: vi.fn(),
+}))
+
+const dbFns = vi.hoisted(() => ({
+  getDatabase: vi.fn(),
+}))
+
+vi.mock('@/lib/openclaw/auth', () => ({
+  verifyOpenclawGatewayToken: gatewayAuthFns.verifyOpenclawGatewayToken,
+}))
+
+vi.mock('@/lib/openclaw/request-auth', () => ({
+  verifyOpenclawSessionAuth: sessionAuthFns.verifyOpenclawSessionAuth,
+}))
+
+vi.mock('@/lib/openclaw/feishu-chat-health', () => ({
+  recordFeishuChatHealthLog: healthFns.recordFeishuChatHealthLog,
+}))
+
+vi.mock('@/lib/openclaw/feishu-accounts', () => ({
+  parseFeishuAccountUserId: accountFns.parseFeishuAccountUserId,
+}))
+
+vi.mock('@/lib/openclaw/bindings', () => ({
+  resolveOpenclawUserFromBinding: bindingFns.resolveOpenclawUserFromBinding,
+}))
+
+vi.mock('@/lib/db', () => ({
+  getDatabase: dbFns.getDatabase,
+}))
+
+function createRequest(body: unknown, token?: string) {
+  return new NextRequest('http://localhost/api/openclaw/feishu/chat-health/ingest', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+describe('openclaw feishu chat health ingest route', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    gatewayAuthFns.verifyOpenclawGatewayToken.mockResolvedValue(true)
+    sessionAuthFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: false,
+      status: 401,
+      error: '未授权',
+    })
+    accountFns.parseFeishuAccountUserId.mockReturnValue(7)
+    bindingFns.resolveOpenclawUserFromBinding.mockResolvedValue(null)
+    dbFns.getDatabase.mockResolvedValue({
+      queryOne: vi.fn().mockResolvedValue(null),
+    })
+    healthFns.recordFeishuChatHealthLog.mockResolvedValue(undefined)
+  })
+
+  it('accepts gateway token and stores health log', async () => {
+    const res = await POST(createRequest({
+      accountId: 'user-7',
+      decision: 'blocked',
+      reasonCode: 'group_require_mention',
+      messageText: 'hello',
+      senderCandidates: ['ou_1'],
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(true)
+    expect(payload.userId).toBe(7)
+
+    expect(healthFns.recordFeishuChatHealthLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 7,
+        accountId: 'user-7',
+        decision: 'blocked',
+        reasonCode: 'group_require_mention',
+      })
+    )
+  })
+
+  it('rejects non-admin session when gateway token invalid', async () => {
+    gatewayAuthFns.verifyOpenclawGatewayToken.mockResolvedValue(false)
+    sessionAuthFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      user: { userId: 7, role: 'member' },
+    })
+
+    const res = await POST(createRequest({
+      accountId: 'user-7',
+      decision: 'blocked',
+      reasonCode: 'group_require_mention',
+    }, 'bad-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(payload.error).toContain('无权写入')
+    expect(healthFns.recordFeishuChatHealthLog).not.toHaveBeenCalled()
+  })
+
+  it('returns stored=false when user cannot be resolved', async () => {
+    accountFns.parseFeishuAccountUserId.mockReturnValue(null)
+    bindingFns.resolveOpenclawUserFromBinding.mockResolvedValue(null)
+    dbFns.getDatabase.mockResolvedValue({
+      queryOne: vi.fn().mockResolvedValue(null),
+    })
+
+    const res = await POST(createRequest({
+      accountId: 'cli_xxx',
+      senderPrimaryId: 'ou_unknown',
+      senderCandidates: ['ou_unknown'],
+      decision: 'blocked',
+      reasonCode: 'dm_allowlist_denied',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(false)
+    expect(payload.skippedReason).toBe('user_unresolved')
+    expect(healthFns.recordFeishuChatHealthLog).not.toHaveBeenCalled()
+  })
+})

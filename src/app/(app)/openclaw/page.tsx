@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TrendChartDynamic } from '@/components/charts/dynamic'
 import { toast } from 'sonner'
 import { parseAiModelsJson, setAiModelsSelectedModel } from '@/lib/openclaw/ai-models'
@@ -158,6 +159,46 @@ type FeishuVerifyResultState = {
   verified: boolean
   pending: boolean
   message: string
+}
+
+type FeishuChatHealthDecision = 'allowed' | 'blocked' | 'error'
+
+type FeishuChatHealthLogItem = {
+  id: number
+  userId: number
+  accountId: string
+  messageId: string | null
+  chatId: string | null
+  chatType: string | null
+  messageType: string | null
+  senderPrimaryId: string | null
+  senderOpenId: string | null
+  senderUnionId: string | null
+  senderUserId: string | null
+  senderCandidates: string[]
+  decision: FeishuChatHealthDecision
+  reasonCode: string
+  reasonMessage: string | null
+  messageText: string | null
+  messageExcerpt: string
+  messageTextLength: number
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}
+
+type FeishuChatHealthResponse = {
+  success: boolean
+  rows: FeishuChatHealthLogItem[]
+  stats: {
+    total: number
+    allowed: number
+    blocked: number
+    error: number
+  }
+  windowHours: number
+  retentionDays: number
+  excerptLimit: number
+  limit: number
 }
 
 const AI_MINIMAL_PLACEHOLDER = `{
@@ -595,6 +636,31 @@ const renderTriState = (value?: boolean | null) => {
   return '未知'
 }
 
+const resolveFeishuHealthDecisionBadge = (decision: FeishuChatHealthDecision): {
+  label: string
+  variant: 'default' | 'secondary' | 'outline' | 'destructive'
+} => {
+  if (decision === 'allowed') return { label: '放行', variant: 'default' }
+  if (decision === 'blocked') return { label: '拦截', variant: 'outline' }
+  return { label: '错误', variant: 'destructive' }
+}
+
+const resolveFeishuHealthSenderText = (row: FeishuChatHealthLogItem): string => {
+  const candidates = [
+    row.senderOpenId,
+    row.senderPrimaryId,
+    row.senderUnionId,
+    row.senderUserId,
+    ...(Array.isArray(row.senderCandidates) ? row.senderCandidates : []),
+  ]
+
+  const first = candidates
+    .map((item) => String(item || '').trim())
+    .find(Boolean)
+
+  return first || '-'
+}
+
 export default function OpenClawPage() {
   const router = useRouter()
   const [settings, setSettings] = useState<OpenclawSettingsResponse | null>(null)
@@ -637,6 +703,10 @@ export default function OpenClawPage() {
   const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
   const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
+  const [feishuHealthLoading, setFeishuHealthLoading] = useState(false)
+  const [feishuHealthError, setFeishuHealthError] = useState<string | null>(null)
+  const [feishuHealthData, setFeishuHealthData] = useState<FeishuChatHealthResponse | null>(null)
+  const [feishuHealthDialogItem, setFeishuHealthDialogItem] = useState<FeishuChatHealthLogItem | null>(null)
 
   useEffect(() => {
     setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
@@ -653,6 +723,45 @@ export default function OpenClawPage() {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [feishuVerifySession])
+
+  const loadFeishuHealthData = useCallback(async (silent: boolean = false) => {
+    if (settings?.isAdmin !== true) return
+
+    if (!silent) {
+      setFeishuHealthLoading(true)
+    }
+    setFeishuHealthError(null)
+
+    try {
+      const response = await fetch('/api/openclaw/feishu/chat-health?limit=200', {
+        credentials: 'include',
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '加载飞书聊天链路健康数据失败')
+      }
+
+      setFeishuHealthData(payload as FeishuChatHealthResponse)
+    } catch (error: any) {
+      const message = error?.message || '加载飞书聊天链路健康数据失败'
+      setFeishuHealthError(message)
+    } finally {
+      setFeishuHealthLoading(false)
+    }
+  }, [settings?.isAdmin])
+
+  useEffect(() => {
+    if (settings?.isAdmin !== true) {
+      setFeishuHealthData(null)
+      setFeishuHealthError(null)
+      setFeishuHealthDialogItem(null)
+      setFeishuHealthLoading(false)
+      return
+    }
+
+    void loadFeishuHealthData(true)
+  }, [settings?.isAdmin, loadFeishuHealthData])
 
   useEffect(() => {
     let active = true
@@ -1598,6 +1707,12 @@ export default function OpenClawPage() {
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
+  const feishuHealthRows = feishuHealthData?.rows || []
+  const feishuHealthStats = feishuHealthData?.stats || { total: 0, allowed: 0, blocked: 0, error: 0 }
+  const feishuHealthWindowHours = feishuHealthData?.windowHours || 1
+  const feishuHealthRetentionDays = feishuHealthData?.retentionDays || 7
+  const feishuHealthExcerptLimit = feishuHealthData?.excerptLimit || 500
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -1616,6 +1731,7 @@ export default function OpenClawPage() {
       <Tabs defaultValue="config">
         <TabsList className="bg-slate-100">
           <TabsTrigger value="config">配置中心</TabsTrigger>
+          {settings?.isAdmin === true && <TabsTrigger value="feishu-health">飞书链路健康</TabsTrigger>}
           <TabsTrigger value="strategy">策略中心</TabsTrigger>
           <TabsTrigger value="report">每日报表</TabsTrigger>
         </TabsList>
@@ -2562,6 +2678,149 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {settings?.isAdmin === true && (
+          <TabsContent value="feishu-health" className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4">
+                <div>
+                  <CardTitle>飞书聊天链路健康页</CardTitle>
+                  <CardDescription>最近 {feishuHealthWindowHours} 小时消息链路诊断（保留 {feishuHealthRetentionDays} 天，列表片段最多 {feishuHealthExcerptLimit} 字）</CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={feishuHealthLoading}
+                  onClick={() => {
+                    void loadFeishuHealthData()
+                  }}
+                >
+                  {feishuHealthLoading ? '刷新中...' : '刷新'}
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {feishuHealthError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                    {feishuHealthError}
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">总消息</div>
+                    <div className="mt-1 text-xl font-semibold">{feishuHealthStats.total}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">放行</div>
+                    <div className="mt-1 text-xl font-semibold text-emerald-600">{feishuHealthStats.allowed}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">拦截</div>
+                    <div className="mt-1 text-xl font-semibold text-amber-600">{feishuHealthStats.blocked}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">错误</div>
+                    <div className="mt-1 text-xl font-semibold text-red-600">{feishuHealthStats.error}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>链路明细</CardTitle>
+                <CardDescription>每条消息显示放行/拦截原因，默认展示原文前 {feishuHealthExcerptLimit} 字片段</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>时间</TableHead>
+                      <TableHead>决策</TableHead>
+                      <TableHead>原因</TableHead>
+                      <TableHead>发送者</TableHead>
+                      <TableHead>会话</TableHead>
+                      <TableHead>消息片段</TableHead>
+                      <TableHead>全文</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {feishuHealthRows.map((row) => {
+                      const decisionBadge = resolveFeishuHealthDecisionBadge(row.decision)
+                      const senderText = resolveFeishuHealthSenderText(row)
+                      const chatText = row.chatId || '-'
+                      const excerpt = row.messageExcerpt || '-'
+                      const canViewFullText = hasText(row.messageText || '')
+
+                      return (
+                        <TableRow key={row.id}>
+                          <TableCell className="whitespace-nowrap">{formatTimestamp(row.createdAt)}</TableCell>
+                          <TableCell>
+                            <Badge variant={decisionBadge.variant}>{decisionBadge.label}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm font-medium">{row.reasonCode || '-'}</div>
+                            {row.reasonMessage && (
+                              <div className="text-xs text-slate-500 mt-0.5">{row.reasonMessage}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs break-all max-w-[220px]">{senderText}</TableCell>
+                          <TableCell className="font-mono text-xs break-all max-w-[220px]">{chatText}</TableCell>
+                          <TableCell className="text-xs text-slate-700 max-w-[440px] break-all whitespace-pre-wrap">
+                            {excerpt}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={!canViewFullText}
+                              onClick={() => setFeishuHealthDialogItem(row)}
+                            >
+                              查看全文
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+
+                    {feishuHealthRows.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-slate-500">
+                          最近 {feishuHealthWindowHours} 小时暂无飞书链路日志
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Dialog
+              open={Boolean(feishuHealthDialogItem)}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setFeishuHealthDialogItem(null)
+                }
+              }}
+            >
+              <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>飞书消息原文</DialogTitle>
+                  <DialogDescription>
+                    {feishuHealthDialogItem
+                      ? `${formatTimestamp(feishuHealthDialogItem.createdAt)} · ${feishuHealthDialogItem.reasonCode || '-'} · ${resolveFeishuHealthSenderText(feishuHealthDialogItem)}`
+                      : '消息详情'}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="max-h-[60vh] overflow-auto rounded-md border bg-slate-50 p-3 text-xs whitespace-pre-wrap break-all">
+                  {feishuHealthDialogItem?.messageText || '-'}
+                </div>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        )}
 
         <TabsContent value="strategy" className="space-y-6">
           <Card>
