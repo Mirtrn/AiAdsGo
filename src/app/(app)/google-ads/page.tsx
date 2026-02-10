@@ -455,6 +455,12 @@ export default function GoogleAdsPage() {
   })
 
   // 分页计算
+  const publishableAccountsCount = accounts.filter((account) => {
+    if (account.manager) return false
+    const status = String(account.status || '').toUpperCase()
+    return status !== 'CANCELED' && status !== 'CANCELLED' && status !== 'CLOSED'
+  }).length
+
   const totalPages = Math.ceil(sortedAccounts.length / pageSize)
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = startIndex + pageSize
@@ -634,7 +640,7 @@ export default function GoogleAdsPage() {
                 </div>
                 {accounts.length > 0 && (
                   <span className="text-base text-gray-600 font-medium">
-                    共 {accounts.length} 个账户
+                    共 {accounts.length} 个账户（可发布 {publishableAccountsCount} 个）
                   </span>
                 )}
               </div>

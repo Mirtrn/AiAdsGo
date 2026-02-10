@@ -8,7 +8,10 @@ import { enums } from 'google-ads-api'
 import { getDatabase } from './db'
 import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { listGoogleAdsCampaigns } from './google-ads-api'
-import { resolveLoginCustomerId } from './google-ads-login-customer'
+import {
+  resolveLoginCustomerCandidates,
+  isGoogleAdsAccountAccessError,
+} from './google-ads-login-customer'
 import {
   categorizeCampaigns,
   type GoogleAdsCampaignInfo
@@ -31,6 +34,10 @@ export interface ActiveCampaignsQueryResult {
     manual: number
     other: number
   }
+}
+
+function describeLoginCustomerId(value: string | undefined): string {
+  return value || 'null(omit)'
 }
 
 function normalizeCampaignStatus(status: unknown): 'ENABLED' | 'PAUSED' | 'REMOVED' | 'UNKNOWN' {
@@ -114,11 +121,12 @@ export async function queryActiveCampaigns(
     }
   }
 
-  const finalLoginCustomerId = resolveLoginCustomerId({
+  const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
     authType: auth.authType,
     accountParentMccId: adsAccount.parent_mcc_id,
     oauthLoginCustomerId: credentials?.login_customer_id,
     serviceAccountMccId,
+    targetCustomerId: adsAccount.customer_id,
   })
 
   if (!credentials?.refresh_token && !serviceAccount) {
@@ -127,16 +135,45 @@ export async function queryActiveCampaigns(
 
   // 3. 查询Google Ads账号中的所有广告系列（跳过缓存，获取实时状态）
   console.log(`🔍 查询Google Ads账号 ${adsAccount.customer_id} 中的广告系列...`)
-  const allCampaigns = await listGoogleAdsCampaigns({
-    customerId: adsAccount.customer_id,
-    refreshToken: credentials?.refresh_token || '',
-    accountId: googleAdsAccountId,
-    userId,
-    loginCustomerId: finalLoginCustomerId,
-    authType: auth.authType,
-    serviceAccountId: auth.serviceAccountId,
-    skipCache: true  // 🔧 修复：暂停操作必须获取最新状态，不能使用缓存
-  })
+  let allCampaigns: any[] | null = null
+  let lastLoginError: any = null
+
+  for (let i = 0; i < loginCustomerIdCandidates.length; i++) {
+    const loginCustomerId = loginCustomerIdCandidates[i]
+
+    try {
+      allCampaigns = await listGoogleAdsCampaigns({
+        customerId: adsAccount.customer_id,
+        refreshToken: credentials?.refresh_token || '',
+        accountId: googleAdsAccountId,
+        userId,
+        loginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
+        skipCache: true  // 🔧 修复：暂停操作必须获取最新状态，不能使用缓存
+      })
+
+      if (i > 0) {
+        console.log(`✅ 使用备用 login_customer_id=${describeLoginCustomerId(loginCustomerId)} 查询成功`)
+      }
+      break
+    } catch (error) {
+      lastLoginError = error
+      const hasNextCandidate = i < loginCustomerIdCandidates.length - 1
+      if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+        const nextLoginCustomerId = loginCustomerIdCandidates[i + 1]
+        console.warn(
+          `⚠️ login_customer_id=${describeLoginCustomerId(loginCustomerId)} 查询失败，切换到 ${describeLoginCustomerId(nextLoginCustomerId)} 重试`
+        )
+        continue
+      }
+      throw error
+    }
+  }
+
+  if (!allCampaigns) {
+    throw lastLoginError || new Error('查询Google Ads广告系列失败')
+  }
 
   // 4. 转换为简化格式
   const campaigns: GoogleAdsCampaignInfo[] = allCampaigns.map((c: any) => ({
@@ -233,11 +270,12 @@ export async function pauseCampaigns(
     }
   }
 
-  const finalLoginCustomerId = resolveLoginCustomerId({
+  const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
     authType: auth.authType,
     accountParentMccId: adsAccount.parent_mcc_id,
     oauthLoginCustomerId: credentials2?.login_customer_id,
     serviceAccountMccId: serviceAccountMccId2,
+    targetCustomerId: adsAccount.customer_id,
   })
 
   if (!credentials2?.refresh_token && !serviceAccount2) {
@@ -250,20 +288,58 @@ export async function pauseCampaigns(
   // 逐个暂停（串行执行，避免并发冲突）
   const failures: PauseCampaignsResult['failures'] = []
   let pausedCount = 0
+  let preferredLoginCustomerId = loginCustomerIdCandidates[0]
   for (const campaign of campaigns) {
     try {
       console.log(`⏸️ 暂停广告系列: ${campaign.name} (${campaign.id})`)
-      await updateGoogleAdsCampaignStatus({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials2?.refresh_token || '',
-        campaignId: campaign.id,
-        status: 'PAUSED',
-        accountId: googleAdsAccountId,
-        userId,
-        loginCustomerId: finalLoginCustomerId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
-      })
+
+      const orderedCandidates = [
+        preferredLoginCustomerId,
+        ...loginCustomerIdCandidates.filter((candidate) => candidate !== preferredLoginCustomerId)
+      ]
+
+      let pauseSuccess = false
+      let lastPauseError: any = null
+
+      for (let i = 0; i < orderedCandidates.length; i++) {
+        const loginCustomerId = orderedCandidates[i]
+        try {
+          await updateGoogleAdsCampaignStatus({
+            customerId: adsAccount.customer_id,
+            refreshToken: credentials2?.refresh_token || '',
+            campaignId: campaign.id,
+            status: 'PAUSED',
+            accountId: googleAdsAccountId,
+            userId,
+            loginCustomerId,
+            authType: auth.authType,
+            serviceAccountId: auth.serviceAccountId,
+          })
+
+          preferredLoginCustomerId = loginCustomerId
+          pauseSuccess = true
+          if (i > 0) {
+            console.log(`✅ 使用备用 login_customer_id=${describeLoginCustomerId(loginCustomerId)} 暂停成功`)
+          }
+          break
+        } catch (error) {
+          lastPauseError = error
+          const hasNextCandidate = i < orderedCandidates.length - 1
+          if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+            const nextLoginCustomerId = orderedCandidates[i + 1]
+            console.warn(
+              `⚠️ login_customer_id=${describeLoginCustomerId(loginCustomerId)} 暂停失败，切换到 ${describeLoginCustomerId(nextLoginCustomerId)} 重试`
+            )
+            continue
+          }
+          throw error
+        }
+      }
+
+      if (!pauseSuccess) {
+        throw lastPauseError || new Error('暂停广告系列失败')
+      }
+
       console.log(`✅ 成功暂停: ${campaign.name}`)
       pausedCount++
     } catch (error) {

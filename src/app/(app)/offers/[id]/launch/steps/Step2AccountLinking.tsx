@@ -117,6 +117,12 @@ const getAccountStatusBadge = (status: string | null | undefined) => {
 
 export default function Step2AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
+  const [accountStats, setAccountStats] = useState({
+    total: 0,
+    available: 0,
+    filteredManager: 0,
+    filteredClosed: 0,
+  })
   const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customerId || null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -221,6 +227,12 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         setRefreshError(data.data.refreshError || null)
 
         const allAccounts = data.data.accounts as GoogleAdsAccount[]
+        const isClosedOrCanceled = (status: string | null | undefined) => {
+          const normalizedStatus = String(status || '').toUpperCase()
+          return normalizedStatus === 'CANCELED' || normalizedStatus === 'CANCELLED' || normalizedStatus === 'CLOSED'
+        }
+        const filteredManagerCount = allAccounts.filter(account => account.manager === true).length
+        const filteredClosedCount = allAccounts.filter(account => isClosedOrCanceled(account.status)).length
 
         // 🔓 KISS优化(2025-12-12): 移除独占约束，只筛选基本条件
         // 筛选可用账号：
@@ -231,10 +243,16 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
           if (account.manager === true) return false
 
           // 条件2：明确不可用的账号不展示（一般不可恢复/不可操作）
-          const status = String(account.status || '').toUpperCase()
-          if (status === 'CANCELED' || status === 'CANCELLED' || status === 'CLOSED') return false
+          if (isClosedOrCanceled(account.status)) return false
 
           return true
+        })
+
+        setAccountStats({
+          total: allAccounts.length,
+          available: availableAccounts.length,
+          filteredManager: filteredManagerCount,
+          filteredClosed: filteredClosedCount,
         })
 
         // API已按优先级排序，直接使用
@@ -257,6 +275,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         }
       } else {
         setAccounts([])
+        setAccountStats({ total: 0, available: 0, filteredManager: 0, filteredClosed: 0 })
       }
     } catch (error: any) {
       console.error('获取账号列表失败:', error)
@@ -264,6 +283,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       setRefreshing(false)
       setRefreshInProgress(false)
       setRefreshError(null)
+      setAccountStats({ total: 0, available: 0, filteredManager: 0, filteredClosed: 0 })
     } finally {
       if (!isPoll) {
         setLoading(false)
@@ -344,6 +364,13 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
             {cacheStale ? '（缓存已过期）' : ''}
             {refreshFailed ? '（本次刷新失败，已回退缓存）' : ''}
           </div>
+
+          {accountStats.total > 0 && (
+            <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+              口径说明：`/google-ads` 显示可访问账号总数 {accountStats.total}；本步骤展示可选账号 {accountStats.available}
+              （已过滤 MCC {accountStats.filteredManager} 个、已关闭账号 {accountStats.filteredClosed} 个）。
+            </div>
+          )}
         </CardContent>
       </Card>
 
