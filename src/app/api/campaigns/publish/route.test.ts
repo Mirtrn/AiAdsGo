@@ -233,4 +233,52 @@ describe('POST /api/campaigns/publish AutoAds enforced', () => {
 
     warnSpy.mockRestore()
   })
+
+  it('returns account access denied and deactivates account when Google Ads permission is revoked', async () => {
+    campaignsFns.queryActiveCampaigns.mockRejectedValueOnce({
+      errors: [
+        {
+          error_code: { authorization_error: 2 },
+          message: "User doesn't have permission to access customer. Note: If you're accessing a client customer, the manager's customer id must be set in the 'login-customer-id' header.",
+        },
+      ],
+      request_id: 'RA5IXgBLzdxpntDiNJDlUw',
+    })
+
+    const req = new NextRequest('http://localhost/api/campaigns/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        offerId: 11,
+        adCreativeId: 22,
+        googleAdsAccountId: 33,
+        pauseOldCampaigns: false,
+        campaignConfig: {
+          campaignName: 'BrandA-US-20260101',
+          adGroupName: 'BrandA-US-11-22',
+          budgetAmount: 20,
+          budgetType: 'DAILY',
+          targetCountry: 'US',
+          targetLanguage: 'en',
+          biddingStrategy: 'MAXIMIZE_CLICKS',
+          maxCpcBid: 1,
+          finalUrlSuffix: '',
+          keywords: ['kw1'],
+          negativeKeywords: [],
+        },
+      }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(422)
+    expect(data.action).toBe('ACCOUNT_ACCESS_DENIED')
+    expect(data.details.accountId).toBe(33)
+    expect(data.details.requestId).toBe('RA5IXgBLzdxpntDiNJDlUw')
+    expect(dbFns.exec).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE google_ads_accounts'),
+      [0, 33, 7]
+    )
+  })
 })

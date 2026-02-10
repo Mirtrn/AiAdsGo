@@ -45,6 +45,60 @@ function isOAuthTokenExpiredOrRevoked(err: any): boolean {
   return combined.includes('invalid_grant') || combined.includes('Token has been expired or revoked')
 }
 
+function extractGoogleAdsRequestId(error: any): string | undefined {
+  const candidates = [
+    error?.request_id,
+    error?.requestId,
+    error?.response?.request_id,
+    error?.response?.requestId,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  return undefined
+}
+
+function isGoogleAdsAccountPermissionDenied(error: any): boolean {
+  const messages: string[] = []
+
+  const pushMessage = (value: unknown) => {
+    if (typeof value === 'string' && value.trim()) {
+      messages.push(value.toLowerCase())
+    }
+  }
+
+  pushMessage(error?.message)
+  pushMessage(error?.cause?.message)
+
+  const googleAdsErrors = Array.isArray(error?.errors) ? error.errors : []
+  for (const item of googleAdsErrors) {
+    pushMessage(item?.message)
+
+    const codeObj = item?.error_code || item?.errorCode
+    if (!codeObj || typeof codeObj !== 'object') continue
+
+    const keys = Object.keys(codeObj).map(key => key.toLowerCase())
+    const values = Object.values(codeObj).map(value => String(value).toLowerCase())
+
+    if (keys.includes('authorization_error') && values.some(value => value === '2' || value.includes('permission') || value.includes('access'))) {
+      return true
+    }
+
+    if (values.some(value => value.includes('permission_denied') || value.includes('access_denied'))) {
+      return true
+    }
+  }
+
+  const combined = messages.join('\n')
+  return combined.includes("user doesn't have permission to access customer")
+    || (combined.includes('login-customer-id') && combined.includes('access customer'))
+    || (combined.includes('permission denied') && combined.includes('customer'))
+}
+
 /**
  * 从ScoreAnalysis中提取所有问题（v4.0 - 4维度）
  */
@@ -306,11 +360,41 @@ export async function POST(request: NextRequest) {
 
 	    // 🔍 验证2：查询Google Ads账号中真实激活的广告系列（使用命名规范关联）
     const { queryActiveCampaigns } = await import('@/lib/active-campaigns-query')
-    const activeCampaignsResult = await queryActiveCampaigns(
-      _offerId,
-      _googleAdsAccountId,
-      userId
-    )
+    let activeCampaignsResult
+    try {
+      activeCampaignsResult = await queryActiveCampaigns(
+        _offerId,
+        _googleAdsAccountId,
+        userId
+      )
+    } catch (error: any) {
+      if (isGoogleAdsAccountPermissionDenied(error)) {
+        const requestId = extractGoogleAdsRequestId(error)
+
+        try {
+          await db.exec(`
+            UPDATE google_ads_accounts
+            SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+          `, [0, Number(_googleAdsAccountId), Number(userId)])
+        } catch (deactivateError: any) {
+          console.warn('标记无权限Google Ads账号为inactive失败:', deactivateError?.message || deactivateError)
+        }
+
+        return NextResponse.json({
+          action: 'ACCOUNT_ACCESS_DENIED',
+          message: '当前Google Ads账号已无访问权限，系统已自动下线该账号。请刷新账号列表后选择可用账号重试。',
+          details: {
+            accountId: Number(_googleAdsAccountId),
+            customerId: String(adsAccount.customer_id || ''),
+            parentMccId: adsAccount.parent_mcc_id || null,
+            requestId: requestId || null,
+          },
+        }, { status: 422 })
+      }
+
+      throw error
+    }
 
     console.log(`📊 Google Ads账号中广告系列统计:`)
     console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
