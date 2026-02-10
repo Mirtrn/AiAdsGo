@@ -320,6 +320,62 @@ describe('openclaw feishu verify route', () => {
     expect(checkPayload.pending).toBe(false)
   })
 
+  it('falls back to message detail lookup when list sender lacks open_id', async () => {
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({ data: { message_id: 'omsg_start_6' } })
+
+    const startRes = await POST(createRequest({
+      action: 'start',
+      target: 'oc_chat_6',
+      expectedSenderOpenId: 'ou_expected_6',
+    }))
+    const startPayload = await startRes.json()
+    const code = String(startPayload?.verification?.code || '')
+
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'omsg_reply_need_detail',
+              create_time: String(Date.now()),
+              sender: { id: 'u_xxx', id_type: 'user_id' },
+              body: { content: JSON.stringify({ text: `got ${code}` }) },
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'omsg_reply_need_detail',
+              sender: { id: 'ou_expected_6', id_type: 'open_id' },
+              body: { content: JSON.stringify({ text: `got ${code}` }) },
+            },
+          ],
+        },
+      })
+
+    const checkRes = await POST(createRequest({
+      action: 'check',
+      verificationId: startPayload.verification.verificationId,
+    }))
+    const checkPayload = await checkRes.json()
+
+    expect(checkRes.status).toBe(200)
+    expect(checkPayload.success).toBe(true)
+    expect(checkPayload.verified).toBe(true)
+    expect(checkPayload.pending).toBe(false)
+    expect(feishuApiFns.feishuRequest).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        method: 'GET',
+        url: expect.stringContaining('/im/v1/messages/omsg_reply_need_detail?user_id_type=open_id'),
+      })
+    )
+  })
+
   it('returns 404 for unknown verification session', async () => {
     const res = await POST(createRequest({
       action: 'check',

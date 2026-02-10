@@ -209,6 +209,29 @@ function extractTextFromMessage(message: any): string {
   return ''
 }
 
+async function resolveSenderOpenIdFromMessageDetail(params: {
+  apiBase: string
+  token: string
+  messageId?: string | null
+}): Promise<string | null> {
+  const messageId = String(params.messageId || '').trim()
+  if (!messageId) return null
+
+  try {
+    const detail = await feishuRequest<{ data?: { items?: any[]; sender?: any } }>({
+      method: 'GET',
+      url: `${params.apiBase}/im/v1/messages/${encodeURIComponent(messageId)}?user_id_type=open_id`,
+      token: params.token,
+    })
+
+    const item = Array.isArray(detail?.data?.items) ? detail?.data?.items?.[0] : null
+    const sender = item || { sender: detail?.data?.sender }
+    return extractSenderOpenId(sender)
+  } catch {
+    return null
+  }
+}
+
 async function resolveChatIdForStartMessage(params: {
   apiBase: string
   token: string
@@ -371,27 +394,47 @@ async function checkVerification(params: {
   const expectedSender = normalizeFeishuId(session.expectedSenderOpenId)
   const codeUpper = session.code.toUpperCase()
 
-  const matched = items.find((item) => {
+  const senderDetailCache = new Map<string, string | null>()
+  let matched: any = null
+  let matchedSenderOpenId: string | null = null
+
+  for (const item of items) {
     const messageId = String(item?.message_id || '').trim()
     if (messageId && session.testMessageId && messageId === session.testMessageId) {
-      return false
+      continue
     }
 
     const createdAtMs = parseCreateTimeMs(item?.create_time)
     if (!createdAtMs || createdAtMs + 3_000 < session.createdAt) {
-      return false
-    }
-
-    const senderOpenId = extractSenderOpenId(item)
-    if (!senderOpenId || normalizeFeishuId(senderOpenId) !== expectedSender) {
-      return false
+      continue
     }
 
     const text = extractTextFromMessage(item)
-    if (!text) return false
+    if (!text || !text.toUpperCase().includes(codeUpper)) {
+      continue
+    }
 
-    return text.toUpperCase().includes(codeUpper)
-  })
+    let senderOpenId = extractSenderOpenId(item)
+    if ((!senderOpenId || normalizeFeishuId(senderOpenId) !== expectedSender) && messageId) {
+      if (!senderDetailCache.has(messageId)) {
+        const resolved = await resolveSenderOpenIdFromMessageDetail({
+          apiBase,
+          token: tenantAccessToken,
+          messageId,
+        })
+        senderDetailCache.set(messageId, resolved)
+      }
+      senderOpenId = senderDetailCache.get(messageId) || null
+    }
+
+    if (!senderOpenId || normalizeFeishuId(senderOpenId) !== expectedSender) {
+      continue
+    }
+
+    matched = item
+    matchedSenderOpenId = senderOpenId
+    break
+  }
 
   if (matched) {
     sessions.delete(session.id)
@@ -403,7 +446,7 @@ async function checkVerification(params: {
       matchedMessage: {
         messageId: String(matched?.message_id || '').trim() || null,
         createdAt: parseCreateTimeMs(matched?.create_time),
-        senderOpenId: extractSenderOpenId(matched),
+        senderOpenId: matchedSenderOpenId || extractSenderOpenId(matched),
       },
     }
   }
