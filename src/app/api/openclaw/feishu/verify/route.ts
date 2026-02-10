@@ -160,7 +160,15 @@ function parseCreateTimeMs(value: unknown): number | null {
 }
 
 function extractSenderOpenId(message: any): string | null {
+  const senderIdRaw = typeof message?.sender?.id === 'string'
+    ? message.sender.id
+    : null
+
+  const senderIdType = String(message?.sender?.id_type || '').trim().toLowerCase()
+
   const candidates = [
+    senderIdType === 'open_id' ? senderIdRaw : null,
+    senderIdRaw,
     message?.sender?.id?.open_id,
     message?.sender?.sender_id?.open_id,
     message?.sender?.open_id,
@@ -182,6 +190,11 @@ function extractTextFromMessage(message: any): string {
   ]
 
   for (const candidate of contentCandidates) {
+    if (candidate && typeof candidate === 'object') {
+      const text = String((candidate as any)?.text || '').trim()
+      if (text) return text
+    }
+
     const raw = String(candidate || '').trim()
     if (!raw) continue
     try {
@@ -189,7 +202,7 @@ function extractTextFromMessage(message: any): string {
       const text = String(parsed?.text || '').trim()
       if (text) return text
     } catch {
-      continue
+      if (raw) return raw
     }
   }
 

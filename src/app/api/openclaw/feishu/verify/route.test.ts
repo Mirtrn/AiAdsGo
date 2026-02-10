@@ -244,6 +244,82 @@ describe('openclaw feishu verify route', () => {
     expect(checkPayload.message).toContain('双向通信验证成功')
   })
 
+  it('accepts sender.id string when id_type is open_id', async () => {
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({ data: { message_id: 'omsg_start_4' } })
+
+    const startRes = await POST(createRequest({
+      action: 'start',
+      target: 'oc_chat_4',
+      expectedSenderOpenId: 'ou_expected_4',
+    }))
+    const startPayload = await startRes.json()
+    const code = String(startPayload?.verification?.code || '')
+
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'omsg_reply_openid_string',
+              create_time: String(Date.now()),
+              sender: { id: 'ou_expected_4', id_type: 'open_id' },
+              body: { content: JSON.stringify({ text: `reply ${code}` }) },
+            },
+          ],
+        },
+      })
+
+    const checkRes = await POST(createRequest({
+      action: 'check',
+      verificationId: startPayload.verification.verificationId,
+    }))
+    const checkPayload = await checkRes.json()
+
+    expect(checkRes.status).toBe(200)
+    expect(checkPayload.success).toBe(true)
+    expect(checkPayload.verified).toBe(true)
+    expect(checkPayload.pending).toBe(false)
+  })
+
+  it('accepts plain text body content without JSON wrapper', async () => {
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({ data: { message_id: 'omsg_start_5' } })
+
+    const startRes = await POST(createRequest({
+      action: 'start',
+      target: 'oc_chat_5',
+      expectedSenderOpenId: 'ou_expected_5',
+    }))
+    const startPayload = await startRes.json()
+    const code = String(startPayload?.verification?.code || '')
+
+    feishuApiFns.feishuRequest
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'omsg_reply_plain_text',
+              create_time: String(Date.now()),
+              sender: { id: 'ou_expected_5', id_type: 'open_id' },
+              body: { content: `这是纯文本 ${code}` },
+            },
+          ],
+        },
+      })
+
+    const checkRes = await POST(createRequest({
+      action: 'check',
+      verificationId: startPayload.verification.verificationId,
+    }))
+    const checkPayload = await checkRes.json()
+
+    expect(checkRes.status).toBe(200)
+    expect(checkPayload.success).toBe(true)
+    expect(checkPayload.verified).toBe(true)
+    expect(checkPayload.pending).toBe(false)
+  })
+
   it('returns 404 for unknown verification session', async () => {
     const res = await POST(createRequest({
       action: 'check',
