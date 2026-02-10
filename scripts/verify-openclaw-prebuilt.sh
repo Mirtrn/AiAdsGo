@@ -24,6 +24,16 @@ if [[ ! -d "${PREBUILT_DIR}/skills" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${PREBUILT_DIR}/workspace-templates/AGENTS.md" ]]; then
+  echo "❌ openclaw-prebuilt/workspace-templates/AGENTS.md 缺失（Agent 工作区模板未打包）"
+  exit 1
+fi
+
+if [[ ! -f "${PREBUILT_DIR}/docs/reference/templates/AGENTS.md" ]]; then
+  echo "❌ openclaw-prebuilt/docs/reference/templates/AGENTS.md 缺失（文档模板兜底未打包）"
+  exit 1
+fi
+
 for plugin in feishu memory-core; do
   if [[ ! -f "${PREBUILT_DIR}/extensions/${plugin}/package.json" ]]; then
     echo "❌ openclaw-prebuilt/extensions/${plugin} 缺失（插件未打包）"

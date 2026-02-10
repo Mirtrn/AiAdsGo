@@ -43,9 +43,12 @@ docker run --rm \
            node_modules/.cache
 
     mkdir -p /out/dist
+    mkdir -p /out/docs/reference
     cp -r dist/* /out/dist/
     cp -r extensions /out/extensions
     cp -r skills /out/skills
+    cp -r workspace-templates /out/workspace-templates
+    cp -r docs/reference/templates /out/docs/reference/templates
     cp openclaw.mjs /out/openclaw.mjs
     cp package.json /out/package.json
     cp -a node_modules /out/node_modules
