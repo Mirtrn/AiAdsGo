@@ -38,6 +38,7 @@ const startSchema = z.object({
 const checkSchema = z.object({
   action: z.literal('check'),
   verificationId: z.string().min(8),
+  debug: z.boolean().optional(),
 })
 
 const requestSchema = z.union([startSchema, checkSchema])
@@ -352,6 +353,7 @@ async function startVerification(params: {
 async function checkVerification(params: {
   userId: number
   verificationId: string
+  debug?: boolean
 }) {
   cleanupExpiredSessions()
 
@@ -386,13 +388,23 @@ async function checkVerification(params: {
 
   const messagesResult = await feishuRequest<{ data?: { items?: any[] } }>({
     method: 'GET',
-    url: `${apiBase}/im/v1/messages?container_id_type=chat&container_id=${encodeURIComponent(session.chatId)}&sort_type=ByCreateTimeDesc&page_size=50`,
+    url: `${apiBase}/im/v1/messages?container_id_type=chat&container_id=${encodeURIComponent(session.chatId)}&sort_type=ByCreateTimeDesc&page_size=50&user_id_type=open_id`,
     token: tenantAccessToken,
   })
 
   const items = Array.isArray(messagesResult?.data?.items) ? messagesResult.data.items : []
   const expectedSender = normalizeFeishuId(session.expectedSenderOpenId)
   const codeUpper = session.code.toUpperCase()
+
+  const diagnostics = {
+    totalItems: items.length,
+    skippedSelfMessage: 0,
+    skippedOldMessage: 0,
+    codeMatched: 0,
+    senderMatchedDirect: 0,
+    senderDetailLookups: 0,
+    senderMatchedViaDetail: 0,
+  }
 
   const senderDetailCache = new Map<string, string | null>()
   let matched: any = null
@@ -401,11 +413,13 @@ async function checkVerification(params: {
   for (const item of items) {
     const messageId = String(item?.message_id || '').trim()
     if (messageId && session.testMessageId && messageId === session.testMessageId) {
+      diagnostics.skippedSelfMessage += 1
       continue
     }
 
     const createdAtMs = parseCreateTimeMs(item?.create_time)
     if (!createdAtMs || createdAtMs + 3_000 < session.createdAt) {
+      diagnostics.skippedOldMessage += 1
       continue
     }
 
@@ -414,9 +428,16 @@ async function checkVerification(params: {
       continue
     }
 
+    diagnostics.codeMatched += 1
+
     let senderOpenId = extractSenderOpenId(item)
+    if (senderOpenId && normalizeFeishuId(senderOpenId) === expectedSender) {
+      diagnostics.senderMatchedDirect += 1
+    }
+
     if ((!senderOpenId || normalizeFeishuId(senderOpenId) !== expectedSender) && messageId) {
       if (!senderDetailCache.has(messageId)) {
+        diagnostics.senderDetailLookups += 1
         const resolved = await resolveSenderOpenIdFromMessageDetail({
           apiBase,
           token: tenantAccessToken,
@@ -425,6 +446,9 @@ async function checkVerification(params: {
         senderDetailCache.set(messageId, resolved)
       }
       senderOpenId = senderDetailCache.get(messageId) || null
+      if (senderOpenId && normalizeFeishuId(senderOpenId) === expectedSender) {
+        diagnostics.senderMatchedViaDetail += 1
+      }
     }
 
     if (!senderOpenId || normalizeFeishuId(senderOpenId) !== expectedSender) {
@@ -458,6 +482,7 @@ async function checkVerification(params: {
     message: '暂未检测到有效验证码回执，请在飞书当前会话中回复验证码后重试',
     expiresAt: session.expiresAt,
     expectedSenderOpenId: session.expectedSenderOpenId,
+    diagnostics: params.debug ? diagnostics : undefined,
   }
 }
 
@@ -556,6 +581,7 @@ export async function POST(request: NextRequest) {
     const check = await checkVerification({
       userId: auth.user.userId,
       verificationId: parsed.data.verificationId,
+      debug: Boolean(parsed.data.debug),
     })
 
     if (!check.found) {
