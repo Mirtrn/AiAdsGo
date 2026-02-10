@@ -610,6 +610,28 @@ const formatTimestamp = (value?: number | string | null) => {
   }).format(date)
 }
 
+const formatTimestampCompactLines = (value?: number | string | null): { date: string; time: string } => {
+  if (!value) {
+    return { date: '未知', time: '--:--:--' }
+  }
+
+  const date = typeof value === 'number' ? new Date(value) : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return { date: '未知', time: '--:--:--' }
+  }
+
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+
+  return {
+    date: `${month}-${day}`,
+    time: `${hours}:${minutes}:${seconds}`,
+  }
+}
+
 const formatDuration = (ms?: number | null) => {
   if (!Number.isFinite(ms)) return '未知'
   if (ms === null || ms === undefined) return '未知'
@@ -2738,13 +2760,13 @@ export default function OpenClawPage() {
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[96px] whitespace-nowrap">时间</TableHead>
-                      <TableHead className="w-[76px] whitespace-nowrap">决策</TableHead>
-                      <TableHead>原因</TableHead>
-                      <TableHead>发送者</TableHead>
-                      <TableHead>会话</TableHead>
-                      <TableHead>消息片段</TableHead>
-                      <TableHead className="w-[56px] whitespace-nowrap text-center">原文</TableHead>
+                      <TableHead className="h-8 w-[86px] whitespace-nowrap">时间</TableHead>
+                      <TableHead className="h-8 w-[78px] whitespace-nowrap">决策</TableHead>
+                      <TableHead className="h-8 w-[27%] whitespace-nowrap">原因</TableHead>
+                      <TableHead className="h-8 w-[15%] whitespace-nowrap">发送者</TableHead>
+                      <TableHead className="h-8 w-[15%] whitespace-nowrap">会话</TableHead>
+                      <TableHead className="h-8 w-[23%] whitespace-nowrap">消息片段</TableHead>
+                      <TableHead className="h-8 w-[56px] whitespace-nowrap text-center">原文</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2753,37 +2775,43 @@ export default function OpenClawPage() {
                       const senderText = resolveFeishuHealthSenderText(row)
                       const chatText = row.chatId || '-'
                       const excerpt = row.messageExcerpt || '-'
+                      const reasonText = row.reasonMessage ? `${row.reasonCode || '-'} · ${row.reasonMessage}` : row.reasonCode || '-'
+                      const timestampLines = formatTimestampCompactLines(row.createdAt)
                       const canViewFullText = hasText(row.messageText || '')
 
                       return (
                         <TableRow key={row.id}>
-                          <TableCell className="whitespace-nowrap">{formatTimestamp(row.createdAt)}</TableCell>
-                          <TableCell className="whitespace-nowrap">
+                          <TableCell className="whitespace-nowrap py-1.5 text-[11px] leading-4 text-slate-600">
+                            <div>{timestampLines.date}</div>
+                            <div className="text-slate-500">{timestampLines.time}</div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap py-1.5">
                             <Badge className="whitespace-nowrap" variant={decisionBadge.variant}>{decisionBadge.label}</Badge>
                           </TableCell>
-                          <TableCell>
-                            <div className="text-sm font-medium break-all">{row.reasonCode || '-'}</div>
-                            {row.reasonMessage && (
-                              <div className="mt-0.5 text-xs text-slate-500 break-all">{row.reasonMessage}</div>
-                            )}
+                          <TableCell className="py-1.5 align-top">
+                            <div className="line-clamp-2 break-all text-xs font-medium leading-4" title={reasonText}>{reasonText}</div>
                           </TableCell>
-                          <TableCell className="font-mono text-xs break-all">{senderText}</TableCell>
-                          <TableCell className="font-mono text-xs break-all">{chatText}</TableCell>
-                          <TableCell className="text-xs text-slate-700 break-all whitespace-pre-wrap">
-                            {excerpt}
+                          <TableCell className="py-1.5 align-top font-mono text-xs">
+                            <div className="line-clamp-2 break-all leading-4" title={senderText}>{senderText}</div>
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-center">
+                          <TableCell className="py-1.5 align-top font-mono text-xs">
+                            <div className="line-clamp-2 break-all leading-4" title={chatText}>{chatText}</div>
+                          </TableCell>
+                          <TableCell className="py-1.5 align-top text-xs text-slate-700">
+                            <div className="line-clamp-2 break-all leading-4" title={excerpt}>{excerpt}</div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap py-1.5 text-center">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-8 px-2 sm:px-3"
-                              title="查看原文"
+                              className="h-7 w-7 p-0"
+                              aria-label={canViewFullText ? '查看原文' : '无原文可查看'}
+                              title={canViewFullText ? '查看原文' : '无原文可查看'}
                               disabled={!canViewFullText}
                               onClick={() => setFeishuHealthDialogItem(row)}
                             >
-                              <Eye className="h-4 w-4 sm:hidden" aria-hidden="true" />
-                              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">查看原文</span>
+                              <Eye className="h-4 w-4" aria-hidden="true" />
                             </Button>
                           </TableCell>
                         </TableRow>
