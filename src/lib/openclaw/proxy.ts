@@ -26,6 +26,14 @@ const BLOCKED_PREFIXES = ['/api/admin', '/api/cron', '/api/test', '/api/openclaw
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 const MAX_PATH_LENGTH = 512
 
+type ProxyQuery = Record<string, string | number | boolean | null | undefined>
+
+type NormalizedProxyTarget = {
+  path: string
+  query: ProxyQuery | undefined
+  rewritten: boolean
+}
+
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null
   const value = authHeader.trim()
@@ -90,6 +98,72 @@ function validateProxyMethod(method: string) {
   }
 }
 
+function withQueryPatch(
+  baseQuery: ProxyQuery | undefined,
+  patch: ProxyQuery
+): ProxyQuery | undefined {
+  const merged: ProxyQuery = {
+    ...(baseQuery || {}),
+  }
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === undefined || String(value).trim() === '') {
+      continue
+    }
+    merged[key] = value
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+export function normalizeOpenclawProxyTarget(params: {
+  path: string
+  query?: ProxyQuery
+}): NormalizedProxyTarget {
+  const path = (params.path || '').trim()
+  const query = params.query
+
+  if (path === '/api/reports/campaigns' || path === '/api/google-ads/reports') {
+    return {
+      path: '/api/campaigns/performance',
+      query,
+      rewritten: true,
+    }
+  }
+
+  if (path === '/api/google-ads/campaigns') {
+    return {
+      path: '/api/campaigns',
+      query,
+      rewritten: true,
+    }
+  }
+
+  const accountCampaignsMatch = path.match(/^\/api\/google-ads\/accounts\/(\d+)\/campaigns$/)
+  if (accountCampaignsMatch) {
+    return {
+      path: '/api/campaigns',
+      query: withQueryPatch(query, { googleAdsAccountId: accountCampaignsMatch[1] }),
+      rewritten: true,
+    }
+  }
+
+  const campaignMetricsMatch = path.match(/^\/api\/campaigns\/(\d+)\/(metrics|performance)$/)
+  if (campaignMetricsMatch) {
+    return {
+      path: '/api/campaigns/performance',
+      query: withQueryPatch(query, { campaignId: campaignMetricsMatch[1] }),
+      rewritten: true,
+    }
+  }
+
+  return {
+    path,
+    query,
+    rewritten: false,
+  }
+}
+
 function deriveTarget(path: string): { targetType?: string; targetId?: string } {
   const clean = path.split('?')[0]
   const parts = clean.split('/').filter(Boolean)
@@ -125,21 +199,32 @@ export async function handleOpenclawProxyRequest(params: {
   }
 
   const method = (request.method || 'GET').toUpperCase()
+  const requestedPath = String(request.path || '').trim()
 
-  validateProxyPath(request.path)
+  validateProxyPath(requestedPath)
   validateProxyMethod(method)
+
+  const normalizedTarget = normalizeOpenclawProxyTarget({
+    path: requestedPath,
+    query: request.query,
+  })
+
+  validateProxyPath(normalizedTarget.path)
 
   checkOpenclawRateLimit(`user:${resolved.userId}`)
 
-  const { targetType, targetId } = deriveTarget(request.path)
-  const action = `${method} ${request.path}`
+  const { targetType, targetId } = deriveTarget(normalizedTarget.path)
+  const actionPath = normalizedTarget.rewritten
+    ? `${requestedPath} -> ${normalizedTarget.path}`
+    : normalizedTarget.path
+  const action = `${method} ${actionPath}`
   const requestBodyString = request.body ? JSON.stringify(request.body) : null
 
   const upstream = await fetchAutoadsAsUser({
     userId: resolved.userId,
-    path: request.path,
+    path: normalizedTarget.path,
     method,
-    query: request.query,
+    query: normalizedTarget.query,
     body: request.body,
   })
 
