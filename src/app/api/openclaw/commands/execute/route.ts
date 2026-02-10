@@ -55,6 +55,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     const message = error?.message || 'OpenClaw 命令执行失败'
     const status = message.includes('not allowed') || message.includes('Invalid') || message.includes('blocked')
+      || message.includes('canonical web flow')
+      || message.includes('only support write methods')
+      || message.includes('only supports write methods')
+      || message.includes('A/B/D flow')
       ? 400
       : 500
     return NextResponse.json({ error: message }, { status })

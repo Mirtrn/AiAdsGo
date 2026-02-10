@@ -30,4 +30,11 @@ describe('openclaw intent parser', () => {
       parseOpenclawCommandIntent({ method: 'GET', path: 'https://example.com/api/offers' })
     ).toThrow('Absolute URLs are not allowed')
   })
+
+  it('normalizes trailing slash and query for downstream risk parsing', () => {
+    const result = parseOpenclawCommandIntent({ method: 'GET', path: '/api/campaigns/performance/?daysBack=7' })
+
+    expect(result.path).toBe('/api/campaigns/performance')
+    expect(result.method).toBe('GET')
+  })
 })

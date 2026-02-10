@@ -4,47 +4,12 @@ import { boolParam, nowFunc } from '@/lib/db-helpers'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import type { OpenclawCommandRiskLevel } from './risk-policy'
 import { deriveOpenclawCommandRiskLevel, requiresOpenclawCommandConfirmation } from './risk-policy'
+import { assertOpenclawCommandRouteAllowed } from '@/lib/openclaw/canonical-routes'
 import {
   consumeCommandConfirmation,
   createOrRefreshCommandConfirmation,
   recordOpenclawCallbackEvent,
 } from './confirm-service'
-
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-const BLOCKED_PREFIXES = ['/api/admin', '/api/cron', '/api/test', '/api/openclaw']
-const MAX_PATH_LENGTH = 512
-
-function validateMethodAndPath(method: string, path: string) {
-  if (!ALLOWED_METHODS.has(method)) {
-    throw new Error(`Method not allowed: ${method}`)
-  }
-
-  if (!path || typeof path !== 'string') {
-    throw new Error('Invalid path')
-  }
-
-  if (path.length > MAX_PATH_LENGTH) {
-    throw new Error('Path too long')
-  }
-
-  if (path.includes('://')) {
-    throw new Error('Absolute URLs are not allowed')
-  }
-
-  if (!path.startsWith('/api/')) {
-    throw new Error('Only /api routes are allowed')
-  }
-
-  if (path.includes('..')) {
-    throw new Error('Invalid path traversal')
-  }
-
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (path.startsWith(prefix)) {
-      throw new Error(`Path blocked: ${prefix}`)
-    }
-  }
-}
 
 async function enqueueCommandRun(params: {
   runId: string
@@ -136,9 +101,13 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
 
-  const method = (input.method || 'GET').toUpperCase()
-  const path = String(input.path || '').trim()
-  validateMethodAndPath(method, path)
+  const validated = assertOpenclawCommandRouteAllowed({
+    method: input.method || 'GET',
+    path: String(input.path || '').trim(),
+  })
+
+  const method = validated.method
+  const path = validated.normalizedPath
 
   const riskLevel = deriveOpenclawCommandRiskLevel({ method, path })
   const requireConfirm = requiresOpenclawCommandConfirmation(riskLevel)

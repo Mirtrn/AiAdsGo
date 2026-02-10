@@ -1,9 +1,6 @@
 import type { OpenclawCommandRiskLevel } from './risk-policy'
 import { deriveOpenclawCommandRiskLevel, requiresOpenclawCommandConfirmation } from './risk-policy'
-
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-const BLOCKED_PREFIXES = ['/api/admin', '/api/cron', '/api/test', '/api/openclaw']
-const MAX_PATH_LENGTH = 512
+import { validateOpenclawApiRequest } from '@/lib/openclaw/canonical-routes'
 
 export type ParseOpenclawCommandInput = {
   method: string
@@ -18,38 +15,6 @@ export type ParsedOpenclawCommandIntent = {
   riskLevel: OpenclawCommandRiskLevel
   requiresConfirmation: boolean
   summary: string
-}
-
-function validateMethodAndPath(method: string, path: string) {
-  if (!ALLOWED_METHODS.has(method)) {
-    throw new Error(`Method not allowed: ${method}`)
-  }
-
-  if (!path || typeof path !== 'string') {
-    throw new Error('Invalid path')
-  }
-
-  if (path.length > MAX_PATH_LENGTH) {
-    throw new Error('Path too long')
-  }
-
-  if (path.includes('://')) {
-    throw new Error('Absolute URLs are not allowed')
-  }
-
-  if (!path.startsWith('/api/')) {
-    throw new Error('Only /api routes are allowed')
-  }
-
-  if (path.includes('..')) {
-    throw new Error('Invalid path traversal')
-  }
-
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (path.startsWith(prefix)) {
-      throw new Error(`Path blocked: ${prefix}`)
-    }
-  }
 }
 
 function deriveIntentFromPath(path: string): string {
@@ -81,10 +46,9 @@ function buildSummary(params: {
 export function parseOpenclawCommandIntent(
   input: ParseOpenclawCommandInput
 ): ParsedOpenclawCommandIntent {
-  const method = (input.method || '').trim().toUpperCase()
-  const path = String(input.path || '').trim()
-
-  validateMethodAndPath(method, path)
+  const validated = validateOpenclawApiRequest(input.method || '', String(input.path || '').trim())
+  const method = validated.method
+  const path = validated.path
 
   const riskLevel = deriveOpenclawCommandRiskLevel({ method, path })
   const requiresConfirmation = requiresOpenclawCommandConfirmation(riskLevel)

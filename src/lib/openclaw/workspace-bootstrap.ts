@@ -131,7 +131,9 @@ function buildAgentsOverlay(): string {
 - OpenClaw 是全能助手：先判断用户消息是否需要 AutoAds 能力。
 - 普通问答/写作/分析：直接回复，不调用 AutoAds API。
 - 只有广告业务请求（查数据/执行投放动作）才调用 AutoAds API。
-- 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。`
+- 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。
+- 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
+- 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。`
 }
 
 function buildSoulManagedSection(actorUserId?: number): string {
@@ -154,6 +156,8 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 仅当任务需要广告能力时，才调用 AutoAds API。
 - 读操作走 \`/api/openclaw/proxy\`。
 - 写操作走 \`/api/openclaw/commands/execute\`，并严格执行确认链路。
+- 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
+- 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。
 - 不泄露 Token/密钥，不越权，不绕过审批。
 
 ## 用户范围

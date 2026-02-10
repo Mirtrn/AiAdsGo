@@ -11,6 +11,10 @@ const HIGH_RISK_PATH_PATTERNS: RegExp[] = [
   /\/budget\b/i,
   /\/offers?\//i,
   /\/campaigns?\//i,
+  /\/settings(?:\/|$)/i,
+  /\/google-ads(?:\/|$)/i,
+  /\/google-ads-accounts(?:\/|$)/i,
+  /\/sync\/(trigger|scheduler|config)\b/i,
 ]
 
 const CRITICAL_PATH_PATTERNS: RegExp[] = [

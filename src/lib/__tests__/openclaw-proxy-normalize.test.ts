@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeOpenclawProxyTarget } from '../openclaw/proxy'
+import { assertOpenclawProxyRouteAllowed } from '../openclaw/canonical-routes'
 
 describe('normalizeOpenclawProxyTarget', () => {
   it('keeps current valid path unchanged', () => {
@@ -71,5 +72,20 @@ describe('normalizeOpenclawProxyTarget', () => {
       },
       rewritten: true,
     })
+  })
+
+  it('rewritten target remains canonical and read-only', () => {
+    const normalized = normalizeOpenclawProxyTarget({
+      path: '/api/google-ads/campaigns',
+      query: { limit: 20 },
+    })
+
+    const route = assertOpenclawProxyRouteAllowed({
+      method: 'GET',
+      path: normalized.path,
+    })
+
+    expect(route.normalizedPath).toBe('/api/campaigns')
+    expect(route.feature).toBe('campaign-management')
   })
 })

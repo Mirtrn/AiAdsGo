@@ -5,6 +5,10 @@ import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { checkOpenclawRateLimit } from '@/lib/openclaw/rate-limit'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
+import {
+  assertOpenclawProxyRouteAllowed,
+  validateOpenclawApiRequest,
+} from '@/lib/openclaw/canonical-routes'
 
 export type OpenclawProxyRequest = {
   method: string
@@ -21,10 +25,6 @@ type ResolvedOpenclawUser = {
   userId: number
   authType: 'user-token' | 'gateway-binding'
 }
-
-const BLOCKED_PREFIXES = ['/api/admin', '/api/cron', '/api/test', '/api/openclaw']
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-const MAX_PATH_LENGTH = 512
 
 type ProxyQuery = Record<string, string | number | boolean | null | undefined>
 
@@ -43,7 +43,6 @@ function extractBearerToken(authHeader: string | null): string | null {
   }
   return value
 }
-
 
 async function resolveOpenclawUser(params: {
   authHeader: string | null
@@ -67,35 +66,6 @@ async function resolveOpenclawUser(params: {
   const tokenRecord = await verifyOpenclawUserToken(token)
   if (!tokenRecord) return null
   return { userId: tokenRecord.user_id, authType: 'user-token' }
-}
-
-function validateProxyPath(path: string) {
-  if (!path || typeof path !== 'string') {
-    throw new Error('Invalid path')
-  }
-  if (path.length > MAX_PATH_LENGTH) {
-    throw new Error('Path too long')
-  }
-  if (path.includes('://')) {
-    throw new Error('Absolute URLs are not allowed')
-  }
-  if (!path.startsWith('/api/')) {
-    throw new Error('Only /api routes are allowed')
-  }
-  if (path.includes('..')) {
-    throw new Error('Invalid path traversal')
-  }
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (path.startsWith(prefix)) {
-      throw new Error(`Path blocked: ${prefix}`)
-    }
-  }
-}
-
-function validateProxyMethod(method: string) {
-  if (!ALLOWED_METHODS.has(method)) {
-    throw new Error(`Method not allowed: ${method}`)
-  }
 }
 
 function withQueryPatch(
@@ -198,31 +168,33 @@ export async function handleOpenclawProxyRequest(params: {
     throw new Error('OpenClaw access denied')
   }
 
-  const method = (request.method || 'GET').toUpperCase()
-  const requestedPath = String(request.path || '').trim()
-
-  validateProxyPath(requestedPath)
-  validateProxyMethod(method)
+  const requestedTarget = validateOpenclawApiRequest(request.method || 'GET', String(request.path || '').trim())
 
   const normalizedTarget = normalizeOpenclawProxyTarget({
-    path: requestedPath,
+    path: requestedTarget.path,
     query: request.query,
   })
 
-  validateProxyPath(normalizedTarget.path)
+  const canonicalTarget = assertOpenclawProxyRouteAllowed({
+    method: requestedTarget.method,
+    path: normalizedTarget.path,
+  })
+
+  const method = canonicalTarget.method
+  const finalPath = canonicalTarget.normalizedPath
 
   checkOpenclawRateLimit(`user:${resolved.userId}`)
 
-  const { targetType, targetId } = deriveTarget(normalizedTarget.path)
+  const { targetType, targetId } = deriveTarget(finalPath)
   const actionPath = normalizedTarget.rewritten
-    ? `${requestedPath} -> ${normalizedTarget.path}`
-    : normalizedTarget.path
+    ? `${requestedTarget.path} -> ${finalPath}`
+    : finalPath
   const action = `${method} ${actionPath}`
   const requestBodyString = request.body ? JSON.stringify(request.body) : null
 
   const upstream = await fetchAutoadsAsUser({
     userId: resolved.userId,
-    path: normalizedTarget.path,
+    path: finalPath,
     method,
     query: normalizedTarget.query,
     body: request.body,

@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
     const status = message.includes('authentication') ? 401
       : message.includes('access denied') ? 403
       : message.includes('blocked') ? 403
+        : message.includes('only supports read methods') ? 400
+          : message.includes('canonical web flow') ? 400
         : message.includes('频繁') ? 429
         : 400
     return NextResponse.json({ error: message }, { status })
