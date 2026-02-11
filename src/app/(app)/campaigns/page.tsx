@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { showSuccess, showError, showConfirm } from '@/lib/toast-utils'
+import { showSuccess, showError } from '@/lib/toast-utils'
 import {
   Table,
   TableBody,
@@ -177,6 +177,11 @@ export default function CampaignsPage() {
   const [isToggleStatusDialogOpen, setIsToggleStatusDialogOpen] = useState(false)
   const [toggleStatusTarget, setToggleStatusTarget] = useState<Campaign | null>(null)
   const [toggleStatusNextStatus, setToggleStatusNextStatus] = useState<'PAUSED' | 'ENABLED' | null>(null)
+
+  // Delete draft dialog states
+  const [isDeleteDraftDialogOpen, setIsDeleteDraftDialogOpen] = useState(false)
+  const [deleteDraftTarget, setDeleteDraftTarget] = useState<Campaign | null>(null)
+  const [deleteDraftSubmitting, setDeleteDraftSubmitting] = useState(false)
 
   // Offline (下线) dialog states
   const [isOfflineDialogOpen, setIsOfflineDialogOpen] = useState(false)
@@ -425,15 +430,18 @@ export default function CampaignsPage() {
     }
   }
 
-  const handleDelete = async (campaignId: number, campaignName: string) => {
-    const confirmed = await showConfirm(
-      '确认删除草稿',
-      `确定要删除草稿广告系列"${campaignName}"吗？`
-    )
+  const openDeleteDraftDialog = (campaign: Campaign) => {
+    setDeleteDraftTarget(campaign)
+    setIsDeleteDraftDialogOpen(true)
+  }
 
-    if (!confirmed) {
-      return
-    }
+  const confirmDeleteDraft = async () => {
+    if (!deleteDraftTarget || deleteDraftSubmitting) return
+
+    const campaignId = deleteDraftTarget.id
+    const campaignName = deleteDraftTarget.campaignName
+
+    setDeleteDraftSubmitting(true)
 
     try {
       const response = await fetch(`/api/campaigns/${campaignId}`, {
@@ -448,13 +456,24 @@ export default function CampaignsPage() {
       }
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || '删除草稿失败')
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || '删除草稿失败')
       }
 
-      fetchCampaigns()
+      setSelectedCampaignIds((prev) => {
+        const next = new Set(prev)
+        next.delete(campaignId)
+        return next
+      })
+
+      await fetchCampaigns()
+      showSuccess('删除草稿成功', `已删除草稿广告系列“${campaignName}”`)
     } catch (err: any) {
-      showError('删除草稿失败', err.message)
+      showError('删除草稿失败', err?.message || '网络错误')
+    } finally {
+      setDeleteDraftSubmitting(false)
+      setIsDeleteDraftDialogOpen(false)
+      setDeleteDraftTarget(null)
     }
   }
 
@@ -1763,7 +1782,8 @@ export default function CampaignsPage() {
 	                            <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleDelete(campaign.id, campaign.campaignName)}
+                              onClick={() => openDeleteDraftDialog(campaign)}
+                              disabled={deleteDraftSubmitting}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               title="删除草稿广告系列"
                             >
@@ -2030,6 +2050,49 @@ export default function CampaignsPage() {
               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               {batchOfflineSubmitting ? '处理中...' : '仅本地下线异常项'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Draft Confirmation Dialog */}
+      <AlertDialog
+        open={isDeleteDraftDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDraftDialogOpen(open)
+          if (!open && !deleteDraftSubmitting) {
+            setDeleteDraftTarget(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除草稿广告系列</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要删除草稿广告系列{' '}
+                  <strong className="text-gray-900">{deleteDraftTarget?.campaignName || '-'}</strong> 吗？
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  <p className="font-medium mb-1">删除后将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>永久删除该本地草稿广告系列</li>
+                    <li>不会触发 Google Ads 侧投放变化</li>
+                    <li>此操作不可恢复</li>
+                  </ul>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteDraftSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void confirmDeleteDraft()}
+              disabled={deleteDraftSubmitting || !deleteDraftTarget}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deleteDraftSubmitting ? '删除中...' : '确认删除'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
