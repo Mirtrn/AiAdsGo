@@ -26,7 +26,8 @@ import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
 import { normalizeGeminiModel } from './gemini-models'
 import { parsePrice } from './pricing-utils'
-import { sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
+import { getLocalizedDkiOfficialSuffix, type DkiLocaleOptions } from './dki-localization'
 
 /**
  * 🔧 安全解析JSON字段
@@ -405,21 +406,43 @@ export interface KeywordWithVolume {
   volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
-export function buildDkiFirstHeadline(brandName: string, maxLength = 30): string {
-  const normalizedBrand = String(brandName || '').trim()
-  const suffix = ' Official'
+function truncateDkiDefaultText(defaultText: string, maxLength: number): string {
+  let candidate = defaultText
+  while (candidate.length > 0 && getGoogleAdsTextEffectiveLength(`{KeyWord:${candidate}}`) > maxLength) {
+    candidate = candidate.slice(0, -1)
+  }
+  return candidate || 'Keyword'
+}
+
+export function buildDkiFirstHeadline(
+  brandName: string,
+  maxLength = 30,
+  localeOptions?: DkiLocaleOptions
+): string {
+  const normalizedBrand = String(brandName || '')
+    .replace(/[{}]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
+  if (!normalizedBrand) {
+    return '{KeyWord:Keyword}'
+  }
+
+  const suffix = getLocalizedDkiOfficialSuffix(localeOptions)
+  const headlineWithSuffix = `{KeyWord:${normalizedBrand}}${suffix}`
 
   // Google Ads DKI 规则：{KeyWord:DefaultText} token 本身不计入字符数，只计 DefaultText 的长度
-  // 但 token 之外的普通文本（如 " Official"）仍计入字符数。
-  if (normalizedBrand.length + suffix.length <= maxLength) {
-    return `{KeyWord:${normalizedBrand}}${suffix}`
+  // token 之外的普通文本（如本地化后的 " Official/Oficial/官方"）会计入有效字符数。
+  if (suffix && getGoogleAdsTextEffectiveLength(headlineWithSuffix) <= maxLength) {
+    return headlineWithSuffix
   }
 
-  if (normalizedBrand.length <= maxLength) {
-    return `{KeyWord:${normalizedBrand}}`
+  const headlineWithoutSuffix = `{KeyWord:${normalizedBrand}}`
+  if (getGoogleAdsTextEffectiveLength(headlineWithoutSuffix) <= maxLength) {
+    return headlineWithoutSuffix
   }
 
-  return `{KeyWord:${normalizedBrand.substring(0, maxLength)}}`
+  return `{KeyWord:${truncateDkiDefaultText(normalizedBrand, maxLength)}}`
 }
 
 export function buildDkiKeywordHeadline(defaultText: string, maxLength = 30): string {
@@ -3968,8 +3991,13 @@ export async function generateAdCreative(
 
   // 🔥 强制第一个headline为DKI品牌格式（自动处理30字符限制）
   const HEADLINE_MAX_LENGTH = 30
+  const targetCountry = (offer as { target_country?: string }).target_country || 'US'
+  const targetLanguage = (offer as { target_language?: string }).target_language || ''
 
-  const finalFirstHeadline = buildDkiFirstHeadline(brandName, HEADLINE_MAX_LENGTH)
+  const finalFirstHeadline = buildDkiFirstHeadline(brandName, HEADLINE_MAX_LENGTH, {
+    targetLanguage,
+    targetCountry,
+  })
 
   if (result.headlines.length > 0) {
     // 检查第一个headline是否符合要求
@@ -4003,12 +4031,11 @@ export async function generateAdCreative(
   let keywordsWithVolume: KeywordWithVolume[] = []
 
   // 🔧 修复(2025-12-24): 提取到外层作用域，供后续clusterKeywordsByIntent使用
-  const targetCountry = (offer as { target_country?: string }).target_country || 'US'
-  const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-  const language = normalizeLanguageCode(targetLanguage)
+  const resolvedTargetLanguage = targetLanguage || 'English'
+  const language = normalizeLanguageCode(resolvedTargetLanguage)
 
   try {
-    console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${targetCountry}, 语言=${language} (${targetLanguage})`)
+    console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${targetCountry}, 语言=${language} (${resolvedTargetLanguage})`)
 
     // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
     const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
