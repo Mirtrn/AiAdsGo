@@ -6,10 +6,6 @@ const authFns = vi.hoisted(() => ({
   verifyAuth: vi.fn(),
 }))
 
-const dbFns = vi.hoisted(() => ({
-  exec: vi.fn(),
-}))
-
 const campaignsFns = vi.hoisted(() => ({
   queryActiveCampaigns: vi.fn(),
   pauseCampaigns: vi.fn(),
@@ -19,15 +15,15 @@ const actionLogFns = vi.hoisted(() => ({
   recordOpenclawAction: vi.fn(),
 }))
 
-vi.mock('@/lib/auth', () => ({
-  verifyAuth: authFns.verifyAuth,
+const transitionFns = vi.hoisted(() => ({
+  applyCampaignTransitionByGoogleCampaignIds: vi.fn(async () => ({
+    updatedCount: 3,
+    matchedCampaignIds: [1, 2, 3],
+  })),
 }))
 
-vi.mock('@/lib/db', () => ({
-  getDatabase: vi.fn(async () => ({
-    type: 'sqlite',
-    exec: dbFns.exec,
-  })),
+vi.mock('@/lib/auth', () => ({
+  verifyAuth: authFns.verifyAuth,
 }))
 
 vi.mock('@/lib/active-campaigns-query', () => ({
@@ -37,6 +33,10 @@ vi.mock('@/lib/active-campaigns-query', () => ({
 
 vi.mock('@/lib/openclaw/action-logs', () => ({
   recordOpenclawAction: actionLogFns.recordOpenclawAction,
+}))
+
+vi.mock('@/lib/campaign-state-machine', () => ({
+  applyCampaignTransitionByGoogleCampaignIds: transitionFns.applyCampaignTransitionByGoogleCampaignIds,
 }))
 
 describe('POST /api/campaigns/circuit-break', () => {
@@ -62,7 +62,10 @@ describe('POST /api/campaigns/circuit-break', () => {
       failures: [],
     })
 
-    dbFns.exec.mockResolvedValue({ changes: 1 })
+    transitionFns.applyCampaignTransitionByGoogleCampaignIds.mockResolvedValue({
+      updatedCount: 3,
+      matchedCampaignIds: [1, 2, 3],
+    })
     actionLogFns.recordOpenclawAction.mockResolvedValue(undefined)
   })
 
@@ -105,7 +108,7 @@ describe('POST /api/campaigns/circuit-break', () => {
     expect(data.data.dryRun).toBe(true)
     expect(data.data.summary.enabledCampaigns).toBe(3)
     expect(campaignsFns.pauseCampaigns).not.toHaveBeenCalled()
-    expect(dbFns.exec).not.toHaveBeenCalled()
+    expect(transitionFns.applyCampaignTransitionByGoogleCampaignIds).not.toHaveBeenCalled()
   })
 
   it('pauses campaigns and syncs local status', async () => {
@@ -122,7 +125,7 @@ describe('POST /api/campaigns/circuit-break', () => {
     expect(data.success).toBe(true)
     expect(data.data.result.pausedCount).toBe(3)
     expect(campaignsFns.pauseCampaigns).toHaveBeenCalledWith(expect.any(Array), 9, 7)
-    expect(dbFns.exec).toHaveBeenCalledTimes(3)
+    expect(transitionFns.applyCampaignTransitionByGoogleCampaignIds).toHaveBeenCalledTimes(1)
     expect(actionLogFns.recordOpenclawAction).toHaveBeenCalled()
   })
 })

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
 import { queryActiveCampaigns, pauseCampaigns } from '@/lib/active-campaigns-query'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import type { GoogleAdsCampaignInfo } from '@/lib/campaign-association'
+import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,27 +49,25 @@ async function syncLocalCampaignStatus(params: {
   accountId: number
   campaigns: GoogleAdsCampaignInfo[]
 }) {
-  const db = await getDatabase()
-  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const googleCampaignIds = params.campaigns
+    .map((campaign) => String(campaign.id || '').trim())
+    .filter((id) => Boolean(id))
 
-  let attempted = 0
-  for (const campaign of params.campaigns) {
-    const campaignId = String(campaign.id || '').trim()
-    if (!campaignId) continue
-    attempted += 1
-    await db.exec(
-      `
-        UPDATE campaigns
-        SET status = 'PAUSED', updated_at = ${nowFunc}
-        WHERE user_id = ?
-          AND google_ads_account_id = ?
-          AND (google_campaign_id = ? OR campaign_id = ?)
-      `,
-      [params.userId, params.accountId, campaignId, campaignId]
-    )
+  if (googleCampaignIds.length === 0) {
+    return { attempted: 0, updated: 0 }
   }
 
-  return { attempted }
+  const result = await applyCampaignTransitionByGoogleCampaignIds({
+    userId: params.userId,
+    googleAdsAccountId: params.accountId,
+    googleCampaignIds,
+    action: 'CIRCUIT_BREAK_PAUSE',
+  })
+
+  return {
+    attempted: googleCampaignIds.length,
+    updated: result.updatedCount,
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -118,7 +116,7 @@ export async function POST(request: NextRequest) {
             failedCount: 0,
             failures: [],
           },
-          localSync: { attempted: 0 },
+          localSync: { attempted: 0, updated: 0 },
         },
       })
     }

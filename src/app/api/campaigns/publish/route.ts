@@ -29,6 +29,7 @@ import {
 import { generateNamingScheme, NAMING_CONFIG, parseAdGroupName, validateCampaignName } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
+import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 
 const SINGLE_BRAND_PER_ACCOUNT_ENFORCED = (
   process.env.CAMPAIGN_PUBLISH_ENFORCE_SINGLE_BRAND_PER_ACCOUNT
@@ -523,16 +524,20 @@ export async function POST(request: NextRequest) {
       }
 
       // 更新数据库中对应的campaign记录状态
-      for (const campaign of campaignsToPause) {
+      const pausedGoogleCampaignIds = campaignsToPause
+        .map((campaign) => String(campaign.id || '').trim())
+        .filter(Boolean)
+
+      if (pausedGoogleCampaignIds.length > 0) {
         try {
-          await db.exec(`
-            UPDATE campaigns
-            SET status = 'PAUSED', updated_at = CURRENT_TIMESTAMP
-            WHERE google_campaign_id = ?
-          `, [campaign.id])
+          await applyCampaignTransitionByGoogleCampaignIds({
+            userId,
+            googleAdsAccountId: _googleAdsAccountId,
+            googleCampaignIds: pausedGoogleCampaignIds,
+            action: 'PAUSE_OLD_CAMPAIGNS',
+          })
         } catch (error: any) {
-          console.warn(`更新数据库状态失败: ${campaign.name}`, error.message)
-          // 不阻断流程，继续处理
+          console.warn('更新数据库状态失败:', error?.message || error)
         }
       }
 

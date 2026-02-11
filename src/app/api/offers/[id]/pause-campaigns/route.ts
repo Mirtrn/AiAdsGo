@@ -14,6 +14,7 @@ import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 import { getDecryptedCredentials } from '@/lib/google-ads-accounts'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
+import { applyCampaignTransition } from '@/lib/campaign-state-machine'
 
 interface RouteContext {
   params: {
@@ -159,12 +160,11 @@ export async function POST(
             })
 
             // 更新数据库状态
-            await db.exec(`
-              UPDATE campaigns
-              SET status = 'PAUSED',
-                  updated_at = datetime('now')
-              WHERE id = ?
-            `, [campaign.id])
+            await applyCampaignTransition({
+              userId: offer.user_id,
+              campaignId: campaign.id,
+              action: 'PAUSE_OLD_CAMPAIGNS',
+            })
 
             results.push({
               campaignId: campaign.id,

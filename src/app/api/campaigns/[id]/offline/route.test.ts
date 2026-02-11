@@ -20,6 +20,10 @@ const authFns = vi.hoisted(() => ({
   })),
 }))
 
+const transitionFns = vi.hoisted(() => ({
+  applyCampaignTransition: vi.fn(async () => ({ updatedCount: 1, matchedCampaignIds: [123] })),
+}))
+
 vi.mock('@/lib/auth', () => ({
   verifyAuth: authFns.verifyAuth,
 }))
@@ -31,6 +35,10 @@ vi.mock('@/lib/db', () => ({
     query: dbFns.query,
     queryOne: dbFns.queryOne,
   })),
+}))
+
+vi.mock('@/lib/campaign-state-machine', () => ({
+  applyCampaignTransition: transitionFns.applyCampaignTransition,
 }))
 
 vi.mock('@/lib/url-swap', () => ({
@@ -71,10 +79,10 @@ vi.mock('@/lib/google-ads-service-account', () => ({
   getServiceAccountConfig: vi.fn(async () => null),
 }))
 
-const { markUrlSwapTargetsRemovedByCampaignId } = await import('@/lib/url-swap')
 const { invalidateOfferCache } = await import('@/lib/api-cache')
 const { removePendingClickFarmQueueTasksByTaskIds } = await import('@/lib/click-farm/queue-cleanup')
 const { removePendingUrlSwapQueueTasksByTaskIds } = await import('@/lib/url-swap/queue-cleanup')
+const { applyCampaignTransition } = await import('@/lib/campaign-state-machine')
 
 describe('POST /api/campaigns/:id/offline', () => {
   beforeEach(() => {
@@ -141,7 +149,11 @@ describe('POST /api/campaigns/:id/offline', () => {
     expect(res.status).toBe(200)
     expect(data.success).toBe(true)
     expect(data.data.clickFarmPaused).toBe(1)
-    expect(vi.mocked(markUrlSwapTargetsRemovedByCampaignId)).toHaveBeenCalledWith(123, 1)
+    expect(vi.mocked(applyCampaignTransition)).toHaveBeenCalledWith({
+      userId: 1,
+      campaignId: 123,
+      action: 'OFFLINE',
+    })
     expect(vi.mocked(invalidateOfferCache)).toHaveBeenCalledWith(1, 777)
     expect(vi.mocked(removePendingClickFarmQueueTasksByTaskIds)).toHaveBeenCalledWith(['cf-task-1', 'cf-task-2'], 1)
   })

@@ -1,6 +1,7 @@
 import { getDatabase } from './db'
 import { getInsertedId } from './db-helpers'
 import { markUrlSwapTargetsRemovedByCampaignId } from './url-swap'
+import { applyCampaignTransition } from './campaign-state-machine'
 
 export interface Campaign {
   id: number
@@ -318,25 +319,15 @@ export async function deleteCampaign(id: number, userId: number): Promise<Delete
     return { success: false, reason: 'NOT_DRAFT' }
   }
 
-  // 🔧 修复: 使用软删除而非物理删除，保留历史performance数据
-  const db_type = db.type
-  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime("now")'
-  const isDeletedTrue = db_type === 'postgres' ? 'true' : '1'
-  const isDeletedFalse = db_type === 'postgres' ? 'FALSE' : '0'
+  const transitionResult = await applyCampaignTransition({
+    userId,
+    campaignId: id,
+    action: 'DRAFT_DELETE',
+  })
 
-  const result = await db.exec(`
-    UPDATE campaigns
-    SET is_deleted = ${isDeletedTrue},
-        deleted_at = ${nowFunc},
-        status = 'REMOVED'
-    WHERE id = ? AND user_id = ? AND is_deleted = ${isDeletedFalse}
-  `, [id, userId])
-
-  if (result.changes <= 0) {
+  if (transitionResult.updatedCount <= 0) {
     return { success: false, reason: 'NOT_FOUND' }
   }
-
-  await markUrlSwapTargetsRemovedByCampaignId(id, userId)
 
   return { success: true }
 }
@@ -349,6 +340,19 @@ export async function updateCampaignStatus(
   userId: number,
   status: string
 ): Promise<Campaign | null> {
+  const normalizedStatus = String(status || '').trim().toUpperCase()
+
+  if (normalizedStatus === 'ENABLED' || normalizedStatus === 'PAUSED') {
+    await applyCampaignTransition({
+      userId,
+      campaignId: id,
+      action: 'TOGGLE_STATUS',
+      payload: { status: normalizedStatus as 'ENABLED' | 'PAUSED' },
+    })
+
+    return findCampaignById(id, userId)
+  }
+
   return updateCampaign(id, userId, { status })
 }
 

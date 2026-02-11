@@ -38,6 +38,7 @@ import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/chart
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
   getCampaignStatusLabel,
+  getCreationStatusLabel,
 } from '@/lib/i18n-constants'
 import { formatCurrency } from '@/lib/currency'
 import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
@@ -195,7 +196,11 @@ export default function CampaignsPage() {
   const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
   const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
 
-  const isCampaignDeleted = (campaign: Campaign) => campaign.isDeleted === true || campaign.isDeleted === 1
+  const isCampaignDeleted = (campaign: Campaign) => {
+    const deletedFlag = campaign.isDeleted === true || campaign.isDeleted === 1
+    const removedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
+    return deletedFlag || removedStatus
+  }
   const isOfferDeleted = (campaign: Campaign) => campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
   const getCampaignGoogleId = (campaign: Campaign) => campaign.campaignId || campaign.googleCampaignId
 
@@ -1103,6 +1108,31 @@ export default function CampaignsPage() {
     )
   }
 
+  const getCreationStatusBadge = (creationStatus?: string, creationError?: string | null) => {
+    const normalizedStatus = String(creationStatus || '').toLowerCase()
+    const hasKnownStatus = ['draft', 'pending', 'synced', 'failed'].includes(normalizedStatus)
+    const statusKey = (hasKnownStatus ? normalizedStatus : 'draft') as 'draft' | 'pending' | 'synced' | 'failed'
+    const label = getCreationStatusLabel(statusKey)
+
+    const configs = {
+      draft: 'bg-slate-100 text-slate-700 border-slate-200',
+      pending: 'bg-blue-50 text-blue-700 border-blue-200',
+      synced: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      failed: 'bg-red-50 text-red-700 border-red-200',
+    } as const
+
+    const className = configs[statusKey] || 'bg-gray-100 text-gray-700 border-gray-200'
+    const title = statusKey === 'failed' && creationError
+      ? `同步失败：${creationError}`
+      : label
+
+    return (
+      <Badge variant="outline" className={`w-fit ${className}`} title={title}>
+        {label}
+      </Badge>
+    )
+  }
+
   // 排序处理函数
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -1558,6 +1588,7 @@ export default function CampaignsPage() {
                       <SortableHeader field="conversions" className="w-[90px]">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[100px]">花费</SortableHeader>
                       <SortableHeader field="status" className="w-[110px]">投放状态</SortableHeader>
+                      <TableHead className="w-[110px]">同步状态</TableHead>
                       <SortableHeader field="servingStartDate" className="w-[110px]">投放日期</SortableHeader>
                       <TableHead className="w-[140px]">操作</TableHead>
                     </TableRow>
@@ -1648,6 +1679,9 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         {getStatusBadge(campaign.status, campaign.adsAccountAvailable)}
+                      </TableCell>
+                      <TableCell>
+                        {getCreationStatusBadge(campaign.creationStatus, campaign.creationError)}
                       </TableCell>
                       <TableCell>
                         <span className="text-sm text-gray-900">

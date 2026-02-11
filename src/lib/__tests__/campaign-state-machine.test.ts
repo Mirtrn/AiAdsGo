@@ -1,0 +1,86 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const dbFns = vi.hoisted(() => ({
+  exec: vi.fn(),
+  query: vi.fn(),
+}))
+
+const urlSwapFns = vi.hoisted(() => ({
+  markUrlSwapTargetsRemovedByCampaignId: vi.fn(async () => {}),
+}))
+
+vi.mock('../db', () => ({
+  getDatabase: vi.fn(async () => ({
+    type: 'sqlite',
+    exec: dbFns.exec,
+    query: dbFns.query,
+  })),
+}))
+
+vi.mock('../url-swap', () => ({
+  markUrlSwapTargetsRemovedByCampaignId: urlSwapFns.markUrlSwapTargetsRemovedByCampaignId,
+}))
+
+const {
+  buildCampaignTransitionPatch,
+  normalizeCampaignTransitionPatch,
+  applyCampaignTransition,
+  applyCampaignTransitionByGoogleCampaignIds,
+} = await import('../campaign-state-machine')
+
+describe('campaign-state-machine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    dbFns.exec.mockResolvedValue({ changes: 1 })
+    dbFns.query.mockResolvedValue([])
+  })
+
+  it('normalizes OFFLINE action to removed + deleted semantics', () => {
+    const patch = normalizeCampaignTransitionPatch(buildCampaignTransitionPatch('OFFLINE'))
+
+    expect(patch.status).toBe('REMOVED')
+    expect(patch.isDeleted).toBe(true)
+    expect(patch.deletedAt).toBe('NOW')
+    expect(patch.removedReason).toBe('offline')
+  })
+
+  it('normalizes publish failure into failed creation state', () => {
+    const patch = normalizeCampaignTransitionPatch(
+      buildCampaignTransitionPatch('PUBLISH_FAILED', { errorMessage: 'api failed' })
+    )
+
+    expect(patch.status).toBe('PAUSED')
+    expect(patch.creationStatus).toBe('failed')
+    expect(patch.creationError).toBe('api failed')
+  })
+
+  it('applies OFFLINE transition by id and marks url-swap targets removed', async () => {
+    const result = await applyCampaignTransition({
+      userId: 7,
+      campaignId: 101,
+      action: 'OFFLINE',
+    })
+
+    expect(result.updatedCount).toBe(1)
+    expect(result.matchedCampaignIds).toEqual([101])
+    expect(dbFns.exec).toHaveBeenCalledTimes(1)
+    expect(urlSwapFns.markUrlSwapTargetsRemovedByCampaignId).toHaveBeenCalledWith(101, 7)
+  })
+
+  it('applies pause transition by google campaign ids without marking removed', async () => {
+    dbFns.query.mockResolvedValueOnce([{ id: 11 }, { id: 12 }])
+
+    const result = await applyCampaignTransitionByGoogleCampaignIds({
+      userId: 9,
+      googleAdsAccountId: 88,
+      googleCampaignIds: ['1001', '1002'],
+      action: 'CIRCUIT_BREAK_PAUSE',
+    })
+
+    expect(result.updatedCount).toBe(1)
+    expect(result.matchedCampaignIds).toEqual([11, 12])
+    expect(dbFns.query).toHaveBeenCalledTimes(1)
+    expect(dbFns.exec).toHaveBeenCalledTimes(1)
+    expect(urlSwapFns.markUrlSwapTargetsRemovedByCampaignId).not.toHaveBeenCalled()
+  })
+})

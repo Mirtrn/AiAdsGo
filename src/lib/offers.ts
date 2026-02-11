@@ -8,6 +8,7 @@ import {
   markUrlSwapTargetsRemovedByOfferId,
   pauseUrlSwapTargetsByOfferId
 } from './url-swap'
+import { applyCampaignTransition, applyCampaignTransitionByIds } from './campaign-state-machine'
 
 export interface Offer {
   id: number
@@ -544,8 +545,6 @@ export async function listOffers(
  */
 export async function updateOffer(id: number, userId: number, input: UpdateOfferInput): Promise<Offer> {
   const db = await getDatabase()
-
-  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   // 验证Offer存在且属于该用户
@@ -941,12 +940,11 @@ export async function deleteOffer(
               serviceAccountId: auth.serviceAccountId,
             })
 
-            await db.exec(`
-              UPDATE campaigns
-              SET status = 'REMOVED',
-                  updated_at = ${nowFunc}
-              WHERE id = ? AND user_id = ?
-            `, [c.campaignRowId, userId])
+            await applyCampaignTransition({
+              userId,
+              campaignId: c.campaignRowId,
+              action: 'OFFER_DELETE',
+            })
             autoRemovedCampaignCount++
           } else {
             await updateGoogleAdsCampaignStatus({
@@ -960,12 +958,11 @@ export async function deleteOffer(
               serviceAccountId: auth.serviceAccountId,
             })
 
-            await db.exec(`
-              UPDATE campaigns
-              SET status = 'PAUSED',
-                  updated_at = ${nowFunc}
-              WHERE id = ? AND user_id = ?
-            `, [c.campaignRowId, userId])
+            await applyCampaignTransition({
+              userId,
+              campaignId: c.campaignRowId,
+              action: 'PAUSE_OLD_CAMPAIGNS',
+            })
             autoPausedCampaignCount++
           }
         } catch (e: any) {
@@ -982,12 +979,11 @@ export async function deleteOffer(
                 serviceAccountId: auth.serviceAccountId,
               })
 
-              await db.exec(`
-                UPDATE campaigns
-                SET status = 'PAUSED',
-                    updated_at = ${nowFunc}
-                WHERE id = ? AND user_id = ?
-              `, [c.campaignRowId, userId])
+              await applyCampaignTransition({
+                userId,
+                campaignId: c.campaignRowId,
+                action: 'PAUSE_OLD_CAMPAIGNS',
+              })
               autoPausedCampaignCount++
             } catch (pauseError: any) {
               errors.push({
@@ -1010,12 +1006,25 @@ export async function deleteOffer(
 
   // 自动解除所有关联
   if (autoUnlink && linkedAccounts.length > 0) {
-    await db.exec(`
-      UPDATE campaigns
-      SET status = 'REMOVED',
-          updated_at = ${nowFunc}
-      WHERE offer_id = ? AND user_id = ? AND status != 'REMOVED'
+    const campaignsForUnlink = await db.query<{ id: number }>(`
+      SELECT id
+      FROM campaigns
+      WHERE offer_id = ?
+        AND user_id = ?
+        AND status != 'REMOVED'
     `, [id, userId])
+
+    const campaignIdsToUnlink = campaignsForUnlink
+      .map((row) => Number(row.id))
+      .filter((campaignId) => Number.isFinite(campaignId) && campaignId > 0)
+
+    if (campaignIdsToUnlink.length > 0) {
+      await applyCampaignTransitionByIds({
+        userId,
+        campaignIds: campaignIdsToUnlink,
+        action: 'OFFER_UNLINK',
+      })
+    }
 
     await markUrlSwapTargetsRemovedByOfferId(id)
   }
@@ -1141,9 +1150,6 @@ export async function unlinkOfferFromAccount(
 ): Promise<{ unlinkedCount: number }> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
-  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
-
   // 验证Offer存在
   const existing = await findOfferById(offerId, userId)
   if (!existing) {
@@ -1151,15 +1157,28 @@ export async function unlinkOfferFromAccount(
   }
 
   // 将该Offer在该账号下的Campaigns标记为已移除
-  const result = await db.exec(`
-    UPDATE campaigns
-    SET status = 'REMOVED',
-        updated_at = ${nowFunc}
+  const linkedCampaignRows = await db.query<{ id: number }>(`
+    SELECT id
+    FROM campaigns
     WHERE offer_id = ?
       AND google_ads_account_id = ?
       AND user_id = ?
       AND status != 'REMOVED'
   `, [offerId, accountId, userId])
+
+  const campaignIds = linkedCampaignRows
+    .map((row) => Number(row.id))
+    .filter((campaignId) => Number.isFinite(campaignId) && campaignId > 0)
+
+  let updatedCount = 0
+  if (campaignIds.length > 0) {
+    const transitionResult = await applyCampaignTransitionByIds({
+      userId,
+      campaignIds,
+      action: 'OFFER_UNLINK',
+    })
+    updatedCount = transitionResult.updatedCount
+  }
 
   await markUrlSwapTargetsRemovedByOfferAccount(offerId, accountId)
 
@@ -1188,7 +1207,7 @@ export async function unlinkOfferFromAccount(
   //   `, [accountId, userId])
   // }
 
-  return { unlinkedCount: result.changes }
+  return { unlinkedCount: updatedCount }
 }
 
 /**

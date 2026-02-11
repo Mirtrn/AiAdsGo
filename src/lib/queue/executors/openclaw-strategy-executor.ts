@@ -6,6 +6,7 @@ import { createStrategyRun, recordStrategyAction, updateStrategyAction, updateSt
 import { fetchPartnerboostAssociates, fetchPartnerboostLinkByAsin } from '@/lib/openclaw/affiliate'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
+import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 
 export type OpenclawStrategyTaskData = {
   userId: number
@@ -1327,8 +1328,6 @@ async function fallbackPauseEnabledCampaignsForAccount(params: {
   accountId: number
 }) {
   const { queryActiveCampaigns, pauseCampaigns } = await import('@/lib/active-campaigns-query')
-  const db = await getDatabase()
-  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   const active = await queryActiveCampaigns(0, params.accountId, params.userId)
   const enabledCampaigns = [
@@ -1348,15 +1347,17 @@ async function fallbackPauseEnabledCampaignsForAccount(params: {
   }
 
   const pauseResult = await pauseCampaigns(enabledCampaigns, params.accountId, params.userId)
-  for (const campaign of enabledCampaigns) {
-    await db.exec(
-      `UPDATE campaigns
-       SET status = 'PAUSED', updated_at = ${nowFunc}
-       WHERE user_id = ?
-         AND google_ads_account_id = ?
-         AND (google_campaign_id = ? OR campaign_id = ?)`,
-      [params.userId, params.accountId, String(campaign.id), String(campaign.id)]
-    )
+  const googleCampaignIds = enabledCampaigns
+    .map((campaign) => String(campaign.id || '').trim())
+    .filter((id) => Boolean(id))
+
+  if (googleCampaignIds.length > 0) {
+    await applyCampaignTransitionByGoogleCampaignIds({
+      userId: params.userId,
+      googleAdsAccountId: params.accountId,
+      googleCampaignIds,
+      action: 'CIRCUIT_BREAK_PAUSE',
+    })
   }
 
   const failures = Array.isArray(pauseResult.failures)

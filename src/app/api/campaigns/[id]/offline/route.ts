@@ -5,9 +5,10 @@ import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB, getCustom
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
-import { markUrlSwapTargetsRemovedByCampaignId, pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
+import { pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
 import { removePendingClickFarmQueueTasksByTaskIds } from '@/lib/click-farm/queue-cleanup'
 import { removePendingUrlSwapQueueTasksByTaskIds } from '@/lib/url-swap/queue-cleanup'
+import { applyCampaignTransition } from '@/lib/campaign-state-machine'
 
 type OfflineBody = {
   blacklistOffer?: boolean
@@ -160,21 +161,12 @@ export async function POST(
 
     // 先执行本地标记下线，避免外部接口阻塞
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
-    const isDeletedTrue = db.type === 'postgres' ? 'true' : '1'
 
-    await db.exec(
-      `
-        UPDATE campaigns
-        SET status = 'REMOVED',
-            is_deleted = ${isDeletedTrue},
-            deleted_at = ${nowFunc},
-            updated_at = ${nowFunc}
-        WHERE id = ? AND user_id = ? AND status != 'REMOVED'
-      `,
-      [campaignRow.id, userId]
-    )
-
-    await markUrlSwapTargetsRemovedByCampaignId(campaignRow.id, userId)
+    await applyCampaignTransition({
+      userId,
+      campaignId: campaignRow.id,
+      action: 'OFFLINE',
+    })
 
     // 下线后刷新Offer缓存
     invalidateOfferCache(userId, campaignRow.offer_id)

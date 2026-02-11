@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getDatabase } from '@/lib/db'
-import { updateCampaignStatus } from '@/lib/campaigns'
+import { findCampaignById } from '@/lib/campaigns'
 import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { applyCampaignTransition } from '@/lib/campaign-state-machine'
 
 type ToggleStatusBody = {
   status?: string
@@ -236,7 +237,14 @@ export async function PUT(
     })
 
     // 再更新本地数据库状态
-    const updated = await updateCampaignStatus(campaignId, userId, nextStatus)
+    await applyCampaignTransition({
+      userId,
+      campaignId,
+      action: 'TOGGLE_STATUS',
+      payload: { status: nextStatus as 'PAUSED' | 'ENABLED' },
+    })
+
+    const updated = await findCampaignById(campaignId, userId)
 
     return NextResponse.json({
       success: true,

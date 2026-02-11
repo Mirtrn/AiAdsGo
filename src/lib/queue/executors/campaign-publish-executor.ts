@@ -37,6 +37,7 @@ import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { addUrlSwapTargetForOfferCampaign } from '@/lib/url-swap'
+import { applyCampaignTransition } from '@/lib/campaign-state-machine'
 
 function describeLoginCustomerId(value: string | undefined): string {
   return value || 'null(omit)'
@@ -856,7 +857,6 @@ export async function executeCampaignPublish(
 
     // 16. 更新数据库记录
     // 🔧 修复(2026-01-05): 核心成功但Extensions失败时，仍计为成功，只记录警告信息
-    let finalCreationStatus = 'synced'
     let finalCreationError: string | null = null
 
     if (extensionsErrors.length > 0) {
@@ -864,15 +864,18 @@ export async function executeCampaignPublish(
       finalCreationError = `[警告] ${extensionsErrors.join('; ')}`
     }
 
-    await db.exec(
-      `UPDATE campaigns
-       SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
-           status = ?, creation_status = ?, creation_error = ?,
-           published_at = COALESCE(NULLIF(published_at, ''), CAST(CURRENT_TIMESTAMP AS TEXT)),
-           last_sync_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, finalCreationStatus, finalCreationError, campaignId]
-    )
+    await applyCampaignTransition({
+      userId,
+      campaignId,
+      action: 'PUBLISH_SUCCEEDED',
+      payload: {
+        finalStatus: finalCampaignStatus,
+        googleCampaignId,
+        googleAdGroupId,
+        googleAdId,
+        creationError: finalCreationError,
+      },
+    })
     // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面"关联Ads账号"及时更新
     invalidateOfferCache(userId, offerId)
 
@@ -935,12 +938,14 @@ export async function executeCampaignPublish(
 
     // 更新数据库记录为失败状态
     try {
-      await db.exec(
-        `UPDATE campaigns
-         SET status = 'PAUSED', creation_status = 'failed', creation_error = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [apiErrorMessage, campaignId]
-      )
+      await applyCampaignTransition({
+        userId,
+        campaignId,
+        action: 'PUBLISH_FAILED',
+        payload: {
+          errorMessage: apiErrorMessage,
+        },
+      })
     } catch (dbError: any) {
       console.error(`❌ 更新campaign状态失败: ${dbError.message}`)
     }
