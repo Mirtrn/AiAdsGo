@@ -114,6 +114,7 @@ export default function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<string>('7')
+  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(false)
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
@@ -133,11 +134,9 @@ export default function CampaignsPage() {
   const [trendsCurrencies, setTrendsCurrencies] = useState<string[]>([])
   const [trendsCurrency, setTrendsCurrency] = useState<string>('')
 
-  // Batch delete states
+  // Batch offline states
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
-  const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
-  const [batchDeleting, setBatchDeleting] = useState(false)
-  const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
+  const [batchOfflineSubmitting, setBatchOfflineSubmitting] = useState(false)
 
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
@@ -161,6 +160,10 @@ export default function CampaignsPage() {
   const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
   const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
 
+  const isCampaignDeleted = (campaign: Campaign) => campaign.isDeleted === true || campaign.isDeleted === 1
+  const isOfferDeleted = (campaign: Campaign) => campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+  const getCampaignGoogleId = (campaign: Campaign) => campaign.campaignId || campaign.googleCampaignId
+
   const currencySet = new Set(
     campaigns
       .map((c) => c.adsAccountCurrency)
@@ -171,6 +174,9 @@ export default function CampaignsPage() {
     formatCurrency(value, currencyCode)
   const trendsCurrencyValue = trendsCurrency || trendsCurrencies[0] || defaultCurrency
   const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
+  const visibleCampaignCount = campaigns.filter((campaign) => showDeletedCampaigns || !isCampaignDeleted(campaign)).length
+  const hasBatchOfflineSelection = selectedCampaignIds.size > 0
+  const activeCampaignCount = campaigns.filter((campaign) => !isCampaignDeleted(campaign)).length
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -200,6 +206,10 @@ export default function CampaignsPage() {
 
   useEffect(() => {
     let result = campaigns
+
+    if (!showDeletedCampaigns) {
+      result = result.filter((campaign) => !isCampaignDeleted(campaign))
+    }
 
     // Search filter
     if (searchQuery) {
@@ -290,7 +300,7 @@ export default function CampaignsPage() {
 
     setFilteredCampaigns(result)
 
-    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection })
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection, showDeletedCampaigns })
     const filtersChanged = filterKeyRef.current !== filterKey
     filterKeyRef.current = filterKey
 
@@ -299,7 +309,7 @@ export default function CampaignsPage() {
       const nextPage = filtersChanged ? 1 : prev
       return nextPage > totalPages ? totalPages : nextPage
     })
-  }, [campaigns, searchQuery, statusFilter, sortField, sortDirection, pageSize])
+  }, [campaigns, searchQuery, statusFilter, sortField, sortDirection, pageSize, showDeletedCampaigns])
 
   const fetchCampaigns = async (currencyOverride?: string) => {
     try {
@@ -375,8 +385,8 @@ export default function CampaignsPage() {
 
   const handleDelete = async (campaignId: number, campaignName: string) => {
     const confirmed = await showConfirm(
-      '确认删除',
-      `确定要删除广告系列"${campaignName}"吗？`
+      '确认删除草稿',
+      `确定要删除草稿广告系列"${campaignName}"吗？`
     )
 
     if (!confirmed) {
@@ -397,13 +407,81 @@ export default function CampaignsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.error || '删除失败')
+        throw new Error(data.error || '删除草稿失败')
       }
 
       fetchCampaigns()
     } catch (err: any) {
-      showError('删除失败', err.message)
+      showError('删除草稿失败', err.message)
     }
+  }
+
+  const runOfflineForCampaign = async (
+    campaign: Campaign,
+    options?: {
+      forceLocalOffline?: boolean
+      blacklistOffer?: boolean
+      pauseClickFarmTasks?: boolean
+      pauseUrlSwapTasks?: boolean
+      removeGoogleAdsCampaign?: boolean
+    }
+  ): Promise<{ success: boolean; message?: string }> => {
+    const response = await fetch(`/api/campaigns/${campaign.id}/offline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        blacklistOffer: options?.blacklistOffer ?? false,
+        pauseClickFarmTasks: options?.pauseClickFarmTasks ?? false,
+        pauseUrlSwapTasks: options?.pauseUrlSwapTasks ?? false,
+        removeGoogleAdsCampaign: options?.removeGoogleAdsCampaign ?? false,
+        forceLocalOffline: options?.forceLocalOffline ?? false,
+      }),
+    })
+
+    if (response.status === 401) {
+      handleUnauthorized()
+      throw new Error('UNAUTHORIZED')
+    }
+
+    const data = await response.json().catch(() => null)
+    if (!response.ok) {
+      const message = data?.error || data?.message || '下线失败'
+      return { success: false, message }
+    }
+
+    return { success: true }
+  }
+
+  const mapBatchOfflineFailureCategory = (message: string): string => {
+    if (message.includes('尚未发布到Google Ads')) return '未发布到 Google Ads'
+    if (message.includes('关联Offer已删除')) return '关联 Offer 已删除'
+    if (message.includes('账号状态异常') || message.includes('Ads账号') || message.includes('Ads 账号')) return 'Ads 账号异常'
+    if (message.includes('已下线') || message.includes('已删除')) return '已下线/已删除'
+    if (message.includes('未授权') || message.includes('UNAUTHORIZED')) return '登录状态失效'
+    if (message.includes('网络')) return '网络错误'
+    return '其他错误'
+  }
+
+  const buildBatchOfflineFailureSummary = (
+    failures: Array<{ campaignName: string; message: string }>
+  ): string => {
+    const grouped = new Map<string, { count: number; samples: string[] }>()
+
+    failures.forEach((failure) => {
+      const category = mapBatchOfflineFailureCategory(failure.message)
+      const current = grouped.get(category) || { count: 0, samples: [] }
+      current.count += 1
+      if (current.samples.length < 2) {
+        current.samples.push(failure.campaignName)
+      }
+      grouped.set(category, current)
+    })
+
+    return Array.from(grouped.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([category, info]) => `- ${category}: ${info.count} 个（示例：${info.samples.join('、')}）`)
+      .join('\n')
   }
 
   const openToggleStatusConfirm = (campaign: Campaign) => {
@@ -550,6 +628,89 @@ export default function CampaignsPage() {
     }
   }
 
+  const handleBatchOffline = async () => {
+    if (selectedCampaignIds.size === 0) return
+
+    const selectedCampaigns = campaigns.filter((campaign) => selectedCampaignIds.has(campaign.id))
+
+    const confirmed = await showConfirm(
+      '确认批量下线',
+      `确定要下线选中的 ${selectedCampaigns.length} 个广告系列吗？此操作不可恢复。`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setBatchOfflineSubmitting(true)
+
+      const offlinePromises = selectedCampaigns.map(async (campaign) => {
+        const result = await runOfflineForCampaign(campaign)
+        return {
+          id: campaign.id,
+          campaignName: campaign.campaignName,
+          result,
+        }
+      })
+
+      const results = await Promise.allSettled(offlinePromises)
+      const failures: Array<{ campaignName: string; message: string }> = []
+      let successCount = 0
+      let unauthorizedDetected = false
+
+      results.forEach((item) => {
+        if (item.status === 'rejected') {
+          if (item.reason?.message === 'UNAUTHORIZED') {
+            unauthorizedDetected = true
+            return
+          }
+          failures.push({
+            campaignName: '未知广告系列',
+            message: item.reason?.message || '网络错误',
+          })
+          return
+        }
+
+        const { campaignName, result } = item.value
+        if (!result.success) {
+          failures.push({
+            campaignName,
+            message: result.message || '下线失败',
+          })
+          return
+        }
+
+        successCount += 1
+      })
+
+      if (unauthorizedDetected) {
+        return
+      }
+
+      if (failures.length > 0) {
+        await fetchCampaigns()
+        if (successCount > 0) {
+          showSuccess('批量下线部分成功', `已下线 ${successCount} 个广告系列`)
+        }
+        const groupedSummary = buildBatchOfflineFailureSummary(failures)
+        showError(
+          '批量下线失败',
+          `${failures.length}/${selectedCampaigns.length} 个广告系列下线失败：\n${groupedSummary}`
+        )
+        return
+      }
+
+      await fetchCampaigns()
+      setSelectedCampaignIds(new Set())
+      showSuccess('批量下线成功', `已下线 ${selectedCampaigns.length} 个广告系列`)
+    } catch (err: any) {
+      showError('批量下线失败', err.message || '网络错误')
+    } finally {
+      setBatchOfflineSubmitting(false)
+    }
+  }
+
   const confirmOfflineLocalOnly = async () => {
     if (!offlineTarget || offlineSubmitting) return
     const campaign = offlineTarget
@@ -687,77 +848,6 @@ export default function CampaignsPage() {
     }
   }
 
-  // 批量删除处理函数
-  const handleBatchDelete = async () => {
-    if (selectedCampaignIds.size === 0) return
-
-    try {
-      setBatchDeleting(true)
-      setBatchDeleteError(null)
-
-      // 并行删除所有选中的campaigns
-      const deletePromises = Array.from(selectedCampaignIds).map(async (id) => {
-        const response = await fetch(`/api/campaigns/${id}`, {
-          method: 'DELETE',
-          credentials: 'include',
-        })
-
-        // 处理401未授权 - 跳转到登录页
-        if (response.status === 401) {
-          handleUnauthorized()
-          throw new Error('UNAUTHORIZED')
-        }
-
-        const data = await response.json()
-        return { id, response, data }
-      })
-
-      const results = await Promise.allSettled(deletePromises)
-
-      // 检查是否有401错误
-      const hasUnauthorized = results.some(
-        (r) => r.status === 'fulfilled' && r.value.response.status === 401
-      )
-      if (hasUnauthorized) {
-        return // handleUnauthorized 已经在循环中调用
-      }
-
-      // 收集所有错误
-      const errors: string[] = []
-
-      results.forEach((result) => {
-        if (result.status === 'rejected') {
-          // 跳过401错误（已经在循环中处理）
-          if (result.reason?.message === 'UNAUTHORIZED') return
-          errors.push(result.reason?.message || '网络错误')
-        } else if (result.status === 'fulfilled') {
-          const { response, data, id } = result.value
-          if (!response.ok) {
-            const campaignInfo = campaigns.find(c => c.id === id)?.campaignName || `ID:${id}`
-            errors.push(`${campaignInfo}: ${data.error || '删除失败'}`)
-          }
-        }
-      })
-
-      if (errors.length > 0) {
-        setBatchDeleteError(`${errors.length}/${selectedCampaignIds.size} 个广告系列删除失败：\n${errors.join('\n')}`)
-        await fetchCampaigns()
-        return
-      }
-
-      // 全部删除成功
-      await fetchCampaigns()
-      setSelectedCampaignIds(new Set())
-      setIsBatchDeleteDialogOpen(false)
-      setBatchDeleteError(null)
-      showSuccess('删除成功', `已删除 ${selectedCampaignIds.size} 个广告系列`)
-    } catch (err: any) {
-      setBatchDeleteError(err.message || '批量删除失败')
-    } finally {
-      setBatchDeleting(false)
-    }
-  }
-
   // 获取当前页的广告系列
   const paginatedCampaigns = filteredCampaigns.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
@@ -864,19 +954,22 @@ export default function CampaignsPage() {
             <div className="flex items-center gap-4">
               <h1 className="text-2xl font-bold text-gray-900">广告系列管理</h1>
               <Badge variant="outline" className="text-sm">
-                {campaigns.length}
+                {visibleCampaignCount}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
-              {/* 批量删除按钮 - 有选中项时显示 */}
-              {selectedCampaignIds.size > 0 && (
+              {/* 批量下线按钮 - 有选中项时显示 */}
+              {hasBatchOfflineSelection && (
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => setIsBatchDeleteDialogOpen(true)}
+                  onClick={() => void handleBatchOffline()}
+                  disabled={batchOfflineSubmitting}
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  删除 ({selectedCampaignIds.size})
+                  <XCircle className="w-4 h-4 mr-2" />
+                  {batchOfflineSubmitting
+                    ? '批量下线中...'
+                    : `批量下线 (${selectedCampaignIds.size})`}
                 </Button>
               )}
               <Button onClick={() => router.push('/offers')}>
@@ -1190,6 +1283,18 @@ export default function CampaignsPage() {
                   <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
                 </SelectContent>
               </Select>
+
+              <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
+                <Checkbox
+                  id="show-deleted-campaigns"
+                  checked={showDeletedCampaigns}
+                  onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
+                  aria-label="显示已删除广告系列"
+                />
+                <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
+                  显示已删除
+                </label>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1209,11 +1314,11 @@ export default function CampaignsPage() {
             </div>
             <h3 className="text-lg font-medium text-gray-900">未找到广告系列</h3>
             <p className="mt-2 text-sm text-gray-500">
-              {campaigns.length === 0
+              {activeCampaignCount === 0
                 ? "您还没有创建任何广告系列，请前往Offer列表创建。"
                 : "没有找到符合筛选条件的广告系列。"}
             </p>
-            {campaigns.length === 0 && (
+            {activeCampaignCount === 0 && (
               <div className="mt-6">
                 <Button onClick={() => router.push('/offers')}>
                   前往Offer列表
@@ -1231,7 +1336,10 @@ export default function CampaignsPage() {
                       {/* 全选checkbox */}
                       <TableHead className="w-[50px]">
                         <Checkbox
-                          checked={paginatedCampaigns.length > 0 && paginatedCampaigns.every(c => selectedCampaignIds.has(c.id))}
+                          checked={
+                            paginatedCampaigns.length > 0 &&
+                            paginatedCampaigns.every((campaign) => selectedCampaignIds.has(campaign.id))
+                          }
                           onCheckedChange={handleSelectAll}
                           aria-label="全选"
                         />
@@ -1250,13 +1358,13 @@ export default function CampaignsPage() {
                     </TableRow>
                   </TableHeader>
                 <TableBody>
-		                  {paginatedCampaigns.map((campaign) => {
-		                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
-		                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
-		                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-		                    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+	                  {paginatedCampaigns.map((campaign) => {
+	                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
+	                    const isDeleted = isCampaignDeleted(campaign)
+	                    const offerDeleted = isOfferDeleted(campaign)
+	                    const googleCampaignId = getCampaignGoogleId(campaign)
                         const isStatusUpdating = statusUpdatingIds.has(campaign.id)
-		                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
+	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
 
 		                    return (
 	                    <TableRow
@@ -1269,7 +1377,7 @@ export default function CampaignsPage() {
                           checked={selectedCampaignIds.has(campaign.id)}
                           onCheckedChange={(checked) => handleSelectCampaign(campaign.id, checked as boolean)}
                           aria-label={`选择 ${campaign.campaignName}`}
-                          disabled={isDeleted || offerDeleted}
+                          title="加入批量下线"
                         />
                       </TableCell>
                       <TableCell>
@@ -1471,7 +1579,7 @@ export default function CampaignsPage() {
                               variant="ghost"
                               onClick={() => handleDelete(campaign.id, campaign.campaignName)}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="删除广告系列"
+                              title="删除草稿广告系列"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -1578,50 +1686,6 @@ export default function CampaignsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-	      {/* Batch Delete Confirmation Dialog */}
-	      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
-	        setIsBatchDeleteDialogOpen(open)
-	        if (!open) setBatchDeleteError(null)
-      }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>您确定要删除选中的 <strong className="text-gray-900">{selectedCampaignIds.size}</strong> 个广告系列吗？</p>
-                {/* 批量删除错误提示 */}
-                {batchDeleteError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-                    <p className="font-medium mb-1">删除失败</p>
-                    <p className="whitespace-pre-line">{batchDeleteError}</p>
-                  </div>
-                )}
-                {!batchDeleteError && (
-	                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-	                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
-	                    <ul className="list-disc list-inside space-y-1 ml-2">
-	                      <li>已发布到Google Ads的广告系列无法删除</li>
-	                      <li>此操作不可撤销</li>
-	                    </ul>
-	                  </div>
-	                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={batchDeleting} onClick={() => setBatchDeleteError(null)}>取消</AlertDialogCancel>
-            <Button
-              onClick={handleBatchDelete}
-              disabled={batchDeleting}
-              variant="destructive"
-            >
-              {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
 
       {/* Offline Confirmation Dialog */}
       <AlertDialog

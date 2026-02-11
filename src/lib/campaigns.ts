@@ -277,30 +277,68 @@ export async function updateCampaign(
   return findCampaignById(id, userId)
 }
 
+export type DeleteCampaignResult =
+  | { success: true }
+  | {
+      success: false
+      reason: 'NOT_FOUND' | 'NOT_DRAFT' | 'ALREADY_DELETED'
+    }
+
 /**
- * 删除广告系列（软删除，保留历史数据）
+ * 删除广告系列（仅草稿可删，软删除保留历史数据）
  */
-export async function deleteCampaign(id: number, userId: number): Promise<boolean> {
+export async function deleteCampaign(id: number, userId: number): Promise<DeleteCampaignResult> {
   const db = await getDatabase()
+
+  const campaign = await db.queryOne(
+    `
+      SELECT creation_status, is_deleted
+      FROM campaigns
+      WHERE id = ? AND user_id = ?
+      LIMIT 1
+    `,
+    [id, userId]
+  ) as
+    | {
+        creation_status: string | null
+        is_deleted: any
+      }
+    | undefined
+
+  if (!campaign) {
+    return { success: false, reason: 'NOT_FOUND' }
+  }
+
+  const isDeleted = campaign.is_deleted === true || campaign.is_deleted === 1
+  if (isDeleted) {
+    return { success: false, reason: 'ALREADY_DELETED' }
+  }
+
+  if (String(campaign.creation_status || '').toLowerCase() !== 'draft') {
+    return { success: false, reason: 'NOT_DRAFT' }
+  }
 
   // 🔧 修复: 使用软删除而非物理删除，保留历史performance数据
   const db_type = db.type
   const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime("now")'
   const isDeletedTrue = db_type === 'postgres' ? 'true' : '1'
+  const isDeletedFalse = db_type === 'postgres' ? 'FALSE' : '0'
 
   const result = await db.exec(`
     UPDATE campaigns
     SET is_deleted = ${isDeletedTrue},
         deleted_at = ${nowFunc},
         status = 'REMOVED'
-    WHERE id = ? AND user_id = ?
+    WHERE id = ? AND user_id = ? AND is_deleted = ${isDeletedFalse}
   `, [id, userId])
 
-  if (result.changes > 0) {
-    await markUrlSwapTargetsRemovedByCampaignId(id, userId)
+  if (result.changes <= 0) {
+    return { success: false, reason: 'NOT_FOUND' }
   }
 
-  return result.changes > 0
+  await markUrlSwapTargetsRemovedByCampaignId(id, userId)
+
+  return { success: true }
 }
 
 /**

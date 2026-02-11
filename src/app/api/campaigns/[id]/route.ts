@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 /**
  * DELETE /api/campaigns/:id
- * 删除广告系列
+ * 删除广告系列（仅草稿）
  */
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -119,9 +119,27 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = await deleteCampaign(parseInt(id, 10), parseInt(userId, 10))
+    const result = await deleteCampaign(parseInt(id, 10), parseInt(userId, 10))
 
-    if (!success) {
+    if (!result.success) {
+      if (result.reason === 'NOT_DRAFT') {
+        return NextResponse.json(
+          {
+            error: '仅草稿广告系列支持删除，请使用下线功能处理已发布广告系列',
+          },
+          { status: 409 }
+        )
+      }
+
+      if (result.reason === 'ALREADY_DELETED') {
+        return NextResponse.json(
+          {
+            error: '该广告系列已删除',
+          },
+          { status: 409 }
+        )
+      }
+
       return NextResponse.json(
         {
           error: '广告系列不存在或无权访问',
