@@ -102,6 +102,29 @@ interface PerformanceSummary {
   }
 }
 
+type OfflineActionResult =
+  | { status: 'success' }
+  | { status: 'error'; message: string }
+  | { status: 'account_issue'; message: string; accountStatus?: string }
+
+type BatchOfflineFailure = {
+  campaignName: string
+  message: string
+}
+
+type BatchOfflineAccountIssue = {
+  campaign: Campaign
+  message: string
+  accountStatus?: string
+}
+
+type BatchOfflinePendingState = {
+  totalCount: number
+  successCount: number
+  failures: BatchOfflineFailure[]
+  accountIssues: BatchOfflineAccountIssue[]
+}
+
 export default function CampaignsPage() {
   const router = useRouter()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -137,6 +160,13 @@ export default function CampaignsPage() {
   // Batch offline states
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
   const [batchOfflineSubmitting, setBatchOfflineSubmitting] = useState(false)
+  const [isBatchOfflineDialogOpen, setIsBatchOfflineDialogOpen] = useState(false)
+  const [isBatchOfflineAccountIssueDialogOpen, setIsBatchOfflineAccountIssueDialogOpen] = useState(false)
+  const [batchOfflinePendingState, setBatchOfflinePendingState] = useState<BatchOfflinePendingState | null>(null)
+  const [batchOfflineBlacklistOffer, setBatchOfflineBlacklistOffer] = useState(false)
+  const [batchOfflinePauseClickFarm, setBatchOfflinePauseClickFarm] = useState(false)
+  const [batchOfflinePauseUrlSwap, setBatchOfflinePauseUrlSwap] = useState(false)
+  const [batchOfflineRemoveGoogleAds, setBatchOfflineRemoveGoogleAds] = useState(false)
 
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
@@ -177,6 +207,18 @@ export default function CampaignsPage() {
   const visibleCampaignCount = campaigns.filter((campaign) => showDeletedCampaigns || !isCampaignDeleted(campaign)).length
   const hasBatchOfflineSelection = selectedCampaignIds.size > 0
   const activeCampaignCount = campaigns.filter((campaign) => !isCampaignDeleted(campaign)).length
+
+  const resetBatchOfflineOptions = () => {
+    setBatchOfflineBlacklistOffer(false)
+    setBatchOfflinePauseClickFarm(false)
+    setBatchOfflinePauseUrlSwap(false)
+    setBatchOfflineRemoveGoogleAds(false)
+  }
+
+  const resetBatchOfflineState = () => {
+    setBatchOfflinePendingState(null)
+    resetBatchOfflineOptions()
+  }
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -425,7 +467,7 @@ export default function CampaignsPage() {
       pauseUrlSwapTasks?: boolean
       removeGoogleAdsCampaign?: boolean
     }
-  ): Promise<{ success: boolean; message?: string }> => {
+  ): Promise<OfflineActionResult> => {
     const response = await fetch(`/api/campaigns/${campaign.id}/offline`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -445,12 +487,24 @@ export default function CampaignsPage() {
     }
 
     const data = await response.json().catch(() => null)
-    if (!response.ok) {
-      const message = data?.error || data?.message || '下线失败'
-      return { success: false, message }
+
+    if (response.status === 422 && data?.action === 'ACCOUNT_STATUS_NOT_USABLE') {
+      const accountStatus = data?.details?.accountStatus
+      return {
+        status: 'account_issue',
+        message: data?.message || '账号状态异常，无法在 Google Ads 中暂停/删除广告系列。',
+        accountStatus: accountStatus ? String(accountStatus) : undefined,
+      }
     }
 
-    return { success: true }
+    if (!response.ok) {
+      return {
+        status: 'error',
+        message: data?.error || data?.message || '下线失败',
+      }
+    }
+
+    return { status: 'success' }
   }
 
   const mapBatchOfflineFailureCategory = (message: string): string => {
@@ -463,9 +517,7 @@ export default function CampaignsPage() {
     return '其他错误'
   }
 
-  const buildBatchOfflineFailureSummary = (
-    failures: Array<{ campaignName: string; message: string }>
-  ): string => {
+  const buildBatchOfflineFailureSummary = (failures: BatchOfflineFailure[]): string => {
     const grouped = new Map<string, { count: number; samples: string[] }>()
 
     failures.forEach((failure) => {
@@ -482,6 +534,93 @@ export default function CampaignsPage() {
       .sort((a, b) => b[1].count - a[1].count)
       .map(([category, info]) => `- ${category}: ${info.count} 个（示例：${info.samples.join('、')}）`)
       .join('\n')
+  }
+
+  const getSelectedCampaigns = () => campaigns.filter((campaign) => selectedCampaignIds.has(campaign.id))
+
+  const buildBatchAccountStatusSummary = (accountIssues: BatchOfflineAccountIssue[]): string | null => {
+    if (accountIssues.length === 0) return null
+
+    const grouped = new Map<string, number>()
+    accountIssues.forEach((item) => {
+      const status = item.accountStatus || 'UNKNOWN'
+      grouped.set(status, (grouped.get(status) || 0) + 1)
+    })
+
+    return Array.from(grouped.entries())
+      .map(([status, count]) => `${status}（${count}个）`)
+      .join('，')
+  }
+
+  const buildBatchAccountIssueSampleNames = (
+    accountIssues: BatchOfflineAccountIssue[],
+    limit: number = 3
+  ): string => accountIssues.slice(0, limit).map((item) => item.campaign.campaignName).join('、')
+
+  const executeBatchOffline = async (
+    selectedCampaigns: Campaign[],
+    options: {
+      forceLocalOffline?: boolean
+      blacklistOffer: boolean
+      pauseClickFarmTasks: boolean
+      pauseUrlSwapTasks: boolean
+      removeGoogleAdsCampaign: boolean
+    }
+  ) => {
+    const offlinePromises = selectedCampaigns.map(async (campaign) => ({
+      campaign,
+      result: await runOfflineForCampaign(campaign, options),
+    }))
+
+    const results = await Promise.allSettled(offlinePromises)
+    const failures: BatchOfflineFailure[] = []
+    const accountIssues: BatchOfflineAccountIssue[] = []
+    let successCount = 0
+    let unauthorizedDetected = false
+
+    results.forEach((item, index) => {
+      const fallbackCampaign = selectedCampaigns[index]
+
+      if (item.status === 'rejected') {
+        if (item.reason?.message === 'UNAUTHORIZED') {
+          unauthorizedDetected = true
+          return
+        }
+
+        failures.push({
+          campaignName: fallbackCampaign?.campaignName || '未知广告系列',
+          message: item.reason?.message || '网络错误',
+        })
+        return
+      }
+
+      const { campaign, result } = item.value
+      if (result.status === 'success') {
+        successCount += 1
+        return
+      }
+
+      if (result.status === 'account_issue') {
+        accountIssues.push({
+          campaign,
+          message: result.message,
+          accountStatus: result.accountStatus,
+        })
+        return
+      }
+
+      failures.push({
+        campaignName: campaign.campaignName,
+        message: result.message,
+      })
+    })
+
+    return {
+      successCount,
+      failures,
+      accountIssues,
+      unauthorizedDetected,
+    }
   }
 
   const openToggleStatusConfirm = (campaign: Campaign) => {
@@ -628,86 +767,133 @@ export default function CampaignsPage() {
     }
   }
 
+  const handleOpenBatchOfflineDialog = () => {
+    if (!hasBatchOfflineSelection || batchOfflineSubmitting) return
+
+    resetBatchOfflineState()
+    setIsBatchOfflineDialogOpen(true)
+  }
+
   const handleBatchOffline = async () => {
-    if (selectedCampaignIds.size === 0) return
+    if (selectedCampaignIds.size === 0 || batchOfflineSubmitting) return
 
-    const selectedCampaigns = campaigns.filter((campaign) => selectedCampaignIds.has(campaign.id))
-
-    const confirmed = await showConfirm(
-      '确认批量下线',
-      `确定要下线选中的 ${selectedCampaigns.length} 个广告系列吗？此操作不可恢复。`
-    )
-
-    if (!confirmed) {
+    const selectedCampaigns = getSelectedCampaigns()
+    if (selectedCampaigns.length === 0) {
+      showError('批量下线失败', '未找到可操作的广告系列')
       return
     }
 
+    setBatchOfflineSubmitting(true)
+    setIsBatchOfflineDialogOpen(false)
+
     try {
-      setBatchOfflineSubmitting(true)
-
-      const offlinePromises = selectedCampaigns.map(async (campaign) => {
-        const result = await runOfflineForCampaign(campaign)
-        return {
-          id: campaign.id,
-          campaignName: campaign.campaignName,
-          result,
-        }
+      const execution = await executeBatchOffline(selectedCampaigns, {
+        blacklistOffer: batchOfflineBlacklistOffer,
+        pauseClickFarmTasks: batchOfflinePauseClickFarm,
+        pauseUrlSwapTasks: batchOfflinePauseUrlSwap,
+        removeGoogleAdsCampaign: batchOfflineRemoveGoogleAds,
       })
 
-      const results = await Promise.allSettled(offlinePromises)
-      const failures: Array<{ campaignName: string; message: string }> = []
-      let successCount = 0
-      let unauthorizedDetected = false
-
-      results.forEach((item) => {
-        if (item.status === 'rejected') {
-          if (item.reason?.message === 'UNAUTHORIZED') {
-            unauthorizedDetected = true
-            return
-          }
-          failures.push({
-            campaignName: '未知广告系列',
-            message: item.reason?.message || '网络错误',
-          })
-          return
-        }
-
-        const { campaignName, result } = item.value
-        if (!result.success) {
-          failures.push({
-            campaignName,
-            message: result.message || '下线失败',
-          })
-          return
-        }
-
-        successCount += 1
-      })
-
-      if (unauthorizedDetected) {
-        return
-      }
-
-      if (failures.length > 0) {
-        await fetchCampaigns()
-        if (successCount > 0) {
-          showSuccess('批量下线部分成功', `已下线 ${successCount} 个广告系列`)
-        }
-        const groupedSummary = buildBatchOfflineFailureSummary(failures)
-        showError(
-          '批量下线失败',
-          `${failures.length}/${selectedCampaigns.length} 个广告系列下线失败：\n${groupedSummary}`
-        )
+      if (execution.unauthorizedDetected) {
         return
       }
 
       await fetchCampaigns()
+
+      if (execution.accountIssues.length > 0) {
+        setBatchOfflinePendingState({
+          totalCount: selectedCampaigns.length,
+          successCount: execution.successCount,
+          failures: execution.failures,
+          accountIssues: execution.accountIssues,
+        })
+        setIsBatchOfflineAccountIssueDialogOpen(true)
+        return
+      }
+
+      if (execution.failures.length > 0) {
+        if (execution.successCount > 0) {
+          showSuccess('批量下线部分成功', `已下线 ${execution.successCount} 个广告系列`)
+        }
+        const groupedSummary = buildBatchOfflineFailureSummary(execution.failures)
+        showError(
+          '批量下线失败',
+          `${execution.failures.length}/${selectedCampaigns.length} 个广告系列下线失败：\n${groupedSummary}`
+        )
+        return
+      }
+
       setSelectedCampaignIds(new Set())
+      resetBatchOfflineState()
       showSuccess('批量下线成功', `已下线 ${selectedCampaigns.length} 个广告系列`)
     } catch (err: any) {
-      showError('批量下线失败', err.message || '网络错误')
+      showError('批量下线失败', err?.message || '网络错误')
     } finally {
       setBatchOfflineSubmitting(false)
+    }
+  }
+
+  const confirmBatchOfflineLocalOnly = async () => {
+    if (!batchOfflinePendingState || batchOfflineSubmitting) return
+
+    const pendingState = batchOfflinePendingState
+    const accountIssueCampaigns = pendingState.accountIssues.map((item) => item.campaign)
+
+    if (accountIssueCampaigns.length === 0) {
+      setIsBatchOfflineAccountIssueDialogOpen(false)
+      resetBatchOfflineState()
+      return
+    }
+
+    setBatchOfflineSubmitting(true)
+    setIsBatchOfflineAccountIssueDialogOpen(false)
+
+    try {
+      const retry = await executeBatchOffline(accountIssueCampaigns, {
+        forceLocalOffline: true,
+        blacklistOffer: batchOfflineBlacklistOffer,
+        pauseClickFarmTasks: batchOfflinePauseClickFarm,
+        pauseUrlSwapTasks: batchOfflinePauseUrlSwap,
+        removeGoogleAdsCampaign: batchOfflineRemoveGoogleAds,
+      })
+
+      if (retry.unauthorizedDetected) {
+        return
+      }
+
+      const combinedFailures: BatchOfflineFailure[] = [...pendingState.failures, ...retry.failures]
+      if (retry.accountIssues.length > 0) {
+        retry.accountIssues.forEach((item) => {
+          combinedFailures.push({
+            campaignName: item.campaign.campaignName,
+            message: item.message || '账号状态异常，且本地下线未完成',
+          })
+        })
+      }
+
+      const combinedSuccessCount = pendingState.successCount + retry.successCount
+
+      await fetchCampaigns()
+
+      if (combinedFailures.length > 0) {
+        if (combinedSuccessCount > 0) {
+          showSuccess('批量下线部分成功', `已下线 ${combinedSuccessCount} 个广告系列`)
+        }
+        const groupedSummary = buildBatchOfflineFailureSummary(combinedFailures)
+        showError(
+          '批量下线失败',
+          `${combinedFailures.length}/${pendingState.totalCount} 个广告系列下线失败：\n${groupedSummary}`
+        )
+        return
+      }
+
+      setSelectedCampaignIds(new Set())
+      showSuccess('批量下线成功', `已下线 ${combinedSuccessCount} 个广告系列`)
+    } catch (err: any) {
+      showError('批量下线失败', err?.message || '网络错误')
+    } finally {
+      setBatchOfflineSubmitting(false)
+      resetBatchOfflineState()
     }
   }
 
@@ -963,7 +1149,7 @@ export default function CampaignsPage() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => void handleBatchOffline()}
+                  onClick={handleOpenBatchOfflineDialog}
                   disabled={batchOfflineSubmitting}
                 >
                   <XCircle className="w-4 h-4 mr-2" />
@@ -1686,6 +1872,168 @@ export default function CampaignsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+      {/* Batch Offline Confirmation Dialog */}
+      <AlertDialog
+        open={isBatchOfflineDialogOpen}
+        onOpenChange={(open) => {
+          setIsBatchOfflineDialogOpen(open)
+          if (!open && !batchOfflineSubmitting) {
+            resetBatchOfflineState()
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量下线广告系列</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要下线选中的{' '}
+                  <strong className="text-gray-900">{selectedCampaignIds.size}</strong>{' '}
+                  个广告系列吗？
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  <p className="font-medium mb-1">批量下线将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>逐个下线选中的广告系列</li>
+                    <li>在 Google Ads 中暂停这些广告系列（可选删除）</li>
+                    <li>此操作不可恢复</li>
+                  </ul>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={batchOfflineRemoveGoogleAds}
+                    onCheckedChange={(checked) => setBatchOfflineRemoveGoogleAds(Boolean(checked))}
+                    id="batch-offline-remove-google-ads"
+                  />
+                  <label htmlFor="batch-offline-remove-google-ads" className="text-sm text-gray-700">
+                    同时在 Google Ads 中删除这些广告系列（不可恢复）
+                  </label>
+                </div>
+                <div className="text-sm font-semibold text-red-700">
+                  以下选项会影响对应 Offer
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={batchOfflineBlacklistOffer}
+                    onCheckedChange={(checked) => setBatchOfflineBlacklistOffer(Boolean(checked))}
+                    id="batch-offline-blacklist-offer"
+                  />
+                  <label htmlFor="batch-offline-blacklist-offer" className="text-sm text-gray-700">
+                    同时拉黑对应 Offer（品牌+国家组合）
+                  </label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={batchOfflinePauseClickFarm}
+                    onCheckedChange={(checked) => setBatchOfflinePauseClickFarm(Boolean(checked))}
+                    id="batch-offline-pause-click-farm"
+                  />
+                  <label htmlFor="batch-offline-pause-click-farm" className="text-sm text-gray-700">
+                    同时暂停补点击任务
+                  </label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={batchOfflinePauseUrlSwap}
+                    onCheckedChange={(checked) => setBatchOfflinePauseUrlSwap(Boolean(checked))}
+                    id="batch-offline-pause-url-swap"
+                  />
+                  <label htmlFor="batch-offline-pause-url-swap" className="text-sm text-gray-700">
+                    同时暂停换链接任务
+                  </label>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchOfflineSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void handleBatchOffline()}
+              disabled={batchOfflineSubmitting || selectedCampaignIds.size === 0}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {batchOfflineSubmitting ? '下线中...' : `确认批量下线 (${selectedCampaignIds.size})`}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Offline Account Issue Dialog */}
+      <AlertDialog
+        open={isBatchOfflineAccountIssueDialogOpen}
+        onOpenChange={(open) => {
+          setIsBatchOfflineAccountIssueDialogOpen(open)
+          if (!open && !batchOfflineSubmitting) {
+            resetBatchOfflineState()
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>部分账号状态异常</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  有{' '}
+                  <strong className="text-gray-900">{batchOfflinePendingState?.accountIssues.length || 0}</strong>{' '}
+                  个广告系列因 Ads 账号状态异常，无法在 Google Ads 中{batchOfflineRemoveGoogleAds ? '删除' : '暂停'}。
+                </p>
+                <p>
+                  {batchOfflinePendingState?.accountIssues[0]?.message || '是否继续仅本地下线这些广告系列？'}
+                </p>
+                {batchOfflinePendingState && batchOfflinePendingState.accountIssues.length > 0 && (
+                  <div className="text-sm text-gray-700">
+                    示例广告系列：
+                    <strong>{buildBatchAccountIssueSampleNames(batchOfflinePendingState.accountIssues)}</strong>
+                  </div>
+                )}
+                {batchOfflinePendingState && buildBatchAccountStatusSummary(batchOfflinePendingState.accountIssues) && (
+                  <div className="text-sm text-gray-700">
+                    账号状态分布：
+                    <strong>{buildBatchAccountStatusSummary(batchOfflinePendingState.accountIssues)}</strong>
+                  </div>
+                )}
+                {batchOfflinePendingState && batchOfflinePendingState.failures.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                    已有 {batchOfflinePendingState.failures.length} 个广告系列因其他原因下线失败，
+                    将在本次完成后统一汇总提示。
+                  </div>
+                )}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                  <p className="font-medium mb-1">继续本地下线将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>仅在本地标记这些广告系列为已下线</li>
+                    <li>无法保证 Google Ads 侧立即停止投放</li>
+                    <li>请尽快登录 Google Ads 处理账号状态与广告系列</li>
+                  </ul>
+                </div>
+                <div className="text-sm font-semibold text-red-700">
+                  以下选项会影响对应 Offer
+                </div>
+                <div className="text-sm text-gray-700">
+                  当前选择：
+                  Google Ads 侧{batchOfflineRemoveGoogleAds ? '删除' : '暂停'}，
+                  {batchOfflineBlacklistOffer ? '拉黑Offer' : '不拉黑Offer'}，
+                  {batchOfflinePauseClickFarm ? '暂停补点击任务' : '不暂停补点击任务'}，
+                  {batchOfflinePauseUrlSwap ? '暂停换链接任务' : '不暂停换链接任务'}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchOfflineSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void confirmBatchOfflineLocalOnly()}
+              disabled={batchOfflineSubmitting || !batchOfflinePendingState}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {batchOfflineSubmitting ? '处理中...' : '仅本地下线异常项'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Offline Confirmation Dialog */}
       <AlertDialog
