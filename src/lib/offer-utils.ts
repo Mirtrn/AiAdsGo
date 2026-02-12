@@ -306,22 +306,19 @@ export function normalizeBrandName(brand: string): string {
 export async function generateOfferName(
   brandName: string,
   countryCode: string,
-  userId: number,
-  excludeOfferId?: number
+  userId: number
 ): Promise<string> {
   const db = await getDatabase()
 
   // 🔥 修复：查询该用户下同品牌同国家的Offer数量（排除软删除）
-  const countSql = `
+  const result = await db.queryOne<{ count: number | string }>(
+    `
     SELECT COUNT(*) as count
     FROM offers
     WHERE user_id = ? AND brand = ? AND target_country = ? AND deleted_at IS NULL
-    ${excludeOfferId ? 'AND id != ?' : ''}
-  `
-  const countParams = excludeOfferId
-    ? [userId, brandName, countryCode, excludeOfferId]
-    : [userId, brandName, countryCode]
-  const result = await db.queryOne<{ count: number | string }>(countSql, countParams)
+  `,
+    [userId, brandName, countryCode]
+  )
 
   // 🔥 修复：显式转换为数字（PostgreSQL bigint可能返回字符串）
   const existingCount = Number(result?.count) || 0
@@ -335,16 +332,10 @@ export async function generateOfferName(
     const proposedName = `${brandName}_${countryCode}_${sequence}`
 
     // 检查是否已存在（包括软删除的，避免历史冲突）
-    const existsSql = `
-      SELECT COUNT(*) as count
-      FROM offers
-      WHERE user_id = ? AND offer_name = ?
-      ${excludeOfferId ? 'AND id != ?' : ''}
-    `
-    const existsParams = excludeOfferId
-      ? [userId, proposedName, excludeOfferId]
-      : [userId, proposedName]
-    const existing = await db.queryOne<{ count: number | string }>(existsSql, existsParams)
+    const existing = await db.queryOne<{ count: number | string }>(
+      `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ?`,
+      [userId, proposedName]
+    )
 
     const existingNameCount = Number(existing?.count) || 0
 
