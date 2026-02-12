@@ -669,11 +669,105 @@ export interface KeywordQualityFilterOptions {
   minContextTokenMatches?: number
 }
 
+const RELEVANCE_PHRASE_NORMALIZERS: Array<{ pattern: RegExp; replacement: string }> = [
+  // Normalize common multi-word product forms to a single token to improve context matching.
+  { pattern: /\brobot(?:ic)?\s+vacuum(?:s)?\b/giu, replacement: ' vacuum ' },
+  { pattern: /\brobo[\s-]?vac(?:s)?\b/giu, replacement: ' vacuum ' },
+  { pattern: /\bsound[\s-]?bar(?:s)?\b/giu, replacement: ' speaker ' },
+  { pattern: /\bdash[\s-]?cam(?:s)?\b/giu, replacement: ' camera ' },
+  { pattern: /\bpower[\s-]?bank(?:s)?\b/giu, replacement: ' powerbank ' },
+]
+
+const RELEVANCE_TOKEN_EQUIVALENCE_GROUPS: string[][] = [
+  ['audio', 'speaker', 'speakers', 'soundbar', 'soundbars', 'subwoofer', 'subwoofers', 'stereo', 'homeaudio', 'loudspeaker', 'loudspeakers', 'amp', 'amps', 'amplifier', 'amplifiers', 'receiver', 'receivers', 'headphone', 'headphones', 'earbud', 'earbuds'],
+  ['vacuum', 'vacuums', 'robovac', 'robovacs', 'robotvacuum', 'roboticvacuum'],
+  ['charge', 'charger', 'chargers', 'charging', 'charged', 'adapter', 'adapters', 'powerbank', 'powerbanks'],
+  ['camera', 'cameras', 'cam', 'cams', 'dashcam', 'dashcams', 'dashcamera', 'dashcameras'],
+]
+
+const RELEVANCE_TOKEN_CANONICAL_MAP = new Map<string, string>()
+for (const group of RELEVANCE_TOKEN_EQUIVALENCE_GROUPS) {
+  const canonical = group[0]
+  for (const alias of group) {
+    RELEVANCE_TOKEN_CANONICAL_MAP.set(alias, canonical)
+  }
+}
+
+const COMMERCIAL_CONTEXT_SIGNAL_TOKENS = new Set([
+  ...PRODUCT_WORD_PATTERNS,
+  'speaker',
+  'soundbar',
+  'audio',
+  'vacuum',
+  'robovac',
+  'charger',
+  'charge',
+  'adapter',
+  'camera',
+  'timer',
+  'controller',
+])
+
+const CONTEXT_PLACEHOLDER_PHRASES = new Set([
+  'data not available',
+  'not available',
+  'unknown',
+  'n a',
+  'na',
+  'none',
+  'null',
+  'no data',
+  'not applicable',
+])
+
+function sanitizeContextInput(input?: string): string {
+  if (!input) return ''
+
+  const normalized = input
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+
+  if (!normalized) return ''
+  if (CONTEXT_PLACEHOLDER_PHRASES.has(normalized)) return ''
+  return input
+}
+
+function normalizeRelevanceToken(token: string): string {
+  const raw = (token || '').toLowerCase().trim()
+  if (!raw) return ''
+
+  const directAlias = RELEVANCE_TOKEN_CANONICAL_MAP.get(raw)
+  if (directAlias) return directAlias
+
+  let stemmed = raw
+  if (stemmed.endsWith('ies') && stemmed.length > 4) {
+    stemmed = `${stemmed.slice(0, -3)}y`
+  } else if (stemmed.endsWith('es') && stemmed.length > 4) {
+    stemmed = stemmed.slice(0, -2)
+  } else if (stemmed.endsWith('s') && stemmed.length > 3 && !stemmed.endsWith('ss')) {
+    stemmed = stemmed.slice(0, -1)
+  }
+
+  return RELEVANCE_TOKEN_CANONICAL_MAP.get(stemmed) || stemmed
+}
+
+function hasCommercialContextSignal(keyword: string): boolean {
+  const tokens = normalizeRelevanceTokens(keyword)
+  if (hasModelLikeToken(tokens)) return true
+  return tokens.some(token => COMMERCIAL_CONTEXT_SIGNAL_TOKENS.has(token))
+}
+
 function normalizeRelevanceTokens(input: string): string[] {
-  const normalized = (input || '').toLowerCase().normalize('NFKC')
+  let normalized = (input || '').toLowerCase().normalize('NFKC')
+  for (const rule of RELEVANCE_PHRASE_NORMALIZERS) {
+    normalized = normalized.replace(rule.pattern, rule.replacement)
+  }
+
   const rawTokens = normalized
     .split(/[^\p{L}\p{N}]+/u)
-    .map(t => t.trim())
+    .map(t => normalizeRelevanceToken(t))
     .filter(Boolean)
 
   const stop = new Set([
@@ -709,26 +803,36 @@ function hasModelLikeToken(keywordTokens: string[]): boolean {
   return false
 }
 
+type RelevanceMode =
+  | 'disabled'
+  | 'pure_brand'
+  | 'model_like'
+  | 'insufficient_context'
+  | 'context_match'
+  | 'context_mismatch'
+
 function isRelevantToOfferContext(params: {
   keyword: string
   pureBrandKeywords: string[]
   category?: string
   productName?: string
   minContextTokenMatches: number
-}): { ok: boolean; reason?: string } {
+}): { ok: boolean; reason?: string; mode: RelevanceMode; keywordTokens?: string[] } {
   const { keyword, pureBrandKeywords, category, productName, minContextTokenMatches } = params
 
-  if (minContextTokenMatches <= 0) return { ok: true }
+  if (minContextTokenMatches <= 0) return { ok: true, mode: 'disabled' }
 
   // Pure brand keywords are always allowed (used for brand campaigns / navigation intent).
-  if (isPureBrandKeyword(keyword, pureBrandKeywords)) return { ok: true }
+  if (isPureBrandKeyword(keyword, pureBrandKeywords)) return { ok: true, mode: 'pure_brand' }
 
   const keywordTokens = normalizeRelevanceTokens(keyword)
-  if (hasModelLikeToken(keywordTokens)) return { ok: true }
+  if (hasModelLikeToken(keywordTokens)) return { ok: true, mode: 'model_like', keywordTokens }
 
+  const safeCategory = sanitizeContextInput(category)
+  const safeProductName = sanitizeContextInput(productName)
   const contextTokens = [
-    ...normalizeRelevanceTokens(category || ''),
-    ...normalizeRelevanceTokens(productName || ''),
+    ...normalizeRelevanceTokens(safeCategory),
+    ...normalizeRelevanceTokens(safeProductName),
   ]
 
   // Remove brand tokens from context to avoid tautology ("rove ..." always matches).
@@ -738,13 +842,13 @@ function isRelevantToOfferContext(params: {
   const usableContext = Array.from(new Set(contextTokens)).filter(t => !brandTokens.has(t))
 
   // If we don't have enough context to judge, don't filter to avoid false positives.
-  if (usableContext.length < 3) return { ok: true }
+  if (usableContext.length < 3) return { ok: true, mode: 'insufficient_context', keywordTokens }
 
   const contextSet = new Set(usableContext)
   const matchCount = keywordTokens.reduce((acc, t) => acc + (contextSet.has(t) ? 1 : 0), 0)
 
-  if (matchCount >= minContextTokenMatches) return { ok: true }
-  return { ok: false, reason: `与商品无关: "${keyword}" (未命中品类/商品token)` }
+  if (matchCount >= minContextTokenMatches) return { ok: true, mode: 'context_match', keywordTokens }
+  return { ok: false, mode: 'context_mismatch', reason: `与商品无关: "${keyword}" (未命中品类/商品token)`, keywordTokens }
 }
 
 /**
@@ -774,8 +878,10 @@ export function filterKeywordQuality(
   } = options
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
-  const brandGateKeywords = pureBrandKeywords.filter(kw => kw.trim().length >= 2)
-  const highVolumeBrandGate = 1000
+  const brandContextTokens = new Set(
+    pureBrandKeywords.flatMap(b => normalizeRelevanceTokens(b))
+  )
+  const contextSupportTokenCounts = new Map<string, number>()
   const removed: Array<{ keyword: PoolKeywordData; reason: string }> = []
   const filtered: PoolKeywordData[] = []
 
@@ -840,20 +946,20 @@ export function filterKeywordQuality(
     }
     // 7. 与商品/品类相关性过滤（可选，避免歧义品牌误入无关主题）
     else {
-      const bypassContextFilter = brandGateKeywords.length > 0 &&
-        shouldKeepByBrand(keyword, brandGateKeywords) &&
-        searchVolume >= highVolumeBrandGate
-
-      if (!bypassContextFilter) {
-        const relevance = isRelevantToOfferContext({
-          keyword,
-          pureBrandKeywords,
-          category,
-          productName,
-          minContextTokenMatches,
-        })
-        if (!relevance.ok) {
-          removeReason = relevance.reason || `与商品无关: "${keyword}"`
+      const relevance = isRelevantToOfferContext({
+        keyword,
+        pureBrandKeywords,
+        category,
+        productName,
+        minContextTokenMatches,
+      })
+      if (!relevance.ok) {
+        removeReason = relevance.reason || `与商品无关: "${keyword}"`
+      } else if (relevance.mode === 'context_match') {
+        const nonBrandTokens = (relevance.keywordTokens || normalizeRelevanceTokens(keyword))
+          .filter(token => !brandContextTokens.has(token))
+        for (const token of new Set(nonBrandTokens)) {
+          contextSupportTokenCounts.set(token, (contextSupportTokenCounts.get(token) || 0) + 1)
         }
       }
     }
@@ -862,6 +968,85 @@ export function filterKeywordQuality(
       removed.push({ keyword: kw, reason: removeReason })
     } else {
       filtered.push(kw)
+    }
+  }
+
+  if (minContextTokenMatches > 0 && contextSupportTokenCounts.size > 0) {
+    const supportRestores = removed.filter(item => {
+      if (!item.reason.includes('与商品无关')) return false
+
+      const text = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
+      if (!shouldKeepByBrand(text, pureBrandKeywords) || isPureBrandKeyword(text, pureBrandKeywords)) return false
+
+      const nonBrandTokens = normalizeRelevanceTokens(text).filter(token => !brandContextTokens.has(token))
+      if (nonBrandTokens.length === 0 || nonBrandTokens.length > 2) return false
+
+      return nonBrandTokens.some(token => (contextSupportTokenCounts.get(token) || 0) >= 2)
+    })
+
+    supportRestores.sort((a, b) => {
+      const aVol = typeof a.keyword === 'string' ? 0 : (Number(a.keyword.searchVolume) || 0)
+      const bVol = typeof b.keyword === 'string' ? 0 : (Number(b.keyword.searchVolume) || 0)
+      return bVol - aVol
+    })
+
+    for (const item of supportRestores) {
+      const restoredKeyword = typeof item.keyword === 'string'
+        ? { keyword: item.keyword, searchVolume: 0, source: 'FILTERED' }
+        : item.keyword
+      filtered.push(restoredKeyword)
+
+      const index = removed.indexOf(item)
+      if (index >= 0) removed.splice(index, 1)
+    }
+  }
+
+  if (minContextTokenMatches > 0) {
+    const keptContextCandidates = filtered.filter(item =>
+      shouldKeepByBrand(item.keyword, pureBrandKeywords) && !isPureBrandKeyword(item.keyword, pureBrandKeywords)
+    )
+    const contextRemovedCandidates = removed.filter(item => {
+      const text = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
+      return item.reason.includes('与商品无关')
+        && shouldKeepByBrand(text, pureBrandKeywords)
+        && !isPureBrandKeyword(text, pureBrandKeywords)
+    })
+
+    const totalContextCandidates = keptContextCandidates.length + contextRemovedCandidates.length
+    const removedRatio = totalContextCandidates > 0
+      ? contextRemovedCandidates.length / totalContextCandidates
+      : 0
+
+    // Safety net: if context gate removes almost all brand-containing candidates,
+    // restore a tiny number of strongest commercial-intent terms.
+    if (
+      totalContextCandidates >= 4
+      && keptContextCandidates.length === 0
+      && contextRemovedCandidates.length >= 3
+      && removedRatio >= 0.85
+    ) {
+      const restoreLimit = Math.min(2, Math.max(1, Math.floor(contextRemovedCandidates.length * 0.2)))
+      const restoreCandidates = contextRemovedCandidates
+        .filter(item => {
+          const text = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
+          return hasCommercialContextSignal(text)
+        })
+        .sort((a, b) => {
+          const aVol = typeof a.keyword === 'string' ? 0 : (Number(a.keyword.searchVolume) || 0)
+          const bVol = typeof b.keyword === 'string' ? 0 : (Number(b.keyword.searchVolume) || 0)
+          return bVol - aVol
+        })
+        .slice(0, restoreLimit)
+
+      for (const item of restoreCandidates) {
+        const restoredKeyword = typeof item.keyword === 'string'
+          ? { keyword: item.keyword, searchVolume: 0, source: 'FILTERED' }
+          : item.keyword
+        filtered.push(restoredKeyword)
+
+        const index = removed.indexOf(item)
+        if (index >= 0) removed.splice(index, 1)
+      }
     }
   }
 

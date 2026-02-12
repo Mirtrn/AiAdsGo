@@ -2917,7 +2917,7 @@ export async function generateOfferKeywordPool(
   const baseContextMatches = getMinContextTokenMatchesForKeywordQualityFilter({
     pageType: pageTypeForContextFilter
   })
-  const effectiveContextMatches = allowPlannerNonBrand ? 0 : baseContextMatches
+  const effectiveContextMatches = baseContextMatches
 
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
