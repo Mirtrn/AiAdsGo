@@ -16,10 +16,12 @@ type OpenclawSettingMap = Record<string, string | null>
 const DEFAULT_GATEWAY_PORT = 18789
 const DEFAULT_LOG_FILE = '/proc/self/fd/1'
 
-// Security boundary: OpenClaw must not gain "extra" bundled skills (shell/code/db/etc)
-// because those can bypass AutoAds' canonical API flow and create data inconsistencies.
+// Security boundary: keep OpenClaw bundled skills scoped to the AutoAds skill pack.
+// These are the only bundled skills we ship for AutoAds production.
 const FORCED_BUNDLED_SKILLS_ALLOWLIST = [
   'autoads',
+  'autoads-report-qa',
+  'autoads-prd-writer',
 ] as const
 
 const FORCED_SKILLS_ENTRIES_ALLOWLIST = new Set<string>(FORCED_BUNDLED_SKILLS_ALLOWLIST)
@@ -406,6 +408,8 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       allowBundled: [...FORCED_BUNDLED_SKILLS_ALLOWLIST],
       entries: {
         autoads: { enabled: true },
+        'autoads-report-qa': { enabled: true },
+        'autoads-prd-writer': { enabled: true },
       },
     },
   }
