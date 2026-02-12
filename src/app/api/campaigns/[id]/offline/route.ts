@@ -58,6 +58,7 @@ export async function POST(
           c.google_campaign_id,
           c.google_ads_account_id,
           c.status,
+          c.creation_status,
           c.is_deleted,
           c.offer_id,
           o.brand as offer_brand,
@@ -82,6 +83,7 @@ export async function POST(
           google_campaign_id: string | null
           google_ads_account_id: number | null
           status: string | null
+          creation_status: string | null
           is_deleted: any
           offer_id: number | null
           offer_brand: string | null
@@ -113,46 +115,62 @@ export async function POST(
       normalizeGoogleCampaignId(campaignRow.google_campaign_id) ||
       normalizeGoogleCampaignId(campaignRow.campaign_id)
 
-    if (!googleCampaignId) {
+    const creationStatus = String(campaignRow.creation_status || '').toLowerCase()
+    const canLocalOfflineWithoutGoogleCampaign =
+      creationStatus === 'pending' || creationStatus === 'failed'
+
+    if (!googleCampaignId && !canLocalOfflineWithoutGoogleCampaign) {
       return NextResponse.json({ error: '该广告系列尚未发布到Google Ads，无法下线' }, { status: 400 })
     }
 
-    if (!campaignRow.google_ads_account_id) {
-      return NextResponse.json({ error: '未找到关联的Ads账号，无法下线' }, { status: 400 })
-    }
-
-    const accountIsActive = campaignRow.ads_account_active === true || campaignRow.ads_account_active === 1
-    const accountIsDeleted = campaignRow.ads_account_deleted === true || campaignRow.ads_account_deleted === 1
-    if (!accountIsActive || accountIsDeleted) {
-      return NextResponse.json({ error: '关联的Ads账号不可用（可能已解除关联或停用）' }, { status: 400 })
-    }
-
-    const accountStatus = String(campaignRow.ads_account_status || 'UNKNOWN').toUpperCase()
-    const isNotUsableStatus = [
-      'CANCELED',
-      'CANCELLED',
-      'CLOSED',
-      'SUSPENDED',
-      'PAUSED',
-      'DISABLED',
-    ].includes(accountStatus)
-
     let skipRemoteUpdates = false
     let skipRemoteReason: string | null = null
-    if (isNotUsableStatus) {
-      if (!forceLocalOffline) {
-        return NextResponse.json(
-          {
-            action: 'ACCOUNT_STATUS_NOT_USABLE',
-            message: `该 Google Ads 账号状态为 ${accountStatus}，无法执行下线操作。是否仍然仅本地下线该广告系列（不影响同 Offer 下其他广告系列）？`,
-            details: { accountStatus },
-            canProceedLocal: true,
-          },
-          { status: 422 }
-        )
-      }
+    if (!googleCampaignId && canLocalOfflineWithoutGoogleCampaign) {
       skipRemoteUpdates = true
-      skipRemoteReason = `账号状态异常（${accountStatus}），已执行本地下线`
+      skipRemoteReason = `发布状态为${creationStatus}，且尚未同步到Google Ads，已执行本地下线`
+    }
+
+    if (forceLocalOffline && !skipRemoteUpdates) {
+      skipRemoteUpdates = true
+      skipRemoteReason = '已选择仅本地下线'
+    }
+
+    if (!skipRemoteUpdates) {
+      if (!campaignRow.google_ads_account_id) {
+        return NextResponse.json({ error: '未找到关联的Ads账号，无法下线' }, { status: 400 })
+      }
+
+      const accountIsActive = campaignRow.ads_account_active === true || campaignRow.ads_account_active === 1
+      const accountIsDeleted = campaignRow.ads_account_deleted === true || campaignRow.ads_account_deleted === 1
+      if (!accountIsActive || accountIsDeleted) {
+        return NextResponse.json({ error: '关联的Ads账号不可用（可能已解除关联或停用）' }, { status: 400 })
+      }
+
+      const accountStatus = String(campaignRow.ads_account_status || 'UNKNOWN').toUpperCase()
+      const isNotUsableStatus = [
+        'CANCELED',
+        'CANCELLED',
+        'CLOSED',
+        'SUSPENDED',
+        'PAUSED',
+        'DISABLED',
+      ].includes(accountStatus)
+
+      if (isNotUsableStatus) {
+        if (!forceLocalOffline) {
+          return NextResponse.json(
+            {
+              action: 'ACCOUNT_STATUS_NOT_USABLE',
+              message: `该 Google Ads 账号状态为 ${accountStatus}，无法执行下线操作。是否仍然仅本地下线该广告系列（不影响同 Offer 下其他广告系列）？`,
+              details: { accountStatus },
+              canProceedLocal: true,
+            },
+            { status: 422 }
+          )
+        }
+        skipRemoteUpdates = true
+        skipRemoteReason = `账号状态异常（${accountStatus}），已执行本地下线`
+      }
     }
 
     if (!campaignRow.offer_id) {
@@ -167,6 +185,23 @@ export async function POST(
       campaignId: campaignRow.id,
       action: 'OFFLINE',
     })
+
+    // 清理同一 campaign 的待执行发布任务，避免后续继续发布导致状态回弹
+    let campaignPublishPendingRemoved = 0
+    try {
+      const { getOrCreateQueueManager } = await import('@/lib/queue/init-queue')
+      const queueManager = await getOrCreateQueueManager()
+      const pendingTasks = await queueManager.getPendingTasks()
+      for (const task of pendingTasks) {
+        if (!task || task.type !== 'campaign-publish') continue
+        if (task.userId !== userId) continue
+        if (Number(task.data?.campaignId) !== campaignRow.id) continue
+        const removed = await queueManager.removeTask(task.id)
+        if (removed) campaignPublishPendingRemoved += 1
+      }
+    } catch (err: any) {
+      console.warn('[offline] campaign-publish queue cleanup skipped:', err?.message || err)
+    }
 
     // 下线后刷新Offer缓存
     invalidateOfferCache(userId, campaignRow.offer_id)
@@ -445,6 +480,7 @@ export async function POST(
         campaignId,
         offerId: campaignRow.offer_id,
         offlineCount: googleCampaignId ? 1 : 0,
+        campaignPublishPendingRemoved,
         blacklist: blacklistResult,
         clickFarmPaused,
         urlSwapPaused,

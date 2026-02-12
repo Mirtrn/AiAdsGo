@@ -251,6 +251,29 @@ export async function executeCampaignPublish(
   try {
     console.log(`🚀 开始执行Campaign发布任务: ${task.id}`)
 
+    const campaignSnapshot = await db.queryOne<{
+      status: string | null
+      is_deleted: any
+    }>(
+      `
+        SELECT status, is_deleted
+        FROM campaigns
+        WHERE id = ? AND user_id = ?
+        LIMIT 1
+      `,
+      [campaignId, userId]
+    )
+
+    const campaignAlreadyRemoved =
+      (campaignSnapshot?.is_deleted === true || campaignSnapshot?.is_deleted === 1)
+      || String(campaignSnapshot?.status || '').toUpperCase() === 'REMOVED'
+
+    if (!campaignSnapshot || campaignAlreadyRemoved) {
+      console.log(`⏭️ 跳过Campaign发布任务：campaign已下线或不存在（campaignId=${campaignId}, taskId=${task.id}）`)
+      apiSuccess = true
+      return { success: true }
+    }
+
     // 1. 获取Google Ads账号（包含currency信息）
     const adsAccount = await db.queryOne(
       `SELECT id, customer_id, currency, parent_mcc_id, is_active
@@ -862,6 +885,47 @@ export async function executeCampaignPublish(
     if (extensionsErrors.length > 0) {
       // 核心成功但Extensions失败 → 记录警告信息，不改变成功状态
       finalCreationError = `[警告] ${extensionsErrors.join('; ')}`
+    }
+
+    const campaignStateBeforePersist = await db.queryOne<{
+      status: string | null
+      is_deleted: any
+    }>(
+      `
+        SELECT status, is_deleted
+        FROM campaigns
+        WHERE id = ? AND user_id = ?
+        LIMIT 1
+      `,
+      [campaignId, userId]
+    )
+
+    const wasOfflinedDuringPublish =
+      (campaignStateBeforePersist?.is_deleted === true || campaignStateBeforePersist?.is_deleted === 1)
+      || String(campaignStateBeforePersist?.status || '').toUpperCase() === 'REMOVED'
+
+    if (wasOfflinedDuringPublish) {
+      console.warn(`⚠️ Campaign在发布过程中已下线，跳过成功回写（campaignId=${campaignId}, googleCampaignId=${googleCampaignId}）`)
+      try {
+        await runWithLoginCustomerFallback(
+          '发布后兜底暂停Campaign',
+          (loginCustomerId) => updateGoogleAdsCampaignStatus({
+            customerId: adsAccount.customer_id,
+            refreshToken,
+            campaignId: googleCampaignId,
+            status: 'PAUSED',
+            accountId: adsAccount.id,
+            userId,
+            loginCustomerId,
+            authType: auth.authType,
+            serviceAccountId: auth.serviceAccountId,
+          })
+        )
+      } catch (pauseError: any) {
+        console.warn(`⚠️ 发布后兜底暂停失败（不影响本地下线状态）: ${pauseError?.message || pauseError}`)
+      }
+      apiSuccess = true
+      return { success: true, googleCampaignId, googleAdGroupId, googleAdId }
     }
 
     await applyCampaignTransition({

@@ -708,18 +708,20 @@ export default function CampaignsPage() {
     const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
     const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
     const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+    const normalizedCreationStatus = String(campaign.creationStatus || '').toLowerCase()
+    const canOfflineWithoutGoogleCampaign = normalizedCreationStatus === 'pending' || normalizedCreationStatus === 'failed'
 
     if (isDeleted || offerDeleted || String(campaign.status || '').toUpperCase() === 'REMOVED') {
       showError('无法操作', '该广告系列已下线/删除')
       return
     }
 
-    if (!googleCampaignId) {
+    if (!googleCampaignId && !canOfflineWithoutGoogleCampaign) {
       showError('无法操作', '该广告系列尚未发布到Google Ads')
       return
     }
 
-    if (campaign.adsAccountAvailable === false) {
+    if (campaign.adsAccountAvailable === false && googleCampaignId) {
       showError('无法操作', '关联的Ads账号不可用（可能已解绑或停用）')
       return
     }
@@ -1636,17 +1638,24 @@ export default function CampaignsPage() {
 		                                ? `当前状态(${campaign.status})不支持暂停/启用`
 		                                : toggleLabel
 
-		                    const canOffline = !offlineSubmitting && Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false && String(campaign.status || '').toUpperCase() !== 'REMOVED'
-		                    const offlineDisabledReason = !googleCampaignId
-		                      ? '该广告系列尚未发布到Google Ads，无法下线'
-		                      : campaign.adsAccountAvailable === false
-		                        ? 'Ads账号已解绑，无法下线'
-		                        : isDeleted
-		                          ? '该广告系列已删除，无法下线'
-		                          : offerDeleted
-		                            ? '关联Offer已删除，无法下线'
-		                            : String(campaign.status || '').toUpperCase() === 'REMOVED'
-		                              ? '该广告系列已下线'
+		                    const normalizedCreationStatus = String(campaign.creationStatus || '').toLowerCase()
+		                    const canOfflineWithoutGoogleCampaign = normalizedCreationStatus === 'pending' || normalizedCreationStatus === 'failed'
+		                    const canOffline = !offlineSubmitting
+		                      && !isDeleted
+		                      && !offerDeleted
+		                      && String(campaign.status || '').toUpperCase() !== 'REMOVED'
+		                      && (Boolean(googleCampaignId) || canOfflineWithoutGoogleCampaign)
+		                      && (googleCampaignId ? campaign.adsAccountAvailable !== false : true)
+		                    const offlineDisabledReason = isDeleted
+		                      ? '该广告系列已删除，无法下线'
+		                      : offerDeleted
+		                        ? '关联Offer已删除，无法下线'
+		                        : String(campaign.status || '').toUpperCase() === 'REMOVED'
+		                          ? '该广告系列已下线'
+		                          : (!googleCampaignId && !canOfflineWithoutGoogleCampaign)
+		                            ? '该广告系列尚未发布到Google Ads，且不在可下线状态（pending/failed）'
+		                            : (googleCampaignId && campaign.adsAccountAvailable === false)
+		                              ? 'Ads账号已解绑，无法下线'
 		                              : '下线广告系列（不可恢复）'
 
 		                    const canDeleteDraft = campaign.creationStatus === 'draft'
@@ -1654,9 +1663,9 @@ export default function CampaignsPage() {
 
 
 		                    return (
-	                    <TableRow
+                    <TableRow
                       key={campaign.id}
-                      className={`hover:bg-gray-50/50 ${isDeleted || offerDeleted ? 'opacity-60 bg-gray-50' : ''}`}
+                      className={`hover:bg-gray-50/50 ${isDeleted || offerDeleted ? 'bg-gray-50' : ''}`}
                     >
                       {/* 选择checkbox */}
                       <TableCell>
