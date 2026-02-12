@@ -20,11 +20,16 @@ const DEFAULT_LOG_FILE = '/proc/self/fd/1'
 // because those can bypass AutoAds' canonical API flow and create data inconsistencies.
 const FORCED_BUNDLED_SKILLS_ALLOWLIST = [
   'autoads',
-  'autoads-report-qa',
-  'autoads-prd-writer',
 ] as const
 
 const FORCED_SKILLS_ENTRIES_ALLOWLIST = new Set<string>(FORCED_BUNDLED_SKILLS_ALLOWLIST)
+
+// Security boundary: prevent OpenClaw from reading/writing local files or executing
+// shell commands. Otherwise it can bypass AutoAds APIs and write directly to the DB.
+const FORCED_TOOLS_POLICY = {
+  profile: 'full',
+  deny: ['group:fs', 'group:runtime'],
+} as const
 
 function resolveEnvValue(value: string | undefined, fallback: string): string {
   const trimmed = (value || '').trim()
@@ -357,6 +362,9 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       lastTouchedAt: new Date().toISOString(),
       lastTouchedVersion: 'autoads',
     },
+    env: {
+      shellEnv: { enabled: false },
+    },
     logging: {
       level: 'info',
       file: resolveEnvValue(process.env.OPENCLAW_LOG_FILE, DEFAULT_LOG_FILE),
@@ -364,6 +372,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       consoleStyle: resolveEnvValue(process.env.OPENCLAW_CONSOLE_STYLE, 'compact'),
       redactSensitive: 'tools',
     },
+    tools: { ...FORCED_TOOLS_POLICY },
     session: {
       dmScope: 'per-account-channel-peer',
     },
@@ -397,8 +406,6 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       allowBundled: [...FORCED_BUNDLED_SKILLS_ALLOWLIST],
       entries: {
         autoads: { enabled: true },
-        'autoads-report-qa': { enabled: true },
-        'autoads-prd-writer': { enabled: true },
       },
     },
   }
