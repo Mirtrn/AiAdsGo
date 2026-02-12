@@ -1164,12 +1164,12 @@ export default function CampaignsPage() {
     const isActive = sortField === field
     return (
       <TableHead className={`cursor-pointer select-none hover:bg-gray-50 ${className}`} onClick={() => handleSort(field)}>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           {children}
           {isActive ? (
-            sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+            sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />
           ) : (
-            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+            <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
           )}
         </div>
       </TableHead>
@@ -1572,11 +1572,11 @@ export default function CampaignsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="table-fixed min-w-[1320px] [&_th]:h-9 [&_th]:px-1.5 [&_td]:px-1.5 [&_td]:py-1.5">
+                <Table className="table-fixed min-w-[1120px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
-                      <TableHead className="w-[40px]">
+                      <TableHead className="w-[34px]">
                         <Checkbox
                           checked={
                             paginatedCampaigns.length > 0 &&
@@ -1586,18 +1586,18 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[196px] whitespace-nowrap">系列名称</SortableHeader>
-                      <SortableHeader field="budgetAmount" className="w-[118px] whitespace-nowrap">预算</SortableHeader>
-                      <SortableHeader field="impressions" className="w-[84px] whitespace-nowrap">展示</SortableHeader>
-                      <SortableHeader field="clicks" className="w-[84px] whitespace-nowrap">点击</SortableHeader>
-                      <SortableHeader field="ctr" className="w-[80px] whitespace-nowrap">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap">CPC</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap">佣金</SortableHeader>
-                      <SortableHeader field="cost" className="w-[94px] whitespace-nowrap">花费</SortableHeader>
-                      <SortableHeader field="status" className="w-[96px] whitespace-nowrap">投放状态</SortableHeader>
-                      <TableHead className="w-[90px] whitespace-nowrap">同步状态</TableHead>
-                      <SortableHeader field="servingStartDate" className="w-[92px] whitespace-nowrap">投放日期</SortableHeader>
-                      <TableHead className="w-[64px] whitespace-nowrap text-center">操作</TableHead>
+                      <SortableHeader field="campaignName" className="w-[172px] whitespace-nowrap">系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[106px] whitespace-nowrap">预算</SortableHeader>
+                      <SortableHeader field="impressions" className="w-[64px] whitespace-nowrap !px-0.5">展示</SortableHeader>
+                      <SortableHeader field="clicks" className="w-[64px] whitespace-nowrap !px-0.5">点击</SortableHeader>
+                      <SortableHeader field="ctr" className="w-[62px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[74px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[74px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
+                      <SortableHeader field="cost" className="w-[74px] whitespace-nowrap !px-0.5">花费</SortableHeader>
+                      <SortableHeader field="status" className="w-[86px] whitespace-nowrap">投放状态</SortableHeader>
+                      <TableHead className="w-[82px] whitespace-nowrap">同步状态</TableHead>
+                      <SortableHeader field="servingStartDate" className="w-[84px] whitespace-nowrap">投放日期</SortableHeader>
+                      <TableHead className="w-[56px] whitespace-nowrap text-center">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
@@ -1670,11 +1670,11 @@ export default function CampaignsPage() {
                       <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-1 min-w-0">
                           <div className="min-w-0 flex items-center gap-1 flex-1">
-                            <div className="font-medium text-gray-900 truncate max-w-[132px]" title={campaign.campaignName}>
+                            <div className="font-medium text-gray-900 truncate max-w-[118px]" title={campaign.campaignName}>
                               {campaign.campaignName}
                             </div>
                             {campaign.campaignId && (
-                              <div className="text-xs text-gray-500 font-mono truncate max-w-[84px]" title={campaign.campaignId}>
+                              <div className="text-xs text-gray-500 font-mono truncate max-w-[72px]" title={campaign.campaignId}>
                                 ID:{campaign.campaignId}
                               </div>
                             )}
@@ -1692,41 +1692,41 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <div className="flex items-center gap-1 min-w-0">
+                        <div className="flex items-center gap-0.5 min-w-0">
                           <div className="font-medium text-gray-900">
                             {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
                           </div>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 whitespace-nowrap border-gray-200 text-gray-600">
+                          <Badge variant="outline" className="text-[10px] px-1 py-0 whitespace-nowrap border-gray-200 text-gray-600">
                             {campaign.budgetType}
                           </Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {campaign.performance?.impressions?.toLocaleString() || '0'}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {campaign.performance?.clicks?.toLocaleString() || '0'}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {(Number(campaign.performance?.ctr) || 0).toFixed(2)}%
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.cpcUsd) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.commission ?? campaign.performance?.conversions) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.costUsd) || 0, campaignCurrency)}
                         </div>
