@@ -33,7 +33,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -1085,7 +1092,7 @@ export default function CampaignsPage() {
   const getStatusBadge = (status: string, adsAccountAvailable?: boolean) => {
     if (adsAccountAvailable === false) {
       return (
-        <Badge variant="outline" className="flex items-center gap-1 w-fit border-orange-200 text-orange-800 bg-orange-50">
+        <Badge variant="outline" className="flex items-center gap-1 w-fit whitespace-nowrap border-orange-200 text-orange-800 bg-orange-50">
           <AlertCircle className="w-3 h-3" />
           账号已解绑
         </Badge>
@@ -1101,7 +1108,7 @@ export default function CampaignsPage() {
     const Icon = config.icon
 
     return (
-      <Badge variant={config.variant} className={`flex items-center gap-1 w-fit ${config.className}`}>
+      <Badge variant={config.variant} className={`flex items-center gap-1 w-fit whitespace-nowrap ${config.className}`}>
         <Icon className="w-3 h-3" />
         {config.label}
       </Badge>
@@ -1127,7 +1134,7 @@ export default function CampaignsPage() {
       : label
 
     return (
-      <Badge variant="outline" className={`w-fit ${className}`} title={title}>
+      <Badge variant="outline" className={`w-fit whitespace-nowrap ${className}`} title={title}>
         {label}
       </Badge>
     )
@@ -1565,7 +1572,7 @@ export default function CampaignsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="table-fixed min-w-[1620px]">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
@@ -1579,18 +1586,18 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[180px]">系列名称</SortableHeader>
-                      <SortableHeader field="budgetAmount" className="w-[100px]">预算</SortableHeader>
-                      <SortableHeader field="impressions" className="w-[100px]">展示</SortableHeader>
-                      <SortableHeader field="clicks" className="w-[90px]">点击</SortableHeader>
-                      <SortableHeader field="ctr" className="w-[90px]">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[90px]">CPC</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[90px]">佣金</SortableHeader>
-                      <SortableHeader field="cost" className="w-[100px]">花费</SortableHeader>
-                      <SortableHeader field="status" className="w-[110px]">投放状态</SortableHeader>
-                      <TableHead className="w-[110px]">同步状态</TableHead>
-                      <SortableHeader field="servingStartDate" className="w-[110px]">投放日期</SortableHeader>
-                      <TableHead className="w-[140px]">操作</TableHead>
+                      <SortableHeader field="campaignName" className="w-[260px] whitespace-nowrap">系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[150px] whitespace-nowrap">预算</SortableHeader>
+                      <SortableHeader field="impressions" className="w-[110px] whitespace-nowrap">展示</SortableHeader>
+                      <SortableHeader field="clicks" className="w-[110px] whitespace-nowrap">点击</SortableHeader>
+                      <SortableHeader field="ctr" className="w-[100px] whitespace-nowrap">点击率</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[120px] whitespace-nowrap">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[120px] whitespace-nowrap">佣金</SortableHeader>
+                      <SortableHeader field="cost" className="w-[120px] whitespace-nowrap">花费</SortableHeader>
+                      <SortableHeader field="status" className="w-[120px] whitespace-nowrap">投放状态</SortableHeader>
+                      <TableHead className="w-[120px] whitespace-nowrap">同步状态</TableHead>
+                      <SortableHeader field="servingStartDate" className="w-[120px] whitespace-nowrap">投放日期</SortableHeader>
+                      <TableHead className="w-[88px] whitespace-nowrap text-center">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
@@ -1601,6 +1608,50 @@ export default function CampaignsPage() {
 	                    const googleCampaignId = getCampaignGoogleId(campaign)
                         const isStatusUpdating = statusUpdatingIds.has(campaign.id)
 	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
+
+		                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
+		                    const adjustCpcDisabledReason = !googleCampaignId
+		                      ? '该广告系列尚未发布到Google Ads，无法调整CPC'
+		                      : campaign.adsAccountAvailable === false
+		                        ? 'Ads账号已解绑，无法调整CPC'
+		                        : isDeleted
+		                          ? '该广告系列已删除，无法调整CPC'
+		                          : offerDeleted
+		                            ? '关联Offer已删除，无法调整CPC'
+		                            : '调整CPC出价'
+
+		                    const canToggleStatus = !isStatusUpdating && Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false && (campaign.status === 'ENABLED' || campaign.status === 'PAUSED')
+		                    const toggleLabel = campaign.status === 'ENABLED' ? '暂停广告系列' : '启用广告系列'
+		                    const toggleDisabledReason = isStatusUpdating
+		                      ? '操作中...'
+		                      : !googleCampaignId
+		                        ? '该广告系列尚未发布到Google Ads，无法暂停/启用'
+		                        : campaign.adsAccountAvailable === false
+		                          ? 'Ads账号已解绑，无法暂停/启用'
+		                          : isDeleted
+		                            ? '该广告系列已删除，无法暂停/启用'
+		                            : offerDeleted
+		                              ? '关联Offer已删除，无法暂停/启用'
+		                              : (campaign.status !== 'ENABLED' && campaign.status !== 'PAUSED')
+		                                ? `当前状态(${campaign.status})不支持暂停/启用`
+		                                : toggleLabel
+
+		                    const canOffline = !offlineSubmitting && Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false && String(campaign.status || '').toUpperCase() !== 'REMOVED'
+		                    const offlineDisabledReason = !googleCampaignId
+		                      ? '该广告系列尚未发布到Google Ads，无法下线'
+		                      : campaign.adsAccountAvailable === false
+		                        ? 'Ads账号已解绑，无法下线'
+		                        : isDeleted
+		                          ? '该广告系列已删除，无法下线'
+		                          : offerDeleted
+		                            ? '关联Offer已删除，无法下线'
+		                            : String(campaign.status || '').toUpperCase() === 'REMOVED'
+		                              ? '该广告系列已下线'
+		                              : '下线广告系列（不可恢复）'
+
+		                    const canDeleteDraft = campaign.creationStatus === 'draft'
+		                    const canDeleteDraftAction = canDeleteDraft && !deleteDraftSubmitting
+
 
 		                    return (
 	                    <TableRow
@@ -1616,215 +1667,160 @@ export default function CampaignsPage() {
                           title="加入批量下线"
                         />
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900 truncate max-w-[160px]" title={campaign.campaignName}>
+                      <TableCell className="whitespace-nowrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="min-w-0 flex items-center gap-2 flex-1">
+                            <div className="font-medium text-gray-900 truncate max-w-[180px]" title={campaign.campaignName}>
                               {campaign.campaignName}
                             </div>
                             {campaign.campaignId && (
-                              <div className="text-xs text-gray-500 font-mono mt-1 truncate max-w-[160px]" title={campaign.campaignId}>
-                                ID: {campaign.campaignId}
+                              <div className="text-xs text-gray-500 font-mono truncate max-w-[120px]" title={campaign.campaignId}>
+                                ID:{campaign.campaignId}
                               </div>
                             )}
                           </div>
-                          {/* 🔧 已删除标签 */}
                           {isDeleted && (
-                            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 shrink-0">
+                            <Badge variant="outline" className="text-xs whitespace-nowrap bg-red-50 text-red-700 border-red-200 shrink-0">
                               已删除
                             </Badge>
                           )}
                           {offerDeleted && !isDeleted && (
-                            <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 shrink-0">
+                            <Badge variant="outline" className="text-xs whitespace-nowrap bg-orange-50 text-orange-700 border-orange-200 shrink-0">
                               Offer已删除
                             </Badge>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium">
-                          {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
+                      <TableCell className="whitespace-nowrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="font-medium text-gray-900">
+                            {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
+                          </div>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 whitespace-nowrap border-gray-200 text-gray-600">
+                            {campaign.budgetType}
+                          </Badge>
                         </div>
-                        <div className="text-xs text-gray-500">{campaign.budgetType}</div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {campaign.performance?.impressions?.toLocaleString() || '0'}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {campaign.performance?.clicks?.toLocaleString() || '0'}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {(Number(campaign.performance?.ctr) || 0).toFixed(2)}%
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.cpcUsd) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.commission ?? campaign.performance?.conversions) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.costUsd) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         {getStatusBadge(campaign.status, campaign.adsAccountAvailable)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         {getCreationStatusBadge(campaign.creationStatus, campaign.creationError)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <span className="text-sm text-gray-900">
                           {campaign.servingStartDate || '-'}
                         </span>
                       </TableCell>
-	                      <TableCell>
-	                        <div className="flex items-center gap-1">
-	                          {/* View Offer Detail */}
-	                          <Button
-	                            size="sm"
-	                            variant="ghost"
-	                            onClick={() => router.push(`/offers/${campaign.offerId}`)}
-	                            className="text-green-600 hover:text-green-800"
-	                            title="查看关联的Offer详情页"
-	                          >
-	                            <Package className="w-4 h-4" />
-	                          </Button>
-
-		                          {/* Adjust CPC */}
-		                          <Button
-		                            size="sm"
-		                            variant="ghost"
-	                            onClick={() => {
-	                              if (!googleCampaignId) return
-	                              if (campaign.adsAccountAvailable === false) return
-	                              setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
-	                              setAdjustCpcOpen(true)
-	                            }}
-	                            disabled={!googleCampaignId || isDeleted || offerDeleted || campaign.adsAccountAvailable === false}
-	                            className="text-indigo-600 hover:text-indigo-800"
-	                            title={
-	                              !googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC'
-	                              : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
-	                                : '调整CPC出价'
-	                            }
-	                            aria-label={
-	                              !googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC'
-	                            : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
-	                                : '调整CPC出价'
-	                            }
-	                          >
-		                            <Coins className="w-4 h-4" />
-		                          </Button>
-
-                          {/* Pause / Enable */}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void openToggleStatusConfirm(campaign)}
-                            disabled={
-                              isStatusUpdating ||
-                              !googleCampaignId ||
-                              isDeleted ||
-                              offerDeleted ||
-                              campaign.adsAccountAvailable === false ||
-                              (campaign.status !== 'ENABLED' && campaign.status !== 'PAUSED')
-                            }
-                            className={
-                              campaign.status === 'ENABLED'
-                                ? 'text-yellow-600 hover:text-yellow-800'
-                                : 'text-green-600 hover:text-green-800'
-                            }
-                            title={
-                              isStatusUpdating
-                                ? '操作中...'
-                                : !googleCampaignId
-                                  ? '该广告系列尚未发布到Google Ads，无法暂停/启用'
-                                  : (campaign.adsAccountAvailable === false)
-                                    ? 'Ads账号已解绑，无法暂停/启用'
-                                    : isDeleted
-                                      ? '该广告系列已删除，无法暂停/启用'
-                                      : offerDeleted
-                                        ? '关联Offer已删除，无法暂停/启用'
-                                        : (campaign.status !== 'ENABLED' && campaign.status !== 'PAUSED')
-                                          ? `当前状态(${campaign.status})不支持暂停/启用`
-                                          : (campaign.status === 'ENABLED')
-                                            ? '暂停广告系列'
-                                            : '启用广告系列'
-                            }
-                            aria-label={
-                              isStatusUpdating
-                                ? '操作中...'
-                                : (campaign.status === 'ENABLED')
-                                  ? '暂停广告系列'
-                                  : '启用广告系列'
-                            }
-                          >
-                            {isStatusUpdating ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              campaign.status === 'ENABLED'
-                                ? <PauseCircle className="w-4 h-4" />
-                                : <PlayCircle className="w-4 h-4" />
-                            )}
-                          </Button>
-
-                          {/* Offline / Downline */}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => openOfflineDialog(campaign)}
-                            disabled={
-                              offlineSubmitting ||
-                              !googleCampaignId ||
-                              isDeleted ||
-                              offerDeleted ||
-                              campaign.adsAccountAvailable === false ||
-                              String(campaign.status || '').toUpperCase() === 'REMOVED'
-                            }
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title={
-                              !googleCampaignId
-                                ? '该广告系列尚未发布到Google Ads，无法下线'
-                                : (campaign.adsAccountAvailable === false)
-                                  ? 'Ads账号已解绑，无法下线'
-                                  : isDeleted
-                                    ? '该广告系列已删除，无法下线'
-                                    : offerDeleted
-                                      ? '关联Offer已删除，无法下线'
-                                      : String(campaign.status || '').toUpperCase() === 'REMOVED'
-                                        ? '该广告系列已下线'
-                                        : '下线广告系列（不可恢复）'
-                            }
-                            aria-label="下线广告系列"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </Button>
-
-	                          {/* Delete Button */}
-	                          {campaign.creationStatus === 'draft' && (
-	                            <Button
+                      <TableCell className="whitespace-nowrap text-center">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => openDeleteDraftDialog(campaign)}
-                              disabled={deleteDraftSubmitting}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="删除草稿广告系列"
+                              className="h-8 w-8 p-0"
+                              aria-label="更多操作"
+                              title="更多操作"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <MoreHorizontal className="w-4 h-4" />
                             </Button>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem
+                              className="gap-2"
+                              onClick={() => router.push(`/offers/${campaign.offerId}`)}
+                            >
+                              <Package className="w-4 h-4 text-green-600" />
+                              <span>查看关联Offer</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              className="gap-2"
+                              onClick={() => {
+                                if (!googleCampaignId) return
+                                if (campaign.adsAccountAvailable === false) return
+                                setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
+                                setAdjustCpcOpen(true)
+                              }}
+                              disabled={!canAdjustCpc}
+                              title={adjustCpcDisabledReason}
+                            >
+                              <Coins className="w-4 h-4 text-indigo-600" />
+                              <span>调整CPC</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              className="gap-2"
+                              onClick={() => void openToggleStatusConfirm(campaign)}
+                              disabled={!canToggleStatus}
+                              title={toggleDisabledReason}
+                            >
+                              {isStatusUpdating ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                              ) : campaign.status === 'ENABLED' ? (
+                                <PauseCircle className="w-4 h-4 text-yellow-600" />
+                              ) : (
+                                <PlayCircle className="w-4 h-4 text-green-600" />
+                              )}
+                              <span>{isStatusUpdating ? '状态更新中' : toggleLabel}</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              className="gap-2"
+                              onClick={() => openOfflineDialog(campaign)}
+                              disabled={!canOffline}
+                              title={offlineDisabledReason}
+                            >
+                              <XCircle className="w-4 h-4 text-red-600" />
+                              <span>下线广告系列</span>
+                            </DropdownMenuItem>
+
+                            {canDeleteDraft && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="gap-2"
+                                  onClick={() => openDeleteDraftDialog(campaign)}
+                                  disabled={!canDeleteDraftAction}
+                                  title={canDeleteDraftAction ? '删除草稿广告系列' : '删除中...'}
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-600" />
+                                  <span>删除草稿</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   )})}
