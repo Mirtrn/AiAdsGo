@@ -16,6 +16,16 @@ type OpenclawSettingMap = Record<string, string | null>
 const DEFAULT_GATEWAY_PORT = 18789
 const DEFAULT_LOG_FILE = '/proc/self/fd/1'
 
+// Security boundary: OpenClaw must not gain "extra" bundled skills (shell/code/db/etc)
+// because those can bypass AutoAds' canonical API flow and create data inconsistencies.
+const FORCED_BUNDLED_SKILLS_ALLOWLIST = [
+  'autoads',
+  'autoads-report-qa',
+  'autoads-prd-writer',
+] as const
+
+const FORCED_SKILLS_ENTRIES_ALLOWLIST = new Set<string>(FORCED_BUNDLED_SKILLS_ALLOWLIST)
+
 function resolveEnvValue(value: string | undefined, fallback: string): string {
   const trimmed = (value || '').trim()
   return trimmed || fallback
@@ -384,6 +394,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       },
     },
     skills: {
+      allowBundled: [...FORCED_BUNDLED_SKILLS_ALLOWLIST],
       entries: {
         autoads: { enabled: true },
         'autoads-report-qa': { enabled: true },
@@ -490,19 +501,43 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   }
 
   if (skillsEntries && Object.keys(skillsEntries).length > 0) {
+    const filteredEntries: Record<string, any> = {}
+    const dropped: string[] = []
+
+    for (const [key, value] of Object.entries(skillsEntries)) {
+      if (!FORCED_SKILLS_ENTRIES_ALLOWLIST.has(key)) {
+        dropped.push(key)
+        continue
+      }
+      filteredEntries[key] = value
+    }
+
+    if (dropped.length > 0) {
+      console.warn('⚠️ OpenClaw skills override ignored (forbidden):', dropped.sort())
+    }
+
     config.skills = {
       ...(config.skills || {}),
       entries: {
         ...((config.skills && config.skills.entries) || {}),
-        ...skillsEntries,
+        ...filteredEntries,
       },
     }
   }
 
+  // NOTE: Intentionally ignore settings overrides for skills.allowBundled.
+  // OpenClaw must call AutoAds via canonical HTTP API (proxy/commands) and must not
+  // gain powerful bundled skills that can bypass validations/naming conventions.
   if (skillsAllowBundled.length > 0) {
-    config.skills = {
-      ...(config.skills || {}),
-      allowBundled: skillsAllowBundled.map((entry) => String(entry)),
+    console.warn('⚠️ OpenClaw skills.allowBundled override ignored; forced allowlist is active:', skillsAllowBundled)
+  }
+
+  // Ensure the key integration skill is always available.
+  if (config.skills?.entries && typeof config.skills.entries === 'object') {
+    const current = (config.skills.entries as Record<string, any>).autoads
+    ;(config.skills.entries as Record<string, any>).autoads = {
+      ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}),
+      enabled: true,
     }
   }
 

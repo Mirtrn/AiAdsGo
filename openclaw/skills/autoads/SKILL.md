@@ -71,8 +71,8 @@ curl -sS http://<autoads-host>/api/openclaw/proxy \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
-    "path": "/api/offers/123/generate-creatives",
-    "body": { "count": 5 }
+    "path": "/api/offers/123/generate-creatives-queue",
+    "body": { "targetRating": "EXCELLENT" }
   }'
 ```
 
