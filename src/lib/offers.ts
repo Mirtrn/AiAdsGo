@@ -1434,23 +1434,31 @@ export async function updateOfferScrapeStatus(
 
       newOfferName = currentOffer?.offer_name || null
 
-      // 如果提供了新的品牌名且不是Unknown，则更新offer_name
-      if (brandForWrite && currentOffer) {
-        // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
-        const parts = currentOffer.offer_name.split('_')
-        const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
-        const proposedOfferName = `${brandForWrite}_${currentOffer.target_country}_${sequenceNumber}`
+	      // 如果提供了新的品牌名且不是Unknown，则更新offer_name
+	      if (brandForWrite && currentOffer) {
+	        const currentOfferName = String(currentOffer.offer_name || '')
+	        const hasPartnerBoostMidInName = currentOfferName.includes('_PB_') || /_PB_\\d+$/i.test(currentOfferName)
 
-        // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
-        const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
-        if (isUnique) {
-          newOfferName = proposedOfferName
-        } else {
-          // 已被占用，使用generateOfferName生成新的唯一名称
-          newOfferName = await generateOfferName(brandForWrite, currentOffer.target_country, userId)
-        }
-      }
-    } catch (nameError: any) {
+	        if (hasPartnerBoostMidInName) {
+	          // OpenClaw/PartnerBoost 直写异常：不复用 MID 作为序号，重新生成规范 offer_name
+	          newOfferName = await generateOfferName(brandForWrite, currentOffer.target_country, userId, id)
+	        } else {
+	          // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
+	          const parts = currentOfferName.split('_')
+	          const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
+	          const proposedOfferName = `${brandForWrite}_${currentOffer.target_country}_${sequenceNumber}`
+
+	          // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
+	          const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
+	          if (isUnique) {
+	            newOfferName = proposedOfferName
+	          } else {
+	            // 已被占用，使用generateOfferName生成新的唯一名称
+	            newOfferName = await generateOfferName(brandForWrite, currentOffer.target_country, userId, id)
+	          }
+	        }
+	      }
+	    } catch (nameError: any) {
       // 🔥 修复（2025-12-10）: offer_name更新失败不应阻止状态更新
       console.error('❌ offer_name更新失败:', nameError.message)
       // 继续使用原有的offer_name
