@@ -10,6 +10,7 @@ import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getDatabase } from '@/lib/db';
 import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
+import { hasEnabledCampaignForOffer } from '@/lib/click-farm/campaign-health-guard'
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 import type { UnifiedQueueManager } from '@/lib/queue/unified-queue-manager';
@@ -119,6 +120,22 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   // 检查任务状态
   if (task.status !== 'pending' && task.status !== 'running') {
     return { taskId, status: 'skipped', message: `任务状态为 ${task.status}，无需调度` };
+  }
+
+  const hasEnabledCampaign = await hasEnabledCampaignForOffer({
+    db,
+    userId: task.user_id,
+    offerId: task.offer_id,
+  })
+
+  if (!hasEnabledCampaign) {
+    await pauseClickFarmTask(
+      task.id,
+      'no_campaign',
+      '未检测到可用Campaign，系统自动暂停，请先发布广告后重启任务'
+    )
+    await notifyTaskPaused(task.user_id, task.id, 'no_campaign', '未检测到可用Campaign，任务已自动暂停')
+    return { taskId, status: 'paused', message: '未检测到可用Campaign，任务已暂停' }
   }
 
   // 检查是否到了开始日期
@@ -355,6 +372,18 @@ export async function triggerAllPendingTasks(): Promise<{
     // 🔧 添加任务详情日志
     console.log(`[TriggerAll] 处理任务 ${task.id}: status=${task.status}, duration_days=${task.duration_days}, started_at=${task.started_at}, next_run_at=${task.next_run_at}`);
     results.processed++;
+
+    const hasEnabledCampaign = await hasEnabledCampaignForOffer({
+      db,
+      userId: task.user_id,
+      offerId: task.offer_id,
+    })
+
+    if (!hasEnabledCampaign) {
+      await pauseClickFarmTask(task.id, 'no_campaign', '未检测到可用Campaign，系统自动暂停，请先发布广告后重启任务')
+      results.paused++
+      continue
+    }
 
     // 检查开始日期
     if (task.scheduled_start_date) {

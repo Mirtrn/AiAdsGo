@@ -5,6 +5,7 @@ import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import type { OpenclawCommandRiskLevel } from './risk-policy'
 import { deriveOpenclawCommandRiskLevel, requiresOpenclawCommandConfirmation } from './risk-policy'
 import { assertOpenclawCommandRouteAllowed } from '@/lib/openclaw/canonical-routes'
+import { normalizeOpenclawCommandPayload } from './payload-policy'
 import {
   consumeCommandConfirmation,
   createOrRefreshCommandConfirmation,
@@ -37,6 +38,20 @@ async function enqueueCommandRun(params: {
 }
 
 type AuthType = 'session' | 'user-token' | 'gateway-binding'
+
+function normalizeCommandChannel(channel: string | null | undefined, authType: AuthType): string {
+  const normalized = String(channel || '').trim().toLowerCase()
+  if (normalized) return normalized
+
+  if (authType === 'session') return 'web'
+  if (authType === 'user-token') return 'user-token'
+  return 'feishu'
+}
+
+function normalizeSenderId(senderId: string | null | undefined): string | null {
+  const normalized = String(senderId || '').trim()
+  return normalized || null
+}
 
 type ExecuteCommandInput = {
   userId: number
@@ -109,6 +124,12 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
   const method = validated.method
   const path = validated.normalizedPath
 
+  const normalizedCommandPayload = normalizeOpenclawCommandPayload({
+    method,
+    path,
+    body: input.body,
+  })
+
   const riskLevel = deriveOpenclawCommandRiskLevel({ method, path })
   const requireConfirm = requiresOpenclawCommandConfirmation(riskLevel)
   const idempotencyKey = String(input.idempotencyKey || '').trim() || null
@@ -142,6 +163,9 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
 
   const runId = randomUUID()
 
+  const normalizedChannel = normalizeCommandChannel(input.channel, input.authType)
+  const normalizedSenderId = normalizeSenderId(input.senderId)
+
   await db.exec(
     `INSERT INTO openclaw_command_runs
      (id, user_id, auth_type, channel, sender_id, intent,
@@ -153,13 +177,13 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
       runId,
       input.userId,
       input.authType,
-      input.channel || null,
-      input.senderId || null,
+      normalizedChannel,
+      normalizedSenderId,
       input.intent || null,
       method,
       path,
       input.query ? JSON.stringify(input.query) : null,
-      input.body === undefined ? null : JSON.stringify(input.body),
+      normalizedCommandPayload.body === undefined ? null : JSON.stringify(normalizedCommandPayload.body),
       riskLevel,
       requireConfirm ? 'pending_confirm' : 'draft',
       boolParam(requireConfirm, db.type),

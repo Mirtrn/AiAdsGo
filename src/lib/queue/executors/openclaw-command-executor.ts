@@ -39,6 +39,121 @@ function parseJsonAny(value: string | null | undefined): any {
   }
 }
 
+const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
+
+function toPositiveInteger(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  const normalized = Math.floor(parsed)
+  return normalized > 0 ? normalized : null
+}
+
+function extractOfferIdFromClickFarmBody(body: unknown): number | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return null
+  }
+
+  const payload = body as Record<string, unknown>
+  return toPositiveInteger(payload.offer_id ?? payload.offerId)
+}
+
+async function hasEnabledCampaignForOffer(params: {
+  db: any
+  userId: number
+  offerId: number
+}): Promise<boolean> {
+  const notDeletedCondition = params.db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const row = await params.db.queryOne(
+    `SELECT id
+     FROM campaigns
+     WHERE user_id = ?
+       AND offer_id = ?
+       AND status = 'ENABLED'
+       AND ${notDeletedCondition}
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [params.userId, params.offerId]
+  )
+
+  return Boolean(row?.id)
+}
+
+async function hasRecentSuccessfulPublishForOffer(params: {
+  db: any
+  userId: number
+  offerId: number
+}): Promise<boolean> {
+  const rows = await params.db.query(
+    `SELECT request_body_json, completed_at
+     FROM openclaw_command_runs
+     WHERE user_id = ?
+       AND request_method = 'POST'
+       AND request_path = '/api/campaigns/publish'
+       AND status = 'completed'
+       AND response_status >= 200
+       AND response_status < 300
+     ORDER BY completed_at DESC
+     LIMIT 30`,
+    [params.userId]
+  )
+
+  const now = Date.now()
+  for (const row of rows) {
+    const completedAt = row.completed_at ? new Date(row.completed_at).getTime() : NaN
+    if (!Number.isFinite(completedAt) || now - completedAt > CLICK_FARM_PUBLISH_LOOKBACK_MS) {
+      continue
+    }
+
+    const requestBody = parseJsonAny(row.request_body_json || null)
+    const publishOfferId = toPositiveInteger(requestBody?.offerId ?? requestBody?.offer_id)
+    if (publishOfferId === params.offerId) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function assertClickFarmTaskPrerequisites(params: {
+  db: any
+  userId: number
+  method: string
+  path: string
+  requestBody: unknown
+}): Promise<void> {
+  if (params.method !== 'POST' || params.path !== '/api/click-farm/tasks') {
+    return
+  }
+
+  const offerId = extractOfferIdFromClickFarmBody(params.requestBody)
+  if (!offerId) {
+    throw new Error('click-farm.create 缺少 offer_id，无法校验发布前置条件')
+  }
+
+  const hasEnabledCampaign = await hasEnabledCampaignForOffer({
+    db: params.db,
+    userId: params.userId,
+    offerId,
+  })
+  if (hasEnabledCampaign) {
+    return
+  }
+
+  const hasRecentPublish = await hasRecentSuccessfulPublishForOffer({
+    db: params.db,
+    userId: params.userId,
+    offerId,
+  })
+  if (hasRecentPublish) {
+    return
+  }
+
+  throw new Error(`补点击前置校验失败：Offer ${offerId} 缺少可用Campaign，请先成功发布广告`)
+}
+
 function deriveTarget(path: string): { targetType?: string; targetId?: string } {
   const cleanPath = (path || '').split('?')[0]
   const parts = cleanPath.split('/').filter(Boolean)
@@ -120,11 +235,14 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     [data.runId, data.userId]
   )
 
+  const requestQuery = parseJsonObject(run.request_query_json)
+  const requestBody = parseJsonAny(run.request_body_json)
+
   const requestPayload = {
     method: run.request_method,
     path: run.request_path,
-    query: parseJsonObject(run.request_query_json),
-    body: parseJsonAny(run.request_body_json),
+    query: requestQuery,
+    body: requestBody,
   }
 
   await db.exec(
@@ -156,12 +274,20 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   const { targetType, targetId } = deriveTarget(run.request_path)
 
   try {
+    await assertClickFarmTaskPrerequisites({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+      requestBody,
+    })
+
     const upstream = await fetchAutoadsAsUser({
       userId: data.userId,
       path: run.request_path,
       method: run.request_method,
-      query: parseJsonObject(run.request_query_json),
-      body: parseJsonAny(run.request_body_json),
+      query: requestQuery,
+      body: requestBody,
       headers: {
         Accept: 'application/json',
       },

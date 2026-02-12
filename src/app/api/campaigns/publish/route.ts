@@ -68,6 +68,19 @@ function isGoogleAdsAccountPermissionDenied(error: any): boolean {
   return isGoogleAdsAccountAccessError(error)
 }
 
+function isTruthyFlag(value: unknown): boolean {
+  if (value === true || value === 1 || value === '1') {
+    return true
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'true'
+  }
+
+  return false
+}
+
 /**
  * 从ScoreAnalysis中提取所有问题（v4.0 - 4维度）
  */
@@ -144,7 +157,9 @@ export async function POST(request: NextRequest) {
       enableCampaignImmediately = false,  // 是否立即启用Campaign，默认false（PAUSED状态）
       enableSmartOptimization = false,
       variantCount = 3,
-      forcePublish = false, // 强制发布标志（用于绕过40-80分警告）
+      forcePublish, // 强制发布标志（用于绕过40-80分警告）
+      forceLaunch, // 兼容历史字段（等价于 forcePublish）
+      skipLaunchScore, // 兼容历史字段（等价于 forcePublish）
       // 向后兼容snake_case
       offer_id,
       ad_creative_id,
@@ -154,7 +169,9 @@ export async function POST(request: NextRequest) {
       enable_campaign_immediately,
       enable_smart_optimization,
       variant_count,
-      force_publish
+      force_publish,
+      force_launch,
+      skip_launch_score
     } = body
 
     // 使用camelCase优先，兼容snake_case
@@ -166,7 +183,14 @@ export async function POST(request: NextRequest) {
     const _enableCampaignImmediately = enableCampaignImmediately ?? enable_campaign_immediately ?? false
     const _enableSmartOptimization = enableSmartOptimization ?? enable_smart_optimization ?? false
     const _variantCount = variantCount ?? variant_count ?? 3
-    const _forcePublish = forcePublish ?? force_publish ?? false
+    const _forcePublish = [
+      forcePublish,
+      force_publish,
+      forceLaunch,
+      force_launch,
+      skipLaunchScore,
+      skip_launch_score,
+    ].some((value) => isTruthyFlag(value))
 
     // 3. 验证必填字段
     if (!_offerId || !_googleAdsAccountId || !_campaignConfig) {

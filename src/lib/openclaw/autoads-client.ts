@@ -84,10 +84,24 @@ function resolveUserToken(user: { id: number; email: string; role: string; packa
   return token
 }
 
+function normalizeBaseUrl(value: string | undefined): string {
+  const normalized = String(value || '').trim().replace(/\/+$/, '')
+  if (!normalized) return ''
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    throw new Error('Invalid INTERNAL_APP_URL: must start with http:// or https://')
+  }
+
+  return normalized
+}
+
 function resolveAutoadsBaseUrl(): string {
-  const explicit = (process.env.INTERNAL_APP_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim()
-  if (explicit) return explicit.replace(/\/+$/, '')
-  const port = process.env.PORT || '3000'
+  const internal = normalizeBaseUrl(process.env.INTERNAL_APP_URL)
+  if (internal) {
+    return internal
+  }
+
+  const port = String(process.env.PORT || '3000').trim() || '3000'
   return `http://127.0.0.1:${port}`
 }
 

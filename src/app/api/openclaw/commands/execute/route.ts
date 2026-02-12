@@ -12,9 +12,17 @@ const executeSchema = z.object({
   body: z.unknown().optional(),
   channel: z.string().optional(),
   senderId: z.string().optional(),
+  sender_id: z.string().optional(),
+  senderOpenId: z.string().optional(),
+  sender_open_id: z.string().optional(),
   intent: z.string().optional(),
   idempotencyKey: z.string().optional(),
 })
+
+function normalizeHeaderValue(value: string | null | undefined): string | undefined {
+  const normalized = String(value || '').trim()
+  return normalized || undefined
+}
 
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
@@ -31,8 +39,22 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
-  const senderId = parsed.data.senderId || request.headers.get('x-openclaw-sender') || undefined
+  const channel = normalizeHeaderValue(
+    parsed.data.channel
+    || request.headers.get('x-openclaw-channel')
+    || request.headers.get('x-channel')
+  )
+
+  const senderId = normalizeHeaderValue(
+    parsed.data.senderId
+    || parsed.data.sender_id
+    || parsed.data.senderOpenId
+    || parsed.data.sender_open_id
+    || request.headers.get('x-openclaw-sender')
+    || request.headers.get('x-openclaw-sender-id')
+    || request.headers.get('x-openclaw-sender-open-id')
+  )
+
   const parentRequestId = request.headers.get('x-request-id') || undefined
 
   try {
