@@ -201,6 +201,11 @@ const normalizeGoogleCampaignIds = (ids: string[]) => {
 const sqlNowExpr = (dbType: 'sqlite' | 'postgres') =>
   dbType === 'postgres' ? 'NOW()' : "datetime('now')"
 
+const sqlPublishedAtNowExpr = (dbType: 'sqlite' | 'postgres') =>
+  dbType === 'postgres'
+    ? "COALESCE(NULLIF(published_at::text, '')::timestamptz, NOW())"
+    : "COALESCE(NULLIF(published_at, ''), datetime('now'))"
+
 type PatchSqlField =
   | { sql: string; type: 'param'; value: any }
   | { sql: string; type: 'raw' }
@@ -237,7 +242,10 @@ const toPatchSqlFields = (patch: CampaignStatePatch, dbType: 'sqlite' | 'postgre
 
   if (patch.publishedAt !== undefined) {
     if (patch.publishedAt === nowToken) {
-      fields.push({ sql: `published_at = COALESCE(NULLIF(published_at, ''), ${nowExpr})`, type: 'raw' })
+      fields.push({
+        sql: `published_at = ${sqlPublishedAtNowExpr(dbType)}`,
+        type: 'raw',
+      })
     } else if (patch.publishedAt === null) {
       fields.push({ sql: 'published_at = NULL', type: 'raw' })
     } else {
