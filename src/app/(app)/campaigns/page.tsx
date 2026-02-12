@@ -145,7 +145,7 @@ export default function CampaignsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<string>('7')
-  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(false)
+  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(true)
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
@@ -1108,7 +1108,7 @@ export default function CampaignsPage() {
     const Icon = config.icon
 
     return (
-      <Badge variant={config.variant} className={`flex items-center gap-1 w-fit whitespace-nowrap ${config.className}`}>
+      <Badge variant={config.variant} className={`flex items-center gap-0.5 w-fit whitespace-nowrap text-[11px] px-1.5 py-0 ${config.className}`}>
         <Icon className="w-3 h-3" />
         {config.label}
       </Badge>
@@ -1134,7 +1134,7 @@ export default function CampaignsPage() {
       : label
 
     return (
-      <Badge variant="outline" className={`w-fit whitespace-nowrap ${className}`} title={title}>
+      <Badge variant="outline" className={`w-fit whitespace-nowrap text-[11px] px-1.5 py-0 ${className}`} title={title}>
         {label}
       </Badge>
     )
@@ -1531,10 +1531,10 @@ export default function CampaignsPage() {
                   id="show-deleted-campaigns"
                   checked={showDeletedCampaigns}
                   onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
-                  aria-label="显示已删除广告系列"
+                  aria-label="显示历史广告系列（含已删除）"
                 />
                 <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
-                  显示已删除
+                  显示历史（含已删除）
                 </label>
               </div>
             </div>
@@ -1572,11 +1572,11 @@ export default function CampaignsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="table-fixed min-w-[1620px]">
+                <Table className="table-fixed min-w-[1320px] [&_th]:h-9 [&_th]:px-1.5 [&_td]:px-1.5 [&_td]:py-1.5">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
-                      <TableHead className="w-[50px]">
+                      <TableHead className="w-[40px]">
                         <Checkbox
                           checked={
                             paginatedCampaigns.length > 0 &&
@@ -1586,18 +1586,18 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[260px] whitespace-nowrap">系列名称</SortableHeader>
-                      <SortableHeader field="budgetAmount" className="w-[150px] whitespace-nowrap">预算</SortableHeader>
-                      <SortableHeader field="impressions" className="w-[110px] whitespace-nowrap">展示</SortableHeader>
-                      <SortableHeader field="clicks" className="w-[110px] whitespace-nowrap">点击</SortableHeader>
-                      <SortableHeader field="ctr" className="w-[100px] whitespace-nowrap">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[120px] whitespace-nowrap">CPC</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[120px] whitespace-nowrap">佣金</SortableHeader>
-                      <SortableHeader field="cost" className="w-[120px] whitespace-nowrap">花费</SortableHeader>
-                      <SortableHeader field="status" className="w-[120px] whitespace-nowrap">投放状态</SortableHeader>
-                      <TableHead className="w-[120px] whitespace-nowrap">同步状态</TableHead>
-                      <SortableHeader field="servingStartDate" className="w-[120px] whitespace-nowrap">投放日期</SortableHeader>
-                      <TableHead className="w-[88px] whitespace-nowrap text-center">操作</TableHead>
+                      <SortableHeader field="campaignName" className="w-[196px] whitespace-nowrap">系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[118px] whitespace-nowrap">预算</SortableHeader>
+                      <SortableHeader field="impressions" className="w-[84px] whitespace-nowrap">展示</SortableHeader>
+                      <SortableHeader field="clicks" className="w-[84px] whitespace-nowrap">点击</SortableHeader>
+                      <SortableHeader field="ctr" className="w-[80px] whitespace-nowrap">点击率</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap">佣金</SortableHeader>
+                      <SortableHeader field="cost" className="w-[94px] whitespace-nowrap">花费</SortableHeader>
+                      <SortableHeader field="status" className="w-[96px] whitespace-nowrap">投放状态</SortableHeader>
+                      <TableHead className="w-[90px] whitespace-nowrap">同步状态</TableHead>
+                      <SortableHeader field="servingStartDate" className="w-[92px] whitespace-nowrap">投放日期</SortableHeader>
+                      <TableHead className="w-[64px] whitespace-nowrap text-center">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
@@ -1668,13 +1668,13 @@ export default function CampaignsPage() {
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0 flex items-center gap-2 flex-1">
-                            <div className="font-medium text-gray-900 truncate max-w-[180px]" title={campaign.campaignName}>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <div className="min-w-0 flex items-center gap-1 flex-1">
+                            <div className="font-medium text-gray-900 truncate max-w-[132px]" title={campaign.campaignName}>
                               {campaign.campaignName}
                             </div>
                             {campaign.campaignId && (
-                              <div className="text-xs text-gray-500 font-mono truncate max-w-[120px]" title={campaign.campaignId}>
+                              <div className="text-xs text-gray-500 font-mono truncate max-w-[84px]" title={campaign.campaignId}>
                                 ID:{campaign.campaignId}
                               </div>
                             )}
@@ -1692,7 +1692,7 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-1 min-w-0">
                           <div className="font-medium text-gray-900">
                             {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
                           </div>
@@ -1748,14 +1748,14 @@ export default function CampaignsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-8 w-8 p-0"
+                              className="h-7 w-7 p-0"
                               aria-label="更多操作"
                               title="更多操作"
                             >
-                              <MoreHorizontal className="w-4 h-4" />
+                              <MoreHorizontal className="w-3.5 h-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-40">
                             <DropdownMenuItem
                               className="gap-2"
                               onClick={() => router.push(`/offers/${campaign.offerId}`)}

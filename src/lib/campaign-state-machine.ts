@@ -9,6 +9,7 @@ export type CampaignRemovedReason =
   | 'draft_delete'
   | 'offer_unlink'
   | 'offer_delete'
+  | 'publish_failed'
   | 'unknown_removed'
 
 type NowToken = 'NOW'
@@ -86,9 +87,10 @@ export function buildCampaignTransitionPatch(
 
     case 'PUBLISH_FAILED':
       return {
-        status: 'PAUSED',
+        status: 'REMOVED',
         creationStatus: 'failed',
         creationError: payload?.errorMessage || payload?.creationError || '发布失败',
+        removedReason: payload?.removedReason || 'publish_failed',
       }
 
     case 'TOGGLE_STATUS':

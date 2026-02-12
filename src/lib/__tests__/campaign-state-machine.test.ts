@@ -49,14 +49,15 @@ describe('campaign-state-machine', () => {
     expect(patch.removedReason).toBe('offline')
   })
 
-  it('normalizes publish failure into failed creation state', () => {
+  it('normalizes publish failure into removed + failed state', () => {
     const patch = normalizeCampaignTransitionPatch(
       buildCampaignTransitionPatch('PUBLISH_FAILED', { errorMessage: 'api failed' })
     )
 
-    expect(patch.status).toBe('PAUSED')
+    expect(patch.status).toBe('REMOVED')
     expect(patch.creationStatus).toBe('failed')
     expect(patch.creationError).toBe('api failed')
+    expect(patch.removedReason).toBe('publish_failed')
   })
 
   it('applies OFFLINE transition by id and marks url-swap targets removed', async () => {
