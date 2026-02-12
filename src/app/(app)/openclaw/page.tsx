@@ -2761,6 +2761,7 @@ export default function OpenClawPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="h-8 w-[86px] whitespace-nowrap">时间</TableHead>
+                      <TableHead className="h-8 w-[88px] whitespace-nowrap">记录ID</TableHead>
                       <TableHead className="h-8 w-[78px] whitespace-nowrap">决策</TableHead>
                       <TableHead className="h-8 w-[27%] whitespace-nowrap">原因</TableHead>
                       <TableHead className="h-8 w-[15%] whitespace-nowrap">发送者</TableHead>
@@ -2784,6 +2785,9 @@ export default function OpenClawPage() {
                           <TableCell className="whitespace-nowrap py-1.5 text-[11px] leading-4 text-slate-600">
                             <div>{timestampLines.date}</div>
                             <div className="text-slate-500">{timestampLines.time}</div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap py-1.5 font-mono text-xs text-slate-700">
+                            {row.id}
                           </TableCell>
                           <TableCell className="whitespace-nowrap py-1.5">
                             <Badge className="whitespace-nowrap" variant={decisionBadge.variant}>{decisionBadge.label}</Badge>
@@ -2820,7 +2824,7 @@ export default function OpenClawPage() {
 
                     {feishuHealthRows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-slate-500">
+                        <TableCell colSpan={8} className="text-center text-slate-500">
                           最近 {feishuHealthWindowDays} 天暂无飞书链路日志
                         </TableCell>
                       </TableRow>
