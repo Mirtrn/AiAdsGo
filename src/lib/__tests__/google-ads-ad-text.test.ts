@@ -37,6 +37,16 @@ describe('google-ads-ad-text', () => {
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Limited Offer')
   })
 
+  it('sanitizes quote-like symbols to avoid SYMBOLS policy', () => {
+    const text = '„Super Speicher, einfache Montage" – 4,9 Sterne'
+    expect(sanitizeGoogleAdsAdText(text, 90)).toBe('Super Speicher, einfache Montage – 4,9 Sterne')
+  })
+
+  it('sanitizes subscript digits to avoid SYMBOLS policy', () => {
+    const text = 'LiFePO₄ Ready'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('LiFePO Ready')
+  })
+
   it('removes prohibited emoji symbols', () => {
     const text = 'Top Picks 🔥 Today'
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Top Picks Today')

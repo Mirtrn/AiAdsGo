@@ -15,6 +15,8 @@ export const GOOGLE_ADS_PROHIBITED_SYMBOLS = [
   '❤', '♥', '♡',             // hearts
   '⚡', '🔥', '💎',           // decorative emoji
   '👍', '👎',                 // gestures
+  '"', '“', '”', '„', '‟', '«', '»', // quote-like symbols (observed SYMBOLS policy hits)
+  '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉', // subscript digits
   '；',                      // fullwidth semicolon
 ]
 

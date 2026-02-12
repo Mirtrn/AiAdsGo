@@ -141,6 +141,56 @@ PROHIBITED_AD_TEXT_REPLACEMENTS: Dict[str, str] = {
     # Google Ads policy: SYMBOLS (PROHIBITED) evidence: "~"
     "~": " ",
     "～": " ",
+    # Google Ads policy: SYMBOLS (PROHIBITED) evidence: "；"
+    "；": " ",
+    # 与 Node.js 侧保持一致，统一清理常见装饰符号
+    "★": " ",
+    "☆": " ",
+    "⭐": " ",
+    "🌟": " ",
+    "✨": " ",
+    "©": " ",
+    "®": " ",
+    "™": " ",
+    "•": " ",
+    "●": " ",
+    "◆": " ",
+    "▪": " ",
+    "→": " ",
+    "←": " ",
+    "↑": " ",
+    "↓": " ",
+    "✓": " ",
+    "✔": " ",
+    "✗": " ",
+    "✘": " ",
+    "❤": " ",
+    "♥": " ",
+    "♡": " ",
+    "⚡": " ",
+    "🔥": " ",
+    "💎": " ",
+    "👍": " ",
+    "👎": " ",
+    # quote-like symbols（线上多次触发 SYMBOLS）
+    "\"": " ",
+    "“": " ",
+    "”": " ",
+    "„": " ",
+    "‟": " ",
+    "«": " ",
+    "»": " ",
+    # subscript digits（线上多次触发 SYMBOLS，如 ₄）
+    "₀": " ",
+    "₁": " ",
+    "₂": " ",
+    "₃": " ",
+    "₄": " ",
+    "₅": " ",
+    "₆": " ",
+    "₇": " ",
+    "₈": " ",
+    "₉": " ",
 }
 
 
@@ -223,6 +273,28 @@ def sanitize_rsa_path(path: str, *, max_len: int = 15) -> str:
         cleaned = cleaned.replace(ch, "")
     cleaned = re.sub(r"\s+", "-", cleaned).strip("-")
     return cleaned[:max_len].strip("-")
+
+
+def sanitize_ad_extension_text(text: str, *, max_len: int) -> str:
+    """
+    扩展资产（Callout/Sitelink）文本清理：
+    - 清理 Google Ads 禁用符号
+    - 保留旧行为：超长时直接截断，不抛长度异常
+    """
+    sanitized = sanitize_ad_text(text)
+    return sanitized[:max_len].strip()
+
+
+def sanitize_final_url_suffix(value: Optional[str]) -> str:
+    """
+    清理 Final URL Suffix：
+    - 去除会触发 policy 的符号（例如全角分号）
+    - 移除空白，避免参数拼接异常
+    """
+    if value is None:
+        return ""
+    sanitized = sanitize_ad_text(value)
+    return re.sub(r"\s+", "", sanitized).strip()
 
 
 def validate_login_customer_id(v: str) -> str:
@@ -806,8 +878,8 @@ async def create_campaign(request: CreateCampaignRequest):
         if request.end_date:
             campaign.end_date = request.end_date.replace('-', '')
 
-        # 🔧 修复(2025-12-27): 添加 Final URL Suffix（与OAuth模式一致，即使为空也设置）
-        campaign.final_url_suffix = request.final_url_suffix or ''
+        # 🔧 修复(2026-02-12): 统一清理 Final URL Suffix，避免 SYMBOLS policy（如全角分号）
+        campaign.final_url_suffix = sanitize_final_url_suffix(request.final_url_suffix)
 
         response = campaign_service.mutate_campaigns(
             customer_id=request.customer_id, operations=[operation]
@@ -1040,7 +1112,7 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
 
         # 🔧 修复(2025-12-27): 添加 Final URL Suffix
         if request.final_url_suffix:
-            ad_group_ad.ad.final_url_suffix = request.final_url_suffix
+            ad_group_ad.ad.final_url_suffix = sanitize_final_url_suffix(request.final_url_suffix)
 
         if request.path1:
             p1 = sanitize_rsa_path(request.path1, max_len=15)
@@ -1058,6 +1130,9 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
         return {"resource_name": response.results[0].resource_name}
 
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+
         # 更友好的政策/参数错误映射，避免上游误判为 500
         try:
             from google.ads.googleads.errors import GoogleAdsException  # type: ignore
@@ -1323,7 +1398,7 @@ async def update_campaign_final_url_suffix(request: UpdateCampaignFinalUrlSuffix
         operation = client.get_type("CampaignOperation")
         campaign = operation.update
         campaign.resource_name = request.campaign_resource_name
-        campaign.final_url_suffix = request.final_url_suffix
+        campaign.final_url_suffix = sanitize_final_url_suffix(request.final_url_suffix)
 
         # 🔧 修复(2025-12-27): v22 直接设置 update_mask 路径列表
         operation.update_mask.paths.append("final_url_suffix")
@@ -1358,11 +1433,12 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
         valid_callout_texts = []
         for item in request.callout_texts:
             if isinstance(item, str):
-                text = item.strip()
+                raw_text = item.strip()
             elif isinstance(item, dict) and 'text' in item:
-                text = str(item['text']).strip()
+                raw_text = str(item['text']).strip()
             else:
                 continue
+            text = sanitize_ad_extension_text(raw_text, max_len=25)
             if text:
                 valid_callout_texts.append(text)
 
@@ -1375,8 +1451,8 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
         for text in valid_callout_texts:
             operation = client.get_type("AssetOperation")
             asset = operation.create
-            # Google Ads限制：最多25个字符
-            asset.callout_asset.callout_text = text[:25]
+            # Google Ads限制：最多25个字符（清理在入参阶段已完成）
+            asset.callout_asset.callout_text = text
             asset_operations.append(operation)
 
         asset_response = asset_service.mutate_assets(
@@ -1402,6 +1478,8 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
         # 🔧 修复(2025-12-27): 返回 asset_resource_names 供 Node.js 解析
         return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create callout extensions error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1434,15 +1512,25 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
         for sitelink in request.sitelinks:
             operation = client.get_type("AssetOperation")
             asset = operation.create
-            # Google Ads限制：link_text 最多25个字符
-            asset.sitelink_asset.link_text = sitelink.link_text[:25] if sitelink.link_text else ''
+            # Google Ads限制：link_text 最多25个字符（先做 policy 清理）
+            sanitized_link_text = sanitize_ad_extension_text(sitelink.link_text or '', max_len=25)
+            if not sanitized_link_text:
+                continue
+            asset.sitelink_asset.link_text = sanitized_link_text
             asset.final_urls.append(sitelink.final_url)
             # description1 和 description2 最多35个字符
             # 如果 description1 存在但 description2 不存在，用 description1 填充
             if sitelink.description1 and sitelink.description1.strip():
-                asset.sitelink_asset.description1 = sitelink.description1[:35]
-                asset.sitelink_asset.description2 = (sitelink.description2[:35] if sitelink.description2 else sitelink.description1[:35])
+                desc1 = sanitize_ad_extension_text(sitelink.description1, max_len=35)
+                desc2_source = sitelink.description2 if sitelink.description2 else sitelink.description1
+                desc2 = sanitize_ad_extension_text(desc2_source, max_len=35)
+                if desc1:
+                    asset.sitelink_asset.description1 = desc1
+                    asset.sitelink_asset.description2 = desc2 if desc2 else desc1
             asset_operations.append(operation)
+
+        if not asset_operations:
+            raise HTTPException(status_code=400, detail="没有有效的Sitelink文本，无法创建Sitelink扩展")
 
         asset_response = asset_service.mutate_assets(
             customer_id=request.customer_id, operations=asset_operations
@@ -1467,6 +1555,8 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
         # 🔧 修复(2025-12-27): 返回 asset_resource_names 供 Node.js 解析
         return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[user_id={user_id}] Create sitelink extensions error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
