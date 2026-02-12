@@ -882,23 +882,23 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[1320px]">
+      <Table className="table-fixed min-w-[1500px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[48px] whitespace-nowrap">
+            <TableHead className="w-[42px] whitespace-nowrap">
               <Checkbox
                 checked={items.length > 0 && items.every((item) => selectedProductIds.has(item.id))}
                 onCheckedChange={(value) => handleSelectAll(toBoolValue(value))}
                 aria-label="全选"
               />
             </TableHead>
-            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[90px] whitespace-nowrap">
+            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[78px] whitespace-nowrap">
               序号
             </SortableTableHead>
-            <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+            <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
             </SortableTableHead>
-            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[170px] whitespace-nowrap">
+            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
                 平台商品ID
                 <TooltipProvider>
@@ -920,7 +920,7 @@ export default function ProductsPage() {
                 </TooltipProvider>
               </span>
             </SortableTableHead>
-            <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[160px] whitespace-nowrap">
+            <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[122px] whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
                 ASIN
                 <TooltipProvider>
@@ -942,29 +942,29 @@ export default function ProductsPage() {
                 </TooltipProvider>
               </span>
             </SortableTableHead>
-            <TableHead className="w-[140px] whitespace-nowrap">落地页类型</TableHead>
-            <SortableTableHead field="reviewCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+            <TableHead className="w-[118px] whitespace-nowrap">落地页类型</TableHead>
+            <SortableTableHead field="reviewCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[114px] whitespace-nowrap">
               商品评论数
             </SortableTableHead>
-            <SortableTableHead field="allowedCountries" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[140px] whitespace-nowrap">
+            <SortableTableHead field="allowedCountries" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[128px] whitespace-nowrap">
               允许投放国家
             </SortableTableHead>
-            <SortableTableHead field="priceAmount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+            <SortableTableHead field="priceAmount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[108px] whitespace-nowrap">
               商品价格
             </SortableTableHead>
-            <SortableTableHead field="commissionRate" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+            <SortableTableHead field="commissionRate" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[104px] whitespace-nowrap">
               佣金比例
             </SortableTableHead>
-            <SortableTableHead field="commissionAmount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[120px] whitespace-nowrap">
+            <SortableTableHead field="commissionAmount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[108px] whitespace-nowrap">
               佣金金额
             </SortableTableHead>
-            <SortableTableHead field="promoLink" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[130px] whitespace-nowrap">
+            <SortableTableHead field="promoLink" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[102px] whitespace-nowrap">
               推广链接
             </SortableTableHead>
-            <SortableTableHead field="relatedOfferCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[170px] whitespace-nowrap">
+            <SortableTableHead field="relatedOfferCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[152px] whitespace-nowrap">
               关联的Offer数量
             </SortableTableHead>
-            <TableHead className="w-[120px] whitespace-nowrap">操作</TableHead>
+            <TableHead className="w-[118px] whitespace-nowrap">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1006,7 +1006,7 @@ export default function ProductsPage() {
                     {midTargetUrl ? (
                       <button
                         type="button"
-                        className="inline-flex max-w-[120px] items-center gap-1 font-medium text-blue-600 hover:underline"
+                        className="inline-flex max-w-[138px] items-center gap-1 font-medium text-blue-600 hover:underline"
                         onClick={() => safeOpenExternal(midTargetUrl)}
                         title={`打开联盟平台商品页：${item.mid}`}
                       >
@@ -1014,12 +1014,12 @@ export default function ProductsPage() {
                         <ExternalLink className="h-3.5 w-3.5" />
                       </button>
                     ) : (
-                      <span className="block max-w-[120px] truncate font-medium" title={item.mid}>{item.mid}</span>
+                      <span className="block max-w-[138px] truncate font-medium" title={item.mid}>{item.mid}</span>
                     )}
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[120px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={asinText}>{asinText}</div>
+                  <div className={`max-w-[108px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={asinText}>{asinText}</div>
                 </TableCell>
                 <TableCell>
                   <div className={item.isBlacklisted ? 'opacity-50' : ''}>
@@ -1027,29 +1027,29 @@ export default function ProductsPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[90px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={reviewCountText}>
+                  <div className={`max-w-[84px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={reviewCountText}>
                     {reviewCountText}
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[130px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={allowedCountriesText}>
+                  <div className={`max-w-[116px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={allowedCountriesText}>
                     {allowedCountriesText}
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[110px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={priceText}>{priceText}</div>
+                  <div className={`max-w-[100px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={priceText}>{priceText}</div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[110px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={commissionRateText}>{commissionRateText}</div>
+                  <div className={`max-w-[96px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={commissionRateText}>{commissionRateText}</div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[110px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={commissionAmountText}>{commissionAmountText}</div>
+                  <div className={`max-w-[100px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={commissionAmountText}>{commissionAmountText}</div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[120px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={promoLink || '-'}>
+                  <div className={`max-w-[98px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={promoLink || '-'}>
                     {promoLink ? (
                       <button
-                        className="inline-flex max-w-[110px] items-center gap-1 truncate text-blue-600 hover:underline"
+                        className="inline-flex max-w-[92px] items-center gap-1 truncate text-blue-600 hover:underline"
                         onClick={() => safeOpenExternal(promoLink)}
                         title={promoLink}
                       >
@@ -1062,7 +1062,7 @@ export default function ProductsPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[80px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={relatedOfferCountText}>{relatedOfferCountText}</div>
+                  <div className={`max-w-[72px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={relatedOfferCountText}>{relatedOfferCountText}</div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
