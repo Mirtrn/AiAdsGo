@@ -1,4 +1,5 @@
 import { getDatabase } from '@/lib/db'
+import { expireStaleCommandConfirmations } from './confirm-service'
 
 type OpenclawRunStatus =
   | 'draft'
@@ -132,6 +133,8 @@ export async function listOpenclawCommandRuns(
   input: ListOpenclawCommandRunsInput
 ): Promise<ListOpenclawCommandRunsResult> {
   const db = await getDatabase()
+
+  await expireStaleCommandConfirmations({ userId: input.userId })
 
   const page = normalizePage(input.page)
   const limit = normalizeLimit(input.limit)

@@ -5,8 +5,10 @@ import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { checkOpenclawRateLimit } from '@/lib/openclaw/rate-limit'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
+import { executeOpenclawCommand } from '@/lib/openclaw/commands/command-service'
 import {
   assertOpenclawProxyRouteAllowed,
+  isOpenclawWriteMethod,
   validateOpenclawApiRequest,
 } from '@/lib/openclaw/canonical-routes'
 
@@ -15,10 +17,13 @@ export type OpenclawProxyRequest = {
   path: string
   query?: Record<string, string | number | boolean | null | undefined>
   body?: any
+  intent?: string | null
+  idempotencyKey?: string | null
   channel?: string | null
   senderId?: string | null
   accountId?: string | null
   tenantKey?: string | null
+  parentRequestId?: string | null
 }
 
 type ResolvedOpenclawUser = {
@@ -170,6 +175,42 @@ export async function handleOpenclawProxyRequest(params: {
 
   const requestedTarget = validateOpenclawApiRequest(request.method || 'GET', String(request.path || '').trim())
 
+  checkOpenclawRateLimit(`user:${resolved.userId}`)
+
+  // Backward compatibility bridge:
+  // if caller still sends write operations to /api/openclaw/proxy,
+  // route them through the command queue so we keep run/confirm/action linkage.
+  if (isOpenclawWriteMethod(requestedTarget.method)) {
+    const result = await executeOpenclawCommand({
+      userId: resolved.userId,
+      authType: resolved.authType,
+      method: requestedTarget.method,
+      path: requestedTarget.path,
+      query: request.query,
+      body: request.body,
+      channel: request.channel || null,
+      senderId: request.senderId || null,
+      intent: request.intent || undefined,
+      idempotencyKey: request.idempotencyKey || undefined,
+      parentRequestId: request.parentRequestId || undefined,
+    })
+
+    const status = result.status === 'pending_confirm' ? 202 : 200
+    return Response.json(
+      {
+        success: true,
+        bridged: true,
+        ...result,
+      },
+      {
+        status,
+        headers: {
+          'x-openclaw-proxy-bridge': 'commands-execute',
+        },
+      }
+    )
+  }
+
   const normalizedTarget = normalizeOpenclawProxyTarget({
     path: requestedTarget.path,
     query: request.query,
@@ -182,8 +223,6 @@ export async function handleOpenclawProxyRequest(params: {
 
   const method = canonicalTarget.method
   const finalPath = canonicalTarget.normalizedPath
-
-  checkOpenclawRateLimit(`user:${resolved.userId}`)
 
   const { targetType, targetId } = deriveTarget(finalPath)
   const actionPath = normalizedTarget.rewritten

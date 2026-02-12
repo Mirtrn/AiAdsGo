@@ -2,6 +2,18 @@ import { getDatabase } from '@/lib/db'
 import { datetimeMinusHours } from '@/lib/db-helpers'
 
 export type FeishuChatHealthDecision = 'allowed' | 'blocked' | 'error'
+export type FeishuChatHealthExecutionState =
+  | 'not_applicable'
+  | 'waiting'
+  | 'missing'
+  | 'pending_confirm'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'expired'
+  | 'unknown'
 
 export type FeishuChatHealthLogInput = {
   userId: number
@@ -49,6 +61,13 @@ type FeishuChatHealthStatsRow = {
   total: number | string
 }
 
+type OpenclawCommandRunLinkRow = {
+  id: string
+  parent_request_id: string | null
+  status: string
+  created_at: string | Date
+}
+
 export type FeishuChatHealthLogItem = {
   id: number
   userId: number
@@ -69,6 +88,13 @@ export type FeishuChatHealthLogItem = {
   messageExcerpt: string
   messageTextLength: number
   metadata: Record<string, unknown> | null
+  executionState: FeishuChatHealthExecutionState
+  executionRunId: string | null
+  executionRunStatus: string | null
+  executionRunCount: number
+  executionRunCreatedAt: string | null
+  executionDetail: string
+  ageSeconds: number
   createdAt: string
 }
 
@@ -79,6 +105,16 @@ export type FeishuChatHealthListResult = {
     allowed: number
     blocked: number
     error: number
+    execution: {
+      linked: number
+      completed: number
+      inProgress: number
+      waiting: number
+      missing: number
+      failed: number
+      notApplicable: number
+      unknown: number
+    }
   }
 }
 
@@ -86,12 +122,25 @@ const FEISHU_HEALTH_RETENTION_DAYS = 7
 const FEISHU_HEALTH_RETENTION_HOURS = FEISHU_HEALTH_RETENTION_DAYS * 24
 const FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT = 500
 const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
 
 let lastCleanupAt = 0
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, Math.floor(value)))
+}
+
+function resolveExecutionMissingSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_EXECUTION_MISSING_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_EXECUTION_MISSING_SECONDS
+  }
+  return clamp(envValue, 30, 3600)
+}
+
+export function getFeishuChatHealthExecutionMissingSeconds(): number {
+  return resolveExecutionMissingSeconds()
 }
 
 function normalizeShortText(value: unknown, maxLength: number): string | null {
@@ -155,6 +204,21 @@ function toMessageExcerpt(messageText: string | null): string {
   return messageText.length <= FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT
     ? messageText
     : `${messageText.slice(0, FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT)}…`
+}
+
+function mapRunStatusToExecutionState(status: string): FeishuChatHealthExecutionState {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (!normalized) return 'unknown'
+
+  if (normalized === 'completed') return 'completed'
+  if (normalized === 'running') return 'running'
+  if (normalized === 'queued' || normalized === 'draft') return 'queued'
+  if (normalized === 'pending_confirm' || normalized === 'confirmed') return 'pending_confirm'
+  if (normalized === 'failed') return 'failed'
+  if (normalized === 'canceled') return 'canceled'
+  if (normalized === 'expired') return 'expired'
+
+  return 'unknown'
 }
 
 async function cleanupFeishuChatHealthLogsIfNeeded() {
@@ -273,10 +337,82 @@ export async function listFeishuChatHealthLogs(params: {
     [params.userId]
   )
 
+  const allowedMessageIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => row.decision === 'allowed')
+        .map((row) => normalizeShortText(row.message_id, 120))
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  const runsByMessageId = new Map<string, OpenclawCommandRunLinkRow[]>()
+  if (allowedMessageIds.length > 0) {
+    const placeholders = allowedMessageIds.map(() => '?').join(', ')
+    const runRows = await db.query<OpenclawCommandRunLinkRow>(
+      `SELECT id, parent_request_id, status, created_at
+       FROM openclaw_command_runs
+       WHERE user_id = ?
+         AND parent_request_id IN (${placeholders})
+       ORDER BY created_at DESC`,
+      [params.userId, ...allowedMessageIds]
+    )
+
+    for (const run of runRows) {
+      const key = normalizeShortText(run.parent_request_id, 120)
+      if (!key) continue
+      const bucket = runsByMessageId.get(key) || []
+      bucket.push(run)
+      runsByMessageId.set(key, bucket)
+    }
+  }
+
+  const executionMissingSeconds = getFeishuChatHealthExecutionMissingSeconds()
+  const nowMs = Date.now()
   const mapped: FeishuChatHealthLogItem[] = rows.map((row) => {
     const messageText = normalizeMessageText(row.message_text)
     const senderCandidates = safeParseJsonArray(row.sender_candidates_json)
     const metadata = safeParseJsonObject(row.metadata_json)
+    const createdAt = toIsoTimestamp(row.created_at)
+    const createdMs = Date.parse(createdAt)
+    const ageSeconds = Number.isFinite(createdMs)
+      ? Math.max(0, Math.floor((nowMs - createdMs) / 1000))
+      : 0
+
+    let executionState: FeishuChatHealthExecutionState = 'not_applicable'
+    let executionRunId: string | null = null
+    let executionRunStatus: string | null = null
+    let executionRunCount = 0
+    let executionRunCreatedAt: string | null = null
+    let executionDetail = '非放行消息，无执行链路'
+
+    if (row.decision === 'allowed') {
+      const messageId = normalizeShortText(row.message_id, 120)
+      if (!messageId) {
+        executionState = 'unknown'
+        executionDetail = '放行消息缺少 message_id，无法关联执行链路'
+      } else {
+        const linkedRuns = runsByMessageId.get(messageId) || []
+        executionRunCount = linkedRuns.length
+
+        if (linkedRuns.length === 0) {
+          if (ageSeconds >= executionMissingSeconds) {
+            executionState = 'missing'
+            executionDetail = `放行后超过 ${executionMissingSeconds}s 仍无命令执行记录`
+          } else {
+            executionState = 'waiting'
+            executionDetail = '放行后等待命令链路落库中'
+          }
+        } else {
+          const latestRun = linkedRuns[0]
+          executionRunId = latestRun.id || null
+          executionRunStatus = normalizeShortText(latestRun.status, 64)
+          executionRunCreatedAt = toIsoTimestamp(latestRun.created_at)
+          executionState = mapRunStatusToExecutionState(latestRun.status)
+          executionDetail = `已关联 ${executionRunCount} 条命令记录，最新状态 ${executionRunStatus || 'unknown'}`
+        }
+      }
+    }
 
     return {
       id: Number(row.id),
@@ -298,7 +434,14 @@ export async function listFeishuChatHealthLogs(params: {
       messageExcerpt: toMessageExcerpt(messageText),
       messageTextLength: Number(row.message_text_length || (messageText ? messageText.length : 0)),
       metadata,
-      createdAt: toIsoTimestamp(row.created_at),
+      executionState,
+      executionRunId,
+      executionRunStatus,
+      executionRunCount,
+      executionRunCreatedAt,
+      executionDetail,
+      ageSeconds,
+      createdAt,
     }
   })
 
@@ -322,14 +465,62 @@ export async function listFeishuChatHealthLogs(params: {
 
   stats.total = stats.allowed + stats.blocked + stats.error
 
+  const executionStats = mapped.reduce(
+    (acc, row) => {
+      if (row.executionState === 'not_applicable') {
+        acc.notApplicable += 1
+        return acc
+      }
+      if (row.executionState === 'waiting') {
+        acc.waiting += 1
+        return acc
+      }
+      if (row.executionState === 'missing') {
+        acc.missing += 1
+        return acc
+      }
+      if (row.executionState === 'completed') {
+        acc.linked += 1
+        acc.completed += 1
+        return acc
+      }
+      if (row.executionState === 'failed' || row.executionState === 'canceled' || row.executionState === 'expired') {
+        acc.linked += 1
+        acc.failed += 1
+        return acc
+      }
+      if (row.executionState === 'pending_confirm' || row.executionState === 'queued' || row.executionState === 'running') {
+        acc.linked += 1
+        acc.inProgress += 1
+        return acc
+      }
+      acc.unknown += 1
+      return acc
+    },
+    {
+      linked: 0,
+      completed: 0,
+      inProgress: 0,
+      waiting: 0,
+      missing: 0,
+      failed: 0,
+      notApplicable: 0,
+      unknown: 0,
+    }
+  )
+
   void cleanupFeishuChatHealthLogsIfNeeded().catch(() => {})
 
   return {
     rows: mapped,
-    stats,
+    stats: {
+      ...stats,
+      execution: executionStats,
+    },
   }
 }
 
 export const FEISHU_CHAT_HEALTH_RETENTION_DAYS = FEISHU_HEALTH_RETENTION_DAYS
 export const FEISHU_CHAT_HEALTH_WINDOW_HOURS = FEISHU_HEALTH_RETENTION_HOURS
 export const FEISHU_CHAT_HEALTH_EXCERPT_LIMIT = FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT
+export const FEISHU_CHAT_HEALTH_EXECUTION_MISSING_SECONDS = FEISHU_HEALTH_EXECUTION_MISSING_SECONDS

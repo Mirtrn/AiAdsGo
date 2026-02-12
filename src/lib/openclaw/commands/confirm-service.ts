@@ -52,6 +52,54 @@ function safeTokenHashCompare(rawToken: string, tokenHash: string): boolean {
   return crypto.timingSafeEqual(incoming, existing)
 }
 
+export async function expireStaleCommandConfirmations(params?: {
+  userId?: number
+}): Promise<number> {
+  const db = await getDatabase()
+  const nowSql = nowFunc(db.type)
+
+  const confirmWhere = [
+    `status = 'pending'`,
+    'expires_at IS NOT NULL',
+    `expires_at <= ${nowSql}`,
+  ]
+  const confirmParams: Array<number | string> = []
+  if (typeof params?.userId === 'number' && Number.isFinite(params.userId)) {
+    confirmWhere.push('user_id = ?')
+    confirmParams.push(params.userId)
+  }
+
+  const expiredConfirms = await db.exec(
+    `UPDATE openclaw_command_confirms
+     SET status = 'expired',
+         updated_at = ${nowSql}
+     WHERE ${confirmWhere.join(' AND ')}`,
+    confirmParams
+  )
+
+  const runWhere = [
+    `status = 'pending_confirm'`,
+    'confirm_expires_at IS NOT NULL',
+    `confirm_expires_at <= ${nowSql}`,
+    'confirm_required = ?',
+  ]
+  const runParams: Array<number | string | boolean> = [boolParam(true, db.type)]
+  if (typeof params?.userId === 'number' && Number.isFinite(params.userId)) {
+    runWhere.push('user_id = ?')
+    runParams.push(params.userId)
+  }
+
+  await db.exec(
+    `UPDATE openclaw_command_runs
+     SET status = 'expired',
+         updated_at = ${nowSql}
+     WHERE ${runWhere.join(' AND ')}`,
+    runParams
+  )
+
+  return Number(expiredConfirms?.changes || 0)
+}
+
 export async function createOrRefreshCommandConfirmation(params: {
   runId: string
   userId: number
@@ -59,6 +107,8 @@ export async function createOrRefreshCommandConfirmation(params: {
 }): Promise<{ confirmToken: string; expiresAt: string }> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
+
+  await expireStaleCommandConfirmations({ userId: params.userId })
 
   const confirmToken = generateConfirmToken()
   const tokenHash = hashConfirmToken(confirmToken)
@@ -107,6 +157,8 @@ export async function consumeCommandConfirmation(params: {
 }): Promise<ConsumeConfirmResult> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
+
+  await expireStaleCommandConfirmations({ userId: params.userId })
 
   const row = await db.queryOne<{
     run_id: string

@@ -24,6 +24,14 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
   return normalized || undefined
 }
 
+function resolveParentRequestId(request: NextRequest): string | undefined {
+  return normalizeHeaderValue(
+    request.headers.get('x-openclaw-message-id')
+    || request.headers.get('x-openclaw-inbound-message-id')
+    || request.headers.get('x-request-id')
+  )
+}
+
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
@@ -55,7 +63,7 @@ export async function POST(request: NextRequest) {
     || request.headers.get('x-openclaw-sender-open-id')
   )
 
-  const parentRequestId = request.headers.get('x-request-id') || undefined
+  const parentRequestId = resolveParentRequestId(request)
 
   try {
     const result = await executeOpenclawCommand({

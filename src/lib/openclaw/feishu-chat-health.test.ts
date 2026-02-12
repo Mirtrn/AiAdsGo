@@ -34,6 +34,8 @@ describe('feishu chat health lib', () => {
 
   it('lists logs with excerpt and grouped stats', async () => {
     const longText = 'A'.repeat(510)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
     const db = {
       type: 'sqlite',
       query: vi
@@ -82,6 +84,16 @@ describe('feishu chat health lib', () => {
       allowed: 2,
       blocked: 3,
       error: 1,
+      execution: {
+        linked: 0,
+        completed: 0,
+        inProgress: 0,
+        waiting: 0,
+        missing: 0,
+        failed: 0,
+        notApplicable: 1,
+        unknown: 0,
+      },
     })
 
     expect(db.query).toHaveBeenNthCalledWith(
@@ -94,6 +106,66 @@ describe('feishu chat health lib', () => {
       expect.stringContaining('GROUP BY decision'),
       [7]
     )
+    expect(db.query).toHaveBeenCalledTimes(2)
+
+    vi.useRealTimers()
+  })
+
+  it('marks allowed rows as missing when dispatch exceeded threshold without run', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 2,
+            user_id: 7,
+            account_id: 'user-7',
+            message_id: 'om_missing',
+            chat_id: 'oc_1',
+            chat_type: 'p2p',
+            message_type: 'text',
+            sender_primary_id: 'ou_1',
+            sender_open_id: 'ou_1',
+            sender_union_id: null,
+            sender_user_id: null,
+            sender_candidates_json: '["ou_1"]',
+            decision: 'allowed',
+            reason_code: 'reply_dispatched',
+            reason_message: 'message passed access checks and entered reply pipeline',
+            message_text: 'hello',
+            message_text_length: 5,
+            metadata_json: null,
+            created_at: '2026-02-10 03:00:00',
+          },
+        ])
+        .mockResolvedValueOnce([
+          { decision: 'allowed', total: 1 },
+        ])
+        .mockResolvedValueOnce([]),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].executionState).toBe('missing')
+    expect(result.rows[0].executionRunCount).toBe(0)
+    expect(result.rows[0].executionDetail).toContain('仍无命令执行记录')
+    expect(result.stats.execution.missing).toBe(1)
+    expect(result.stats.execution.waiting).toBe(0)
+
+    expect(db.query).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining('FROM openclaw_command_runs'),
+      [7, 'om_missing']
+    )
+
+    vi.useRealTimers()
   })
 
   it('records logs with deduplicated sender candidates', async () => {

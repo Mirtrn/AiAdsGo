@@ -16,6 +16,19 @@ const confirmSchema = z.object({
   callbackPayload: z.unknown().optional(),
 })
 
+function normalizeHeaderValue(value: string | null | undefined): string | undefined {
+  const normalized = String(value || '').trim()
+  return normalized || undefined
+}
+
+function resolveParentRequestId(request: NextRequest): string | undefined {
+  return normalizeHeaderValue(
+    request.headers.get('x-openclaw-message-id')
+    || request.headers.get('x-openclaw-inbound-message-id')
+    || request.headers.get('x-request-id')
+  )
+}
+
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
@@ -33,7 +46,7 @@ export async function POST(request: NextRequest) {
 
   const decision = parsed.data.decision || parsed.data.action || 'confirm'
   const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
-  const parentRequestId = request.headers.get('x-request-id') || undefined
+  const parentRequestId = resolveParentRequestId(request)
 
   try {
     const result = await confirmOpenclawCommand({

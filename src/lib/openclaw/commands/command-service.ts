@@ -9,6 +9,7 @@ import { normalizeOpenclawCommandPayload } from './payload-policy'
 import {
   consumeCommandConfirmation,
   createOrRefreshCommandConfirmation,
+  expireStaleCommandConfirmations,
   recordOpenclawCallbackEvent,
 } from './confirm-service'
 
@@ -115,6 +116,8 @@ async function findRunByIdempotency(params: {
 export async function executeOpenclawCommand(input: ExecuteCommandInput): Promise<ExecuteCommandResult> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
+
+  await expireStaleCommandConfirmations({ userId: input.userId })
 
   const validated = assertOpenclawCommandRouteAllowed({
     method: input.method || 'GET',
@@ -287,6 +290,8 @@ type ConfirmResult =
 export async function confirmOpenclawCommand(input: ConfirmInput): Promise<ConfirmResult> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
+
+  await expireStaleCommandConfirmations({ userId: input.userId })
 
   const run = await db.queryOne<{
     id: string

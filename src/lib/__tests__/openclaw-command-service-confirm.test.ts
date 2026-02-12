@@ -4,10 +4,12 @@ const {
   getDatabaseMock,
   getQueueManagerForTaskTypeMock,
   createOrRefreshCommandConfirmationMock,
+  expireStaleCommandConfirmationsMock,
 } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
   getQueueManagerForTaskTypeMock: vi.fn(),
   createOrRefreshCommandConfirmationMock: vi.fn(),
+  expireStaleCommandConfirmationsMock: vi.fn(),
 }))
 
 vi.mock('../db', () => ({
@@ -20,6 +22,7 @@ vi.mock('../queue/queue-routing', () => ({
 
 vi.mock('../openclaw/commands/confirm-service', () => ({
   createOrRefreshCommandConfirmation: createOrRefreshCommandConfirmationMock,
+  expireStaleCommandConfirmations: expireStaleCommandConfirmationsMock,
   consumeCommandConfirmation: vi.fn(),
   recordOpenclawCallbackEvent: vi.fn(),
 }))
@@ -81,6 +84,8 @@ describe('openclaw command service confirmation guard', () => {
       confirmToken: 'occf_test',
       expiresAt: '2026-02-11T00:00:00.000Z',
     })
+    expireStaleCommandConfirmationsMock.mockReset()
+    expireStaleCommandConfirmationsMock.mockResolvedValue(0)
   })
 
   it.each([

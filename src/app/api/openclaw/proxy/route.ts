@@ -7,11 +7,26 @@ const proxySchema = z.object({
   path: z.string().min(1),
   query: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
   body: z.unknown().optional(),
+  intent: z.string().optional(),
+  idempotencyKey: z.string().optional(),
   channel: z.string().optional(),
   senderId: z.string().optional(),
   accountId: z.string().optional(),
   tenantKey: z.string().optional(),
 })
+
+function normalizeHeaderValue(value: string | null | undefined): string | undefined {
+  const normalized = String(value || '').trim()
+  return normalized || undefined
+}
+
+function resolveParentRequestId(request: NextRequest): string | undefined {
+  return normalizeHeaderValue(
+    request.headers.get('x-openclaw-message-id')
+    || request.headers.get('x-openclaw-inbound-message-id')
+    || request.headers.get('x-request-id')
+  )
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +44,7 @@ export async function POST(request: NextRequest) {
     const senderId = parsed.data.senderId || request.headers.get('x-openclaw-sender') || undefined
     const accountId = parsed.data.accountId || request.headers.get('x-openclaw-account-id') || undefined
     const tenantKey = parsed.data.tenantKey || request.headers.get('x-openclaw-tenant-key') || undefined
+    const parentRequestId = resolveParentRequestId(request)
 
     const response = await handleOpenclawProxyRequest({
       request: {
@@ -37,6 +53,7 @@ export async function POST(request: NextRequest) {
         senderId,
         accountId,
         tenantKey,
+        parentRequestId,
       },
       authHeader,
     })

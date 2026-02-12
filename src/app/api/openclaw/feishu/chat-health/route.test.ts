@@ -11,6 +11,8 @@ const healthFns = vi.hoisted(() => ({
   FEISHU_CHAT_HEALTH_WINDOW_HOURS: 168,
   FEISHU_CHAT_HEALTH_RETENTION_DAYS: 7,
   FEISHU_CHAT_HEALTH_EXCERPT_LIMIT: 500,
+  FEISHU_CHAT_HEALTH_EXECUTION_MISSING_SECONDS: 180,
+  getFeishuChatHealthExecutionMissingSeconds: vi.fn().mockReturnValue(180),
 }))
 
 vi.mock('@/lib/openclaw/request-auth', () => ({
@@ -22,6 +24,8 @@ vi.mock('@/lib/openclaw/feishu-chat-health', () => ({
   FEISHU_CHAT_HEALTH_WINDOW_HOURS: healthFns.FEISHU_CHAT_HEALTH_WINDOW_HOURS,
   FEISHU_CHAT_HEALTH_RETENTION_DAYS: healthFns.FEISHU_CHAT_HEALTH_RETENTION_DAYS,
   FEISHU_CHAT_HEALTH_EXCERPT_LIMIT: healthFns.FEISHU_CHAT_HEALTH_EXCERPT_LIMIT,
+  FEISHU_CHAT_HEALTH_EXECUTION_MISSING_SECONDS: healthFns.FEISHU_CHAT_HEALTH_EXECUTION_MISSING_SECONDS,
+  getFeishuChatHealthExecutionMissingSeconds: healthFns.getFeishuChatHealthExecutionMissingSeconds,
 }))
 
 describe('openclaw feishu chat health route', () => {
@@ -31,6 +35,7 @@ describe('openclaw feishu chat health route', () => {
       authenticated: true,
       user: { userId: 7, role: 'admin' },
     })
+    healthFns.getFeishuChatHealthExecutionMissingSeconds.mockReturnValue(180)
     healthFns.listFeishuChatHealthLogs.mockResolvedValue({
       rows: [
         {
@@ -53,6 +58,13 @@ describe('openclaw feishu chat health route', () => {
           messageExcerpt: 'hello world',
           messageTextLength: 11,
           metadata: null,
+          executionState: 'not_applicable',
+          executionRunId: null,
+          executionRunStatus: null,
+          executionRunCount: 0,
+          executionRunCreatedAt: null,
+          executionDetail: '非放行消息，无执行链路',
+          ageSeconds: 0,
           createdAt: '2026-02-10T03:00:00.000Z',
         },
       ],
@@ -61,6 +73,16 @@ describe('openclaw feishu chat health route', () => {
         allowed: 0,
         blocked: 1,
         error: 0,
+        execution: {
+          linked: 0,
+          completed: 0,
+          inProgress: 0,
+          waiting: 0,
+          missing: 0,
+          failed: 0,
+          notApplicable: 1,
+          unknown: 0,
+        },
       },
     })
   })
@@ -105,7 +127,9 @@ describe('openclaw feishu chat health route', () => {
     expect(payload.windowHours).toBe(168)
     expect(payload.retentionDays).toBe(7)
     expect(payload.excerptLimit).toBe(500)
+    expect(payload.executionMissingSeconds).toBe(180)
     expect(payload.limit).toBe(500)
+    expect(healthFns.getFeishuChatHealthExecutionMissingSeconds).toHaveBeenCalledTimes(1)
 
     expect(healthFns.listFeishuChatHealthLogs).toHaveBeenCalledWith({
       userId: 7,

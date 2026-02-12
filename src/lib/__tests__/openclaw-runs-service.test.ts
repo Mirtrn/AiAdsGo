@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getDatabaseMock } = vi.hoisted(() => ({
+const { getDatabaseMock, expireStaleCommandConfirmationsMock } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
+  expireStaleCommandConfirmationsMock: vi.fn(),
 }))
 
 vi.mock('../db', () => ({
   getDatabase: getDatabaseMock,
+}))
+
+vi.mock('../openclaw/commands/confirm-service', () => ({
+  expireStaleCommandConfirmations: expireStaleCommandConfirmationsMock,
 }))
 
 import { listOpenclawCommandRuns } from '../openclaw/commands/runs-service'
@@ -13,6 +18,8 @@ import { listOpenclawCommandRuns } from '../openclaw/commands/runs-service'
 describe('openclaw runs service', () => {
   beforeEach(() => {
     getDatabaseMock.mockReset()
+    expireStaleCommandConfirmationsMock.mockReset()
+    expireStaleCommandConfirmationsMock.mockResolvedValue(0)
   })
 
   it('lists runs with user-level filter and merges confirm status', async () => {
@@ -73,6 +80,9 @@ describe('openclaw runs service', () => {
       status: 'all',
       riskLevel: 'all',
     })
+
+    expect(expireStaleCommandConfirmationsMock).toHaveBeenCalledTimes(1)
+    expect(expireStaleCommandConfirmationsMock).toHaveBeenCalledWith({ userId: 99 })
 
     expect(queryOne).toHaveBeenCalledTimes(1)
     expect(queryOne.mock.calls[0]?.[1]).toEqual([99])

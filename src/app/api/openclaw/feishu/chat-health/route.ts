@@ -3,6 +3,7 @@ import {
   FEISHU_CHAT_HEALTH_EXCERPT_LIMIT,
   FEISHU_CHAT_HEALTH_RETENTION_DAYS,
   FEISHU_CHAT_HEALTH_WINDOW_HOURS,
+  getFeishuChatHealthExecutionMissingSeconds,
   listFeishuChatHealthLogs,
 } from '@/lib/openclaw/feishu-chat-health'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
       windowHours: FEISHU_CHAT_HEALTH_WINDOW_HOURS,
       retentionDays: FEISHU_CHAT_HEALTH_RETENTION_DAYS,
       excerptLimit: FEISHU_CHAT_HEALTH_EXCERPT_LIMIT,
+      executionMissingSeconds: getFeishuChatHealthExecutionMissingSeconds(),
       limit,
     })
   } catch (error: any) {
