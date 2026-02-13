@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { handleOpenclawProxyRequest } from '@/lib/openclaw/proxy'
+import { resolveOpenclawParentRequestIdFromHeaders } from '@/lib/openclaw/request-correlation'
 
 const proxySchema = z.object({
   method: z.string().min(1),
@@ -14,19 +15,6 @@ const proxySchema = z.object({
   accountId: z.string().optional(),
   tenantKey: z.string().optional(),
 })
-
-function normalizeHeaderValue(value: string | null | undefined): string | undefined {
-  const normalized = String(value || '').trim()
-  return normalized || undefined
-}
-
-function resolveParentRequestId(request: NextRequest): string | undefined {
-  return normalizeHeaderValue(
-    request.headers.get('x-openclaw-message-id')
-    || request.headers.get('x-openclaw-inbound-message-id')
-    || request.headers.get('x-request-id')
-  )
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +32,7 @@ export async function POST(request: NextRequest) {
     const senderId = parsed.data.senderId || request.headers.get('x-openclaw-sender') || undefined
     const accountId = parsed.data.accountId || request.headers.get('x-openclaw-account-id') || undefined
     const tenantKey = parsed.data.tenantKey || request.headers.get('x-openclaw-tenant-key') || undefined
-    const parentRequestId = resolveParentRequestId(request)
+    const parentRequestResolution = resolveOpenclawParentRequestIdFromHeaders(request.headers)
 
     const response = await handleOpenclawProxyRequest({
       request: {
@@ -53,7 +41,8 @@ export async function POST(request: NextRequest) {
         senderId,
         accountId,
         tenantKey,
-        parentRequestId,
+        parentRequestId: parentRequestResolution.parentRequestId,
+        parentRequestIdSource: parentRequestResolution.source,
       },
       authHeader,
     })

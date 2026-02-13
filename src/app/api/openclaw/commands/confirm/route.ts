@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { confirmOpenclawCommand } from '@/lib/openclaw/commands/command-service'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
+import {
+  resolveOpenclawParentRequestId,
+  resolveOpenclawParentRequestIdFromHeaders,
+} from '@/lib/openclaw/request-correlation'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,14 +25,6 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
   return normalized || undefined
 }
 
-function resolveParentRequestId(request: NextRequest): string | undefined {
-  return normalizeHeaderValue(
-    request.headers.get('x-openclaw-message-id')
-    || request.headers.get('x-openclaw-inbound-message-id')
-    || request.headers.get('x-request-id')
-  )
-}
-
 export async function POST(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
@@ -46,9 +42,24 @@ export async function POST(request: NextRequest) {
 
   const decision = parsed.data.decision || parsed.data.action || 'confirm'
   const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
-  const parentRequestId = resolveParentRequestId(request)
+  const senderId = normalizeHeaderValue(
+    request.headers.get('x-openclaw-sender')
+    || request.headers.get('x-openclaw-sender-id')
+    || request.headers.get('x-openclaw-sender-open-id')
+  )
+  const accountId = normalizeHeaderValue(request.headers.get('x-openclaw-account-id'))
 
   try {
+    const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
+    const parentRequestId = await resolveOpenclawParentRequestId({
+      explicitParentRequestId: parentRequestFromHeaders.parentRequestId,
+      explicitSource: parentRequestFromHeaders.source,
+      userId: auth.userId,
+      channel,
+      senderId,
+      accountId,
+    })
+
     const result = await confirmOpenclawCommand({
       runId: parsed.data.runId,
       userId: auth.userId,

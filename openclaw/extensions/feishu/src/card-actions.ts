@@ -245,6 +245,9 @@ export async function handleFeishuCardConfirmAction(params: {
         "x-openclaw-sender": params.event.open_id,
         "x-openclaw-account-id": params.accountId,
         "x-openclaw-tenant-key": params.event.tenant_key,
+        ...(params.event.open_message_id
+          ? { "x-openclaw-message-id": params.event.open_message_id }
+          : {}),
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,

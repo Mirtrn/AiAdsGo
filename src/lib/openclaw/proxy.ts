@@ -6,6 +6,7 @@ import { checkOpenclawRateLimit } from '@/lib/openclaw/rate-limit'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
 import { executeOpenclawCommand } from '@/lib/openclaw/commands/command-service'
+import { resolveOpenclawParentRequestId, type OpenclawParentRequestIdSource } from '@/lib/openclaw/request-correlation'
 import {
   assertOpenclawProxyRouteAllowed,
   isOpenclawWriteMethod,
@@ -24,6 +25,7 @@ export type OpenclawProxyRequest = {
   accountId?: string | null
   tenantKey?: string | null
   parentRequestId?: string | null
+  parentRequestIdSource?: OpenclawParentRequestIdSource
 }
 
 type ResolvedOpenclawUser = {
@@ -177,6 +179,15 @@ export async function handleOpenclawProxyRequest(params: {
 
   checkOpenclawRateLimit(`user:${resolved.userId}`)
 
+  const resolvedParentRequestId = await resolveOpenclawParentRequestId({
+    explicitParentRequestId: request.parentRequestId || undefined,
+    explicitSource: request.parentRequestIdSource || undefined,
+    userId: resolved.userId,
+    channel: request.channel || null,
+    senderId: request.senderId || null,
+    accountId: request.accountId || null,
+  })
+
   // Backward compatibility bridge:
   // if caller still sends write operations to /api/openclaw/proxy,
   // route them through the command queue so we keep run/confirm/action linkage.
@@ -192,7 +203,7 @@ export async function handleOpenclawProxyRequest(params: {
       senderId: request.senderId || null,
       intent: request.intent || undefined,
       idempotencyKey: request.idempotencyKey || undefined,
-      parentRequestId: request.parentRequestId || undefined,
+      parentRequestId: resolvedParentRequestId,
     })
 
     const status = result.status === 'pending_confirm' ? 202 : 200

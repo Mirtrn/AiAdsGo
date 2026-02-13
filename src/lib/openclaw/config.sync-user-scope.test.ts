@@ -263,6 +263,40 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.channels.feishu.accounts['user-42'].cardCallbackPath).toBe('/feishu/user-42/card-action')
   })
 
+  it('prefers INTERNAL_APP_URL when auto-filling Feishu card confirm URL', async () => {
+    const previousInternal = process.env.INTERNAL_APP_URL
+    const previousPublic = process.env.NEXT_PUBLIC_APP_URL
+
+    process.env.INTERNAL_APP_URL = 'http://127.0.0.1:9000/'
+    process.env.NEXT_PUBLIC_APP_URL = 'https://public.example.com'
+
+    try {
+      getSettingsByCategoryMock
+        .mockResolvedValueOnce([
+          { key: 'feishu_app_id', value: 'cli_main' },
+          { key: 'feishu_app_secret', value: 'sec_main' },
+        ])
+        .mockResolvedValueOnce([])
+
+      await syncOpenclawConfig({ reason: 'test-feishu-confirm-url-internal' })
+
+      const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      expect(written.channels.feishu.accounts.main.cardConfirmUrl)
+        .toBe('http://127.0.0.1:9000/api/openclaw/commands/confirm')
+    } finally {
+      if (previousInternal === undefined) {
+        delete process.env.INTERNAL_APP_URL
+      } else {
+        process.env.INTERNAL_APP_URL = previousInternal
+      }
+      if (previousPublic === undefined) {
+        delete process.env.NEXT_PUBLIC_APP_URL
+      } else {
+        process.env.NEXT_PUBLIC_APP_URL = previousPublic
+      }
+    }
+  })
+
   it('falls back to existing Feishu account credentials when settings decrypt fails', async () => {
     const existingConfig = {
       channels: {

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { executeOpenclawCommand } from '@/lib/openclaw/commands/command-service'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
+import {
+  resolveOpenclawParentRequestId,
+  resolveOpenclawParentRequestIdFromHeaders,
+} from '@/lib/openclaw/request-correlation'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,14 +26,6 @@ const executeSchema = z.object({
 function normalizeHeaderValue(value: string | null | undefined): string | undefined {
   const normalized = String(value || '').trim()
   return normalized || undefined
-}
-
-function resolveParentRequestId(request: NextRequest): string | undefined {
-  return normalizeHeaderValue(
-    request.headers.get('x-openclaw-message-id')
-    || request.headers.get('x-openclaw-inbound-message-id')
-    || request.headers.get('x-request-id')
-  )
 }
 
 export async function POST(request: NextRequest) {
@@ -63,9 +59,18 @@ export async function POST(request: NextRequest) {
     || request.headers.get('x-openclaw-sender-open-id')
   )
 
-  const parentRequestId = resolveParentRequestId(request)
-
   try {
+    const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
+    const accountId = normalizeHeaderValue(request.headers.get('x-openclaw-account-id'))
+    const parentRequestId = await resolveOpenclawParentRequestId({
+      explicitParentRequestId: parentRequestFromHeaders.parentRequestId,
+      explicitSource: parentRequestFromHeaders.source,
+      userId: auth.userId,
+      channel,
+      senderId,
+      accountId,
+    })
+
     const result = await executeOpenclawCommand({
       userId: auth.userId,
       authType: auth.authType,

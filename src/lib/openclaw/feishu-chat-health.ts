@@ -64,6 +64,8 @@ type FeishuChatHealthStatsRow = {
 type OpenclawCommandRunLinkRow = {
   id: string
   parent_request_id: string | null
+  channel: string | null
+  sender_id: string | null
   status: string
   created_at: string | Date
 }
@@ -123,6 +125,8 @@ const FEISHU_HEALTH_RETENTION_HOURS = FEISHU_HEALTH_RETENTION_DAYS * 24
 const FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT = 500
 const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
+const FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS = 90
+const FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS = 5 * 60
 
 let lastCleanupAt = 0
 
@@ -347,10 +351,11 @@ export async function listFeishuChatHealthLogs(params: {
   )
 
   const runsByMessageId = new Map<string, OpenclawCommandRunLinkRow[]>()
+  const linkModeByMessageId = new Map<string, 'parent' | 'sender_time'>()
   if (allowedMessageIds.length > 0) {
     const placeholders = allowedMessageIds.map(() => '?').join(', ')
     const runRows = await db.query<OpenclawCommandRunLinkRow>(
-      `SELECT id, parent_request_id, status, created_at
+      `SELECT id, parent_request_id, channel, sender_id, status, created_at
        FROM openclaw_command_runs
        WHERE user_id = ?
          AND parent_request_id IN (${placeholders})
@@ -364,6 +369,92 @@ export async function listFeishuChatHealthLogs(params: {
       const bucket = runsByMessageId.get(key) || []
       bucket.push(run)
       runsByMessageId.set(key, bucket)
+      linkModeByMessageId.set(key, 'parent')
+    }
+  }
+
+  const missingMessageIds = allowedMessageIds.filter((id) => (runsByMessageId.get(id) || []).length === 0)
+  const missingMessageIdSet = new Set(missingMessageIds)
+  if (missingMessageIdSet.size > 0) {
+    const cutoffExpr = datetimeMinusHours(withinHours + 1, db.type)
+    const candidateRuns = await db.query<OpenclawCommandRunLinkRow>(
+      `SELECT id, parent_request_id, channel, sender_id, status, created_at
+       FROM openclaw_command_runs
+       WHERE user_id = ?
+         AND created_at >= ${cutoffExpr}
+       ORDER BY created_at DESC`,
+      [params.userId]
+    )
+
+    const runsBySender = new Map<string, OpenclawCommandRunLinkRow[]>()
+    for (const run of candidateRuns) {
+      if (normalizeShortText(run.channel, 32) !== 'feishu') continue
+      const sender = normalizeShortText(run.sender_id, 255)
+      if (!sender) continue
+      const bucket = runsBySender.get(sender) || []
+      bucket.push(run)
+      runsBySender.set(sender, bucket)
+    }
+
+    const linkBeforeMs = FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS * 1000
+    const linkAfterMs = FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS * 1000
+
+    for (const row of rows) {
+      if (row.decision !== 'allowed') continue
+      const messageId = normalizeShortText(row.message_id, 120)
+      if (!messageId) continue
+      if (!missingMessageIdSet.has(messageId)) continue
+
+      const createdAt = toIsoTimestamp(row.created_at)
+      const createdMs = Date.parse(createdAt)
+      if (!Number.isFinite(createdMs)) continue
+
+      const startMs = createdMs - linkBeforeMs
+      const endMs = createdMs + linkAfterMs
+
+      const senderCandidates = new Set<string>()
+      const pushCandidate = (value: unknown) => {
+        const normalized = normalizeShortText(value, 255)
+        if (normalized) senderCandidates.add(normalized)
+      }
+
+      pushCandidate(row.sender_primary_id)
+      pushCandidate(row.sender_open_id)
+      pushCandidate(row.sender_union_id)
+      pushCandidate(row.sender_user_id)
+      for (const candidate of safeParseJsonArray(row.sender_candidates_json)) {
+        pushCandidate(candidate)
+      }
+
+      const linkedByTime = new Map<string, OpenclawCommandRunLinkRow>()
+      for (const sender of senderCandidates) {
+        const bucket = runsBySender.get(sender) || []
+        for (const run of bucket) {
+          const runCreatedAt = toIsoTimestamp(run.created_at)
+          const runMs = Date.parse(runCreatedAt)
+          if (!Number.isFinite(runMs)) continue
+          if (runMs < startMs) {
+            // Buckets are ordered DESC; older runs won't match either.
+            break
+          }
+          if (runMs > endMs) {
+            continue
+          }
+          linkedByTime.set(String(run.id), run)
+        }
+      }
+
+      if (linkedByTime.size === 0) {
+        continue
+      }
+
+      const merged = Array.from(linkedByTime.values()).sort((a, b) => {
+        return Date.parse(toIsoTimestamp(b.created_at)) - Date.parse(toIsoTimestamp(a.created_at))
+      })
+      runsByMessageId.set(messageId, merged)
+      if (!linkModeByMessageId.has(messageId)) {
+        linkModeByMessageId.set(messageId, 'sender_time')
+      }
     }
   }
 
@@ -409,7 +500,9 @@ export async function listFeishuChatHealthLogs(params: {
           executionRunStatus = normalizeShortText(latestRun.status, 64)
           executionRunCreatedAt = toIsoTimestamp(latestRun.created_at)
           executionState = mapRunStatusToExecutionState(latestRun.status)
-          executionDetail = `已关联 ${executionRunCount} 条命令记录，最新状态 ${executionRunStatus || 'unknown'}`
+          const linkMode = linkModeByMessageId.get(messageId)
+          const modeHint = linkMode === 'sender_time' ? '（按 sender/time 推断）' : ''
+          executionDetail = `已关联 ${executionRunCount} 条命令记录${modeHint}，最新状态 ${executionRunStatus || 'unknown'}`
         }
       }
     }

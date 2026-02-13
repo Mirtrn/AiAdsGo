@@ -22,6 +22,9 @@ dist/
 # ============================================
 *.md
 !README.md
+!openclaw-prebuilt/skills/**/SKILL.md
+!openclaw-prebuilt/workspace-templates/**
+!openclaw-prebuilt/docs/reference/templates/**
 docs/
 claudedocs/
 secrets/

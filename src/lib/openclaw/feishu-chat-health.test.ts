@@ -145,6 +145,7 @@ describe('feishu chat health lib', () => {
         .mockResolvedValueOnce([
           { decision: 'allowed', total: 1 },
         ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]),
       exec: vi.fn().mockResolvedValue({ changes: 0 }),
     }
@@ -164,6 +165,73 @@ describe('feishu chat health lib', () => {
       expect.stringContaining('FROM openclaw_command_runs'),
       [7, 'om_missing']
     )
+    expect(db.query).toHaveBeenNthCalledWith(
+      4,
+      expect.stringContaining('FROM openclaw_command_runs'),
+      [7]
+    )
+
+    vi.useRealTimers()
+  })
+
+  it('links allowed rows to runs via sender/time when parent_request_id does not match', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 3,
+            user_id: 7,
+            account_id: 'user-7',
+            message_id: 'om_1',
+            chat_id: 'oc_1',
+            chat_type: 'p2p',
+            message_type: 'text',
+            sender_primary_id: 'ou_1',
+            sender_open_id: 'ou_1',
+            sender_union_id: null,
+            sender_user_id: null,
+            sender_candidates_json: '["ou_1"]',
+            decision: 'allowed',
+            reason_code: 'reply_dispatched',
+            reason_message: 'message passed access checks and entered reply pipeline',
+            message_text: 'do something',
+            message_text_length: 12,
+            metadata_json: null,
+            created_at: '2026-02-10 03:00:00',
+          },
+        ])
+        .mockResolvedValueOnce([
+          { decision: 'allowed', total: 1 },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'run-1',
+            parent_request_id: 'uuid-1',
+            channel: 'feishu',
+            sender_id: 'ou_1',
+            status: 'completed',
+            created_at: '2026-02-10 02:59:50',
+          },
+        ]),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].executionRunCount).toBe(1)
+    expect(result.rows[0].executionRunId).toBe('run-1')
+    expect(result.rows[0].executionState).toBe('completed')
+    expect(result.rows[0].executionDetail).toContain('sender/time')
+    expect(result.stats.execution.linked).toBe(1)
+    expect(result.stats.execution.completed).toBe(1)
 
     vi.useRealTimers()
   })

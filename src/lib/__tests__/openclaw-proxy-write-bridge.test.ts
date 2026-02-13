@@ -8,6 +8,7 @@ const {
   checkOpenclawRateLimitMock,
   fetchAutoadsAsUserMock,
   executeOpenclawCommandMock,
+  resolveOpenclawParentRequestIdMock,
 } = vi.hoisted(() => ({
   verifyOpenclawGatewayTokenMock: vi.fn(),
   verifyOpenclawUserTokenMock: vi.fn(),
@@ -16,6 +17,7 @@ const {
   checkOpenclawRateLimitMock: vi.fn(),
   fetchAutoadsAsUserMock: vi.fn(),
   executeOpenclawCommandMock: vi.fn(),
+  resolveOpenclawParentRequestIdMock: vi.fn(),
 }))
 
 vi.mock('../openclaw/auth', () => ({
@@ -46,6 +48,10 @@ vi.mock('../openclaw/commands/command-service', () => ({
   executeOpenclawCommand: executeOpenclawCommandMock,
 }))
 
+vi.mock('../openclaw/request-correlation', () => ({
+  resolveOpenclawParentRequestId: resolveOpenclawParentRequestIdMock,
+}))
+
 import { handleOpenclawProxyRequest } from '../openclaw/proxy'
 
 describe('openclaw proxy write bridge', () => {
@@ -57,10 +63,14 @@ describe('openclaw proxy write bridge', () => {
     checkOpenclawRateLimitMock.mockReset()
     fetchAutoadsAsUserMock.mockReset()
     executeOpenclawCommandMock.mockReset()
+    resolveOpenclawParentRequestIdMock.mockReset()
 
     verifyOpenclawGatewayTokenMock.mockResolvedValue(true)
     resolveOpenclawUserFromBindingMock.mockResolvedValue(1001)
     isOpenclawEnabledForUserMock.mockResolvedValue(true)
+    resolveOpenclawParentRequestIdMock.mockImplementation(async (params: { explicitParentRequestId?: string }) => {
+      return params.explicitParentRequestId
+    })
   })
 
   it('bridges write requests to command executor and keeps sender context', async () => {

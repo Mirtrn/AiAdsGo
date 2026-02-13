@@ -16,21 +16,11 @@ type OpenclawSettingMap = Record<string, string | null>
 const DEFAULT_GATEWAY_PORT = 18789
 const DEFAULT_LOG_FILE = '/proc/self/fd/1'
 
-// Security boundary: keep OpenClaw bundled skills scoped to the AutoAds skill pack.
-// These are the only bundled skills we ship for AutoAds production.
-const FORCED_BUNDLED_SKILLS_ALLOWLIST = [
-  'autoads',
-  'autoads-report-qa',
-  'autoads-prd-writer',
-] as const
-
-const FORCED_SKILLS_ENTRIES_ALLOWLIST = new Set<string>(FORCED_BUNDLED_SKILLS_ALLOWLIST)
-
-// Security boundary: prevent OpenClaw from reading/writing local files or executing
-// shell commands. Otherwise it can bypass AutoAds APIs and write directly to the DB.
-const FORCED_TOOLS_POLICY = {
+// Default policy: full OpenClaw capabilities.
+// AutoAds-specific safety is enforced at the API boundary (canonical routes + command queue),
+// not by crippling OpenClaw tools/skills. (User requirement: "全能力默认开放".)
+const DEFAULT_TOOLS_POLICY = {
   profile: 'full',
-  deny: ['group:fs', 'group:runtime'],
 } as const
 
 function resolveEnvValue(value: string | undefined, fallback: string): string {
@@ -150,17 +140,37 @@ function readExistingConfig(configPath: string): Record<string, any> | undefined
   }
 }
 
-function resolveOpenclawPublicBaseUrl(): string | undefined {
-  const raw = (process.env.NEXT_PUBLIC_APP_URL || process.env.OPENCLAW_PUBLIC_BASE_URL || '').trim()
-  if (!raw) return undefined
-  return raw.replace(/\/+$/, '')
+function normalizeHttpBaseUrl(value: string | undefined): string | undefined {
+  const normalized = String(value || '').trim().replace(/\/+$/, '')
+  if (!normalized) return undefined
+  if (!/^https?:\/\//i.test(normalized)) return undefined
+  return normalized
+}
+
+function resolveOpenclawCardConfirmBaseUrl(): string {
+  const internal = normalizeHttpBaseUrl(
+    process.env.INTERNAL_APP_URL || process.env.OPENCLAW_INTERNAL_BASE_URL
+  )
+  if (internal) {
+    return internal
+  }
+
+  const external = normalizeHttpBaseUrl(
+    process.env.NEXT_PUBLIC_APP_URL || process.env.OPENCLAW_PUBLIC_BASE_URL
+  )
+  if (external) {
+    return external
+  }
+
+  const port = String(process.env.PORT || '3000').trim() || '3000'
+  return `http://127.0.0.1:${port}`
 }
 
 function applyFeishuCardAutoDefaults(params: {
   accountId: string
   accountConfig: Record<string, any>
   gatewayToken: string
-  appBaseUrl?: string
+  cardConfirmBaseUrl?: string
 }): Record<string, any> {
   const next = { ...params.accountConfig }
 
@@ -180,8 +190,8 @@ function applyFeishuCardAutoDefaults(params: {
     next.cardCallbackPath = callbackPath
   }
 
-  if (params.appBaseUrl && !(typeof next.cardConfirmUrl === 'string' && next.cardConfirmUrl.trim())) {
-    next.cardConfirmUrl = `${params.appBaseUrl}/api/openclaw/commands/confirm`
+  if (params.cardConfirmBaseUrl && !(typeof next.cardConfirmUrl === 'string' && next.cardConfirmUrl.trim())) {
+    next.cardConfirmUrl = `${params.cardConfirmBaseUrl}/api/openclaw/commands/confirm`
   }
 
   if (!(typeof next.cardConfirmAuthToken === 'string' && next.cardConfirmAuthToken.trim())) {
@@ -252,7 +262,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const useExistingModelsFallback = !actorUserId || !hasGlobalAiSettings
 
   const gatewayToken = await getOpenclawGatewayToken()
-  const appBaseUrl = resolveOpenclawPublicBaseUrl()
+  const cardConfirmBaseUrl = resolveOpenclawCardConfirmBaseUrl()
   const gatewayPort = parseNumber(settingMap.gateway_port, DEFAULT_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT
   const gatewayBind = (settingMap.gateway_bind || 'loopback').trim() || 'loopback'
 
@@ -365,7 +375,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       lastTouchedVersion: 'autoads',
     },
     env: {
-      shellEnv: { enabled: false },
+      shellEnv: { enabled: true },
     },
     logging: {
       level: 'info',
@@ -374,7 +384,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       consoleStyle: resolveEnvValue(process.env.OPENCLAW_CONSOLE_STYLE, 'compact'),
       redactSensitive: 'tools',
     },
-    tools: { ...FORCED_TOOLS_POLICY },
+    tools: { ...DEFAULT_TOOLS_POLICY },
     session: {
       dmScope: 'per-account-channel-peer',
     },
@@ -405,7 +415,6 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       },
     },
     skills: {
-      allowBundled: [...FORCED_BUNDLED_SKILLS_ALLOWLIST],
       entries: {
         autoads: { enabled: true },
         'autoads-report-qa': { enabled: true },
@@ -481,7 +490,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
       accountId,
       accountConfig: accountConfig as Record<string, any>,
       gatewayToken,
-      appBaseUrl,
+      cardConfirmBaseUrl,
     })
   }
 
@@ -512,35 +521,20 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   }
 
   if (skillsEntries && Object.keys(skillsEntries).length > 0) {
-    const filteredEntries: Record<string, any> = {}
-    const dropped: string[] = []
-
-    for (const [key, value] of Object.entries(skillsEntries)) {
-      if (!FORCED_SKILLS_ENTRIES_ALLOWLIST.has(key)) {
-        dropped.push(key)
-        continue
-      }
-      filteredEntries[key] = value
-    }
-
-    if (dropped.length > 0) {
-      console.warn('⚠️ OpenClaw skills override ignored (forbidden):', dropped.sort())
-    }
-
     config.skills = {
       ...(config.skills || {}),
       entries: {
         ...((config.skills && config.skills.entries) || {}),
-        ...filteredEntries,
+        ...skillsEntries,
       },
     }
   }
 
-  // NOTE: Intentionally ignore settings overrides for skills.allowBundled.
-  // OpenClaw must call AutoAds via canonical HTTP API (proxy/commands) and must not
-  // gain powerful bundled skills that can bypass validations/naming conventions.
   if (skillsAllowBundled.length > 0) {
-    console.warn('⚠️ OpenClaw skills.allowBundled override ignored; forced allowlist is active:', skillsAllowBundled)
+    config.skills = {
+      ...(config.skills || {}),
+      allowBundled: skillsAllowBundled.map((entry) => String(entry)),
+    }
   }
 
   // Ensure the key integration skill is always available.
