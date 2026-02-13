@@ -1574,11 +1574,11 @@ export default function CampaignsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="table-fixed min-w-[1120px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
+                <Table className="min-w-[1080px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
-                      <TableHead className="w-[34px]">
+                      <TableHead className="w-[30px]">
                         <Checkbox
                           checked={
                             paginatedCampaigns.length > 0 &&
@@ -1588,18 +1588,18 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[172px] whitespace-nowrap">系列名称</SortableHeader>
-                      <SortableHeader field="budgetAmount" className="w-[106px] whitespace-nowrap">预算</SortableHeader>
-                      <SortableHeader field="impressions" className="w-[64px] whitespace-nowrap !px-0.5">展示</SortableHeader>
-                      <SortableHeader field="clicks" className="w-[64px] whitespace-nowrap !px-0.5">点击</SortableHeader>
-                      <SortableHeader field="ctr" className="w-[62px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[74px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[74px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
-                      <SortableHeader field="cost" className="w-[74px] whitespace-nowrap !px-0.5">花费</SortableHeader>
-                      <SortableHeader field="status" className="w-[86px] whitespace-nowrap">投放状态</SortableHeader>
-                      <TableHead className="w-[82px] whitespace-nowrap">同步状态</TableHead>
-                      <SortableHeader field="servingStartDate" className="w-[84px] whitespace-nowrap">投放日期</SortableHeader>
-                      <TableHead className="w-[56px] whitespace-nowrap text-center">操作</TableHead>
+                      <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[98px] whitespace-nowrap">预算</SortableHeader>
+                      <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
+                      <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
+                      <SortableHeader field="ctr" className="w-[56px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[66px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[66px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
+                      <SortableHeader field="cost" className="w-[66px] whitespace-nowrap !px-0.5">花费</SortableHeader>
+                      <SortableHeader field="status" className="w-[78px] whitespace-nowrap">投放状态</SortableHeader>
+                      <TableHead className="w-[74px] whitespace-nowrap">同步状态</TableHead>
+                      <SortableHeader field="servingStartDate" className="w-[74px] whitespace-nowrap">投放日期</SortableHeader>
+                      <TableHead className="w-[48px] whitespace-nowrap text-center">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
@@ -1677,21 +1677,18 @@ export default function CampaignsPage() {
                         />
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <div className="flex items-center gap-1 min-w-0">
-                          <div className="min-w-0 flex items-center gap-1 flex-1">
-                            <div className="font-medium text-gray-900 truncate max-w-[118px]" title={campaign.campaignName}>
-                              {campaign.campaignName}
-                            </div>
-                            {campaign.campaignId && (
-                              <div className="text-xs text-gray-500 font-mono truncate max-w-[72px]" title={campaign.campaignId}>
-                                ID:{campaign.campaignId}
-                              </div>
-                            )}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="font-medium text-gray-900 whitespace-nowrap" title={campaign.campaignName}>
+                            {campaign.campaignName}
                           </div>
                           {isDeleted && (
-                            <Badge variant="outline" className="text-xs whitespace-nowrap bg-red-50 text-red-700 border-red-200 shrink-0">
-                              已删除
-                            </Badge>
+                            <span
+                              className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 shrink-0"
+                              title="已删除"
+                              aria-label="已删除"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </span>
                           )}
                           {offerDeleted && !isDeleted && (
                             <Badge variant="outline" className="text-xs whitespace-nowrap bg-orange-50 text-orange-700 border-orange-200 shrink-0">
@@ -1846,7 +1843,7 @@ export default function CampaignsPage() {
                     pageSize={pageSize}
                     onPageChange={setCurrentPage}
                     onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
-                    pageSizeOptions={[10, 20, 50, 100]}
+                    pageSizeOptions={[10, 20, 50, 100, 500, 1000]}
                   />
                 </div>
               )}
