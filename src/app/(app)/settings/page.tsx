@@ -28,6 +28,7 @@ import {
   isModelSupportedByProvider,
   normalizeModelForProvider,
 } from '@/lib/gemini-models'
+import { getGeminiEndpoint, type GeminiProvider } from '@/lib/gemini-config'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 
 // 代理URL配置项接口
@@ -131,6 +132,12 @@ interface SettingsGroup {
   [key: string]: Setting[]
 }
 
+function resolveGeminiEndpoint(providerValue?: string, modelValue?: string): string {
+  const provider = (providerValue || 'official') as GeminiProvider
+  const normalizedModel = normalizeModelForProvider(modelValue || GEMINI_ACTIVE_MODEL, provider)
+  return getGeminiEndpoint(provider, normalizedModel)
+}
+
 // 设置项的详细说明和配置
 const SETTING_METADATA: Record<string, {
   label: string
@@ -210,7 +217,7 @@ const SETTING_METADATA: Record<string, {
   // AI - Gemini API端点（只读）
   'ai.gemini_endpoint': {
     label: 'API端点',
-    description: '根据选择的服务商自动设置，不可手动修改',
+    description: '根据选择的服务商和AI模型自动设置，不可手动修改',
     placeholder: '系统自动设置'
   },
   // AI - Gemini API配置
@@ -606,7 +613,9 @@ export default function SettingsPage() {
       if (initialFormData.ai) {
         const provider = initialFormData.ai.gemini_provider || 'official'
         const currentModel = initialFormData.ai.gemini_model || GEMINI_ACTIVE_MODEL
-        initialFormData.ai.gemini_model = normalizeModelForProvider(currentModel, provider)
+        const normalizedModel = normalizeModelForProvider(currentModel, provider)
+        initialFormData.ai.gemini_model = normalizedModel
+        initialFormData.ai.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
       }
 
       setFormData(initialFormData)
@@ -627,18 +636,8 @@ export default function SettingsPage() {
         },
       }
 
-      // 🆕 当 gemini_provider 改变时，自动更新 gemini_endpoint
+      // 🆕 当 gemini_provider 改变时，自动更新 gemini_model / gemini_endpoint
       if (category === 'ai' && key === 'gemini_provider') {
-        const endpointMap: Record<string, string> = {
-          'official': 'https://generativelanguage.googleapis.com',
-          'relay': 'https://aicode.cat/v1/messages',
-          'vertex': 'vertex',
-        }
-        updated.ai = {
-          ...updated.ai,
-          gemini_endpoint: endpointMap[value] || endpointMap['official']
-        }
-
         // 🔧 修复(2025-12-30): 切换服务商时，清空另一个服务商的API Key显示值
         // 避免用户困惑（虽然两个API Key可能都已配置，但只会使用当前选中的）
         if (value === 'official') {
@@ -650,7 +649,17 @@ export default function SettingsPage() {
         }
 
         const currentModel = updated.ai.gemini_model || GEMINI_ACTIVE_MODEL
-        updated.ai.gemini_model = normalizeModelForProvider(currentModel, value)
+        const normalizedModel = normalizeModelForProvider(currentModel, value)
+        updated.ai.gemini_model = normalizedModel
+        updated.ai.gemini_endpoint = resolveGeminiEndpoint(value, normalizedModel)
+      }
+
+      // 🆕 当 gemini_model 改变时，自动更新 gemini_endpoint
+      if (category === 'ai' && key === 'gemini_model') {
+        const provider = updated.ai.gemini_provider || 'official'
+        const normalizedModel = normalizeModelForProvider(value, provider)
+        updated.ai.gemini_model = normalizedModel
+        updated.ai.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
       }
 
       return updated

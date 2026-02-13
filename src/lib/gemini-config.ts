@@ -45,14 +45,23 @@ export type GeminiProvider = keyof typeof GEMINI_PROVIDERS
  * 根据服务商获取端点 URL
  *
  * @param provider - 服务商类型
+ * @param model - 模型名称（可选，relay 下会根据模型选择 messages / responses）
  * @returns 端点 URL
  *
  * @example
  * getGeminiEndpoint('official') // 'https://generativelanguage.googleapis.com'
  * getGeminiEndpoint('relay') // 'https://aicode.cat/v1/messages'
+ * getGeminiEndpoint('relay', 'gpt-5.2') // 'https://aicode.cat/v1/responses'
  */
-export function getGeminiEndpoint(provider: GeminiProvider): string {
-  return GEMINI_PROVIDERS[provider]?.endpoint || GEMINI_PROVIDERS.official.endpoint
+export function getGeminiEndpoint(provider: GeminiProvider, model?: string | null): string {
+  const endpoint = GEMINI_PROVIDERS[provider]?.endpoint || GEMINI_PROVIDERS.official.endpoint
+
+  // relay 下 GPT 模型走 /v1/responses，Gemini 模型走 /v1/messages
+  if (provider === 'relay' && model && /^gpt-/i.test(model)) {
+    return endpoint.replace(/\/messages\/?$/, '/responses')
+  }
+
+  return endpoint
 }
 
 /**

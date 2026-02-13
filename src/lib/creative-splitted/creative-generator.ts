@@ -7,23 +7,41 @@
  */
 
 import type { AIConfig, AIResponse, GenerateAdCreativeOptions } from './creative-types'
-import { getGeminiMode, generateContent } from '../gemini'
-import { recordTokenUsage, estimateTokenCost } from '../ai-token-tracker'
+import { generateContent } from '../gemini'
+import { resolveActiveAIConfig } from '../ai-runtime-config'
 
 /**
  * 获取 AI 配置
- * 从数据库读取用户或全局 AI 配置
+ * 仅使用用户级 AI 配置
  */
 export async function getAIConfig(userId?: number): Promise<AIConfig> {
-  // 这里应该从数据库读取配置
-  // 为了简化，直接返回 Gemini 配置
-  return {
-    type: 'gemini-api',
-    geminiAPI: {
-      apiKey: process.env.GEMINI_API_KEY || '',
-      model: 'gemini-pro'
+  if (!userId || userId <= 0) {
+    return { type: null }
+  }
+
+  const resolved = await resolveActiveAIConfig(userId)
+  if (resolved.type === 'vertex-ai' && resolved.vertexAI) {
+    return {
+      type: 'vertex-ai',
+      vertexAI: {
+        projectId: resolved.vertexAI.projectId,
+        location: resolved.vertexAI.location,
+        model: resolved.vertexAI.model,
+      },
     }
   }
+
+  if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
+    return {
+      type: 'gemini-api',
+      geminiAPI: {
+        apiKey: resolved.geminiAPI.apiKey,
+        model: resolved.geminiAPI.model,
+      },
+    }
+  }
+
+  return { type: null }
 }
 
 /**
@@ -34,14 +52,18 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number):
   try {
     console.log('[callAI] 开始调用 AI 模型')
 
-    // 使用 Gemini API - 正确的参数格式
-    const model = config.geminiAPI?.model || 'gemini-pro'
+    if (!userId || userId <= 0) {
+      throw new Error('缺少有效 userId，无法执行用户级 AI 调用')
+    }
+
+    // 使用统一入口，模型由用户当前配置决定
+    const model = config.vertexAI?.model || config.geminiAPI?.model || 'unknown'
     const response = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
       maxOutputTokens: 32768  // 保持较高值以防截断
-    }, userId || 0) // 提供默认值
+    }, userId)
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）
     // if (response.usageMetadata) {
@@ -119,13 +141,14 @@ function handleAIError(error: any): { retryable: boolean; message: string } {
 export async function callAIWithRetry(
   prompt: string,
   config: AIConfig,
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  userId?: number
 ): Promise<AIResponse> {
   let lastError: any
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await callAI(prompt, config)
+      const response = await callAI(prompt, config, userId)
 
       if (response.success) {
         return response

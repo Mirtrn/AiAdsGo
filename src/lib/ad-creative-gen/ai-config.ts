@@ -2,86 +2,44 @@
  * Ad Creative Generator - AI Configuration
  *
  * AI configuration management for Vertex AI and Gemini API
- * 优先级：用户配置 > 全局配置
+ * 仅使用用户级配置
  * 优先使用Vertex AI，其次使用Gemini API
  */
 
-import { getDatabase } from '../db'
 import type { AIConfig } from './types'
-import { normalizeGeminiModel } from '../gemini-models'
+import { resolveActiveAIConfig } from '../ai-runtime-config'
 
 /**
- * 获取AI配置（从settings表）
- * 优先级：用户配置 > 全局配置
+ * 获取AI配置（仅用户级，不回退全局）
  */
 export async function getAIConfig(userId?: number): Promise<AIConfig> {
-  const db = await getDatabase()
-
-  // 1. 先尝试获取用户特定配置（优先级最高）
-  let userSettings: Record<string, string> = {}
-  if (userId) {
-    const userRows = await db.query(`
-      SELECT key, value FROM system_settings
-      WHERE user_id = ? AND key IN (
-        'vertex_ai_model', 'gcp_project_id', 'gcp_location',
-        'gemini_api_key', 'gemini_model', 'use_vertex_ai'
-      )
-    `, [userId]) as Array<{ key: string; value: string }>
-
-    userSettings = userRows.reduce((acc, { key, value }) => {
-      acc[key] = value
-      return acc
-    }, {} as Record<string, string>)
+  if (!userId || userId <= 0) {
+    console.warn('⚠️ getAIConfig 缺少有效 userId，返回空配置')
+    return { type: null }
   }
 
-  // 2. 获取全局配置（作为备选）
-  const globalRows = await db.query(`
-    SELECT key, value FROM system_settings
-    WHERE user_id IS NULL AND key IN (
-      'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
-      'GEMINI_API_KEY', 'GEMINI_MODEL'
-    )
-  `, []) as Array<{ key: string; value: string }>
+  const resolved = await resolveActiveAIConfig(userId)
 
-  const globalSettings = globalRows.reduce((acc, { key, value }) => {
-    acc[key] = value
-    return acc
-  }, {} as Record<string, string >)
-
-  // 3. 检查用户是否配置了使用Vertex AI
-  const useVertexAI = userSettings['use_vertex_ai'] === 'true'
-
-  // 4. 合并配置：用户配置优先
-  const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
-  const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
-  // 关键：用户的vertex_ai_model或gemini_model优先于全局VERTEX_AI_MODEL
-  const model = normalizeGeminiModel(userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL'])
-
-  // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
-  if (useVertexAI && projectId && location && model) {
-    console.log(`🤖 使用Vertex AI: 项目=${projectId}, 区域=${location}, 模型=${model}`)
+  if (resolved.type === 'vertex-ai' && resolved.vertexAI) {
+    console.log(`🤖 使用Vertex AI: 项目=${resolved.vertexAI.projectId}, 区域=${resolved.vertexAI.location}, 模型=${resolved.vertexAI.model}`)
     return {
       type: 'vertex-ai',
       vertexAI: {
-        projectId,
-        location,
-        model
-      }
+        projectId: resolved.vertexAI.projectId,
+        location: resolved.vertexAI.location,
+        model: resolved.vertexAI.model,
+      },
     }
   }
 
-  // 6. 检查Gemini API配置
-  const apiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = normalizeGeminiModel(userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'])
-
-  if (apiKey && geminiModel) {
-    console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)
+  if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
+    console.log(`🤖 使用${resolved.geminiAPI.provider === 'relay' ? '第三方中转' : 'Gemini API'}: 模型=${resolved.geminiAPI.model}`)
     return {
       type: 'gemini-api',
       geminiAPI: {
-        apiKey,
-        model: geminiModel
-      }
+        apiKey: resolved.geminiAPI.apiKey,
+        model: resolved.geminiAPI.model,
+      },
     }
   }
 

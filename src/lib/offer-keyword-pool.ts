@@ -35,11 +35,9 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { DEFAULTS } from './keyword-constants'
-import { GEMINI_ACTIVE_MODEL } from './gemini-models'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
 const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
-const KEYWORD_CLUSTERING_FALLBACK_MODEL = GEMINI_ACTIVE_MODEL
 const KEYWORD_CLUSTERING_INPUT_LIMIT = 500
 
 type GeminiGenerateParams = Parameters<typeof generateContent>[0]
@@ -81,11 +79,10 @@ async function runKeywordClustering(
     const message = typeof error === 'object' && error !== null && 'message' in error
       ? String((error as { message?: string }).message)
       : String(error)
-    console.warn(`⚠️ keyword_clustering 超时 (${KEYWORD_CLUSTERING_TIMEOUT_MS}ms)，降级到 ${KEYWORD_CLUSTERING_FALLBACK_MODEL} 重试...`)
+    console.warn(`⚠️ keyword_clustering 超时 (${KEYWORD_CLUSTERING_TIMEOUT_MS}ms)，按用户当前模型重试...`)
     console.warn(`   错误: ${message}`)
     return await generateContent({
       ...baseParams,
-      model: KEYWORD_CLUSTERING_FALLBACK_MODEL,
       enableAutoModelSelection: false,
     }, userId)
   }

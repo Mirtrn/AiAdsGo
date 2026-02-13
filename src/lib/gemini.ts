@@ -18,7 +18,7 @@
 
 import { getUserOnlySetting } from './settings'
 import { resetVertexAIClient } from './gemini-vertex'
-import { selectOptimalModel } from './model-selector'
+import { getUserProModel, selectOptimalModel } from './model-selector'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
 import {
@@ -29,6 +29,14 @@ import {
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+
+function normalizeProvider(value?: string | null): GeminiProvider {
+  if (value === 'relay' || value === 'vertex' || value === 'official') {
+    return value
+  }
+
+  return 'official'
+}
 
 /**
  * JSON Schema类型定义（符合OpenAPI 3.0规范）
@@ -100,10 +108,7 @@ function mapModelForVertexAI(model: string): { model: string; reason?: string } 
  */
 async function isVertexAIConfigured(userId: number): Promise<boolean> {
   try {
-    // 🔧 关键修复(2025-12-30): 使用 getSetting() 而非直接查询数据库
-    // 保持与其他配置读取逻辑的一致性，避免未来出现类似 getGeminiApiKey 的bug
-    const { getSetting } = await import('./settings')
-    const providerSetting = await getSetting('ai', 'gemini_provider', userId)
+    const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userId)
 
     // Vertex AI 是否启用：优先使用 use_vertex_ai（设置页的AI模式开关），并兼容旧的 gemini_provider=vertex
     const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userId)
@@ -111,7 +116,7 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
     const isVertexAIModeEnabled = (
       useVertexAIValue === 'true' ||
       useVertexAIValue === '1' ||
-      providerSetting?.value === 'vertex'
+      normalizeProvider(providerSetting?.value) === 'vertex'
     )
 
     // 检查 GCP 配置
@@ -121,7 +126,7 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
     // 调试日志
     console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
     console.log(`   use_vertex_ai: ${useVertexAISetting?.value ?? '未配置'}`)
-    console.log(`   gemini_provider: ${providerSetting?.value || 'official'}`)
+    console.log(`   gemini_provider: ${normalizeProvider(providerSetting?.value)}`)
     console.log(`   gcp_project_id: ${gcpProjectId?.value ? '已配置' : '未配置'}`)
     console.log(`   gcp_service_account_json: ${gcpServiceAccountJson?.value ? '已配置' : '未配置'}`)
 
@@ -146,9 +151,8 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
  */
 async function isGeminiAPIConfigured(userId: number): Promise<boolean> {
   try {
-    const { getSetting } = await import('./settings')
-    const providerSetting = await getSetting('ai', 'gemini_provider', userId)
-    const provider = providerSetting?.value || 'official'
+    const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userId)
+    const provider = normalizeProvider(providerSetting?.value)
 
     // 🔧 修复(2026-01-01): 支持 relay provider，检查对应的 relay API key
     if (provider === 'relay') {
@@ -283,7 +287,7 @@ export async function generateContent(
   } = params
 
   // 智能模型选择（默认启用，可通过enableAutoModelSelection=false禁用）
-  let finalModel = normalizeGeminiModel(requestedModel)
+  let finalModel: string
   if (enableAutoModelSelection && operationType) {
     const selection = await selectOptimalModel(operationType, userId, {
       hasResponseSchema: !!responseSchema
@@ -291,11 +295,13 @@ export async function generateContent(
     finalModel = selection.model
     console.log(`🤖 智能模型选择 (User ${userId}): ${operationType} → ${finalModel} (${selection.reason})`)
   } else if (requestedModel) {
+    finalModel = normalizeGeminiModel(requestedModel)
     // 如果显式指定model，则使用指定的模型
     console.log(`📝 使用显式指定模型: ${finalModel}`)
   } else {
-    // 没有operationType且没有指定model，使用Pro（向后兼容）
-    console.log(`⚠️ 未指定operationType，默认使用Pro模型`)
+    // 没有operationType且没有指定model时，使用用户最后保存的模型
+    finalModel = await getUserProModel(userId)
+    console.log(`⚠️ 未指定operationType，默认使用用户已保存模型: ${finalModel}`)
   }
 
   // 检查用户是否配置了任何AI
@@ -378,9 +384,8 @@ async function callDirectAPI(
 ): Promise<GeminiGenerateResult> {
   const { model, prompt, temperature, maxOutputTokens, timeoutMs, operationType, responseSchema, responseMimeType } = params
 
-  const { getSetting } = await import('./settings')
-  const providerSetting = await getSetting('ai', 'gemini_provider', userId)
-  const provider = (providerSetting?.value || 'official') as GeminiProvider
+  const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userId)
+  const provider = normalizeProvider(providerSetting?.value)
 
   let apiKey: string | undefined
 
@@ -409,9 +414,19 @@ async function callDirectAPI(
   // 使用代理模式调用（传递用户的API密钥和provider类型）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
-  const effectiveModel = normalizeModelForProvider(model, provider)
+  let effectiveModel = normalizeModelForProvider(model, provider)
   if (model && effectiveModel !== model) {
     console.warn(`⚠️ 服务商 ${provider} 不支持模型 ${model}，自动切换为 ${effectiveModel}`)
+  }
+
+  // 第三方中转模式强制锁定为“用户最后保存”的模型，避免同一用户在不同链路混用模型造成混乱
+  if (provider === 'relay') {
+    const savedModelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
+    const lockedRelayModel = normalizeModelForProvider(savedModelSetting?.value, provider)
+    if (effectiveModel !== lockedRelayModel) {
+      console.warn(`⚠️ relay 模型锁定生效：忽略临时模型 ${effectiveModel}，使用用户最后保存模型 ${lockedRelayModel}`)
+      effectiveModel = lockedRelayModel
+    }
   }
   const baseParams = {
     model: effectiveModel,

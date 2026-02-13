@@ -24,7 +24,6 @@ import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureB
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
-import { normalizeGeminiModel } from './gemini-models'
 import { parsePrice } from './pricing-utils'
 import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
 import { getLocalizedDkiOfficialSuffix, type DkiLocaleOptions } from './dki-localization'
@@ -464,97 +463,6 @@ export function buildDkiKeywordHeadline(defaultText: string, maxLength = 30): st
  * AI广告创意生成器
  * 优先使用Vertex AI，其次使用Gemini API
  */
-
-interface AIConfig {
-  type: 'vertex-ai' | 'gemini-api' | null
-  vertexAI?: {
-    projectId: string
-    location: string
-    model: string
-  }
-  geminiAPI?: {
-    apiKey: string
-    model: string
-  }
-}
-
-/**
- * 获取AI配置（从settings表）
- * 优先级：用户配置 > 全局配置
- */
-async function getAIConfig(userId?: number): Promise<AIConfig> {
-  const db = await getDatabase()
-
-  // 1. 先尝试获取用户特定配置（优先级最高）
-  let userSettings: Record<string, string> = {}
-  if (userId) {
-    const userRows = await db.query(`
-      SELECT key, value FROM system_settings
-      WHERE user_id = ? AND key IN (
-        'vertex_ai_model', 'gcp_project_id', 'gcp_location',
-        'gemini_api_key', 'gemini_model', 'use_vertex_ai'
-      )
-    `, [userId]) as Array<{ key: string; value: string }>
-
-    userSettings = userRows.reduce((acc, { key, value }) => {
-      acc[key] = value
-      return acc
-    }, {} as Record<string, string>)
-  }
-
-  // 2. 获取全局配置（作为备选）
-  const globalRows = await db.query(`
-    SELECT key, value FROM system_settings
-    WHERE user_id IS NULL AND key IN (
-      'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
-      'GEMINI_API_KEY', 'GEMINI_MODEL'
-    )
-  `, []) as Array<{ key: string; value: string }>
-
-  const globalSettings = globalRows.reduce((acc, { key, value }) => {
-    acc[key] = value
-    return acc
-  }, {} as Record<string, string >)
-
-  // 3. 检查用户是否配置了使用Vertex AI
-  const useVertexAI = userSettings['use_vertex_ai'] === 'true'
-
-  // 4. 合并配置：用户配置优先
-  const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
-  const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
-  // 关键：用户的vertex_ai_model或gemini_model优先于全局VERTEX_AI_MODEL
-  const model = normalizeGeminiModel(userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL'])
-
-  // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
-  if (useVertexAI && projectId && location && model) {
-    console.log(`🤖 使用Vertex AI: 项目=${projectId}, 区域=${location}, 模型=${model}`)
-    return {
-      type: 'vertex-ai',
-      vertexAI: {
-        projectId,
-        location,
-        model
-      }
-    }
-  }
-
-  // 6. 检查Gemini API配置
-  const apiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = normalizeGeminiModel(userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'])
-
-  if (apiKey && geminiModel) {
-    console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)
-    return {
-      type: 'gemini-api',
-      geminiAPI: {
-        apiKey,
-        model: geminiModel
-      }
-    }
-  }
-
-  return { type: null }
-}
 
 /**
  * 获取语言指令 - 确保 AI 生成指定语言的内容
@@ -3366,74 +3274,6 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     throw new Error(`AI响应解析失败: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 }
-
-/**
- * 使用Vertex AI生成广告创意
- */
-async function generateWithVertexAI(
-  config: NonNullable<AIConfig['vertexAI']>,
-  prompt: string
-): Promise<GeneratedAdCreativeData> {
-  const { VertexAI } = await import('@google-cloud/vertexai')
-
-  const vertexAI = new VertexAI({
-    project: config.projectId,
-    location: config.location,
-  })
-
-  const model = vertexAI.getGenerativeModel({
-    model: config.model,
-  })
-
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
-      topP: 0.95,
-      maxOutputTokens: 32768,  // 保持较高值以防截断
-    },
-  })
-
-  const response = result.response
-  const text = response.candidates?.[0]?.content?.parts?.[0]?.text || ''
-
-  // 调试信息：检查响应是否被截断
-  const finishReason = response.candidates?.[0]?.finishReason
-  console.log(`🔍 Vertex AI finishReason: ${finishReason}`)
-  if (finishReason === 'MAX_TOKENS') {
-    console.warn('⚠️ 响应因达到token上限而被截断!')
-  }
-
-  return parseAIResponse(text)
-}
-
-/**
- * 使用Gemini API生成广告创意
- */
-async function generateWithGeminiAPI(
-  config: NonNullable<AIConfig['geminiAPI']>,
-  prompt: string
-): Promise<GeneratedAdCreativeData> {
-  const { GoogleGenerativeAI } = await import('@google/generative-ai')
-
-  const genAI = new GoogleGenerativeAI(config.apiKey)
-  const model = genAI.getGenerativeModel({ model: config.model })
-
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
-      topP: 0.95,
-      maxOutputTokens: 32768,  // 保持较高值以防截断
-    },
-  })
-
-  const response = result.response
-  const text = response.text()
-
-  return parseAIResponse(text)
-}
-
 
 /**
  * 主函数：生成广告创意（带缓存）

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { clearUserSettings, getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
 import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
-import { GEMINI_ACTIVE_MODEL, isDeprecatedGeminiModel } from '@/lib/gemini-models'
+import { GEMINI_ACTIVE_MODEL, isDeprecatedGeminiModel, normalizeModelForProvider } from '@/lib/gemini-models'
 import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
@@ -70,11 +70,13 @@ export async function GET(request: NextRequest) {
       // 获取 gemini_provider 值
       const providerSetting = groupedSettings['ai'].find(s => s.key === 'gemini_provider')
       const provider = (providerSetting?.value || 'official') as GeminiProvider
+      const modelSetting = groupedSettings['ai'].find(s => s.key === 'gemini_model')
+      const normalizedModel = normalizeModelForProvider(modelSetting?.value || GEMINI_ACTIVE_MODEL, provider)
 
       // 添加计算字段：gemini_endpoint
       groupedSettings['ai'].push({
         key: 'gemini_endpoint',
-        value: getGeminiEndpoint(provider),
+        value: getGeminiEndpoint(provider, normalizedModel),
         dataType: 'string',
         isSensitive: false,
         isRequired: false,
@@ -158,13 +160,42 @@ export async function PUT(request: NextRequest) {
 
     const { updates } = validationResult.data
 
-    // 🔧 2025-12-29: 如果更新了 gemini_provider，自动填充 gemini_endpoint
-    const geminiProviderUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_provider')
-    if (geminiProviderUpdate) {
-      const provider = geminiProviderUpdate.value as GeminiProvider
-      const endpoint = getGeminiEndpoint(provider)
+    // 🔧 同步更新：AI配置变更时，按“服务商 + 模型”自动填充 gemini_endpoint
+    const hasAIUpdate = updates.some(u => u.category === 'ai')
+    if (hasAIUpdate) {
+      const currentAISettings = userIdNum
+        ? await getSettingsByCategory('ai', userIdNum)
+        : []
+      const aiSettingsMap = new Map(
+        currentAISettings.map(setting => [setting.key, setting.value || ''])
+      )
 
-      // 添加或更新 gemini_endpoint
+      const geminiProviderUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_provider')
+      const geminiModelUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_model')
+
+      const provider = (
+        geminiProviderUpdate?.value ||
+        aiSettingsMap.get('gemini_provider') ||
+        'official'
+      ) as GeminiProvider
+
+      const rawModel = geminiModelUpdate?.value ||
+        aiSettingsMap.get('gemini_model') ||
+        GEMINI_ACTIVE_MODEL
+      const normalizedModel = normalizeModelForProvider(rawModel, provider)
+
+      // 强制保持模型与服务商兼容
+      if (geminiModelUpdate) {
+        geminiModelUpdate.value = normalizedModel
+      } else if (normalizedModel !== rawModel) {
+        updates.push({
+          category: 'ai',
+          key: 'gemini_model',
+          value: normalizedModel,
+        })
+      }
+
+      const endpoint = getGeminiEndpoint(provider, normalizedModel)
       const existingEndpointUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_endpoint')
       if (existingEndpointUpdate) {
         existingEndpointUpdate.value = endpoint
@@ -176,7 +207,7 @@ export async function PUT(request: NextRequest) {
         })
       }
 
-      console.log(`🔄 根据服务商(${provider})自动更新 gemini_endpoint → ${endpoint}`)
+      console.log(`🔄 根据服务商(${provider})+模型(${normalizedModel})自动更新 gemini_endpoint → ${endpoint}`)
     }
 
     // 🔥 2026-01-06: 保存前强制校验代理URL（避免客户端校验遗漏导致运行时失败）
@@ -250,7 +281,6 @@ export async function PUT(request: NextRequest) {
     }
 
     // 🔥 新增：如果更新了AI配置，重置Vertex AI客户端
-    const hasAIUpdate = updates.some(u => u.category === 'ai')
     if (hasAIUpdate) {
       console.log('🔄 检测到AI配置更新，重置Vertex AI客户端')
       const { resetVertexAIClient } = await import('@/lib/gemini-vertex')

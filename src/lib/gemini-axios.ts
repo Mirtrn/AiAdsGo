@@ -10,6 +10,14 @@ import axios, { AxiosInstance } from 'axios'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { GEMINI_ACTIVE_MODEL, normalizeModelForProvider } from './gemini-models'
 
+function normalizeProvider(value?: string | null): GeminiProvider {
+  if (value === 'relay' || value === 'vertex' || value === 'official') {
+    return value
+  }
+
+  return 'official'
+}
+
 function isEnvTrue(value?: string | null): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
@@ -303,14 +311,12 @@ function parseRelayResponse(
  * @returns API Key
  */
 async function getGeminiApiKey(userId: number, provider: GeminiProvider): Promise<string> {
-  // 🔧 关键修复(2025-12-30): 使用 getSetting() 正确处理加密字段
-  // 直接查询 value 字段会忽略 encrypted_value，导致已配置的用户报错
-  const { getSetting } = await import('./settings')
+  const { getUserOnlySetting } = await import('./settings')
 
   // 根据服务商选择对应的字段
   const keyField = provider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
 
-  const setting = await getSetting('ai', keyField, userId)
+  const setting = await getUserOnlySetting('ai', keyField, userId)
 
   if (!setting?.value) {
     throw new Error(
@@ -402,10 +408,10 @@ export async function createGeminiAxiosClient(userId: number, provider?: GeminiP
  * 🔧 关键修复(2025-12-30): 使用 getSetting() 正确处理配置字段
  */
 async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
-  const { getSetting } = await import('./settings')
-  const setting = await getSetting('ai', 'gemini_provider', userId)
+  const { getUserOnlySetting } = await import('./settings')
+  const setting = await getUserOnlySetting('ai', 'gemini_provider', userId)
 
-  return (setting?.value as GeminiProvider) || 'official'
+  return normalizeProvider(setting?.value)
 }
 
 /**
