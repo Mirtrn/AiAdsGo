@@ -341,32 +341,32 @@ export default function BatchOfferPage() {
             <p className="text-sm text-gray-500">暂无上传记录</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+          <div className="w-full">
+            <table className="w-full table-fixed divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-28 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     上传记录ID
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     文件名
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-36 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     上传时间
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden w-20 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap sm:table-cell">
                     有效数量
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden w-20 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap sm:table-cell">
                     处理数量
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden w-20 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap lg:table-cell">
                     成功率
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-24 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     状态
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="hidden w-16 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap md:table-cell">
                     操作
                   </th>
                 </tr>
@@ -374,24 +374,24 @@ export default function BatchOfferPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {records.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <span className="font-mono text-xs">{record.id}</span>
+                    <td className="px-3 py-4 text-xs text-gray-500">
+                      <span className="block break-all font-mono">{record.id}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.fileName}
+                    <td className="px-3 py-4 text-sm font-medium text-gray-900">
+                      <span className="block break-words">{record.fileName}</span>
                       {record.skippedCount > 0 && (
                         <span className="ml-2 text-xs text-yellow-600">
                           (跳过{record.skippedCount}行)
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatTime(record.uploadedAt)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="hidden px-3 py-4 whitespace-nowrap text-sm text-gray-900 sm:table-cell">
                       {record.validCount}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="hidden px-3 py-4 whitespace-nowrap text-sm text-gray-900 sm:table-cell">
                       {record.processedCount}
                       {record.failedCount > 0 && (
                         <span className="ml-1 text-red-600">
@@ -399,7 +399,7 @@ export default function BatchOfferPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="hidden px-3 py-4 whitespace-nowrap text-sm lg:table-cell">
                       <span className={`font-semibold ${
                         Number(record.successRate) >= 90 ? 'text-green-600' :
                         Number(record.successRate) >= 70 ? 'text-yellow-600' :
@@ -408,10 +408,10 @@ export default function BatchOfferPage() {
                         {Number(record.successRate).toFixed(1)}%
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 py-4 whitespace-nowrap text-sm">
                       {getStatusBadge(record.status)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="hidden px-3 py-4 whitespace-nowrap text-sm md:table-cell">
                       {(record.status === 'pending' || record.status === 'processing') && (
                         <button
                           onClick={() => handleCancelClick({ id: record.batchId, fileName: record.fileName })}
