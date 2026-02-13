@@ -40,6 +40,25 @@ function normalizeBrand(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
+const MAX_INT32 = 2147483647
+
+function normalizeAccountIdInput(value: unknown): string {
+  return String(value ?? '').trim().replace(/\s+/g, '')
+}
+
+function toSafePositiveInt32(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > MAX_INT32) {
+    return null
+  }
+  return parsed
+}
+
+function normalizeCustomerId(value: string): string {
+  return value.replace(/-/g, '')
+}
+
 function isOAuthTokenExpiredOrRevoked(err: any): boolean {
   const message = String(err?.message || '')
   const causeMessage = String(err?.cause?.message || '')
@@ -299,29 +318,67 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. 获取Google Ads账号信息（customer_id）
-    // 🔧 确保参数类型正确：googleAdsAccountId和userId应该是数字
-    // 📝 注意：db.ts的convertParams会自动处理SQLite(1/0) ↔ PostgreSQL(true/false)转换
-	    const adsAccount = await db.queryOne(`
-	      SELECT
-	        id,
-	        customer_id,
-	        parent_mcc_id,
-	        is_active,
-	        status
-	      FROM google_ads_accounts
-	      WHERE id = ? AND user_id = ? AND is_active = ?
-	    `, [Number(_googleAdsAccountId), Number(userId), 1]) as any
+    // 6. 获取 Google Ads 账号信息（兼容内部ID与 customer_id 两种输入）
+    const rawGoogleAdsAccountId = normalizeAccountIdInput(_googleAdsAccountId)
+    const normalizedCustomerId = normalizeCustomerId(rawGoogleAdsAccountId)
+    const accountIdAsInt32 = toSafePositiveInt32(rawGoogleAdsAccountId)
+    let accountLookupBy: 'id' | 'customer_id' | null = null
+
+    let adsAccount = null as any
+    if (accountIdAsInt32 !== null) {
+      adsAccount = await db.queryOne(`
+        SELECT
+          id,
+          customer_id,
+          parent_mcc_id,
+          is_active,
+          status
+        FROM google_ads_accounts
+        WHERE id = ? AND user_id = ? AND is_active = ?
+      `, [accountIdAsInt32, Number(userId), 1]) as any
+      if (adsAccount) {
+        accountLookupBy = 'id'
+      }
+    }
+
+    // 兜底：若传入的是 customer_id（如 3178223819），自动映射到内部 account.id
+    if (!adsAccount && normalizedCustomerId) {
+      adsAccount = await db.queryOne(`
+        SELECT
+          id,
+          customer_id,
+          parent_mcc_id,
+          is_active,
+          status
+        FROM google_ads_accounts
+        WHERE user_id = ?
+          AND is_active = ?
+          AND REPLACE(customer_id, '-', '') = ?
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+      `, [Number(userId), 1, normalizedCustomerId]) as any
+      if (adsAccount) {
+        accountLookupBy = 'customer_id'
+      }
+    }
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
-        accountId: _googleAdsAccountId,
+        accountId: rawGoogleAdsAccountId || _googleAdsAccountId,
         userId
       })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用`)
+    const resolvedGoogleAdsAccountId = Number(adsAccount.id)
+    if (!Number.isSafeInteger(resolvedGoogleAdsAccountId) || resolvedGoogleAdsAccountId <= 0) {
+      throw new Error(`Invalid google_ads_accounts.id: ${adsAccount.id}`)
+    }
+
+    console.log(`✅ Ads账号 ${rawGoogleAdsAccountId} 可供Offer #${_offerId} 使用（内部ID: ${resolvedGoogleAdsAccountId}）`)
+    if (accountLookupBy === 'customer_id') {
+      console.log(`ℹ️ 发布账号自动映射: customer_id=${normalizedCustomerId} -> account.id=${resolvedGoogleAdsAccountId}`)
+    }
 
 	    const accountStatus = String(adsAccount.status || 'UNKNOWN').toUpperCase()
 
@@ -347,7 +404,7 @@ export async function POST(request: NextRequest) {
     try {
       activeCampaignsResult = await queryActiveCampaigns(
         _offerId,
-        _googleAdsAccountId,
+        resolvedGoogleAdsAccountId,
         userId
       )
     } catch (error: any) {
@@ -359,7 +416,7 @@ export async function POST(request: NextRequest) {
             UPDATE google_ads_accounts
             SET is_active = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND user_id = ?
-          `, [0, Number(_googleAdsAccountId), Number(userId)])
+          `, [0, resolvedGoogleAdsAccountId, Number(userId)])
         } catch (deactivateError: any) {
           console.warn('标记无权限Google Ads账号为inactive失败:', deactivateError?.message || deactivateError)
         }
@@ -368,7 +425,7 @@ export async function POST(request: NextRequest) {
           action: 'ACCOUNT_ACCESS_DENIED',
           message: '当前Google Ads账号已无访问权限，系统已自动下线该账号。请刷新账号列表后选择可用账号重试。',
           details: {
-            accountId: Number(_googleAdsAccountId),
+            accountId: resolvedGoogleAdsAccountId,
             customerId: String(adsAccount.customer_id || ''),
             parentMccId: adsAccount.parent_mcc_id || null,
             requestId: requestId || null,
@@ -398,7 +455,7 @@ export async function POST(request: NextRequest) {
         const warningMessage = '检测到Ads账号中存在其他品牌Campaign，当前发布将继续执行。建议尽快评估并暂停其他品牌Campaign，避免多品牌并行投放。'
         publishWarnings.push(warningMessage)
         console.warn('⚠️ 检测到品牌冲突（仅警告，不阻断发布）', {
-          accountId: _googleAdsAccountId,
+          accountId: resolvedGoogleAdsAccountId,
           currentOfferId: _offerId,
           currentBrand: offer.brand || null,
           conflictCampaigns: enabledOtherBrandCampaigns.map((campaign) => ({
@@ -527,7 +584,7 @@ export async function POST(request: NextRequest) {
 
       // 批量暂停（串行执行，避免并发冲突）
       const { pauseCampaigns } = await import('@/lib/active-campaigns-query')
-      const pauseResult = await pauseCampaigns(campaignsToPause, _googleAdsAccountId, userId)
+      const pauseResult = await pauseCampaigns(campaignsToPause, resolvedGoogleAdsAccountId, userId)
       pausedOldCampaignsSummary = {
         attemptedCount: pauseResult.attemptedCount,
         pausedCount: pauseResult.pausedCount,
@@ -546,7 +603,7 @@ export async function POST(request: NextRequest) {
         try {
           await applyCampaignTransitionByGoogleCampaignIds({
             userId,
-            googleAdsAccountId: _googleAdsAccountId,
+            googleAdsAccountId: resolvedGoogleAdsAccountId,
             googleCampaignIds: pausedGoogleCampaignIds,
             action: 'PAUSE_OLD_CAMPAIGNS',
           })
@@ -974,7 +1031,7 @@ export async function POST(request: NextRequest) {
       `, [
         userId,
         _offerId,
-        _googleAdsAccountId,
+        resolvedGoogleAdsAccountId,
         resolvedCampaignName,  // 🔥 使用用户配置或规范化的Campaign名称
         variantBudget,
         _campaignConfig.budgetType,
@@ -1042,7 +1099,7 @@ export async function POST(request: NextRequest) {
           const taskData: any = {
             campaignId: campaignId,
             offerId: _offerId,
-            googleAdsAccountId: _googleAdsAccountId,
+            googleAdsAccountId: resolvedGoogleAdsAccountId,
             userId: userId,
             naming: naming, // 🔥 新增：传递规范化命名
             marketingObjective: _campaignConfig.marketingObjective || 'WEB_TRAFFIC', // 🔧 新增(2025-12-19): 营销目标

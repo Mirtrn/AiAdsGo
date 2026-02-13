@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { expireStaleCommandConfirmations } from './confirm-service'
+import { failStaleQueuedCommandRuns } from './queued-timeout'
 
 type OpenclawRunStatus =
   | 'draft'
@@ -134,6 +135,10 @@ export async function listOpenclawCommandRuns(
 ): Promise<ListOpenclawCommandRunsResult> {
   const db = await getDatabase()
 
+  await failStaleQueuedCommandRuns({
+    db,
+    userId: input.userId,
+  })
   await expireStaleCommandConfirmations({ userId: input.userId })
 
   const page = normalizePage(input.page)

@@ -1,7 +1,10 @@
 import { randomUUID } from 'crypto'
 import { getDatabase } from '@/lib/db'
 import { boolParam, nowFunc } from '@/lib/db-helpers'
-import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
+import { getQueueManagerForTaskType, isBackgroundQueueSplitEnabled } from '@/lib/queue/queue-routing'
+import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import { isBackgroundWorkerAlive } from '@/lib/queue/background-worker-heartbeat'
+import { failStaleQueuedCommandRuns } from './queued-timeout'
 import type { OpenclawCommandRiskLevel } from './risk-policy'
 import { deriveOpenclawCommandRiskLevel, requiresOpenclawCommandConfirmation } from './risk-policy'
 import { assertOpenclawCommandRouteAllowed } from '@/lib/openclaw/canonical-routes'
@@ -13,6 +16,31 @@ import {
   recordOpenclawCallbackEvent,
 } from './confirm-service'
 
+const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
+
+function isEnvTrue(value?: string | null): boolean {
+  if (!value) return false
+  return TRUE_VALUES.has(value.toLowerCase())
+}
+
+async function resolveOpenclawCommandQueueManager() {
+  const routedQueue = getQueueManagerForTaskType('openclaw-command')
+
+  // split 模式 + web 进程下，若 background worker 心跳缺失，自动降级到 core 队列，
+  // 避免命令任务长时间卡在 queued。
+  if (isBackgroundQueueSplitEnabled() && !isEnvTrue(process.env.QUEUE_BACKGROUND_WORKER)) {
+    const backgroundAlive = await isBackgroundWorkerAlive()
+    if (!backgroundAlive) {
+      console.warn(
+        '[OpenClawCommand] 背景 worker 心跳缺失，命令任务降级到 core queue 执行'
+      )
+      return getQueueManager()
+    }
+  }
+
+  return routedQueue
+}
+
 async function enqueueCommandRun(params: {
   runId: string
   userId: number
@@ -21,7 +49,7 @@ async function enqueueCommandRun(params: {
   trigger: 'direct' | 'confirm'
 }): Promise<string> {
   const priority = params.riskLevel === 'critical' || params.riskLevel === 'high' ? 'high' : 'normal'
-  const queue = getQueueManagerForTaskType('openclaw-command')
+  const queue = await resolveOpenclawCommandQueueManager()
   return queue.enqueue(
     'openclaw-command',
     {
@@ -136,6 +164,14 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
   const riskLevel = deriveOpenclawCommandRiskLevel({ method, path })
   const requireConfirm = requiresOpenclawCommandConfirmation(riskLevel)
   const idempotencyKey = String(input.idempotencyKey || '').trim() || null
+
+  const staleQueuedCount = await failStaleQueuedCommandRuns({
+    db,
+    userId: input.userId,
+  })
+  if (staleQueuedCount > 0 && process.env.NODE_ENV !== 'test') {
+    console.warn(`[OpenClawCommand] 已自动收敛 ${staleQueuedCount} 条超时 queued 命令`)
+  }
 
   if (idempotencyKey) {
     const existing = await findRunByIdempotency({ userId: input.userId, idempotencyKey })
@@ -290,6 +326,14 @@ type ConfirmResult =
 export async function confirmOpenclawCommand(input: ConfirmInput): Promise<ConfirmResult> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
+
+  const staleQueuedCount = await failStaleQueuedCommandRuns({
+    db,
+    userId: input.userId,
+  })
+  if (staleQueuedCount > 0 && process.env.NODE_ENV !== 'test') {
+    console.warn(`[OpenClawCommand] confirm 前已自动收敛 ${staleQueuedCount} 条超时 queued 命令`)
+  }
 
   await expireStaleCommandConfirmations({ userId: input.userId })
 

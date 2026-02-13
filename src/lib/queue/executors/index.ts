@@ -90,6 +90,10 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
   // 🆕 注册 campaign-publish 执行器（异步Campaign发布，避免504超时）
   queue.registerExecutor('campaign-publish', executeCampaignPublish)
 
+  // OpenClaw 指令是用户交互主链路，始终在 core 队列可执行；
+  // 当 split 模式下 background worker 离线时，可回退到 core 执行避免任务卡死。
+  queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
+
   const backgroundDecision = shouldRegisterBackgroundExecutors()
   if (backgroundDecision.allowed) {
     // 🆕 注册 click-farm 执行器（补点击任务，带代理和超时控制）
@@ -103,9 +107,6 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
     // 🆕 注册 affiliate-product-sync 执行器（联盟商品同步）
     queue.registerExecutor('affiliate-product-sync', executeAffiliateProductSync)
-
-    // 🆕 注册 openclaw-command 执行器（OpenClaw 指令执行）
-    queue.registerExecutor('openclaw-command', executeOpenclawCommandTask)
 
     // 🆕 注册 openclaw-affiliate-sync 执行器（OpenClaw 联盟佣金快照同步）
     queue.registerExecutor('openclaw-affiliate-sync', executeOpenclawAffiliateSync)

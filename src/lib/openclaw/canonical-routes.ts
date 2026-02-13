@@ -143,13 +143,11 @@ const WRITE_ROUTE_DEFINITIONS: CanonicalRouteDefinition[] = [
   { method: 'POST', pattern: '/api/offers/:id/validate-url', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/:id/launch-score', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/:id/launch-score/compare', feature: 'offer-management' },
-  { method: 'POST', pattern: '/api/offers/batch/create', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/batch/:batchId/cancel', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/extract', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/extract/stream', feature: 'offer-management' },
 
-  // 创意管理（仅正统 A/B/D 生成链路）
-  { method: 'POST', pattern: '/api/offers/:id/generate-ad-creative', feature: 'creative-management' },
+  // 创意管理（仅正统 A/B/D 生成链路，统一走异步队列）
   { method: 'POST', pattern: '/api/offers/:id/generate-creatives-queue', feature: 'creative-management' },
   {
     method: 'POST',
@@ -239,6 +237,7 @@ const CREATIVE_LEGACY_PATHS: RegExp[] = [
   /^\/api\/ad-creatives$/,
   /^\/api\/offers\/[^/]+\/creatives\/generate-differentiated$/,
 ]
+const CREATIVE_SYNC_PATH = /^\/api\/offers\/[^/]+\/generate-ad-creative$/
 
 function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -402,7 +401,13 @@ export function assertOpenclawCommandRouteAllowed(params: {
 
   if (method === 'POST' && CREATIVE_LEGACY_PATHS.some((pattern) => pattern.test(path))) {
     throw new Error(
-      'Creative generation must follow A/B/D flow: use /api/offers/:id/generate-ad-creative or /api/offers/:id/generate-creatives-queue.'
+      'Creative generation must follow A/B/D flow: use /api/offers/:id/generate-creatives-queue (with bucket A/B/D).'
+    )
+  }
+
+  if (method === 'POST' && CREATIVE_SYNC_PATH.test(path)) {
+    throw new Error(
+      'Creative generation is long-running. Use /api/offers/:id/generate-creatives-queue (with bucket A/B/D) for async execution.'
     )
   }
 

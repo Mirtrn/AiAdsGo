@@ -78,18 +78,25 @@ export async function POST(request: NextRequest) {
 
     // 🆕 NEW-4：验证时间格式（如果提供了的话）
     const timeFormatRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$|^24:00$/;
-    if (body.start_time && !timeFormatRegex.test(body.start_time)) {
+    const normalizedStartTime = typeof body.start_time === 'string' ? body.start_time.trim() : body.start_time;
+    const normalizedEndTime = typeof body.end_time === 'string' ? body.end_time.trim() : body.end_time;
+
+    if (normalizedStartTime && !timeFormatRegex.test(normalizedStartTime)) {
       return NextResponse.json(
         { error: 'validation_error', message: '开始时间格式无效，请使用 HH:mm 或 HH:mm:ss 或 24:00' },
         { status: 400 }
       );
     }
-    if (body.end_time && !timeFormatRegex.test(body.end_time)) {
+    if (normalizedEndTime && !timeFormatRegex.test(normalizedEndTime)) {
       return NextResponse.json(
         { error: 'validation_error', message: '结束时间格式无效，请使用 HH:mm 或 HH:mm:ss 或 24:00' },
         { status: 400 }
       );
     }
+
+    // 🔧 修复(2026-02-13): 防止将 null 写入 DB 触发 NOT NULL 约束
+    const effectiveStartTime = normalizedStartTime || '06:00';
+    const effectiveEndTime = normalizedEndTime || '24:00';
 
     // 🆕 NEW-2：验证duration_days范围
     const durationDays = body.duration_days;
@@ -155,8 +162,8 @@ export async function POST(request: NextRequest) {
     if (!hourlyDistribution || hourlyDistribution.length !== 24) {
       hourlyDistribution = generateDefaultDistribution(
         body.daily_click_count,
-        body.start_time || '06:00',
-        body.end_time || '24:00'
+        effectiveStartTime,
+        effectiveEndTime
       );
     } else {
       // 验证分布总和
@@ -194,6 +201,8 @@ export async function POST(request: NextRequest) {
     // 创建任务
     const task = await createClickFarmTask(userIdNum, {
       ...body,
+      start_time: effectiveStartTime,
+      end_time: effectiveEndTime,
       hourly_distribution: hourlyDistribution,
       timezone  // 🆕 使用自动匹配的timezone
     });

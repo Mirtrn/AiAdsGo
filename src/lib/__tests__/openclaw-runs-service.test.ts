@@ -24,6 +24,7 @@ describe('openclaw runs service', () => {
 
   it('lists runs with user-level filter and merges confirm status', async () => {
     const queryOne = vi.fn().mockResolvedValue({ total: 2 })
+    const exec = vi.fn().mockResolvedValue({ changes: 0 })
     const query = vi.fn()
       .mockResolvedValueOnce([
         {
@@ -71,7 +72,7 @@ describe('openclaw runs service', () => {
         },
       ])
 
-    getDatabaseMock.mockResolvedValue({ queryOne, query })
+    getDatabaseMock.mockResolvedValue({ type: 'sqlite', queryOne, query, exec })
 
     const result = await listOpenclawCommandRuns({
       userId: 99,

@@ -40,6 +40,15 @@ function isValidUrl(url: string | null | undefined): boolean {
   }
 }
 
+function normalizeRequestedBucket(value: unknown): BucketType | null {
+  const upper = String(value || '').trim().toUpperCase()
+  if (!upper) return null
+  if (upper === 'A') return 'A'
+  if (upper === 'B' || upper === 'C') return 'B'
+  if (upper === 'D' || upper === 'S') return 'D'
+  return null
+}
+
 /**
  * 广告创意生成任务数据接口
  */
@@ -48,6 +57,7 @@ export interface AdCreativeTaskData {
   maxRetries?: number
   targetRating?: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR'
   synthetic?: boolean  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
+  bucket?: 'A' | 'B' | 'C' | 'D' | 'S'
 }
 
 /**
@@ -56,9 +66,16 @@ export interface AdCreativeTaskData {
 export async function executeAdCreativeGeneration(
   task: Task<AdCreativeTaskData>
 ): Promise<any> {
-  const { offerId, maxRetries = 3, targetRating = 'EXCELLENT', synthetic = false } = task.data
+  const {
+    offerId,
+    maxRetries = 3,
+    targetRating = 'EXCELLENT',
+    synthetic = false,
+    bucket,
+  } = task.data
   const db = getDatabase()
   const effectiveMaxRetries = Math.min(maxRetries, 2)
+  const requestedBucket = normalizeRequestedBucket(bucket)
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -162,18 +179,31 @@ export async function executeAdCreativeGeneration(
 
       keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false, reportKeywordPoolProgress)
 
-      // ✅ KISS-3类型：只生成 A / B(含C) / D(含S) 三种创意
-      // synthetic=true 为旧版前端兼容：映射为 D 类型（不再单独生成S桶）
-      if (synthetic) {
-        console.warn(`⚠️ 检测到旧版 synthetic=true，已映射为桶D（不再生成S桶）`)
-      }
-
       // 获取可用桶（未被占用的，已按KISS-3类型收敛）
       const availableBuckets = await getAvailableBuckets(offerId)
 
       if (availableBuckets.length > 0) {
-        // 旧synthetic请求优先生成D（转化/价值导向）
-        const preferred = synthetic && availableBuckets.includes('D') ? 'D' : availableBuckets[0]
+        let preferred: BucketType | null = null
+
+        if (requestedBucket) {
+          if (!availableBuckets.includes(requestedBucket)) {
+            throw new Error(
+              `桶${requestedBucket}创意已存在或暂不可用。当前可用桶：${availableBuckets.join(', ') || '无'}`
+            )
+          }
+          preferred = requestedBucket
+        } else if (synthetic && availableBuckets.includes('D')) {
+          // 旧 synthetic 请求优先生成 D（转化/价值导向）
+          console.warn(`⚠️ 检测到旧版 synthetic=true，已映射为桶D（不再生成S桶）`)
+          preferred = 'D'
+        } else {
+          preferred = availableBuckets[0]
+        }
+
+        if (!preferred) {
+          throw new Error('未能确定可用的关键词桶')
+        }
+
         selectedBucket = preferred
         bucketInfo = getBucketInfo(keywordPool, selectedBucket)
         console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)

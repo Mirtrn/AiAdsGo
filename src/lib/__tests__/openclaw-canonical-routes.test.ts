@@ -32,6 +32,15 @@ describe('openclaw canonical routes', () => {
     ).toThrow('OpenClaw command route not in canonical web flow')
   })
 
+  it('rejects multipart-only offer batch create route in command channel', () => {
+    expect(() =>
+      assertOpenclawCommandRouteAllowed({
+        method: 'POST',
+        path: '/api/offers/batch/create',
+      })
+    ).toThrow('OpenClaw command route not in canonical web flow')
+  })
+
   it('rejects legacy creative generation paths and enforces A/B/D flow', () => {
     expect(() =>
       assertOpenclawCommandRouteAllowed({
@@ -46,6 +55,13 @@ describe('openclaw canonical routes', () => {
         path: '/api/ad-creatives',
       })
     ).toThrow('Creative generation must follow A/B/D flow')
+
+    expect(() =>
+      assertOpenclawCommandRouteAllowed({
+        method: 'POST',
+        path: '/api/offers/10/generate-ad-creative',
+      })
+    ).toThrow('Creative generation is long-running')
   })
 
   it('rejects GET requests in command channel', () => {

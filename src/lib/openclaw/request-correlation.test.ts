@@ -143,4 +143,51 @@ describe('openclaw request correlation', () => {
 
     vi.useRealTimers()
   })
+
+  it('replaces manual UUID parent id with recent feishu message id', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-13T12:00:00.000Z'))
+
+    const query = vi.fn().mockResolvedValue([
+      {
+        message_id: 'om_recent_manual',
+        created_at: '2026-02-13 11:55:00',
+      },
+    ])
+    dbFns.getDatabase.mockResolvedValue({
+      type: 'sqlite',
+      query,
+    })
+
+    const resolved = await resolveOpenclawParentRequestId({
+      explicitParentRequestId: 'b3f0f07f-5ef6-4f40-b84f-0ea6a4f4eb10',
+      explicitSource: 'manual',
+      userId: 7,
+      channel: 'feishu',
+      senderId: 'ou_1',
+    })
+
+    expect(resolved).toBe('om_recent_manual')
+    expect(query).toHaveBeenCalledTimes(1)
+
+    vi.useRealTimers()
+  })
+
+  it('keeps manual feishu message id without DB fallback', async () => {
+    dbFns.getDatabase.mockResolvedValue({
+      type: 'sqlite',
+      query: vi.fn().mockResolvedValue([]),
+    })
+
+    const resolved = await resolveOpenclawParentRequestId({
+      explicitParentRequestId: 'om_manual',
+      explicitSource: 'manual',
+      userId: 7,
+      channel: 'feishu',
+      senderId: 'ou_1',
+    })
+
+    expect(resolved).toBe('om_manual')
+    expect(dbFns.getDatabase).not.toHaveBeenCalled()
+  })
 })

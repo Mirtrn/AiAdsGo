@@ -3,11 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   getDatabaseMock,
   getQueueManagerForTaskTypeMock,
+  isBackgroundQueueSplitEnabledMock,
+  getQueueManagerMock,
+  isBackgroundWorkerAliveMock,
   createOrRefreshCommandConfirmationMock,
   expireStaleCommandConfirmationsMock,
 } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
   getQueueManagerForTaskTypeMock: vi.fn(),
+  isBackgroundQueueSplitEnabledMock: vi.fn(),
+  getQueueManagerMock: vi.fn(),
+  isBackgroundWorkerAliveMock: vi.fn(),
   createOrRefreshCommandConfirmationMock: vi.fn(),
   expireStaleCommandConfirmationsMock: vi.fn(),
 }))
@@ -18,6 +24,15 @@ vi.mock('../db', () => ({
 
 vi.mock('../queue/queue-routing', () => ({
   getQueueManagerForTaskType: getQueueManagerForTaskTypeMock,
+  isBackgroundQueueSplitEnabled: isBackgroundQueueSplitEnabledMock,
+}))
+
+vi.mock('../queue/unified-queue-manager', () => ({
+  getQueueManager: getQueueManagerMock,
+}))
+
+vi.mock('../queue/background-worker-heartbeat', () => ({
+  isBackgroundWorkerAlive: isBackgroundWorkerAliveMock,
 }))
 
 vi.mock('../openclaw/commands/confirm-service', () => ({
@@ -36,6 +51,9 @@ describe('openclaw command service confirmation guard', () => {
     exec: ReturnType<typeof vi.fn>
   }
   let queueManager: {
+    enqueue: ReturnType<typeof vi.fn>
+  }
+  let coreQueueManager: {
     enqueue: ReturnType<typeof vi.fn>
   }
 
@@ -63,6 +81,8 @@ describe('openclaw command service confirmation guard', () => {
   }
 
   beforeEach(() => {
+    process.env.OPENCLAW_CONFIRM_MEDIUM_RISK = 'false'
+
     db = {
       type: 'sqlite',
       queryOne: vi.fn().mockResolvedValue(null),
@@ -72,12 +92,21 @@ describe('openclaw command service confirmation guard', () => {
     queueManager = {
       enqueue: vi.fn().mockResolvedValue('task-1'),
     }
+    coreQueueManager = {
+      enqueue: vi.fn().mockResolvedValue('task-core-1'),
+    }
 
     getDatabaseMock.mockReset()
     getDatabaseMock.mockResolvedValue(db)
 
     getQueueManagerForTaskTypeMock.mockReset()
     getQueueManagerForTaskTypeMock.mockReturnValue(queueManager)
+    isBackgroundQueueSplitEnabledMock.mockReset()
+    isBackgroundQueueSplitEnabledMock.mockReturnValue(false)
+    getQueueManagerMock.mockReset()
+    getQueueManagerMock.mockReturnValue(coreQueueManager)
+    isBackgroundWorkerAliveMock.mockReset()
+    isBackgroundWorkerAliveMock.mockResolvedValue(false)
 
     createOrRefreshCommandConfirmationMock.mockReset()
     createOrRefreshCommandConfirmationMock.mockResolvedValue({
@@ -154,6 +183,50 @@ describe('openclaw command service confirmation guard', () => {
 
     expect(params[3]).toBe('web')
     expect(params[4]).toBe('ou_test')
+  })
+
+  it('falls back to core queue when split is enabled and background worker heartbeat is missing', async () => {
+    isBackgroundQueueSplitEnabledMock.mockReturnValue(true)
+    isBackgroundWorkerAliveMock.mockResolvedValue(false)
+    process.env.OPENCLAW_CONFIRM_MEDIUM_RISK = 'false'
+
+    const result = await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/click-farm/tasks',
+      body: {
+        offer_id: 31,
+        daily_click_count: 50,
+      },
+      senderId: 'ou_test',
+    })
+
+    expect(result.status).toBe('queued')
+    expect(queueManager.enqueue).not.toHaveBeenCalled()
+    expect(coreQueueManager.enqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps using routed queue when split is enabled and background worker heartbeat exists', async () => {
+    isBackgroundQueueSplitEnabledMock.mockReturnValue(true)
+    isBackgroundWorkerAliveMock.mockResolvedValue(true)
+    process.env.OPENCLAW_CONFIRM_MEDIUM_RISK = 'false'
+
+    const result = await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/click-farm/tasks',
+      body: {
+        offer_id: 31,
+        daily_click_count: 50,
+      },
+      senderId: 'ou_test',
+    })
+
+    expect(result.status).toBe('queued')
+    expect(queueManager.enqueue).toHaveBeenCalledTimes(1)
+    expect(coreQueueManager.enqueue).not.toHaveBeenCalled()
   })
 
   it('fills fallback channel for user-token auth when channel is missing', async () => {

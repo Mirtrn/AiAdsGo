@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { datetimeMinusHours, nowFunc } from '@/lib/db-helpers'
+import { failStaleQueuedCommandRuns } from './commands/queued-timeout'
 
 export type FeishuChatHealthDecision = 'allowed' | 'blocked' | 'error'
 export type FeishuChatHealthExecutionState =
@@ -415,6 +416,10 @@ export async function listFeishuChatHealthLogs(params: {
   limit?: number
 }): Promise<FeishuChatHealthListResult> {
   const db = await getDatabase()
+  await failStaleQueuedCommandRuns({
+    db,
+    userId: params.userId,
+  })
   const withinHours = clamp(params.withinHours || FEISHU_CHAT_HEALTH_WINDOW_HOURS, 1, FEISHU_HEALTH_RETENTION_HOURS)
   const limit = clamp(params.limit || 200, 20, 500)
   const cutoffExpr = datetimeMinusHours(withinHours, db.type)

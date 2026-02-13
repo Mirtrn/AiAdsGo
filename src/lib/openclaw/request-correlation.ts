@@ -44,6 +44,11 @@ function normalizeShortText(value: unknown, maxLength: number): string | undefin
   return normalized.slice(0, maxLength)
 }
 
+function isFeishuMessageId(value: string | undefined): boolean {
+  if (!value) return false
+  return value.toLowerCase().startsWith('om_')
+}
+
 function toEpochMs(value: string | Date): number | undefined {
   if (value instanceof Date) {
     const ts = value.getTime()
@@ -185,8 +190,13 @@ export async function resolveOpenclawParentRequestId(params: {
   const source = params.explicitSource || (normalizedParentRequestId ? 'manual' : 'none')
   const normalizedChannel = normalizeShortText(params.channel, 32)?.toLowerCase()
   const normalizedSenderId = normalizeShortText(params.senderId, 255)
+  const shouldFallbackToMessageId = (
+    source === 'none'
+    || source === 'request_id'
+    || (source === 'manual' && !isFeishuMessageId(normalizedParentRequestId))
+  )
 
-  if (normalizedChannel === 'feishu' && normalizedSenderId && (source === 'none' || source === 'request_id')) {
+  if (normalizedChannel === 'feishu' && normalizedSenderId && shouldFallbackToMessageId) {
     const fallbackMessageId = await resolveFeishuMessageIdFallback({
       userId: params.userId,
       senderId: normalizedSenderId,

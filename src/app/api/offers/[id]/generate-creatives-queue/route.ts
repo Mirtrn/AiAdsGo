@@ -14,6 +14,17 @@ import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 
+type NormalizedCreativeBucket = 'A' | 'B' | 'D'
+
+function normalizeBucketSelection(bucket: unknown): NormalizedCreativeBucket | null {
+  const upper = String(bucket || '').trim().toUpperCase()
+  if (!upper) return null
+  if (upper === 'A') return 'A'
+  if (upper === 'B' || upper === 'C') return 'B'
+  if (upper === 'D' || upper === 'S') return 'D'
+  return null
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -34,8 +45,20 @@ export async function POST(
   const {
     maxRetries = 3,
     targetRating = 'EXCELLENT',
-    synthetic = false  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
+    synthetic = false,  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
+    bucket,
   } = body
+  const requestedBucket = normalizeBucketSelection(bucket)
+
+  if (bucket !== undefined && !requestedBucket) {
+    return new Response(JSON.stringify({
+      error: 'Invalid bucket',
+      message: 'bucket 仅支持 A / B / D（兼容旧值：C→B，S→D）',
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
 
   // 验证Offer存在
   const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
@@ -112,22 +135,14 @@ export async function POST(
       [parseInt(id, 10), parseInt(userId, 10)]
     )
 
-    const normalizeBucket = (b: any): 'A' | 'B' | 'D' | null => {
-      const upper = String(b || '').toUpperCase()
-      if (upper === 'A') return 'A'
-      if (upper === 'B' || upper === 'C') return 'B'
-      if (upper === 'D' || upper === 'S') return 'D'
-      return null
-    }
-
     const usedTypes = new Set(
       existingBuckets
-        .map(r => normalizeBucket(r.keyword_bucket))
+        .map(r => normalizeBucketSelection(r.keyword_bucket))
         .filter((b: 'A' | 'B' | 'D' | null): b is 'A' | 'B' | 'D' => !!b)
     )
 
-    // 旧synthetic请求：映射为D类型（不再单独生成S）
-    const requestedType: 'A' | 'B' | 'D' | null = synthetic ? 'D' : null
+    // 显式 bucket 优先；旧 synthetic 请求映射为 D 类型（不再单独生成 S）
+    const requestedType: 'A' | 'B' | 'D' | null = requestedBucket || (synthetic ? 'D' : null)
     if (requestedType && usedTypes.has(requestedType)) {
       const error = createError.creativeQuotaExceeded({
         round: 1,
@@ -172,7 +187,8 @@ export async function POST(
       offerId: parseInt(id, 10),
       maxRetries,
       targetRating,
-      synthetic  // 🔧 向后兼容：旧版标记（执行器会映射为D）
+      synthetic,  // 🔧 向后兼容：旧版标记（执行器会映射为D）
+      bucket: requestedType || undefined,
     }
 
     await queue.enqueue('ad-creative', taskData, parseInt(userId, 10), {
@@ -184,7 +200,10 @@ export async function POST(
 
     console.log(`🚀 创意生成任务已入队: ${taskId}`)
 
-    return new Response(JSON.stringify({ taskId }), {
+    return new Response(JSON.stringify({
+      taskId,
+      bucket: requestedType || undefined,
+    }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     })

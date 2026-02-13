@@ -138,6 +138,83 @@ describe('POST /api/campaigns/publish AutoAds enforced', () => {
     expect(data.total.all).toBe(1)
   })
 
+  it('accepts customer_id input for googleAdsAccountId and maps to internal account id', async () => {
+    const queryOneSpy = dbFns.queryOne
+
+    queryOneSpy.mockImplementation(async (sql: string, params?: any[]) => {
+      if (sql.includes('FROM offers')) {
+        return {
+          id: 11,
+          url: 'https://example.com/p/11',
+          brand: 'BrandA',
+          target_country: 'US',
+          target_language: 'en',
+          scrape_status: 'completed',
+          category: 'test',
+          offer_name: 'Offer 11',
+        }
+      }
+      if (sql.includes('FROM ad_creatives')) {
+        return {
+          id: 22,
+          headlines: JSON.stringify(['h1']),
+          descriptions: JSON.stringify(['d1']),
+          keywords: JSON.stringify(['kw1']),
+          negative_keywords: JSON.stringify([]),
+          callouts: JSON.stringify([]),
+          sitelinks: JSON.stringify([]),
+          final_url: 'https://example.com/landing',
+          final_url_suffix: '',
+          is_selected: 1,
+          keywords_with_volume: JSON.stringify([]),
+          theme: 'default',
+        }
+      }
+      if (sql.includes('FROM google_ads_accounts') && sql.includes('REPLACE(customer_id')) {
+        expect(params).toEqual([7, 1, '3178223819'])
+        return {
+          id: 33,
+          customer_id: '317-822-3819',
+          parent_mcc_id: '9681914021',
+          is_active: 1,
+          status: 'ENABLED',
+        }
+      }
+      return null
+    })
+
+    const req = new NextRequest('http://localhost/api/campaigns/publish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        offerId: 11,
+        adCreativeId: 22,
+        googleAdsAccountId: '3178223819',
+        pauseOldCampaigns: false,
+        campaignConfig: {
+          campaignName: 'BrandA-US-20260101',
+          adGroupName: 'BrandA-US-11-22',
+          budgetAmount: 20,
+          budgetType: 'DAILY',
+          targetCountry: 'US',
+          targetLanguage: 'en',
+          biddingStrategy: 'MAXIMIZE_CLICKS',
+          maxCpcBid: 1,
+          finalUrlSuffix: '',
+          keywords: ['kw1'],
+          negativeKeywords: [],
+        },
+      }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(422)
+    expect(data.action).toBe('CONFIRM_PAUSE_OLD_CAMPAIGNS')
+    expect(campaignsFns.queryActiveCampaigns).toHaveBeenCalledWith(11, 33, 7)
+  })
+
   it('accepts forceLaunch/skipLaunchScore aliases to bypass pause confirmation prompt', async () => {
     dbFns.queryOne.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM offers')) {
