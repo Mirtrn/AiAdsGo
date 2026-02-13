@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Zap, ZapOff } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Zap, ZapOff, MoreHorizontal } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
     Dialog,
     DialogContent,
@@ -25,7 +25,14 @@ import {
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 // 动物名列表用于生成用户名
 const ANIMAL_NAMES = [
@@ -671,107 +678,114 @@ export default function UserManagementPage() {
                 </CardHeader>
                 <CardContent>
                     <div className="rounded-md border">
-                        <Table>
+                        <Table className="min-w-[1480px]">
                             <TableHeader>
                                 <TableRow>
                                     <TableHead
-                                        className="w-[80px]"
+                                        className="w-[90px] whitespace-nowrap"
                                         aria-sort={sortField === 'id' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('id')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             用户ID
                                             {renderSortIcon('id')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[260px] whitespace-nowrap"
                                         aria-sort={sortField === 'username' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('username')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             用户
                                             {renderSortIcon('username')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[100px] whitespace-nowrap"
                                         aria-sort={sortField === 'role' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('role')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             角色
                                             {renderSortIcon('role')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[140px] whitespace-nowrap"
                                         aria-sort={sortField === 'packageType' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('packageType')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             套餐
                                             {renderSortIcon('packageType')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[130px] whitespace-nowrap"
                                         aria-sort={sortField === 'packageExpiresAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('packageExpiresAt')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             有效期
                                             {renderSortIcon('packageExpiresAt')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[130px] whitespace-nowrap"
                                         aria-sort={sortField === 'createdAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('createdAt')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             创建时间
                                             {renderSortIcon('createdAt')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[150px] whitespace-nowrap"
                                         aria-sort={sortField === 'lastLoginAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('lastLoginAt')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             上次登录
                                             {renderSortIcon('lastLoginAt')}
                                         </button>
                                     </TableHead>
                                     <TableHead
+                                        className="w-[240px] whitespace-nowrap"
                                         aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSort('status')}
-                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                            className="flex items-center gap-1 whitespace-nowrap hover:text-foreground select-none"
                                         >
                                             状态
                                             {renderSortIcon('status')}
                                         </button>
                                     </TableHead>
-                                    <TableHead className="text-center">操作</TableHead>
+                                    <TableHead className="w-[200px] text-center whitespace-nowrap">操作</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -784,7 +798,7 @@ export default function UserManagementPage() {
                                 ) : (
                                     users.map((user) => (
                                         <TableRow key={user.id}>
-                                            <TableCell className="font-mono text-sm text-muted-foreground">
+                                            <TableCell className="font-mono text-sm text-muted-foreground whitespace-nowrap">
                                                 {user.id}
                                             </TableCell>
                                             <TableCell>
@@ -800,25 +814,25 @@ export default function UserManagementPage() {
                                                     </div>
                                                 </div>
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="whitespace-nowrap">
                                                 <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
                                                     {user.role === 'admin' ? '管理员' : '用户'}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell>
-                                                <Badge variant="outline" className="capitalize">
+                                            <TableCell className="whitespace-nowrap">
+                                                <Badge variant="outline" className="capitalize whitespace-nowrap">
                                                     {user.packageType === 'trial' ? '试用版' :
                                                      user.packageType === 'annual' ? '年度会员' :
                                                      user.packageType === 'lifetime' ? '长期会员' : '私有化部署'}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="text-muted-foreground">
+                                            <TableCell className="text-muted-foreground whitespace-nowrap">
                                                 {user.packageExpiresAt ? new Date(user.packageExpiresAt).toLocaleDateString('zh-CN') : '长期'}
                                             </TableCell>
-                                            <TableCell className="text-muted-foreground">
+                                            <TableCell className="text-muted-foreground whitespace-nowrap">
                                                 {new Date(user.createdAt).toLocaleDateString('zh-CN')}
                                             </TableCell>
-                                            <TableCell className="text-muted-foreground">
+                                            <TableCell className="text-muted-foreground whitespace-nowrap">
                                                 {user.lastLoginAt ? (
                                                     <div className="flex flex-col">
                                                         <span>{new Date(user.lastLoginAt).toLocaleDateString('zh-CN')}</span>
@@ -830,52 +844,24 @@ export default function UserManagementPage() {
                                                     <span className="text-muted-foreground">从未登录</span>
                                                 )}
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="whitespace-nowrap">
                                                 {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
                                                 {!user.isActive ? (
-                                                    <Badge variant="destructive">
+                                                    <Badge variant="destructive" className="whitespace-nowrap">
                                                         🚫 已禁用
                                                     </Badge>
                                                 ) : isUserLocked(user) ? (
-                                                    <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                                                    <Badge variant="outline" className="text-yellow-600 border-yellow-600 whitespace-nowrap">
                                                         ⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）
                                                     </Badge>
                                                 ) : (
-                                                    <Badge variant="outline" className="text-green-600 border-green-600">
+                                                    <Badge variant="outline" className="text-green-600 border-green-600 whitespace-nowrap">
                                                         ✅ 正常
                                                     </Badge>
                                                 )}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center justify-center gap-1">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => handleViewLoginHistory(user)}
-                                                        title="查看登录记录"
-                                                    >
-                                                        <History className="w-4 h-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => handleViewSecurityAlerts(user)}
-                                                        title="安全告警"
-                                                        className="text-amber-600 hover:text-amber-700"
-                                                    >
-                                                        <ShieldAlert className="w-4 h-4" />
-                                                    </Button>
-                                                    {isUserLocked(user) && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => handleUnlockAccount(user.id, user.username)}
-                                                            title="立即解锁"
-                                                            className="text-blue-600 hover:text-blue-700"
-                                                        >
-                                                            <Unlock className="w-4 h-4" />
-                                                        </Button>
-                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -887,47 +873,98 @@ export default function UserManagementPage() {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className={user.openclawEnabled ? 'text-violet-600 hover:text-violet-700' : 'text-gray-400 hover:text-gray-500'}
-                                                        onClick={() => handleToggleOpenclaw(user.id, user.username, user.openclawEnabled)}
-                                                        title={user.openclawEnabled ? 'OpenClaw 已开启（点击关闭）' : 'OpenClaw 已关闭（点击开启）'}
-                                                    >
-                                                        {user.openclawEnabled ? (
-                                                            <Zap className="w-4 h-4" />
-                                                        ) : (
-                                                            <ZapOff className="w-4 h-4" />
-                                                        )}
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
                                                         onClick={() => handleResetPassword(user.id, user.username)}
                                                         title="重置密码"
                                                     >
                                                         <Key className="w-4 h-4" />
                                                     </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className={user.isActive ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
-                                                        onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
-                                                        title={user.isActive ? '禁用' : '启用'}
-                                                    >
-                                                        {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
-                                                        {user.isActive ? (
-                                                            <XCircle className="w-4 h-4" />
-                                                        ) : (
-                                                            <CheckCircle className="w-4 h-4" />
-                                                        )}
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="text-red-600 hover:text-red-700"
-                                                        onClick={() => handleDeleteUser(user.id, user.username, user.isActive)}
-                                                        title="删除"
-                                                    >
-                                                        <Trash className="w-4 h-4" />
-                                                    </Button>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon" title="更多操作">
+                                                                <MoreHorizontal className="w-4 h-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end" className="w-72">
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleViewLoginHistory(user)}
+                                                                className="items-start gap-2 py-2"
+                                                                title="查看最近登录历史和失败记录"
+                                                            >
+                                                                <History className="w-4 h-4 mt-0.5 shrink-0" />
+                                                                <div>
+                                                                    <div className="font-medium">查看登录记录</div>
+                                                                    <div className="text-xs text-muted-foreground">查看最近登录历史和失败记录</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleViewSecurityAlerts(user)}
+                                                                className="items-start gap-2 py-2"
+                                                                title="查看账户共享安全告警"
+                                                            >
+                                                                <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+                                                                <div>
+                                                                    <div className="font-medium">查看安全告警</div>
+                                                                    <div className="text-xs text-muted-foreground">查看账户共享和异常使用风险</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                            {isUserLocked(user) && (
+                                                                <DropdownMenuItem
+                                                                    onClick={() => handleUnlockAccount(user.id, user.username)}
+                                                                    className="items-start gap-2 py-2"
+                                                                    title="解除当前登录锁定状态"
+                                                                >
+                                                                    <Unlock className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />
+                                                                    <div>
+                                                                        <div className="font-medium">立即解锁账户</div>
+                                                                        <div className="text-xs text-muted-foreground">解除当前登录锁定状态</div>
+                                                                    </div>
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                            <DropdownMenuSeparator />
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleToggleOpenclaw(user.id, user.username, user.openclawEnabled)}
+                                                                className="items-start gap-2 py-2"
+                                                                title={user.openclawEnabled ? '关闭用户 OpenClaw 访问' : '开启用户 OpenClaw 访问'}
+                                                            >
+                                                                {user.openclawEnabled ? (
+                                                                    <Zap className="w-4 h-4 mt-0.5 shrink-0 text-violet-600" />
+                                                                ) : (
+                                                                    <ZapOff className="w-4 h-4 mt-0.5 shrink-0 text-gray-500" />
+                                                                )}
+                                                                <div>
+                                                                    <div className="font-medium">{user.openclawEnabled ? '关闭 OpenClaw 访问' : '开启 OpenClaw 访问'}</div>
+                                                                    <div className="text-xs text-muted-foreground">切换该用户的 OpenClaw 使用权限</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
+                                                                className="items-start gap-2 py-2"
+                                                                title={user.isActive ? '禁用此账号登录能力' : '恢复此账号登录能力'}
+                                                            >
+                                                                {user.isActive ? (
+                                                                    <XCircle className="w-4 h-4 mt-0.5 shrink-0 text-orange-600" />
+                                                                ) : (
+                                                                    <CheckCircle className="w-4 h-4 mt-0.5 shrink-0 text-green-600" />
+                                                                )}
+                                                                <div>
+                                                                    <div className="font-medium">{user.isActive ? '禁用账户' : '启用账户'}</div>
+                                                                    <div className="text-xs text-muted-foreground">{user.isActive ? '禁用后该用户无法登录系统' : '恢复该用户的登录能力'}</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuSeparator />
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleDeleteUser(user.id, user.username, user.isActive)}
+                                                                className="items-start gap-2 py-2 text-red-600 focus:text-red-600"
+                                                                title="永久删除该用户及其相关数据"
+                                                            >
+                                                                <Trash className="w-4 h-4 mt-0.5 shrink-0" />
+                                                                <div>
+                                                                    <div className="font-medium">删除用户</div>
+                                                                    <div className="text-xs text-red-500/80">永久删除用户（需先禁用）</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
                                                 </div>
                                             </TableCell>
                                         </TableRow>
