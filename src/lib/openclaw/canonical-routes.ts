@@ -127,7 +127,6 @@ const READ_ROUTE_DEFINITIONS: CanonicalRouteDefinition[] = [
 
 const WRITE_ROUTE_DEFINITIONS: CanonicalRouteDefinition[] = [
   // Offer 管理
-  { method: 'POST', pattern: '/api/offers', feature: 'offer-management' },
   { method: 'PUT', pattern: '/api/offers/:id', feature: 'offer-management' },
   { method: 'DELETE', pattern: '/api/offers/:id', feature: 'offer-management' },
   { method: 'POST', pattern: '/api/offers/:id/scrape', feature: 'offer-management' },

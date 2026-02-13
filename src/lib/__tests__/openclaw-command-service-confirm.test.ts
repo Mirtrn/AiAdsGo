@@ -277,31 +277,33 @@ describe('openclaw command service confirmation guard', () => {
     expect(body.dailyClickCount).toBeUndefined()
   })
 
-  it('normalizes offer aliases to snake_case payload', async () => {
+  it('normalizes offer-extract aliases to snake_case payload', async () => {
     await executeOpenclawCommand({
       userId: 1001,
       authType: 'session',
       method: 'POST',
-      path: '/api/offers',
+      path: '/api/offers/extract',
       body: {
-        url: 'https://example.com/product',
+        url: 'https://aff.example.com/track',
         targetCountry: 'US',
-        affiliateLink: 'https://aff.example.com/track',
         productPrice: '$19.99',
+        brand: 'Example Brand',
       },
     })
 
     const body = getInsertedBody()
 
     expect(body).toMatchObject({
-      url: 'https://example.com/product',
-      target_country: 'US',
       affiliate_link: 'https://aff.example.com/track',
+      target_country: 'US',
       product_price: '$19.99',
+      brand_name: 'Example Brand',
     })
 
+    expect(body.url).toBeUndefined()
+    expect(body.brand).toBeUndefined()
     expect(body.targetCountry).toBeUndefined()
-    expect(body.affiliateLink).toBeUndefined()
+    expect(body.productPrice).toBeUndefined()
   })
 
   it('rejects guarded route when required field is missing', async () => {
@@ -310,9 +312,9 @@ describe('openclaw command service confirmation guard', () => {
         userId: 1001,
         authType: 'session',
         method: 'POST',
-        path: '/api/offers',
+        path: '/api/offers/extract',
         body: {
-          url: 'https://example.com/product',
+          affiliate_link: 'https://aff.example.com/track',
         },
       })
     ).rejects.toThrow('missing required fields')

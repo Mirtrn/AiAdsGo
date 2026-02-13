@@ -67,27 +67,26 @@ export default function NewOfferPage() {
         }
       }
 
-      // HttpOnly Cookie自动携带，无需手动操作
-      const response = await fetch('/api/offers', {
+      const sourceLink = affiliateLink.trim() || url.trim()
+      if (!sourceLink) {
+        throw new Error('请至少提供推广链接或落地页URL')
+      }
+
+      // 使用任务队列创建Offer（替代已下线的 POST /api/offers）
+      const response = await fetch('/api/offers/extract', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
-          url,
-          brand,
-          category: category || undefined,
+          affiliate_link: sourceLink,
           target_country: targetCountry,
-          affiliate_link: affiliateLink || undefined,
+          brand_name: brand || undefined,
           page_type: linkType,
           store_product_links: linkType === 'store' && uniqueLinks.length > 0
             ? uniqueLinks
             : undefined,
-          brand_description: brandDescription || undefined,
-          unique_selling_points: uniqueSellingPoints || undefined,
-          product_highlights: productHighlights || undefined,
-          target_audience: targetAudience || undefined,
           // 需求28：产品价格和佣金比例（可选）
           product_price: productPrice || undefined,
           commission_payout: commissionPayout || undefined,
@@ -100,8 +99,80 @@ export default function NewOfferPage() {
         throw new Error(data.error || '创建Offer失败')
       }
 
+      const taskId = data.taskId
+      if (!taskId || typeof taskId !== 'string') {
+        throw new Error('创建任务失败，未返回taskId')
+      }
+
+      // 轮询任务状态，直到拿到offerId
+      let offerId: number | null = null
+      const maxAttempts = 180 // 最长约6分钟
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+
+        const statusResponse = await fetch(`/api/offers/extract/status/${taskId}`, {
+          credentials: 'include',
+        })
+        const statusData = await statusResponse.json()
+
+        if (!statusResponse.ok) {
+          throw new Error(statusData.error || '查询任务状态失败')
+        }
+
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error?.message || statusData.message || 'Offer创建失败')
+        }
+
+        if (statusData.status === 'completed') {
+          const extractedOfferId = Number(statusData.result?.offerId)
+          if (!Number.isFinite(extractedOfferId) || extractedOfferId <= 0) {
+            throw new Error('任务完成但未返回offerId')
+          }
+          offerId = extractedOfferId
+          break
+        }
+      }
+
+      if (!offerId) {
+        throw new Error('创建Offer超时，请稍后在列表页确认任务结果')
+      }
+
+      // 兼容旧页面：将表单中的补充字段回填到已创建Offer（失败不阻塞主流程）
+      const updatePayload: Record<string, unknown> = {
+        url,
+        brand,
+        category: category || undefined,
+        target_country: targetCountry,
+        affiliate_link: affiliateLink || undefined,
+        page_type: linkType,
+        store_product_links: linkType === 'store' && uniqueLinks.length > 0 ? uniqueLinks : undefined,
+        brand_description: brandDescription || undefined,
+        unique_selling_points: uniqueSellingPoints || undefined,
+        product_highlights: productHighlights || undefined,
+        target_audience: targetAudience || undefined,
+        product_price: productPrice || undefined,
+        commission_payout: commissionPayout || undefined,
+      }
+
+      try {
+        const updateResponse = await fetch(`/api/offers/${offerId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify(updatePayload),
+        })
+        if (!updateResponse.ok) {
+          const updateData = await updateResponse.json().catch(() => ({}))
+          console.warn('[offers/new] 补充更新Offer失败:', updateData?.error || updateResponse.status)
+        }
+      } catch (updateError: any) {
+        console.warn('[offers/new] 补充更新Offer异常:', updateError?.message || updateError)
+      }
+
       // 跳转到Offer详情页
-      router.push(`/offers/${data.offer.id}`)
+      router.push(`/offers/${offerId}`)
     } catch (err: any) {
       setError(err.message || '创建Offer失败，请稍后重试')
     } finally {

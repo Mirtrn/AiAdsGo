@@ -169,15 +169,14 @@ export default function ScrapeTestPage() {
     setAnalysisConversation([])
 
     try {
-      // 1. 创建临时Offer
-      const createResponse = await fetch('/api/offers', {
+      // 1. 创建提取任务（替代已下线的 POST /api/offers）
+      const createResponse = await fetch('/api/offers/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url,
-          brand: 'Test Brand',
-          target_country: country,
           affiliate_link: url,
+          target_country: country,
+          brand_name: 'Test Brand',
         }),
       })
 
@@ -185,32 +184,40 @@ export default function ScrapeTestPage() {
         throw new Error('创建Offer失败')
       }
 
-      const { offer } = await createResponse.json()
-      setTestOfferId(offer.id)
-      toast.success('已创建测试Offer，开始抓取...')
-
-      // 2. 触发抓取
-      const scrapeResponse = await fetch(`/api/offers/${offer.id}/scrape`, {
-        method: 'POST',
-      })
-
-      if (!scrapeResponse.ok) {
-        throw new Error('触发抓取失败')
+      const { taskId } = await createResponse.json()
+      if (!taskId) {
+        throw new Error('创建任务失败，未返回taskId')
       }
+      toast.success('已创建测试任务，开始抓取...')
 
-      // 3. 轮询等待抓取完成
+      // 2. 轮询等待提取完成
       let completed = false
       let attempts = 0
-      const maxAttempts = 30
+      const maxAttempts = 60
 
       while (!completed && attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 2000))
 
-        const statusResponse = await fetch(`/api/offers/${offer.id}`)
-        const { offer: updatedOffer } = await statusResponse.json()
+        const taskResponse = await fetch(`/api/offers/extract/status/${taskId}`)
+        const taskData = await taskResponse.json()
+        if (!taskResponse.ok) {
+          throw new Error(taskData.error || '查询任务状态失败')
+        }
 
-        // 🔧 修复(2025-12-11): 使用 camelCase 字段名
-        if (updatedOffer.scrapeStatus === 'completed') {
+        if (taskData.status === 'failed') {
+          throw new Error(taskData.error?.message || taskData.message || '抓取失败')
+        }
+
+        if (taskData.status === 'completed') {
+          const offerId = Number(taskData.result?.offerId)
+          if (!Number.isFinite(offerId) || offerId <= 0) {
+            throw new Error('任务完成但未返回offerId')
+          }
+          setTestOfferId(offerId)
+
+          const statusResponse = await fetch(`/api/offers/${offerId}`)
+          const { offer: updatedOffer } = await statusResponse.json()
+
           completed = true
 
           console.log('🔍 Offer数据:', {
@@ -259,8 +266,6 @@ export default function ScrapeTestPage() {
           })
 
           toast.success(`✅ 抓取完成！识别品牌: ${brandName}`)
-        } else if (updatedOffer.scrapeStatus === 'failed') {
-          throw new Error(updatedOffer.scrapeError || '抓取失败')
         }
 
         attempts++

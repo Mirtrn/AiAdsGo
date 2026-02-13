@@ -2338,54 +2338,82 @@ export async function executeOpenclawStrategy(
             continue
           }
         } else if (item.product_url) {
+          const fallbackLink = item.product_url
           const actionId = await recordStrategyAction({
             runId,
             userId,
-            actionType: 'create_offer',
+            actionType: 'create_offer_extract',
             targetType: 'asin',
             targetId: item.asin || String(item.id),
+            requestJson: JSON.stringify({
+              affiliate_link: fallbackLink,
+              target_country: item.country_code || 'US',
+            }),
           })
           try {
-            const createRes = await fetchAutoadsJson<any>({
+            const extractRes = await fetchAutoadsJson<any>({
               userId,
-              path: '/api/offers',
+              path: '/api/offers/extract',
               method: 'POST',
               body: {
-                url: item.product_url,
-                brand: item.brand || undefined,
+                affiliate_link: fallbackLink,
                 target_country: item.country_code || 'US',
-                affiliate_link: affiliateLink || undefined,
                 product_price: item.price || undefined,
+                brand_name: item.brand || undefined,
               },
             })
-            offerId = createRes?.offer?.id
             await updateStrategyAction({
               actionId,
               userId,
               status: 'success',
-              responseJson: JSON.stringify(createRes),
+              responseJson: JSON.stringify(extractRes),
             })
-            if (offerId) {
-              stats.offersCreated += 1
-              await updateAsinItem({
-                userId,
-                itemId: item.id,
-                offerId,
-                status: 'offer_created',
-              })
+            await recordOpenclawAction({
+              userId,
+              channel: 'strategy',
+              action: 'POST /api/offers/extract',
+              targetType: 'asin',
+              targetId: item.asin || String(item.id),
+              requestBody: JSON.stringify({ affiliate_link: fallbackLink, target_country: item.country_code || 'US' }),
+              status: 'success',
+            })
+
+            const taskId = extractRes?.taskId
+            if (taskId) {
+              const extractedOfferId = await waitForOfferExtraction(userId, taskId)
+              if (extractedOfferId) {
+                offerId = extractedOfferId
+                stats.offersCreated += 1
+                await updateAsinItem({
+                  userId,
+                  itemId: item.id,
+                  offerId,
+                  status: 'offer_created',
+                  dataPatch: { offer_task_id: taskId },
+                })
+              } else {
+                await updateAsinItem({
+                  userId,
+                  itemId: item.id,
+                  status: 'offer_pending',
+                  dataPatch: { offer_task_id: taskId },
+                })
+                stats.skipped += 1
+                continue
+              }
             }
           } catch (error: any) {
             await updateStrategyAction({
               actionId,
               userId,
               status: 'failed',
-              errorMessage: error?.message || 'Offer创建失败',
+              errorMessage: error?.message || 'Offer提取失败',
             })
             await updateAsinItem({
               userId,
               itemId: item.id,
               status: 'failed',
-              errorMessage: error?.message || 'Offer创建失败',
+              errorMessage: error?.message || 'Offer提取失败',
             })
             stats.skipped += 1
             continue
