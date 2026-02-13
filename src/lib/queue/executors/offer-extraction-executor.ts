@@ -340,10 +340,13 @@ export async function executeOfferExtraction(
       ? computeAveragePriceFromStrings(supplementalPrices)
       : undefined
 
-    if (taskRow?.offer_id && !taskRow?.batch_id) {
-      // 重建任务：已有Offer记录，更新基础数据
+    if (taskRow?.offer_id) {
+      // 幂等保护：任务重试时复用既有offer_id，避免重复创建Offer
       createdOfferId = taskRow.offer_id
-      console.log(`🔄 重建任务，更新现有Offer基础数据: taskId=${task.id}, offerId=${taskRow.offer_id}`)
+      const reuseMessage = taskRow.batch_id
+        ? '批量任务重试，复用已有Offer基础记录'
+        : '重建任务，更新现有Offer基础数据'
+      console.log(`🔄 ${reuseMessage}: taskId=${task.id}, offerId=${taskRow.offer_id}`)
       await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'in_progress', undefined, {
         brand: (extractResult.data.brand || brandName) || undefined,
         url: extractResult.data.finalUrl || undefined,

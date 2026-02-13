@@ -255,7 +255,7 @@ export default function BatchOfferPage() {
 
       {/* 上传区域 */}
       <div className="bg-white shadow rounded-lg p-6 mb-8">
-        <div className="flex items-start justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-medium text-gray-900">上传CSV文件</h2>
             <p className="mt-1 text-sm text-gray-600">
@@ -264,7 +264,7 @@ export default function BatchOfferPage() {
           </div>
           <button
             onClick={handleDownloadTemplate}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
           >
             <ArrowDownTrayIcon className="h-5 w-5 mr-2 text-gray-500" />
             下载模板
@@ -346,6 +346,9 @@ export default function BatchOfferPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    上传记录ID
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     文件名
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -371,6 +374,9 @@ export default function BatchOfferPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {records.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className="font-mono text-xs">{record.id}</span>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {record.fileName}
                       {record.skippedCount > 0 && (
