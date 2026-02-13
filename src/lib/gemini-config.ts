@@ -5,7 +5,7 @@
  *
  * 支持的服务商：
  * - official: Google Gemini 官方 API
- * - relay: 第三方中转服务（Thunderrelay）
+ * - relay: 第三方中转服务
  * - vertex: Google Vertex AI（企业级）
  */
 
@@ -22,7 +22,7 @@ export const GEMINI_PROVIDERS = {
   },
   relay: {
     name: '第三方中转',
-    endpoint: 'https://aicode.cat',
+    endpoint: 'https://aicode.cat/v1/messages',
     apiKeyUrl: 'https://aicode.cat/register?ref=T6S73C2U',
     description: '通过国内中转服务访问（更快更稳定）',
     icon: '⚡',
@@ -49,7 +49,7 @@ export type GeminiProvider = keyof typeof GEMINI_PROVIDERS
  *
  * @example
  * getGeminiEndpoint('official') // 'https://generativelanguage.googleapis.com'
- * getGeminiEndpoint('relay') // 'https://aicode.cat'
+ * getGeminiEndpoint('relay') // 'https://aicode.cat/v1/messages'
  */
 export function getGeminiEndpoint(provider: GeminiProvider): string {
   return GEMINI_PROVIDERS[provider]?.endpoint || GEMINI_PROVIDERS.official.endpoint

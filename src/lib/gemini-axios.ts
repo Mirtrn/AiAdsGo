@@ -7,10 +7,8 @@
  */
 
 import axios, { AxiosInstance } from 'axios'
-import { getUserOnlySetting } from './settings'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
-import { getDatabase } from './db'
-import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
+import { GEMINI_ACTIVE_MODEL, normalizeModelForProvider } from './gemini-models'
 
 function isEnvTrue(value?: string | null): boolean {
   if (!value) return false
@@ -106,6 +104,197 @@ function logEmptyCandidate(response: GeminiResponse, candidate: GeminiResponse['
   console.error(`   - 响应片段: ${responsePreview.substring(0, 800)}`)
 }
 
+function extractTextFromOpenAIMessageContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (item?.type === 'text' && typeof item?.text === 'string') return item.text
+        return ''
+      })
+      .join('')
+  }
+
+  return ''
+}
+
+function extractUsage(usage: any): GeminiAxiosGenerateResult['usage'] {
+  if (!usage) return undefined
+
+  const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0
+  const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0
+  const totalTokens = Number(usage.total_tokens ?? (inputTokens + outputTokens)) || (inputTokens + outputTokens)
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  }
+}
+
+function isRelayGptModel(model: string): boolean {
+  return /^gpt-/i.test(model)
+}
+
+function extractTextFromResponsesOutput(output: unknown): string {
+  if (!Array.isArray(output)) return ''
+
+  return output
+    .map((item: any) => {
+      if (!Array.isArray(item?.content)) return ''
+      return item.content
+        .map((part: any) => {
+          if (typeof part === 'string') return part
+          if (part?.type === 'output_text' && typeof part?.text === 'string') return part.text
+          if (part?.type === 'text' && typeof part?.text === 'string') return part.text
+          return ''
+        })
+        .join('')
+    })
+    .join('')
+}
+
+function parseRelayResponsesObject(
+  responseData: any,
+  fallbackModel: string,
+  streamedText: string = ''
+): GeminiAxiosGenerateResult {
+  const root = responseData?.response && typeof responseData.response === 'object'
+    ? responseData.response
+    : responseData
+
+  const outputText = typeof root?.output_text === 'string'
+    ? root.output_text
+    : ''
+  const outputArrayText = extractTextFromResponsesOutput(root?.output)
+  const text = outputText || outputArrayText || streamedText
+
+  if (!text) {
+    console.error('❌ Relay /v1/responses 响应异常: 无法解析文本内容')
+    console.error('   - 完整响应:', JSON.stringify(responseData, null, 2))
+    throw new Error('Relay /v1/responses 返回了空响应（无法解析文本）')
+  }
+
+  return {
+    text,
+    usage: extractUsage(root?.usage),
+    model: root?.model || fallbackModel,
+  }
+}
+
+function parseRelayResponsesSSE(rawSse: string, fallbackModel: string): GeminiAxiosGenerateResult {
+  let deltaText = ''
+  let doneText = ''
+  let completedPayload: any = null
+
+  for (const rawLine of rawSse.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line.startsWith('data:')) continue
+
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(payload)
+    } catch {
+      continue
+    }
+
+    if (parsed?.type === 'response.output_text.delta' && typeof parsed?.delta === 'string') {
+      deltaText += parsed.delta
+    }
+
+    if (parsed?.type === 'response.output_text.done' && typeof parsed?.text === 'string') {
+      doneText = parsed.text
+    }
+
+    if (parsed?.type === 'response.completed') {
+      completedPayload = parsed?.response ?? parsed
+    }
+  }
+
+  if (completedPayload) {
+    return parseRelayResponsesObject(completedPayload, fallbackModel, doneText || deltaText)
+  }
+
+  const text = doneText || deltaText
+  if (!text) {
+    console.error('❌ Relay /v1/responses SSE响应异常: 未找到可用文本')
+    console.error('   - 响应片段:', rawSse.slice(0, 1200))
+    throw new Error('Relay /v1/responses 返回了空响应（SSE）')
+  }
+
+  return {
+    text,
+    model: fallbackModel,
+  }
+}
+
+function parseRelayResponsesResponse(responseData: any, fallbackModel: string): GeminiAxiosGenerateResult {
+  if (typeof responseData === 'string') {
+    const trimmed = responseData.trim()
+    if (!trimmed) {
+      throw new Error('Relay /v1/responses 返回了空响应')
+    }
+
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return parseRelayResponsesObject(JSON.parse(trimmed), fallbackModel)
+      } catch {
+        // ignore parse failure and fall through to SSE parser
+      }
+    }
+
+    return parseRelayResponsesSSE(responseData, fallbackModel)
+  }
+
+  if (responseData && typeof responseData === 'object') {
+    return parseRelayResponsesObject(responseData, fallbackModel)
+  }
+
+  throw new Error('Relay /v1/responses 返回了无法识别的响应格式')
+}
+
+function parseRelayResponse(
+  responseData: any,
+  fallbackModel: string
+): GeminiAxiosGenerateResult {
+  // Anthropic-compatible messages API: content=[{type:"text",text:"..."}]
+  const anthropicText = Array.isArray(responseData?.content)
+    ? responseData.content
+        .map((item: any) => (item?.type === 'text' && typeof item?.text === 'string' ? item.text : ''))
+        .join('')
+    : (typeof responseData?.content === 'string' ? responseData.content : '')
+
+  // OpenAI-compatible fallback: choices[0].message.content
+  const openAIText = extractTextFromOpenAIMessageContent(
+    responseData?.choices?.[0]?.message?.content
+  )
+
+  // Generic fallback fields
+  const genericText = typeof responseData?.output_text === 'string'
+    ? responseData.output_text
+    : (typeof responseData?.text === 'string' ? responseData.text : '')
+
+  const text = anthropicText || openAIText || genericText
+  if (!text) {
+    console.error('❌ Relay API响应异常: 无法解析文本内容')
+    console.error('   - 完整响应:', JSON.stringify(responseData, null, 2))
+    throw new Error('Relay API 返回了空响应（无法解析文本）')
+  }
+
+  return {
+    text,
+    usage: extractUsage(responseData?.usage),
+    model: responseData?.model || fallbackModel,
+  }
+}
+
 /**
  * 根据用户配置获取对应的 Gemini API Key
  *
@@ -197,6 +386,7 @@ export async function createGeminiAxiosClient(userId: number, provider?: GeminiP
     headers['sec-fetch-dest'] = 'empty'
     headers['sec-fetch-mode'] = 'cors'
     headers['sec-fetch-site'] = 'same-origin'
+    headers['anthropic-version'] = '2023-06-01'
   }
 
   return axios.create({
@@ -255,12 +445,15 @@ export async function generateContent(params: {
     responseSchema,  // 🆕 Token优化：JSON schema
     responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
-  const model = normalizeGeminiModel(requestedModel)
 
   // 🔧 关键修复(2025-12-30): 支持临时配置覆盖（用于验证未保存的配置）
   // 根据用户配置获取服务商类型和对应的 API Key
   const provider = overrideConfig ? overrideConfig.provider as GeminiProvider : await getGeminiProvider(userId)
   const apiKey = overrideConfig ? overrideConfig.apiKey : await getGeminiApiKey(userId, provider)
+  const model = normalizeModelForProvider(requestedModel, provider)
+  if (requestedModel && requestedModel !== model) {
+    console.warn(`⚠️ 服务商 ${provider} 不支持模型 ${requestedModel}，自动切换为 ${model}`)
+  }
   console.log(`🌐 使用 ${GEMINI_PROVIDERS[provider].name} 服务商${overrideConfig ? '（临时配置）' : ''}`)
 
   // 🔧 2025-12-31 修复：传递 provider 参数以确保正确设置 headers（relay 需要 Cloudflare 绕过 headers）
@@ -306,23 +499,23 @@ export async function generateContent(params: {
     }
     console.log(`   - temperature: ${temperature}`)
 
-    // 🔧 修复(2025-12-30): 第三方中转服务需要在headers中传递API Key
+    // 服务商鉴权方式：
     // - 官方API: query参数 ?key=xxx
-    // - ThunderRelay中转: header x-api-key: xxx
+    // - 第三方中转: header x-api-key: xxx
     const timeoutConfig = timeoutMs ? { timeout: timeoutMs } : {}
-    const requestConfig = provider === 'relay'
-      ? {
-          headers: {
-            'x-api-key': apiKey,
-          },
-          ...timeoutConfig,
-        }
-      : {
-          params: {
-            key: apiKey,
-          },
-          ...timeoutConfig,
-        }
+    const relayRequestConfig = {
+      headers: {
+        'x-api-key': apiKey,
+      },
+      ...timeoutConfig,
+    }
+    const officialRequestConfig = {
+      params: {
+        key: apiKey,
+      },
+      ...timeoutConfig,
+    }
+    const requestConfig = provider === 'relay' ? relayRequestConfig : officialRequestConfig
 
     // 🔧 2026-02-01: 提高上限到65536（Gemini 3 Flash Preview 支持的最大值）
     // 原问题：gemini-3-flash-preview 可能生成36k+ tokens，超过原来的49152上限
@@ -332,6 +525,80 @@ export async function generateContent(params: {
 
     const runRequest = async (overrideMaxOutputTokens?: number): Promise<GeminiAxiosGenerateResult> => {
       const effectiveMaxOutputTokens = overrideMaxOutputTokens ?? maxOutputTokens
+
+      if (overrideMaxOutputTokens) {
+        console.warn(`🔄 MAX_TOKENS重试: maxOutputTokens=${effectiveMaxOutputTokens}`)
+      }
+
+      if (provider === 'relay') {
+        const useResponsesApi = isRelayGptModel(model)
+
+        if (responseSchema) {
+          const route = useResponsesApi ? '/v1/responses' : '/v1/messages'
+          console.warn(`⚠️ relay ${route} 暂不支持 responseSchema 强约束，将使用普通文本生成`)
+        }
+
+        if (useResponsesApi) {
+          const relayResponsesEndpoint = GEMINI_PROVIDERS.relay.endpoint.replace(/\/messages\/?$/, '/responses')
+          const relayPayload = {
+            model,
+            input: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'input_text',
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
+            max_output_tokens: effectiveMaxOutputTokens,
+            temperature,
+            stream: true,
+          }
+
+          const relayResponse = await client.post<string>(
+            relayResponsesEndpoint,
+            relayPayload,
+            {
+              ...relayRequestConfig,
+              responseType: 'text',
+              headers: {
+                ...relayRequestConfig.headers,
+                Accept: 'text/event-stream, application/json',
+              },
+            }
+          )
+
+          const parsedRelay = parseRelayResponsesResponse(relayResponse.data, model)
+          console.log(`✓ Relay /v1/responses 调用成功，返回 ${parsedRelay.text.length} 字符`)
+          return parsedRelay
+        }
+
+        const relayPayload = {
+          model,
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          max_tokens: effectiveMaxOutputTokens,
+          temperature,
+        }
+
+        const relayResponse = await client.post<any>(
+          '',
+          relayPayload,
+          relayRequestConfig
+        )
+
+        const parsedRelay = parseRelayResponse(relayResponse.data, model)
+        console.log(`✓ Relay /v1/messages 调用成功，返回 ${parsedRelay.text.length} 字符`)
+        return parsedRelay
+      }
+
       const requestToSend = overrideMaxOutputTokens
         ? {
             ...request,
@@ -341,10 +608,6 @@ export async function generateContent(params: {
             },
           }
         : request
-
-      if (overrideMaxOutputTokens) {
-        console.warn(`🔄 MAX_TOKENS重试: maxOutputTokens=${effectiveMaxOutputTokens}`)
-      }
 
       const response = await client.post<GeminiResponse>(
         `/v1beta/models/${model}:generateContent`,
@@ -488,12 +751,14 @@ export async function generateContent(params: {
         const isRateLimited = status === 429 ||
           message.includes('concurrency slot') ||
           message.includes('RESOURCE_EXHAUSTED')
+        const isRelayUpstreamRetryable = provider === 'relay' && status === 502
 
-        if (isRateLimited && attempt < maxRateLimitRetries) {
+        if ((isRateLimited || isRelayUpstreamRetryable) && attempt < maxRateLimitRetries) {
           const baseDelayMs = 2000 * Math.pow(2, attempt - 1)
           const jitterMs = Math.floor(Math.random() * 1000)
           const delayMs = Math.min(baseDelayMs + jitterMs, 20000)
-          console.warn(`⚠️ Gemini API限流/并发受限，${(delayMs / 1000).toFixed(1)}s 后重试 (${attempt}/${maxRateLimitRetries})`)
+          const reason = isRelayUpstreamRetryable ? '上游暂时不可用' : '限流/并发受限'
+          console.warn(`⚠️ Gemini API${reason}，${(delayMs / 1000).toFixed(1)}s 后重试 (${attempt}/${maxRateLimitRetries})`)
           await new Promise(resolve => setTimeout(resolve, delayMs))
           continue
         }
@@ -533,6 +798,10 @@ export async function generateContent(params: {
       }
     }
 
+    if (error.response?.status === 401) {
+      throw new Error('API Key 无效或已过期，请检查后重试')
+    }
+
     // 🔧 修复(2025-12-30): 针对403错误给出更明确的提示
     if (error.response?.status === 403) {
       const providerName = GEMINI_PROVIDERS[provider]?.name || '当前服务商'
@@ -550,6 +819,12 @@ export async function generateContent(params: {
         `- ${providerName === '第三方中转' ? '中转服务账户是否有足够余额\n' : '账户是否处于正常状态\n'}` +
         `\n` +
         `原始错误: ${error.message}`
+      )
+    }
+
+    if (error.response?.status === 502 && provider === 'relay') {
+      throw new Error(
+        '第三方中转上游请求失败（502）。请稍后重试，或在中转平台确认模型权限/余额状态。'
       )
     }
 

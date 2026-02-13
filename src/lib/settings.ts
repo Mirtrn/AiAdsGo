@@ -1,6 +1,10 @@
 import { getDatabase } from './db'
 import { encrypt, decrypt } from './crypto'
-import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
+import {
+  GEMINI_ACTIVE_MODEL,
+  getSupportedModelsForProvider,
+  normalizeGeminiModel,
+} from './gemini-models'
 
 export interface SystemSetting {
   id: number
@@ -668,13 +672,14 @@ export async function validateGeminiConfig(
     }
   }
 
-  // Step 2: 验证模型名称
-  // 🔧 更新(2026-02-10): 下线 Gemini 2.5 Pro / Flash，仅保留 Gemini 3 Flash Preview
-  const validModels: string[] = [GEMINI_ACTIVE_MODEL]
-  if (!validModels.includes(model)) {
+  // Step 2: 验证模型名称（按服务商）
+  const normalizedProvider = provider === 'relay' ? 'relay' : 'official'
+  const normalizedModel = normalizeGeminiModel(model)
+  const validModels = getSupportedModelsForProvider(normalizedProvider)
+  if (!validModels.includes(normalizedModel)) {
     return {
       valid: false,
-      message: `不支持的模型: ${model}。支持的模型: ${validModels.join(', ')}`,
+      message: `服务商 ${normalizedProvider} 不支持模型: ${model}。支持的模型: ${validModels.join(', ')}`,
     }
   }
 
@@ -693,7 +698,7 @@ export async function validateGeminiConfig(
     // 注意：Gemini 2.5+ 模型有"思考"功能，思考过程可能占用大量tokens
     // 为了确保有足够的输出空间，设置maxOutputTokens为1000
     await generateContent({
-      model: model,
+      model: normalizedModel,
       prompt: 'Say "OK" if you can hear me.',
       temperature: 0.1,
       maxOutputTokens: 4096, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
@@ -701,7 +706,7 @@ export async function validateGeminiConfig(
 
     return {
       valid: true,
-      message: `✅ ${model} 模型验证成功（直接API模式），连接正常`,
+      message: `✅ ${normalizedModel} 模型验证成功（直接API模式），连接正常`,
     }
   } catch (error: any) {
     // API调用失败，分析错误类型
@@ -731,7 +736,7 @@ export async function validateGeminiConfig(
     if (errorMessage.includes('404') || errorMessage.includes('not found')) {
       return {
         valid: false,
-        message: `模型 ${model} 不可用或不存在`,
+        message: `模型 ${normalizedModel} 不可用或不存在`,
       }
     }
 

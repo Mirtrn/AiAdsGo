@@ -8,7 +8,7 @@
 
 import { VertexAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai'
 import * as path from 'path'
-import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
+import { GEMINI_ACTIVE_MODEL, normalizeModelForProvider } from './gemini-models'
 
 /**
  * Vertex AI 生成结果接口
@@ -164,7 +164,7 @@ export async function generateContent(params: {
     responseSchema,  // 🆕 JSON schema约束
     responseMimeType,  // 🆕 MIME类型
   } = params
-  const model = normalizeGeminiModel(requestedModel)
+  const model = normalizeModelForProvider(requestedModel, 'vertex')
 
   const maxRetries = 3
   let lastError: Error | null = null

@@ -404,6 +404,7 @@ async function insertDefaultSystemSettings(): Promise<void> {
     { category: 'ai', key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false, description: 'Gemini API 端点（系统自动计算）' },
     { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini 官方 API Key' },
     { category: 'ai', key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: '第三方中转服务 API Key' },
+    { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false, description: 'AI模型', defaultValue: 'gemini-3-flash-preview' },
 
     // AI配置 - Vertex AI模式（优先使用）
     { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false, description: '是否使用Vertex AI', defaultValue: 'false' },

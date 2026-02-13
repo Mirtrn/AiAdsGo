@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateContent } from '@/lib/gemini'
 import { recordTokenUsage, estimateTokenCost } from '@/lib/ai-token-tracker'
-import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -100,7 +99,7 @@ export async function POST(request: NextRequest) {
 
     // 调用AI生成分析（使用用户级AI配置）
     const analysis = await generateContent({
-      model: GEMINI_ACTIVE_MODEL,
+      operationType: 'admin_feedback_analysis',
       prompt: conversationContext,
       temperature: 0.8,
       maxOutputTokens: 8192,  // 🔴 Pro模型统一使用8192

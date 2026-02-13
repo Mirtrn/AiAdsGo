@@ -21,7 +21,11 @@ import { resetVertexAIClient } from './gemini-vertex'
 import { selectOptimalModel } from './model-selector'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
-import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
+import {
+  GEMINI_ACTIVE_MODEL,
+  normalizeGeminiModel,
+  normalizeModelForProvider,
+} from './gemini-models'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -79,8 +83,15 @@ export interface GeminiGenerateResult {
 }
 
 function mapModelForVertexAI(model: string): { model: string; reason?: string } {
-  // 当前仅保留一个模型，不再做模型映射。
-  return { model }
+  const normalized = normalizeModelForProvider(model, 'vertex')
+  if (normalized !== model) {
+    return {
+      model: normalized,
+      reason: `Vertex AI 不支持模型 ${model}，自动切换为 ${normalized}`,
+    }
+  }
+
+  return { model: normalized }
 }
 
 /**
@@ -369,7 +380,7 @@ async function callDirectAPI(
 
   const { getSetting } = await import('./settings')
   const providerSetting = await getSetting('ai', 'gemini_provider', userId)
-  const provider = providerSetting?.value || 'official'
+  const provider = (providerSetting?.value || 'official') as GeminiProvider
 
   let apiKey: string | undefined
 
@@ -398,7 +409,10 @@ async function callDirectAPI(
   // 使用代理模式调用（传递用户的API密钥和provider类型）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
-  const effectiveModel = normalizeGeminiModel(model)
+  const effectiveModel = normalizeModelForProvider(model, provider)
+  if (model && effectiveModel !== model) {
+    console.warn(`⚠️ 服务商 ${provider} 不支持模型 ${model}，自动切换为 ${effectiveModel}`)
+  }
   const baseParams = {
     model: effectiveModel,
     prompt,

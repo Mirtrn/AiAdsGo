@@ -6,8 +6,8 @@
  * 2. 根据operationType智能路由到Pro或Flash操作分类
  *
  * 用户选择逻辑：
- * - 当前仅保留 "Gemini 3 Flash Preview"
- * - Pro/Flash任务统一使用 gemini-3-flash-preview
+ * - 官方服务商：Gemini 3 Flash Preview
+ * - 第三方中转：Gemini 3 Flash Preview / GPT-5.2
  *
  * 注意：用户选择的模型影响整个任务链的模型选择策略
  * ⚠️ Provider差异：Vertex AI 可能不支持部分 preview 模型（如 gemini-3-flash-preview），
@@ -15,11 +15,14 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { GEMINI_ACTIVE_MODEL, normalizeGeminiModel } from './gemini-models'
+import {
+  GEMINI_ACTIVE_MODEL,
+  type AIModel,
+  normalizeModelForProvider,
+} from './gemini-models'
 
-// 支持的Gemini模型
-// 🔧 更新(2026-02-10): 下线 Gemini 2.5 Pro / Flash，仅保留 Gemini 3 Flash Preview
-export type ModelType = typeof GEMINI_ACTIVE_MODEL
+// 支持的AI模型（官方/中转）
+export type ModelType = AIModel
 
 export interface ModelSelection {
   model: ModelType
@@ -106,8 +109,6 @@ const PRO_OPERATIONS = new Set<string>([
 /**
  * 获取用户选择的Pro模型
  *
- * 🔧 更新(2026-02-10): 下线 Gemini 2.5 Pro / Flash，统一返回 gemini-3-flash-preview
- *
  * @param userId - 用户ID
  * @returns 用户选择的模型
  */
@@ -117,8 +118,12 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
   }
 
   try {
-    const modelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
-    return normalizeGeminiModel(modelSetting?.value)
+    const [modelSetting, providerSetting] = await Promise.all([
+      getUserOnlySetting('ai', 'gemini_model', userId),
+      getUserOnlySetting('ai', 'gemini_provider', userId),
+    ])
+    const provider = providerSetting?.value || 'official'
+    return normalizeModelForProvider(modelSetting?.value, provider)
   } catch (error) {
     console.warn('⚠️ 获取用户Pro模型失败，使用默认:', error)
     return GEMINI_ACTIVE_MODEL
@@ -157,8 +162,8 @@ export async function selectOptimalModel(
   // Flash适用场景：简单任务使用Flash版本
   if (FLASH_OPERATIONS.has(operationType)) {
     return {
-      model: GEMINI_ACTIVE_MODEL,
-      reason: `结构化输出任务，使用模型: ${GEMINI_ACTIVE_MODEL}`,
+      model: userProModel,
+      reason: `结构化输出任务，使用用户模型: ${userProModel}`,
       testingRequired: false,
     }
   }

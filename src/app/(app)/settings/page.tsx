@@ -22,7 +22,12 @@ import {
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
-import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
+import {
+  GEMINI_ACTIVE_MODEL,
+  RELAY_GPT_52_MODEL,
+  isModelSupportedByProvider,
+  normalizeModelForProvider,
+} from '@/lib/gemini-models'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 
 // 代理URL配置项接口
@@ -222,10 +227,11 @@ const SETTING_METADATA: Record<string, {
     helpLink: 'https://aicode.cat/register?ref=T6S73C2U'
   },
   'ai.gemini_model': {
-    label: 'Gemini模型（Pro级别）',
-    description: '当前仅保留 Gemini 3 Flash Preview；历史配置中的 Gemini 2.5 Pro / Flash 将自动迁移为 Gemini 3 Flash Preview（Vertex AI 模式下会按可用性自动降级）',
+    label: 'AI模型',
+    description: '官方服务商支持 Gemini 3 Flash Preview；第三方中转服务商额外支持 GPT-5.2',
     options: [
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
+      { value: RELAY_GPT_52_MODEL, label: 'GPT-5.2（第三方中转专用）' },
     ],
     defaultValue: GEMINI_ACTIVE_MODEL
   },
@@ -595,6 +601,14 @@ export default function SettingsPage() {
           }
         }
       }
+
+      // AI模型按服务商做前端归一化，避免历史值导致下拉不可选
+      if (initialFormData.ai) {
+        const provider = initialFormData.ai.gemini_provider || 'official'
+        const currentModel = initialFormData.ai.gemini_model || GEMINI_ACTIVE_MODEL
+        initialFormData.ai.gemini_model = normalizeModelForProvider(currentModel, provider)
+      }
+
       setFormData(initialFormData)
     } catch (err: any) {
       toast.error(err.message || '获取配置失败')
@@ -617,7 +631,7 @@ export default function SettingsPage() {
       if (category === 'ai' && key === 'gemini_provider') {
         const endpointMap: Record<string, string> = {
           'official': 'https://generativelanguage.googleapis.com',
-          'relay': 'https://aicode.cat',
+          'relay': 'https://aicode.cat/v1/messages',
           'vertex': 'vertex',
         }
         updated.ai = {
@@ -635,7 +649,8 @@ export default function SettingsPage() {
           updated.ai.gemini_api_key = ''
         }
 
-        // 当前仅保留一个模型，无需根据服务商重置
+        const currentModel = updated.ai.gemini_model || GEMINI_ACTIVE_MODEL
+        updated.ai.gemini_model = normalizeModelForProvider(currentModel, value)
       }
 
       return updated
@@ -997,6 +1012,13 @@ export default function SettingsPage() {
           const geminiProvider = formData.ai?.['gemini_provider']
           if (!geminiProvider || geminiProvider.trim() === '') {
             toast.error('使用Gemini API模式时，必须选择服务商')
+            setSaving(false)
+            return
+          }
+
+          const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
+          if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
+            toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
             setSaving(false)
             return
           }
@@ -1458,9 +1480,12 @@ export default function SettingsPage() {
         { value: 'false', label: '否' }
       ]
 
-      // 当前仅保留一个模型，无需根据服务商过滤模型选项
       if (category === 'ai' && setting.key === 'gemini_model') {
-        // 所有模型选项都可用，无需过滤
+        const provider = formData.ai?.gemini_provider || 'official'
+        const shouldShowRelayOnlyModel = provider === 'relay' || value === RELAY_GPT_52_MODEL
+        if (!shouldShowRelayOnlyModel) {
+          options = options.filter((opt) => opt.value !== RELAY_GPT_52_MODEL)
+        }
       }
 
       return (
