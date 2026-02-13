@@ -1333,11 +1333,18 @@ export async function updateOfferScrapeStatus(
       derivedFromUrl.finalUrl ??
       derivedFromScrapedData.finalUrl ??
       null
+    // 注意：不要用 URL 中推导出的空字符串覆盖已有 suffix。
+    // 仅当显式传入、或在 scraped_data 中明确带出 suffix 时才允许写入空字符串。
+    const hasExplicitFinalUrlSuffix = scrapedData.final_url_suffix !== undefined
+    const hasScrapedDataFinalUrlSuffix = derivedFromScrapedData.finalUrlSuffix !== undefined
     const finalUrlSuffixForWrite =
-      scrapedData.final_url_suffix ??
-      derivedFromUrl.finalUrlSuffix ??
-      derivedFromScrapedData.finalUrlSuffix ??
-      null
+      hasExplicitFinalUrlSuffix
+        ? (scrapedData.final_url_suffix ?? null)
+        : hasScrapedDataFinalUrlSuffix
+          ? (derivedFromScrapedData.finalUrlSuffix ?? null)
+          : (derivedFromUrl.finalUrlSuffix && derivedFromUrl.finalUrlSuffix.length > 0
+              ? derivedFromUrl.finalUrlSuffix
+              : null)
 
     const derivedCategory = deriveCategoryFromScrapedData(scrapedData.scraped_data)
       ?? (scrapedData.category ? compactCategoryLabel(scrapedData.category) : null)
