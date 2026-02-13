@@ -2,6 +2,37 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+function normalizeDateToYmd(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const ymdMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (ymdMatch) return ymdMatch[1]
+
+  const parsed = Date.parse(raw)
+  if (!Number.isFinite(parsed)) return null
+  return new Date(parsed).toISOString().slice(0, 10)
+}
+
+function buildYmdDateRange(startYmd: string, endYmd: string): string[] {
+  const range: string[] = []
+  const cursor = new Date(`${startYmd}T00:00:00.000Z`)
+  const end = new Date(`${endYmd}T00:00:00.000Z`)
+
+  while (cursor.getTime() <= end.getTime()) {
+    range.push(cursor.toISOString().slice(0, 10))
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  return range
+}
+
 /**
  * GET /api/dashboard/trends
  * 获取广告表现数据趋势
@@ -20,8 +51,6 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const days = parseInt(searchParams.get('days') || '7', 10)
-    const requestedCurrencyRaw = searchParams.get('currency')
-    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     // 计算日期范围
     const endDate = new Date()
@@ -33,30 +62,39 @@ export async function GET(request: NextRequest) {
     // 获取数据库实例
     const db = await getDatabase()
 
-    // 查询货币分布（按花费排序，避免默认选择一个随机币种）
+    // 查询货币分布：
+    // - 先按最近有数据的日期排序，避免默认命中“高花费但已停更”的旧币种
+    // - 再按花费排序作为同日并列时的次级依据
     const currencyRows = await db.query<any>(`
       SELECT
         COALESCE(currency, 'USD') as currency,
-        COALESCE(SUM(cost), 0) as total_cost
+        COALESCE(SUM(cost), 0) as total_cost,
+        MAX(date) as latest_date
       FROM campaign_performance
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
       GROUP BY COALESCE(currency, 'USD')
-      ORDER BY total_cost DESC
+      ORDER BY latest_date DESC, total_cost DESC, currency ASC
     `, [userId, startDateStr, endDateStr])
 
-    const currencies = Array.from(new Set(
-      (currencyRows || [])
-        .map((r: any) => String(r.currency || '').trim().toUpperCase())
-        .filter(Boolean)
-    ))
-
-    const defaultCurrency = currencies.length > 0 ? currencies[0] : 'USD'
-    const reportingCurrency = requestedCurrency && currencies.includes(requestedCurrency)
-      ? requestedCurrency
-      : defaultCurrency
+    const currencies = Array.from(
+      new Set(
+        (currencyRows || [])
+          .map((r: any) => String(r.currency || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    )
     const hasMixedCurrency = currencies.length > 1
+    const summaryCurrency = hasMixedCurrency
+      ? 'MIXED'
+      : (currencies[0] || 'USD')
+    const costs = (currencyRows || [])
+      .map((row: any) => ({
+        currency: String(row.currency || '').trim().toUpperCase() || 'USD',
+        amount: Number(row.total_cost) || 0,
+      }))
+      .filter((item: { currency: string; amount: number }) => Number.isFinite(item.amount))
 
     // 查询每日表现数据
     const query = `
@@ -70,7 +108,6 @@ export async function GET(request: NextRequest) {
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
-        AND COALESCE(currency, 'USD') = ?
       GROUP BY DATE(date)
       ORDER BY date ASC
     `
@@ -79,7 +116,6 @@ export async function GET(request: NextRequest) {
       userId,
       startDateStr,
       endDateStr,
-      reportingCurrency
     ]) as Array<{
       date: string
       impressions: number
@@ -88,28 +124,50 @@ export async function GET(request: NextRequest) {
       conversions: number
     }>
 
-    // 计算CTR和CPC（✅ 修复：确保数值类型安全，处理NULL值）
-    const trends = rows.map((row) => ({
-      date: row.date,
-      impressions: Number(row.impressions) || 0,
-      clicks: Number(row.clicks) || 0,
-      cost: Number(row.cost) || 0,
-      conversions: Number(row.conversions) || 0,
-      ctr: row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0,
-      cpc: row.clicks > 0 ? (Number(row.cost) || 0) / row.clicks : 0,
-    }))
+    // 按日期补齐空缺，避免“无消耗日”导致曲线提前截止。
+    const rowsByDate = new Map<string, {
+      impressions: number
+      clicks: number
+      cost: number
+      conversions: number
+    }>()
 
-    // 计算汇总数据（✅ 修复：确保reduce结果为number，处理NULL值）
+    for (const row of rows) {
+      const date = normalizeDateToYmd(row.date)
+      if (!date) continue
+
+      const current = rowsByDate.get(date) || { impressions: 0, clicks: 0, cost: 0, conversions: 0 }
+      current.impressions += Number(row.impressions) || 0
+      current.clicks += Number(row.clicks) || 0
+      current.cost += Number(row.cost) || 0
+      current.conversions += Number(row.conversions) || 0
+      rowsByDate.set(date, current)
+    }
+
+    const trends = buildYmdDateRange(startDateStr, endDateStr).map((date) => {
+      const row = rowsByDate.get(date) || { impressions: 0, clicks: 0, cost: 0, conversions: 0 }
+      return {
+        date,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        cost: row.cost,
+        conversions: row.conversions,
+        ctr: row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0,
+        cpc: row.clicks > 0 ? row.cost / row.clicks : 0,
+      }
+    })
+
     const summary = {
-      totalImpressions: rows.reduce((sum, row) => sum + (Number(row.impressions) || 0), 0),
-      totalClicks: rows.reduce((sum, row) => sum + (Number(row.clicks) || 0), 0),
-      totalCost: rows.reduce((sum, row) => sum + (Number(row.cost) || 0), 0),
-      totalConversions: rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0),
+      totalImpressions: trends.reduce((sum, row) => sum + (Number(row.impressions) || 0), 0),
+      totalClicks: trends.reduce((sum, row) => sum + (Number(row.clicks) || 0), 0),
+      totalCost: trends.reduce((sum, row) => sum + (Number(row.cost) || 0), 0),
+      totalConversions: trends.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0),
       avgCTR: 0,
       avgCPC: 0,
-      currency: reportingCurrency,
+      currency: summaryCurrency,
       currencies,
       hasMixedCurrency,
+      costs,
     }
 
     // 计算平均CTR和CPC

@@ -859,10 +859,15 @@ export default function OpenClawPage() {
     const load = async () => {
       setLoading(true)
       try {
+        const reportQuery = new URLSearchParams({ date: reportDate })
+        if (reportDate === parseLocalDate()) {
+          reportQuery.set('refresh', '1')
+        }
+
         const [settingsRes, tokensRes, reportRes, strategyRes, asinRes] = await Promise.all([
           fetch('/api/openclaw/settings', { credentials: 'include' }),
           fetch('/api/openclaw/tokens', { credentials: 'include' }),
-          fetch(`/api/openclaw/reports/daily?date=${reportDate}`, { credentials: 'include' }),
+          fetch(`/api/openclaw/reports/daily?${reportQuery.toString()}`, { credentials: 'include' }),
           fetch('/api/openclaw/strategy/status', { credentials: 'include' }),
           fetch('/api/openclaw/asin-items', { credentials: 'include' }),
         ])
