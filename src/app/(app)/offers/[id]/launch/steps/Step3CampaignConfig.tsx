@@ -750,8 +750,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               </Label>
               <Input
                 value={config.campaignName}
-                onChange={(e) => handleChange('campaignName', e.target.value)}
-                placeholder="例: Ecomobi_US_01_CMP_121_20260122231319_234_X7Q"
+                readOnly
+                placeholder="例: Reolink_US_173_456_20260213123456789"
               />
             </div>
 

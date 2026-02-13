@@ -69,6 +69,26 @@ function formatMilliseconds(date: Date = new Date()): string {
 }
 
 /**
+ * 格式化日期时间为YYYYMMDDHHmmssSSS（用于确保唯一性）
+ * 注意：使用 Date 的本地时区字段（getFullYear/getHours/...），符合“服务器本地时区”要求。
+ */
+function formatDateTimeWithMilliseconds(date: Date = new Date()): string {
+  return `${formatDateTime(date)}${formatMilliseconds(date)}`
+}
+
+/**
+ * Google Ads name 字段禁止包含：NUL(\0)、LF(\n)、CR(\r)
+ * 这里仅做最小化清理以“尽量保持原样”，避免破坏品牌名展示。
+ */
+function sanitizeGoogleAdsNamePart(value: string): string {
+  return String(value ?? '')
+    .replace(/\u0000/g, '')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '')
+    .trim()
+}
+
+/**
  * 清理字符串中的特殊字符（Google Ads只允许字母、数字、下划线）
  * 移除连字符、空格、特殊符号，只保留字母数字和下划线
  */
@@ -370,13 +390,24 @@ export function generateNamingScheme(params: {
     creativeId: creative?.id ?? 0
   }
 
-  const campaignName = smartOptimization?.enabled
+  // 🔥 生成远端（Google Ads中真实Campaign.name）的权威命名
+  const associativeCampaignName = creative ? generateAssociativeCampaignName({
+    offerId: offer.id,
+    creativeId: creative.id,
+    brand: offer.brand,
+    country: config.targetCountry,
+    campaignType: 'Search'
+  }) : undefined
+
+  // 本地命名也应与远端保持一致；若缺少creative（极少见），回退到旧命名生成器
+  const legacyCampaignName = smartOptimization?.enabled
     ? generateSmartOptimizationCampaignName(
         baseCampaignParams,
         smartOptimization.variantIndex || 1,
         smartOptimization.totalVariants || 3
       )
     : generateCampaignName(baseCampaignParams)
+  const campaignName = associativeCampaignName || legacyCampaignName
 
   // 生成Ad Group名称
   const adGroupName = generateAdGroupName({
@@ -389,15 +420,6 @@ export function generateNamingScheme(params: {
     theme: creative.theme,
     creativeId: creative.id,
     variantIndex: smartOptimization?.variantIndex
-  }) : undefined
-
-  // 🔥 新增：生成符合关联规范的Campaign名称
-  const associativeCampaignName = creative ? generateAssociativeCampaignName({
-    offerId: offer.id,
-    creativeId: creative.id,
-    brand: offer.brand,
-    country: config.targetCountry,
-    campaignType: 'Search'
   }) : undefined
 
   return {
@@ -428,8 +450,8 @@ export interface NamingScheme {
 /**
  * 生成符合关联规范的Campaign名称
  *
- * 格式: [Offer ID]-[Creative ID]-[品牌]-[国家]-[类型]-[时间戳]
- * 例如: 173-456-reolink-US-Search-20251219211500
+ * 格式: 品牌名_国家_OfferID_创意ID_时间戳(毫秒)
+ * 例如: Reolink_US_173_456_20260213123456789
  *
  * 🔧 修复(2025-12-19): 添加时间戳确保唯一性，避免DUPLICATE_CAMPAIGN_NAME错误
  * 🔧 修复(2025-12-25): 添加国家参数，便于区分不同市场的广告系列
@@ -445,30 +467,49 @@ export function generateAssociativeCampaignName(params: {
   campaignType?: string
   date?: Date  // 🔧 新增：可选的日期参数，用于测试或指定特定时间
 }): string {
-  const { offerId, creativeId, brand, country, campaignType = 'Search', date = new Date() } = params
+  const { offerId, creativeId, brand, country, date = new Date() } = params
 
-  // 清理品牌名称中的特殊字符，只保留字母和数字
-  const cleanBrand = sanitize(brand.toLowerCase())
-  const cleanCountry = sanitize(country.toUpperCase())
+  // 新格式（远端Google Ads中真实Campaign.name）：
+  // 品牌名_国家_OfferID_创意ID_时间戳(毫秒)
+  // 例：Reolink_US_173_456_20260213123456789
+  const safeOfferId = Number.isFinite(offerId) ? Math.max(0, Math.floor(offerId)) : 0
+  const safeCreativeId = Number.isFinite(creativeId) ? Math.max(0, Math.floor(creativeId)) : 0
+  const rawBrand = sanitizeGoogleAdsNamePart(brand) || 'Brand'
+  const rawCountry = sanitizeGoogleAdsNamePart(country).toUpperCase()
+  const safeCountry = rawCountry.replace(/[^A-Z0-9]/g, '') || 'XX'
 
-  // 🔧 添加时间戳确保唯一性（格式：YYYYMMDDHHmmss）
-  const timestamp = formatDateTime(date)
+  // 时间戳精确到毫秒（YYYYMMDDHHmmssSSS），使用服务器本地时区字段
+  const timestamp = formatDateTimeWithMilliseconds(date)
 
-  // 构建名称：[Offer ID]-[Creative ID]-[品牌]-[国家]-[类型]-[时间戳]
-  const name = `${offerId}-${creativeId}-${cleanBrand}-${cleanCountry}-${campaignType}-${timestamp}`
+  const tail = [
+    safeCountry,
+    String(safeOfferId),
+    String(safeCreativeId),
+    timestamp,
+  ].join(NAMING_CONFIG.SEPARATOR)
 
-  // 确保不超过最大长度
-  return truncate(name, NAMING_CONFIG.MAX_LENGTH.CAMPAIGN)
+  // 只截断品牌名部分，保证尾部可追溯字段完整不被截断
+  const maxBrandLength = Math.max(1, NAMING_CONFIG.MAX_LENGTH.CAMPAIGN - (tail.length + 1))
+  let brandPart = rawBrand
+    .replace(/^_+/, '')
+    .replace(/_+$/, '')
+    .trim()
+  if (!brandPart) brandPart = 'Brand'
+  if (brandPart.length > maxBrandLength) {
+    brandPart = brandPart.slice(0, maxBrandLength).replace(/_+$/, '').trim()
+    if (!brandPart) brandPart = 'Brand'
+  }
+
+  return `${brandPart}${NAMING_CONFIG.SEPARATOR}${tail}`
 }
 
 /**
  * 解析关联Campaign名称
  *
- * 🔧 修复(2025-12-19): 支持新格式（包含时间戳）和旧格式（不含时间戳）
- * 🔧 修复(2025-12-25): 支持包含国家参数的新格式
- * 新格式: [Offer ID]-[Creative ID]-[品牌]-[国家]-[类型]-[时间戳]
- * 旧格式: [Offer ID]-[Creative ID]-[品牌]-[类型]-[时间戳]
- * 更旧格式: [Offer ID]-[Creative ID]-[品牌]-[类型]
+ * 支持多代格式（新旧兼容）：
+ * 1) 新格式（下划线）：品牌名_国家_OfferID_创意ID_时间戳(毫秒)
+ * 2) 旧格式（连字符）：offerId-creativeId-brand-country-type-timestamp
+ * 3) 更旧格式（连字符）：offerId-creativeId-brand-type-timestamp / offerId-creativeId-brand-type
  *
  * @param name 广告系列名称
  * @returns 解析结果，如果格式不匹配返回null
@@ -481,6 +522,37 @@ export function parseAssociativeCampaignName(name: string): {
   campaignType: string
   timestamp?: string  // 🔧 新增：可选的时间戳字段
 } | null {
+  // 🔥 新格式（下划线分隔）：
+  // 品牌名_国家_OfferID_创意ID_时间戳(毫秒)
+  // 例：Reolink_US_173_456_20260213123456789
+  // 备注：品牌名允许包含下划线，因此从尾部固定段回溯解析。
+  const underscoreParts = String(name ?? '').split('_')
+  if (underscoreParts.length >= 5) {
+    const timestamp = underscoreParts[underscoreParts.length - 1]
+    const creativeIdStr = underscoreParts[underscoreParts.length - 2]
+    const offerIdStr = underscoreParts[underscoreParts.length - 3]
+    const country = underscoreParts[underscoreParts.length - 4]
+    const brand = underscoreParts.slice(0, underscoreParts.length - 4).join('_')
+
+    const isTimestamp = /^\d{17}$/.test(timestamp) || /^\d{14}$/.test(timestamp)
+    if (
+      brand &&
+      isTimestamp &&
+      /^\d+$/.test(offerIdStr) &&
+      /^\d+$/.test(creativeIdStr) &&
+      /^[A-Z0-9]{2,10}$/.test(String(country || '').toUpperCase())
+    ) {
+      return {
+        offerId: parseInt(offerIdStr, 10),
+        creativeId: parseInt(creativeIdStr, 10),
+        brand,
+        country: String(country || '').toUpperCase(),
+        campaignType: 'Search',
+        timestamp,
+      }
+    }
+  }
+
   // 🔧 最新格式：[数字]-[数字]-[文本]-[国家]-[文本]-[14位数字时间戳]
   const newWithCountryPattern = /^(\d+)-(\d+)-([^-]+)-([A-Z]{2})-([^-]+)-(\d{14})$/
   const newWithCountryMatch = name.match(newWithCountryPattern)

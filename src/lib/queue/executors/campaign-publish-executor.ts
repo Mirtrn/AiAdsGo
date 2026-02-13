@@ -26,6 +26,7 @@ import {
   createGoogleAdsAdGroup,
   createGoogleAdsKeywordsBatch,
   createGoogleAdsResponsiveSearchAd,
+  getGoogleAdsCampaign,
   updateGoogleAdsCampaignStatus,
   createGoogleAdsCalloutExtensions,
   createGoogleAdsSitelinkExtensions,
@@ -438,6 +439,35 @@ export async function executeCampaignPublish(
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
     console.log(`📝 使用命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+
+    // 回读远端Google Ads中的真实Campaign名称，作为本地权威名称
+    let authoritativeCampaignName = campaignName
+    try {
+      const campaignDetails = await runWithLoginCustomerFallback(
+        '查询Campaign名称',
+        (loginCustomerId) => getGoogleAdsCampaign({
+          customerId: adsAccount.customer_id,
+          refreshToken: refreshToken,
+          campaignId: googleCampaignId,
+          accountId: adsAccount.id,
+          userId,
+          loginCustomerId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
+          skipCache: true,
+        })
+      )
+
+      const remoteCampaignName = String(campaignDetails?.campaign?.name || '').trim()
+      if (remoteCampaignName) {
+        authoritativeCampaignName = remoteCampaignName
+      }
+      if (authoritativeCampaignName !== campaignName) {
+        console.log(`🔁 远端名称校准: ${campaignName} -> ${authoritativeCampaignName}`)
+      }
+    } catch (readNameError: any) {
+      console.warn(`⚠️ 回读远端Campaign名称失败，沿用本地生成名称: ${readNameError?.message || readNameError}`)
+    }
 
     // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
@@ -928,6 +958,58 @@ export async function executeCampaignPublish(
       return { success: true, googleCampaignId, googleAdGroupId, googleAdId }
     }
 
+    // 本地名称与远端保持一致（同时同步campaign_config.campaignName）
+    try {
+      const campaignRow = await db.queryOne<{ campaign_config: unknown }>(
+        `
+          SELECT campaign_config
+          FROM campaigns
+          WHERE id = ? AND user_id = ?
+          LIMIT 1
+        `,
+        [campaignId, userId]
+      )
+
+      let nextCampaignConfig: string | null = null
+      if (campaignRow?.campaign_config !== undefined && campaignRow?.campaign_config !== null) {
+        const rawConfig = String(campaignRow.campaign_config)
+        try {
+          const parsed = JSON.parse(rawConfig)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const merged = {
+              ...parsed,
+              campaignName: authoritativeCampaignName,
+            }
+            nextCampaignConfig = JSON.stringify(merged)
+          } else {
+            nextCampaignConfig = rawConfig
+          }
+        } catch {
+          nextCampaignConfig = rawConfig
+        }
+      }
+
+      const nowExpr = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : 'datetime("now")'
+      const setConfigSql = nextCampaignConfig !== null ? ', campaign_config = ?' : ''
+      const params: Array<string | number> = [
+        authoritativeCampaignName,
+        ...(nextCampaignConfig !== null ? [nextCampaignConfig] : []),
+        campaignId,
+        userId,
+      ]
+
+      await db.exec(
+        `
+          UPDATE campaigns
+          SET campaign_name = ?${setConfigSql}, updated_at = ${nowExpr}
+          WHERE id = ? AND user_id = ?
+        `,
+        params
+      )
+    } catch (syncNameError: any) {
+      console.warn(`⚠️ 本地Campaign名称回写失败（不影响发布成功）: ${syncNameError?.message || syncNameError}`)
+    }
+
     await applyCampaignTransition({
       userId,
       campaignId,
@@ -966,13 +1048,13 @@ export async function executeCampaignPublish(
     // 🔧 修复(2026-01-05): 区分完全成功和部分成功
     if (extensionsErrors.length === 0) {
       console.log(`\n🎉 Campaign发布成功完成！`)
-      console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+      console.log(`   📋 命名: Campaign=${authoritativeCampaignName}, AdGroup=${adGroupName}`)
       console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
       console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
       console.log(`   📊 总计 ${totalApiOperations} 个API操作`)
     } else {
       console.log(`\n⚠️ Campaign核心发布成功，但部分扩展失败`)
-      console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+      console.log(`   📋 命名: Campaign=${authoritativeCampaignName}, AdGroup=${adGroupName}`)
       console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
       console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
       console.log(`   📊 总计 ${totalApiOperations} 个API操作`)

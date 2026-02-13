@@ -2,8 +2,9 @@
  * 广告系列关联管理
  *
  * 通过命名规范建立广告创意与Google Ads账号中真实广告系列的关联关系
- * 命名规范：[Offer ID]-[Creative ID]-[品牌]-[类型]
- * 例如：173-456-reolink-Search
+ * 支持多代命名规范（含历史兼容）：
+ * 1) 新格式：品牌名_国家_OfferID_创意ID_时间戳(毫秒)
+ * 2) 旧格式：offerId-creativeId-brand-country-type-timestamp
  */
 
 import { parseAssociativeCampaignName } from './naming-convention'

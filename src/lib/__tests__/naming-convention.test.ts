@@ -2,9 +2,12 @@ import {
   generateCampaignName,
   generateAdGroupName,
   generateAdName,
+  generateAssociativeCampaignName,
+  parseAssociativeCampaignName,
   parseAdGroupName,
   parseCampaignName,
   validateAdGroupName,
+  validateAssociativeCampaignName,
   validateCampaignName,
   generateSmartOptimizationCampaignName,
   generateNamingScheme,
@@ -116,6 +119,34 @@ describe('Google Ads Naming Convention', () => {
     })
   })
 
+  describe('generateAssociativeCampaignName', () => {
+    it('should generate underscore format with milliseconds timestamp', () => {
+      const date = new Date(2026, 1, 13, 9, 8, 7, 45)
+      const name = generateAssociativeCampaignName({
+        offerId: 173,
+        creativeId: 456,
+        brand: 'Reolink',
+        country: 'us',
+        date
+      })
+
+      expect(name).toBe('Reolink_US_173_456_20260213090807045')
+    })
+
+    it('should preserve brand text and only sanitize illegal chars', () => {
+      const date = new Date(2026, 1, 13, 0, 0, 0, 1)
+      const name = generateAssociativeCampaignName({
+        offerId: 1,
+        creativeId: 2,
+        brand: 'Brand Name_X',
+        country: 'GB',
+        date
+      })
+
+      expect(name).toBe('Brand Name_X_GB_1_2_20260213000000001')
+    })
+  })
+
   describe('parseCampaignName', () => {
     it('should parse valid campaign name correctly', () => {
       const parsed = parseCampaignName('Ecomobi_US_01_CMP_121_20251127131415_234_ABC')
@@ -137,6 +168,34 @@ describe('Google Ads Naming Convention', () => {
     it('should return null for incomplete parts', () => {
       const parsed = parseCampaignName('Brand_IT_Category')
       expect(parsed).toBeNull()
+    })
+  })
+
+  describe('parseAssociativeCampaignName', () => {
+    it('should parse new underscore format', () => {
+      const parsed = parseAssociativeCampaignName('Reolink_US_173_456_20260213090807045')
+
+      expect(parsed).toEqual({
+        offerId: 173,
+        creativeId: 456,
+        brand: 'Reolink',
+        country: 'US',
+        campaignType: 'Search',
+        timestamp: '20260213090807045'
+      })
+    })
+
+    it('should parse legacy hyphen format with country', () => {
+      const parsed = parseAssociativeCampaignName('173-456-reolink-US-Search-20251219211500')
+
+      expect(parsed).toEqual({
+        offerId: 173,
+        creativeId: 456,
+        brand: 'reolink',
+        country: 'US',
+        campaignType: 'Search',
+        timestamp: '20251219211500'
+      })
     })
   })
 
@@ -175,6 +234,17 @@ describe('Google Ads Naming Convention', () => {
 
     it('should reject invalid ad group name', () => {
       expect(validateAdGroupName('Random Name')).toBe(false)
+    })
+  })
+
+  describe('validateAssociativeCampaignName', () => {
+    it('should validate new and legacy formats', () => {
+      expect(validateAssociativeCampaignName('Reolink_US_173_456_20260213090807045')).toBe(true)
+      expect(validateAssociativeCampaignName('173-456-reolink-US-Search-20251219211500')).toBe(true)
+    })
+
+    it('should reject invalid associative names', () => {
+      expect(validateAssociativeCampaignName('Invalid Campaign Name')).toBe(false)
     })
   })
 
@@ -232,7 +302,8 @@ describe('Google Ads Naming Convention', () => {
         }
       })
 
-      expect(scheme.campaignName).toMatch(/^Eufy_IT_01_CMP_121_\d{14}_\d{3}_[A-Z0-9]{3}$/)
+      expect(scheme.campaignName).toMatch(/^Eufy_IT_215_121_\d{17}$/)
+      expect(scheme.associativeCampaignName).toBe(scheme.campaignName)
       expect(scheme.adGroupName).toMatch(/^Eufy_IT_01_AG_121_[A-Za-z0-9]{3}$/)
       expect(scheme.adName).toBe('RSA_Cleaning_C121')
     })
@@ -263,7 +334,8 @@ describe('Google Ads Naming Convention', () => {
         }
       })
 
-      expect(scheme.campaignName).toMatch(/^Eufy_IT_01_CMP_122_\d{14}_\d{3}_[A-Z0-9]{3}$/)
+      expect(scheme.campaignName).toMatch(/^Eufy_IT_216_122_\d{17}$/)
+      expect(scheme.associativeCampaignName).toBe(scheme.campaignName)
       expect(scheme.adGroupName).toMatch(/^Eufy_IT_01_AG_122_[A-Za-z0-9]{3}$/)
       expect(scheme.adName).toContain('RSA_Safety_C122_V1')
     })
