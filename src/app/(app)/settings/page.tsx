@@ -2440,7 +2440,6 @@ export default function SettingsPage() {
                           <p className="font-semibold text-body-sm text-purple-800">AI配置顺序</p>
                         </div>
                         <div className="space-y-2 text-body-sm text-purple-700">
-                          <p><strong>AI模式：</strong>Gemini API（固定）</p>
                           <p>1. 先选服务商 2. 再选AI模型 3. 系统自动计算API端点 4. 填写当前服务商对应的API Key</p>
                           <p className="text-purple-600">仅当前服务商对应的 API Key 会生效。</p>
                         </div>
