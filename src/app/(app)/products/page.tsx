@@ -893,7 +893,7 @@ export default function ProductsPage() {
               />
             </TableHead>
             <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[78px] whitespace-nowrap">
-              序号
+              记录ID
             </SortableTableHead>
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
@@ -1236,6 +1236,10 @@ export default function ProductsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。</span>
+            </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-1 items-center gap-2">
                 <div className="relative w-full max-w-md">
