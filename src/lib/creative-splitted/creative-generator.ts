@@ -20,16 +20,6 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   }
 
   const resolved = await resolveActiveAIConfig(userId)
-  if (resolved.type === 'vertex-ai' && resolved.vertexAI) {
-    return {
-      type: 'vertex-ai',
-      vertexAI: {
-        projectId: resolved.vertexAI.projectId,
-        location: resolved.vertexAI.location,
-        model: resolved.vertexAI.model,
-      },
-    }
-  }
 
   if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
     return {
@@ -57,7 +47,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number):
     }
 
     // 使用统一入口，模型由用户当前配置决定
-    const model = config.vertexAI?.model || config.geminiAPI?.model || 'unknown'
+    const model = config.geminiAPI?.model || 'unknown'
     const response = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,

@@ -30,15 +30,10 @@ export interface KeywordWithVolume {
 
 /**
  * AI Configuration
- * 优先使用Vertex AI，其次使用Gemini API
+ * 统一使用 Gemini API
  */
 export interface AIConfig {
-  type: 'vertex-ai' | 'gemini-api' | null
-  vertexAI?: {
-    projectId: string
-    location: string
-    model: string
-  }
+  type: 'gemini-api' | null
   geminiAPI?: {
     apiKey: string
     model: string

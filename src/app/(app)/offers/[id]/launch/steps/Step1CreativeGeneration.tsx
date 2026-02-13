@@ -246,39 +246,33 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'settings',
     actionLabel: '检查代理配置'
   },
-  'Vertex AI': {
-    title: 'AI服务配置问题',
-    description: 'Vertex AI 服务配置异常。请检查 GCP 项目ID、区域和服务账号配置。',
-    action: 'settings',
-    actionLabel: '检查AI配置'
-  },
   'INSUFFICIENT_BALANCE': {
     title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API / Vertex AI 后重试。',
+    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '按量余额不足': {
     title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API / Vertex AI 后重试。',
+    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '402 Payment Required': {
     title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API / Vertex AI 后重试。',
+    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '第三方中转账户余额不足': {
     title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API / Vertex AI 后重试。',
+    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '余额不足': {
     title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API / Vertex AI 后重试。',
+    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },

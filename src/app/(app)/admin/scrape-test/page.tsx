@@ -61,7 +61,7 @@ export default function ScrapeTestPage() {
   // AI配置状态检查
   const [aiConfigStatus, setAiConfigStatus] = useState<{
     configured: boolean
-    mode: 'vertex-ai' | 'direct-api' | 'none'
+    mode: 'direct-api' | 'none'
     message: string
     checking: boolean
   }>({
@@ -104,33 +104,25 @@ export default function ScrapeTestPage() {
         // settings是按分类分组的对象，格式: { ai: [...] }
         const aiSettings = settings.ai || []
 
-        // 检查Vertex AI配置
-        const useVertexAI = aiSettings.find((s: any) => s.key === 'use_vertex_ai')?.value === 'true'
-        const gcpProjectId = aiSettings.find((s: any) => s.key === 'gcp_project_id')?.value
-        const gcpServiceAccountJson = aiSettings.find((s: any) => s.key === 'gcp_service_account_json')?.value
+        const provider = aiSettings.find((s: any) => s.key === 'gemini_provider')?.value || 'official'
         const geminiApiKey = aiSettings.find((s: any) => s.key === 'gemini_api_key')?.value
+        const geminiRelayApiKey = aiSettings.find((s: any) => s.key === 'gemini_relay_api_key')?.value
 
         console.log('🔍 AI配置检查:', {
-          useVertexAI,
-          hasGcpProjectId: !!gcpProjectId,
-          hasGcpServiceAccountJson: !!gcpServiceAccountJson,
-          hasGeminiApiKey: !!geminiApiKey
+          provider,
+          hasGeminiApiKey: !!geminiApiKey,
+          hasGeminiRelayApiKey: !!geminiRelayApiKey,
         })
 
-        if (useVertexAI && gcpProjectId && gcpServiceAccountJson) {
-          // Vertex AI已配置
-          setAiConfigStatus({
-            configured: true,
-            mode: 'vertex-ai',
-            message: '✅ 当前系统配置: Vertex AI',
-            checking: false
-          })
-        } else if (geminiApiKey) {
-          // Gemini API已配置
+        const hasActiveProviderKey = provider === 'relay'
+          ? Boolean(geminiRelayApiKey)
+          : Boolean(geminiApiKey)
+
+        if (hasActiveProviderKey) {
           setAiConfigStatus({
             configured: true,
             mode: 'direct-api',
-            message: '✅ 当前系统配置: Gemini API（直接模式）',
+            message: `✅ 当前系统配置: Gemini API（${provider === 'relay' ? '第三方中转' : '官方'}）`,
             checking: false
           })
         } else {
@@ -165,7 +157,7 @@ export default function ScrapeTestPage() {
 
     // 检查AI配置
     if (!aiConfigStatus.configured) {
-      toast.error('⚠️ AI未配置！请先到设置页面配置 Vertex AI 或 Gemini API', {
+      toast.error('⚠️ AI未配置！请先到设置页面配置 Gemini API', {
         duration: 5000,
       })
       return
@@ -294,7 +286,7 @@ export default function ScrapeTestPage() {
 
     // 检查AI配置
     if (!aiConfigStatus.configured) {
-      toast.error('⚠️ AI未配置！请先到设置页面配置 Vertex AI 或 Gemini API', {
+      toast.error('⚠️ AI未配置！请先到设置页面配置 Gemini API', {
         duration: 5000,
       })
       return
@@ -334,7 +326,7 @@ export default function ScrapeTestPage() {
           qualityScore: creative.qualityScore || 0,
           prompt: creative.prompt || '未获取到Prompt',
           timestamp: new Date().toISOString(),
-          modelUsed: aiConfigStatus.mode === 'vertex-ai' ? 'Vertex AI - Gemini 2.5 Pro' : 'Gemini API - Gemini 2.5 Pro',
+          modelUsed: 'Gemini API - Gemini 2.5 Pro',
           orientation: creative.orientation,
         }
 
@@ -474,7 +466,7 @@ export default function ScrapeTestPage() {
                 <div className="flex-1">
                   <h3 className="font-semibold text-yellow-900 mb-1">⚠️ AI未配置</h3>
                   <p className="text-sm text-yellow-800 mb-3">
-                    系统检测到AI引擎（Vertex AI 或 Gemini API）尚未配置。数据抓取和创意生成功能需要AI支持才能正常工作。
+                    系统检测到AI引擎（Gemini API）尚未配置。数据抓取和创意生成功能需要AI支持才能正常工作。
                   </p>
                   <Link href="/settings">
                     <Button size="sm" variant="outline" className="bg-white hover:bg-yellow-50 border-yellow-300">

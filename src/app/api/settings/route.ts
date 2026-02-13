@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     if (groupedSettings['ai']) {
       // 获取 gemini_provider 值
       const providerSetting = groupedSettings['ai'].find(s => s.key === 'gemini_provider')
-      const provider = (providerSetting?.value || 'official') as GeminiProvider
+      const provider: GeminiProvider = providerSetting?.value === 'relay' ? 'relay' : 'official'
       const modelSetting = groupedSettings['ai'].find(s => s.key === 'gemini_model')
       const normalizedModel = normalizeModelForProvider(modelSetting?.value || GEMINI_ACTIVE_MODEL, provider)
 
@@ -173,11 +173,10 @@ export async function PUT(request: NextRequest) {
       const geminiProviderUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_provider')
       const geminiModelUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_model')
 
-      const provider = (
+      const provider: GeminiProvider = (
         geminiProviderUpdate?.value ||
-        aiSettingsMap.get('gemini_provider') ||
-        'official'
-      ) as GeminiProvider
+        aiSettingsMap.get('gemini_provider')
+      ) === 'relay' ? 'relay' : 'official'
 
       const rawModel = geminiModelUpdate?.value ||
         aiSettingsMap.get('gemini_model') ||
@@ -280,13 +279,6 @@ export async function PUT(request: NextRequest) {
       gadsApiCache.clear()
     }
 
-    // 🔥 新增：如果更新了AI配置，重置Vertex AI客户端
-    if (hasAIUpdate) {
-      console.log('🔄 检测到AI配置更新，重置Vertex AI客户端')
-      const { resetVertexAIClient } = await import('@/lib/gemini-vertex')
-      resetVertexAIClient()
-    }
-
     return NextResponse.json({
       success: true,
       message: `成功更新 ${updates.length} 个配置项`,
@@ -305,7 +297,7 @@ export async function PUT(request: NextRequest) {
 
 const deleteAIConfigSchema = z.object({
   category: z.literal('ai'),
-  target: z.enum(['vertex', 'gemini-official', 'gemini-relay']),
+  target: z.enum(['gemini-official', 'gemini-relay']),
 })
 
 /**
@@ -333,8 +325,6 @@ export async function DELETE(request: NextRequest) {
 
     const keysToClear = (() => {
       switch (target) {
-        case 'vertex':
-          return ['gcp_project_id', 'gcp_location', 'gcp_service_account_json']
         case 'gemini-official':
           return ['gemini_api_key']
         case 'gemini-relay':
@@ -343,10 +333,6 @@ export async function DELETE(request: NextRequest) {
     })()
 
     const result = await clearUserSettings('ai', keysToClear, userIdNum)
-
-    // 删除AI配置后，重置Vertex AI客户端（避免继续使用旧环境变量/缓存）
-    const { resetVertexAIClient } = await import('@/lib/gemini-vertex')
-    resetVertexAIClient()
 
     return NextResponse.json({
       success: true,

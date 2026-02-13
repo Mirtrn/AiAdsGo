@@ -1,9 +1,9 @@
 /**
  * Ad Creative Generator - AI Configuration
  *
- * AI configuration management for Vertex AI and Gemini API
+ * AI configuration management for Gemini API
  * 仅使用用户级配置
- * 优先使用Vertex AI，其次使用Gemini API
+ * 仅支持 Gemini API
  */
 
 import type { AIConfig } from './types'
@@ -19,18 +19,6 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   }
 
   const resolved = await resolveActiveAIConfig(userId)
-
-  if (resolved.type === 'vertex-ai' && resolved.vertexAI) {
-    console.log(`🤖 使用Vertex AI: 项目=${resolved.vertexAI.projectId}, 区域=${resolved.vertexAI.location}, 模型=${resolved.vertexAI.model}`)
-    return {
-      type: 'vertex-ai',
-      vertexAI: {
-        projectId: resolved.vertexAI.projectId,
-        location: resolved.vertexAI.location,
-        model: resolved.vertexAI.model,
-      },
-    }
-  }
 
   if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
     console.log(`🤖 使用${resolved.geminiAPI.provider === 'relay' ? '第三方中转' : 'Gemini API'}: 模型=${resolved.geminiAPI.model}`)

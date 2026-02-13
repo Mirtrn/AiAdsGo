@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   validateGoogleAdsConfig,
   validateGeminiConfig,
-  validateVertexAIConfig,
-  updateValidationStatus,
 } from '@/lib/settings'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
-import { getCountryName } from '@/lib/proxy/validate-url'
 import { normalizeGeminiModel } from '@/lib/gemini-models'
 
 const validateSchema = z.object({
@@ -51,15 +48,9 @@ export async function POST(request: NextRequest) {
           config.client_secret || '',
           config.developer_token || ''
         )
-
-        // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
-        // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
-        // 验证成功/失败信息只通过toast和API响应提示用户
         break
 
-      case 'ai':
-        // 🔧 修复(2025-12-24): 优先使用前端传来的AI模式配置
-        // 如果前端没有传，才从数据库读取
+      case 'ai': {
         if (!userIdNum) {
           return NextResponse.json(
             { error: '验证AI配置需要登录' },
@@ -69,145 +60,70 @@ export async function POST(request: NextRequest) {
 
         const { getUserOnlySetting } = await import('@/lib/settings')
 
-        // 🔧 关键修复: 优先使用前端传来的use_vertex_ai值（用户当前选择）
-        // 而不是总是从数据库读取（可能是旧值）
-        let useVertexAI: boolean
-        if (config.use_vertex_ai !== undefined) {
-          useVertexAI = config.use_vertex_ai === 'true'
+        let geminiApiKey: string
+        let geminiRelayApiKey: string
+        let selectedModel: string
+        let geminiProvider: string
+
+        if (config.gemini_provider) {
+          geminiProvider = config.gemini_provider
         } else {
-          const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userIdNum)
-          useVertexAI = useVertexAISetting?.value === 'true'
+          const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userIdNum)
+          geminiProvider = providerSetting?.value || 'official'
         }
 
-        if (useVertexAI) {
-          // 验证Vertex AI配置
-          // 🔧 修复(2025-12-24): 优先使用前端传来的配置，如果前端没传则从数据库读取
-          let gcpProjectId: string
-          let gcpLocation: string
-          let gcpServiceAccountJson: string
+        console.log(`🔍 验证AI配置: 服务商=${geminiProvider}`)
 
-          if (config.gcp_project_id && config.gcp_project_id !== '············') {
-            gcpProjectId = config.gcp_project_id
+        if (geminiProvider === 'relay') {
+          if (config.gemini_relay_api_key && config.gemini_relay_api_key !== '············') {
+            geminiRelayApiKey = config.gemini_relay_api_key
+            console.log('🔍 使用前端传来的中转 API Key（已隐藏）')
           } else {
-            const gcpProjectIdSetting = await getUserOnlySetting('ai', 'gcp_project_id', userIdNum)
-            if (!gcpProjectIdSetting?.value) {
+            const relayApiKeySetting = await getUserOnlySetting('ai', 'gemini_relay_api_key', userIdNum)
+            if (!relayApiKeySetting?.value) {
               return NextResponse.json(
-                { error: '请先保存 Vertex AI 配置（GCP项目ID）' },
+                { error: '请先保存第三方中转 API Key 配置' },
                 { status: 400 }
               )
             }
-            gcpProjectId = gcpProjectIdSetting.value
+            geminiRelayApiKey = relayApiKeySetting.value
+            console.log(`🔍 使用数据库中的中转 API Key（已隐藏，前缀：${geminiRelayApiKey.substring(0, 8)}）`)
           }
-
-          if (config.gcp_location) {
-            gcpLocation = config.gcp_location
-          } else {
-            const gcpLocationSetting = await getUserOnlySetting('ai', 'gcp_location', userIdNum)
-            gcpLocation = gcpLocationSetting?.value || 'us-central1'
-          }
-
-          if (config.gcp_service_account_json && config.gcp_service_account_json !== '***已配置***') {
-            gcpServiceAccountJson = config.gcp_service_account_json
-          } else {
-            const gcpServiceAccountJsonSetting = await getUserOnlySetting('ai', 'gcp_service_account_json', userIdNum)
-            if (!gcpServiceAccountJsonSetting?.value) {
-              return NextResponse.json(
-                { error: '请先保存 Vertex AI 配置（Service Account JSON）' },
-                { status: 400 }
-              )
-            }
-            gcpServiceAccountJson = gcpServiceAccountJsonSetting.value
-          }
-
-          result = await validateVertexAIConfig(
-            gcpProjectId,
-            gcpLocation,
-            gcpServiceAccountJson
-          )
-
-          // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
-          // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
-          // 验证成功/失败信息只通过toast和API响应提示用户
         } else {
-          // 验证Gemini直接API配置
-          // 🔧 修复(2025-12-30): 根据 gemini_provider 选择验证哪个 API Key
-          // 🔧 关键修复(2025-12-30): 支持未保存配置的验证
-          let geminiApiKey: string
-          let geminiRelayApiKey: string
-          let selectedModel: string
-          let geminiProvider: string
-
-          // 获取用户选择的服务商
-          if (config.gemini_provider) {
-            geminiProvider = config.gemini_provider
+          if (config.gemini_api_key && config.gemini_api_key !== '············') {
+            geminiApiKey = config.gemini_api_key
           } else {
-            const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userIdNum)
-            geminiProvider = providerSetting?.value || 'official'
-          }
-
-          console.log(`🔍 验证AI配置: 服务商=${geminiProvider}`)
-
-          // 根据服务商获取对应的 API Key
-          if (geminiProvider === 'relay') {
-            // 第三方中转：验证 gemini_relay_api_key
-            if (config.gemini_relay_api_key && config.gemini_relay_api_key !== '············') {
-              geminiRelayApiKey = config.gemini_relay_api_key
-              console.log(`🔍 使用前端传来的中转 API Key（已隐藏）`)
-            } else {
-              const relayApiKeySetting = await getUserOnlySetting('ai', 'gemini_relay_api_key', userIdNum)
-              if (!relayApiKeySetting?.value) {
-                return NextResponse.json(
-                  { error: '请先保存第三方中转 API Key 配置' },
-                  { status: 400 }
-                )
-              }
-              geminiRelayApiKey = relayApiKeySetting.value
-              console.log(`🔍 使用数据库中的中转 API Key（已隐藏，前缀：${geminiRelayApiKey.substring(0, 8)}）`)
-            }
-          } else {
-            // 官方：验证 gemini_api_key
-            if (config.gemini_api_key && config.gemini_api_key !== '············') {
-              geminiApiKey = config.gemini_api_key
-            } else {
-              const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
-              if (!apiKeySetting?.value) {
-                return NextResponse.json(
-                  { error: '请先保存 Gemini 官方 API Key 配置' },
-                  { status: 400 }
-                )
-              }
-              geminiApiKey = apiKeySetting.value
-            }
-            console.log(`🔍 使用官方服务商的 API Key 验证`)
-          }
-
-          // 优先使用前端传来的模型配置
-          if (config.gemini_model) {
-            selectedModel = normalizeGeminiModel(config.gemini_model)
-          } else {
-            const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
-            if (!geminiModelSetting?.value) {
+            const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
+            if (!apiKeySetting?.value) {
               return NextResponse.json(
-                { error: '请先在AI配置中选择要使用的模型' },
+                { error: '请先保存 Gemini 官方 API Key 配置' },
                 { status: 400 }
               )
             }
-            selectedModel = normalizeGeminiModel(geminiModelSetting.value)
+            geminiApiKey = apiKeySetting.value
           }
-
-          console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
-
-          // 根据服务商选择验证哪个 API Key
-          const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
-          // 🔧 关键修复(2025-12-30): 传递服务商类型和临时 API Key 给验证函数
-          // 避免 validateGeminiConfig → generateContent → getGeminiApiKey 从数据库读取空值
-          result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)
-
-          // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
-          // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
-          // 验证成功/失败信息只通过toast和API响应提示用户
+          console.log('🔍 使用官方服务商的 API Key 验证')
         }
+
+        if (config.gemini_model) {
+          selectedModel = normalizeGeminiModel(config.gemini_model)
+        } else {
+          const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
+          if (!geminiModelSetting?.value) {
+            return NextResponse.json(
+              { error: '请先在AI配置中选择要使用的模型' },
+              { status: 400 }
+            )
+          }
+          selectedModel = normalizeGeminiModel(geminiModelSetting.value)
+        }
+
+        console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
+
+        const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
+        result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)
         break
+      }
 
       case 'proxy':
         // 代理URL列表验证（JSON格式）

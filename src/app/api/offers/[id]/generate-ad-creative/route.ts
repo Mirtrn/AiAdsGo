@@ -373,7 +373,7 @@ export async function POST(
     // 特殊处理AI配置错误
     if (error.message?.includes('AI配置未设置')) {
       const appError = createError.aiConfigNotSet({
-        suggestion: '请前往设置页面配置Vertex AI或Gemini API',
+        suggestion: '请前往设置页面配置Gemini API',
         redirect: '/settings'
       })
       return NextResponse.json(appError.toJSON(), { status: appError.httpStatus })

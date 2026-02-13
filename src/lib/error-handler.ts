@@ -133,7 +133,7 @@ function getUserFriendlyMessage(code: string, details?: any): string {
     'CREA_5003': details?.round
       ? `第${details.round}轮已生成${details.current}个创意，已达到上限（${details.limit}个）`
       : '广告创意生成次数已达上限',
-    'CREA_5004': 'AI配置未设置，请前往设置页面配置Vertex AI或Gemini API',
+    'CREA_5004': 'AI配置未设置，请前往设置页面配置Gemini API',
 
     // 广告系列错误 (6xxx)
     'CAMP_6001': '找不到该广告系列',

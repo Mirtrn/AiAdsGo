@@ -406,12 +406,6 @@ async function insertDefaultSystemSettings(): Promise<void> {
     { category: 'ai', key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: '第三方中转服务 API Key' },
     { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false, description: 'AI模型', defaultValue: 'gemini-3-flash-preview' },
 
-    // AI配置 - Vertex AI模式（优先使用）
-    { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false, description: '是否使用Vertex AI', defaultValue: 'false' },
-    { category: 'ai', key: 'gcp_project_id', dataType: 'string', isSensitive: true, isRequired: false, description: 'GCP项目ID（Vertex AI）' },
-    { category: 'ai', key: 'gcp_location', dataType: 'string', isSensitive: false, isRequired: false, description: 'GCP区域（Vertex AI）', defaultValue: 'us-central1' },
-    { category: 'ai', key: 'gcp_service_account_json', dataType: 'text', isSensitive: true, isRequired: false, description: 'GCP Service Account JSON（Vertex AI）' },
-
     // 代理配置
     { category: 'proxy', key: 'urls', dataType: 'json', isSensitive: false, isRequired: false, description: '代理URL配置列表（JSON格式）' },
 

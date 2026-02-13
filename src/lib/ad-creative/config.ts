@@ -5,12 +5,7 @@
 import { resolveActiveAIConfig } from '../ai-runtime-config'
 
 export interface AIConfig {
-  type: 'vertex-ai' | 'gemini-api' | null
-  vertexAI?: {
-    projectId: string
-    location: string
-    model: string
-  }
+  type: 'gemini-api' | null
   geminiAPI?: {
     apiKey: string
     model: string
@@ -28,18 +23,6 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   const resolved = await resolveActiveAIConfig(userId)
 
-  if (resolved.type === 'vertex-ai' && resolved.vertexAI) {
-    console.log(`🤖 使用Vertex AI: 项目=${resolved.vertexAI.projectId}, 区域=${resolved.vertexAI.location}, 模型=${resolved.vertexAI.model}`)
-    return {
-      type: 'vertex-ai',
-      vertexAI: {
-        projectId: resolved.vertexAI.projectId,
-        location: resolved.vertexAI.location,
-        model: resolved.vertexAI.model,
-      },
-    }
-  }
-
   if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
     console.log(`🤖 使用${resolved.geminiAPI.provider === 'relay' ? '第三方中转' : 'Gemini官方'}: 模型=${resolved.geminiAPI.model}`)
     return {
@@ -52,7 +35,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   }
 
   // 7. 无可用配置
-  console.warn('⚠️ 未配置AI服务（Vertex AI 或 Gemini API），将无法生成广告创意')
+  console.warn('⚠️ 未配置AI服务（Gemini API），将无法生成广告创意')
   return { type: null }
 }
 

@@ -32,11 +32,6 @@ vi.mock('./gemini-axios', () => ({
   generateContent: axiosGenerate,
 }))
 
-vi.mock('./gemini-vertex', () => ({
-  resetVertexAIClient: vi.fn(),
-  generateContent: vi.fn(),
-}))
-
 describe('Gemini relay model lock', () => {
   beforeEach(() => {
     settingStore.clear()
@@ -46,7 +41,6 @@ describe('Gemini relay model lock', () => {
   it('locks relay calls to user-saved model even when caller passes another model', async () => {
     const userId = 1001
 
-    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'false')
     settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
     settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key')
     settingStore.set(getStoreKey('ai', 'gemini_model', userId), RELAY_GPT_52_MODEL)
@@ -69,7 +63,6 @@ describe('Gemini relay model lock', () => {
   it('uses user-saved model when no model/operationType is provided', async () => {
     const userId = 1002
 
-    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'false')
     settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
     settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key')
     settingStore.set(getStoreKey('ai', 'gemini_model', userId), RELAY_GPT_52_MODEL)
@@ -90,7 +83,6 @@ describe('Gemini relay model lock', () => {
   it('always follows the latest saved relay model', async () => {
     const userId = 1003
 
-    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'false')
     settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
     settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key')
     settingStore.set(getStoreKey('ai', 'gemini_model', userId), RELAY_GPT_52_MODEL)
@@ -124,7 +116,6 @@ describe('Gemini relay model lock', () => {
     const userA = 2001
     const userB = 2002
 
-    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userA), 'false')
     settingStore.set(getStoreKey('ai', 'gemini_provider', userA), 'relay')
     settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userA), 'relay-key-a')
     settingStore.set(getStoreKey('ai', 'gemini_model', userA), RELAY_GPT_52_MODEL)

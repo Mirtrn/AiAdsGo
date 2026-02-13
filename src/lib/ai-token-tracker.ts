@@ -16,7 +16,7 @@ export interface RecordTokenUsageParams {
   outputTokens: number
   totalTokens: number
   cost: number
-  apiType: 'vertex-ai' | 'direct-api'
+  apiType: 'direct-api'
 }
 
 /**

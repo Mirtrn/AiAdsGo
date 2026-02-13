@@ -6,7 +6,6 @@
  * 支持的服务商：
  * - official: Google Gemini 官方 API
  * - relay: 第三方中转服务
- * - vertex: Google Vertex AI（企业级）
  */
 
 /**
@@ -26,13 +25,6 @@ export const GEMINI_PROVIDERS = {
     apiKeyUrl: 'https://aicode.cat/register?ref=T6S73C2U',
     description: '通过国内中转服务访问（更快更稳定）',
     icon: '⚡',
-  },
-  vertex: {
-    name: 'Vertex AI',
-    endpoint: 'vertex', // 特殊标识，不是实际 URL
-    apiKeyUrl: null,
-    description: '使用 Google Cloud Vertex AI（需配置服务账号）',
-    icon: '☁️',
   },
 } as const
 
@@ -68,12 +60,11 @@ export function getGeminiEndpoint(provider: GeminiProvider, model?: string | nul
  * 根据服务商获取 API Key 获取地址
  *
  * @param provider - 服务商类型
- * @returns API Key 获取地址（Vertex AI 返回 null）
+ * @returns API Key 获取地址
  *
  * @example
  * getGeminiApiKeyUrl('official') // 'https://aistudio.google.com/app/api-keys'
  * getGeminiApiKeyUrl('relay') // 'https://aicode.cat/register?ref=T6S73C2U'
- * getGeminiApiKeyUrl('vertex') // null
  */
 export function getGeminiApiKeyUrl(provider: GeminiProvider): string | null {
   return GEMINI_PROVIDERS[provider]?.apiKeyUrl || null

@@ -1236,12 +1236,6 @@ export const DEFAULT_SETTINGS = [
   { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini API密钥（直接API模式）' },
   { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: true, defaultValue: 'gemini-3-flash-preview', description: 'AI模型' },
 
-  // AI配置 - Vertex AI模式（优先使用）
-  { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false, defaultValue: 'false', description: '是否使用Vertex AI（优先于直接API）' },
-  { category: 'ai', key: 'gcp_project_id', dataType: 'string', isSensitive: true, isRequired: false, description: 'GCP项目ID（Vertex AI）' },
-  { category: 'ai', key: 'gcp_location', dataType: 'string', isSensitive: false, isRequired: false, defaultValue: 'us-central1', description: 'GCP区域（Vertex AI）' },
-  { category: 'ai', key: 'gcp_service_account_json', dataType: 'text', isSensitive: true, isRequired: false, description: 'GCP Service Account JSON（Vertex AI）' },
-
   // 代理配置
   { category: 'proxy', key: 'urls', dataType: 'json', isSensitive: false, isRequired: false, description: '代理URL配置列表（JSON格式），支持多个国家的代理URL' },
 

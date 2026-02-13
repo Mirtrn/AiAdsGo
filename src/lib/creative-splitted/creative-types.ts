@@ -31,12 +31,7 @@ export interface KeywordWithVolume {
  * AI 配置接口
  */
 export interface AIConfig {
-  type: 'vertex-ai' | 'gemini-api' | null
-  vertexAI?: {
-    projectId: string
-    location: string
-    model: string
-  }
+  type: 'gemini-api' | null
   geminiAPI?: {
     apiKey: string
     model: string

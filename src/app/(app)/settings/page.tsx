@@ -193,21 +193,10 @@ const SETTING_METADATA: Record<string, {
     placeholder: '输入测试 Developer Token',
   },
 
-  // AI - 模式选择
-  'ai.use_vertex_ai': {
-    label: 'AI模式',
-    description: '选择AI调用模式。Vertex AI企业级稳定；Gemini API配置简单快速',
-    options: [
-      { value: 'false', label: 'Gemini API（直连访问）' },
-      { value: 'true', label: 'Vertex AI（推荐，企业级）' }
-    ],
-    defaultValue: 'false'
-  },
-
   // AI - Gemini 服务商选择
   'ai.gemini_provider': {
     label: '服务商',
-    description: '选择Gemini API服务商。官方服务适合海外用户，第三方中转适合国内用户',
+    description: '第1步：先选择服务商。官方适合海外网络；第三方中转适合国内网络',
     options: [
       { value: 'official', label: '🌐 Gemini 官方' },
       { value: 'relay', label: '⚡ 第三方中转' }
@@ -217,7 +206,7 @@ const SETTING_METADATA: Record<string, {
   // AI - Gemini API端点（只读）
   'ai.gemini_endpoint': {
     label: 'API端点',
-    description: '根据选择的服务商和AI模型自动设置，不可手动修改',
+    description: '根据当前服务商 + AI模型自动计算，不可手动修改',
     placeholder: '系统自动设置'
   },
   // AI - Gemini API配置
@@ -235,39 +224,12 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.gemini_model': {
     label: 'AI模型',
-    description: '官方服务商支持 Gemini 3 Flash Preview；第三方中转服务商额外支持 GPT-5.2',
+    description: '第2步：服务商确定后，再选择该服务商支持的模型',
     options: [
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
       { value: RELAY_GPT_52_MODEL, label: 'GPT-5.2（第三方中转专用）' },
     ],
     defaultValue: GEMINI_ACTIVE_MODEL
-  },
-
-  // AI - Vertex AI配置
-  'ai.gcp_project_id': {
-    label: 'GCP项目ID',
-    description: 'Vertex AI模式：Google Cloud Platform项目ID',
-    placeholder: '输入GCP项目ID',
-    helpLink: 'https://console.cloud.google.com'
-  },
-  'ai.gcp_location': {
-    label: 'GCP区域',
-    description: 'Vertex AI服务所在区域',
-    options: [
-      { value: 'us-central1', label: 'us-central1（美国中部）' },
-      { value: 'us-east1', label: 'us-east1（美国东部）' },
-      { value: 'us-west1', label: 'us-west1（美国西部）' },
-      { value: 'europe-west1', label: 'europe-west1（欧洲西部）' },
-      { value: 'asia-northeast1', label: 'asia-northeast1（日本）' },
-      { value: 'asia-southeast1', label: 'asia-southeast1（新加坡）' }
-    ],
-    defaultValue: 'us-central1'
-  },
-  'ai.gcp_service_account_json': {
-    label: 'Service Account JSON',
-    description: 'Vertex AI认证：从GCP Console下载的Service Account密钥JSON内容',
-    placeholder: '粘贴完整的JSON文件内容',
-    helpLink: 'https://console.cloud.google.com/iam-admin/serviceaccounts'
   },
 
   // Proxy - 新的多URL配置
@@ -361,15 +323,11 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true },
   ],
   ai: [
-    { key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false },
     { key: 'gemini_provider', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gcp_project_id', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gcp_location', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gcp_service_account_json', dataType: 'text', isSensitive: true, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -447,7 +405,7 @@ export default function SettingsPage() {
   const [validating, setValidating] = useState<string | null>(null)
   const [deletingAIConfig, setDeletingAIConfig] = useState(false)
   const [aiDeleteConfirmTarget, setAiDeleteConfirmTarget] = useState<
-    'vertex' | 'gemini-official' | 'gemini-relay' | null
+    'gemini-official' | 'gemini-relay' | null
   >(null)
 
   // 表单状态
@@ -1007,69 +965,31 @@ export default function SettingsPage() {
 
       // AI配置验证
       if (category === 'ai') {
-        const aiMode = formData.ai?.['use_vertex_ai'] || 'false'
-
-        // 1. AI模式必填
-        if (!aiMode) {
-          toast.error('请选择AI模式')
+        const geminiProvider = formData.ai?.['gemini_provider']
+        if (!geminiProvider || geminiProvider.trim() === '') {
+          toast.error('请先选择服务商')
           setSaving(false)
           return
         }
 
-        // 2. Gemini API模式验证
-        if (aiMode === 'false') {
-          const geminiProvider = formData.ai?.['gemini_provider']
-          if (!geminiProvider || geminiProvider.trim() === '') {
-            toast.error('使用Gemini API模式时，必须选择服务商')
-            setSaving(false)
-            return
-          }
-
-          const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
-          if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
-            toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
-            setSaving(false)
-            return
-          }
-
-          // 根据服务商验证对应的 API Key
-          if (geminiProvider === 'official') {
-            const geminiApiKey = formData.ai?.['gemini_api_key']
-            if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
-              toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
-              setSaving(false)
-              return
-            }
-          } else if (geminiProvider === 'relay') {
-            const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
-            if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
-              toast.error('使用第三方中转服务商时，必须填写中转 API Key')
-              setSaving(false)
-              return
-            }
-          }
+        const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
+        if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
+          toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
+          setSaving(false)
+          return
         }
 
-        // 3. Vertex AI模式验证
-        if (aiMode === 'true') {
-          const gcpRegion = formData.ai?.['gcp_location']
-          const gcpProjectId = formData.ai?.['gcp_project_id']
-          const serviceAccountJson = formData.ai?.['gcp_service_account_json']
-
-          if (!gcpRegion || gcpRegion.trim() === '') {
-            toast.error('使用Vertex AI模式时，必须选择GCP区域')
+        if (geminiProvider === 'official') {
+          const geminiApiKey = formData.ai?.['gemini_api_key']
+          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
+            toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
             setSaving(false)
             return
           }
-
-          if (!gcpProjectId || gcpProjectId.trim() === '' || gcpProjectId === '············') {
-            toast.error('使用Vertex AI模式时，必须填写GCP项目ID')
-            setSaving(false)
-            return
-          }
-
-          if (!serviceAccountJson || serviceAccountJson.trim() === '' || serviceAccountJson === '············') {
-            toast.error('使用Vertex AI模式时，必须填写Service Account JSON')
+        } else if (geminiProvider === 'relay') {
+          const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
+          if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
+            toast.error('使用第三方中转服务商时，必须填写中转 API Key')
             setSaving(false)
             return
           }
@@ -1230,9 +1150,7 @@ export default function SettingsPage() {
     }
   }
 
-  const getAIConfigDeleteTarget = (): 'vertex' | 'gemini-official' | 'gemini-relay' => {
-    const useVertexAI = formData.ai?.use_vertex_ai === 'true'
-    if (useVertexAI) return 'vertex'
+  const getAIConfigDeleteTarget = (): 'gemini-official' | 'gemini-relay' => {
     const provider = formData.ai?.gemini_provider || 'official'
     return provider === 'relay' ? 'gemini-relay' : 'gemini-official'
   }
@@ -1243,9 +1161,6 @@ export default function SettingsPage() {
       aiSettings.find(s => s.key === key)?.value
 
     const target = getAIConfigDeleteTarget()
-    if (target === 'vertex') {
-      return Boolean(getBackendValue('gcp_project_id') || getBackendValue('gcp_service_account_json') || getBackendValue('gcp_location'))
-    }
     if (target === 'gemini-relay') {
       return Boolean(getBackendValue('gemini_relay_api_key'))
     }
@@ -1263,11 +1178,9 @@ export default function SettingsPage() {
     setAiDeleteConfirmTarget(target)
   }
 
-  const deleteCurrentAIConfigNow = async (target: 'vertex' | 'gemini-official' | 'gemini-relay') => {
+  const deleteCurrentAIConfigNow = async (target: 'gemini-official' | 'gemini-relay') => {
     const targetLabel = (() => {
       switch (target) {
-        case 'vertex':
-          return 'Vertex AI'
         case 'gemini-relay':
           return 'Gemini 第三方中转'
         case 'gemini-official':
@@ -1698,9 +1611,6 @@ export default function SettingsPage() {
             <AlertDialogHeader>
               <AlertDialogTitle>确认删除 AI 配置？</AlertDialogTitle>
               <AlertDialogDescription>
-                {aiDeleteConfirmTarget === 'vertex' && (
-                  <>将清空 Vertex AI 配置（GCP项目ID / 区域 / Service Account JSON）。删除后需要重新填写才能继续使用 Vertex AI。</>
-                )}
                 {aiDeleteConfirmTarget === 'gemini-official' && (
                   <>将清空 Gemini 官方 API Key。删除后需要重新填写才能继续使用官方服务。</>
                 )}
@@ -1767,7 +1677,7 @@ export default function SettingsPage() {
                 <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
                 <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
-                <li>• <strong>AI 引擎</strong>：支持 Vertex AI（企业级）和 Gemini API（快速上手）两种模式</li>
+                <li>• <strong>AI 引擎</strong>：统一使用 Gemini API，按“服务商 → 模型 → API Key”完成配置</li>
                 <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>
@@ -2522,98 +2432,51 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* AI配置模式说明 */}
+                    {/* AI配置说明 */}
                     {category === 'ai' && (
                       <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
                         <div className="flex items-start gap-2 mb-3">
                           <Info className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
-                          <p className="font-semibold text-body-sm text-purple-800">AI模式选择说明</p>
+                          <p className="font-semibold text-body-sm text-purple-800">AI配置顺序</p>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-body-sm text-purple-700">
-                          <div className="bg-white/50 p-3 rounded">
-                            <p className="font-medium text-purple-800 mb-2 flex items-center justify-between gap-2">
-                              <span>Gemini API</span>
-                              <span className="inline-flex items-center gap-1 text-amber-700">
-                                <Star className="w-4 h-4 text-amber-600" />
-                                <span className="text-xs font-semibold">强烈推荐</span>
-                              </span>
-                            </p>
-                            <ul className="space-y-1">
-                              <li>• 配置简单快速</li>
-                              <li>• 直连访问</li>
-                              <li>• 适合快速测试</li>
-                            </ul>
-                          </div>
-                          <div className="bg-white/50 p-3 rounded">
-                            <p className="font-medium text-purple-800 mb-2">Vertex AI</p>
-                            <ul className="space-y-1">
-                              <li>• 企业级稳定性</li>
-                              <li>• 需要GCP账号</li>
-                              <li>• Service Account配置</li>
-                            </ul>
-                          </div>
+                        <div className="space-y-2 text-body-sm text-purple-700">
+                          <p><strong>AI模式：</strong>Gemini API（固定）</p>
+                          <p>1. 先选服务商 2. 再选AI模型 3. 系统自动计算API端点 4. 填写当前服务商对应的API Key</p>
+                          <p className="text-purple-600">仅当前服务商对应的 API Key 会生效。</p>
                         </div>
                       </div>
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-                      {/* AI配置需要特殊排序：use_vertex_ai放在最前面 */}
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
-                            if (a.key === 'use_vertex_ai') return -1
-                            if (b.key === 'use_vertex_ai') return 1
-                            return 0
+                            const aiOrder = ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key', 'gemini_relay_api_key']
+                            return aiOrder.indexOf(a.key) - aiOrder.indexOf(b.key)
                           })
                         : categorySettings
                       ).map((setting: Setting) => {
                         const metaKey = `${category}.${setting.key}`
                         const metadata = SETTING_METADATA[metaKey]
 
-                        // AI配置的条件渲染逻辑
+                        // AI配置按服务商显示对应 API Key
                         if (category === 'ai') {
-                          const useVertexAI = formData.ai?.use_vertex_ai === 'true'
+                          const provider = formData.ai?.gemini_provider || 'official'
+                          const allowedKeys = provider === 'relay'
+                            ? ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_relay_api_key']
+                            : ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key']
 
-                          // 始终显示模式选择
-                          if (setting.key === 'use_vertex_ai') {
-                            // 继续渲染
-                          }
-                          // Vertex AI模式：只显示Vertex AI相关字段
-                          else if (useVertexAI) {
-                            if (!['gcp_project_id', 'gcp_location', 'gcp_service_account_json', 'gemini_model'].includes(setting.key)) {
-                              return null // 隐藏Gemini API字段
-                            }
-                          }
-                          // Gemini API模式：只显示Gemini API相关字段
-                          else {
-                            const provider = formData.ai?.gemini_provider || 'official'
-
-                            // 根据服务商决定显示哪个 API Key 字段
-                            const allowedKeys = provider === 'relay'
-                              ? ['gemini_provider', 'gemini_endpoint', 'gemini_relay_api_key', 'gemini_model']
-                              : ['gemini_provider', 'gemini_endpoint', 'gemini_api_key', 'gemini_model']
-
-                            if (!allowedKeys.includes(setting.key)) {
-                              return null // 隐藏其他字段
-                            }
+                          if (!allowedKeys.includes(setting.key)) {
+                            return null
                           }
                         }
 
                       // 动态必填逻辑
                       const isRequired = (() => {
                         if (category === 'ai') {
-                          const useVertexAI = formData.ai?.use_vertex_ai === 'true'
-                          // AI模式始终必填
-                          if (setting.key === 'use_vertex_ai') return true
-                          // Gemini API模式：根据服务商选择必填字段
-                          if (!useVertexAI && setting.key === 'gemini_provider') return true
-                          // 官方服务商必填 gemini_api_key，中转服务商必填 gemini_relay_api_key
-                          if (!useVertexAI) {
-                            const provider = formData.ai?.gemini_provider || 'official'
-                            if (provider === 'official' && setting.key === 'gemini_api_key') return true
-                            if (provider === 'relay' && setting.key === 'gemini_relay_api_key') return true
-                          }
-                          // Vertex AI模式：gcp_location, gcp_project_id, gcp_service_account_json必填
-                          if (useVertexAI && ['gcp_location', 'gcp_project_id', 'gcp_service_account_json'].includes(setting.key)) return true
+                          if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
+                          const provider = formData.ai?.gemini_provider || 'official'
+                          if (provider === 'official' && setting.key === 'gemini_api_key') return true
+                          if (provider === 'relay' && setting.key === 'gemini_relay_api_key') return true
                         }
                         return setting.isRequired
                       })()

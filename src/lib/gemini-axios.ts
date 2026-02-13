@@ -11,7 +11,7 @@ import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { GEMINI_ACTIVE_MODEL, normalizeModelForProvider } from './gemini-models'
 
 function normalizeProvider(value?: string | null): GeminiProvider {
-  if (value === 'relay' || value === 'vertex' || value === 'official') {
+  if (value === 'relay' || value === 'official') {
     return value
   }
 
@@ -345,9 +345,6 @@ async function getGeminiEndpoint(userId: number): Promise<string> {
  * 根据服务商类型获取端点 URL（纯函数）
  */
 export function getEndpointByProvider(provider: GeminiProvider): string {
-  if (provider === 'vertex') {
-    return 'vertex'
-  }
   return GEMINI_PROVIDERS[provider].endpoint
 }
 
@@ -369,11 +366,6 @@ export function getEndpointByProvider(provider: GeminiProvider): string {
 export async function createGeminiAxiosClient(userId: number, provider?: GeminiProvider): Promise<AxiosInstance> {
   const geminiProvider = provider || await getGeminiProvider(userId)
   const endpoint = getEndpointByProvider(geminiProvider)
-
-  if (endpoint === 'vertex') {
-    // Vertex AI 使用专用客户端
-    throw new Error('Use Vertex AI client instead')
-  }
 
   // 🔧 2025-12-31 修复：relay 服务商需要浏览器特征 headers 绕过 Cloudflare
   // ThunderRelay 使用 Cloudflare 防护，服务器请求需要模拟浏览器行为
@@ -871,7 +863,7 @@ export async function generateContent(params: {
         `解决方案：\n` +
         `1. ${providerName === '第三方中转' ? '前往中转服务平台充值积分\n' : '检查账户配额并充值\n'}` +
         `2. 更换其他有余额的API Key\n` +
-        `3. ${providerName === '第三方中转' ? '切换到Gemini官方API或Vertex AI\n' : '联系服务提供商\n'}`
+        `3. ${providerName === '第三方中转' ? '切换到Gemini官方API\n' : '联系服务提供商\n'}`
       )
     }
 
@@ -893,7 +885,7 @@ export async function generateContent(params: {
         throw new Error(
           `Gemini API调用失败: 当前地理位置不支持直接访问Gemini API。\n` +
           `解决方案:\n` +
-          `1. 配置 Vertex AI（推荐，在/settings页面配置GCP项目ID和服务账号）\n` +
+          `1. 切换到第三方中转服务商\n` +
           `2. 使用VPN或代理切换到支持的地区\n` +
           `原始错误: ${errorDetails.message}`
         )

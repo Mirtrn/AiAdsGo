@@ -57,30 +57,9 @@ describe('resolveActiveAIConfig', () => {
     expect(config.geminiAPI).toBeUndefined()
   })
 
-  it('prefers vertex-ai when enabled and configured', async () => {
+  it('normalizes legacy provider value to official mode', async () => {
     const userId = 3103
-    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'true')
-    settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
-    settingStore.set(getStoreKey('ai', 'gemini_model', userId), RELAY_GPT_52_MODEL)
-    settingStore.set(getStoreKey('ai', 'gcp_project_id', userId), 'proj-123')
-    settingStore.set(getStoreKey('ai', 'gcp_location', userId), 'us-central1')
-    settingStore.set(getStoreKey('ai', 'gcp_service_account_json', userId), '{"type":"service_account"}')
-    settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key-2')
-
-    const { resolveActiveAIConfig } = await import('./ai-runtime-config')
-    const config = await resolveActiveAIConfig(userId)
-
-    expect(config.type).toBe('vertex-ai')
-    expect(config.provider).toBe('vertex')
-    expect(config.endpoint).toBe('vertex')
-    expect(config.vertexAI?.projectId).toBe('proj-123')
-    expect(config.vertexAI?.location).toBe('us-central1')
-    expect(config.vertexAI?.model).toBe(GEMINI_ACTIVE_MODEL)
-  })
-
-  it('keeps backward compatibility: provider=vertex without vertex config falls back to official direct mode', async () => {
-    const userId = 3104
-    settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'vertex')
+    settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'legacy-provider')
     settingStore.set(getStoreKey('ai', 'gemini_model', userId), GEMINI_ACTIVE_MODEL)
     settingStore.set(getStoreKey('ai', 'gemini_api_key', userId), 'official-key-1')
 
