@@ -12,6 +12,7 @@ const sessionAuthFns = vi.hoisted(() => ({
 
 const healthFns = vi.hoisted(() => ({
   recordFeishuChatHealthLog: vi.fn(),
+  backfillFeishuChatHealthRunLinks: vi.fn(),
 }))
 
 const accountFns = vi.hoisted(() => ({
@@ -36,6 +37,7 @@ vi.mock('@/lib/openclaw/request-auth', () => ({
 
 vi.mock('@/lib/openclaw/feishu-chat-health', () => ({
   recordFeishuChatHealthLog: healthFns.recordFeishuChatHealthLog,
+  backfillFeishuChatHealthRunLinks: healthFns.backfillFeishuChatHealthRunLinks,
 }))
 
 vi.mock('@/lib/openclaw/feishu-accounts', () => ({
@@ -77,6 +79,7 @@ describe('openclaw feishu chat health ingest route', () => {
       queryOne: vi.fn().mockResolvedValue(null),
     })
     healthFns.recordFeishuChatHealthLog.mockResolvedValue(undefined)
+    healthFns.backfillFeishuChatHealthRunLinks.mockResolvedValue({ updatedRuns: 0 })
   })
 
   it('accepts gateway token and stores health log', async () => {
@@ -103,6 +106,7 @@ describe('openclaw feishu chat health ingest route', () => {
         reasonCode: 'group_require_mention',
       })
     )
+    expect(healthFns.backfillFeishuChatHealthRunLinks).not.toHaveBeenCalled()
   })
 
   it('rejects non-admin session when gateway token invalid', async () => {
@@ -123,6 +127,33 @@ describe('openclaw feishu chat health ingest route', () => {
     expect(res.status).toBe(403)
     expect(payload.error).toContain('无权写入')
     expect(healthFns.recordFeishuChatHealthLog).not.toHaveBeenCalled()
+  })
+
+  it('backfills run links for allowed messages with messageId', async () => {
+    const res = await POST(createRequest({
+      accountId: 'user-7',
+      messageId: 'om_1',
+      senderOpenId: 'ou_1',
+      senderCandidates: ['ou_1'],
+      decision: 'allowed',
+      reasonCode: 'reply_dispatched',
+      messageText: 'hello',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(true)
+
+    expect(healthFns.recordFeishuChatHealthLog).toHaveBeenCalled()
+    expect(healthFns.backfillFeishuChatHealthRunLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 7,
+        messageId: 'om_1',
+        senderIds: ['ou_1'],
+      })
+    )
   })
 
   it('returns stored=false when user cannot be resolved', async () => {

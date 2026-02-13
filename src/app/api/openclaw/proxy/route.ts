@@ -14,6 +14,8 @@ const proxySchema = z.object({
   senderId: z.string().optional(),
   accountId: z.string().optional(),
   tenantKey: z.string().optional(),
+  parentRequestId: z.string().optional(),
+  parentRequestIdSource: z.enum(['none', 'message_id', 'inbound_message_id', 'request_id', 'manual']).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -33,6 +35,8 @@ export async function POST(request: NextRequest) {
     const accountId = parsed.data.accountId || request.headers.get('x-openclaw-account-id') || undefined
     const tenantKey = parsed.data.tenantKey || request.headers.get('x-openclaw-tenant-key') || undefined
     const parentRequestResolution = resolveOpenclawParentRequestIdFromHeaders(request.headers)
+    const parentRequestId = parsed.data.parentRequestId || parentRequestResolution.parentRequestId
+    const parentRequestIdSource = parsed.data.parentRequestIdSource || parentRequestResolution.source
 
     const response = await handleOpenclawProxyRequest({
       request: {
@@ -41,8 +45,8 @@ export async function POST(request: NextRequest) {
         senderId,
         accountId,
         tenantKey,
-        parentRequestId: parentRequestResolution.parentRequestId,
-        parentRequestIdSource: parentRequestResolution.source,
+        parentRequestId,
+        parentRequestIdSource,
       },
       authHeader,
     })

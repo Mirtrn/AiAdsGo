@@ -1,5 +1,5 @@
 import { getDatabase } from '@/lib/db'
-import { datetimeMinusHours } from '@/lib/db-helpers'
+import { datetimeMinusHours, nowFunc } from '@/lib/db-helpers'
 
 export type FeishuChatHealthDecision = 'allowed' | 'blocked' | 'error'
 export type FeishuChatHealthExecutionState =
@@ -70,6 +70,10 @@ type OpenclawCommandRunLinkRow = {
   created_at: string | Date
 }
 
+type FeishuChatHealthCreatedAtRow = {
+  created_at: string | Date
+}
+
 export type FeishuChatHealthLogItem = {
   id: number
   userId: number
@@ -125,7 +129,10 @@ const FEISHU_HEALTH_RETENTION_HOURS = FEISHU_HEALTH_RETENTION_DAYS * 24
 const FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT = 500
 const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
-const FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS = 90
+// Note: `created_at` in chat health logs is written when the gateway reports the event,
+// which may happen after one or more command runs were already created. Keep a relatively
+// forgiving "link before" window, but not too large to avoid cross-message mislinks.
+const FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS = 180
 const FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS = 5 * 60
 
 let lastCleanupAt = 0
@@ -147,10 +154,33 @@ export function getFeishuChatHealthExecutionMissingSeconds(): number {
   return resolveExecutionMissingSeconds()
 }
 
+function resolveExecutionLinkBeforeSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_EXECUTION_LINK_BEFORE_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS
+  }
+  return clamp(envValue, 0, 3600)
+}
+
+function resolveExecutionLinkAfterSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_EXECUTION_LINK_AFTER_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS
+  }
+  return clamp(envValue, 0, 3600)
+}
+
 function normalizeShortText(value: unknown, maxLength: number): string | null {
   const text = String(value || '').trim()
   if (!text) return null
   return text.slice(0, maxLength)
+}
+
+function normalizeFeishuIdentifier(value: unknown): string | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const normalized = text.replace(/^(feishu|lark):/i, '').toLowerCase()
+  return normalized ? normalized.slice(0, 255) : null
 }
 
 function normalizeMessageText(value: unknown): string | null {
@@ -223,6 +253,92 @@ function mapRunStatusToExecutionState(status: string): FeishuChatHealthExecution
   if (normalized === 'expired') return 'expired'
 
   return 'unknown'
+}
+
+export async function backfillFeishuChatHealthRunLinks(params: {
+  userId: number
+  messageId: string
+  senderIds: string[]
+}): Promise<{ updatedRuns: number }> {
+  const db = await getDatabase()
+
+  const messageId = normalizeShortText(params.messageId, 120)
+  if (!messageId) return { updatedRuns: 0 }
+
+  const senderIds = Array.from(
+    new Set(params.senderIds.map((item) => normalizeFeishuIdentifier(item)).filter(Boolean))
+  ) as string[]
+
+  if (senderIds.length === 0) {
+    return { updatedRuns: 0 }
+  }
+
+  const healthRow = await db.queryOne<FeishuChatHealthCreatedAtRow>(
+    `SELECT created_at
+     FROM openclaw_feishu_chat_health_logs
+     WHERE user_id = ?
+       AND message_id = ?
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [params.userId, messageId]
+  )
+
+  const healthCreatedAt = healthRow ? toIsoTimestamp(healthRow.created_at) : new Date().toISOString()
+  const healthMs = Date.parse(healthCreatedAt)
+  if (!Number.isFinite(healthMs)) {
+    return { updatedRuns: 0 }
+  }
+
+  const linkBeforeMs = resolveExecutionLinkBeforeSeconds() * 1000
+  const linkAfterMs = resolveExecutionLinkAfterSeconds() * 1000
+  const startMs = healthMs - linkBeforeMs
+  const endMs = healthMs + linkAfterMs
+
+  const cutoffExpr = datetimeMinusHours(6, db.type)
+  const senderPlaceholders = senderIds.map(() => '?').join(', ')
+  const candidateRuns = await db.query<OpenclawCommandRunLinkRow>(
+    `SELECT id, parent_request_id, channel, sender_id, status, created_at
+     FROM openclaw_command_runs
+     WHERE user_id = ?
+       AND channel = 'feishu'
+       AND sender_id IN (${senderPlaceholders})
+       AND created_at >= ${cutoffExpr}
+     ORDER BY created_at DESC`,
+    [params.userId, ...senderIds]
+  )
+
+  const runIds: string[] = []
+  for (const run of candidateRuns) {
+    const parent = normalizeShortText(run.parent_request_id, 120)
+    if (parent && parent.toLowerCase().startsWith('om_')) {
+      continue
+    }
+
+    const runMs = Date.parse(toIsoTimestamp(run.created_at))
+    if (!Number.isFinite(runMs)) continue
+    if (runMs < startMs || runMs > endMs) continue
+    runIds.push(String(run.id))
+  }
+
+  const uniqueRunIds = Array.from(new Set(runIds)).slice(0, 50)
+  if (uniqueRunIds.length === 0) {
+    return { updatedRuns: 0 }
+  }
+
+  const nowSql = nowFunc(db.type)
+  const runIdPlaceholders = uniqueRunIds.map(() => '?').join(', ')
+  const result = await db.exec(
+    `UPDATE openclaw_command_runs
+     SET parent_request_id = ?, updated_at = ${nowSql}
+     WHERE user_id = ?
+       AND id IN (${runIdPlaceholders})
+       AND (parent_request_id IS NULL OR lower(trim(parent_request_id)) NOT LIKE 'om_%')`,
+    [messageId, params.userId, ...uniqueRunIds]
+  )
+
+  return {
+    updatedRuns: Number(result?.changes || 0),
+  }
 }
 
 async function cleanupFeishuChatHealthLogsIfNeeded() {
@@ -358,6 +474,7 @@ export async function listFeishuChatHealthLogs(params: {
       `SELECT id, parent_request_id, channel, sender_id, status, created_at
        FROM openclaw_command_runs
        WHERE user_id = ?
+         AND channel = 'feishu'
          AND parent_request_id IN (${placeholders})
        ORDER BY created_at DESC`,
       [params.userId, ...allowedMessageIds]
@@ -377,18 +494,60 @@ export async function listFeishuChatHealthLogs(params: {
   const missingMessageIdSet = new Set(missingMessageIds)
   if (missingMessageIdSet.size > 0) {
     const cutoffExpr = datetimeMinusHours(withinHours + 1, db.type)
-    const candidateRuns = await db.query<OpenclawCommandRunLinkRow>(
-      `SELECT id, parent_request_id, channel, sender_id, status, created_at
-       FROM openclaw_command_runs
-       WHERE user_id = ?
-         AND created_at >= ${cutoffExpr}
-       ORDER BY created_at DESC`,
-      [params.userId]
-    )
+    const candidateSenderSet = new Set<string>()
+    const pushSenderCandidate = (value: unknown) => {
+      const normalized = normalizeShortText(value, 255)
+      if (normalized) candidateSenderSet.add(normalized)
+    }
+
+    for (const row of rows) {
+      if (row.decision !== 'allowed') continue
+      const messageId = normalizeShortText(row.message_id, 120)
+      if (!messageId) continue
+      if (!missingMessageIdSet.has(messageId)) continue
+
+      pushSenderCandidate(row.sender_primary_id)
+      pushSenderCandidate(row.sender_open_id)
+      pushSenderCandidate(row.sender_union_id)
+      pushSenderCandidate(row.sender_user_id)
+      for (const candidate of safeParseJsonArray(row.sender_candidates_json)) {
+        pushSenderCandidate(candidate)
+      }
+    }
+
+    const candidateSendersAll = Array.from(candidateSenderSet).map((sender) => sender.trim()).filter(Boolean)
+    const canUseSenderFilter = candidateSendersAll.length > 0 && candidateSendersAll.length <= 200
+    const candidateSenders = canUseSenderFilter ? candidateSendersAll : []
+
+    const candidateRuns = await (async () => {
+      if (candidateSenders.length > 0) {
+        const senderPlaceholders = candidateSenders.map(() => '?').join(', ')
+        return await db.query<OpenclawCommandRunLinkRow>(
+          `SELECT id, parent_request_id, channel, sender_id, status, created_at
+           FROM openclaw_command_runs
+           WHERE user_id = ?
+             AND channel = 'feishu'
+             AND sender_id IN (${senderPlaceholders})
+             AND created_at >= ${cutoffExpr}
+           ORDER BY created_at DESC`,
+          [params.userId, ...candidateSenders]
+        )
+      }
+
+      // Fallback: still keep channel in SQL to avoid scanning other channels.
+      return await db.query<OpenclawCommandRunLinkRow>(
+        `SELECT id, parent_request_id, channel, sender_id, status, created_at
+         FROM openclaw_command_runs
+         WHERE user_id = ?
+           AND channel = 'feishu'
+           AND created_at >= ${cutoffExpr}
+         ORDER BY created_at DESC`,
+        [params.userId]
+      )
+    })()
 
     const runsBySender = new Map<string, OpenclawCommandRunLinkRow[]>()
     for (const run of candidateRuns) {
-      if (normalizeShortText(run.channel, 32) !== 'feishu') continue
       const sender = normalizeShortText(run.sender_id, 255)
       if (!sender) continue
       const bucket = runsBySender.get(sender) || []
@@ -396,8 +555,8 @@ export async function listFeishuChatHealthLogs(params: {
       runsBySender.set(sender, bucket)
     }
 
-    const linkBeforeMs = FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS * 1000
-    const linkAfterMs = FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS * 1000
+    const linkBeforeMs = resolveExecutionLinkBeforeSeconds() * 1000
+    const linkAfterMs = resolveExecutionLinkAfterSeconds() * 1000
 
     for (const row of rows) {
       if (row.decision !== 'allowed') continue

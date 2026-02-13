@@ -168,7 +168,7 @@ describe('feishu chat health lib', () => {
     expect(db.query).toHaveBeenNthCalledWith(
       4,
       expect.stringContaining('FROM openclaw_command_runs'),
-      [7]
+      [7, 'ou_1']
     )
 
     vi.useRealTimers()

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getDatabase } from '@/lib/db'
 import {
   type FeishuChatHealthDecision,
+  backfillFeishuChatHealthRunLinks,
   recordFeishuChatHealthLog,
 } from '@/lib/openclaw/feishu-chat-health'
 import { verifyOpenclawGatewayToken } from '@/lib/openclaw/auth'
@@ -204,6 +205,32 @@ export async function POST(request: NextRequest) {
       messageText: payload.messageText,
       metadata: sanitizeMetadata(payload.metadata),
     })
+
+    if (payload.decision === 'allowed' && payload.messageId) {
+      const senderIds = Array.from(
+        new Set(
+          [
+            payload.senderOpenId,
+            payload.senderUnionId,
+            payload.senderUserId,
+            payload.senderPrimaryId,
+            ...(payload.senderCandidates || []),
+          ]
+            .map((item) => normalizeFeishuId(item))
+            .filter(Boolean)
+        )
+      )
+
+      try {
+        await backfillFeishuChatHealthRunLinks({
+          userId,
+          messageId: payload.messageId,
+          senderIds,
+        })
+      } catch (err: any) {
+        console.error('[openclaw] feishu chat health backfill failed:', err?.message || String(err))
+      }
+    }
 
     return NextResponse.json({
       success: true,

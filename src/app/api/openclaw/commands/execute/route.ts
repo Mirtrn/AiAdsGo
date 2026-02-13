@@ -21,6 +21,8 @@ const executeSchema = z.object({
   sender_open_id: z.string().optional(),
   intent: z.string().optional(),
   idempotencyKey: z.string().optional(),
+  parentRequestId: z.string().optional(),
+  parent_request_id: z.string().optional(),
 })
 
 function normalizeHeaderValue(value: string | null | undefined): string | undefined {
@@ -61,10 +63,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
+    const parentRequestFromBody = normalizeHeaderValue(
+      parsed.data.parentRequestId || parsed.data.parent_request_id
+    )
     const accountId = normalizeHeaderValue(request.headers.get('x-openclaw-account-id'))
     const parentRequestId = await resolveOpenclawParentRequestId({
-      explicitParentRequestId: parentRequestFromHeaders.parentRequestId,
-      explicitSource: parentRequestFromHeaders.source,
+      explicitParentRequestId: parentRequestFromBody || parentRequestFromHeaders.parentRequestId,
+      explicitSource: parentRequestFromBody ? 'manual' : parentRequestFromHeaders.source,
       userId: auth.userId,
       channel,
       senderId,
