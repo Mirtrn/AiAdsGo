@@ -33,12 +33,46 @@ function extractBrandFromAmazonStoreHref(href: string): string | null {
 
   if (!m?.[1]) return null
   const decoded = decodeURIComponent(m[1])
-    .replace(/[-+]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-+_]+/g, ' ')
     .trim()
 
   if (!decoded) return null
   const normalized = normalizeBrandNameLight(decoded)
   return isLikelyInvalidBrandName(normalized) ? null : normalized
+}
+
+function normalizeBrandCompareKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/['’`]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+}
+
+function resolveBylineBrandConflict(params: {
+  fromText: string | null
+  fromHref: string | null
+}): string | null {
+  const { fromText, fromHref } = params
+  if (!fromText && !fromHref) return null
+  if (!fromText) return fromHref
+  if (!fromHref) return fromText
+
+  const textKey = normalizeBrandCompareKey(fromText)
+  const hrefKey = normalizeBrandCompareKey(fromHref)
+
+  if (!textKey) return fromHref
+  if (!hrefKey) return fromText
+
+  if (textKey === hrefKey) return fromText
+
+  // If href is a storefront slug extension of visible brand text
+  // (e.g. "HoneywellAirComfort" vs "Honeywell"), prefer visible text.
+  if (hrefKey.startsWith(textKey)) return fromText
+  if (textKey.startsWith(hrefKey)) return fromHref
+
+  // In ambiguous conflicts, prefer what users actually see on page.
+  return fromText
 }
 
 function stripBylineBoilerplate(text: string): string {
@@ -78,6 +112,11 @@ function stripBylineBoilerplate(text: string): string {
     .replace(/\s+(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep)\b$/i, '')
     .trim()
 
+  // Avoid generic storefront words being treated as brand names.
+  if (/^(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep)$/i.test(brand)) {
+    return ''
+  }
+
   return brand
 }
 
@@ -89,14 +128,16 @@ export function extractAmazonBrandFromByline(params: {
   bylineText?: string | null
   bylineHref?: string | null
 }): string | null {
-  const bylineHref = typeof params.bylineHref === 'string' ? params.bylineHref.trim() : ''
-  const fromHref = bylineHref ? extractBrandFromAmazonStoreHref(bylineHref) : null
-  if (fromHref) return fromHref
-
   const bylineText = typeof params.bylineText === 'string' ? params.bylineText : ''
   const cleaned = stripBylineBoilerplate(bylineText)
-  if (!cleaned) return null
+  const fromText = (() => {
+    if (!cleaned) return null
+    const normalized = normalizeBrandNameLight(cleaned)
+    return isLikelyInvalidBrandName(normalized) ? null : normalized
+  })()
 
-  const normalized = normalizeBrandNameLight(cleaned)
-  return isLikelyInvalidBrandName(normalized) ? null : normalized
+  const bylineHref = typeof params.bylineHref === 'string' ? params.bylineHref.trim() : ''
+  const fromHref = bylineHref ? extractBrandFromAmazonStoreHref(bylineHref) : null
+
+  return resolveBylineBrandConflict({ fromText, fromHref })
 }

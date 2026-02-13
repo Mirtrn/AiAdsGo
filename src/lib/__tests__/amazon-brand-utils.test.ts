@@ -23,6 +23,20 @@ describe('extractAmazonBrandFromByline', () => {
     })).toBe('Comfyer')
   })
 
+  it('prefers visible byline text over storefront slug when both are present', () => {
+    expect(extractAmazonBrandFromByline({
+      bylineText: 'Visit the Honeywell Store',
+      bylineHref: '/stores/HoneywellAirComfort/page/123',
+    })).toBe('Honeywell')
+  })
+
+  it('splits camel-case storefront slug when href fallback is needed', () => {
+    expect(extractAmazonBrandFromByline({
+      bylineText: 'Visit the Store',
+      bylineHref: '/stores/HoneywellAirComfort/page/123',
+    })).toBe('Honeywell Air Comfort')
+  })
+
   it('returns null when only boilerplate is available', () => {
     expect(extractAmazonBrandFromByline({
       bylineText: 'Besuchen',
@@ -30,4 +44,3 @@ describe('extractAmazonBrandFromByline', () => {
     })).toBeNull()
   })
 })
-
