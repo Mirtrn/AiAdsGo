@@ -10,6 +10,13 @@ type ResolvedUser = {
   authType: 'session' | 'user-token' | 'gateway-binding'
 }
 
+export type ResolveOpenclawRequestUserContext = {
+  channel?: string | null
+  senderId?: string | null
+  accountId?: string | null
+  tenantKey?: string | null
+}
+
 export type OpenclawSessionAuthResult =
   | {
       authenticated: true
@@ -77,8 +84,19 @@ function extractBearerToken(authHeader: string | null): string | null {
   return value
 }
 
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const normalized = String(value || '').trim()
+    if (normalized) {
+      return normalized
+    }
+  }
+  return null
+}
+
 export async function resolveOpenclawRequestUser(
-  request: NextRequest
+  request: NextRequest,
+  context: ResolveOpenclawRequestUserContext = {}
 ): Promise<ResolvedUser | null> {
   const auth = await verifyAuth(request)
   if (auth.authenticated && auth.user) {
@@ -93,10 +111,15 @@ export async function resolveOpenclawRequestUser(
   if (!token) return null
 
   if (await verifyOpenclawGatewayToken(token)) {
-    const channel = request.headers.get('x-openclaw-channel')
-    const senderId = request.headers.get('x-openclaw-sender')
-    const accountId = request.headers.get('x-openclaw-account-id')
-    const tenantKey = request.headers.get('x-openclaw-tenant-key')
+    const channel = firstNonEmpty(context.channel, request.headers.get('x-openclaw-channel'))
+    const senderId = firstNonEmpty(
+      context.senderId,
+      request.headers.get('x-openclaw-sender'),
+      request.headers.get('x-openclaw-sender-id'),
+      request.headers.get('x-openclaw-sender-open-id')
+    )
+    const accountId = firstNonEmpty(context.accountId, request.headers.get('x-openclaw-account-id'))
+    const tenantKey = firstNonEmpty(context.tenantKey, request.headers.get('x-openclaw-tenant-key'))
     const userId = await resolveOpenclawUserFromBinding(channel, senderId, { accountId, tenantKey })
     if (!userId) return null
     const openclawEnabled = await isOpenclawEnabledForUser(userId)

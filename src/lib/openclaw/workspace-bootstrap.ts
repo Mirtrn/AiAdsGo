@@ -133,6 +133,10 @@ function buildAgentsOverlay(): string {
 - 普通问答/写作/分析：直接回复，不调用 AutoAds API。
 - 只有广告业务请求（查数据/执行投放动作）才调用 AutoAds API。
 - 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。
+- AutoAds 业务 API 基址优先使用 \`INTERNAL_APP_URL\`；未配置时回退 \`http://127.0.0.1:\${PORT || 3000}\`。
+- \`127.0.0.1:18789\` 仅为 OpenClaw Gateway 端口，不是 AutoAds 业务 API 主机，禁止作为业务 API base URL。
+- Gateway Token 仅用于 \`/api/openclaw/*\`；\`/api/offers/*\`、\`/api/campaigns/*\` 等业务路由必须通过 proxy/execute 链路以用户身份执行。
+- 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。`
@@ -163,6 +167,10 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 仅当任务需要广告能力时，才调用 AutoAds API。
 - 读操作走 \`/api/openclaw/proxy\`。
 - 写操作走 \`/api/openclaw/commands/execute\`，并严格执行确认链路。
+- AutoAds 业务 API 基址优先 \`INTERNAL_APP_URL\`，未配置时仅可回退 \`http://127.0.0.1:\${PORT || 3000}\`。
+- \`127.0.0.1:18789\` 是 OpenClaw Gateway 端口，不是业务 API 基址，不可直接请求业务路由。
+- Gateway Token 仅用于 \`/api/openclaw/*\`；业务路由必须通过 proxy/execute 链路并以用户身份执行。
+- 内网可达时禁止改走公网域名，避免 Cloudflare 拦截和 token 类型不匹配。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。

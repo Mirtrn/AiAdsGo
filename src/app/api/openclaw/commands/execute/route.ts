@@ -15,6 +15,10 @@ const executeSchema = z.object({
   query: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
   body: z.unknown().optional(),
   channel: z.string().optional(),
+  accountId: z.string().optional(),
+  account_id: z.string().optional(),
+  tenantKey: z.string().optional(),
+  tenant_key: z.string().optional(),
   senderId: z.string().optional(),
   sender_id: z.string().optional(),
   senderOpenId: z.string().optional(),
@@ -31,13 +35,37 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await resolveOpenclawRequestUser(request)
+  const rawBody = await request.json().catch(() => null)
+  const parsed = executeSchema.safeParse(rawBody)
+
+  const channelFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.channel)
+    : undefined
+  const senderIdFromBody = parsed.success
+    ? normalizeHeaderValue(
+      parsed.data.senderId
+      || parsed.data.sender_id
+      || parsed.data.senderOpenId
+      || parsed.data.sender_open_id
+    )
+    : undefined
+  const accountIdFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
+    : undefined
+  const tenantKeyFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
+    : undefined
+
+  const auth = await resolveOpenclawRequestUser(request, {
+    channel: channelFromBody,
+    senderId: senderIdFromBody,
+    accountId: accountIdFromBody,
+    tenantKey: tenantKeyFromBody,
+  })
   if (!auth) {
     return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
-  const rawBody = await request.json().catch(() => null)
-  const parsed = executeSchema.safeParse(rawBody)
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.errors[0]?.message || '请求参数错误' },
@@ -66,7 +94,11 @@ export async function POST(request: NextRequest) {
     const parentRequestFromBody = normalizeHeaderValue(
       parsed.data.parentRequestId || parsed.data.parent_request_id
     )
-    const accountId = normalizeHeaderValue(request.headers.get('x-openclaw-account-id'))
+    const accountId = normalizeHeaderValue(
+      parsed.data.accountId
+      || parsed.data.account_id
+      || request.headers.get('x-openclaw-account-id')
+    )
     const parentRequestId = await resolveOpenclawParentRequestId({
       explicitParentRequestId: parentRequestFromBody || parentRequestFromHeaders.parentRequestId,
       explicitSource: parentRequestFromBody ? 'manual' : parentRequestFromHeaders.source,

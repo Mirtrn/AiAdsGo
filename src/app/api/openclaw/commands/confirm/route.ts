@@ -15,6 +15,14 @@ const confirmSchema = z.object({
   decision: z.enum(['confirm', 'cancel']).optional(),
   action: z.enum(['confirm', 'cancel']).optional(),
   channel: z.string().optional(),
+  senderId: z.string().optional(),
+  sender_id: z.string().optional(),
+  senderOpenId: z.string().optional(),
+  sender_open_id: z.string().optional(),
+  accountId: z.string().optional(),
+  account_id: z.string().optional(),
+  tenantKey: z.string().optional(),
+  tenant_key: z.string().optional(),
   callbackEventId: z.string().optional(),
   callbackEventType: z.string().optional(),
   callbackPayload: z.unknown().optional(),
@@ -26,13 +34,37 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await resolveOpenclawRequestUser(request)
+  const rawBody = await request.json().catch(() => null)
+  const parsed = confirmSchema.safeParse(rawBody)
+
+  const channelFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.channel)
+    : undefined
+  const senderIdFromBody = parsed.success
+    ? normalizeHeaderValue(
+      parsed.data.senderId
+      || parsed.data.sender_id
+      || parsed.data.senderOpenId
+      || parsed.data.sender_open_id
+    )
+    : undefined
+  const accountIdFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
+    : undefined
+  const tenantKeyFromBody = parsed.success
+    ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
+    : undefined
+
+  const auth = await resolveOpenclawRequestUser(request, {
+    channel: channelFromBody,
+    senderId: senderIdFromBody,
+    accountId: accountIdFromBody,
+    tenantKey: tenantKeyFromBody,
+  })
   if (!auth) {
     return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
-  const rawBody = await request.json().catch(() => null)
-  const parsed = confirmSchema.safeParse(rawBody)
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.errors[0]?.message || '请求参数错误' },
@@ -43,11 +75,19 @@ export async function POST(request: NextRequest) {
   const decision = parsed.data.decision || parsed.data.action || 'confirm'
   const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
   const senderId = normalizeHeaderValue(
-    request.headers.get('x-openclaw-sender')
+    parsed.data.senderId
+    || parsed.data.sender_id
+    || parsed.data.senderOpenId
+    || parsed.data.sender_open_id
+    || request.headers.get('x-openclaw-sender')
     || request.headers.get('x-openclaw-sender-id')
     || request.headers.get('x-openclaw-sender-open-id')
   )
-  const accountId = normalizeHeaderValue(request.headers.get('x-openclaw-account-id'))
+  const accountId = normalizeHeaderValue(
+    parsed.data.accountId
+    || parsed.data.account_id
+    || request.headers.get('x-openclaw-account-id')
+  )
 
   try {
     const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
