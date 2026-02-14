@@ -16,6 +16,12 @@ describe("isFeishuGroupSubscriptionError", () => {
     ).toBe(true);
   });
 
+  it("matches 403 no-active-subscription message variant", () => {
+    expect(
+      isFeishuGroupSubscriptionError(new Error("403 No active subscription found for this group")),
+    ).toBe(true);
+  });
+
   it("ignores unrelated errors", () => {
     expect(isFeishuGroupSubscriptionError(new Error("Feishu API Error: invalid tenant"))).toBe(
       false,

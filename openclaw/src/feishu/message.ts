@@ -36,9 +36,27 @@ export function isFeishuGroupSubscriptionError(error: unknown): boolean {
   const message = formatErrorMessage(error).toLowerCase();
   return (
     message.includes("no active subscription found for this group") ||
+    (message.includes("no active subscription found") &&
+      (message.includes("group") || message.includes("chat")) &&
+      message.includes("403")) ||
     (message.includes("subscription") && message.includes("group") && message.includes("403"))
   );
 }
+
+const inferFeishuSenderIdType = (
+  id: string | undefined,
+): "open_id" | "union_id" | "user_id" | null => {
+  if (!id) {
+    return null;
+  }
+  if (id.startsWith("ou_")) {
+    return "open_id";
+  }
+  if (id.startsWith("on_")) {
+    return "union_id";
+  }
+  return null;
+};
 
 type FeishuSender = {
   id?: string;
@@ -132,15 +150,17 @@ const resolveSenderIdentifiers = (sender?: FeishuSender): FeishuSenderIdentifier
   const rawIdType = String(sender?.id_type ?? "")
     .trim()
     .toLowerCase();
+  const inferredRawIdType = inferFeishuSenderIdType(rawId);
+  const effectiveRawIdType = rawIdType || inferredRawIdType || "";
   const openId =
     normalizeSenderIdentifier(sender?.sender_id?.open_id) ??
-    (rawIdType === "open_id" ? rawId : undefined);
+    (effectiveRawIdType === "open_id" ? rawId : undefined);
   const unionId =
     normalizeSenderIdentifier(sender?.sender_id?.union_id) ??
-    (rawIdType === "union_id" ? rawId : undefined);
+    (effectiveRawIdType === "union_id" ? rawId : undefined);
   const userId =
     normalizeSenderIdentifier(sender?.sender_id?.user_id) ??
-    (rawIdType === "user_id" ? rawId : undefined);
+    (effectiveRawIdType === "user_id" ? rawId : undefined);
   const candidates = Array.from(
     new Set([openId, unionId, userId, rawId].filter(Boolean)),
   ) as string[];
@@ -633,10 +653,24 @@ export async function processFeishuMessage(
   let processingHintSending = false;
   let groupSubscriptionFallbackUsed = false;
   let replyUsedOpenId = false;
+  let replyPrimaryTargetType:
+    | "chat_id"
+    | "open_id"
+    | "union_id"
+    | "user_id"
+    | null = null;
+  let replyFallbackTargetType:
+    | "chat_id"
+    | "open_id"
+    | "union_id"
+    | "user_id"
+    | null = null;
+  let replyDeliveryErrorKind: "tool" | "block" | "final" | null = null;
+  let replyDeliveryErrorMessage: string | null = null;
 
   const resolvePrimaryReplyTarget = async (): Promise<{
     receiveId: string;
-    receiveIdType: "chat_id" | "open_id";
+    receiveIdType: "chat_id" | "open_id" | "union_id" | "user_id";
   }> => {
     if (isGroup) {
       return { receiveId: chatId, receiveIdType: "chat_id" };
@@ -646,8 +680,45 @@ export async function processFeishuMessage(
     if (dmOpenId) {
       return { receiveId: dmOpenId, receiveIdType: "open_id" };
     }
+    if (senderUnionId) {
+      return { receiveId: senderUnionId, receiveIdType: "union_id" };
+    }
+    if (senderUserId) {
+      return { receiveId: senderUserId, receiveIdType: "user_id" };
+    }
 
     return { receiveId: chatId, receiveIdType: "chat_id" };
+  };
+
+  const resolveFallbackReplyTargets = async (
+    params: { exclude?: string[] } = {},
+  ): Promise<Array<{ receiveId: string; receiveIdType: "open_id" | "union_id" | "user_id" }>> => {
+    const targets: Array<{ receiveId: string; receiveIdType: "open_id" | "union_id" | "user_id" }> =
+      [];
+    const seen = new Set<string>(params.exclude ?? []);
+    const pushTarget = (
+      receiveId: string | null | undefined,
+      receiveIdType: "open_id" | "union_id" | "user_id",
+    ) => {
+      const normalized = String(receiveId || "").trim();
+      if (!normalized) {
+        return;
+      }
+      const key = `${receiveIdType}:${normalized}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      targets.push({ receiveId: normalized, receiveIdType });
+    };
+
+    pushTarget(senderOpenId, "open_id");
+    const resolvedOpenId = senderOpenId ?? (await ensureSenderOpenId());
+    pushTarget(resolvedOpenId, "open_id");
+    pushTarget(senderUnionId, "union_id");
+    pushTarget(senderUserId, "user_id");
+
+    return targets;
   };
 
   const sendFeishuReplyWithGroupFallback = async (
@@ -655,6 +726,7 @@ export async function processFeishuMessage(
     opts: FeishuSendOpts = {},
   ) => {
     const primaryTarget = await resolvePrimaryReplyTarget();
+    replyPrimaryTargetType = primaryTarget.receiveIdType;
     if (primaryTarget.receiveIdType === "open_id") {
       replyUsedOpenId = true;
     }
@@ -670,26 +742,38 @@ export async function processFeishuMessage(
         throw err;
       }
 
-      const fallbackOpenId = senderOpenId ?? (await ensureSenderOpenId());
-      if (!fallbackOpenId) {
-        throw err;
-      }
-
-      // Already sent to open_id, no further fallback target.
-      if (primaryTarget.receiveIdType === "open_id") {
-        throw err;
-      }
-
-      groupSubscriptionFallbackUsed = true;
-      replyUsedOpenId = true;
-      logger.warn(
-        `Feishu chat ${chatId} (${isGroup ? "group" : "p2p"}) has no active subscription on ${primaryTarget.receiveIdType}, fallback to open_id ${fallbackOpenId}: ${formatErrorMessage(err)}`,
-      );
-
-      await sendMessageFeishu(client, fallbackOpenId, content, {
-        ...opts,
-        receiveIdType: "open_id",
+      const fallbackTargets = await resolveFallbackReplyTargets({
+        exclude: [`${primaryTarget.receiveIdType}:${primaryTarget.receiveId}`],
       });
+      if (fallbackTargets.length === 0) {
+        throw err;
+      }
+
+      let lastFallbackError: unknown = err;
+      for (const target of fallbackTargets) {
+        try {
+          groupSubscriptionFallbackUsed = true;
+          if (target.receiveIdType === "open_id") {
+            replyUsedOpenId = true;
+          }
+          replyFallbackTargetType = target.receiveIdType;
+          logger.warn(
+            `Feishu chat ${chatId} (${isGroup ? "group" : "p2p"}) has no active subscription on ${primaryTarget.receiveIdType}, fallback to ${target.receiveIdType} ${target.receiveId}: ${formatErrorMessage(err)}`,
+          );
+          await sendMessageFeishu(client, target.receiveId, content, {
+            ...opts,
+            receiveIdType: target.receiveIdType,
+          });
+          return;
+        } catch (fallbackErr) {
+          lastFallbackError = fallbackErr;
+          logger.warn(
+            `Feishu fallback send failed via ${target.receiveIdType} ${target.receiveId}: ${formatErrorMessage(fallbackErr)}`,
+          );
+        }
+      }
+
+      throw lastFallbackError;
     }
   };
 
@@ -796,7 +880,11 @@ export async function processFeishuMessage(
             }
           }
         },
-        onError: (err) => {
+        onError: (err, info) => {
+          if (!replyDeliveryErrorMessage) {
+            replyDeliveryErrorKind = info.kind;
+            replyDeliveryErrorMessage = formatErrorMessage(err);
+          }
           logger.error(`Reply error: ${formatErrorMessage(err)}`);
           // Clean up streaming session on error
           if (streamingSession?.isActive()) {
@@ -862,6 +950,12 @@ export async function processFeishuMessage(
       },
     });
 
+    if (replyDeliveryErrorMessage) {
+      throw new Error(
+        `feishu reply delivery failed (${replyDeliveryErrorKind || "unknown"}): ${replyDeliveryErrorMessage}`,
+      );
+    }
+
     if (dispatchResult.skippedDuplicate) {
       await reportHealth({
         decision: "blocked",
@@ -886,6 +980,8 @@ export async function processFeishuMessage(
         hasMedia: Boolean(media),
         groupSubscriptionFallbackUsed,
         replyUsedOpenId,
+        replyPrimaryTargetType,
+        replyFallbackTargetType,
       },
     });
   } catch (err) {
@@ -894,6 +990,16 @@ export async function processFeishuMessage(
       reasonCode: "reply_dispatch_failed",
       reasonMessage: formatErrorMessage(err),
       messageText: bodyText,
+      metadata: {
+        wasMentioned,
+        hasMedia: Boolean(media),
+        groupSubscriptionFallbackUsed,
+        replyUsedOpenId,
+        replyPrimaryTargetType,
+        replyFallbackTargetType,
+        replyDeliveryErrorKind,
+        replyDeliveryErrorMessage,
+      },
     });
     throw err;
   } finally {
