@@ -151,5 +151,5 @@ rm -rf "${TMP_DIR}"
 echo "✅ OpenClaw 预编译产物已生成 -> ${OUT_DIR}"
 
 if [[ -x "${ROOT_DIR}/scripts/verify-openclaw-prebuilt.sh" ]]; then
-  "${ROOT_DIR}/scripts/verify-openclaw-prebuilt.sh"
+  OPENCLAW_PREBUILT_STRICT=1 "${ROOT_DIR}/scripts/verify-openclaw-prebuilt.sh"
 fi

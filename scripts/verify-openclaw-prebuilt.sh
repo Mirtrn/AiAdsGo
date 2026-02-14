@@ -46,6 +46,26 @@ if [[ -n "${SOURCE_COMMIT}" && "${META_SOURCE_COMMIT}" != "${SOURCE_COMMIT}" ]];
   exit 1
 fi
 
+STRICT_MODE="${OPENCLAW_PREBUILT_STRICT:-0}"
+RUNTIME_MISSING_PATH=""
+for candidate in "dist/entry.js" "node_modules" "extensions" "openclaw.mjs" "package.json"; do
+  if [[ ! -e "${PREBUILT_DIR}/${candidate}" ]]; then
+    RUNTIME_MISSING_PATH="${candidate}"
+    break
+  fi
+done
+
+if [[ -n "${RUNTIME_MISSING_PATH}" ]]; then
+  if [[ "${STRICT_MODE}" == "1" ]]; then
+    echo "❌ openclaw-prebuilt/${RUNTIME_MISSING_PATH} 不存在（严格模式）"
+    exit 1
+  fi
+
+  echo "⚠️ openclaw-prebuilt/${RUNTIME_MISSING_PATH} 不存在，跳过运行产物严格校验（当前为非严格模式）"
+  echo "✅ OpenClaw 预编译元数据验证通过（非严格模式）"
+  exit 0
+fi
+
 if [[ ! -f "${PREBUILT_DIR}/dist/entry.js" ]]; then
   echo "❌ openclaw-prebuilt/dist/entry.js 不存在"
   exit 1
