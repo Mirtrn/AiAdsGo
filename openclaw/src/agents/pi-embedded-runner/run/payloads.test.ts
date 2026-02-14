@@ -244,4 +244,53 @@ describe("buildEmbeddedRunPayloads", () => {
     expect(payloads[0]?.isError).toBe(true);
     expect(payloads[0]?.text).toContain("connection timeout");
   });
+
+  it("replaces messaging transport subscription errors with a generic delivery message", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: [],
+      toolMetas: [],
+      lastAssistant: undefined,
+      lastToolError: {
+        toolName: "message",
+        error: "403 No active subscription found for this group",
+      },
+      sessionKey: "session:feishu",
+      inlineToolResultsAllowed: false,
+      verboseLevel: "off",
+      reasoningLevel: "off",
+      toolResultFormat: "plain",
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.isError).toBe(true);
+    expect(payloads[0]?.text).toBe(
+      "⚠️ Message delivery is temporarily unavailable for this chat. Please try again.",
+    );
+  });
+
+  it("suppresses echoed transport errors from assistant text when they match messaging tool failures", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: ["403 No active subscription found for this group"],
+      toolMetas: [],
+      lastAssistant: {
+        stopReason: "toolUse",
+        content: [{ type: "text", text: "403 No active subscription found for this group" }],
+      } as AssistantMessage,
+      lastToolError: {
+        toolName: "feishu",
+        error: "Feishu API Error: 403 No active subscription found for this group",
+      },
+      sessionKey: "session:feishu",
+      inlineToolResultsAllowed: false,
+      verboseLevel: "off",
+      reasoningLevel: "off",
+      toolResultFormat: "plain",
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.isError).toBe(true);
+    expect(payloads[0]?.text).toBe(
+      "⚠️ Message delivery is temporarily unavailable for this chat. Please try again.",
+    );
+  });
 });

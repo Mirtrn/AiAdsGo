@@ -17,8 +17,35 @@ import {
   extractAssistantThinking,
   formatReasoningMessage,
 } from "../../pi-embedded-utils.js";
+import { isMessagingTool } from "../../pi-embedded-messaging.js";
 
 type ToolMetaEntry = { toolName: string; meta?: string };
+
+function isMessagingTransportToolName(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  if (isMessagingTool(normalized)) {
+    return true;
+  }
+  return normalized === "feishu" || normalized === "lark";
+}
+
+function isLikelyMessagingTransportError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.includes("no active subscription found for this group")) {
+    return true;
+  }
+  if (
+    normalized.includes("subscription") &&
+    (normalized.includes("group") || normalized.includes("chat")) &&
+    (normalized.includes("403") || normalized.includes("forbidden"))
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function buildEmbeddedRunPayloads(params: {
   assistantTexts: string[];
@@ -160,13 +187,42 @@ export function buildEmbeddedRunPayloads(params: {
     }
     return isRawApiErrorPayload(trimmed);
   };
+  const shouldSuppressTransportErrorEcho = (text: string) => {
+    if (!params.lastToolError) {
+      return false;
+    }
+    if (!isMessagingTransportToolName(params.lastToolError.toolName)) {
+      return false;
+    }
+    const trimmed = text.trim();
+    if (!trimmed || !isLikelyMessagingTransportError(trimmed)) {
+      return false;
+    }
+    const toolError = (params.lastToolError.error ?? "").trim();
+    if (!toolError) {
+      return true;
+    }
+    if (isLikelyMessagingTransportError(toolError)) {
+      return true;
+    }
+    const normalizedText = normalizeTextForComparison(trimmed);
+    const normalizedToolError = normalizeTextForComparison(toolError);
+    if (!normalizedText || !normalizedToolError) {
+      return true;
+    }
+    return (
+      normalizedText === normalizedToolError ||
+      normalizedText.includes(normalizedToolError) ||
+      normalizedToolError.includes(normalizedText)
+    );
+  };
   const answerTexts = (
     params.assistantTexts.length
       ? params.assistantTexts
       : fallbackAnswerText
         ? [fallbackAnswerText]
         : []
-  ).filter((text) => !shouldSuppressRawErrorText(text));
+  ).filter((text) => !shouldSuppressRawErrorText(text) && !shouldSuppressTransportErrorEcho(text));
 
   for (const text of answerTexts) {
     const {
@@ -204,6 +260,9 @@ export function buildEmbeddedRunPayloads(params: {
     // Check if this is a recoverable/internal tool error that shouldn't be shown to users
     // when there's already a user-facing reply (the model should have retried).
     const errorLower = (params.lastToolError.error ?? "").toLowerCase();
+    const isMessagingTransportError =
+      isMessagingTransportToolName(params.lastToolError.toolName) &&
+      isLikelyMessagingTransportError(errorLower);
     const isRecoverableError =
       errorLower.includes("required") ||
       errorLower.includes("missing") ||
@@ -211,13 +270,19 @@ export function buildEmbeddedRunPayloads(params: {
       errorLower.includes("must be") ||
       errorLower.includes("must have") ||
       errorLower.includes("needs") ||
-      errorLower.includes("requires");
+      errorLower.includes("requires") ||
+      isMessagingTransportError;
 
     // Show tool errors only when:
     // 1. There's no user-facing reply AND the error is not recoverable
     // Recoverable errors (validation, missing params) are already in the model's context
     // and shouldn't be surfaced to users since the model should retry.
-    if (!hasUserFacingReply && !isRecoverableError) {
+    if (!hasUserFacingReply && isMessagingTransportError) {
+      replyItems.push({
+        text: "⚠️ Message delivery is temporarily unavailable for this chat. Please try again.",
+        isError: true,
+      });
+    } else if (!hasUserFacingReply && !isRecoverableError) {
       const toolSummary = formatToolAggregate(
         params.lastToolError.toolName,
         params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
