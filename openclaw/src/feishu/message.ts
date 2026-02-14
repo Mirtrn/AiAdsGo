@@ -632,15 +632,37 @@ export async function processFeishuMessage(
   let processingHintSent = false;
   let processingHintSending = false;
   let groupSubscriptionFallbackUsed = false;
+  let replyUsedOpenId = false;
+
+  const resolvePrimaryReplyTarget = async (): Promise<{
+    receiveId: string;
+    receiveIdType: "chat_id" | "open_id";
+  }> => {
+    if (isGroup) {
+      return { receiveId: chatId, receiveIdType: "chat_id" };
+    }
+
+    const dmOpenId = senderOpenId ?? (await ensureSenderOpenId());
+    if (dmOpenId) {
+      return { receiveId: dmOpenId, receiveIdType: "open_id" };
+    }
+
+    return { receiveId: chatId, receiveIdType: "chat_id" };
+  };
 
   const sendFeishuReplyWithGroupFallback = async (
     content: Record<string, unknown> | string,
     opts: FeishuSendOpts = {},
   ) => {
+    const primaryTarget = await resolvePrimaryReplyTarget();
+    if (primaryTarget.receiveIdType === "open_id") {
+      replyUsedOpenId = true;
+    }
+
     try {
-      await sendMessageFeishu(client, chatId, content, {
+      await sendMessageFeishu(client, primaryTarget.receiveId, content, {
         ...opts,
-        receiveIdType: "chat_id",
+        receiveIdType: primaryTarget.receiveIdType,
       });
       return;
     } catch (err) {
@@ -653,9 +675,15 @@ export async function processFeishuMessage(
         throw err;
       }
 
+      // Already sent to open_id, no further fallback target.
+      if (primaryTarget.receiveIdType === "open_id") {
+        throw err;
+      }
+
       groupSubscriptionFallbackUsed = true;
+      replyUsedOpenId = true;
       logger.warn(
-        `Feishu chat ${chatId} (${isGroup ? "group" : "p2p"}) has no active subscription, fallback to open_id ${fallbackOpenId}: ${formatErrorMessage(err)}`,
+        `Feishu chat ${chatId} (${isGroup ? "group" : "p2p"}) has no active subscription on ${primaryTarget.receiveIdType}, fallback to open_id ${fallbackOpenId}: ${formatErrorMessage(err)}`,
       );
 
       await sendMessageFeishu(client, fallbackOpenId, content, {
@@ -779,9 +807,20 @@ export async function processFeishuMessage(
           // Start streaming card when reply generation begins
           if (streamingSession && !streamingStarted) {
             try {
-              await streamingSession.start(chatId, "chat_id", options.botName, processingHintText);
+              const streamTarget = await resolvePrimaryReplyTarget();
+              if (streamTarget.receiveIdType === "open_id") {
+                replyUsedOpenId = true;
+              }
+              await streamingSession.start(
+                streamTarget.receiveId,
+                streamTarget.receiveIdType,
+                options.botName,
+                processingHintText,
+              );
               streamingStarted = true;
-              logger.debug(`Started streaming card for chat ${chatId}`);
+              logger.debug(
+                `Started streaming card for ${streamTarget.receiveIdType} ${streamTarget.receiveId}`,
+              );
               return;
             } catch (err) {
               logger.warn(`Failed to start streaming card: ${formatErrorMessage(err)}`);
@@ -846,6 +885,7 @@ export async function processFeishuMessage(
         wasMentioned,
         hasMedia: Boolean(media),
         groupSubscriptionFallbackUsed,
+        replyUsedOpenId,
       },
     });
   } catch (err) {
