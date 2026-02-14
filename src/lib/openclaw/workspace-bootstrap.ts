@@ -52,6 +52,8 @@ function resolveUserPath(input: string): string {
 }
 
 const OVERLAY_HEADING = '## AutoAds Runtime Rule (Managed by AutoAds)'
+const AGENTS_MANAGED_START = '<!-- autoads-openclaw-agents-managed:start -->'
+const AGENTS_MANAGED_END = '<!-- autoads-openclaw-agents-managed:end -->'
 const MANAGED_MEMORY_MARKER = '<!-- autoads-openclaw-memory-managed -->'
 const SOUL_MANAGED_START = '<!-- autoads-openclaw-soul-managed:start -->'
 const SOUL_MANAGED_END = '<!-- autoads-openclaw-soul-managed:end -->'
@@ -70,30 +72,6 @@ export function resolveOpenclawWorkspaceDir(params: EnsureOpenclawWorkspaceOptio
     return resolveUserPath(path.join(params.stateDir, 'workspace', `user-${params.actorUserId}`))
   }
   return resolveUserPath(path.join(params.stateDir, 'workspace'))
-}
-
-function appendSectionIfMissing(params: {
-  filePath: string
-  section: string
-  marker: string
-  changedFiles: string[]
-}): void {
-  const { filePath, section, marker, changedFiles } = params
-
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, section, 'utf-8')
-    changedFiles.push(filePath)
-    return
-  }
-
-  const current = fs.readFileSync(filePath, 'utf-8')
-  if (current.includes(marker)) {
-    return
-  }
-
-  const next = `${current.trimEnd()}\n\n${section}`
-  fs.writeFileSync(filePath, next, 'utf-8')
-  changedFiles.push(filePath)
 }
 
 function ensureFile(filePath: string, content: string, changedFiles: string[]): void {
@@ -126,7 +104,8 @@ export function getOpenclawDailyMemoryFileName(date: Date = new Date()): string 
 }
 
 function buildAgentsOverlay(): string {
-  return `${OVERLAY_HEADING}
+  return `${AGENTS_MANAGED_START}
+${OVERLAY_HEADING}
 
 - OpenClaw 是全能助手：先判断用户消息是否需要 AutoAds 能力。
 - 所有对用户可见的输出必须使用中文：包括最终答复、执行进度、步骤说明与状态提示。
@@ -137,9 +116,12 @@ function buildAgentsOverlay(): string {
 - \`127.0.0.1:18789\` 仅为 OpenClaw Gateway 端口，不是 AutoAds 业务 API 主机，禁止作为业务 API base URL。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；\`/api/offers/*\`、\`/api/campaigns/*\` 等业务路由必须通过 proxy/execute 链路以用户身份执行。
 - 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
+- 禁止通过 shell/curl/node 直接构造 HTTP 请求调用业务 API；必须走 OpenClaw proxy/execute/confirm 路由。
+- 禁止通过读取环境变量/猜测 token 进行重试；若鉴权失败，直接返回绑定缺失并提示用户修复绑定。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
-- 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。`
+- 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。
+${AGENTS_MANAGED_END}`
 }
 
 function buildSoulManagedSection(actorUserId?: number): string {
@@ -213,6 +195,71 @@ function replaceManagedSoulBlock(content: string, nextManagedSection: string): s
   }
 
   return `${merged.trimEnd()}\n`
+}
+
+function replaceManagedAgentsBlock(content: string, nextManagedSection: string): string | null {
+  const startIndex = content.indexOf(AGENTS_MANAGED_START)
+  const endIndex = content.indexOf(AGENTS_MANAGED_END)
+
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    return null
+  }
+
+  const before = content.slice(0, startIndex).trimEnd()
+  const after = content.slice(endIndex + AGENTS_MANAGED_END.length).trimStart()
+
+  let merged = before ? `${before}\n\n${nextManagedSection}` : nextManagedSection
+  if (after) {
+    merged = `${merged}\n\n${after}`
+  }
+
+  return `${merged.trimEnd()}\n`
+}
+
+function replaceLegacyAgentsOverlay(content: string, nextManagedSection: string): string | null {
+  const headingIndex = content.indexOf(OVERLAY_HEADING)
+  if (headingIndex < 0) {
+    return null
+  }
+
+  const nextHeadingIndex = content.indexOf('\n## ', headingIndex + OVERLAY_HEADING.length)
+  const legacyBlockEnd = nextHeadingIndex >= 0 ? nextHeadingIndex : content.length
+
+  const before = content.slice(0, headingIndex).trimEnd()
+  const after = content.slice(legacyBlockEnd).trimStart()
+
+  let merged = before ? `${before}\n\n${nextManagedSection}` : nextManagedSection
+  if (after) {
+    merged = `${merged}\n\n${after}`
+  }
+
+  return `${merged.trimEnd()}\n`
+}
+
+function ensureAgentsOverlayFile(filePath: string, changedFiles: string[]): void {
+  const nextOverlay = buildAgentsOverlay()
+
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, nextOverlay, 'utf-8')
+    changedFiles.push(filePath)
+    return
+  }
+
+  const current = fs.readFileSync(filePath, 'utf-8')
+  const replacedManaged = replaceManagedAgentsBlock(current, nextOverlay)
+  if (replacedManaged !== null) {
+    writeFileIfChanged(filePath, current, replacedManaged, changedFiles)
+    return
+  }
+
+  const replacedLegacy = replaceLegacyAgentsOverlay(current, nextOverlay)
+  if (replacedLegacy !== null) {
+    writeFileIfChanged(filePath, current, replacedLegacy, changedFiles)
+    return
+  }
+
+  const appended = `${current.trimEnd()}\n\n${nextOverlay}\n`
+  writeFileIfChanged(filePath, current, appended, changedFiles)
 }
 
 function ensureSoulFile(filePath: string, actorUserId: number | undefined, changedFiles: string[]): void {
@@ -350,12 +397,7 @@ export function ensureOpenclawWorkspaceBootstrap(
   const userPath = path.join(workspaceDir, 'USER.md')
   const memoryPath = path.join(workspaceDir, 'MEMORY.md')
 
-  appendSectionIfMissing({
-    filePath: agentsPath,
-    section: buildAgentsOverlay(),
-    marker: OVERLAY_HEADING,
-    changedFiles,
-  })
+  ensureAgentsOverlayFile(agentsPath, changedFiles)
   ensureSoulFile(soulPath, params.actorUserId, changedFiles)
   ensureFile(userPath, buildUserFile(params.actorUserId), changedFiles)
   ensureFile(memoryPath, buildMemoryFile(params.actorUserId), changedFiles)
