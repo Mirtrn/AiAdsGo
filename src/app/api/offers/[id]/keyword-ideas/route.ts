@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import {
   getKeywordIdeas,
   filterHighQualityKeywords,
@@ -35,6 +35,7 @@ export async function POST(
     if (!userId) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
+    const numericUserId = parseInt(userId, 10)
 
     const body = await request.json()
     const {
@@ -44,7 +45,7 @@ export async function POST(
     } = body
 
     // 验证Offer存在且属于当前用户
-    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), numericUserId)
 
     if (!offer) {
       return NextResponse.json(
@@ -54,7 +55,7 @@ export async function POST(
     }
 
     // 获取用户可用的Google Ads账号（ENABLED状态，非Manager账号）
-    const googleAdsAccounts = await findEnabledGoogleAdsAccounts(parseInt(userId, 10))
+    const googleAdsAccounts = await findEnabledGoogleAdsAccounts(numericUserId)
 
     if (googleAdsAccounts.length === 0) {
       return NextResponse.json(
@@ -68,14 +69,20 @@ export async function POST(
 
     const googleAdsAccount = googleAdsAccounts[0]
 
-    if (!googleAdsAccount.refreshToken && !googleAdsAccount.serviceAccountId) {
-      return NextResponse.json(
-        {
-          error: 'Google Ads账号授权已过期，请重新连接或配置服务账号',
-          needsReauth: true,
-        },
-        { status: 400 }
-      )
+    // 注意：生产环境 OAuth refresh_token 存储在 google_ads_credentials，
+    // google_ads_accounts.refresh_token 可能为空，不能据此判断授权过期。
+    const auth = await getUserAuthType(numericUserId)
+    if (auth.authType === 'oauth') {
+      const oauthCredentials = await getGoogleAdsCredentials(numericUserId)
+      if (!oauthCredentials?.refresh_token) {
+        return NextResponse.json(
+          {
+            error: 'Google Ads账号授权已过期，请重新连接或配置服务账号',
+            needsReauth: true,
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // 准备种子关键词
@@ -106,11 +113,7 @@ export async function POST(
 
     // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种认证方式
     const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
-    const config = await getGoogleAdsConfig(parseInt(userId, 10))
-
-    // 🔧 修复(2025-12-26): 获取完整的认证信息
-    const { getUserAuthType } = await import('@/lib/google-ads-oauth')
-    const auth = await getUserAuthType(parseInt(userId, 10))
+    const config = await getGoogleAdsConfig(numericUserId, auth.authType, auth.serviceAccountId)
 
     if (!config) {
       return NextResponse.json({ error: 'Google Ads凭证未配置' }, { status: 400 })
@@ -121,7 +124,7 @@ export async function POST(
     if (useUrl && !siteFilterUrl) {
       const official = await ensureOfferBrandOfficialSite({
         offerId: offer.id,
-        userId: parseInt(userId, 10),
+        userId: numericUserId,
         brand: offer.brand,
         targetCountry: offer.target_country,
         finalUrl: offer.final_url,
@@ -157,7 +160,7 @@ export async function POST(
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,
-        userId: parseInt(userId, 10),
+        userId: numericUserId,
         authType: auth.authType,
         serviceAccountId: auth.serviceAccountId,
       }),
@@ -179,7 +182,7 @@ export async function POST(
           targetCountry: offer.target_country,
           targetLanguage: offer.target_language || 'English',
           accountId: googleAdsAccount.id,
-          userId: parseInt(userId, 10),
+          userId: numericUserId,
           authType: auth.authType,
           serviceAccountId: auth.serviceAccountId,
         })
