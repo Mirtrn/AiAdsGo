@@ -32,6 +32,15 @@ describe('openclaw canonical routes', () => {
     ).toThrow('OpenClaw command route not in canonical web flow')
   })
 
+  it('rejects deprecated offer create path with actionable alternatives', () => {
+    expect(() =>
+      assertOpenclawCommandRouteAllowed({
+        method: 'POST',
+        path: '/api/offers',
+      })
+    ).toThrow('Offer creation must use POST /api/offers/extract or POST /api/offers/extract/stream')
+  })
+
   it('rejects multipart-only offer batch create route in command channel', () => {
     expect(() =>
       assertOpenclawCommandRouteAllowed({

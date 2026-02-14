@@ -1,122 +1,93 @@
 ---
 name: autoads
-description: Call AutoAds APIs via the OpenClaw proxy (user-scoped).
+description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循 canonical 路由，禁止猜测端点）。
 metadata: { "openclaw": { "emoji": "🧭" } }
 ---
 
-# AutoAds (OpenClaw Proxy)
+# AutoAds（Canonical + Queue）
 
-Use the AutoAds OpenClaw proxy to call every AutoAds API **as a specific user**.
+## 核心规则（必须遵守）
 
-## Authentication
+1. 写操作（`POST`/`PUT`/`PATCH`/`DELETE`）只走 `/api/openclaw/commands/execute`。
+2. 读操作（`GET`）只走 `/api/openclaw/proxy`。
+3. 不猜测 API 路径；出现路由错误时，立即回到下面的 canonical 路由表。
+4. 如果响应包含 `canonical web flow` 或 `410`，说明走了错误/下线路径，必须改用 canonical 路径。
 
-AutoAds requires a user-scoped OpenClaw token. Generate it in the AutoAds UI:
+## 认证
 
-1. Open `OpenClaw -> 配置中心 -> OpenClaw Access Tokens`
-2. Click **生成新Token**
+- 使用 `Authorization: Bearer <OPENCLAW_USER_TOKEN>`。
+- Token 获取路径：`OpenClaw -> 配置中心 -> OpenClaw Access Tokens -> 生成新 Token`。
 
-Then call the proxy with `Authorization: Bearer <token>`.
+## Canonical 路由速查（高频）
 
-## Proxy endpoint
+- 创建 Offer：
+  - `POST /api/offers/extract`
+  - `POST /api/offers/extract/stream`
+- 查询提取任务：
+  - `GET /api/offers/extract/status/:taskId`
+- 重建 Offer：
+  - `POST /api/offers/:id/rebuild`
+- 生成创意（仅 A/B/D）：
+  - `POST /api/offers/:id/generate-creatives-queue`（`body.bucket` 仅 `A`/`B`/`D`）
+- 查询创意任务：
+  - `GET /api/creative-tasks/:taskId`
+- 查询 Offer 创意列表：
+  - `GET /api/offers/:id/creatives`
+- 发布广告：
+  - `POST /api/campaigns/publish`
+- 创建补点击任务：
+  - `POST /api/click-farm/tasks`
+- 查询命令执行记录：
+  - `GET /api/openclaw/commands/runs`
 
-```
-POST /api/openclaw/proxy
-```
+## 禁止使用的常见旧路径
 
-Body:
+- `POST /api/offers`（已下线）
+- `POST /api/offers/:id/generate-ad-creative`（同步旧链路，OpenClaw 禁止）
+- `POST /api/offers/:id/generate-creatives`（旧链路，OpenClaw 禁止）
+- `POST /api/ad-creatives`（旧链路，OpenClaw 禁止）
 
-```json
-{
-  "method": "POST",
-  "path": "/api/offers",
-  "query": {},
-  "body": {
-    "url": "https://example.com/product",
-    "brand": "Example",
-    "target_country": "US"
-  }
-}
-```
+## 标准调用模板
 
-Notes:
-- `path` must start with `/api/`
-- Admin/cron/test endpoints are blocked
-- Never connect to AutoAds database directly. Do not generate `offer_name` yourself; AutoAds will generate it via its API.
-
-## Full API list
-
-See `docs/openclaw-integration/AutoAds_API.md` for the complete AutoAds API routes and parameters.
-
-## Example: create Offer
+### 读操作模板（proxy）
 
 ```bash
-curl -sS http://<autoads-host>/api/openclaw/proxy \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
+curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
+  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "GET",
+    "path": "/api/offers"
+  }'
+```
+
+### 写操作模板（execute）
+
+```bash
+curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
+  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
     "path": "/api/offers/extract",
+    "intent": "offer.create",
+    "idempotencyKey": "offer-extract-<unique>",
     "body": {
-      "affiliate_link": "https://example.com/product-or-affiliate-link",
+      "affiliate_link": "https://example.com/aff-link",
       "target_country": "US"
     }
   }'
 ```
 
-Then poll extraction status:
+### 高风险确认模板（confirm）
 
 ```bash
-curl -sS http://<autoads-host>/api/openclaw/proxy \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
+curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
+  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "method": "GET",
-    "path": "/api/offers/extract/status/<taskId>"
-  }'
-```
-
-## Example: generate creatives
-
-```bash
-curl -sS http://<autoads-host>/api/openclaw/proxy \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "method": "POST",
-    "path": "/api/offers/123/generate-creatives-queue",
-    "body": { "targetRating": "EXCELLENT" }
-  }'
-```
-
-## Example: publish campaign
-
-```bash
-curl -sS http://<autoads-host>/api/openclaw/proxy \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "method": "POST",
-    "path": "/api/campaigns/publish",
-    "body": {
-      "offerId": 123,
-      "adCreativeId": 456,
-      "googleAdsAccountId": 789,
-      "campaignConfig": {
-        "campaignName": "Brand_US_Search",
-        "adGroupName": "Brand_Group_1",
-        "budgetAmount": 50,
-        "budgetType": "DAILY",
-        "targetCountry": "US",
-        "targetLanguage": "en",
-        "biddingStrategy": "MAXIMIZE_CONVERSIONS",
-        "finalUrlSuffix": "",
-        "maxCpcBid": 1.2,
-        "keywords": ["keyword1", "keyword2"],
-        "negativeKeywords": ["free"]
-      },
-      "pauseOldCampaigns": true,
-      "enableCampaignImmediately": false,
-      "enableSmartOptimization": false
-    }
+    "runId": "<RUN_ID>",
+    "confirmToken": "<CONFIRM_TOKEN>",
+    "decision": "confirm"
   }'
 ```

@@ -411,6 +411,12 @@ export function assertOpenclawCommandRouteAllowed(params: {
     )
   }
 
+  if (method === 'POST' && path === '/api/offers') {
+    throw new Error(
+      'OpenClaw command route not in canonical web flow: POST /api/offers. Offer creation must use POST /api/offers/extract or POST /api/offers/extract/stream.'
+    )
+  }
+
   const route = findCanonicalRoute(method, path, WRITE_ROUTES)
   if (!route) {
     throw buildRouteNotAllowedError('OpenClaw command route not in canonical web flow', method, path)
