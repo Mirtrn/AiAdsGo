@@ -30,6 +30,7 @@ dist/
 
 # local AI/agent tooling
 .claude/
+.openclaw/
 
 # debug
 npm-debug.log*
