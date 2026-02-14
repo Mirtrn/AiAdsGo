@@ -116,8 +116,8 @@ ${OVERLAY_HEADING}
 - \`127.0.0.1:18789\` 仅为 OpenClaw Gateway 端口，不是 AutoAds 业务 API 主机，禁止作为业务 API base URL。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；\`/api/offers/*\`、\`/api/campaigns/*\` 等业务路由必须通过 proxy/execute 链路以用户身份执行。
 - 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
-- 禁止通过 shell/curl/node 直接构造 HTTP 请求调用业务 API；必须走 OpenClaw proxy/execute/confirm 路由。
-- 禁止通过读取环境变量/猜测 token 进行重试；若鉴权失败，直接返回绑定缺失并提示用户修复绑定。
+- 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
+- 飞书绑定场景禁止向用户索要 token；默认使用系统注入的 \`OPENCLAW_GATEWAY_TOKEN\` 调用 \`/api/openclaw/*\`，若 401 先补齐 \`channel/senderId/accountId/tenantKey\` 后重试一次。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。
@@ -153,6 +153,8 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - \`127.0.0.1:18789\` 是 OpenClaw Gateway 端口，不是业务 API 基址，不可直接请求业务路由。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；业务路由必须通过 proxy/execute 链路并以用户身份执行。
 - 内网可达时禁止改走公网域名，避免 Cloudflare 拦截和 token 类型不匹配。
+- 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`，禁止直连业务路由。
+- 飞书绑定会话默认使用 \`OPENCLAW_GATEWAY_TOKEN\`；禁止向用户索要 token。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。

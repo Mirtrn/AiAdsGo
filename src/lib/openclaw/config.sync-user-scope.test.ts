@@ -32,6 +32,8 @@ describe('syncOpenclawConfig user scope', () => {
   let configPath = ''
   const previousConfigPath = process.env.OPENCLAW_CONFIG_PATH
   const previousStateDir = process.env.OPENCLAW_STATE_DIR
+  const previousGatewayEnvToken = process.env.OPENCLAW_GATEWAY_TOKEN
+  const previousLegacyEnvToken = process.env.OPENCLAW_TOKEN
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-sync-'))
@@ -58,6 +60,18 @@ describe('syncOpenclawConfig user scope', () => {
       delete process.env.OPENCLAW_STATE_DIR
     } else {
       process.env.OPENCLAW_STATE_DIR = previousStateDir
+    }
+
+    if (previousGatewayEnvToken === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_TOKEN
+    } else {
+      process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayEnvToken
+    }
+
+    if (previousLegacyEnvToken === undefined) {
+      delete process.env.OPENCLAW_TOKEN
+    } else {
+      process.env.OPENCLAW_TOKEN = previousLegacyEnvToken
     }
 
     fs.rmSync(tempDir, { recursive: true, force: true })
@@ -135,6 +149,17 @@ describe('syncOpenclawConfig user scope', () => {
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     expect(written.agents.defaults.model.primary).toBe('openai/gpt-5.2')
     expect(written.models.providers.openai).toBeDefined()
+  })
+
+  it('hydrates runtime gateway token env aliases from setting token', async () => {
+    getSettingsByCategoryMock.mockResolvedValueOnce([])
+    delete process.env.OPENCLAW_GATEWAY_TOKEN
+    delete process.env.OPENCLAW_TOKEN
+
+    await syncOpenclawConfig({ reason: 'test-token-env-alias' })
+
+    expect(process.env.OPENCLAW_GATEWAY_TOKEN).toBe('gateway-test-token')
+    expect(process.env.OPENCLAW_TOKEN).toBe('gateway-test-token')
   })
 
   it('prefers global AI settings when startup sync has global rows', async () => {

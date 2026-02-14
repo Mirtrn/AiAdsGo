@@ -15,8 +15,8 @@ metadata: { "openclaw": { "emoji": "🧭" } }
 5. OpenClaw 与 AutoAds 同容器部署时，业务 API 只能走内网地址：`INTERNAL_APP_URL` 或 `http://127.0.0.1:${PORT:-3000}`。
 6. `127.0.0.1:18789` 是 OpenClaw Gateway 端口，不是 AutoAds 业务 API 基址。
 7. 内网可达时禁止回退公网域名，避免 Cloudflare 拦截与鉴权错配。
-8. 禁止通过 shell/curl/node 直接构造 HTTP 请求调用业务 API；必须走 OpenClaw proxy/execute/confirm。
-9. 禁止通过读取环境变量或猜测 token 重试鉴权；鉴权失败应返回绑定缺失并提示修复绑定。
+8. 允许通过 shell/curl 仅调用 /api/openclaw/proxy、/api/openclaw/commands/execute、/api/openclaw/commands/confirm；禁止直连 /api/offers/*、/api/campaigns/*、/api/click-farm/* 等业务路由。
+9. 飞书绑定场景禁止向用户索要 token；默认使用 OPENCLAW_GATEWAY_TOKEN 调用 /api/openclaw/*，若 401 先补齐 channel/senderId/accountId/tenantKey 后重试一次。
 
 ## 认证与 Token 类型
 
@@ -69,7 +69,7 @@ metadata: { "openclaw": { "emoji": "🧭" } }
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "GET",
@@ -81,7 +81,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
@@ -103,7 +103,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "runId": "<RUN_ID>",

@@ -49,7 +49,7 @@ describe('ensureOpenclawWorkspaceBootstrap agents overlay', () => {
 
     const nextContent = fs.readFileSync(path.join(workspaceDir, 'AGENTS.md'), 'utf-8')
     expect(nextContent).toContain('<!-- autoads-openclaw-agents-managed:start -->')
-    expect(nextContent).toContain('禁止通过 shell/curl/node 直接构造 HTTP 请求调用业务 API')
+    expect(nextContent).toContain('允许通过 shell/curl 仅调用')
     expect(nextContent).toContain('## Extra Notes')
     expect(nextContent).not.toContain('- old rule line')
   })

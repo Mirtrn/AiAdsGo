@@ -20,6 +20,7 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 - `/api/openclaw/*` 请求统一使用 `Authorization: Bearer <token>`。
 - `OPENCLAW_GATEWAY_TOKEN` 仅用于 Gateway 入口鉴权，不可直接拿去请求 `/api/offers/*`、`/api/campaigns/*` 等业务路由。
 - 业务路由必须通过 `/api/openclaw/proxy` 或 `/api/openclaw/commands/execute` 以用户身份转发执行。
+- 飞书绑定场景禁止向用户索要 token；默认使用 `OPENCLAW_GATEWAY_TOKEN` 并透传 `channel/senderId/accountId/tenantKey`。
 
 ## Canonical 路由速查（高频）
 
@@ -64,7 +65,7 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "GET",
@@ -76,7 +77,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
@@ -98,7 +99,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
-  -H "Authorization: Bearer $OPENCLAW_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "runId": "<RUN_ID>",

@@ -262,6 +262,15 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const useExistingModelsFallback = !actorUserId || !hasGlobalAiSettings
 
   const gatewayToken = await getOpenclawGatewayToken()
+  // Keep runtime auth env vars aligned so skills invoking /api/openclaw/* do not
+  // fail with missing bearer token after config sync.
+  if (!String(process.env.OPENCLAW_GATEWAY_TOKEN || '').trim()) {
+    process.env.OPENCLAW_GATEWAY_TOKEN = gatewayToken
+  }
+  // Backward-compat alias used by some existing skill templates.
+  if (!String(process.env.OPENCLAW_TOKEN || '').trim()) {
+    process.env.OPENCLAW_TOKEN = gatewayToken
+  }
   const cardConfirmBaseUrl = resolveOpenclawCardConfirmBaseUrl()
   const gatewayPort = parseNumber(settingMap.gateway_port, DEFAULT_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT
   const gatewayBind = (settingMap.gateway_bind || 'loopback').trim() || 'loopback'
