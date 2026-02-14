@@ -678,11 +678,11 @@ export default function UserManagementPage() {
                 </CardHeader>
                 <CardContent>
                     <div className="rounded-md border">
-                        <Table className="table-fixed">
+                        <Table className="w-max min-w-[1040px] table-fixed text-xs xl:text-sm [&_th]:h-8 [&_th]:px-1.5 [&_td]:px-1.5 [&_td]:py-1">
                             <TableHeader>
                                 <TableRow>
                                     <TableHead
-                                        className="hidden w-[72px] whitespace-nowrap sm:table-cell"
+                                        className="hidden w-[64px] whitespace-nowrap sm:table-cell"
                                         aria-sort={sortField === 'id' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -695,7 +695,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="w-[150px] whitespace-nowrap sm:w-[220px]"
+                                        className="w-[132px] whitespace-nowrap sm:w-[184px]"
                                         aria-sort={sortField === 'username' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -708,7 +708,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="hidden w-[76px] whitespace-nowrap lg:table-cell"
+                                        className="hidden w-[64px] whitespace-nowrap lg:table-cell"
                                         aria-sort={sortField === 'role' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -721,7 +721,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="hidden w-[110px] whitespace-nowrap md:table-cell"
+                                        className="hidden w-[92px] whitespace-nowrap md:table-cell"
                                         aria-sort={sortField === 'packageType' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -734,7 +734,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="hidden w-[96px] whitespace-nowrap lg:table-cell"
+                                        className="hidden w-[88px] whitespace-nowrap lg:table-cell"
                                         aria-sort={sortField === 'packageExpiresAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -747,7 +747,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="hidden w-[96px] whitespace-nowrap xl:table-cell"
+                                        className="hidden w-[84px] whitespace-nowrap xl:table-cell"
                                         aria-sort={sortField === 'createdAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -760,7 +760,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="hidden w-[120px] whitespace-nowrap 2xl:table-cell"
+                                        className="hidden w-[108px] whitespace-nowrap xl:table-cell"
                                         aria-sort={sortField === 'lastLoginAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -773,7 +773,7 @@ export default function UserManagementPage() {
                                         </button>
                                     </TableHead>
                                     <TableHead
-                                        className="w-[90px] whitespace-nowrap sm:w-[130px]"
+                                        className="w-[78px] whitespace-nowrap sm:w-[110px]"
                                         aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
                                     >
                                         <button
@@ -785,7 +785,7 @@ export default function UserManagementPage() {
                                             {renderSortIcon('status')}
                                         </button>
                                     </TableHead>
-                                    <TableHead className="w-[56px] text-center whitespace-nowrap sm:w-[84px]">操作</TableHead>
+                                    <TableHead className="w-[52px] text-center whitespace-nowrap sm:w-[70px]">操作</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -798,29 +798,29 @@ export default function UserManagementPage() {
                                 ) : (
                                     users.map((user) => (
                                         <TableRow key={user.id}>
-                                            <TableCell className="hidden font-mono text-sm text-muted-foreground whitespace-nowrap sm:table-cell">
+                                            <TableCell className="hidden font-mono text-xs text-muted-foreground whitespace-nowrap sm:table-cell">
                                                 {user.id}
                                             </TableCell>
                                             <TableCell className="min-w-0">
-                                                <div className="flex min-w-0 items-center gap-2">
-                                                    <Avatar className="h-8 w-8 shrink-0">
+                                                <div className="flex min-w-0 items-center gap-1.5">
+                                                    <Avatar className="h-7 w-7 shrink-0">
                                                         <AvatarFallback className="bg-indigo-100 text-indigo-600">
                                                             {user.username.substring(0, 2).toUpperCase()}
                                                         </AvatarFallback>
                                                     </Avatar>
                                                     <div className="min-w-0">
-                                                        <div className="truncate font-medium">{user.username}</div>
-                                                        <div className="hidden truncate text-caption text-muted-foreground md:block">{user.email || '无邮箱'}</div>
+                                                        <div className="truncate font-medium leading-4">{user.username}</div>
+                                                        <div className="hidden truncate text-[11px] text-muted-foreground 2xl:block">{user.email || '无邮箱'}</div>
                                                     </div>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="hidden whitespace-nowrap lg:table-cell">
-                                                <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                                                <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className="h-5 px-1.5 text-[11px]">
                                                     {user.role === 'admin' ? '管理员' : '用户'}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="hidden whitespace-nowrap md:table-cell">
-                                                <Badge variant="outline" className="capitalize whitespace-nowrap">
+                                                <Badge variant="outline" className="h-5 px-1.5 text-[11px] capitalize whitespace-nowrap">
                                                     {user.packageType === 'trial' ? '试用版' :
                                                      user.packageType === 'annual' ? '年度会员' :
                                                      user.packageType === 'lifetime' ? '长期会员' : '私有化部署'}
@@ -832,61 +832,58 @@ export default function UserManagementPage() {
                                             <TableCell className="hidden text-muted-foreground whitespace-nowrap xl:table-cell">
                                                 {new Date(user.createdAt).toLocaleDateString('zh-CN')}
                                             </TableCell>
-                                            <TableCell className="hidden text-muted-foreground whitespace-nowrap 2xl:table-cell">
+                                            <TableCell className="hidden text-muted-foreground whitespace-nowrap xl:table-cell">
                                                 {user.lastLoginAt ? (
-                                                    <div className="flex flex-col">
-                                                        <span>{new Date(user.lastLoginAt).toLocaleDateString('zh-CN')}</span>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {new Date(user.lastLoginAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                    </div>
+                                                    <span className="text-[11px] xl:text-xs">
+                                                        {new Date(user.lastLoginAt).toLocaleDateString('zh-CN')} {new Date(user.lastLoginAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
                                                 ) : (
-                                                    <span className="text-muted-foreground">从未登录</span>
+                                                    <span className="text-muted-foreground">未登录</span>
                                                 )}
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap">
                                                 {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
                                                 {!user.isActive ? (
-                                                    <Badge variant="destructive" className="whitespace-nowrap">
+                                                    <Badge variant="destructive" className="h-5 px-1.5 text-[11px] whitespace-nowrap">
                                                         <span className="sm:hidden">禁用</span>
                                                         <span className="hidden sm:inline">🚫 已禁用</span>
                                                     </Badge>
                                                 ) : isUserLocked(user) ? (
-                                                    <Badge variant="outline" className="text-yellow-600 border-yellow-600 whitespace-nowrap">
-                                                        <span className="xl:hidden">⏳ 已锁定</span>
-                                                        <span className="hidden xl:inline">⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）</span>
+                                                    <Badge variant="outline" className="h-5 px-1.5 text-[11px] text-yellow-600 border-yellow-600 whitespace-nowrap">
+                                                        <span className="2xl:hidden">⏳ 已锁定</span>
+                                                        <span className="hidden 2xl:inline">⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）</span>
                                                     </Badge>
                                                 ) : (
-                                                    <Badge variant="outline" className="text-green-600 border-green-600 whitespace-nowrap">
+                                                    <Badge variant="outline" className="h-5 px-1.5 text-[11px] text-green-600 border-green-600 whitespace-nowrap">
                                                         <span className="sm:hidden">正常</span>
                                                         <span className="hidden sm:inline">✅ 正常</span>
                                                     </Badge>
                                                 )}
                                             </TableCell>
-                                            <TableCell className="px-1">
-                                                <div className="flex items-center justify-center gap-0.5">
+                                            <TableCell className="px-0.5">
+                                                <div className="flex items-center justify-center gap-0">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="hidden h-8 w-8 lg:inline-flex"
+                                                        className="hidden h-7 w-7 lg:inline-flex"
                                                         onClick={() => openEditModal(user)}
                                                         title="编辑"
                                                     >
-                                                        <Edit className="w-4 h-4" />
+                                                        <Edit className="w-3.5 h-3.5" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="hidden h-8 w-8 lg:inline-flex"
+                                                        className="hidden h-7 w-7 lg:inline-flex"
                                                         onClick={() => handleResetPassword(user.id, user.username)}
                                                         title="重置密码"
                                                     >
-                                                        <Key className="w-4 h-4" />
+                                                        <Key className="w-3.5 h-3.5" />
                                                     </Button>
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8" title="更多操作">
-                                                                <MoreHorizontal className="w-4 h-4" />
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7" title="更多操作">
+                                                                <MoreHorizontal className="w-3.5 h-3.5" />
                                                             </Button>
                                                         </DropdownMenuTrigger>
                                                         <DropdownMenuContent align="end" className="w-72">
