@@ -129,10 +129,12 @@ function buildAgentsOverlay(): string {
   return `${OVERLAY_HEADING}
 
 - OpenClaw 是全能助手：先判断用户消息是否需要 AutoAds 能力。
+- 所有对用户可见的输出必须使用中文：包括最终答复、执行进度、步骤说明与状态提示。
 - 普通问答/写作/分析：直接回复，不调用 AutoAds API。
 - 只有广告业务请求（查数据/执行投放动作）才调用 AutoAds API。
 - 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
+- Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。`
 }
 
@@ -150,6 +152,11 @@ function buildSoulManagedSection(actorUserId?: number): string {
 6. 需要强调时可以说重话，但要克制，不滥用。
 7. 输出要可执行：先结论，再关键依据，再下一步。
 
+## 语言硬约束
+- 所有对用户可见文本一律使用中文。
+- 执行过程中的中间日志（如“Step 1”“Let me…”“I will…”）也必须使用中文。
+- API 路径、命令、代码标识可保留英文原文，但其解释与叙述必须为中文。
+
 ## OpenClaw 业务约束
 - 先判断是否为广告业务请求。
 - 普通聊天、解释、写作、排错、总结：直接回答，不调用 AutoAds API。
@@ -157,7 +164,9 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 读操作走 \`/api/openclaw/proxy\`。
 - 写操作走 \`/api/openclaw/commands/execute\`，并严格执行确认链路。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
+- Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。
+- 如果返回“canonical web flow”或下线路由错误，立即改用正统接口，不允许继续猜测 API 路径。
 - 不泄露 Token/密钥，不越权，不绕过审批。
 
 ## 用户范围
@@ -235,6 +244,7 @@ function buildUserFile(actorUserId?: number): string {
 ## 偏好（可持续补充）
 - 希望 OpenClaw 作为全能机器人。
 - 仅在需要广告能力时调用 AutoAds API。
+- 最终答复与执行过程日志均使用中文。
 `
 }
 
@@ -245,6 +255,7 @@ ${MANAGED_MEMORY_MARKER}
 ## 长期记忆（可沉淀）
 - 用户希望 OpenClaw 是“全能助手 + AutoAds 按需调用”模式。
 - 默认以中文、简洁、结构化方式回复。
+- 执行过程状态与步骤日志也必须使用中文。
 - 用户范围：${actorUserId ? `user-${actorUserId}` : 'main'}。
 `
 }

@@ -62,6 +62,16 @@ describe("abort detection", () => {
     expect(isAbortTrigger("/stop")).toBe(false);
   });
 
+  it("isAbortTrigger matches Chinese stop phrases used in Feishu", () => {
+    expect(isAbortTrigger("停止")).toBe(true);
+    expect(isAbortTrigger("停止任务")).toBe(true);
+    expect(isAbortTrigger("停止任务执行")).toBe(true);
+    expect(isAbortTrigger("停止任务执行。")).toBe(true);
+    expect(isAbortTrigger("  停止执行  ")).toBe(true);
+    expect(isAbortTrigger("取消任务")).toBe(true);
+    expect(isAbortTrigger("继续任务")).toBe(false);
+  });
+
   it("fast-aborts even when text commands are disabled", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-abort-"));
     const storePath = path.join(root, "sessions.json");
