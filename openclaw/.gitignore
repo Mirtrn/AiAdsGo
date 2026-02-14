@@ -75,6 +75,10 @@ USER.md
 .tgz
 .idea
 
+# keep packaged workspace templates tracked
+!docs/reference/templates/
+!docs/reference/templates/**
+
 # local tooling
 .serena/
 
