@@ -12,7 +12,10 @@ read_meta_value() {
 }
 
 SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
-SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
+SOURCE_COMMIT=""
+if [[ -e "${OPENCLAW_DIR}/.git" ]]; then
+  SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
+fi
 
 if [[ ! -f "${META_FILE}" ]]; then
   echo "❌ openclaw-prebuilt/.build-meta.json 不存在"

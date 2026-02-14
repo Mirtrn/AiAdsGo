@@ -10,7 +10,10 @@ ROOT_SKILLS_DIR="${ROOT_DIR}/skills"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
-SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")"
+SOURCE_COMMIT="unknown"
+if [[ -e "${OPENCLAW_DIR}/.git" ]]; then
+  SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")"
+fi
 BUILT_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 if [[ -z "${SOURCE_VERSION}" ]]; then

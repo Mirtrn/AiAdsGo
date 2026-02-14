@@ -175,7 +175,6 @@ openclaw-prebuilt/node_modules/
 openclaw-prebuilt/extensions/
 openclaw-prebuilt/openclaw.mjs
 openclaw-prebuilt/package.json
-openclaw-prebuilt/.build-meta.json
 openclaw/.git\ 2/
 
 # 临时分析报告文件
