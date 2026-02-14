@@ -644,7 +644,7 @@ export async function processFeishuMessage(
       });
       return;
     } catch (err) {
-      if (!isGroup || !isFeishuGroupSubscriptionError(err)) {
+      if (!isFeishuGroupSubscriptionError(err)) {
         throw err;
       }
 
@@ -655,7 +655,7 @@ export async function processFeishuMessage(
 
       groupSubscriptionFallbackUsed = true;
       logger.warn(
-        `Feishu group chat ${chatId} has no active subscription, fallback to DM ${fallbackOpenId}: ${formatErrorMessage(err)}`,
+        `Feishu chat ${chatId} (${isGroup ? "group" : "p2p"}) has no active subscription, fallback to open_id ${fallbackOpenId}: ${formatErrorMessage(err)}`,
       );
 
       await sendMessageFeishu(client, fallbackOpenId, content, {
