@@ -14,15 +14,13 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 5. OpenClaw 与 AutoAds 同容器部署时，业务 API 只能走内网地址：`INTERNAL_APP_URL` 或 `http://127.0.0.1:${PORT:-3000}`。
 6. `127.0.0.1:18789` 是 OpenClaw Gateway 端口，不是 AutoAds 业务 API 基址。
 7. 内网可达时禁止回退公网域名，避免 Cloudflare 拦截与鉴权错配。
-8. 允许通过 shell/curl 仅调用 /api/openclaw/proxy、/api/openclaw/commands/execute、/api/openclaw/commands/confirm；禁止直连 /api/offers/*、/api/campaigns/*、/api/click-farm/* 等业务路由。
-9. 飞书绑定场景禁止向用户索要 token；默认使用 OPENCLAW_GATEWAY_TOKEN 调用 /api/openclaw/*，若 401 先补齐 channel/senderId/accountId/tenantKey 后重试一次。
 
 ## 认证与 Token 类型
 
 - `/api/openclaw/*` 请求统一使用 `Authorization: Bearer <token>`。
 - `OPENCLAW_GATEWAY_TOKEN` 仅用于 Gateway 入口鉴权，不可直接拿去请求 `/api/offers/*`、`/api/campaigns/*` 等业务路由。
 - 业务路由必须通过 `/api/openclaw/proxy` 或 `/api/openclaw/commands/execute` 以用户身份转发执行。
-- 飞书场景下必须透传绑定元信息（header 或 body 均可）：`channel`、`senderId`、`accountId`、`tenantKey`。
+- 飞书绑定场景禁止向用户索要 token；默认使用 `OPENCLAW_GATEWAY_TOKEN` 并透传 `channel/senderId/accountId/tenantKey`。
 
 ## Canonical 路由速查（高频）
 
@@ -60,7 +58,6 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 3. 处理状态：`queued` / `pending_confirm` / `duplicate`。
 4. 若 `pending_confirm`：调用 `POST /api/openclaw/commands/confirm`（`runId` + `confirmToken` + `decision`）。
 5. 追踪记录：`GET /api/openclaw/commands/runs`。
-6. `execute`/`confirm` 返回的 `taskId` 是命令队列任务 ID（`queueTaskId`），不是业务任务 ID；禁止直接用于 `/api/offers/extract/status/:taskId`。
 
 ## 标准调用模板
 

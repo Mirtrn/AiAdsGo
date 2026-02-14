@@ -241,4 +241,61 @@ describe('openclaw settings route AI global permissions', () => {
     })
   })
 
+  it('accepts gateway guardrail keys and triggers user config sync', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    settingsFns.getSettingsByCategory.mockResolvedValueOnce([
+      { key: 'gateway_auth_rate_limit_json', value: '{}', dataType: 'json' },
+      { key: 'gateway_tools_json', value: '{}', dataType: 'json' },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          {
+            key: 'gateway_auth_rate_limit_json',
+            value: '{"maxAttempts":8,"windowMs":60000,"lockoutMs":300000,"exemptLoopback":true}',
+          },
+          {
+            key: 'gateway_tools_json',
+            value: '{"allow":["message"],"deny":["sessions_spawn"]}',
+          },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.skippedKeys).toEqual([])
+    expect(settingsFns.updateSettings).toHaveBeenCalledWith(
+      [
+        {
+          category: 'openclaw',
+          key: 'gateway_auth_rate_limit_json',
+          value: '{"maxAttempts":8,"windowMs":60000,"lockoutMs":300000,"exemptLoopback":true}',
+        },
+        {
+          category: 'openclaw',
+          key: 'gateway_tools_json',
+          value: '{"allow":["message"],"deny":["sessions_spawn"]}',
+        },
+      ],
+      9
+    )
+    expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({
+      reason: 'openclaw-user-settings',
+      actorUserId: 9,
+    })
+  })
+
 })

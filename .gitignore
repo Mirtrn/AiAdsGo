@@ -32,6 +32,9 @@ dist/
 .claude/
 .openclaw/
 
+# legacy OpenClaw snapshot (do not upload)
+openclaw-v1/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -166,11 +169,14 @@ blob-report/
 /.worktrees/
 
 # openclaw-prebuilt generated artifacts (built in CI / pre-deploy)
+.openclaw-prebuilt-tmp/
 openclaw-prebuilt/dist/
 openclaw-prebuilt/node_modules/
 openclaw-prebuilt/extensions/
 openclaw-prebuilt/openclaw.mjs
 openclaw-prebuilt/package.json
+openclaw-prebuilt/.build-meta.json
+openclaw/.git\ 2/
 
 # 临时分析报告文件
 ANALYSIS_SUMMARY.md

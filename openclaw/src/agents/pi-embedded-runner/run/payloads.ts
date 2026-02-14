@@ -6,6 +6,7 @@ import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { formatToolAggregate } from "../../../auto-reply/tool-meta.js";
 import {
+  BILLING_ERROR_USER_MESSAGE,
   formatAssistantErrorText,
   formatRawAssistantErrorForUi,
   getApiErrorPayloadFingerprint,
@@ -17,35 +18,8 @@ import {
   extractAssistantThinking,
   formatReasoningMessage,
 } from "../../pi-embedded-utils.js";
-import { isMessagingTool } from "../../pi-embedded-messaging.js";
 
 type ToolMetaEntry = { toolName: string; meta?: string };
-
-function isMessagingTransportToolName(toolName: string): boolean {
-  const normalized = toolName.trim().toLowerCase();
-  if (isMessagingTool(normalized)) {
-    return true;
-  }
-  return normalized === "feishu" || normalized === "lark";
-}
-
-function isLikelyMessagingTransportError(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  if (normalized.includes("no active subscription found for this group")) {
-    return true;
-  }
-  if (
-    normalized.includes("subscription") &&
-    (normalized.includes("group") || normalized.includes("chat")) &&
-    (normalized.includes("403") || normalized.includes("forbidden"))
-  ) {
-    return true;
-  }
-  return false;
-}
 
 export function buildEmbeddedRunPayloads(params: {
   assistantTexts: string[];
@@ -54,6 +28,7 @@ export function buildEmbeddedRunPayloads(params: {
   lastToolError?: { toolName: string; meta?: string; error?: string };
   config?: OpenClawConfig;
   sessionKey: string;
+  provider?: string;
   verboseLevel?: VerboseLevel;
   reasoningLevel?: ReasoningLevel;
   toolResultFormat?: ToolResultFormat;
@@ -84,6 +59,7 @@ export function buildEmbeddedRunPayloads(params: {
     ? formatAssistantErrorText(params.lastAssistant, {
         cfg: params.config,
         sessionKey: params.sessionKey,
+        provider: params.provider,
       })
     : undefined;
   const rawErrorMessage = lastAssistantErrored
@@ -102,6 +78,7 @@ export function buildEmbeddedRunPayloads(params: {
     ? normalizeTextForComparison(rawErrorMessage)
     : null;
   const normalizedErrorText = errorText ? normalizeTextForComparison(errorText) : null;
+  const normalizedGenericBillingErrorText = normalizeTextForComparison(BILLING_ERROR_USER_MESSAGE);
   const genericErrorText = "The AI service returned an error. Please try again.";
   if (errorText) {
     replyItems.push({ text: errorText, isError: true });
@@ -160,6 +137,13 @@ export function buildEmbeddedRunPayloads(params: {
       if (trimmed === genericErrorText) {
         return true;
       }
+      if (
+        normalized &&
+        normalizedGenericBillingErrorText &&
+        normalized === normalizedGenericBillingErrorText
+      ) {
+        return true;
+      }
     }
     if (rawErrorMessage && trimmed === rawErrorMessage) {
       return true;
@@ -187,42 +171,13 @@ export function buildEmbeddedRunPayloads(params: {
     }
     return isRawApiErrorPayload(trimmed);
   };
-  const shouldSuppressTransportErrorEcho = (text: string) => {
-    if (!params.lastToolError) {
-      return false;
-    }
-    if (!isMessagingTransportToolName(params.lastToolError.toolName)) {
-      return false;
-    }
-    const trimmed = text.trim();
-    if (!trimmed || !isLikelyMessagingTransportError(trimmed)) {
-      return false;
-    }
-    const toolError = (params.lastToolError.error ?? "").trim();
-    if (!toolError) {
-      return true;
-    }
-    if (isLikelyMessagingTransportError(toolError)) {
-      return true;
-    }
-    const normalizedText = normalizeTextForComparison(trimmed);
-    const normalizedToolError = normalizeTextForComparison(toolError);
-    if (!normalizedText || !normalizedToolError) {
-      return true;
-    }
-    return (
-      normalizedText === normalizedToolError ||
-      normalizedText.includes(normalizedToolError) ||
-      normalizedToolError.includes(normalizedText)
-    );
-  };
   const answerTexts = (
     params.assistantTexts.length
       ? params.assistantTexts
       : fallbackAnswerText
         ? [fallbackAnswerText]
         : []
-  ).filter((text) => !shouldSuppressRawErrorText(text) && !shouldSuppressTransportErrorEcho(text));
+  ).filter((text) => !shouldSuppressRawErrorText(text));
 
   for (const text of answerTexts) {
     const {
@@ -260,9 +215,6 @@ export function buildEmbeddedRunPayloads(params: {
     // Check if this is a recoverable/internal tool error that shouldn't be shown to users
     // when there's already a user-facing reply (the model should have retried).
     const errorLower = (params.lastToolError.error ?? "").toLowerCase();
-    const isMessagingTransportError =
-      isMessagingTransportToolName(params.lastToolError.toolName) &&
-      isLikelyMessagingTransportError(errorLower);
     const isRecoverableError =
       errorLower.includes("required") ||
       errorLower.includes("missing") ||
@@ -270,19 +222,13 @@ export function buildEmbeddedRunPayloads(params: {
       errorLower.includes("must be") ||
       errorLower.includes("must have") ||
       errorLower.includes("needs") ||
-      errorLower.includes("requires") ||
-      isMessagingTransportError;
+      errorLower.includes("requires");
 
     // Show tool errors only when:
     // 1. There's no user-facing reply AND the error is not recoverable
     // Recoverable errors (validation, missing params) are already in the model's context
     // and shouldn't be surfaced to users since the model should retry.
-    if (!hasUserFacingReply && isMessagingTransportError) {
-      replyItems.push({
-        text: "⚠️ Message delivery is temporarily unavailable for this chat. Please try again.",
-        isError: true,
-      });
-    } else if (!hasUserFacingReply && !isRecoverableError) {
+    if (!hasUserFacingReply && !isRecoverableError) {
       const toolSummary = formatToolAggregate(
         params.lastToolError.toolName,
         params.lastToolError.meta ? [params.lastToolError.meta] : undefined,

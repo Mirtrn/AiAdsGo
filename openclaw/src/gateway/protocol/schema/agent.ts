@@ -1,4 +1,5 @@
 import { Type } from "@sinclair/typebox";
+import { INPUT_PROVENANCE_KIND_VALUES } from "../../../sessions/input-provenance.js";
 import { NonEmptyString, SessionLabelString } from "./primitives.js";
 
 export const AgentEventSchema = Type.Object(
@@ -15,14 +16,12 @@ export const AgentEventSchema = Type.Object(
 export const SendParamsSchema = Type.Object(
   {
     to: NonEmptyString,
-    message: NonEmptyString,
+    message: Type.Optional(Type.String()),
     mediaUrl: Type.Optional(Type.String()),
     mediaUrls: Type.Optional(Type.Array(Type.String())),
     gifPlayback: Type.Optional(Type.Boolean()),
     channel: Type.Optional(Type.String()),
     accountId: Type.Optional(Type.String()),
-    /** Optional channel-specific payload envelope. */
-    channelData: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     /** Optional session key for mirroring delivered output back into the transcript. */
     sessionKey: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
@@ -66,6 +65,17 @@ export const AgentParamsSchema = Type.Object(
     timeout: Type.Optional(Type.Integer({ minimum: 0 })),
     lane: Type.Optional(Type.String()),
     extraSystemPrompt: Type.Optional(Type.String()),
+    inputProvenance: Type.Optional(
+      Type.Object(
+        {
+          kind: Type.String({ enum: [...INPUT_PROVENANCE_KIND_VALUES] }),
+          sourceSessionKey: Type.Optional(Type.String()),
+          sourceChannel: Type.Optional(Type.String()),
+          sourceTool: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
     idempotencyKey: NonEmptyString,
     label: Type.Optional(SessionLabelString),
     spawnedBy: Type.Optional(Type.String()),

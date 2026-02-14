@@ -64,6 +64,7 @@ function createDispatcher(): ReplyDispatcher {
     sendFinalReply: vi.fn(() => true),
     waitForIdle: vi.fn(async () => {}),
     getQueuedCounts: vi.fn(() => ({ tool: 0, block: 0, final: 0 })),
+    markComplete: vi.fn(),
   };
 }
 
@@ -304,13 +305,13 @@ describe("dispatchReplyFromConfig", () => {
     });
     const replyResolver = vi.fn(async () => ({ text: "hi" }) as ReplyPayload);
 
-    const firstResult = await dispatchReplyFromConfig({
+    await dispatchReplyFromConfig({
       ctx,
       cfg,
       dispatcher: createDispatcher(),
       replyResolver,
     });
-    const secondResult = await dispatchReplyFromConfig({
+    await dispatchReplyFromConfig({
       ctx,
       cfg,
       dispatcher: createDispatcher(),
@@ -318,8 +319,6 @@ describe("dispatchReplyFromConfig", () => {
     });
 
     expect(replyResolver).toHaveBeenCalledTimes(1);
-    expect(firstResult.skippedDuplicate).not.toBe(true);
-    expect(secondResult.skippedDuplicate).toBe(true);
   });
 
   it("emits message_received hook with originating channel metadata", async () => {

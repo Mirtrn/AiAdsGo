@@ -12,6 +12,16 @@ type SyncOpenclawConfigOptions = {
 }
 
 type OpenclawSettingMap = Record<string, string | null>
+type GatewayAuthRateLimitConfig = {
+  maxAttempts?: number
+  windowMs?: number
+  lockoutMs?: number
+  exemptLoopback?: boolean
+}
+type GatewayToolsConfig = {
+  allow?: string[]
+  deny?: string[]
+}
 
 const DEFAULT_GATEWAY_PORT = 18789
 const DEFAULT_LOG_FILE = '/proc/self/fd/1'
@@ -82,6 +92,53 @@ function parseJsonObject(value: string | null | undefined): Record<string, any> 
     console.error('❌ OpenClaw JSON 解析失败:', error)
     return undefined
   }
+}
+
+function toInteger(value: unknown): number | undefined {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return undefined
+  const normalized = Math.floor(parsed)
+  if (normalized <= 0) return undefined
+  return normalized
+}
+
+function toStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const normalized = value
+    .map((entry) => String(entry || '').trim())
+    .filter((entry) => entry.length > 0)
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function normalizeGatewayAuthRateLimit(raw: Record<string, any> | undefined): GatewayAuthRateLimitConfig | undefined {
+  if (!raw) return undefined
+
+  const normalized: GatewayAuthRateLimitConfig = {}
+  const maxAttempts = toInteger(raw.maxAttempts)
+  const windowMs = toInteger(raw.windowMs)
+  const lockoutMs = toInteger(raw.lockoutMs)
+
+  if (maxAttempts !== undefined) normalized.maxAttempts = maxAttempts
+  if (windowMs !== undefined) normalized.windowMs = windowMs
+  if (lockoutMs !== undefined) normalized.lockoutMs = lockoutMs
+  if (typeof raw.exemptLoopback === 'boolean') {
+    normalized.exemptLoopback = raw.exemptLoopback
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
+function normalizeGatewayToolsConfig(raw: Record<string, any> | undefined): GatewayToolsConfig | undefined {
+  if (!raw) return undefined
+
+  const allow = toStringArray(raw.allow)
+  const deny = toStringArray(raw.deny)
+  if (!allow && !deny) return undefined
+
+  const normalized: GatewayToolsConfig = {}
+  if (allow) normalized.allow = allow
+  if (deny) normalized.deny = deny
+  return normalized
 }
 
 function mergeDefinedValues<T extends Record<string, any>>(base: T, overrides: Record<string, any>): T {
@@ -274,6 +331,12 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   const cardConfirmBaseUrl = resolveOpenclawCardConfirmBaseUrl()
   const gatewayPort = parseNumber(settingMap.gateway_port, DEFAULT_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT
   const gatewayBind = (settingMap.gateway_bind || 'loopback').trim() || 'loopback'
+  const gatewayAuthRateLimit = normalizeGatewayAuthRateLimit(
+    parseJsonObject(settingMap.gateway_auth_rate_limit_json)
+  )
+  const gatewayToolsConfig = normalizeGatewayToolsConfig(
+    parseJsonObject(settingMap.gateway_tools_json)
+  )
 
   const feishuAllowFrom = parseJsonArray(settingMap.feishu_allow_from)
   const feishuGroupAllowFrom = parseJsonArray(settingMap.feishu_group_allow_from)
@@ -430,6 +493,17 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
         'autoads-prd-writer': { enabled: true },
       },
     },
+  }
+
+  if (gatewayAuthRateLimit) {
+    config.gateway.auth = {
+      ...(config.gateway.auth || {}),
+      rateLimit: gatewayAuthRateLimit,
+    }
+  }
+
+  if (gatewayToolsConfig) {
+    config.gateway.tools = gatewayToolsConfig
   }
 
   const feishuAccountsConfig = feishuAccounts && typeof feishuAccounts === 'object' && !Array.isArray(feishuAccounts)

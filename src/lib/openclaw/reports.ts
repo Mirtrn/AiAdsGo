@@ -53,9 +53,17 @@ type StrategyKnowledgeSummary = {
 
 const DEFAULT_TIMEZONE = process.env.TZ || 'Asia/Shanghai'
 const reportInflight = new Map<string, Promise<DailyReportPayload>>()
+const reportDeliveryInflight = new Map<string, Promise<void>>()
 
 type DailyReportLoadOptions = {
   forceRefresh?: boolean
+}
+
+type SendDailyReportToFeishuParams = {
+  userId: number
+  target?: string
+  date?: string
+  deliveryTaskId?: string
 }
 
 function formatLocalDate(date: Date): string {
@@ -593,15 +601,58 @@ function formatReportMessage(report: DailyReportPayload): string {
   return lines.join('\n')
 }
 
-export async function sendDailyReportToFeishu(params: {
-  userId: number
-  target?: string
-  date?: string
-  deliveryTaskId?: string
-}): Promise<void> {
+export async function sendDailyReportToFeishu(params: SendDailyReportToFeishuParams): Promise<void> {
+  const reportDate = params.date || formatLocalDate(new Date())
+  const inflightKey = params.deliveryTaskId
+    ? `daily-report-delivery:${params.userId}:${reportDate}:${params.target || 'no-target'}:${params.deliveryTaskId}`
+    : undefined
+
+  if (inflightKey) {
+    const existing = reportDeliveryInflight.get(inflightKey)
+    if (existing) {
+      return existing
+    }
+
+    const task = sendDailyReportToFeishuInternal({
+      ...params,
+      date: reportDate,
+    })
+    reportDeliveryInflight.set(inflightKey, task)
+    try {
+      await task
+      return
+    } finally {
+      reportDeliveryInflight.delete(inflightKey)
+    }
+  }
+
+  return sendDailyReportToFeishuInternal({
+    ...params,
+    date: reportDate,
+  })
+}
+
+async function sendDailyReportToFeishuInternal(params: SendDailyReportToFeishuParams): Promise<void> {
   const report = await getOrCreateDailyReport(params.userId, params.date)
   const db = await getDatabase()
   const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+  if (params.deliveryTaskId) {
+    const latestDelivery = await db.queryOne<{
+      sent_status?: string
+      last_delivery_task_id?: string | null
+    }>(
+      `SELECT sent_status, last_delivery_task_id
+       FROM openclaw_daily_reports
+       WHERE user_id = ? AND report_date = ?`,
+      [params.userId, report.date]
+    )
+
+    const lastTaskId = String(latestDelivery?.last_delivery_task_id || '').trim()
+    if (latestDelivery?.sent_status === 'sent' && lastTaskId === params.deliveryTaskId) {
+      return
+    }
+  }
 
   await db.exec(
     `UPDATE openclaw_daily_reports
@@ -616,6 +667,9 @@ export async function sendDailyReportToFeishu(params: {
   let sentAny = false
   const errors: string[] = []
   const accountId = await resolveUserFeishuAccountId(params.userId)
+  const deliveryIdempotencyKey = params.deliveryTaskId
+    ? `daily-report:${params.userId}:${report.date}:${params.target || 'no-target'}:${params.deliveryTaskId}`
+    : undefined
 
   if (params.target) {
     try {
@@ -628,7 +682,7 @@ export async function sendDailyReportToFeishu(params: {
           message,
           ...(accountId ? { accountId } : {}),
         },
-      })
+      }, deliveryIdempotencyKey ? { idempotencyKey: deliveryIdempotencyKey } : {})
       sentAny = true
     } catch (error: any) {
       const messageText = error?.message || String(error)

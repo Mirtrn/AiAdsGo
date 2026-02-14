@@ -5,67 +5,143 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_DIR="${ROOT_DIR}/openclaw"
 OUT_DIR="${ROOT_DIR}/openclaw-prebuilt"
 TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
+TMP_OUT_DIR="${TMP_DIR}/out"
 ROOT_SKILLS_DIR="${ROOT_DIR}/skills"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
+SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
+SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")"
+BUILT_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+if [[ -z "${SOURCE_VERSION}" ]]; then
+  echo "❌ 无法读取 openclaw/package.json version"
+  exit 1
+fi
 
 echo "🚧 构建 OpenClaw 预编译产物（生产依赖）..."
 
 rm -rf "${TMP_DIR}"
-mkdir -p "${TMP_DIR}"
+mkdir -p "${TMP_OUT_DIR}"
 
-docker run --rm \
-  -v "${OPENCLAW_DIR}:/openclaw" \
-  -v "${TMP_DIR}:/out" \
-  -w /openclaw \
-  -e OPENCLAW_A2UI_SKIP_MISSING=1 \
-  -e CI=true \
-  -e HOST_UID="${HOST_UID}" \
-  -e HOST_GID="${HOST_GID}" \
-  node:22-bookworm-slim \
-  sh -lc '
+build_with_docker() {
+  docker run --rm \
+    -v "${OPENCLAW_DIR}:/openclaw" \
+    -v "${TMP_OUT_DIR}:/out" \
+    -w /openclaw \
+    -e OPENCLAW_A2UI_SKIP_MISSING=1 \
+    -e CI=true \
+    -e HOST_UID="${HOST_UID}" \
+    -e HOST_GID="${HOST_GID}" \
+    node:22-bookworm-slim \
+    sh -lc '
+      set -e
+      apt-get update && apt-get install -y git python3 make g++ bash >/dev/null
+      corepack enable
+      corepack prepare pnpm@10.23.0 --activate
+
+      # 构建阶段需要完整依赖
+      pnpm install --no-frozen-lockfile
+      OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+
+      # 仅保留生产依赖，避免将 devDependencies 带入镜像
+      # CI=true + confirmModulesPurge=false，避免无TTY环境交互中断
+      pnpm prune --prod --config.confirmModulesPurge=false
+
+      # 防御性清理（历史问题：@typescript/native-preview 导致镜像暴涨）
+      rm -rf node_modules/.pnpm/@typescript+native-preview* \
+             node_modules/@typescript/native-preview* \
+             node_modules/.cache
+
+      mkdir -p /out/dist
+      cp -r dist/* /out/dist/
+      cp -r extensions /out/extensions
+      cp -r skills /out/skills
+      if [ -d workspace-templates ]; then
+        cp -r workspace-templates /out/workspace-templates
+      fi
+      if [ -d docs/reference/templates ]; then
+        mkdir -p /out/docs/reference
+        cp -r docs/reference/templates /out/docs/reference/templates
+      fi
+      cp openclaw.mjs /out/openclaw.mjs
+      cp package.json /out/package.json
+      cp -a node_modules /out/node_modules
+      chown -R "${HOST_UID:-1000}:${HOST_GID:-1000}" /out
+    '
+}
+
+build_with_local_toolchain() {
+  local local_build_dir="${TMP_DIR}/openclaw-local-build"
+  echo "⚠️ 未检测到 Docker，使用本地 Node + pnpm 构建预编译产物..."
+
+  if ! command -v rsync >/dev/null 2>&1; then
+    echo "❌ 本地构建需要 rsync，但当前环境不存在 rsync"
+    exit 1
+  fi
+  if ! command -v corepack >/dev/null 2>&1; then
+    echo "❌ 本地构建需要 corepack，但当前环境不存在 corepack"
+    exit 1
+  fi
+
+  rm -rf "${local_build_dir}"
+  mkdir -p "${local_build_dir}"
+  rsync -a \
+    --exclude '.git' \
+    --exclude 'node_modules' \
+    "${OPENCLAW_DIR}/" "${local_build_dir}/"
+
+  (
     set -e
-    apt-get update && apt-get install -y git python3 make g++ bash >/dev/null
-    corepack enable
+    cd "${local_build_dir}"
     corepack prepare pnpm@10.23.0 --activate
-
-    # 构建阶段需要完整依赖
     pnpm install --no-frozen-lockfile
     OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
-
-    # 仅保留生产依赖，避免将 devDependencies 带入镜像
-    # CI=true + confirmModulesPurge=false，避免无TTY环境交互中断
     pnpm prune --prod --config.confirmModulesPurge=false
 
-    # 防御性清理（历史问题：@typescript/native-preview 导致镜像暴涨）
     rm -rf node_modules/.pnpm/@typescript+native-preview* \
            node_modules/@typescript/native-preview* \
            node_modules/.cache
 
-    mkdir -p /out/dist
-    cp -r dist/* /out/dist/
-    cp -r extensions /out/extensions
-    cp -r skills /out/skills
-    cp -r workspace-templates /out/workspace-templates
-    if [ -d docs/reference/templates ]; then
-      mkdir -p /out/docs/reference
-      cp -r docs/reference/templates /out/docs/reference/templates
+    mkdir -p "${TMP_OUT_DIR}/dist"
+    cp -r dist/* "${TMP_OUT_DIR}/dist/"
+    cp -r extensions "${TMP_OUT_DIR}/extensions"
+    cp -r skills "${TMP_OUT_DIR}/skills"
+    if [[ -d workspace-templates ]]; then
+      cp -r workspace-templates "${TMP_OUT_DIR}/workspace-templates"
     fi
-    cp openclaw.mjs /out/openclaw.mjs
-    cp package.json /out/package.json
-    cp -a node_modules /out/node_modules
-    chown -R "${HOST_UID:-1000}:${HOST_GID:-1000}" /out
-  '
+    if [[ -d docs/reference/templates ]]; then
+      mkdir -p "${TMP_OUT_DIR}/docs/reference"
+      cp -r docs/reference/templates "${TMP_OUT_DIR}/docs/reference/templates"
+    fi
+    cp openclaw.mjs "${TMP_OUT_DIR}/openclaw.mjs"
+    cp package.json "${TMP_OUT_DIR}/package.json"
+    cp -a node_modules "${TMP_OUT_DIR}/node_modules"
+  )
+}
+
+if command -v docker >/dev/null 2>&1; then
+  build_with_docker
+else
+  build_with_local_toolchain
+fi
 
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
-cp -r "${TMP_DIR}/"* "${OUT_DIR}/"
+cp -r "${TMP_OUT_DIR}/"* "${OUT_DIR}/"
 
 # 合并仓库根目录技能（autoads-report-qa 等）到预编译产物
 if [[ -d "${ROOT_SKILLS_DIR}" ]]; then
   mkdir -p "${OUT_DIR}/skills"
   cp -r "${ROOT_SKILLS_DIR}/." "${OUT_DIR}/skills/"
 fi
+
+cat > "${OUT_DIR}/.build-meta.json" <<EOF
+{
+  "source_version": "${SOURCE_VERSION}",
+  "source_commit": "${SOURCE_COMMIT}",
+  "built_at": "${BUILT_AT_UTC}"
+}
+EOF
 
 rm -rf "${TMP_DIR}"
 

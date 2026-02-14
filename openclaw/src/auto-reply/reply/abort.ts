@@ -20,39 +20,14 @@ import { normalizeCommandBody } from "../commands-registry.js";
 import { stripMentions, stripStructuralPrefixes } from "./mentions.js";
 import { clearSessionQueues } from "./queue.js";
 
-const ABORT_TRIGGERS = new Set([
-  "stop",
-  "esc",
-  "abort",
-  "wait",
-  "exit",
-  "interrupt",
-  "停止",
-  "停止任务",
-  "停止执行",
-  "停止任务执行",
-  "中止",
-  "终止",
-  "取消任务",
-  "取消执行",
-]);
+const ABORT_TRIGGERS = new Set(["stop", "esc", "abort", "wait", "exit", "interrupt"]);
 const ABORT_MEMORY = new Map<string, boolean>();
-
-function normalizeAbortTriggerText(text: string): string {
-  const trimmed = text.trim().toLowerCase();
-  if (!trimmed) {
-    return trimmed;
-  }
-
-  // Accept common punctuation/spacing variants from chat channels (e.g. "停止任务执行。")
-  return trimmed.replace(/[\s.,!?;:'"`~，。！？；：“”‘’、(){}[\]<>]+/g, "");
-}
 
 export function isAbortTrigger(text?: string): boolean {
   if (!text) {
     return false;
   }
-  const normalized = normalizeAbortTriggerText(text);
+  const normalized = text.trim().toLowerCase();
   return ABORT_TRIGGERS.has(normalized);
 }
 

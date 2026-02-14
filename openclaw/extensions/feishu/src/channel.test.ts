@@ -1,65 +1,48 @@
-import { describe, expect, it } from "vitest";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { describe, expect, it, vi } from "vitest";
+
+const probeFeishuMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./probe.js", () => ({
+  probeFeishu: probeFeishuMock,
+}));
+
 import { feishuPlugin } from "./channel.js";
 
-describe("feishu status summary", () => {
-  it("derives linked from probe result when snapshot.linked is missing", async () => {
-    const build = feishuPlugin.status?.buildChannelSummary;
-    expect(build).toBeTypeOf("function");
-    if (!build) {
-      return;
-    }
-
-    const summary = await build({
-      account: {
-        accountId: "main",
-        name: "main",
-        enabled: true,
-        tokenSource: "config",
-        config: {
-          appId: "cli_xxx",
-          appSecret: "secret",
+describe("feishuPlugin.status.probeAccount", () => {
+  it("uses current account credentials for multi-account config", async () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          enabled: true,
+          accounts: {
+            main: {
+              appId: "cli_main",
+              appSecret: "secret_main",
+              enabled: true,
+            },
+          },
         },
       },
-      cfg: {} as never,
-      defaultAccountId: "main",
-      snapshot: {
-        accountId: "main",
-        configured: true,
-        probe: { ok: true },
-      },
+    } as OpenClawConfig;
+
+    const account = feishuPlugin.config.resolveAccount(cfg, "main");
+    probeFeishuMock.mockResolvedValueOnce({ ok: true, appId: "cli_main" });
+
+    const result = await feishuPlugin.status?.probeAccount?.({
+      account,
+      timeoutMs: 1_000,
+      cfg,
     });
 
-    expect(summary.configured).toBe(true);
-    expect(summary.linked).toBe(true);
-  });
-
-  it("falls back to configured when probe/link data is unavailable", async () => {
-    const build = feishuPlugin.status?.buildChannelSummary;
-    expect(build).toBeTypeOf("function");
-    if (!build) {
-      return;
-    }
-
-    const summary = await build({
-      account: {
+    expect(probeFeishuMock).toHaveBeenCalledTimes(1);
+    expect(probeFeishuMock).toHaveBeenCalledWith(
+      expect.objectContaining({
         accountId: "main",
-        name: "main",
-        enabled: true,
-        tokenSource: "config",
-        config: {
-          appId: "cli_xxx",
-          appSecret: "secret",
-        },
-      },
-      cfg: {} as never,
-      defaultAccountId: "main",
-      snapshot: {
-        accountId: "main",
-        configured: false,
-      },
-    });
-
-    expect(summary.configured).toBe(false);
-    expect(summary.linked).toBe(false);
+        appId: "cli_main",
+        appSecret: "secret_main",
+      }),
+    );
+    expect(result).toMatchObject({ ok: true, appId: "cli_main" });
   });
 });

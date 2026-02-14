@@ -162,6 +162,41 @@ describe('syncOpenclawConfig user scope', () => {
     expect(process.env.OPENCLAW_TOKEN).toBe('gateway-test-token')
   })
 
+  it('syncs optional gateway rate-limit and tools config when JSON settings are valid', async () => {
+    getSettingsByCategoryMock.mockResolvedValueOnce([
+      {
+        key: 'gateway_auth_rate_limit_json',
+        value: JSON.stringify({
+          maxAttempts: 8,
+          windowMs: 60000,
+          lockoutMs: 300000,
+          exemptLoopback: false,
+        }),
+      },
+      {
+        key: 'gateway_tools_json',
+        value: JSON.stringify({
+          allow: ['message'],
+          deny: ['sessions_spawn'],
+        }),
+      },
+    ])
+
+    await syncOpenclawConfig({ reason: 'test-gateway-extended-settings' })
+
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.gateway.auth.rateLimit).toEqual({
+      maxAttempts: 8,
+      windowMs: 60000,
+      lockoutMs: 300000,
+      exemptLoopback: false,
+    })
+    expect(written.gateway.tools).toEqual({
+      allow: ['message'],
+      deny: ['sessions_spawn'],
+    })
+  })
+
   it('prefers global AI settings when startup sync has global rows', async () => {
     const existingConfig = {
       agents: {

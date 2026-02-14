@@ -92,6 +92,8 @@ const USER_SCOPED_KEYS = new Set([
   'openclaw_affiliate_sync_enabled',
   'openclaw_affiliate_sync_interval_hours',
   'openclaw_affiliate_sync_mode',
+  'gateway_auth_rate_limit_json',
+  'gateway_tools_json',
 ])
 
 const GLOBAL_SYNC_KEYS = new Set([
@@ -126,6 +128,8 @@ const USER_SYNC_KEYS = new Set([
   'feishu_strict_auto_bind',
   'feishu_groups_json',
   'feishu_accounts_json',
+  'gateway_auth_rate_limit_json',
+  'gateway_tools_json',
 ])
 
 const ALL_ALLOWED_KEYS = new Set([
