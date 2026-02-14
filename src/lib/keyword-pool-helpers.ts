@@ -14,7 +14,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
-import { normalizeLanguageCode } from './language-country-codes'
+import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import {
   detectCountryInKeyword,
@@ -29,7 +29,9 @@ import {
   isBrandVariant,
   isSemanticQuery,
   isBrandIrrelevant,
-  isBrandConcatenation
+  isBrandConcatenation,
+  detectPlatformsInKeyword,
+  extractPlatformFromUrl
 } from './keyword-quality-filter'
 import type { Offer } from './offers'
 
@@ -79,6 +81,16 @@ async function getGlobalKeywordCandidates(params: {
   if (!targetCountry || pureBrandKeywords.length === 0) return []
 
   const language = normalizeLanguageCode(targetLanguage || 'en')
+  const normalizedCountry = normalizeCountryCode(targetCountry)
+  const countryCandidates = Array.from(
+    new Set(
+      [normalizedCountry, targetCountry, targetCountry?.toUpperCase?.()]
+        .filter((value): value is string => Boolean(value && value.trim()))
+        .map(value => value.trim().toUpperCase())
+    )
+  )
+  if (countryCandidates.length === 0) return []
+
   const patterns = pureBrandKeywords
     .map(buildBrandLikePattern)
     .filter((p): p is string => Boolean(p))
@@ -86,16 +98,17 @@ async function getGlobalKeywordCandidates(params: {
   if (patterns.length === 0) return []
 
   const db = await getDatabase()
+  const countryPlaceholders = countryCandidates.map(() => '?').join(', ')
   const clauses = patterns.map(() => 'LOWER(keyword) LIKE ?').join(' OR ')
 
   try {
     const rows = await db.query(
       `SELECT keyword, search_volume, competition_level, avg_cpc_micros
        FROM global_keywords
-       WHERE country = ? AND language = ? AND (${clauses})
+       WHERE country IN (${countryPlaceholders}) AND language = ? AND (${clauses})
        ORDER BY search_volume DESC
        LIMIT ?`,
-      [targetCountry, language, ...patterns, limit]
+      [...countryCandidates, language, ...patterns, limit]
     ) as Array<{
       keyword: string
       search_volume: number | string | null
@@ -187,6 +200,52 @@ function mergeGlobalCandidates(params: {
   }
 
   return { added, updated }
+}
+
+function resolveCountryCodeSet(country?: string): Set<string> {
+  if (!country) return new Set()
+  const normalized = normalizeCountryCode(country)
+  return new Set(
+    [country, country.toUpperCase?.(), normalized]
+      .filter((value): value is string => Boolean(value && value.trim()))
+      .map(value => value.trim().toUpperCase())
+  )
+}
+
+function isGeoMismatch(keyword: string, targetCountry?: string): boolean {
+  if (!targetCountry) return false
+  const detectedCountries = detectCountryInKeyword(keyword)
+  if (detectedCountries.length === 0) return false
+
+  const targetCodes = resolveCountryCodeSet(targetCountry)
+  if (targetCodes.size === 0) return false
+
+  const normalizedDetectedCodes = new Set(
+    detectedCountries
+      .map(code => normalizeCountryCode(code))
+      .filter(Boolean)
+      .map(code => code.toUpperCase())
+  )
+
+  for (const code of targetCodes) {
+    if (normalizedDetectedCodes.has(code)) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function shouldFilterSemanticKeyword(keyword: string, productUrl?: string): boolean {
+  if (!isSemanticQuery(keyword)) return false
+
+  const urlPlatform = productUrl ? extractPlatformFromUrl(productUrl) : null
+  if (!urlPlatform) return true
+
+  const keywordPlatforms = detectPlatformsInKeyword(keyword)
+  if (keywordPlatforms.length === 0) return true
+
+  return !keywordPlatforms.includes(urlPlatform)
 }
 
 // ============================================
@@ -700,7 +759,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     const filtered = qualityFilterOAuth(
       Array.from(allKeywords.values()),
       brandName,
-      targetCountry
+      targetCountry,
+      pageUrl
     )
 
     console.log(`   过滤后: ${filtered.length} 个关键词`)
@@ -719,7 +779,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 function qualityFilterOAuth(
   keywords: PoolKeywordData[],
   brandName: string,
-  targetCountry?: string
+  targetCountry?: string,
+  productUrl?: string
 ): PoolKeywordData[] {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
   const dynamicThreshold = calculateDynamicThreshold(keywords)
@@ -753,18 +814,15 @@ function qualityFilterOAuth(
     }
 
     // 3. 语义查询词过滤
-    if (isSemanticQuery(kwLower)) {
+    if (shouldFilterSemanticKeyword(kwLower, productUrl)) {
       semanticRemoved++
       return false
     }
 
     // 4. 地理过滤
-    if (targetCountry) {
-      const detectedCountries = detectCountryInKeyword(kw.keyword)
-      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
-        geoRemoved++
-        return false
-      }
+    if (isGeoMismatch(kw.keyword, targetCountry)) {
+      geoRemoved++
+      return false
     }
 
     // 5. 搜索量过滤（纯品牌词豁免）
@@ -1028,7 +1086,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     const filtered = qualityFilterServiceAccount(
       Array.from(allKeywords.values()),
       brandName,
-      targetCountry
+      targetCountry,
+      offer.final_url || offer.url || undefined
     )
 
     console.log(`   过滤后: ${filtered.length} 个关键词`)
@@ -1047,7 +1106,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
 function qualityFilterServiceAccount(
   keywords: PoolKeywordData[],
   brandName: string,
-  targetCountry?: string
+  targetCountry?: string,
+  productUrl?: string
 ): PoolKeywordData[] {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
 
@@ -1075,18 +1135,15 @@ function qualityFilterServiceAccount(
     }
 
     // 3. 语义查询词过滤
-    if (isSemanticQuery(kwLower)) {
+    if (shouldFilterSemanticKeyword(kwLower, productUrl)) {
       semanticRemoved++
       return false
     }
 
     // 4. 地理过滤
-    if (targetCountry) {
-      const detectedCountries = detectCountryInKeyword(kw.keyword)
-      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
-        geoRemoved++
-        return false
-      }
+    if (isGeoMismatch(kw.keyword, targetCountry)) {
+      geoRemoved++
+      return false
     }
 
     // 无搜索量过滤（服务账号无法获取搜索量）
@@ -1295,12 +1352,9 @@ export function filterKeywords(
     }
 
     // ✅ 地理位置过滤（过滤非目标国家的关键词）
-    if (targetCountry) {
-      const detectedCountries = detectCountryInKeyword(kw.keyword)
-      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
-        geoFilteredCount++
-        continue
-      }
+    if (isGeoMismatch(kw.keyword, targetCountry)) {
+      geoFilteredCount++
+      continue
     }
 
     kept.push(kw)

@@ -38,4 +38,19 @@ describe('keyword-pool-helpers.filterKeywords', () => {
     expect(texts).not.toContain('cat toy')
     expect(texts).not.toContain('random thing')
   })
+
+  it('normalizes UK target country when applying geo filter', () => {
+    const input: PoolKeywordData[] = [
+      { keyword: 'hoover', searchVolume: 1000, source: 'TEST' },
+      { keyword: 'hoover uk', searchVolume: 1000, source: 'TEST' },
+      { keyword: 'hoover france', searchVolume: 1000, source: 'TEST' },
+    ]
+
+    const out = filterKeywords(input, 'Hoover', 'vacuum', 'UK', 'Hoover vacuum cleaner')
+    const texts = out.map(k => k.keyword.toLowerCase())
+
+    expect(texts).toContain('hoover')
+    expect(texts).toContain('hoover uk')
+    expect(texts).not.toContain('hoover france')
+  })
 })
