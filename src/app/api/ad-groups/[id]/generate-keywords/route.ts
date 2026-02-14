@@ -5,6 +5,7 @@ import { findOfferById } from '@/lib/offers'
 import { generateNegativeKeywords } from '@/lib/keyword-generator'
 import { getUnifiedKeywordData } from '@/lib/unified-keyword-service'
 import { createKeywordsBatch, CreateKeywordInput } from '@/lib/keywords'
+import { inferNegativeKeywordMatchType } from '@/lib/campaign-publish/negative-keyword-match-type'
 
 /**
  * POST /api/ad-groups/:id/generate-keywords
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           userId: parseInt(userId, 10),
           adGroupId: adGroup.id,
           keywordText: negKw,
-          matchType: 'EXACT', // 否定关键词通常使用完全匹配
+          matchType: inferNegativeKeywordMatchType(negKw),
           status: 'PAUSED',
           isNegative: true,
           aiGenerated: true,  // 否定关键词仍然由AI生成

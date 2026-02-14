@@ -286,7 +286,18 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
     )
   }
 
-  console.log(`✅ 生成 ${negatives.length} 个否定关键词（10类全覆盖，零维护）`)
+  const dedupedNegatives: string[] = []
+  const seen = new Set<string>()
+  for (const rawKeyword of negatives) {
+    const keyword = String(rawKeyword ?? '').trim().replace(/\s+/g, ' ')
+    if (!keyword) continue
+    const key = keyword.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    dedupedNegatives.push(keyword)
+  }
+
+  console.log(`✅ 生成 ${dedupedNegatives.length} 个否定关键词（10类全覆盖，零维护）`)
   console.log(`   - 1. 低价值搜索: 9个`)
   console.log(`   - 2. 信息查询: 13个`)
   console.log(`   - 3. 招聘/工作: 7个`)
@@ -297,9 +308,12 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
   console.log(`   - 8. DIY/自制: 5个`)
   console.log(`   - 9. 下载/虚拟: 7个`)
   console.log(`   - 10. 地域/渠道: 6个`)
-  console.log(`   - 多语言词: ${negatives.length - 77}个`)
+  console.log(`   - 多语言词: ${Math.max(dedupedNegatives.length - 77, 0)}个`)
+  if (dedupedNegatives.length !== negatives.length) {
+    console.log(`   - 去重移除: ${negatives.length - dedupedNegatives.length}个`)
+  }
 
-  return negatives
+  return dedupedNegatives
 }
 
 /**

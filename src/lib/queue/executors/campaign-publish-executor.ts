@@ -39,6 +39,10 @@ import { invalidateOfferCache } from '@/lib/api-cache'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { addUrlSwapTargetForOfferCampaign } from '@/lib/url-swap'
 import { applyCampaignTransition } from '@/lib/campaign-state-machine'
+import {
+  normalizeNegativeKeywordMatchTypeMap,
+  resolveNegativeKeywordMatchType,
+} from '@/lib/campaign-publish/negative-keyword-match-type'
 
 function describeLoginCustomerId(value: string | undefined): string {
   return value || 'null(omit)'
@@ -74,6 +78,10 @@ export interface CampaignPublishTaskData {
         }
     >
     negativeKeywords?: string[]
+    // 可选：按关键词指定否定词匹配类型（优先级高于自动推断）
+    negativeKeywordMatchType?: Record<string, 'EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER' | 'BMM'>
+    // 兼容历史字段命名
+    negativeKeywordsMatchType?: Record<string, 'EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER' | 'BMM'>
   }
 
   // 创意信息
@@ -635,15 +643,51 @@ export async function executeCampaignPublish(
       })
       .filter((op): op is NonNullable<typeof op> => op !== null)
 
+    const negativeKeywordMatchTypeMap = normalizeNegativeKeywordMatchTypeMap(
+      campaignConfig.negativeKeywordMatchType ||
+      campaignConfig.negativeKeywordsMatchType
+    )
+
     // 9. 准备否定关键词数据
-    const negativeKeywordOperations = (campaignConfig.negativeKeywords && campaignConfig.negativeKeywords.length > 0)
-      ? campaignConfig.negativeKeywords.map((keyword: string) => ({
-          keywordText: keyword,
-          matchType: 'EXACT' as const,
+    const rawNegativeKeywords = Array.isArray(campaignConfig.negativeKeywords)
+      ? campaignConfig.negativeKeywords
+      : []
+    const uniqueNegativeKeywords: string[] = []
+    const seenNegativeKeywords = new Set<string>()
+    for (const rawKeyword of rawNegativeKeywords) {
+      const keywordText = typeof rawKeyword === 'string'
+        ? rawKeyword.trim().replace(/\s+/g, ' ')
+        : ''
+      if (!keywordText) continue
+
+      const normalizedKey = keywordText.toLowerCase()
+      if (seenNegativeKeywords.has(normalizedKey)) continue
+
+      seenNegativeKeywords.add(normalizedKey)
+      uniqueNegativeKeywords.push(keywordText)
+    }
+
+    if (rawNegativeKeywords.length !== uniqueNegativeKeywords.length) {
+      console.log(
+        `🧹 否定关键词去重: 原始${rawNegativeKeywords.length}个 -> 有效${uniqueNegativeKeywords.length}个`
+      )
+    }
+
+    const negativeKeywordOperations = uniqueNegativeKeywords
+      .map((keywordText) => {
+        const matchType = resolveNegativeKeywordMatchType({
+          keyword: keywordText,
+          explicitMap: negativeKeywordMatchTypeMap,
+        })
+
+        return {
+          keywordText,
+          matchType,
+          negativeKeywordMatchType: matchType,
           status: 'ENABLED' as const,
           isNegative: true
-        }))
-      : []
+        }
+      })
 
     // 10. 准备Callout Extensions数据
     // 🔧 修复：支持两种格式 - 字符串数组 ["a","b"] 和对象数组 [{"text":"a"}]

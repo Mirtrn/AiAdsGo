@@ -146,6 +146,7 @@ function extractAllSuggestions(analysis: ScoreAnalysis): string[] {
  *     maxCpcBid: number
  *     keywords: string[]
  *     negativeKeywords: string[]
+ *     negativeKeywordMatchType?: Record<string, 'EXACT' | 'PHRASE' | 'BROAD'>
  *   }
  *   pauseOldCampaigns: boolean
  *   enableSmartOptimization?: boolean  // 启用智能优化（默认false）
@@ -1111,7 +1112,11 @@ export async function POST(request: NextRequest) {
               budgetType: _campaignConfig.budgetType,
               maxCpcBid: _campaignConfig.maxCpcBid,
               keywords: _campaignConfig.keywords || [],
-              negativeKeywords: _campaignConfig.negativeKeywords || []
+              negativeKeywords: _campaignConfig.negativeKeywords || [],
+              negativeKeywordMatchType:
+                _campaignConfig.negativeKeywordMatchType ||
+                _campaignConfig.negativeKeywordsMatchType ||
+                undefined
             },
             creative: {
               id: creative.id,

@@ -82,6 +82,8 @@ interface CampaignConfig {
   maxCpcBid: number
   keywords: string[]
   negativeKeywords: string[]
+  negativeKeywordMatchType?: Record<string, 'EXACT' | 'PHRASE' | 'BROAD'>
+  negativeKeywordsMatchType?: Record<string, 'EXACT' | 'PHRASE' | 'BROAD'>
 }
 
 interface GoogleAdsAccount {

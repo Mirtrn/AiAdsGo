@@ -11,7 +11,7 @@
  * 4. 移除重复的确认按钮，点击"下一步"时验证配置
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type DragEvent } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,10 +24,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
-import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2 } from 'lucide-react'
+import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2, GripVertical } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'
+import {
+  inferNegativeKeywordMatchType,
+  normalizeNegativeKeywordMatchTypeMap,
+  type NegativeKeywordMatchType,
+} from '@/lib/campaign-publish/negative-keyword-match-type'
 
 // 格式化搜索量显示
 const formatSearchVolume = (volume?: number): string => {
@@ -36,6 +41,53 @@ const formatSearchVolume = (volume?: number): string => {
   if (volume < 10000) return `${(volume / 1000).toFixed(1)}K`
   if (volume < 1000000) return `${Math.floor(volume / 1000)}K`
   return `${(volume / 1000000).toFixed(1)}M`
+}
+
+const NEGATIVE_KEYWORD_MATCH_TYPES: NegativeKeywordMatchType[] = ['EXACT', 'PHRASE', 'BROAD']
+
+const NEGATIVE_KEYWORD_MATCH_TYPE_LABELS: Record<NegativeKeywordMatchType, string> = {
+  EXACT: '精确匹配',
+  PHRASE: '词组匹配',
+  BROAD: '广泛匹配',
+}
+
+const normalizeNegativeKeywordText = (value: unknown): string => {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+const buildNegativeKeywordState = (
+  rawNegativeKeywords: unknown,
+  rawNegativeKeywordMatchType: unknown
+): {
+  negativeKeywords: string[]
+  negativeKeywordMatchType: Record<string, NegativeKeywordMatchType>
+} => {
+  const inputKeywords = Array.isArray(rawNegativeKeywords) ? rawNegativeKeywords : []
+  const explicitMap = normalizeNegativeKeywordMatchTypeMap(
+    rawNegativeKeywordMatchType as Record<string, unknown> | null | undefined
+  )
+
+  const seen = new Set<string>()
+  const normalizedKeywords: string[] = []
+  const normalizedMap: Record<string, NegativeKeywordMatchType> = {}
+
+  inputKeywords.forEach((keyword) => {
+    const text = normalizeNegativeKeywordText(keyword)
+    if (!text) return
+    const key = text.toLowerCase()
+    if (seen.has(key)) return
+
+    seen.add(key)
+    normalizedKeywords.push(text)
+    normalizedMap[text] = explicitMap.get(key) || inferNegativeKeywordMatchType(text)
+  })
+
+  return {
+    negativeKeywords: normalizedKeywords,
+    negativeKeywordMatchType: normalizedMap,
+  }
 }
 
 /**
@@ -166,6 +218,7 @@ interface CampaignConfig {
     highTopPageBid?: number
   }>
   negativeKeywords: string[]
+  negativeKeywordMatchType: Record<string, NegativeKeywordMatchType>
 
   // Ad Level
   adName: string
@@ -249,15 +302,29 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
   const initialNaming = generateInitialNaming()
 
-  const [config, setConfig] = useState<CampaignConfig>(() => (
-    initialConfig
-      ? {
-          ...initialConfig,
-          // 🔧 兼容：历史/AI不稳定输出可能生成超出Google Ads限制的数量（>15 headlines 或 >4 descriptions）
-          headlines: Array.isArray(initialConfig.headlines) ? initialConfig.headlines.slice(0, 15) : [],
-          descriptions: Array.isArray(initialConfig.descriptions) ? initialConfig.descriptions.slice(0, 4) : [],
-        }
-      : {
+  const [config, setConfig] = useState<CampaignConfig>(() => {
+    if (initialConfig) {
+      const negativeKeywordState = buildNegativeKeywordState(
+        initialConfig.negativeKeywords,
+        initialConfig.negativeKeywordMatchType || initialConfig.negativeKeywordsMatchType
+      )
+
+      return {
+        ...initialConfig,
+        // 🔧 兼容：历史/AI不稳定输出可能生成超出Google Ads限制的数量（>15 headlines 或 >4 descriptions）
+        headlines: Array.isArray(initialConfig.headlines) ? initialConfig.headlines.slice(0, 15) : [],
+        descriptions: Array.isArray(initialConfig.descriptions) ? initialConfig.descriptions.slice(0, 4) : [],
+        negativeKeywords: negativeKeywordState.negativeKeywords,
+        negativeKeywordMatchType: negativeKeywordState.negativeKeywordMatchType,
+      }
+    }
+
+    const negativeKeywordState = buildNegativeKeywordState(
+      selectedCreative?.negativeKeywords || [],
+      selectedCreative?.negativeKeywordMatchType || selectedCreative?.negativeKeywordsMatchType
+    )
+
+    return {
       // Campaign Level - 使用统一命名规范
       campaignName: initialNaming.campaignName,
       budgetAmount: getDefaultBudget(accountCurrency),  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
@@ -303,7 +370,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
         }
       }),
       // 🎯 新增：从创意中读取否定关键词
-      negativeKeywords: selectedCreative?.negativeKeywords || [],
+      negativeKeywords: negativeKeywordState.negativeKeywords,
+      negativeKeywordMatchType: negativeKeywordState.negativeKeywordMatchType,
 
       // Ad Level - 使用统一命名规范
       adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
@@ -316,7 +384,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       callouts: selectedCreative?.callouts || [],
       sitelinks: selectedCreative?.sitelinks || []
     }
-  ))
+  })
 
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
@@ -326,6 +394,9 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const [batchKeywordInput, setBatchKeywordInput] = useState('')
   const [selectedKeywordIndexes, setSelectedKeywordIndexes] = useState<Set<number>>(new Set())
   const [batchMatchType, setBatchMatchType] = useState<'BROAD' | 'PHRASE' | 'EXACT'>('PHRASE')
+  const [newNegativeKeyword, setNewNegativeKeyword] = useState('')
+  const [newNegativeKeywordMatchType, setNewNegativeKeywordMatchType] = useState<NegativeKeywordMatchType>('EXACT')
+  const [draggingNegativeKeyword, setDraggingNegativeKeyword] = useState<string | null>(null)
 
   // 🔧 修复(2025-12-27): 当selectedCreative变化时，重新初始化配置
   // 解决用户在第1步切换创意后，第3步仍显示旧创意参数的问题
@@ -333,6 +404,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     if (!selectedCreative) return
 
     const naming = generateInitialNaming()
+
+    const negativeKeywordState = buildNegativeKeywordState(
+      selectedCreative?.negativeKeywords || [],
+      selectedCreative?.negativeKeywordMatchType || selectedCreative?.negativeKeywordsMatchType
+    )
 
     setConfig({
       // Campaign Level - 使用统一命名规范
@@ -371,7 +447,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           highTopPageBid: k.highTopPageBid || 0
         }
       }),
-      negativeKeywords: selectedCreative?.negativeKeywords || [],
+      negativeKeywords: negativeKeywordState.negativeKeywords,
+      negativeKeywordMatchType: negativeKeywordState.negativeKeywordMatchType,
 
       // Ad Level - 使用统一命名规范
       adName: naming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
@@ -447,6 +524,96 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       return next
     })
   }
+
+  const upsertNegativeKeywordState = (
+    nextNegativeKeywords: string[],
+    nextNegativeKeywordMatchType: Record<string, NegativeKeywordMatchType>
+  ) => {
+    setConfig(prev => ({
+      ...prev,
+      negativeKeywords: nextNegativeKeywords,
+      negativeKeywordMatchType: nextNegativeKeywordMatchType,
+    }))
+    setValidationErrors([])
+  }
+
+  const handleAddNegativeKeyword = () => {
+    const normalizedKeyword = normalizeNegativeKeywordText(newNegativeKeyword)
+    if (!normalizedKeyword) {
+      showError('否定关键词不能为空', '请输入后再添加')
+      return
+    }
+
+    const existingKeyword = config.negativeKeywords.find(
+      item => item.toLowerCase() === normalizedKeyword.toLowerCase()
+    )
+
+    const finalKeyword = existingKeyword || normalizedKeyword
+    const nextKeywords = existingKeyword
+      ? [...config.negativeKeywords]
+      : [...config.negativeKeywords, finalKeyword]
+
+    const nextMatchType: Record<string, NegativeKeywordMatchType> = {}
+    nextKeywords.forEach((keyword) => {
+      nextMatchType[keyword] = config.negativeKeywordMatchType[keyword] || inferNegativeKeywordMatchType(keyword)
+    })
+    nextMatchType[finalKeyword] = newNegativeKeywordMatchType
+
+    upsertNegativeKeywordState(nextKeywords, nextMatchType)
+    setNewNegativeKeyword('')
+  }
+
+  const handleRemoveNegativeKeyword = (keywordToRemove: string) => {
+    const nextKeywords = config.negativeKeywords.filter(keyword => keyword !== keywordToRemove)
+    const nextMatchType: Record<string, NegativeKeywordMatchType> = {}
+    nextKeywords.forEach((keyword) => {
+      nextMatchType[keyword] = config.negativeKeywordMatchType[keyword] || inferNegativeKeywordMatchType(keyword)
+    })
+    upsertNegativeKeywordState(nextKeywords, nextMatchType)
+  }
+
+  const handleMoveNegativeKeyword = (keywordToMove: string, targetMatchType: NegativeKeywordMatchType) => {
+    const existingKeyword = config.negativeKeywords.find(
+      keyword => keyword.toLowerCase() === keywordToMove.toLowerCase()
+    )
+    if (!existingKeyword) return
+
+    const nextMatchType: Record<string, NegativeKeywordMatchType> = {}
+    config.negativeKeywords.forEach((keyword) => {
+      nextMatchType[keyword] = config.negativeKeywordMatchType[keyword] || inferNegativeKeywordMatchType(keyword)
+    })
+    nextMatchType[existingKeyword] = targetMatchType
+
+    upsertNegativeKeywordState([...config.negativeKeywords], nextMatchType)
+  }
+
+  const handleNegativeKeywordDragStart = (event: DragEvent<HTMLDivElement>, keyword: string) => {
+    event.dataTransfer.setData('text/plain', keyword)
+    event.dataTransfer.effectAllowed = 'move'
+    setDraggingNegativeKeyword(keyword)
+  }
+
+  const handleNegativeKeywordDrop = (event: DragEvent<HTMLDivElement>, targetMatchType: NegativeKeywordMatchType) => {
+    event.preventDefault()
+    const droppedKeyword = event.dataTransfer.getData('text/plain') || draggingNegativeKeyword
+    if (!droppedKeyword) return
+
+    handleMoveNegativeKeyword(droppedKeyword, targetMatchType)
+    setDraggingNegativeKeyword(null)
+  }
+
+  const groupedNegativeKeywords = NEGATIVE_KEYWORD_MATCH_TYPES.reduce(
+    (acc, matchType) => {
+      acc[matchType] = []
+      return acc
+    },
+    {} as Record<NegativeKeywordMatchType, string[]>
+  )
+
+  config.negativeKeywords.forEach((keyword) => {
+    const matchType = config.negativeKeywordMatchType[keyword] || inferNegativeKeywordMatchType(keyword)
+    groupedNegativeKeywords[matchType].push(keyword)
+  })
 
   const parseBatchKeywords = (input: string) => input
     .split(/\r?\n/)
@@ -1130,6 +1297,97 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   </Button>
                 </div>
               ))}
+            </div>
+
+            <Separator className="my-4" />
+
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Label>
+                  否定关键词
+                  <Badge variant="secondary" className="ml-1">{config.negativeKeywords.length} 个</Badge>
+                </Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={newNegativeKeyword}
+                    onChange={(e) => setNewNegativeKeyword(e.target.value)}
+                    placeholder="输入否定关键词"
+                    className="w-[220px]"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleAddNegativeKeyword()
+                      }
+                    }}
+                  />
+                  <Select
+                    value={newNegativeKeywordMatchType}
+                    onValueChange={(value) => setNewNegativeKeywordMatchType(value as NegativeKeywordMatchType)}
+                  >
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EXACT">精确匹配</SelectItem>
+                      <SelectItem value="PHRASE">词组匹配</SelectItem>
+                      <SelectItem value="BROAD">广泛匹配</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleAddNegativeKeyword} variant="outline" size="sm">
+                    <Plus className="w-4 h-4 mr-1" />
+                    添加
+                  </Button>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-500">
+                支持拖拽关键词到不同匹配类型分组，快速调整否定词策略（不再一行一个配置）。
+              </p>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                {NEGATIVE_KEYWORD_MATCH_TYPES.map((matchType) => (
+                  <div
+                    key={matchType}
+                    className="rounded-lg border bg-gray-50/60 p-3"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => handleNegativeKeywordDrop(event, matchType)}
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-medium">{NEGATIVE_KEYWORD_MATCH_TYPE_LABELS[matchType]}</span>
+                      <Badge variant="outline">{groupedNegativeKeywords[matchType].length}</Badge>
+                    </div>
+
+                    {groupedNegativeKeywords[matchType].length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {groupedNegativeKeywords[matchType].map((keyword) => (
+                          <div
+                            key={keyword}
+                            draggable
+                            onDragStart={(event) => handleNegativeKeywordDragStart(event, keyword)}
+                            onDragEnd={() => setDraggingNegativeKeyword(null)}
+                            className="group inline-flex cursor-grab items-center gap-1 rounded-full border bg-white px-2 py-1 text-xs shadow-sm"
+                          >
+                            <GripVertical className="h-3 w-3 text-gray-400" />
+                            <span>{keyword}</span>
+                            <button
+                              type="button"
+                              className="text-gray-400 transition-colors hover:text-red-500"
+                              onClick={() => handleRemoveNegativeKeyword(keyword)}
+                              aria-label={`删除否定关键词 ${keyword}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded border border-dashed bg-white p-3 text-xs text-gray-400">
+                        拖拽到此分组
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </CardContent>
