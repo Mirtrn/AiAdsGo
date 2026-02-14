@@ -7,6 +7,7 @@ export {
 } from "./pi-embedded-helpers/bootstrap.js";
 export {
   classifyFailoverReason,
+  formatAuthOrBillingErrorText,
   formatRawAssistantErrorForUi,
   formatAssistantErrorText,
   getApiErrorPayloadFingerprint,

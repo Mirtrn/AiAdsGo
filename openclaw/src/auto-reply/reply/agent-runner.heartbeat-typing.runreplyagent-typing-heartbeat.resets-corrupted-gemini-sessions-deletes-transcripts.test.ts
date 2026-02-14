@@ -240,4 +240,34 @@ describe("runReplyAgent typing (heartbeat)", () => {
       text: expect.stringContaining("Message ordering conflict"),
     });
   });
+  it("returns friendly message for billing errors thrown before reply", async () => {
+    runEmbeddedPiAgentMock.mockImplementationOnce(async () => {
+      throw new Error("402 payment required: credit balance too low");
+    });
+
+    const { run } = createMinimalRun({});
+    const res = await run();
+
+    expect(res).toMatchObject({
+      text: expect.stringContaining("billing issue"),
+    });
+    expect(res).toMatchObject({
+      text: expect.not.stringContaining("Logs: openclaw logs --follow"),
+    });
+  });
+  it("returns friendly message for expired auth errors thrown before reply", async () => {
+    runEmbeddedPiAgentMock.mockImplementationOnce(async () => {
+      throw new Error("401 invalid api key: token has expired");
+    });
+
+    const { run } = createMinimalRun({});
+    const res = await run();
+
+    expect(res).toMatchObject({
+      text: expect.stringContaining("authorization is expired or invalid"),
+    });
+    expect(res).toMatchObject({
+      text: expect.not.stringContaining("Logs: openclaw logs --follow"),
+    });
+  });
 });

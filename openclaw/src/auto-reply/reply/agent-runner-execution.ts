@@ -11,6 +11,7 @@ import { getCliSessionId } from "../../agents/cli-session.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
+  formatAuthOrBillingErrorText,
   isCompactionFailureError,
   isContextOverflowError,
   isLikelyContextOverflowError,
@@ -575,10 +576,13 @@ export async function runAgentTurnWithFallback(params: {
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
       const trimmedMessage = message.replace(/\.\s*$/, "");
+      const authOrBillingText = formatAuthOrBillingErrorText(trimmedMessage);
       const fallbackText = isContextOverflow
         ? "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model."
         : isRoleOrderingError
           ? "⚠️ Message ordering conflict - please try again. If this persists, use /new to start a fresh session."
+          : authOrBillingText
+            ? `⚠️ ${authOrBillingText}`
           : `⚠️ Agent failed before reply: ${trimmedMessage}.\nLogs: openclaw logs --follow`;
 
       return {

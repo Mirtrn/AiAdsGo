@@ -53,4 +53,16 @@ describe("formatAssistantErrorText", () => {
     );
     expect(formatAssistantErrorText(msg)).toBe("LLM error server_error: Something exploded");
   });
+  it("returns a friendly message for billing/quota errors", () => {
+    const msg = makeAssistantError(
+      "LLM request rejected: Your credit balance is too low. Please go to Plans & Billing.",
+    );
+    expect(formatAssistantErrorText(msg)).toContain("billing issue");
+    expect(formatAssistantErrorText(msg)).toContain("recharge");
+  });
+  it("returns a friendly message for expired/invalid auth errors", () => {
+    const msg = makeAssistantError("401 invalid api key: token has expired");
+    expect(formatAssistantErrorText(msg)).toContain("authorization is expired or invalid");
+    expect(formatAssistantErrorText(msg)).toContain("reconnect");
+  });
 });

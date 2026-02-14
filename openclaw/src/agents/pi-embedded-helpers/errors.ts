@@ -359,6 +359,11 @@ export function formatAssistantErrorText(
     );
   }
 
+  const authOrBillingText = formatAuthOrBillingErrorText(raw);
+  if (authOrBillingText) {
+    return authOrBillingText;
+  }
+
   const invalidRequest = raw.match(/"type":"invalid_request_error".*?"message":"([^"]+)"/);
   if (invalidRequest?.[1]) {
     return `LLM request rejected: ${invalidRequest[1]}`;
@@ -401,6 +406,11 @@ export function sanitizeUserFacingText(text: string): string {
       "Context overflow: prompt too large for the model. " +
       "Try again with less input or a larger-context model."
     );
+  }
+
+  const authOrBillingText = formatAuthOrBillingErrorText(trimmed);
+  if (authOrBillingText) {
+    return authOrBillingText;
   }
 
   if (isRawApiErrorPayload(trimmed) || isLikelyHttpErrorText(trimmed)) {
@@ -473,6 +483,11 @@ const ERROR_PATTERNS = {
   ],
 } as const;
 
+const FRIENDLY_BILLING_ERROR_TEXT =
+  "AI model billing issue detected (insufficient balance or payment required). Please recharge and try again.";
+const FRIENDLY_AUTH_ERROR_TEXT =
+  "AI model authorization is expired or invalid. Please reconnect credentials and try again.";
+
 const TOOL_CALL_INPUT_MISSING_RE =
   /tool_(?:use|call)\.(?:input|arguments).*?(?:field required|required)/i;
 const TOOL_CALL_INPUT_PATH_RE =
@@ -534,6 +549,19 @@ export function isBillingAssistantError(msg: AssistantMessage | undefined): bool
 
 export function isAuthErrorMessage(raw: string): boolean {
   return matchesErrorPatterns(raw, ERROR_PATTERNS.auth);
+}
+
+export function formatAuthOrBillingErrorText(raw: string): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  if (isBillingErrorMessage(raw)) {
+    return FRIENDLY_BILLING_ERROR_TEXT;
+  }
+  if (isAuthErrorMessage(raw)) {
+    return FRIENDLY_AUTH_ERROR_TEXT;
+  }
+  return undefined;
 }
 
 export function isOverloadedErrorMessage(raw: string): boolean {
