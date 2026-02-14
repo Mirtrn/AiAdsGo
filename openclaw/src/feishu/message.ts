@@ -16,7 +16,7 @@ import {
 } from "./config.js";
 import { resolveFeishuMedia, type FeishuMediaRef } from "./download.js";
 import { readFeishuAllowFromStore, upsertFeishuPairingRequest } from "./pairing-store.js";
-import { sendMessageFeishu } from "./send.js";
+import { sendMessageFeishu, type FeishuSendOpts } from "./send.js";
 import { FeishuStreamingSession } from "./streaming-card.js";
 
 const logger = getChildLogger({ module: "feishu-message" });
@@ -31,6 +31,14 @@ const FEISHU_PROCESSING_HINT_TEXT_EN =
 
 export const resolveFeishuProcessingHintText = (messageText: string): string =>
   CJK_TEXT_RE.test(messageText) ? FEISHU_PROCESSING_HINT_TEXT_ZH : FEISHU_PROCESSING_HINT_TEXT_EN;
+
+export function isFeishuGroupSubscriptionError(error: unknown): boolean {
+  const message = formatErrorMessage(error).toLowerCase();
+  return (
+    message.includes("no active subscription found for this group") ||
+    (message.includes("subscription") && message.includes("group") && message.includes("403"))
+  );
+}
 
 type FeishuSender = {
   id?: string;
@@ -623,6 +631,39 @@ export async function processFeishuMessage(
   );
   let processingHintSent = false;
   let processingHintSending = false;
+  let groupSubscriptionFallbackUsed = false;
+
+  const sendFeishuReplyWithGroupFallback = async (
+    content: Record<string, unknown> | string,
+    opts: FeishuSendOpts = {},
+  ) => {
+    try {
+      await sendMessageFeishu(client, chatId, content, {
+        ...opts,
+        receiveIdType: "chat_id",
+      });
+      return;
+    } catch (err) {
+      if (!isGroup || !isFeishuGroupSubscriptionError(err)) {
+        throw err;
+      }
+
+      const fallbackOpenId = senderOpenId ?? (await ensureSenderOpenId());
+      if (!fallbackOpenId) {
+        throw err;
+      }
+
+      groupSubscriptionFallbackUsed = true;
+      logger.warn(
+        `Feishu group chat ${chatId} has no active subscription, fallback to DM ${fallbackOpenId}: ${formatErrorMessage(err)}`,
+      );
+
+      await sendMessageFeishu(client, fallbackOpenId, content, {
+        ...opts,
+        receiveIdType: "open_id",
+      });
+    }
+  };
 
   const sendProcessingHint = async () => {
     if (processingHintSent || processingHintSending) {
@@ -630,13 +671,10 @@ export async function processFeishuMessage(
     }
     processingHintSending = true;
     try {
-      await sendMessageFeishu(
-        client,
-        chatId,
+      await sendFeishuReplyWithGroupFallback(
         { text: processingHintText },
         {
           msgType: "text",
-          receiveIdType: "chat_id",
         },
       );
       processingHintSent = true;
@@ -721,28 +759,12 @@ export async function processFeishuMessage(
             for (let i = 0; i < mediaUrls.length; i++) {
               const mediaUrl = mediaUrls[i];
               const caption = i === 0 ? payload.text || "" : "";
-              await sendMessageFeishu(
-                client,
-                chatId,
-                { text: caption },
-                {
-                  mediaUrl,
-                  receiveIdType: "chat_id",
-                },
-              );
+              await sendFeishuReplyWithGroupFallback({ text: caption }, { mediaUrl });
             }
           } else if (payload.text) {
             // If streaming wasn't used, send as regular message
             if (!streamingSession?.isActive()) {
-              await sendMessageFeishu(
-                client,
-                chatId,
-                { text: payload.text },
-                {
-                  msgType: "text",
-                  receiveIdType: "chat_id",
-                },
-              );
+              await sendFeishuReplyWithGroupFallback({ text: payload.text }, { msgType: "text" });
             }
           }
         },
@@ -823,6 +845,7 @@ export async function processFeishuMessage(
       metadata: {
         wasMentioned,
         hasMedia: Boolean(media),
+        groupSubscriptionFallbackUsed,
       },
     });
   } catch (err) {
