@@ -28,6 +28,7 @@ import {
 } from '@/lib/launch-scores'
 import { generateNamingScheme, parseAdGroupName } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 
@@ -994,10 +995,44 @@ export async function POST(request: NextRequest) {
             : (parsedAdGroupName!.creativeId === creative.id ? baseAdGroupName : naming.adGroupName))
         : (allowCustomAdGroupName ? baseAdGroupName : naming.adGroupName)
       const resolvedAdName = baseAdName || naming.adName
+
+      const effectiveCreativeForPersistence = buildEffectiveCreative({
+        dbCreative: {
+          headlines: creative.headlines,
+          descriptions: creative.descriptions,
+          keywords: creative.keywords,
+          negativeKeywords: creative.negative_keywords,
+          callouts: creative.callouts,
+          sitelinks: creative.sitelinks,
+          finalUrl: creative.final_url,
+          finalUrlSuffix: creative.final_url_suffix,
+        },
+        campaignConfig: (typeof _enableSmartOptimization === 'boolean' && _enableSmartOptimization)
+          ? {
+              ..._campaignConfig,
+              headlines: undefined,
+              descriptions: undefined,
+              callouts: undefined,
+              sitelinks: undefined,
+              finalUrls: undefined,
+            }
+          : _campaignConfig,
+        offerUrlFallback: offer.url,
+      })
+
+      const persistedKeywordConfig = resolveTaskCampaignKeywords({
+        configuredKeywords: _campaignConfig.keywords,
+        configuredNegativeKeywords: _campaignConfig.negativeKeywords,
+        fallbackKeywords: effectiveCreativeForPersistence.keywords,
+        fallbackNegativeKeywords: effectiveCreativeForPersistence.negativeKeywords,
+      })
+
       const normalizedCampaignConfig = {
         ...(typeof _campaignConfig === 'object' && _campaignConfig !== null ? _campaignConfig : {}),
         campaignName: resolvedCampaignName,
         adGroupName: resolvedAdGroupName,
+        keywords: persistedKeywordConfig.keywords,
+        negativeKeywords: persistedKeywordConfig.negativeKeywords,
         ...(resolvedAdName ? { adName: resolvedAdName } : {})
       }
       const namingWithOverrides = {
@@ -1096,6 +1131,20 @@ export async function POST(request: NextRequest) {
             offerUrlFallback: offer.url
           })
 
+          const taskKeywordConfig = resolveTaskCampaignKeywords({
+            configuredKeywords: _campaignConfig.keywords,
+            configuredNegativeKeywords: _campaignConfig.negativeKeywords,
+            fallbackKeywords: effectiveCreativeForTask.keywords,
+            fallbackNegativeKeywords: effectiveCreativeForTask.negativeKeywords,
+          })
+
+          if (taskKeywordConfig.usedKeywordFallback && taskKeywordConfig.keywords.length > 0) {
+            console.log(`[Publish] campaignConfig.keywords缺失，回退到创意关键词: ${taskKeywordConfig.keywords.length}个`)
+          }
+          if (taskKeywordConfig.usedNegativeKeywordFallback && taskKeywordConfig.negativeKeywords.length > 0) {
+            console.log(`[Publish] campaignConfig.negativeKeywords缺失，回退到创意否定词: ${taskKeywordConfig.negativeKeywords.length}个`)
+          }
+
           // 🆕 使用队列系统处理Campaign发布（避免504超时）
           const taskData: any = {
             campaignId: campaignId,
@@ -1111,8 +1160,8 @@ export async function POST(request: NextRequest) {
               budgetAmount: _campaignConfig.budgetAmount,
               budgetType: _campaignConfig.budgetType,
               maxCpcBid: _campaignConfig.maxCpcBid,
-              keywords: _campaignConfig.keywords || [],
-              negativeKeywords: _campaignConfig.negativeKeywords || [],
+              keywords: taskKeywordConfig.keywords,
+              negativeKeywords: taskKeywordConfig.negativeKeywords,
               negativeKeywordMatchType:
                 _campaignConfig.negativeKeywordMatchType ||
                 _campaignConfig.negativeKeywordsMatchType ||

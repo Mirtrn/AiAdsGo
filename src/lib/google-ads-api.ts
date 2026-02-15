@@ -3,9 +3,11 @@ import { updateGoogleAdsAccount } from './google-ads-accounts'
 import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
+import { isGoogleAdsAccountAccessError } from './google-ads-login-customer'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
+import { installGoogleAdsWarningFilter } from './google-ads-warning-filter'
 import {
   getGoogleAdsTextEffectiveLength,
   sanitizeGoogleAdsAdText,
@@ -13,6 +15,8 @@ import {
   sanitizeGoogleAdsPath
 } from './google-ads-ad-text'
 import { getGoogleAdsGeoTargetId } from './language-country-codes'
+
+installGoogleAdsWarningFilter()
 
 /**
  * 🔧 新增(2025-01-05): OAuth API 调用追踪包装器
@@ -203,52 +207,6 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
     developer_token: developerToken,
     login_customer_id: loginCustomerId,
     useServiceAccount,
-  }
-}
-
-/**
- * 抑制 Google Ads API 的 MetadataLookupWarning
- * 这是 google-ads-api 包的已知问题，不影响功能
- * 🚀 优化(2025-12-18): 更全面的抑制机制
- */
-if (typeof process !== 'undefined') {
-  // 1. 抑制 process.emitWarning
-  if (process.emitWarning) {
-    const originalEmitWarning = process.emitWarning
-    process.emitWarning = (warning: any, ...args: any[]) => {
-      // 过滤掉 MetadataLookupWarning
-      if (typeof warning === 'string' && warning.includes('MetadataLookupWarning')) {
-        return
-      }
-      if (typeof warning === 'object' && warning?.name === 'MetadataLookupWarning') {
-        return
-      }
-      return originalEmitWarning.call(process, warning, ...args)
-    }
-  }
-
-  // 2. 抑制 console.warn（如果存在）
-  if (typeof console !== 'undefined' && console.warn) {
-    const originalWarn = console.warn
-    console.warn = (...args: any[]) => {
-      const message = args.join(' ')
-      if (message.includes('MetadataLookupWarning') || message.includes('All promises were rejected')) {
-        return
-      }
-      return originalWarn.apply(console, args)
-    }
-  }
-
-  // 3. 抑制 stderr 写入（Node.js环境）
-  if (typeof process.stderr?.write === 'function') {
-    const originalWrite = process.stderr.write.bind(process.stderr)
-    process.stderr.write = (chunk: any, ...args: any[]) => {
-      const message = typeof chunk === 'string' ? chunk : chunk?.toString?.() || ''
-      if (message.includes('MetadataLookupWarning') || message.includes('All promises were rejected')) {
-        return true
-      }
-      return originalWrite(chunk, ...args)
-    }
   }
 }
 
@@ -512,7 +470,7 @@ export async function getCustomerWithCredentials(params: {
   refreshToken?: string  // OAuth模式需要
   accountId?: number
   userId: number
-  loginCustomerId?: string
+  loginCustomerId?: string | null
   credentials?: {
     client_id: string
     client_secret: string
@@ -550,8 +508,11 @@ export async function getCustomerWithCredentials(params: {
     // 从数据库获取凭证
     const creds = await getGoogleAdsCredentialsFromDB(params.userId)
 
-    // 使用loginCustomerId参数，或从数据库获取
-    const loginCustomerId = params.loginCustomerId || creds.login_customer_id
+    // 显式传入 loginCustomerId（包括 undefined）时，不再回退到凭证，确保支持“省略header”降级路径。
+    const hasExplicitLoginCustomerId = Object.prototype.hasOwnProperty.call(params, 'loginCustomerId')
+    const loginCustomerId = hasExplicitLoginCustomerId
+      ? (params.loginCustomerId ?? null)
+      : creds.login_customer_id
 
     return getCustomer(
       params.customerId,
@@ -1114,6 +1075,8 @@ async function createCampaignBudget(
       {
         maxRetries: 3,
         initialDelay: 1000,
+        // login_customer_id 权限错误应立即切换候选，不应在同一候选上指数退避重试。
+        shouldRetry: (error) => !isGoogleAdsAccountAccessError(error),
         operationName: `Create Budget: ${params.name}`
       }
     )
