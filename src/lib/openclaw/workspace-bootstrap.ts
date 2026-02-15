@@ -111,12 +111,12 @@ ${OVERLAY_HEADING}
 - 所有对用户可见的输出必须使用中文：包括最终答复、执行进度、步骤说明与状态提示。
 - 普通问答/写作/分析：直接回复，不调用 AutoAds API。
 - 只有广告业务请求（查数据/执行投放动作）才调用 AutoAds API。
-- 广告业务中：只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。
+- 广告业务中：业务只读查询走 \`/api/openclaw/proxy\`；写操作走 \`/api/openclaw/commands/execute\`，并遵循确认机制。\`/api/openclaw/commands/runs\` 属于 OpenClaw 控制面读接口，必须直连，不走 proxy。
 - AutoAds 业务 API 基址优先使用 \`INTERNAL_APP_URL\`；未配置时回退 \`http://127.0.0.1:\${PORT || 3000}\`。
 - \`127.0.0.1:18789\` 仅为 OpenClaw Gateway 端口，不是 AutoAds 业务 API 主机，禁止作为业务 API base URL。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；\`/api/offers/*\`、\`/api/campaigns/*\` 等业务路由必须通过 proxy/execute 链路以用户身份执行。
 - 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
-- 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
+- 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
 - 飞书绑定场景禁止向用户索要 token；默认使用系统注入的 \`OPENCLAW_GATEWAY_TOKEN\` 调用 \`/api/openclaw/*\`，若 401 先补齐 \`channel/senderId/accountId/tenantKey\` 后重试一次。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
@@ -147,13 +147,13 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 先判断是否为广告业务请求。
 - 普通聊天、解释、写作、排错、总结：直接回答，不调用 AutoAds API。
 - 仅当任务需要广告能力时，才调用 AutoAds API。
-- 读操作走 \`/api/openclaw/proxy\`。
+- 业务读操作走 \`/api/openclaw/proxy\`；\`/api/openclaw/commands/runs\` 必须直连，不走 proxy。
 - 写操作走 \`/api/openclaw/commands/execute\`，并严格执行确认链路。
 - AutoAds 业务 API 基址优先 \`INTERNAL_APP_URL\`，未配置时仅可回退 \`http://127.0.0.1:\${PORT || 3000}\`。
 - \`127.0.0.1:18789\` 是 OpenClaw Gateway 端口，不是业务 API 基址，不可直接请求业务路由。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；业务路由必须通过 proxy/execute 链路并以用户身份执行。
 - 内网可达时禁止改走公网域名，避免 Cloudflare 拦截和 token 类型不匹配。
-- 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`，禁止直连业务路由。
+- 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`，禁止直连业务路由。
 - 飞书绑定会话默认使用 \`OPENCLAW_GATEWAY_TOKEN\`；禁止向用户索要 token。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。

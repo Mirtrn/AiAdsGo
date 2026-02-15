@@ -8,7 +8,7 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 ## 核心规则（必须遵守）
 
 1. 写操作（`POST`/`PUT`/`PATCH`/`DELETE`）只走 `/api/openclaw/commands/execute`。
-2. 读操作（`GET`）只走 `/api/openclaw/proxy`。
+2. 业务读操作（`GET`）走 `/api/openclaw/proxy`；OpenClaw 控制面读接口（如 `/api/openclaw/commands/runs`）必须直连。
 3. 不猜测 API 路径；出现路由错误时，立即回到下面的 canonical 路由表。
 4. 如果响应包含 `canonical web flow` 或 `410`，说明走了错误/下线路径，必须改用 canonical 路径。
 5. OpenClaw 与 AutoAds 同容器部署时，业务 API 只能走内网地址：`INTERNAL_APP_URL` 或 `http://127.0.0.1:${PORT:-3000}`。
@@ -57,7 +57,7 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格遵循
 2. 提交执行：`POST /api/openclaw/commands/execute`，至少携带：`method`、`path`、`body`、`intent`、`idempotencyKey`。
 3. 处理状态：`queued` / `pending_confirm` / `duplicate`。
 4. 若 `pending_confirm`：调用 `POST /api/openclaw/commands/confirm`（`runId` + `confirmToken` + `decision`）。
-5. 追踪记录：`GET /api/openclaw/commands/runs`。
+5. 追踪记录：直连 `GET /api/openclaw/commands/runs`，并携带 `channel/senderId`（可选 `accountId/tenantKey`）。
 
 ## 标准调用模板
 
@@ -110,4 +110,16 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
     "accountId": "<account_id>",
     "tenantKey": "<tenant_key>"
   }'
+```
+
+### 命令记录查询模板（runs，直连）
+
+```bash
+curl -sS -G "$AUTOADS_HOST/api/openclaw/commands/runs" \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  --data-urlencode "channel=feishu" \
+  --data-urlencode "senderId=<sender_open_id>" \
+  --data-urlencode "accountId=<account_id>" \
+  --data-urlencode "tenantKey=<tenant_key>" \
+  --data-urlencode "limit=20"
 ```

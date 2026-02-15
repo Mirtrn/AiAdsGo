@@ -54,6 +54,15 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error: any) {
     const message = error?.message || 'OpenClaw proxy error'
+    if (message.includes('Path blocked: /api/openclaw')) {
+      return NextResponse.json(
+        {
+          error:
+            'OpenClaw 控制面路由不能通过 /api/openclaw/proxy 调用。请直连目标路由（如 GET /api/openclaw/commands/runs），并携带 channel/senderId（可选 accountId/tenantKey）身份字段。',
+        },
+        { status: 400 }
+      )
+    }
     const status = message.includes('authentication') ? 401
       : message.includes('access denied') ? 403
       : message.includes('blocked') ? 403
