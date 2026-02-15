@@ -87,4 +87,27 @@ describe('POST /api/openclaw/commands/execute', () => {
       method: 'POST',
     }))
   })
+
+  it('returns json 500 when auth resolution throws before command execution', async () => {
+    authFns.resolveOpenclawRequestUser.mockRejectedValueOnce(new Error('users table missing'))
+
+    const req = new NextRequest('http://localhost/api/openclaw/commands/execute', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer gateway-token',
+      },
+      body: JSON.stringify({
+        method: 'POST',
+        path: '/api/offers/extract',
+      }),
+    })
+
+    const res = await POST(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(payload.error).toContain('users table missing')
+    expect(commandFns.executeOpenclawCommand).not.toHaveBeenCalled()
+  })
 })

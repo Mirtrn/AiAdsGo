@@ -72,4 +72,25 @@ describe('GET /api/openclaw/commands/runs', () => {
       riskLevel: 'high',
     })
   })
+
+  it('returns json 500 when auth resolution throws before listing runs', async () => {
+    authFns.resolveOpenclawRequestUser.mockRejectedValueOnce(new Error('db unavailable'))
+
+    const req = new NextRequest(
+      'http://localhost/api/openclaw/commands/runs?page=1&limit=10',
+      {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer gateway-token',
+        },
+      }
+    )
+
+    const res = await GET(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(payload.error).toContain('db unavailable')
+    expect(runsFns.listOpenclawCommandRuns).not.toHaveBeenCalled()
+  })
 })

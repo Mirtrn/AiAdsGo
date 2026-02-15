@@ -34,62 +34,62 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch(() => null)
-  const parsed = confirmSchema.safeParse(rawBody)
+  try {
+    const rawBody = await request.json().catch(() => null)
+    const parsed = confirmSchema.safeParse(rawBody)
 
-  const channelFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.channel)
-    : undefined
-  const senderIdFromBody = parsed.success
-    ? normalizeHeaderValue(
+    const channelFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.channel)
+      : undefined
+    const senderIdFromBody = parsed.success
+      ? normalizeHeaderValue(
+        parsed.data.senderId
+        || parsed.data.sender_id
+        || parsed.data.senderOpenId
+        || parsed.data.sender_open_id
+      )
+      : undefined
+    const accountIdFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
+      : undefined
+    const tenantKeyFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
+      : undefined
+
+    const auth = await resolveOpenclawRequestUser(request, {
+      channel: channelFromBody,
+      senderId: senderIdFromBody,
+      accountId: accountIdFromBody,
+      tenantKey: tenantKeyFromBody,
+    })
+    if (!auth) {
+      return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
+    }
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.errors[0]?.message || '请求参数错误' },
+        { status: 400 }
+      )
+    }
+
+    const decision = parsed.data.decision || parsed.data.action || 'confirm'
+    const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
+    const senderId = normalizeHeaderValue(
       parsed.data.senderId
       || parsed.data.sender_id
       || parsed.data.senderOpenId
       || parsed.data.sender_open_id
+      || request.headers.get('x-openclaw-sender')
+      || request.headers.get('x-openclaw-sender-id')
+      || request.headers.get('x-openclaw-sender-open-id')
     )
-    : undefined
-  const accountIdFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
-    : undefined
-  const tenantKeyFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
-    : undefined
-
-  const auth = await resolveOpenclawRequestUser(request, {
-    channel: channelFromBody,
-    senderId: senderIdFromBody,
-    accountId: accountIdFromBody,
-    tenantKey: tenantKeyFromBody,
-  })
-  if (!auth) {
-    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
-  }
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.errors[0]?.message || '请求参数错误' },
-      { status: 400 }
+    const accountId = normalizeHeaderValue(
+      parsed.data.accountId
+      || parsed.data.account_id
+      || request.headers.get('x-openclaw-account-id')
     )
-  }
 
-  const decision = parsed.data.decision || parsed.data.action || 'confirm'
-  const channel = parsed.data.channel || request.headers.get('x-openclaw-channel') || undefined
-  const senderId = normalizeHeaderValue(
-    parsed.data.senderId
-    || parsed.data.sender_id
-    || parsed.data.senderOpenId
-    || parsed.data.sender_open_id
-    || request.headers.get('x-openclaw-sender')
-    || request.headers.get('x-openclaw-sender-id')
-    || request.headers.get('x-openclaw-sender-open-id')
-  )
-  const accountId = normalizeHeaderValue(
-    parsed.data.accountId
-    || parsed.data.account_id
-    || request.headers.get('x-openclaw-account-id')
-  )
-
-  try {
     const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
     const parentRequestId = await resolveOpenclawParentRequestId({
       explicitParentRequestId: parentRequestFromHeaders.parentRequestId,
@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, ...result })
   } catch (error: any) {
+    console.error('[openclaw][commands/confirm] request failed:', error)
     const message = error?.message || 'OpenClaw 命令确认失败'
     return NextResponse.json({ error: message }, { status: 500 })
   }

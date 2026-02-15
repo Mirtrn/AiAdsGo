@@ -84,4 +84,27 @@ describe('POST /api/openclaw/commands/confirm', () => {
       channel: 'feishu',
     }))
   })
+
+  it('returns json 500 when auth resolution throws before command confirmation', async () => {
+    authFns.resolveOpenclawRequestUser.mockRejectedValueOnce(new Error('openclaw bindings query failed'))
+
+    const req = new NextRequest('http://localhost/api/openclaw/commands/confirm', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer gateway-token',
+      },
+      body: JSON.stringify({
+        runId: 'run-confirm-1',
+        confirmToken: 'confirm_token_12345',
+      }),
+    })
+
+    const res = await POST(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(payload.error).toContain('openclaw bindings query failed')
+    expect(commandFns.confirmOpenclawCommand).not.toHaveBeenCalled()
+  })
 })

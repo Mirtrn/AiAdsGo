@@ -100,8 +100,6 @@ async function isDatabaseInitialized(): Promise<boolean> {
 async function initializeSQLite(): Promise<void> {
   console.log('📦 Initializing SQLite database...')
 
-  // SQLite 初始化需要先通过命令行脚本完成
-  // 因为 better-sqlite3 的 exec 方法可以执行多条 SQL 语句
   const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
   const dataDir = path.dirname(dbPath)
   const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
@@ -118,6 +116,17 @@ async function initializeSQLite(): Promise<void> {
     return
   }
 
+  // 内存数据库无法依赖外部 db:init，必须在启动时自动灌入 schema。
+  if (dbPath === ':memory:') {
+    console.log('🧠 Detected in-memory SQLite, bootstrapping schema automatically...')
+    const sqlContent = fs.readFileSync(sqlPath, 'utf-8')
+    const db = await getDatabase()
+    await db.exec(sqlContent)
+    console.log('✅ In-memory SQLite schema initialized')
+    return
+  }
+
+  // 文件数据库仍沿用手工初始化流程（避免误覆盖既有运维流程）。
   console.log('⚠️  SQLite database needs manual initialization.')
   console.log('   Please run: npm run db:init')
 }

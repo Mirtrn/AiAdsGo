@@ -35,61 +35,61 @@ function normalizeHeaderValue(value: string | null | undefined): string | undefi
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch(() => null)
-  const parsed = executeSchema.safeParse(rawBody)
+  try {
+    const rawBody = await request.json().catch(() => null)
+    const parsed = executeSchema.safeParse(rawBody)
 
-  const channelFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.channel)
-    : undefined
-  const senderIdFromBody = parsed.success
-    ? normalizeHeaderValue(
+    const channelFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.channel)
+      : undefined
+    const senderIdFromBody = parsed.success
+      ? normalizeHeaderValue(
+        parsed.data.senderId
+        || parsed.data.sender_id
+        || parsed.data.senderOpenId
+        || parsed.data.sender_open_id
+      )
+      : undefined
+    const accountIdFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
+      : undefined
+    const tenantKeyFromBody = parsed.success
+      ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
+      : undefined
+
+    const auth = await resolveOpenclawRequestUser(request, {
+      channel: channelFromBody,
+      senderId: senderIdFromBody,
+      accountId: accountIdFromBody,
+      tenantKey: tenantKeyFromBody,
+    })
+    if (!auth) {
+      return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
+    }
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.errors[0]?.message || '请求参数错误' },
+        { status: 400 }
+      )
+    }
+
+    const channel = normalizeHeaderValue(
+      parsed.data.channel
+      || request.headers.get('x-openclaw-channel')
+      || request.headers.get('x-channel')
+    )
+
+    const senderId = normalizeHeaderValue(
       parsed.data.senderId
       || parsed.data.sender_id
       || parsed.data.senderOpenId
       || parsed.data.sender_open_id
+      || request.headers.get('x-openclaw-sender')
+      || request.headers.get('x-openclaw-sender-id')
+      || request.headers.get('x-openclaw-sender-open-id')
     )
-    : undefined
-  const accountIdFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.accountId || parsed.data.account_id)
-    : undefined
-  const tenantKeyFromBody = parsed.success
-    ? normalizeHeaderValue(parsed.data.tenantKey || parsed.data.tenant_key)
-    : undefined
 
-  const auth = await resolveOpenclawRequestUser(request, {
-    channel: channelFromBody,
-    senderId: senderIdFromBody,
-    accountId: accountIdFromBody,
-    tenantKey: tenantKeyFromBody,
-  })
-  if (!auth) {
-    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
-  }
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.errors[0]?.message || '请求参数错误' },
-      { status: 400 }
-    )
-  }
-
-  const channel = normalizeHeaderValue(
-    parsed.data.channel
-    || request.headers.get('x-openclaw-channel')
-    || request.headers.get('x-channel')
-  )
-
-  const senderId = normalizeHeaderValue(
-    parsed.data.senderId
-    || parsed.data.sender_id
-    || parsed.data.senderOpenId
-    || parsed.data.sender_open_id
-    || request.headers.get('x-openclaw-sender')
-    || request.headers.get('x-openclaw-sender-id')
-    || request.headers.get('x-openclaw-sender-open-id')
-  )
-
-  try {
     const parentRequestFromHeaders = resolveOpenclawParentRequestIdFromHeaders(request.headers)
     const parentRequestFromBody = normalizeHeaderValue(
       parsed.data.parentRequestId || parsed.data.parent_request_id
@@ -125,6 +125,7 @@ export async function POST(request: NextRequest) {
     const status = result.status === 'pending_confirm' ? 202 : 200
     return NextResponse.json({ success: true, ...result }, { status })
   } catch (error: any) {
+    console.error('[openclaw][commands/execute] request failed:', error)
     const message = error?.message || 'OpenClaw 命令执行失败'
     const status = message.includes('not allowed') || message.includes('Invalid') || message.includes('blocked')
       || message.includes('canonical web flow')
