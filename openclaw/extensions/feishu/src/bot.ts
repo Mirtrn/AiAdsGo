@@ -23,6 +23,10 @@ import {
 import { createFeishuReplyDispatcher } from "./reply-dispatcher.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu, sendMessageFeishu } from "./send.js";
+import {
+  reportFeishuChatHealth,
+  type FeishuChatHealthDecision,
+} from "./chat-health.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -181,6 +185,65 @@ function parseMessageContent(content: string, messageType: string): string {
   } catch {
     return content;
   }
+}
+
+type FeishuSenderIdentity = {
+  senderPrimaryId?: string;
+  senderOpenId?: string;
+  senderUnionId?: string;
+  senderUserId?: string;
+  senderCandidates: string[];
+  replyUsedOpenId: boolean;
+  replyPrimaryTargetType: "open_id" | "union_id" | "user_id" | "unknown";
+};
+
+function normalizeOptionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function resolveFeishuSenderIdentity(event: FeishuMessageEvent): FeishuSenderIdentity {
+  const senderOpenId = normalizeOptionalText(event.sender?.sender_id?.open_id);
+  const senderUnionId = normalizeOptionalText(event.sender?.sender_id?.union_id);
+  const senderUserId = normalizeOptionalText(event.sender?.sender_id?.user_id);
+  const senderPrimaryId = senderOpenId || senderUnionId || senderUserId;
+
+  const senderCandidates = Array.from(
+    new Set([senderPrimaryId, senderOpenId, senderUnionId, senderUserId].filter(Boolean)),
+  ) as string[];
+
+  const replyPrimaryTargetType = senderOpenId
+    ? "open_id"
+    : senderUnionId
+      ? "union_id"
+      : senderUserId
+        ? "user_id"
+        : "unknown";
+
+  return {
+    senderPrimaryId,
+    senderOpenId,
+    senderUnionId,
+    senderUserId,
+    senderCandidates,
+    replyUsedOpenId: Boolean(senderOpenId),
+    replyPrimaryTargetType,
+  };
+}
+
+function buildFeishuChatHealthMetadata(params: {
+  ctx: FeishuMessageContext;
+  senderIdentity: FeishuSenderIdentity;
+}): Record<string, unknown> {
+  return {
+    wasMentioned: params.ctx.mentionedBot,
+    hasMedia: params.ctx.contentType !== "text",
+    groupSubscriptionFallbackUsed: false,
+    replyUsedOpenId: params.senderIdentity.replyUsedOpenId,
+    replyPrimaryTargetType: params.senderIdentity.replyPrimaryTargetType,
+    replyFallbackTargetType: null,
+  };
 }
 
 function checkBotMentioned(event: FeishuMessageEvent, botOpenId?: string): boolean {
@@ -509,12 +572,46 @@ export async function handleFeishuMessage(params: {
 
   // Dedup check: skip if this message was already processed
   const messageId = event.message.message_id;
+  let ctx = parseFeishuMessageEvent(event, botOpenId);
+  const senderIdentity = resolveFeishuSenderIdentity(event);
+  const reportChatHealth = (
+    decision: FeishuChatHealthDecision,
+    reasonCode: string,
+    reasonMessage: string,
+    metadata?: Record<string, unknown>,
+  ) => {
+    void reportFeishuChatHealth({
+      cfg,
+      accountId: account.accountId,
+      accountConfig: account.config as unknown as Record<string, unknown>,
+      runtime,
+      messageId: ctx.messageId,
+      chatId: ctx.chatId,
+      chatType: ctx.chatType,
+      messageType: ctx.contentType,
+      senderPrimaryId: senderIdentity.senderPrimaryId,
+      senderOpenId: senderIdentity.senderOpenId,
+      senderUnionId: senderIdentity.senderUnionId,
+      senderUserId: senderIdentity.senderUserId,
+      senderCandidates: senderIdentity.senderCandidates,
+      decision,
+      reasonCode,
+      reasonMessage,
+      messageText: ctx.content,
+      metadata: {
+        ...buildFeishuChatHealthMetadata({ ctx, senderIdentity }),
+        ...(metadata || {}),
+      },
+      tenantKey: ctx.tenantKey,
+    });
+  };
+
   if (!tryRecordMessage(messageId)) {
     log(`feishu: skipping duplicate message ${messageId}`);
+    reportChatHealth("blocked", "duplicate_message", "duplicate message skipped by dedup");
     return;
   }
 
-  let ctx = parseFeishuMessageEvent(event, botOpenId);
   const isGroup = ctx.chatType === "group";
 
   // Resolve sender display name (best-effort) so the agent can attribute messages correctly.
@@ -574,6 +671,11 @@ export async function handleFeishuMessage(params: {
 
     if (!groupAllowed) {
       log(`feishu[${account.accountId}]: sender ${ctx.senderOpenId} not in group allowlist`);
+      reportChatHealth(
+        "blocked",
+        "group_allowlist_denied",
+        "group is not in allowlist",
+      );
       return;
     }
 
@@ -588,6 +690,11 @@ export async function handleFeishuMessage(params: {
       });
       if (!senderAllowed) {
         log(`feishu: sender ${ctx.senderOpenId} not in group ${ctx.chatId} sender allowlist`);
+        reportChatHealth(
+          "blocked",
+          "group_sender_allowlist_denied",
+          "sender is not in group sender allowlist",
+        );
         return;
       }
     }
@@ -615,6 +722,11 @@ export async function handleFeishuMessage(params: {
           },
         });
       }
+      reportChatHealth(
+        "blocked",
+        "group_require_mention",
+        "message in group did not mention bot",
+      );
       return;
     }
   } else {
@@ -663,10 +775,17 @@ export async function handleFeishuMessage(params: {
             );
           }
         }
+        reportChatHealth("blocked", "dm_pairing_required", "dm sender requires pairing", {
+          pairingCodeIssued: created,
+          dmPolicy,
+        });
       } else {
         log(
           `feishu[${account.accountId}]: blocked unauthorized sender ${ctx.senderOpenId} (dmPolicy=${dmPolicy})`,
         );
+        reportChatHealth("blocked", "dm_allowlist_denied", "dm sender not in allowlist", {
+          dmPolicy,
+        });
       }
       return;
     }
@@ -968,7 +1087,13 @@ export async function handleFeishuMessage(params: {
     log(
       `feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`,
     );
+    reportChatHealth(
+      "allowed",
+      "reply_dispatched",
+      "message passed access checks and entered reply pipeline",
+    );
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);
+    reportChatHealth("error", "reply_dispatch_failed", String(err));
   }
 }
