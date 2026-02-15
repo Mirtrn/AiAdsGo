@@ -56,6 +56,153 @@ function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | 
   return null
 }
 
+interface TitleAboutSignals {
+  productTitle: string
+  titlePhrases: string[]
+  aboutClaims: string[]
+  keywordSeeds: string[]
+  calloutIdeas: string[]
+  sitelinkIdeas: Array<{ text: string; description: string }>
+}
+
+function normalizeSnippetText(value: string): string {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[•·]/g, ' ')
+    .trim()
+}
+
+function truncateSnippetByWords(value: string, maxLength: number): string {
+  const text = normalizeSnippetText(value)
+  if (text.length <= maxLength) return text
+  const words = text.split(/\s+/)
+  let out = ''
+  for (const word of words) {
+    const next = out ? `${out} ${word}` : word
+    if (next.length > maxLength) break
+    out = next
+  }
+  return out.length >= 4 ? out : text.slice(0, maxLength).trim()
+}
+
+function isUsefulCreativePhrase(value: string, minLength: number = 4, maxLength: number = 90): boolean {
+  const text = normalizeSnippetText(value)
+  if (!text || text.length < minLength || text.length > maxLength) return false
+  const lower = text.toLowerCase()
+  if (lower === 'about this item' || lower === 'product details') return false
+  return /[\p{L}\p{N}]/u.test(text)
+}
+
+function dedupeKeywordSeeds(keywords: string[], limit: number): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  for (const raw of keywords) {
+    const cleaned = normalizeSnippetText(raw)
+      .replace(/[^\p{L}\p{N}\s&/-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!isUsefulCreativePhrase(cleaned, 3, 80)) continue
+
+    const normalized = normalizeGoogleAdsKeyword(cleaned)
+    if (!normalized || seen.has(normalized)) continue
+
+    seen.add(normalized)
+    out.push(cleaned)
+    if (out.length >= limit) break
+  }
+
+  return out
+}
+
+function extractTitleAndAboutSignals(
+  productTitleRaw: string | null | undefined,
+  aboutItemsRaw: string[] | null | undefined
+): TitleAboutSignals {
+  const productTitle = normalizeSnippetText(productTitleRaw || '')
+  const titlePhrases: string[] = []
+  const aboutClaims: string[] = []
+  const keywordSeeds: string[] = []
+  const calloutIdeas: string[] = []
+  const sitelinkIdeas: Array<{ text: string; description: string }> = []
+
+  const addUniquePhrase = (target: string[], value: string, maxItems: number, minLength: number = 4, maxLength: number = 90) => {
+    const normalized = normalizeSnippetText(value)
+    if (!isUsefulCreativePhrase(normalized, minLength, maxLength)) return
+    const key = normalized.toLowerCase()
+    if (target.some(item => item.toLowerCase() === key)) return
+    target.push(normalized)
+    if (target.length > maxItems) target.length = maxItems
+  }
+
+  const addKeywordSeed = (value: string) => {
+    const cleaned = truncateSnippetByWords(value, 70)
+    if (!cleaned) return
+    keywordSeeds.push(cleaned)
+  }
+
+  const addSitelinkIdea = (text: string, description: string) => {
+    const linkText = truncateSnippetByWords(text, 25)
+    const linkDescription = truncateSnippetByWords(description, 35)
+    if (!isUsefulCreativePhrase(linkText, 3, 25) || !isUsefulCreativePhrase(linkDescription, 4, 35)) return
+    const key = `${linkText.toLowerCase()}__${linkDescription.toLowerCase()}`
+    if (sitelinkIdeas.some(item => `${item.text.toLowerCase()}__${item.description.toLowerCase()}` === key)) return
+    sitelinkIdeas.push({ text: linkText, description: linkDescription })
+  }
+
+  if (productTitle) {
+    addKeywordSeed(productTitle)
+    addUniquePhrase(titlePhrases, truncateSnippetByWords(productTitle, 70), 6, 6, 80)
+
+    const titleSegments = productTitle
+      .split(/\s*[|:,\-–—]\s*/g)
+      .map(segment => truncateSnippetByWords(segment, 60))
+      .filter(Boolean)
+
+    for (const segment of titleSegments) {
+      addUniquePhrase(titlePhrases, segment, 6, 5, 60)
+      addKeywordSeed(segment)
+      if (titlePhrases.length >= 6) break
+    }
+  }
+
+  const aboutItems = Array.isArray(aboutItemsRaw) ? aboutItemsRaw : []
+  for (const raw of aboutItems.slice(0, 8)) {
+    const item = normalizeSnippetText(raw || '')
+    if (!item) continue
+
+    const colonIndex = item.indexOf(':')
+    const label = colonIndex > 0 ? item.slice(0, colonIndex).trim() : ''
+    const body = colonIndex > 0 ? item.slice(colonIndex + 1).trim() : item
+    const firstClause = body.split(/[.!?;|]/)[0]?.trim() || body
+    const compactClaim = truncateSnippetByWords(firstClause, 120)
+
+    if (label) {
+      addUniquePhrase(aboutClaims, truncateSnippetByWords(label, 60), 6, 4, 60)
+      addKeywordSeed(label)
+      addUniquePhrase(calloutIdeas, truncateSnippetByWords(label, 25), 6, 3, 25)
+      addSitelinkIdea(label, compactClaim)
+    }
+
+    addUniquePhrase(aboutClaims, compactClaim, 6, 8, 120)
+    addKeywordSeed(compactClaim)
+
+    const shortClaim = truncateSnippetByWords(firstClause, 35)
+    if (shortClaim && shortClaim.length >= 8) {
+      addSitelinkIdea(label || shortClaim, shortClaim)
+    }
+  }
+
+  return {
+    productTitle,
+    titlePhrases,
+    aboutClaims,
+    keywordSeeds: dedupeKeywordSeeds(keywordSeeds, 24),
+    calloutIdeas: calloutIdeas.slice(0, 6),
+    sitelinkIdeas: sitelinkIdeas.slice(0, 6),
+  }
+}
+
 const EN_CTA_REGEX = /shop now|buy now|learn more|get|order|sign up|try|start/i
 const EN_CTA_PHRASES = [
   'Shop Now',
@@ -1239,15 +1386,30 @@ This creative focuses on "${intent || intentEn}" user intent.
   // 🔥 2025-12-10优化：提取features和aboutThisItem（产品核心卖点）
   let productFeatures: string[] = []
   let aboutThisItem: string[] = []
+  let scrapedProductTitle = ''
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
       productFeatures = scrapedData.features || []
       aboutThisItem = scrapedData.aboutThisItem || []
+      scrapedProductTitle = typeof scrapedData.productName === 'string'
+        ? scrapedData.productName
+        : (typeof scrapedData.title === 'string' ? scrapedData.title : '')
     } catch {}
+  }
+  if (!scrapedProductTitle) {
+    scrapedProductTitle = String(offer.product_name || offer.product_title || offer.name || '').trim()
   }
   // 优先使用aboutThisItem（更详细），其次使用features
   const featureSource = aboutThisItem.length > 0 ? aboutThisItem : productFeatures
+  const titleAndAboutSignals = extractTitleAndAboutSignals(scrapedProductTitle, featureSource)
+
+  if (titleAndAboutSignals.productTitle) {
+    extras.push(`AMAZON TITLE: ${truncateSnippetByWords(titleAndAboutSignals.productTitle, 180)}`)
+  }
+  if (titleAndAboutSignals.titlePhrases.length > 0) {
+    extras.push(`TITLE CORE PHRASES: ${titleAndAboutSignals.titlePhrases.slice(0, 5).join(' | ')}`)
+  }
   if (featureSource.length > 0) {
     // 提取前5个最重要的产品特点（限制每条100字符避免过长）
     const topFeatures = featureSource
@@ -1255,6 +1417,9 @@ This creative focuses on "${intent || intentEn}" user intent.
       .map((f: string) => f.length > 100 ? f.substring(0, 100) + '...' : f)
       .join(' | ')
     extras.push(`PRODUCT FEATURES: ${topFeatures}`)
+  }
+  if (titleAndAboutSignals.aboutClaims.length > 0) {
+    extras.push(`ABOUT CORE CLAIMS: ${titleAndAboutSignals.aboutClaims.slice(0, 5).join(' | ')}`)
   }
 
   // 🔥 P1-3: Store热销数据（新增优化 - 用于Amazon Store或独立站店铺页）
@@ -1916,6 +2081,18 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // 🎯 Build extracted_elements_section
   let extracted_elements_section = ''
   if (extractedElements) {
+    if (titleAndAboutSignals.productTitle) {
+      extracted_elements_section += `\n**EXTRACTED PRODUCT TITLE** (Amazon title, keep unique wording):\n"${truncateSnippetByWords(titleAndAboutSignals.productTitle, 180)}"\n`
+    }
+
+    if (titleAndAboutSignals.titlePhrases.length > 0) {
+      extracted_elements_section += `\n**TITLE CORE PHRASES** (high-priority wording from title):\n${titleAndAboutSignals.titlePhrases.slice(0, 6).join(' | ')}\n`
+    }
+
+    if (titleAndAboutSignals.aboutClaims.length > 0) {
+      extracted_elements_section += `\n**ABOUT THIS ITEM CORE CLAIMS** (high-priority wording from bullets):\n${titleAndAboutSignals.aboutClaims.slice(0, 6).join(' | ')}\n`
+    }
+
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
       // 🔧 调整(2026-02-03): 将提取关键词数量限制在30个以内，避免Prompt噪声过高
       // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
@@ -1935,6 +2112,17 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
     if (extractedElements.descriptions && extractedElements.descriptions.length > 0) {
       extracted_elements_section += `\n**EXTRACTED DESCRIPTIONS** (from product features, ≤90 chars):\n${extractedElements.descriptions.slice(0, 2).join('; ')}\n`
+    }
+
+    if (titleAndAboutSignals.calloutIdeas.length > 0) {
+      extracted_elements_section += `\n**ABOUT-DERIVED CALLOUT IDEAS** (≤25 chars style):\n${titleAndAboutSignals.calloutIdeas.slice(0, 6).join(', ')}\n`
+    }
+
+    if (titleAndAboutSignals.sitelinkIdeas.length > 0) {
+      const sitelinkHints = titleAndAboutSignals.sitelinkIdeas
+        .slice(0, 6)
+        .map(item => `${item.text} - ${item.description}`)
+      extracted_elements_section += `\n**ABOUT-DERIVED SITELINK IDEAS** (text/desc style):\n${sitelinkHints.join(' | ')}\n`
     }
 
     // 🔥 独立站增强：从extraction_metadata中读取SERP补充的callout/sitelink（如果有）
@@ -1970,7 +2158,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
       extracted_elements_section += `\n**EXTRACTED SITELINK IDEAS** (from official site):\n${serpSitelinks.join(' | ')}\n`
     }
 
-    extracted_elements_section += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
+    extracted_elements_section += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). TITLE CORE PHRASES and ABOUT THIS ITEM CORE CLAIMS are mandatory high-priority context for headlines, descriptions, callouts, sitelinks and keywords.\n`
   }
   variables.extracted_elements_section = extracted_elements_section
 
@@ -2044,13 +2232,20 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   const brandFilter = (kw: string) =>
     brandGateKeywords.length === 0 || containsPureBrand(kw, brandGateKeywords)
 
-  const keywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
+  const baseKeywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
     ? extractedElements.keywords.slice(0, 50).map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)  // 使用关键词池数据（最多50个）
     : aiKeywords.filter(brandFilter).slice(0, 15)  // fallback到旧的ai_keywords（品牌门禁）
 
-  if (keywordsForPrompt && keywordsForPrompt.length > 0) {
+  const titleAboutKeywordSeeds = titleAndAboutSignals.keywordSeeds || []
+  const keywordsForPrompt = dedupeKeywordSeeds(
+    [...baseKeywordsForPrompt, ...titleAboutKeywordSeeds],
+    50
+  )
+
+  if (keywordsForPrompt.length > 0) {
     variables.ai_keywords_section = `\n**高价值关键词池** (已验证搜索量):\n${keywordsForPrompt.join(', ')}\n`
-    console.log(`[Prompt] 🔑 提供给AI的关键词数量: ${keywordsForPrompt.length}个 (来源: ${extractedElements?.keywords && extractedElements.keywords.length > 0 ? '关键词池' : 'ai_keywords'})`)
+    const seedInfo = titleAboutKeywordSeeds.length > 0 ? ` + TITLE/ABOUT种子${titleAboutKeywordSeeds.length}个` : ''
+    console.log(`[Prompt] 🔑 提供给AI的关键词数量: ${keywordsForPrompt.length}个 (来源: ${extractedElements?.keywords && extractedElements.keywords.length > 0 ? '关键词池' : 'ai_keywords'}${seedInfo})`)
   } else {
     variables.ai_keywords_section = ''
   }

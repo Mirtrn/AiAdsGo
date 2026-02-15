@@ -150,6 +150,83 @@ function extractBrandProductName(productTitle: string, brandName: string): strin
   return cleanedTitle
 }
 
+function normalizeAdText(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/[•·]/g, ' ')
+    .trim()
+}
+
+function truncateByWords(text: string, maxLength: number): string {
+  const cleaned = normalizeAdText(text)
+  if (cleaned.length <= maxLength) return cleaned
+
+  const words = cleaned.split(/\s+/)
+  let out = ''
+  for (const word of words) {
+    const next = out ? `${out} ${word}` : word
+    if (next.length > maxLength) break
+    out = next
+  }
+  return out.length >= 4 ? out : cleaned.slice(0, maxLength).trim()
+}
+
+function extractAboutItemKeywordCandidates(
+  aboutItems: string[] | null | undefined,
+  maxCandidates: number = 12
+): string[] {
+  if (!Array.isArray(aboutItems) || aboutItems.length === 0) return []
+
+  const candidates: string[] = []
+  const seen = new Set<string>()
+
+  const addCandidate = (raw: string | null | undefined, maxLen: number = 60) => {
+    if (!raw) return
+    const normalized = normalizeAdText(raw)
+      .replace(/[^\p{L}\p{N}\s&/-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (normalized.length < 4 || normalized.length > maxLen) return
+
+    const lower = normalized.toLowerCase()
+    if (lower === 'about this item' || lower === 'product details') return
+    if (seen.has(lower)) return
+
+    seen.add(lower)
+    candidates.push(normalized)
+  }
+
+  for (const rawItem of aboutItems.slice(0, 8)) {
+    const item = normalizeAdText(rawItem || '')
+    if (!item) continue
+
+    // 优先提取冒号前的“卖点标题”
+    const colonIndex = item.indexOf(':')
+    if (colonIndex > 0) {
+      const label = item.slice(0, colonIndex).trim()
+      addCandidate(label, 55)
+    }
+
+    // 提取冒号后的首句（或整句前半段）作为功能短语
+    const afterLabel = colonIndex > 0 ? item.slice(colonIndex + 1).trim() : item
+    const firstClause = afterLabel.split(/[.!?;|]/)[0]?.trim() || ''
+    if (firstClause) {
+      addCandidate(truncateByWords(firstClause, 48), 55)
+    }
+
+    // 额外提取包含数字/规格的片段（如 30-day battery / 66,000 movements）
+    const numericMatches = item.match(/\b[\d,.]+(?:\s*[-–]?\s*\w+){0,4}\b/g) || []
+    for (const match of numericMatches.slice(0, 2)) {
+      const around = truncateByWords(match, 40)
+      addCandidate(around, 45)
+    }
+
+    if (candidates.length >= maxCandidates) break
+  }
+
+  return candidates.slice(0, maxCandidates)
+}
+
 /**
  * 🔥 P1.2优化1：类目权重系数
  * 不同类目的评论数量基准不同，需要动态调整门槛
@@ -494,6 +571,14 @@ async function extractFromSingleProduct(
     console.log(`  ✓ 商品标题关键字: "${brandProductName}"`)
   }
 
+  // 1.1.1 从 About this item / features 提取核心卖点短语
+  const aboutSource = productInfo.aboutThisItem?.length ? productInfo.aboutThisItem : productInfo.features
+  const aboutKeywordCandidates = extractAboutItemKeywordCandidates(aboutSource, 12)
+  if (aboutKeywordCandidates.length > 0) {
+    keywordCandidates.push(...aboutKeywordCandidates)
+    console.log(`  ✓ About this item关键字: ${aboutKeywordCandidates.length}个`)
+  }
+
   // 1.2 获取Google搜索下拉词（高购买意图）- 🔥 调整顺序：先获取Google词
   let googleKeywords: string[] = []
   try {
@@ -619,12 +704,16 @@ async function extractFromSingleProduct(
       auth.serviceAccountId
     )
 
+    const aboutKeywordSet = new Set(aboutKeywordCandidates.map(k => k.toLowerCase()))
+
     keywordsWithVolume = keywordCandidates.map((keyword, index) => {
       const volume = volumeData[index]?.avgMonthlySearches || 0
 
       // 确定来源
       let source: 'product_title' | 'google_suggest' | 'brand_variant' = 'brand_variant'
       if (productInfo.name && keyword.includes(extractBrandProductName(productInfo.name, brand))) {
+        source = 'product_title'
+      } else if (aboutKeywordSet.has(keyword.toLowerCase())) {
         source = 'product_title'
       } else if (!brandVariants.includes(keyword)) {
         source = 'google_suggest'
