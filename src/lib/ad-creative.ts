@@ -1,6 +1,12 @@
 import { getDatabase } from './db'
 import { getInsertedId, nowFunc } from './db-helpers'
 import { GEMINI_ACTIVE_MODEL } from './gemini-models'
+import {
+  getSearchTermAutoNegativeConfigFromEnv,
+  getSearchTermAutoPositiveConfigFromEnv,
+  runSearchTermAutoNegatives,
+  runSearchTermAutoPositiveKeywords,
+} from './search-term-auto-negatives'
 
 /**
  * 关键词搜索量数据
@@ -370,6 +376,47 @@ export async function createAdCreative(
   const creative = await findAdCreativeById(insertedId, userId)
   if (!creative) {
     throw new Error('广告创意创建失败')
+  }
+
+  // KISS自动动作：仅在“创意生成并保存”时触发
+  // 失败不阻塞创意生成主流程
+  const autoNegativeConfig = getSearchTermAutoNegativeConfigFromEnv()
+  const autoPositiveConfig = getSearchTermAutoPositiveConfigFromEnv()
+
+  if (autoNegativeConfig.enabled || autoPositiveConfig.enabled) {
+    const cappedNegativeMaxPerUser = Math.min(autoNegativeConfig.maxPerUser, 5)
+    const cappedPositiveMaxPerUser = Math.min(autoPositiveConfig.maxPerUser, 3)
+
+    // 非阻塞执行，避免拉长创意生成接口时延
+    void (async () => {
+      if (autoNegativeConfig.enabled) {
+        await runSearchTermAutoNegatives({
+          userId,
+          offerId,
+          dryRun: false,
+          lookbackDays: autoNegativeConfig.lookbackDays,
+          minClicks: autoNegativeConfig.minClicks,
+          minCost: autoNegativeConfig.minCost,
+          maxPerAdGroup: autoNegativeConfig.maxPerAdGroup,
+          maxPerUser: cappedNegativeMaxPerUser,
+        })
+      }
+
+      if (autoPositiveConfig.enabled) {
+        await runSearchTermAutoPositiveKeywords({
+          userId,
+          offerId,
+          dryRun: false,
+          lookbackDays: autoPositiveConfig.lookbackDays,
+          minClicks: autoPositiveConfig.minClicks,
+          minConversions: autoPositiveConfig.minConversions,
+          maxPerAdGroup: autoPositiveConfig.maxPerAdGroup,
+          maxPerUser: cappedPositiveMaxPerUser,
+        })
+      }
+    })().catch((error) => {
+      console.warn('[AdCreative] 自动关键词优化执行失败（忽略，不影响创意生成）:', error)
+    })
   }
 
   return creative

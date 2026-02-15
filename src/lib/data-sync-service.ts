@@ -84,7 +84,9 @@ export interface CampaignPerformanceData {
  */
 export interface SearchTermPerformanceData {
   campaign_id: string
+  ad_group_id: string
   search_term: string
+  search_term_match_type: string
   date: string
   impressions: number
   clicks: number
@@ -114,6 +116,17 @@ export class DataSyncService {
   private normalizeCurrency(value: unknown): string {
     const normalized = String(value ?? '').trim().toUpperCase()
     return normalized || 'USD'
+  }
+
+  private normalizeSearchTermMatchType(raw: unknown): 'EXACT' | 'PHRASE' | 'BROAD' | 'UNKNOWN' {
+    const value = String(raw ?? '').trim().toUpperCase()
+    if (!value) return 'UNKNOWN'
+
+    if (value.includes('EXACT')) return 'EXACT'
+    if (value.includes('PHRASE')) return 'PHRASE'
+    if (value.includes('BROAD')) return 'BROAD'
+
+    return 'UNKNOWN'
   }
 
   private constructor() {}
@@ -821,9 +834,27 @@ export class DataSyncService {
         })
       }
 
-      const query = `
+      const queryWithMatchType = `
         SELECT
           campaign.id,
+          ad_group.id,
+          segments.date,
+          segments.search_term_match_type,
+          search_term_view.search_term,
+          metrics.impressions,
+          metrics.clicks,
+          metrics.conversions,
+          metrics.cost_micros
+        FROM search_term_view
+        WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+          AND campaign.status != 'REMOVED'
+          AND metrics.impressions > 0
+        ORDER BY segments.date DESC
+      `
+      const queryFallback = `
+        SELECT
+          campaign.id,
+          ad_group.id,
           segments.date,
           search_term_view.search_term,
           metrics.impressions,
@@ -834,14 +865,40 @@ export class DataSyncService {
         WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
           AND campaign.status != 'REMOVED'
           AND metrics.impressions > 0
-          AND metrics.clicks > 0
         ORDER BY segments.date DESC
       `
 
       const isServiceAccountMode = authType === 'service_account' && serviceAccountId
-      const results = isServiceAccountMode
-        ? (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
-        : await (customer as any).query(query)
+      let results: any[] = []
+
+      try {
+        results = isServiceAccountMode
+          ? (await executeGAQLQueryPython({
+            userId,
+            serviceAccountId,
+            customerId,
+            query: queryWithMatchType,
+          })).results || []
+          : await (customer as any).query(queryWithMatchType)
+      } catch (error: any) {
+        const message = String(error?.message || '')
+        const canFallback = message.includes('search_term_match_type')
+          || message.includes('Unrecognized field')
+          || message.includes('Invalid field name')
+        if (!canFallback) {
+          throw error
+        }
+
+        console.warn('search_term_match_type字段不可用，降级为UNKNOWN继续同步')
+        results = isServiceAccountMode
+          ? (await executeGAQLQueryPython({
+            userId,
+            serviceAccountId,
+            customerId,
+            query: queryFallback,
+          })).results || []
+          : await (customer as any).query(queryFallback)
+      }
 
       return results.map((row: any) => {
         const impressions = row.metrics?.impressions || 0
@@ -850,7 +907,9 @@ export class DataSyncService {
         const costMicros = row.metrics?.cost_micros || 0
         return {
           campaign_id: row.campaign?.id?.toString() || '',
+          ad_group_id: row.ad_group?.id?.toString() || '',
           search_term: row.search_term_view?.search_term || '',
+          search_term_match_type: row.segments?.search_term_match_type || '',
           date: row.segments?.date || '',
           impressions,
           clicks,
@@ -1151,14 +1210,45 @@ export class DataSyncService {
 
     const searchTermRows: Array<{
       campaign_id: number
+      ad_group_id: number | null
+      google_ad_group_id: string | null
       search_term: string
       match_type: string
+      raw_match_type: string | null
       impressions: number
       clicks: number
       conversions: number
       cost: number
       date: string
     }> = []
+
+    const campaignIdsForAdGroups = campaigns
+      .map((campaign) => campaign.id)
+      .filter((id, index, arr) => id > 0 && arr.indexOf(id) === index)
+
+    const adGroupByCampaignAndGoogleId = new Map<string, number>()
+    if (campaignIdsForAdGroups.length > 0) {
+      const placeholders = campaignIdsForAdGroups.map(() => '?').join(',')
+      const adGroupRows = await db.query<{
+        id: number
+        campaign_id: number
+        ad_group_id: string | null
+      }>(
+        `
+        SELECT id, campaign_id, ad_group_id
+        FROM ad_groups
+        WHERE campaign_id IN (${placeholders})
+          AND ad_group_id IS NOT NULL
+      `,
+        campaignIdsForAdGroups
+      )
+
+      for (const row of adGroupRows) {
+        const googleAdGroupId = String(row.ad_group_id || '').trim()
+        if (!googleAdGroupId) continue
+        adGroupByCampaignAndGoogleId.set(`${row.campaign_id}:${googleAdGroupId}`, row.id)
+      }
+    }
 
     for (const row of searchTermData) {
       if (!row.search_term) continue
@@ -1175,10 +1265,20 @@ export class DataSyncService {
       const keywordNorm = normalizeGoogleAdsKeyword(keywordText)
       if (!keywordNorm || isInvalidKeyword(keywordNorm)) continue
 
+      const googleAdGroupId = String(row.ad_group_id || '').trim()
+      const localAdGroupId = googleAdGroupId
+        ? (adGroupByCampaignAndGoogleId.get(`${campaign.id}:${googleAdGroupId}`) ?? null)
+        : null
+      const normalizedMatchType = this.normalizeSearchTermMatchType(row.search_term_match_type)
+      const rawMatchType = String(row.search_term_match_type || '').trim() || null
+
       searchTermRows.push({
         campaign_id: campaign.id,
+        ad_group_id: localAdGroupId,
+        google_ad_group_id: googleAdGroupId || null,
         search_term: keywordText,
-        match_type: 'UNKNOWN',
+        match_type: normalizedMatchType,
+        raw_match_type: rawMatchType,
         impressions: row.impressions,
         clicks: row.clicks,
         conversions: row.conversions,
@@ -1206,15 +1306,19 @@ export class DataSyncService {
           await db.exec(
             `
             INSERT INTO search_term_reports (
-              user_id, campaign_id, search_term, match_type,
+              user_id, campaign_id, ad_group_id, google_ad_group_id,
+              search_term, match_type, raw_match_type,
               impressions, clicks, conversions, cost, date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
             [
               userId,
               row.campaign_id,
+              row.ad_group_id,
+              row.google_ad_group_id,
               row.search_term,
               row.match_type,
+              row.raw_match_type,
               row.impressions,
               row.clicks,
               row.conversions,

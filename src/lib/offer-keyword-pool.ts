@@ -2900,7 +2900,11 @@ export async function generateOfferKeywordPool(
     offer.category || '',
     offer.target_country,  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
     offer.product_name,
-    { allowNonBrandFromPlanner: allowPlannerNonBrand }
+    {
+      allowNonBrandFromPlanner: allowPlannerNonBrand,
+      // KISS: 品牌门禁统一交给 filterKeywordQuality，预过滤阶段只做轻量裁剪
+      applyBrandGate: false
+    }
   )
 
   console.log(`📝 第一次过滤后关键词数: ${filteredKeywords.length}`)

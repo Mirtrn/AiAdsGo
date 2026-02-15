@@ -652,8 +652,11 @@ CREATE TABLE search_term_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   campaign_id INTEGER NOT NULL,
+  ad_group_id INTEGER,
+  google_ad_group_id TEXT,
   search_term TEXT NOT NULL,
   match_type TEXT NOT NULL,
+  raw_match_type TEXT,
   impressions INTEGER NOT NULL DEFAULT 0,
   clicks INTEGER NOT NULL DEFAULT 0,
   conversions REAL NOT NULL DEFAULT 0,
@@ -661,7 +664,8 @@ CREATE TABLE search_term_reports (
   date TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+  FOREIGN KEY (ad_group_id) REFERENCES ad_groups(id) ON DELETE SET NULL
 );
 CREATE TABLE brand_core_keywords (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1403,8 +1407,12 @@ CREATE INDEX idx_scraped_products_user_offer
 ON scraped_products(user_id, offer_id);
 CREATE INDEX idx_search_terms_campaign_date
 ON search_term_reports(campaign_id, date DESC);
+CREATE INDEX idx_search_terms_campaign_adgroup_date
+ON search_term_reports(campaign_id, ad_group_id, date DESC);
 CREATE INDEX idx_search_terms_term
 ON search_term_reports(search_term);
+CREATE INDEX idx_search_terms_google_adgroup
+ON search_term_reports(google_ad_group_id);
 CREATE INDEX idx_search_terms_user_id
 ON search_term_reports(user_id);
 CREATE INDEX idx_brand_core_lookup

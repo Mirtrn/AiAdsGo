@@ -19,6 +19,7 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword } from './brand-keyword-utils'
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
 import { loadPrompt } from './prompt-loader'
+import { classifyKeywordIntent } from './keyword-intent'
 import type { AmazonProductData, AmazonStoreData } from './stealth-scraper'
 import type {
   StoreProduct,
@@ -173,7 +174,8 @@ function truncateByWords(text: string, maxLength: number): string {
 
 function extractAboutItemKeywordCandidates(
   aboutItems: string[] | null | undefined,
-  maxCandidates: number = 12
+  maxCandidates: number = 12,
+  targetLanguage: string = 'English'
 ): string[] {
   if (!Array.isArray(aboutItems) || aboutItems.length === 0) return []
 
@@ -191,6 +193,10 @@ function extractAboutItemKeywordCandidates(
     const lower = normalized.toLowerCase()
     if (lower === 'about this item' || lower === 'product details') return
     if (seen.has(lower)) return
+    if (/^[\d\s,./%-]+$/u.test(normalized)) return
+
+    const intentInfo = classifyKeywordIntent(normalized, { language: targetLanguage })
+    if (intentInfo.hardNegative) return
 
     seen.add(lower)
     candidates.push(normalized)
@@ -218,6 +224,8 @@ function extractAboutItemKeywordCandidates(
     const numericMatches = item.match(/\b[\d,.]+(?:\s*[-–]?\s*\w+){0,4}\b/g) || []
     for (const match of numericMatches.slice(0, 2)) {
       const around = truncateByWords(match, 40)
+      if (!/[\p{L}]/u.test(around)) continue
+      if (/^[\d\s,./%-]+$/u.test(around)) continue
       addCandidate(around, 45)
     }
 
@@ -573,7 +581,7 @@ async function extractFromSingleProduct(
 
   // 1.1.1 从 About this item / features 提取核心卖点短语
   const aboutSource = productInfo.aboutThisItem?.length ? productInfo.aboutThisItem : productInfo.features
-  const aboutKeywordCandidates = extractAboutItemKeywordCandidates(aboutSource, 12)
+  const aboutKeywordCandidates = extractAboutItemKeywordCandidates(aboutSource, 12, targetLanguage)
   if (aboutKeywordCandidates.length > 0) {
     keywordCandidates.push(...aboutKeywordCandidates)
     console.log(`  ✓ About this item关键字: ${aboutKeywordCandidates.length}个`)
@@ -714,7 +722,7 @@ async function extractFromSingleProduct(
       if (productInfo.name && keyword.includes(extractBrandProductName(productInfo.name, brand))) {
         source = 'product_title'
       } else if (aboutKeywordSet.has(keyword.toLowerCase())) {
-        source = 'product_title'
+        source = 'google_suggest'
       } else if (!brandVariants.includes(keyword)) {
         source = 'google_suggest'
       }

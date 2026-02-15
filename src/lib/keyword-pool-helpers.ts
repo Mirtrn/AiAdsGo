@@ -1321,11 +1321,19 @@ export function filterKeywords(
   category: string,
   targetCountry?: string,
   productName?: string | null,
-  options?: { allowNonBrandFromPlanner?: boolean }
+  options?: {
+    allowNonBrandFromPlanner?: boolean
+    // KISS: 允许上层关闭重复品牌门禁，交给统一质量过滤器处理
+    applyBrandGate?: boolean
+  }
 ): PoolKeywordData[] {
+  void category
+  void productName
+
   // 获取纯品牌词列表
   const pureBrandKeywords = getPureBrandKeywords(brandName)
   const allowNonBrandFromPlanner = options?.allowNonBrandFromPlanner ?? false
+  const applyBrandGate = options?.applyBrandGate ?? true
 
   let geoFilteredCount = 0
   let nonBrandRemovedCount = 0
@@ -1335,19 +1343,21 @@ export function filterKeywords(
   const kept: PoolKeywordData[] = []
 
   for (const kw of keywords) {
-    // 🔒 全量强制：只保留包含“纯品牌词”的关键词（不拼接造词）
-    // 🆕 例外：店铺页允许 Keyword Planner 返回的非品牌词进入后续流程
-    if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
-      const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
-      const isPlannerSource = typeof kw.source === 'string' && kw.source.toUpperCase().startsWith('KEYWORD_PLANNER')
-      if (!isConcatenatedBrandWithVolume && !(allowNonBrandFromPlanner && isPlannerSource)) {
-        nonBrandRemovedCount++
-        continue
-      }
-      if (isConcatenatedBrandWithVolume) {
-        concatenatedBrandKept++
-      } else if (allowNonBrandFromPlanner && isPlannerSource) {
-        plannerNonBrandKept++
+    if (applyBrandGate) {
+      // 🔒 全量强制：只保留包含“纯品牌词”的关键词（不拼接造词）
+      // 🆕 例外：店铺页允许 Keyword Planner 返回的非品牌词进入后续流程
+      if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
+        const isConcatenatedBrandWithVolume = (kw.searchVolume || 0) > 0 && isBrandConcatenation(kw.keyword, brandName)
+        const isPlannerSource = typeof kw.source === 'string' && kw.source.toUpperCase().startsWith('KEYWORD_PLANNER')
+        if (!isConcatenatedBrandWithVolume && !(allowNonBrandFromPlanner && isPlannerSource)) {
+          nonBrandRemovedCount++
+          continue
+        }
+        if (isConcatenatedBrandWithVolume) {
+          concatenatedBrandKept++
+        } else if (allowNonBrandFromPlanner && isPlannerSource) {
+          plannerNonBrandKept++
+        }
       }
     }
 
@@ -1367,9 +1377,9 @@ export function filterKeywords(
     console.log(`      Keyword Planner 非品牌保留: ${plannerNonBrandKept}`)
   }
   console.log(`      地理过滤: ${geoFilteredCount}`)
-  const strategyLabel = allowNonBrandFromPlanner
-    ? '品牌包含 + Keyword Planner 例外'
-    : '100%品牌包含'
+  const strategyLabel = !applyBrandGate
+    ? '仅地理预过滤（品牌门禁后置到统一质量过滤）'
+    : (allowNonBrandFromPlanner ? '品牌包含 + Keyword Planner 例外' : '100%品牌包含')
   console.log(`      策略: ${strategyLabel}`)
 
   return kept

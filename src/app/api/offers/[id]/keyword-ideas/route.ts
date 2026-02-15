@@ -12,12 +12,13 @@ import {
   getKeywordMetrics,
 } from '@/lib/google-ads-keyword-planner'
 import {
-  getHighIntentKeywords,
-  filterLowIntentKeywords,
+  getBrandSearchSuggestions,
   filterMismatchedGeoKeywords,
 } from '@/lib/google-suggestions'
+import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
 import { getKeywordPlannerSiteFilterUrlForOffer } from '@/lib/keyword-planner-site-filter'
 import { ensureOfferBrandOfficialSite } from '@/lib/offer-official-site'
+import { normalizeLanguageCode } from '@/lib/language-country-codes'
 
 /**
  * POST /api/offers/:id/keyword-ideas
@@ -139,14 +140,18 @@ export async function POST(
       }
     }
 
+    const normalizedLanguageCode = normalizeLanguageCode(offer.target_language || 'English')
+
     console.log(`Keyword Planner siteFilterUrl: ${siteFilterUrl || '(none)'}`)
     const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
-      // 1. 获取Google搜索下拉词（自动过滤低意图关键词）
-      getHighIntentKeywords({
+      // 1. 获取Google搜索下拉词（保留原始建议，后续按意图分类）
+      getBrandSearchSuggestions({
         brand: offer.brand,
         country: offer.target_country,
-        language: getLanguageCode(offer.target_language || 'English'),
+        language: normalizedLanguageCode,
         useProxy: true,
+        productName: offer.product_name || undefined,
+        category: offer.category || undefined,
       }).catch((err) => {
         console.warn('获取Google搜索建议失败，继续使用Keyword Planner:', err)
         return []
@@ -178,7 +183,7 @@ export async function POST(
       try {
         const suggestMetrics = await getKeywordMetrics({
           customerId: googleAdsAccount.customerId,
-          keywords: googleSuggestKeywords,
+          keywords: googleSuggestKeywords.map((item) => item.keyword),
           targetCountry: offer.target_country,
           targetLanguage: offer.target_language || 'English',
           accountId: googleAdsAccount.id,
@@ -213,33 +218,79 @@ export async function POST(
       }
     }
 
-    // 需求11：过滤购买意图不强烈的关键词
-    const highIntentKeywordTexts = filterLowIntentKeywords(
-      keywordIdeas.map((kw) => kw.text)
-    )
-    let highIntentKeywords = keywordIdeas.filter((kw) =>
-      highIntentKeywordTexts.includes(kw.text)
-    )
+    const intentByKeyword = new Map<string, ReturnType<typeof classifyKeywordIntent>>()
+    const excludedKeywordMap = new Map<
+      string,
+      {
+        text: string
+        intent: string
+        hardNegative: boolean
+        reasons: string[]
+        stage: 'intent_hard_negative' | 'geo_mismatch'
+      }
+    >()
+
+    let hardNegativeFilteredCount = 0
+    const nonHardIntentKeywords = keywordIdeas.filter((kw) => {
+      const key = kw.text.toLowerCase()
+      const intentInfo = classifyKeywordIntent(kw.text, {
+        language: offer.target_language || normalizedLanguageCode,
+      })
+      intentByKeyword.set(key, intentInfo)
+
+      if (!intentInfo.hardNegative) return true
+      hardNegativeFilteredCount++
+
+      if (!excludedKeywordMap.has(key)) {
+        excludedKeywordMap.set(key, {
+          text: kw.text,
+          intent: intentInfo.intent,
+          hardNegative: true,
+          reasons: intentInfo.reasons,
+          stage: 'intent_hard_negative',
+        })
+      }
+
+      return false
+    })
 
     console.log(
-      `✓ 过滤低意图关键词后剩余${highIntentKeywords.length}个 (原始${keywordIdeas.length}个)`
+      `✓ 意图分层过滤: 硬否词剔除${hardNegativeFilteredCount}个, 剩余${nonHardIntentKeywords.length}个 (原始${keywordIdeas.length}个)`
     )
 
     // 用户问题1：过滤地理不匹配的关键词
-    const geoFilteredTexts = filterMismatchedGeoKeywords(
-      highIntentKeywords.map((kw) => kw.text),
-      offer.target_country
+    const geoAllowedKeywordSet = new Set(
+      filterMismatchedGeoKeywords(
+        nonHardIntentKeywords.map((kw) => kw.text),
+        offer.target_country
+      )
     )
-    highIntentKeywords = highIntentKeywords.filter((kw) =>
-      geoFilteredTexts.includes(kw.text)
-    )
+    let geoFilteredOutCount = 0
+    const geoMatchedKeywords = nonHardIntentKeywords.filter((kw) => {
+      if (geoAllowedKeywordSet.has(kw.text)) return true
+      geoFilteredOutCount++
+      const key = kw.text.toLowerCase()
+      const intentInfo = intentByKeyword.get(key) || classifyKeywordIntent(kw.text, {
+        language: offer.target_language || normalizedLanguageCode,
+      })
+      if (!excludedKeywordMap.has(key)) {
+        excludedKeywordMap.set(key, {
+          text: kw.text,
+          intent: intentInfo.intent,
+          hardNegative: intentInfo.hardNegative,
+          reasons: intentInfo.reasons,
+          stage: 'geo_mismatch',
+        })
+      }
+      return false
+    })
 
     console.log(
-      `✓ 过滤地理不匹配后剩余${highIntentKeywords.length}个关键词`
+      `✓ 过滤地理不匹配后剩余${geoMatchedKeywords.length}个关键词（过滤${geoFilteredOutCount}个）`
     )
 
     // 过滤高质量关键词
-    const filteredKeywords = filterHighQualityKeywords(highIntentKeywords, {
+    const filteredKeywords = filterHighQualityKeywords(geoMatchedKeywords, {
       minMonthlySearches: filterOptions.minMonthlySearches || 100,
       maxCompetitionIndex: filterOptions.maxCompetitionIndex || 80,
       maxCpcMicros: filterOptions.maxCpcMicros,
@@ -255,13 +306,42 @@ export async function POST(
       productName: offer.product_name,
     })
 
+    const intentPriority: Record<string, number> = {
+      TRANSACTIONAL: 4,
+      COMMERCIAL: 3,
+      OTHER: 2,
+      SUPPORT: 1,
+      DOWNLOAD: 1,
+      JOBS: 1,
+      PIRACY: 1,
+    }
+
+    const rankedKeywordsByIntent = rankedKeywords
+      .map((keyword, index) => {
+        const intentInfo = intentByKeyword.get(keyword.text.toLowerCase()) || classifyKeywordIntent(keyword.text, {
+          language: offer.target_language || normalizedLanguageCode,
+        })
+        intentByKeyword.set(keyword.text.toLowerCase(), intentInfo)
+        return { keyword, index, intentInfo }
+      })
+      .sort((a, b) => {
+        const priorityDiff = (intentPriority[b.intentInfo.intent] || 0) - (intentPriority[a.intentInfo.intent] || 0)
+        if (priorityDiff !== 0) return priorityDiff
+        return a.index - b.index
+      })
+      .map((item) => item.keyword)
+
     // 按主题分组
-    const groupedKeywords = groupKeywordsByTheme(rankedKeywords)
+    const groupedKeywords = groupKeywordsByTheme(rankedKeywordsByIntent)
 
     // 格式化返回数据
     const currency = offer.target_country === 'CN' ? 'CNY' : 'USD'
 
-    const formattedKeywords = rankedKeywords.slice(0, 50).map(kw => ({
+    const formattedKeywords = rankedKeywordsByIntent.slice(0, 50).map(kw => {
+      const intentInfo = intentByKeyword.get(kw.text.toLowerCase()) || classifyKeywordIntent(kw.text, {
+        language: offer.target_language || normalizedLanguageCode,
+      })
+      return {
       text: kw.text,
       avgMonthlySearches: kw.avgMonthlySearches,
       avgMonthlySearchesFormatted: formatSearchVolume(kw.avgMonthlySearches),
@@ -275,7 +355,16 @@ export async function POST(
       ),
       lowTopOfPageBidMicros: kw.lowTopOfPageBidMicros,
       highTopOfPageBidMicros: kw.highTopOfPageBidMicros,
-    }))
+        intent: intentInfo.intent,
+        hardNegative: intentInfo.hardNegative,
+        intentReasons: intentInfo.reasons,
+        recommendedMatchType: recommendMatchTypeForKeyword({
+          keyword: kw.text,
+          brandName: offer.brand,
+          intent: intentInfo.intent,
+        }),
+      }
+    })
 
     // 分组统计
     const groupStats = Object.entries(groupedKeywords).map(([theme, keywords]) => ({
@@ -287,9 +376,12 @@ export async function POST(
     return NextResponse.json({
       success: true,
       keywords: formattedKeywords,
-      total: rankedKeywords.length,
+      total: rankedKeywordsByIntent.length,
       filtered: filteredKeywords.length,
       original: keywordIdeas.length,
+      hardNegativeFiltered: hardNegativeFilteredCount,
+      geoFiltered: geoFilteredOutCount,
+      excludedKeywords: Array.from(excludedKeywordMap.values()),
       groupStats,
       offer: {
         id: offer.id,
@@ -314,23 +406,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
-
-/**
- * 将语言名称转换为语言代码
- */
-function getLanguageCode(language: string): string {
-  const languageMap: { [key: string]: string } = {
-    English: 'en',
-    German: 'de',
-    French: 'fr',
-    Spanish: 'es',
-    Italian: 'it',
-    Portuguese: 'pt',
-    Japanese: 'ja',
-    Korean: 'ko',
-    Chinese: 'zh',
-  }
-
-  return languageMap[language] || 'en'
 }
