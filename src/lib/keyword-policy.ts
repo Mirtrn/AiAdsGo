@@ -11,6 +11,14 @@ export const KEYWORD_POLICY = {
     promptKeywordLimit: 50,
     titleAboutSeedRatioCap: 0.2,
     minIntentScore: 20,
+    nonBrandVolumeDynamic: {
+      defaultMinSearchVolume: 500,
+      rules: [
+        { maxBrandKeywordCount: 5, minSearchVolume: 100 },
+        { maxBrandKeywordCount: 12, minSearchVolume: 200 },
+        { maxBrandKeywordCount: 20, minSearchVolume: 300 },
+      ],
+    },
     explore: {
       // 覆盖度兜底：允许少量低意图探索词进入最终关键词池
       minIntentScore: 10,
@@ -43,3 +51,15 @@ export function getRatioCappedCount(total: number, ratio: number, hardCap: numbe
   return Math.max(0, Math.min(ratioCap, hardCap))
 }
 
+export function resolveNonBrandMinSearchVolumeByBrandKeywordCount(brandKeywordCount: number): number {
+  const count = Number.isFinite(brandKeywordCount) ? Math.max(0, Math.floor(brandKeywordCount)) : 0
+  const { rules, defaultMinSearchVolume } = KEYWORD_POLICY.creative.nonBrandVolumeDynamic
+
+  for (const rule of rules) {
+    if (count <= rule.maxBrandKeywordCount) {
+      return rule.minSearchVolume
+    }
+  }
+
+  return defaultMinSearchVolume
+}

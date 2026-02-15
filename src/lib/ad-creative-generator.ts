@@ -28,7 +28,7 @@ import { parsePrice } from './pricing-utils'
 import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
 import { getLocalizedDkiOfficialSuffix, type DkiLocaleOptions } from './dki-localization'
 import { classifyKeywordIntent } from './keyword-intent'
-import { KEYWORD_POLICY, getRatioCappedCount } from './keyword-policy'
+import { KEYWORD_POLICY, getRatioCappedCount, resolveNonBrandMinSearchVolumeByBrandKeywordCount } from './keyword-policy'
 
 /**
  * 🔧 安全解析JSON字段
@@ -132,6 +132,20 @@ function getSeedCapByRatio(validatedKeywordCount: number): number {
   if (validatedKeywordCount <= 0) return 0
   // seed/(validated+seed) <= 20%  => seed <= validated * 0.25
   return Math.floor(validatedKeywordCount * (TITLE_ABOUT_SEED_RATIO_CAP / (1 - TITLE_ABOUT_SEED_RATIO_CAP)))
+}
+
+function countBrandContainingKeywords(
+  keywords: Array<{ keyword: string; searchVolume?: number }>,
+  brandName: string,
+  brandTokensToMatch: string[]
+): number {
+  if (!Array.isArray(keywords) || keywords.length === 0) return 0
+  return keywords.filter((kw) => {
+    const keyword = String(kw.keyword || '').trim()
+    if (!keyword) return false
+    if (containsPureBrand(keyword, brandTokensToMatch)) return true
+    return typeof kw.searchVolume === 'number' && kw.searchVolume > 0 && isBrandConcatenation(keyword, brandName)
+  }).length
 }
 
 function extractTitleAndAboutSignals(
@@ -617,6 +631,17 @@ async function mergeExtractedKeywordsWithSingleExit(
         .map(k => k.keyword.toLowerCase())
     )
     const brandNameLowerForMerge = brandName?.toLowerCase() || ''
+    const pureBrandKeywordsForMerge = getPureBrandKeywords(brandName || '')
+    const brandKeywordCountForThreshold = countBrandContainingKeywords(
+      mergedKeywordsWithVolume,
+      brandName,
+      pureBrandKeywordsForMerge
+    )
+    const dynamicNonBrandMinSearchVolume =
+      resolveNonBrandMinSearchVolumeByBrandKeywordCount(brandKeywordCountForThreshold)
+    console.log(
+      `   🎚️ 动态非品牌搜索量阈值: >= ${dynamicNonBrandMinSearchVolume} (品牌相关词 ${brandKeywordCountForThreshold} 个)`
+    )
 
     const keywordsNeedVolume = extractedKeywords.filter(kw =>
       kw.keyword && kw.searchVolume === 0 && !existingKeywordsLower.has(kw.keyword.toLowerCase())
@@ -656,7 +681,10 @@ async function mergeExtractedKeywordsWithSingleExit(
       const kwLower = kw.keyword.toLowerCase()
       if (existingKeywordsLower.has(kwLower)) return false
       if (kw.searchVolume === 0) return true
-      if (kw.searchVolume < 500) return false
+      const isBrandKeywordCandidate =
+        containsPureBrand(kw.keyword, pureBrandKeywordsForMerge) ||
+        isBrandConcatenation(kw.keyword, brandName)
+      if (!isBrandKeywordCandidate && kw.searchVolume < dynamicNonBrandMinSearchVolume) return false
       return true
     })
     const skippedCount = extractedKeywords.length - keywordsToMerge.length
@@ -840,11 +868,18 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
     console.log(`   ⚠️ 搜索量数据不可用（developer token 无 Basic/Standard access 或 服务账号限制），跳过搜索量过滤`)
   }
 
-  // 过滤非品牌词（只保留搜索量 >= 500）
+  const dynamicNonBrandMinSearchVolume = resolveNonBrandMinSearchVolumeByBrandKeywordCount(
+    pureBrandKeywords.length + brandRelatedKeywords.length
+  )
+  console.log(
+    `   🎚️ 动态非品牌搜索量阈值: >= ${dynamicNonBrandMinSearchVolume} (品牌相关词 ${pureBrandKeywords.length + brandRelatedKeywords.length} 个)`
+  )
+
+  // 过滤非品牌词（按动态阈值保留）
   const hasAnyVolume = nonBrandKeywords.some(kw => kw.searchVolume > 0)
   const canUseVolumeFilter = hasAnyVolume && !volumeDataUnavailable
   const filteredNonBrandKeywords = canUseVolumeFilter
-    ? nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
+    ? nonBrandKeywords.filter(kw => kw.searchVolume >= dynamicNonBrandMinSearchVolume)
     : nonBrandKeywords
 
   const enhancedNonBrandKeywords = [...filteredNonBrandKeywords, ...extractedGenericKeywords]
@@ -903,8 +938,8 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
   }
 
   // 强制约束2/3：非品牌词阈值 + 最小关键词数量
-  console.log(`\n📌 强制约束2: 非品牌词搜索量 >= 500 或来自高价值词提取`)
-  console.log(`   - 搜索量 >= 500 的非品牌词: ${filteredNonBrandKeywords.length} 个`)
+  console.log(`\n📌 强制约束2: 非品牌词搜索量 >= ${dynamicNonBrandMinSearchVolume} 或来自高价值词提取`)
+  console.log(`   - 搜索量达标的非品牌词: ${filteredNonBrandKeywords.length} 个`)
   console.log(`   - 提取的高价值词 (>10000): ${extractedGenericKeywords.length} 个`)
   console.log(`   - 合计非品牌词: ${enhancedNonBrandKeywords.length} 个`)
 
@@ -2669,9 +2704,27 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
       // 🔧 调整(2026-02-03): 将提取关键词数量限制在30个以内，避免Prompt噪声过高
       // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
+      const promptBrandTokens = getPureBrandKeywords(offer.brand || '')
+      const promptBrandKeywordCount = countBrandContainingKeywords(
+        extractedElements.keywords
+          .filter(k => !!k?.keyword)
+          .map(k => ({ keyword: k.keyword, searchVolume: k.searchVolume })),
+        offer.brand || '',
+        promptBrandTokens
+      )
+      const promptDynamicNonBrandMinSearchVolume =
+        resolveNonBrandMinSearchVolumeByBrandKeywordCount(promptBrandKeywordCount)
       const hasAnyVolume = extractedElements.keywords.some(k => k.searchVolume > 0)
       const topKeywords = extractedElements.keywords
-        .filter(k => hasAnyVolume ? k.searchVolume >= 500 : true)
+        .filter(k => {
+          if (!hasAnyVolume) return true
+          const keywordText = String(k.keyword || '')
+          const isBrandKeyword =
+            containsPureBrand(keywordText, promptBrandTokens) ||
+            isBrandConcatenation(keywordText, offer.brand || '')
+          if (isBrandKeyword) return true
+          return k.searchVolume >= promptDynamicNonBrandMinSearchVolume
+        })
         .slice(0, 30)
         .map(k => (k.searchVolume > 0 ? `"${k.keyword}" (${k.searchVolume}/mo)` : `"${k.keyword}"`))
       if (topKeywords.length > 0) {
