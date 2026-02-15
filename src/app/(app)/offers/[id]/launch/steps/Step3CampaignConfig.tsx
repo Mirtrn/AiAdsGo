@@ -904,7 +904,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       {/* 1. Campaign Settings - 2列布局 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">1. Campaign（广告系列）</CardTitle>
+          <CardTitle className="text-lg">1. 广告系列 (Campaign)</CardTitle>
           <CardDescription>预算、定位、出价策略</CardDescription>
         </CardHeader>
         <CardContent>
@@ -912,7 +912,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Campaign Name - 使用统一命名规范 */}
             <div className="space-y-2">
               <Label>
-                Campaign Name <Badge variant="destructive" className="ml-1">必需</Badge>
+                广告系列名称 (Campaign Name) <Badge variant="destructive" className="ml-1">必需</Badge>
                 <Badge variant="outline" className="ml-1">自动生成</Badge>
               </Label>
               <Input
@@ -925,7 +925,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Budget Amount + Type - 🔧 修复(2025-12-13): 使用动态货币符号 */}
             <div className="space-y-2">
               <Label>
-                Budget <Badge variant="destructive" className="ml-1">必需</Badge>
+                预算 (Budget) <Badge variant="destructive" className="ml-1">必需</Badge>
                 <Badge className="ml-1">默认{getDefaultBudget(accountCurrency)} {accountCurrency}</Badge>
               </Label>
               <div className="flex gap-2">
@@ -970,7 +970,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Target Country - 🔒 只读，与Offer保持一致 */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
-                Target Country
+                目标国家 (Target Country)
                 <Badge variant="secondary" className="ml-1">
                   <Lock className="w-3 h-3 mr-1" />
                   与Offer一致
@@ -985,7 +985,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Target Language - 🔒 只读，与Offer保持一致 */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
-                Target Language
+                目标语言 (Target Language)
                 <Badge variant="secondary" className="ml-1">
                   <Lock className="w-3 h-3 mr-1" />
                   与Offer一致
@@ -1003,7 +1003,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 营销目标 (Marketing Objective)
                 <Badge variant="outline" className="ml-1">
                   <Info className="w-3 h-3 mr-1" />
-                  由Bidding Strategy决定
+                  由出价策略 (Bidding Strategy) 决定
                 </Badge>
               </Label>
               <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
@@ -1023,7 +1023,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Bidding Strategy */}
             <div className="space-y-2">
               <Label>
-                Bidding Strategy <Badge className="ml-1">默认Maximize Clicks</Badge>
+                出价策略 (Bidding Strategy) <Badge className="ml-1">默认最大化点击量 (Maximize Clicks)</Badge>
               </Label>
               <Select
                 value={config.biddingStrategy}
@@ -1033,9 +1033,9 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="MAXIMIZE_CLICKS">Maximize Clicks (网站流量)</SelectItem>
-                  <SelectItem value="MANUAL_CPC">Manual CPC (手动出价)</SelectItem>
-                  <SelectItem value="MAXIMIZE_CONVERSIONS">Maximize Conversions (潜在客户)</SelectItem>
+                  <SelectItem value="MAXIMIZE_CLICKS">最大化点击量 (Maximize Clicks)</SelectItem>
+                  <SelectItem value="MANUAL_CPC">手动点击出价 (Manual CPC)</SelectItem>
+                  <SelectItem value="MAXIMIZE_CONVERSIONS">最大化转化 (Maximize Conversions)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1043,7 +1043,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Final URL Suffix - 🔒 必填 */}
             <div className="space-y-2">
               <Label>
-                Final URL Suffix <Badge variant="destructive" className="ml-1">必填</Badge>
+                最终链接后缀 (Final URL Suffix) <Badge variant="destructive" className="ml-1">必填</Badge>
               </Label>
               <Input
                 value={config.finalUrlSuffix}
@@ -1057,7 +1057,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               {!config.finalUrlSuffix.trim() && (
                 <p className="text-xs text-red-500 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
-                  Final URL Suffix不能为空，否则无法追踪广告效果
+                  最终链接后缀 (Final URL Suffix) 不能为空，否则无法追踪广告效果
                 </p>
               )}
             </div>
@@ -1068,7 +1068,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       {/* 2. Ad Group Settings - 2列布局 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">2. Ad Group（广告组）</CardTitle>
+          <CardTitle className="text-lg">2. 广告组 (Ad Group)</CardTitle>
           <CardDescription>命名、CPC出价、关键词</CardDescription>
         </CardHeader>
         <CardContent>
@@ -1076,7 +1076,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Ad Group Name - 使用统一命名规范 */}
             <div className="space-y-2">
               <Label>
-                Ad Group Name <Badge variant="destructive" className="ml-1">必需</Badge>
+                广告组名称 (Ad Group Name) <Badge variant="destructive" className="ml-1">必需</Badge>
                 <Badge variant="outline" className="ml-1">自动生成</Badge>
               </Label>
               <Input
@@ -1089,7 +1089,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             {/* Max CPC Bid - 🔧 修复(2025-12-13): 使用动态货币符号 */}
             <div className="space-y-2">
               <Label>
-                CPC Bid <Badge variant="destructive" className="ml-1">必需</Badge>
+                点击出价 (CPC Bid) <Badge variant="destructive" className="ml-1">必需</Badge>
                 <Badge className="ml-1">默认{getDefaultCPC(accountCurrency)} {accountCurrency}</Badge>
               </Label>
               <div className="relative">
@@ -1192,7 +1192,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>
-                Keywords <Badge variant="destructive" className="ml-1">至少1个</Badge>
+                关键词 (Keywords) <Badge variant="destructive" className="ml-1">至少1个</Badge>
               </Label>
               <div className="flex items-center gap-2">
                 <Button
@@ -1312,45 +1312,47 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Label className="flex items-center">
-                  否定关键词
+                  否定关键词 (Negative Keywords)
                   <Badge variant="secondary" className="ml-1">{config.negativeKeywords.length} 个</Badge>
                 </Label>
               </div>
 
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                <Input
-                  value={newNegativeKeyword}
-                  onChange={(e) => setNewNegativeKeyword(e.target.value)}
-                  placeholder="输入否定关键词"
-                  className="min-w-[220px] flex-1"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      handleAddNegativeKeyword()
-                    }
-                  }}
-                />
-                <Select
-                  value={newNegativeKeywordMatchType}
-                  onValueChange={(value) => setNewNegativeKeywordMatchType(value as NegativeKeywordMatchType)}
-                >
-                  <SelectTrigger className="w-[130px] shrink-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="EXACT">精确匹配</SelectItem>
-                    <SelectItem value="PHRASE">词组匹配</SelectItem>
-                    <SelectItem value="BROAD">广泛匹配</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  onClick={handleAddNegativeKeyword}
-                  size="sm"
-                  className="shrink-0 bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  添加
-                </Button>
+              <div className="flex justify-end pb-1">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+                  <Input
+                    value={newNegativeKeyword}
+                    onChange={(e) => setNewNegativeKeyword(e.target.value)}
+                    placeholder="输入否定关键词"
+                    className="w-full sm:w-[320px] lg:w-[380px]"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleAddNegativeKeyword()
+                      }
+                    }}
+                  />
+                  <Select
+                    value={newNegativeKeywordMatchType}
+                    onValueChange={(value) => setNewNegativeKeywordMatchType(value as NegativeKeywordMatchType)}
+                  >
+                    <SelectTrigger className="w-[108px] shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EXACT">精确匹配</SelectItem>
+                      <SelectItem value="PHRASE">词组匹配</SelectItem>
+                      <SelectItem value="BROAD">广泛匹配</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleAddNegativeKeyword}
+                    size="sm"
+                    className="w-full shrink-0 bg-blue-600 text-white hover:bg-blue-700 sm:w-auto"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    添加
+                  </Button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1365,7 +1367,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 {NEGATIVE_KEYWORD_MATCH_TYPES.map((matchType) => (
                   <div
                     key={matchType}
-                    className="rounded-lg border bg-gray-50/60 p-2"
+                    className="min-h-[180px] rounded-lg border bg-gray-50/60 p-2"
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={(event) => handleNegativeKeywordDrop(event, matchType)}
                   >
@@ -1375,7 +1377,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                     </div>
 
                     {groupedNegativeKeywords[matchType].length > 0 ? (
-                      <div className="max-h-28 overflow-y-auto pr-1">
+                      <div className="min-h-[136px] max-h-40 overflow-y-auto pr-1">
                         <div className="flex flex-wrap gap-1.5">
                           {groupedNegativeKeywords[matchType].map((keyword) => (
                             <div
@@ -1400,7 +1402,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                         </div>
                       </div>
                     ) : (
-                      <div className="rounded border border-dashed bg-white p-2 text-[11px] text-gray-400">
+                      <div className="flex min-h-[136px] items-center justify-center rounded border border-dashed bg-white p-2 text-[11px] text-gray-400">
                         拖拽到此分组
                       </div>
                     )}
@@ -1421,7 +1423,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="batch-keywords-input">关键词列表</Label>
+            <Label htmlFor="batch-keywords-input">关键词列表 (Keyword List)</Label>
             <Textarea
               id="batch-keywords-input"
               value={batchKeywordInput}
@@ -1454,7 +1456,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg">3. Ad（广告）</CardTitle>
+              <CardTitle className="text-lg">3. 广告 (Ad)</CardTitle>
               <CardDescription>标题、描述、链接</CardDescription>
             </div>
             <div className="flex gap-2">
@@ -1475,7 +1477,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           {/* Ad Name - 使用统一命名规范 */}
           <div className="space-y-2">
             <Label>
-              Ad Name <Badge variant="destructive" className="ml-1">必需</Badge>
+              广告名称 (Ad Name) <Badge variant="destructive" className="ml-1">必需</Badge>
               <Badge variant="outline" className="ml-1">自动生成</Badge>
             </Label>
             <Input
@@ -1489,18 +1491,18 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>
-                Headlines <Badge variant="destructive" className="ml-1">必须15个</Badge>
+                标题 (Headlines) <Badge variant="destructive" className="ml-1">必须15个</Badge>
                 <Badge className="ml-1">{config.headlines.length}/15</Badge>
               </Label>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               {config.headlines.map((headline, index) => (
                 <div key={index} className="space-y-1">
-                  <div className="text-xs text-gray-500">Headline {index + 1} ({headline.length}/30)</div>
+                  <div className="text-xs text-gray-500">标题 {index + 1} (Headline {index + 1}) ({headline.length}/30)</div>
                   <Input
                     value={headline}
                     onChange={(e) => handleHeadlineChange(index, e.target.value)}
-                    placeholder={`Headline ${index + 1}`}
+                    placeholder={`标题 ${index + 1} (Headline ${index + 1})`}
                     maxLength={30}
                   />
                 </div>
@@ -1512,18 +1514,18 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>
-                Descriptions <Badge variant="destructive" className="ml-1">必须4个</Badge>
+                描述 (Descriptions) <Badge variant="destructive" className="ml-1">必须4个</Badge>
                 <Badge className="ml-1">{config.descriptions.length}/4</Badge>
               </Label>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               {config.descriptions.map((desc, index) => (
                 <div key={index} className="space-y-1">
-                  <div className="text-xs text-gray-500">Description {index + 1} ({desc.length}/90)</div>
+                  <div className="text-xs text-gray-500">描述 {index + 1} (Description {index + 1}) ({desc.length}/90)</div>
                   <Textarea
                     value={desc}
                     onChange={(e) => handleDescriptionChange(index, e.target.value)}
-                    placeholder={`Description ${index + 1}`}
+                    placeholder={`描述 ${index + 1} (Description ${index + 1})`}
                     maxLength={90}
                     rows={3}
                   />
@@ -1535,7 +1537,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           {/* Final URLs */}
           <div className="space-y-2">
             <Label>
-              Final URL <Badge variant="destructive" className="ml-1">必需</Badge>
+              最终链接 (Final URL) <Badge variant="destructive" className="ml-1">必需</Badge>
             </Label>
             <Input
               value={config.finalUrls[0]}
@@ -1549,7 +1551,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       {/* 4. Extensions - Callouts & Sitelinks */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">4. Extensions（附加信息）</CardTitle>
+          <CardTitle className="text-lg">4. 附加信息 (Extensions)</CardTitle>
           <CardDescription>宣传信息、附加链接</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1557,11 +1559,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>
-                Callouts <Badge variant="destructive" className="ml-1">至少1个</Badge>
+                宣传语 (Callouts) <Badge variant="destructive" className="ml-1">至少1个</Badge>
               </Label>
               <Button onClick={handleAddCallout} variant="outline" size="sm">
                 <Plus className="w-4 h-4 mr-1" />
-                添加Callout
+                添加宣传语
               </Button>
             </div>
             <div className="grid md:grid-cols-2 gap-2">
@@ -1570,7 +1572,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   <Input
                     value={getCalloutText(callout)}
                     onChange={(e) => handleCalloutChange(index, e.target.value)}
-                    placeholder={`Callout ${index + 1}`}
+                    placeholder={`宣传语 ${index + 1} (Callout ${index + 1})`}
                     maxLength={25}
                   />
                   <Button
@@ -1589,11 +1591,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>
-                Sitelinks <Badge variant="destructive" className="ml-1">至少1个</Badge>
+                附加链接 (Sitelinks) <Badge variant="destructive" className="ml-1">至少1个</Badge>
               </Label>
               <Button onClick={handleAddSitelink} variant="outline" size="sm">
                 <Plus className="w-4 h-4 mr-1" />
-                添加Sitelink
+                添加附加链接
               </Button>
             </div>
             <div className="space-y-3">
@@ -1602,18 +1604,18 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   <Input
                     value={getSitelinkText(sitelink)}
                     onChange={(e) => handleSitelinkChange(index, 'text', e.target.value)}
-                    placeholder="链接文字"
+                    placeholder="链接文字 (Link Text)"
                   />
                   <Input
                     value={getSitelinkDescription(sitelink)}
                     onChange={(e) => handleSitelinkChange(index, 'description', e.target.value)}
-                    placeholder="描述"
+                    placeholder="描述 (Description)"
                   />
                   <div className="flex gap-2">
                     <Input
                       value={getSitelinkUrl(sitelink)}
                       onChange={(e) => handleSitelinkChange(index, 'url', e.target.value)}
-                      placeholder="URL"
+                      placeholder="链接地址 (URL)"
                       className="flex-1"
                     />
                     <Button
