@@ -243,6 +243,53 @@ describe('openclaw bindings isolation', () => {
     expect(exec.mock.calls[0]?.[0]).toContain('INSERT INTO openclaw_user_bindings')
   })
 
+  it('uses strict mode: tolerates duplicate insert from concurrent auto-bind', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = 'true'
+
+    const duplicate = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    })
+    const queryOne = vi.fn()
+      .mockResolvedValueOnce(null) // findFeishuTenantBinding
+      .mockResolvedValueOnce(null) // ensureStrictFeishuBinding existing (scoped)
+      .mockResolvedValueOnce({ id: 101, user_id: 11 }) // scopedAfterConflict
+    const exec = vi.fn().mockRejectedValueOnce(duplicate)
+    getDatabaseMock.mockResolvedValue({ queryOne, exec, type: 'postgres' })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_race', {
+      accountId: 'user-11',
+      tenantKey: 'tenant-race',
+    })
+
+    expect(result).toBe(11)
+    expect(exec).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses strict mode: rejects duplicate insert when legacy binding belongs to another user', async () => {
+    process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
+    process.env.OPENCLAW_FEISHU_STRICT_AUTO_BIND = 'true'
+
+    const duplicate = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    })
+    const queryOne = vi.fn()
+      .mockResolvedValueOnce(null) // findFeishuTenantBinding
+      .mockResolvedValueOnce(null) // ensureStrictFeishuBinding existing (scoped)
+      .mockResolvedValueOnce(null) // scopedAfterConflict
+      .mockResolvedValueOnce({ id: 5, user_id: 9 }) // legacyGlobal
+    const exec = vi.fn().mockRejectedValueOnce(duplicate)
+    getDatabaseMock.mockResolvedValue({ queryOne, exec, type: 'postgres' })
+
+    const result = await resolveOpenclawUserFromBinding('feishu', 'ou_conflict_legacy', {
+      accountId: 'user-11',
+      tenantKey: 'tenant-11',
+    })
+
+    expect(result).toBeNull()
+    expect(exec).toHaveBeenCalledTimes(1)
+  })
+
   it('uses strict mode: blocks conflicting existing binding', async () => {
     process.env.OPENCLAW_FEISHU_AUTH_MODE = 'strict'
 

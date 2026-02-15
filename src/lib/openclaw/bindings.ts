@@ -129,6 +129,18 @@ function normalizeFeishuId(value?: string | null): string {
   return String(value || '').trim().replace(/^(feishu|lark):/i, '').toLowerCase()
 }
 
+function isUniqueViolationError(error: unknown): boolean {
+  const details = error as { code?: string; message?: string } | null
+  if (!details) return false
+
+  if (details.code === '23505') return true
+  if (typeof details.code === 'string' && details.code.startsWith('SQLITE_CONSTRAINT')) return true
+
+  const message = String(details.message || '')
+  return /duplicate key value violates unique constraint/i.test(message)
+    || /UNIQUE constraint failed/i.test(message)
+}
+
 function isFeishuSenderAllowlisted(senderId: string, allowFrom?: string[]): boolean {
   if (!Array.isArray(allowFrom) || allowFrom.length === 0) return false
   const normalizedSenderId = normalizeFeishuId(senderId)
@@ -189,12 +201,58 @@ async function ensureStrictFeishuBinding(params: {
     return true
   }
 
-  await db.exec(
-    `INSERT INTO openclaw_user_bindings (user_id, channel, tenant_key, open_id, union_id, status)
-     VALUES (?, 'feishu', ?, ?, ?, 'active')`,
-    [params.userId, params.tenantKey, params.senderId, params.senderId]
+  try {
+    await db.exec(
+      `INSERT INTO openclaw_user_bindings (user_id, channel, tenant_key, open_id, union_id, status)
+       VALUES (?, 'feishu', ?, ?, ?, 'active')`,
+      [params.userId, params.tenantKey, params.senderId, params.senderId]
+    )
+    return true
+  } catch (error) {
+    if (!isUniqueViolationError(error)) {
+      throw error
+    }
+  }
+
+  const scopedAfterConflict = await db.queryOne<{ id: number; user_id: number }>(
+    `SELECT id, user_id
+     FROM openclaw_user_bindings
+     WHERE channel = 'feishu'
+       AND tenant_key = ?
+       AND (open_id = ? OR union_id = ?)
+     LIMIT 1`,
+    [params.tenantKey, params.senderId, params.senderId]
   )
 
+  if (scopedAfterConflict) {
+    return scopedAfterConflict.user_id === params.userId
+  }
+
+  // Compatibility fallback: legacy schema may still enforce UNIQUE(channel, open_id).
+  const legacyGlobal = await db.queryOne<{ id: number; user_id: number }>(
+    `SELECT id, user_id
+     FROM openclaw_user_bindings
+     WHERE channel = 'feishu'
+       AND (open_id = ? OR union_id = ?)
+     LIMIT 1`,
+    [params.senderId, params.senderId]
+  )
+
+  if (!legacyGlobal) {
+    return false
+  }
+
+  if (legacyGlobal.user_id !== params.userId) {
+    return false
+  }
+
+  await db.exec(
+    `UPDATE openclaw_user_bindings
+     SET status = 'active',
+         updated_at = ${nowSql}
+     WHERE id = ?`,
+    [legacyGlobal.id]
+  )
   return true
 }
 
