@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import postgres from 'postgres'
 import path from 'path'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { normalizeSqliteParams } from './sqlite-params'
 import { normalizeSqliteSql } from './sqlite-sql'
 import { parseDbDateTimeAsUtc } from './db-datetime'
@@ -117,6 +118,7 @@ class SQLiteAdapter implements DatabaseAdapter {
 class PostgresAdapter implements DatabaseAdapter {
   type: DatabaseType = 'postgres'
   private sql: postgres.Sql
+  private txStorage = new AsyncLocalStorage<any>()
 
   constructor(connectionString: string) {
     // 移除postgres.js不支持的连接参数
@@ -138,6 +140,10 @@ class PostgresAdapter implements DatabaseAdapter {
         }
       }
     })
+  }
+
+  private getSqlClient(): any {
+    return this.txStorage.getStore() ?? this.sql
   }
 
   // 转换 SQLite 风格的 ? 占位符为 PostgreSQL 风格的 $1, $2...
@@ -365,7 +371,7 @@ class PostgresAdapter implements DatabaseAdapter {
       }
     }
 
-    const result = await this.sql.unsafe(pgSql, cleanParams)
+    const result = await this.getSqlClient().unsafe(pgSql, cleanParams)
     return result as unknown as T[]
   }
 
@@ -396,7 +402,7 @@ class PostgresAdapter implements DatabaseAdapter {
       }
     }
 
-    const result = await this.sql.unsafe(pgSql, cleanParams)
+    const result = await this.getSqlClient().unsafe(pgSql, cleanParams)
 
     // 🔧 调试：查看累计统计查询结果
     if (isCumulativeQuery) {
@@ -439,7 +445,7 @@ class PostgresAdapter implements DatabaseAdapter {
 
     let pgResult: any
     try {
-      pgResult = await this.sql.unsafe(pgSql, cleanParams)
+      pgResult = await this.getSqlClient().unsafe(pgSql, cleanParams)
       if (isDev) {
         console.log('✅ [PostgreSQL exec] 完成:', { changes: pgResult?.count ?? pgResult?.length })
       }
@@ -481,15 +487,8 @@ class PostgresAdapter implements DatabaseAdapter {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return await this.sql.begin(async (tx) => {
-      // 临时替换 sql 实例为事务实例
-      const originalSql = this.sql
-      this.sql = tx as any
-      try {
-        return await fn() as Promise<T>
-      } finally {
-        this.sql = originalSql
-      }
+    return await this.getSqlClient().begin(async (tx: any) => {
+      return await this.txStorage.run(tx, fn)
     }) as Promise<T>
   }
 

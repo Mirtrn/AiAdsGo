@@ -67,7 +67,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
   const alerts = await db.query(`
     SELECT
       c.id as campaign_id,
-      c.name as campaign_name,
+      c.campaign_name as campaign_name,
       o.brand,
       cp.date,
       cp.clicks,
