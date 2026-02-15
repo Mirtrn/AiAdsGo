@@ -1195,10 +1195,18 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 Keywords <Badge variant="destructive" className="ml-1">至少1个</Badge>
               </Label>
               <div className="flex items-center gap-2">
-                <Button onClick={() => setBatchKeywordDialogOpen(true)} variant="outline" size="sm">
+                <Button
+                  onClick={() => setBatchKeywordDialogOpen(true)}
+                  size="sm"
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
                   批量添加关键词
                 </Button>
-                <Button onClick={handleAddKeyword} variant="outline" size="sm">
+                <Button
+                  onClick={handleAddKeyword}
+                  size="sm"
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
                   <Plus className="w-4 h-4 mr-1" />
                   添加关键词
                 </Button>
@@ -1335,7 +1343,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                     <SelectItem value="BROAD">广泛匹配</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button onClick={handleAddNegativeKeyword} variant="outline" size="sm" className="shrink-0">
+                <Button
+                  onClick={handleAddNegativeKeyword}
+                  size="sm"
+                  className="shrink-0 bg-blue-600 text-white hover:bg-blue-700"
+                >
                   <Plus className="w-4 h-4 mr-1" />
                   添加
                 </Button>
