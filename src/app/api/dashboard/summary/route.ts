@@ -13,8 +13,10 @@ async function getKPIs(userId: number, days: number = 30) {
   const { getDatabase } = await import('@/lib/db')
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-  const isDeletedFalse = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性：生产库中 is_deleted 可能仍是 INTEGER，需同时兼容 BOOLEAN/INTEGER
+  const notDeletedCondition = db.type === 'postgres'
+    ? "(o.is_deleted IS NULL OR o.is_deleted::text IN ('0', 'f', 'false'))"
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
 
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - days)
@@ -36,8 +38,8 @@ async function getKPIs(userId: number, days: number = 30) {
     LEFT JOIN offers o ON c.offer_id = o.id
     WHERE c.user_id = ?
       AND c.status != 'REMOVED'
-      AND o.is_deleted = ?
-  `, [startDateStr, userId, isDeletedFalse]) as any
+      AND ${notDeletedCondition}
+  `, [startDateStr, userId]) as any
 
   return {
     totalCampaigns: result?.total_campaigns || 0,
@@ -56,8 +58,10 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
   const { getDatabase } = await import('@/lib/db')
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-  const isDeletedFalse = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性：生产库中 is_deleted 可能仍是 INTEGER，需同时兼容 BOOLEAN/INTEGER
+  const notDeletedCondition = db.type === 'postgres'
+    ? "(o.is_deleted IS NULL OR o.is_deleted::text IN ('0', 'f', 'false'))"
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
 
   // 获取最近7天的风险警报
   const alerts = await db.query(`
@@ -83,7 +87,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
     INNER JOIN offers o ON c.offer_id = o.id
     WHERE c.user_id = ?
       AND c.status != 'REMOVED'
-      AND o.is_deleted = ?
+      AND ${notDeletedCondition}
       AND cp.date >= date('now', '-7 days')
       AND (
         (cp.clicks > 0 AND (cp.clicks * 1.0 / cp.impressions) < 0.01)
@@ -92,7 +96,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
       )
     ORDER BY cp.date DESC, cp.cost DESC
     LIMIT ?
-  `, [userId, isDeletedFalse, limit]) as any[]
+  `, [userId, limit]) as any[]
 
   return alerts.map(alert => ({
     campaignId: alert.campaign_id,
