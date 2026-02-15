@@ -27,6 +27,20 @@ if [ -f /app/dist/openclaw-sync.js ]; then
     node dist/openclaw-sync.js || echo "⚠️  OpenClaw 配置同步失败，已跳过"
 fi
 
+# 将 gateway token 注入为进程环境变量，供 OpenClaw skill 内部调用 /api/openclaw/* 使用。
+# 仅在环境中未显式提供时，从运行时配置文件读取。
+if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ] && [ -f /app/.openclaw/openclaw.json ]; then
+    OPENCLAW_GATEWAY_TOKEN="$(node -e "const fs=require('fs');try{const raw=fs.readFileSync('/app/.openclaw/openclaw.json','utf8');const cfg=JSON.parse(raw||'{}');const token=((cfg.gateway||{}).auth||{}).token||'';if(token&&String(token).trim()){process.stdout.write(String(token).trim())}}catch(e){}")"
+    if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
+        export OPENCLAW_GATEWAY_TOKEN
+    fi
+fi
+
+# 兼容旧模板别名。
+if [ -z "${OPENCLAW_TOKEN:-}" ] && [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
+    export OPENCLAW_TOKEN="$OPENCLAW_GATEWAY_TOKEN"
+fi
+
 chown -R nextjs:nodejs /app/.openclaw
 
 echo ""

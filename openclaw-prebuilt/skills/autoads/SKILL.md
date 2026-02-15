@@ -58,9 +58,15 @@ curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "GET",
-    "path": "/api/offers"
+    "path": "/api/offers",
+    "channel": "feishu",
+    "senderId": "<sender_open_id>",
+    "accountId": "<account_id>",
+    "tenantKey": "<tenant_key>"
   }'
 ```
+
+> 注意：`<sender_open_id>/<account_id>/<tenant_key>` 必须替换为当前会话真实值；占位符原样提交会导致 401 或绑定失败。
 
 ### 写（execute）
 

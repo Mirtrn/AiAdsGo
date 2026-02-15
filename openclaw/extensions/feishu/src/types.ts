@@ -34,6 +34,7 @@ export type FeishuMessageContext = {
   messageId: string;
   senderId: string;
   senderOpenId: string;
+  tenantKey?: string;
   senderName?: string;
   chatType: "p2p" | "group";
   mentionedBot: boolean;

@@ -319,7 +319,7 @@ export async function findOfferById(id: number, userId: number): Promise<Offer |
   const db = await getDatabase()
   const db_type = db.type
   const deletedCondition = db_type === 'postgres'
-    ? '(is_deleted = false OR is_deleted IS NULL)'
+    ? "(is_deleted IS NULL OR is_deleted::text IN ('0', 'f', 'false'))"
     : '(is_deleted = 0 OR is_deleted IS NULL)'
 
   const offer = await db.queryOne(`
@@ -353,7 +353,7 @@ export async function listOffers(
   if (!options?.includeDeleted) {
     const db_type = db.type
     if (db_type === 'postgres') {
-      whereConditions.push('(is_deleted = false OR is_deleted IS NULL)')
+      whereConditions.push("(is_deleted IS NULL OR is_deleted::text IN ('0', 'f', 'false'))")
     } else {
       whereConditions.push('(is_deleted = 0 OR is_deleted IS NULL)')
     }
@@ -445,13 +445,13 @@ export async function listOffers(
   // 🔧 PostgreSQL兼容性修复: is_manager_account在PostgreSQL中是BOOLEAN类型
   // 使用SQL类型转换确保兼容性，而不是在参数中传递类型不匹配的值
   const isManagerCondition = db.type === 'postgres'
-    ? 'gaa.is_manager_account = false'  // PostgreSQL: 直接使用false
+    ? "(gaa.is_manager_account IS NULL OR gaa.is_manager_account::text IN ('0', 'f', 'false'))"
     : 'gaa.is_manager_account = 0'      // SQLite: 使用0
   const isActiveAccountCondition = db.type === 'postgres'
-    ? 'gaa.is_active = true'
+    ? "gaa.is_active::text IN ('1', 't', 'true')"
     : 'gaa.is_active = 1'
   const isNotDeletedAccountCondition = db.type === 'postgres'
-    ? '(gaa.is_deleted = false OR gaa.is_deleted IS NULL)'
+    ? "(gaa.is_deleted IS NULL OR gaa.is_deleted::text IN ('0', 'f', 'false'))"
     : '(gaa.is_deleted = 0 OR gaa.is_deleted IS NULL)'
 
   // 构建offer IDs的占位符
@@ -1032,7 +1032,9 @@ export async function deleteOffer(
   // 🔥 需求：终止并软删除关联的补点击任务
   // 1. 停止所有运行中/待执行的补点击任务
   // 2. 软删除任务（保留历史统计数据）
-  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres'
+    ? "(is_deleted IS NULL OR is_deleted::text IN ('0', 'f', 'false'))"
+    : 'is_deleted = 0'
   const clickFarmTasks = await db.query<any>(`
     SELECT id, status
     FROM click_farm_tasks
@@ -1219,9 +1221,15 @@ export async function getIdleAdsAccounts(userId: number): Promise<any[]> {
   const db = await getDatabase()
 
   // 🔧 PostgreSQL兼容性修复: 布尔字段直接在SQL中比较
-  const isActiveCondition = db.type === 'postgres' ? 'gaa.is_active = true' : 'gaa.is_active = 1'
-  const isManagerCondition = db.type === 'postgres' ? 'gaa.is_manager_account = false' : 'gaa.is_manager_account = 0'
-  const isDeletedCondition = db.type === 'postgres' ? 'o.is_deleted = false' : 'o.is_deleted = 0'
+  const isActiveCondition = db.type === 'postgres'
+    ? "gaa.is_active::text IN ('1', 't', 'true')"
+    : 'gaa.is_active = 1'
+  const isManagerCondition = db.type === 'postgres'
+    ? "(gaa.is_manager_account IS NULL OR gaa.is_manager_account::text IN ('0', 'f', 'false'))"
+    : 'gaa.is_manager_account = 0'
+  const isDeletedCondition = db.type === 'postgres'
+    ? "(o.is_deleted IS NULL OR o.is_deleted::text IN ('0', 'f', 'false'))"
+    : 'o.is_deleted = 0'
 
   // 通过子查询判断账号是否闲置（没有活跃的Campaign关联）
   return await db.query(`

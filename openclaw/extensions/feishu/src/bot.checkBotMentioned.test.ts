@@ -9,6 +9,7 @@ function makeEvent(
   return {
     sender: {
       sender_id: { user_id: "u1", open_id: "ou_sender" },
+      tenant_key: "tenant-demo",
     },
     message: {
       message_id: "msg_1",
@@ -60,5 +61,11 @@ describe("parseFeishuMessageEvent – mentionedBot", () => {
     ]);
     const ctx = parseFeishuMessageEvent(event as any, "");
     expect(ctx.mentionedBot).toBe(false);
+  });
+
+  it("preserves tenant_key in parsed context", () => {
+    const event = makeEvent("p2p");
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.tenantKey).toBe("tenant-demo");
   });
 });
