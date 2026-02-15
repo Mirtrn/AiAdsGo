@@ -127,8 +127,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 如果有Keywords，批量同步到Google Ads
       if (keywords.length > 0) {
         const keywordsBatch = keywords.map(kw => ({
+          // createGoogleAdsKeywordsBatch 对否定词优先读取 negativeKeywordMatchType，
+          // 不传会回退到 EXACT，这里显式透传以保持数据库策略不丢失。
           keywordText: kw.keywordText,
           matchType: kw.matchType as 'BROAD' | 'PHRASE' | 'EXACT',
+          negativeKeywordMatchType: kw.isNegative
+            ? (kw.matchType as 'BROAD' | 'PHRASE' | 'EXACT')
+            : undefined,
           status: kw.status as 'ENABLED' | 'PAUSED',
           finalUrl: kw.finalUrl || undefined,
           isNegative: kw.isNegative,

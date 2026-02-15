@@ -1301,87 +1301,94 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
             <Separator className="my-4" />
 
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label className="flex items-center">
                   否定关键词
                   <Badge variant="secondary" className="ml-1">{config.negativeKeywords.length} 个</Badge>
                 </Label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    value={newNegativeKeyword}
-                    onChange={(e) => setNewNegativeKeyword(e.target.value)}
-                    placeholder="输入否定关键词"
-                    className="w-[220px]"
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        handleAddNegativeKeyword()
-                      }
-                    }}
-                  />
-                  <Select
-                    value={newNegativeKeywordMatchType}
-                    onValueChange={(value) => setNewNegativeKeywordMatchType(value as NegativeKeywordMatchType)}
-                  >
-                    <SelectTrigger className="w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="EXACT">精确匹配</SelectItem>
-                      <SelectItem value="PHRASE">词组匹配</SelectItem>
-                      <SelectItem value="BROAD">广泛匹配</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={handleAddNegativeKeyword} variant="outline" size="sm">
-                    <Plus className="w-4 h-4 mr-1" />
-                    添加
-                  </Button>
-                </div>
               </div>
 
-              <p className="text-xs text-gray-500">
-                支持拖拽关键词到不同匹配类型分组，快速调整否定词策略（不再一行一个配置）。
-              </p>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <Input
+                  value={newNegativeKeyword}
+                  onChange={(e) => setNewNegativeKeyword(e.target.value)}
+                  placeholder="输入否定关键词"
+                  className="min-w-[220px] flex-1"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      handleAddNegativeKeyword()
+                    }
+                  }}
+                />
+                <Select
+                  value={newNegativeKeywordMatchType}
+                  onValueChange={(value) => setNewNegativeKeywordMatchType(value as NegativeKeywordMatchType)}
+                >
+                  <SelectTrigger className="w-[130px] shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EXACT">精确匹配</SelectItem>
+                    <SelectItem value="PHRASE">词组匹配</SelectItem>
+                    <SelectItem value="BROAD">广泛匹配</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleAddNegativeKeyword} variant="outline" size="sm" className="shrink-0">
+                  <Plus className="w-4 h-4 mr-1" />
+                  添加
+                </Button>
+              </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="flex flex-wrap gap-2">
+                {NEGATIVE_KEYWORD_MATCH_TYPES.map((matchType) => (
+                  <Badge key={matchType} variant="outline" className="text-xs">
+                    {NEGATIVE_KEYWORD_MATCH_TYPE_LABELS[matchType]} {groupedNegativeKeywords[matchType].length}
+                  </Badge>
+                ))}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-3">
                 {NEGATIVE_KEYWORD_MATCH_TYPES.map((matchType) => (
                   <div
                     key={matchType}
-                    className="rounded-lg border bg-gray-50/60 p-3"
+                    className="rounded-lg border bg-gray-50/60 p-2"
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={(event) => handleNegativeKeywordDrop(event, matchType)}
                   >
                     <div className="mb-2 flex items-center justify-between">
-                      <span className="text-sm font-medium">{NEGATIVE_KEYWORD_MATCH_TYPE_LABELS[matchType]}</span>
+                      <span className="text-xs font-medium">{NEGATIVE_KEYWORD_MATCH_TYPE_LABELS[matchType]}</span>
                       <Badge variant="outline">{groupedNegativeKeywords[matchType].length}</Badge>
                     </div>
 
                     {groupedNegativeKeywords[matchType].length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {groupedNegativeKeywords[matchType].map((keyword) => (
-                          <div
-                            key={keyword}
-                            draggable
-                            onDragStart={(event) => handleNegativeKeywordDragStart(event, keyword)}
-                            onDragEnd={() => setDraggingNegativeKeyword(null)}
-                            className="group inline-flex cursor-grab items-center gap-1 rounded-full border bg-white px-2 py-1 text-xs shadow-sm"
-                          >
-                            <GripVertical className="h-3 w-3 text-gray-400" />
-                            <span>{keyword}</span>
-                            <button
-                              type="button"
-                              className="text-gray-400 transition-colors hover:text-red-500"
-                              onClick={() => handleRemoveNegativeKeyword(keyword)}
-                              aria-label={`删除否定关键词 ${keyword}`}
+                      <div className="max-h-28 overflow-y-auto pr-1">
+                        <div className="flex flex-wrap gap-1.5">
+                          {groupedNegativeKeywords[matchType].map((keyword) => (
+                            <div
+                              key={keyword}
+                              draggable
+                              onDragStart={(event) => handleNegativeKeywordDragStart(event, keyword)}
+                              onDragEnd={() => setDraggingNegativeKeyword(null)}
+                              className="group inline-flex cursor-grab items-center gap-1 rounded-full border bg-white px-2 py-1 text-[11px] shadow-sm"
                             >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ))}
+                              <GripVertical className="h-3 w-3 text-gray-400" />
+                              <span>{keyword}</span>
+                              <button
+                                type="button"
+                                className="text-gray-400 transition-colors hover:text-red-500"
+                                onClick={() => handleRemoveNegativeKeyword(keyword)}
+                                aria-label={`删除否定关键词 ${keyword}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
-                      <div className="rounded border border-dashed bg-white p-3 text-xs text-gray-400">
+                      <div className="rounded border border-dashed bg-white p-2 text-[11px] text-gray-400">
                         拖拽到此分组
                       </div>
                     )}

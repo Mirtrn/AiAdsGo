@@ -35,6 +35,8 @@ describe('negative keyword match type', () => {
     expect(inferNegativeKeywordMatchType('free')).toBe('BROAD')
     expect(inferNegativeKeywordMatchType('jobs')).toBe('BROAD')
     expect(inferNegativeKeywordMatchType('review')).toBe('BROAD')
+    expect(inferNegativeKeywordMatchType('recruit')).toBe('BROAD')
+    expect(inferNegativeKeywordMatchType('vs')).toBe('BROAD')
   })
 
   it('uses broad for common non-english blocker words', () => {
