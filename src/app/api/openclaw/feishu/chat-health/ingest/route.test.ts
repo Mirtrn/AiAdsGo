@@ -179,4 +179,72 @@ describe('openclaw feishu chat health ingest route', () => {
     expect(payload.skippedReason).toBe('user_unresolved')
     expect(healthFns.recordFeishuChatHealthLog).not.toHaveBeenCalled()
   })
+
+  it('accepts senderId aliases even when accountId is missing', async () => {
+    accountFns.parseFeishuAccountUserId.mockReturnValue(null)
+    bindingFns.resolveOpenclawUserFromBinding.mockResolvedValue(11)
+
+    const res = await POST(createRequest({
+      senderId: 'ou_alias_1',
+      decision: 'allowed',
+      reasonCode: 'reply_dispatched',
+      messageId: 'req_123',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(true)
+    expect(payload.userId).toBe(11)
+
+    expect(bindingFns.resolveOpenclawUserFromBinding).toHaveBeenCalledWith(
+      'feishu',
+      'ou_alias_1',
+      expect.objectContaining({
+        accountId: 'unknown',
+      })
+    )
+    expect(healthFns.recordFeishuChatHealthLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 11,
+        accountId: 'unknown',
+        senderPrimaryId: 'ou_alias_1',
+        senderCandidates: ['ou_alias_1'],
+      })
+    )
+  })
+
+  it('accepts snake_case payload fields and decision alias', async () => {
+    accountFns.parseFeishuAccountUserId.mockReturnValue(null)
+    bindingFns.resolveOpenclawUserFromBinding.mockResolvedValue(17)
+
+    const res = await POST(createRequest({
+      account_id: 'cli_feishu_main',
+      sender_open_id: 'ou_snake_1',
+      sender_candidates: ['ou_snake_1', 'ou_snake_1', ''],
+      decision: 'allow',
+      reason: 'reply_dispatched',
+      message_id: 'om_x1',
+      tenant_key: 'tenant_1',
+      message_text: 'hello',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(true)
+    expect(payload.userId).toBe(17)
+    expect(healthFns.recordFeishuChatHealthLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 17,
+        accountId: 'cli_feishu_main',
+        senderOpenId: 'ou_snake_1',
+        decision: 'allowed',
+        reasonCode: 'reply_dispatched',
+        messageId: 'om_x1',
+      })
+    )
+  })
 })

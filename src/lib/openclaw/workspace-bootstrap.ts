@@ -118,6 +118,10 @@ ${OVERLAY_HEADING}
 - 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
 - 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
 - 飞书绑定场景禁止向用户索要 token；默认使用系统注入的 \`OPENCLAW_GATEWAY_TOKEN\` 调用 \`/api/openclaw/*\`，若 401 先补齐 \`channel/senderId/accountId/tenantKey\` 后重试一次。
+- token 读取顺序固定：\`OPENCLAW_GATEWAY_TOKEN\` -> \`OPENCLAW_TOKEN\`；若仍为空，直接报告“网关注入缺失”，禁止继续猜测或多轮重试。
+- 禁止执行 token 自检命令（例如输出 token 长度/前缀）；禁止在回复中泄露任何密钥信息。
+- \`/api/openclaw/commands/execute\` 返回的 \`taskId\` 是命令队列 taskId，不是业务任务 taskId；不得用于 \`/api/offers/extract/status/:taskId\` 或 \`/api/creative-tasks/:taskId\`。
+- 禁止使用 Node.js 自行拼接 HTTP 调用；统一使用受控的 shell/curl 模板并遵守 action matrix。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。
@@ -155,6 +159,10 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 内网可达时禁止改走公网域名，避免 Cloudflare 拦截和 token 类型不匹配。
 - 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`，禁止直连业务路由。
 - 飞书绑定会话默认使用 \`OPENCLAW_GATEWAY_TOKEN\`；禁止向用户索要 token。
+- token 读取顺序固定：\`OPENCLAW_GATEWAY_TOKEN\` -> \`OPENCLAW_TOKEN\`；若仍为空，立即报错并停止，不做猜测性重试。
+- 禁止执行 token 长度/前缀探测命令，禁止在任何输出中泄露 token。
+- \`commands/execute\` 返回的 \`taskId\` 仅代表 OpenClaw 命令队列，不是业务 taskId；不得用于业务任务状态接口。
+- 禁止使用 Node.js 手写 API 调用脚本，统一按 action matrix 的 curl 模板执行。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。

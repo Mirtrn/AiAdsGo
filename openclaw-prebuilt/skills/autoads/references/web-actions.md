@@ -9,16 +9,20 @@ Last verified: 2026-02-15 (from current Web pages + API routes in repo).
 - OpenClaw control reads (`GET /api/openclaw/commands/runs`) must call direct endpoint, never through proxy.
 - Always pass user scope in OpenClaw calls: `channel`, `senderId`; pass `accountId`, `tenantKey` when available.
 - Do not call deprecated write paths (`/api/offers`, `/api/offers/:id/generate-ad-creative`, `/api/offers/:id/generate-creatives`, `/api/ad-creatives`).
+- `POST /api/openclaw/commands/execute` 返回的 `taskId` 是 OpenClaw 命令队列 taskId，不是业务任务 taskId（`offer_tasks`/`creative_tasks`）。不能直接用于业务状态接口。
+- 可通过 `GET /api/openclaw/commands/runs` 的 `items[].responsePreview` 读取写请求完成后的业务响应（例如真正的业务 `taskId`）。
 
 ## Read Actions (proxy unless noted)
 
 ### `offer.extract.status`
 - Method/Path: `GET /api/offers/extract/status/:taskId`
 - Query/body: none.
+- 仅当你拿到真实 `offer_tasks.id` 时可调用；不要使用 OpenClaw `commands/execute` 返回的 `taskId`。
 
 ### `creative.task.get`
 - Method/Path: `GET /api/creative-tasks/:taskId`
 - Query/body: none.
+- 仅当你拿到真实 `creative_tasks.id` 时可调用；不要使用 OpenClaw `commands/execute` 返回的 `taskId`。
 
 ### `creative.task.stream`
 - Method/Path: `GET /api/creative-tasks/:taskId/stream`
@@ -234,4 +238,3 @@ Last verified: 2026-02-15 (from current Web pages + API routes in repo).
 - `creative.generate.queue`: `creative-queue-<offerId>-<bucket|auto>-<timestamp>`
 - `campaign.publish`: `campaign-publish-<offerId>-<adCreativeId>-<timestamp>`
 - `clickfarm.create`: `clickfarm-create-<offerId>-<date>`
-

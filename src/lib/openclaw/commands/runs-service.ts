@@ -79,6 +79,7 @@ type OpenclawCommandRunRow = {
   confirm_expires_at: string | null
   queue_task_id: string | null
   response_status: number | null
+  response_body_excerpt: string | null
   error_message: string | null
   created_at: string
   updated_at: string
@@ -109,11 +110,28 @@ export type OpenclawCommandRunListItem = {
   confirmCallbackEventId: string | null
   queueTaskId: string | null
   responseStatus: number | null
+  responseExcerpt: string | null
+  responsePreview: unknown | null
   errorMessage: string | null
   createdAt: string
   updatedAt: string
   startedAt: string | null
   completedAt: string | null
+}
+
+function normalizeResponseExcerpt(value: string | null): string | null {
+  const normalized = String(value || '').trim()
+  return normalized || null
+}
+
+function parseResponsePreview(value: string | null): unknown | null {
+  const excerpt = normalizeResponseExcerpt(value)
+  if (!excerpt) return null
+  try {
+    return JSON.parse(excerpt)
+  } catch {
+    return null
+  }
 }
 
 export type ListOpenclawCommandRunsResult = {
@@ -183,6 +201,10 @@ export async function listOpenclawCommandRuns(
        confirm_expires_at,
        queue_task_id,
        response_status,
+       CASE
+         WHEN response_body IS NULL THEN NULL
+         ELSE substr(response_body, 1, 2000)
+       END AS response_body_excerpt,
        error_message,
        created_at,
        updated_at,
@@ -229,6 +251,8 @@ export async function listOpenclawCommandRuns(
       confirmCallbackEventId: confirm?.callback_event_id || null,
       queueTaskId: row.queue_task_id,
       responseStatus: row.response_status,
+      responseExcerpt: normalizeResponseExcerpt(row.response_body_excerpt),
+      responsePreview: parseResponsePreview(row.response_body_excerpt),
       errorMessage: row.error_message,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

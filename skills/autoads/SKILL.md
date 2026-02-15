@@ -17,12 +17,16 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格按 We
 6. 若响应出现 `canonical web flow` 或 `410`，表示路径错误/已下线，必须回到矩阵路径。
 7. 同容器部署时业务 API 只走内网：`INTERNAL_APP_URL` 或 `http://127.0.0.1:${PORT:-3000}`。
 8. `127.0.0.1:18789` 是 OpenClaw Gateway，不是 AutoAds 业务 API。
+9. 禁止使用 Node.js 自行拼接 HTTP 调用；统一使用本文件的 `curl` 模板。
+10. 禁止输出或探测 token 长度/前缀（例如 `echo ${#TOKEN}`）；不要在回复中暴露任何密钥信息。
 
 ## 认证与上下文
 
 - `/api/openclaw/*` 统一使用 `Authorization: Bearer <token>`。
 - 飞书场景默认使用 `OPENCLAW_GATEWAY_TOKEN`，并透传：`channel`, `senderId`，可选 `accountId`, `tenantKey`。
 - 禁止向用户索要业务 API token。
+- token 解析顺序固定：`OPENCLAW_GATEWAY_TOKEN` -> `OPENCLAW_TOKEN`。若仍为空，直接停止并提示“网关注入缺失”，不要继续猜测或重试。
+- `commands/execute` 返回的 `taskId` 是 OpenClaw 命令队列 taskId，不是业务 taskId。不得把它用于 `/api/offers/extract/status/:taskId` 或 `/api/creative-tasks/:taskId`。
 
 ## 决策顺序
 
@@ -30,14 +34,27 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格按 We
 2. 逐个执行动作，写请求必须带：`intent`、`idempotencyKey`、用户上下文字段。
 3. 若返回 `pending_confirm`，调用 `/api/openclaw/commands/confirm` 完成确认。
 4. 需要追踪时，直连 `/api/openclaw/commands/runs` 并带 `channel/senderId`。
+5. 写动作后先跟踪 `runId` 到 `completed/failed`。若 `runs.items[].responsePreview.taskId` 存在，该值才是业务 taskId，可用于业务状态接口。
+6. 若拿不到业务 taskId，再用业务读接口核验实体状态（如 Offer 是否出现、创意列表是否新增），不要用 OpenClaw `taskId` 轮询业务任务接口。
 
 ## 请求模板
+
+### 初始化（每次会话先执行一次）
+
+```bash
+export AUTOADS_HOST="${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}"
+export OPENCLAW_AUTH_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-}}"
+if [ -z "$OPENCLAW_AUTH_TOKEN" ]; then
+  echo "ERROR: missing OPENCLAW gateway token (OPENCLAW_GATEWAY_TOKEN/OPENCLAW_TOKEN)"
+  exit 1
+fi
+```
 
 ### 读（proxy）
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
-  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "GET",
@@ -49,7 +66,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
-  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
@@ -71,7 +88,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
 
 ```bash
 curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
-  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "runId": "<RUN_ID>",
@@ -88,7 +105,7 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
 
 ```bash
 curl -sS -G "$AUTOADS_HOST/api/openclaw/commands/runs" \
-  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
   --data-urlencode "channel=feishu" \
   --data-urlencode "senderId=<sender_open_id>" \
   --data-urlencode "accountId=<account_id>" \

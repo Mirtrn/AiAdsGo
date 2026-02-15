@@ -11,26 +11,27 @@ import { parseFeishuAccountUserId } from '@/lib/openclaw/feishu-accounts'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 
-const ingestSchema = z.object({
-  accountId: z.string().min(1),
-  messageId: z.string().optional(),
-  chatId: z.string().optional(),
-  chatType: z.string().optional(),
-  messageType: z.string().optional(),
-  senderPrimaryId: z.string().optional(),
-  senderOpenId: z.string().optional(),
-  senderUnionId: z.string().optional(),
-  senderUserId: z.string().optional(),
-  senderCandidates: z.array(z.string()).optional(),
-  decision: z.enum(['allowed', 'blocked', 'error']),
-  reasonCode: z.string().min(1),
-  reasonMessage: z.string().optional(),
-  messageText: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
-  tenantKey: z.string().optional(),
-})
+const ingestSchema = z.record(z.any())
 
-type IngestPayload = z.infer<typeof ingestSchema>
+type RawIngestPayload = z.infer<typeof ingestSchema>
+type IngestPayload = {
+  accountId: string
+  messageId?: string
+  chatId?: string
+  chatType?: string
+  messageType?: string
+  senderPrimaryId?: string
+  senderOpenId?: string
+  senderUnionId?: string
+  senderUserId?: string
+  senderCandidates: string[]
+  decision: FeishuChatHealthDecision
+  reasonCode: string
+  reasonMessage?: string
+  messageText?: string
+  metadata?: Record<string, unknown>
+  tenantKey?: string
+}
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null
@@ -46,9 +47,239 @@ function normalizeFeishuId(value?: string | null): string {
   return String(value || '').trim().replace(/^(feishu|lark):/i, '').toLowerCase()
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  return value as Record<string, unknown>
+}
+
+function firstNonEmpty(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      continue
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (normalized) {
+        return normalized
+      }
+      continue
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value)
+    }
+  }
+  return undefined
+}
+
+function valueByKeys(source: Record<string, unknown> | undefined, keys: string[]): unknown {
+  if (!source) return undefined
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== null && value !== undefined) {
+      if (typeof value === 'string' && !value.trim()) {
+        continue
+      }
+      return value
+    }
+  }
+  return undefined
+}
+
+function arrayTextByKeys(source: Record<string, unknown> | undefined, keys: string[]): string[] {
+  const value = valueByKeys(source, keys)
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (item === null || item === undefined) return ''
+      if (typeof item === 'string') return item.trim()
+      if (typeof item === 'number' || typeof item === 'boolean') return String(item)
+      return ''
+    })
+    .filter(Boolean)
+}
+
+function normalizeDecision(value: unknown): FeishuChatHealthDecision | null {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return null
+
+  if (['allowed', 'allow', 'accepted', 'pass', 'ok', 'success'].includes(normalized)) {
+    return 'allowed'
+  }
+  if (['blocked', 'block', 'denied', 'deny', 'filtered', 'reject', 'rejected'].includes(normalized)) {
+    return 'blocked'
+  }
+  if (['error', 'failed', 'failure', 'exception'].includes(normalized)) {
+    return 'error'
+  }
+
+  return null
+}
+
+function normalizeReasonCode(value: unknown, decision: FeishuChatHealthDecision): string {
+  const explicit = firstNonEmpty(value)
+  if (explicit) return explicit
+  if (decision === 'allowed') return 'reply_dispatched'
+  if (decision === 'blocked') return 'blocked_by_policy'
+  return 'dispatch_error'
+}
+
+function normalizeIngestPayload(raw: RawIngestPayload): IngestPayload | null {
+  const metadata = asRecord(raw.metadata)
+  const sender = asRecord(raw.sender)
+  const senderInMetadata = asRecord(metadata?.sender)
+
+  const accountId = firstNonEmpty(
+    raw.accountId,
+    raw.account_id,
+    raw.account,
+    metadata?.accountId,
+    metadata?.account_id,
+    metadata?.account
+  ) || 'unknown'
+
+  const senderPrimaryId = firstNonEmpty(
+    raw.senderPrimaryId,
+    raw.sender_primary_id,
+    raw.senderId,
+    raw.sender_id,
+    sender?.primaryId,
+    sender?.senderPrimaryId,
+    sender?.id,
+    senderInMetadata?.primaryId,
+    senderInMetadata?.senderPrimaryId,
+    senderInMetadata?.id,
+    metadata?.senderId,
+    metadata?.sender_id
+  )
+
+  const senderOpenId = firstNonEmpty(
+    raw.senderOpenId,
+    raw.sender_open_id,
+    sender?.openId,
+    sender?.senderOpenId,
+    senderInMetadata?.openId,
+    senderInMetadata?.senderOpenId,
+    metadata?.senderOpenId,
+    metadata?.sender_open_id
+  )
+
+  const senderUnionId = firstNonEmpty(
+    raw.senderUnionId,
+    raw.sender_union_id,
+    sender?.unionId,
+    sender?.senderUnionId,
+    senderInMetadata?.unionId,
+    senderInMetadata?.senderUnionId,
+    metadata?.senderUnionId,
+    metadata?.sender_union_id
+  )
+
+  const senderUserId = firstNonEmpty(
+    raw.senderUserId,
+    raw.sender_user_id,
+    sender?.userId,
+    sender?.senderUserId,
+    senderInMetadata?.userId,
+    senderInMetadata?.senderUserId,
+    metadata?.senderUserId,
+    metadata?.sender_user_id
+  )
+
+  const senderCandidates = Array.from(
+    new Set(
+      [
+        senderPrimaryId,
+        senderOpenId,
+        senderUnionId,
+        senderUserId,
+        ...arrayTextByKeys(raw, ['senderCandidates', 'sender_candidates']),
+        ...arrayTextByKeys(sender, ['candidates', 'senderCandidates', 'sender_candidates']),
+        ...arrayTextByKeys(senderInMetadata, ['candidates', 'senderCandidates', 'sender_candidates']),
+        ...arrayTextByKeys(metadata, ['senderCandidates', 'sender_candidates']),
+      ]
+        .map((item) => normalizeFeishuId(item))
+        .filter(Boolean)
+    )
+  )
+
+  const decision = normalizeDecision(firstNonEmpty(
+    raw.decision,
+    raw.result,
+    raw.status,
+    metadata?.decision,
+    metadata?.result,
+    metadata?.status
+  ))
+  if (!decision) {
+    return null
+  }
+
+  const reasonCode = normalizeReasonCode(
+    firstNonEmpty(
+      raw.reasonCode,
+      raw.reason_code,
+      raw.reason,
+      raw.reasonType,
+      raw.reason_type,
+      metadata?.reasonCode,
+      metadata?.reason_code,
+      metadata?.reason,
+      metadata?.reasonType,
+      metadata?.reason_type
+    ),
+    decision
+  )
+
+  return {
+    accountId,
+    messageId: firstNonEmpty(
+      raw.messageId,
+      raw.message_id,
+      raw.requestId,
+      raw.request_id,
+      raw.parentRequestId,
+      raw.parent_request_id,
+      metadata?.messageId,
+      metadata?.message_id,
+      metadata?.requestId,
+      metadata?.request_id,
+      metadata?.parentRequestId,
+      metadata?.parent_request_id
+    ),
+    chatId: firstNonEmpty(raw.chatId, raw.chat_id, metadata?.chatId, metadata?.chat_id),
+    chatType: firstNonEmpty(raw.chatType, raw.chat_type, metadata?.chatType, metadata?.chat_type),
+    messageType: firstNonEmpty(raw.messageType, raw.message_type, metadata?.messageType, metadata?.message_type),
+    senderPrimaryId,
+    senderOpenId,
+    senderUnionId,
+    senderUserId,
+    senderCandidates,
+    decision,
+    reasonCode,
+    reasonMessage: firstNonEmpty(
+      raw.reasonMessage,
+      raw.reason_message,
+      metadata?.reasonMessage,
+      metadata?.reason_message
+    ),
+    messageText: firstNonEmpty(
+      raw.messageText,
+      raw.message_text,
+      raw.text,
+      metadata?.messageText,
+      metadata?.message_text,
+      metadata?.text
+    ),
+    metadata,
+    tenantKey: firstNonEmpty(raw.tenantKey, raw.tenant_key, metadata?.tenantKey, metadata?.tenant_key),
+  }
+}
+
 async function resolveUserIdFromFeishuAppId(accountId: string): Promise<number | null> {
   const normalized = normalizeFeishuId(accountId)
-  if (!normalized || normalized.startsWith('user-')) {
+  if (!normalized || normalized === 'unknown' || normalized.startsWith('user-')) {
     return null
   }
 
@@ -73,19 +304,7 @@ async function resolveUserIdForPayload(payload: IngestPayload): Promise<number |
     return directUserId
   }
 
-  const candidates = Array.from(
-    new Set(
-      [
-        payload.senderOpenId,
-        payload.senderUnionId,
-        payload.senderUserId,
-        payload.senderPrimaryId,
-        ...(payload.senderCandidates || []),
-      ]
-        .map((item) => normalizeFeishuId(item))
-        .filter(Boolean)
-    )
-  )
+  const candidates = Array.from(new Set(payload.senderCandidates.map((item) => normalizeFeishuId(item)).filter(Boolean)))
 
   for (const senderId of candidates) {
     const resolved = await resolveOpenclawUserFromBinding('feishu', senderId, {
@@ -177,9 +396,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const payload = parsed.data
+    const payload = normalizeIngestPayload(parsed.data)
+    if (!payload) {
+      return NextResponse.json(
+        {
+          error: 'decision 不能为空或格式不支持',
+        },
+        { status: 400 }
+      )
+    }
+
     const userId = await resolveUserIdForPayload(payload)
     if (!userId) {
+      console.warn('[openclaw] feishu chat health ingest skipped: user_unresolved', {
+        accountId: payload.accountId,
+        messageId: payload.messageId || null,
+        tenantKeyProvided: Boolean(payload.tenantKey),
+        senderCandidates: payload.senderCandidates.slice(0, 5),
+      })
       return NextResponse.json({
         success: true,
         stored: false,
@@ -199,7 +433,7 @@ export async function POST(request: NextRequest) {
       senderUnionId: payload.senderUnionId,
       senderUserId: payload.senderUserId,
       senderCandidates: payload.senderCandidates,
-      decision: payload.decision as FeishuChatHealthDecision,
+      decision: payload.decision,
       reasonCode: payload.reasonCode,
       reasonMessage: payload.reasonMessage,
       messageText: payload.messageText,
@@ -210,11 +444,7 @@ export async function POST(request: NextRequest) {
       const senderIds = Array.from(
         new Set(
           [
-            payload.senderOpenId,
-            payload.senderUnionId,
-            payload.senderUserId,
-            payload.senderPrimaryId,
-            ...(payload.senderCandidates || []),
+            ...payload.senderCandidates,
           ]
             .map((item) => normalizeFeishuId(item))
             .filter(Boolean)
