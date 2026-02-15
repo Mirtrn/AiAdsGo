@@ -253,12 +253,14 @@ export default function OffersPage() {
     let filtered = offers
 
     // 搜索筛选
-    if (searchQuery) {
+    const normalizedQuery = searchQuery.trim().toLowerCase()
+    if (normalizedQuery) {
       filtered = filtered.filter(
         (offer) =>
-          offer.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          offer.offerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          offer.url.toLowerCase().includes(searchQuery.toLowerCase())
+          String(offer.id).includes(normalizedQuery) ||
+          offer.brand.toLowerCase().includes(normalizedQuery) ||
+          offer.offerName?.toLowerCase().includes(normalizedQuery) ||
+          offer.url.toLowerCase().includes(normalizedQuery)
       )
     }
 
@@ -840,7 +842,7 @@ export default function OffersPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   type="text"
-                  placeholder="搜索品牌名称、Offer标识、URL..."
+                  placeholder="搜索品牌名称、Offer ID、Offer标识、URL..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
