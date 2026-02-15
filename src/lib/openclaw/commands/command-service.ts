@@ -11,6 +11,7 @@ import { assertOpenclawCommandRouteAllowed } from '@/lib/openclaw/canonical-rout
 import { normalizeOpenclawCommandPayload } from './payload-policy'
 import {
   consumeCommandConfirmation,
+  consumeCommandConfirmationByOwner,
   createOrRefreshCommandConfirmation,
   expireStaleCommandConfirmations,
   recordOpenclawCallbackEvent,
@@ -377,6 +378,105 @@ export async function confirmOpenclawCommand(input: ConfirmInput): Promise<Confi
     confirmToken: input.confirmToken,
     decision: input.decision,
     callbackEventId: input.callbackEventId,
+  })
+
+  if (!consumeResult.ok) {
+    if (consumeResult.code === 'expired') {
+      return { status: 'expired', runId: input.runId }
+    }
+    if (consumeResult.code === 'already_processed') {
+      return {
+        status: 'already_processed',
+        runId: input.runId,
+        confirmStatus: consumeResult.confirmStatus,
+        runStatus: consumeResult.runStatus,
+      }
+    }
+    return { status: consumeResult.code, runId: input.runId }
+  }
+
+  if (consumeResult.status === 'canceled') {
+    return {
+      status: 'canceled',
+      runId: input.runId,
+    }
+  }
+
+  try {
+    const taskId = await enqueueCommandRun({
+      runId: input.runId,
+      userId: input.userId,
+      riskLevel: consumeResult.riskLevel as OpenclawCommandRiskLevel,
+      parentRequestId: input.parentRequestId,
+      trigger: 'confirm',
+    })
+
+    await db.exec(
+      `UPDATE openclaw_command_runs
+       SET status = 'queued', queue_task_id = ?, updated_at = ${nowSql}
+       WHERE id = ? AND user_id = ?`,
+      [taskId, input.runId, input.userId]
+    )
+
+    return {
+      status: 'queued',
+      runId: input.runId,
+      taskId,
+      riskLevel: consumeResult.riskLevel as OpenclawCommandRiskLevel,
+    }
+  } catch (error: any) {
+    const message = error?.message || 'enqueue failed'
+    await db.exec(
+      `UPDATE openclaw_command_runs
+       SET status = 'failed', error_message = ?, completed_at = ${nowSql}, updated_at = ${nowSql}
+       WHERE id = ? AND user_id = ?`,
+      [message, input.runId, input.userId]
+    )
+    throw error
+  }
+}
+
+type OwnerConfirmInput = {
+  runId: string
+  userId: number
+  decision: 'confirm' | 'cancel'
+  parentRequestId?: string | null
+}
+
+export async function confirmOpenclawCommandByOwner(input: OwnerConfirmInput): Promise<ConfirmResult> {
+  const db = await getDatabase()
+  const nowSql = nowFunc(db.type)
+
+  const staleQueuedCount = await failStaleQueuedCommandRuns({
+    db,
+    userId: input.userId,
+  })
+  if (staleQueuedCount > 0 && process.env.NODE_ENV !== 'test') {
+    console.warn(`[OpenClawCommand] owner confirm 前已自动收敛 ${staleQueuedCount} 条超时 queued 命令`)
+  }
+
+  await expireStaleCommandConfirmations({ userId: input.userId })
+
+  const run = await db.queryOne<{
+    id: string
+    status: string
+    risk_level: OpenclawCommandRiskLevel
+  }>(
+    `SELECT id, status, risk_level
+     FROM openclaw_command_runs
+     WHERE id = ? AND user_id = ?
+     LIMIT 1`,
+    [input.runId, input.userId]
+  )
+
+  if (!run) {
+    return { status: 'not_found', runId: input.runId }
+  }
+
+  const consumeResult = await consumeCommandConfirmationByOwner({
+    runId: input.runId,
+    userId: input.userId,
+    decision: input.decision,
   })
 
   if (!consumeResult.ok) {

@@ -162,6 +162,12 @@ function hasNonEmptyString(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
 function hasFeishuAccountCredentials(accountConfig: Record<string, any>): boolean {
   return hasNonEmptyString(accountConfig.appId)
     && (hasNonEmptyString(accountConfig.appSecret) || hasNonEmptyString(accountConfig.appSecretFile))
@@ -197,68 +203,28 @@ function readExistingConfig(configPath: string): Record<string, any> | undefined
   }
 }
 
-function normalizeHttpBaseUrl(value: string | undefined): string | undefined {
-  const normalized = String(value || '').trim().replace(/\/+$/, '')
-  if (!normalized) return undefined
-  if (!/^https?:\/\//i.test(normalized)) return undefined
-  return normalized
-}
+function normalizeFeishuAccountForRuntime(accountConfig: Record<string, any>): Record<string, any> {
+  const next = { ...accountConfig }
 
-function resolveOpenclawCardConfirmBaseUrl(): string {
-  const internal = normalizeHttpBaseUrl(
-    process.env.INTERNAL_APP_URL || process.env.OPENCLAW_INTERNAL_BASE_URL
-  )
-  if (internal) {
-    return internal
+  const verificationToken = readNonEmptyString(next.verificationToken)
+    || readNonEmptyString(next.cardVerificationToken)
+  const encryptKey = readNonEmptyString(next.encryptKey)
+    || readNonEmptyString(next.cardEncryptKey)
+
+  if (verificationToken) {
+    next.verificationToken = verificationToken
+  }
+  if (encryptKey) {
+    next.encryptKey = encryptKey
   }
 
-  const external = normalizeHttpBaseUrl(
-    process.env.NEXT_PUBLIC_APP_URL || process.env.OPENCLAW_PUBLIC_BASE_URL
-  )
-  if (external) {
-    return external
-  }
-
-  const port = String(process.env.PORT || '3000').trim() || '3000'
-  return `http://127.0.0.1:${port}`
-}
-
-function applyFeishuCardAutoDefaults(params: {
-  accountId: string
-  accountConfig: Record<string, any>
-  gatewayToken: string
-  cardConfirmBaseUrl?: string
-}): Record<string, any> {
-  const next = { ...params.accountConfig }
-
-  const callbackPath = params.accountId === 'main'
-    ? '/feishu/card-action'
-    : `/feishu/${encodeURIComponent(params.accountId)}/card-action`
-
-  const existingCallbackPath = typeof next.cardCallbackPath === 'string'
-    ? next.cardCallbackPath.trim()
-    : ''
-  const shouldNormalizeMainPath = params.accountId === 'main'
-    && /^\/feishu\/user-[^/]+\/card-action$/i.test(existingCallbackPath)
-  const shouldNormalizeUserPath = params.accountId !== 'main'
-    && existingCallbackPath === '/feishu/card-action'
-
-  if (!existingCallbackPath || shouldNormalizeMainPath || shouldNormalizeUserPath) {
-    next.cardCallbackPath = callbackPath
-  }
-
-  if (params.cardConfirmBaseUrl && !(typeof next.cardConfirmUrl === 'string' && next.cardConfirmUrl.trim())) {
-    next.cardConfirmUrl = `${params.cardConfirmBaseUrl}/api/openclaw/commands/confirm`
-  }
-
-  if (!(typeof next.cardConfirmAuthToken === 'string' && next.cardConfirmAuthToken.trim())) {
-    next.cardConfirmAuthToken = params.gatewayToken
-  }
-
-  const timeoutMs = Number(next.cardConfirmTimeoutMs)
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    next.cardConfirmTimeoutMs = 10000
-  }
+  // Legacy AutoAds card-confirm fields are not consumed by OpenClaw Feishu plugin.
+  delete next.cardCallbackPath
+  delete next.cardVerificationToken
+  delete next.cardEncryptKey
+  delete next.cardConfirmUrl
+  delete next.cardConfirmAuthToken
+  delete next.cardConfirmTimeoutMs
 
   return next
 }
@@ -328,7 +294,6 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
   if (!String(process.env.OPENCLAW_TOKEN || '').trim()) {
     process.env.OPENCLAW_TOKEN = gatewayToken
   }
-  const cardConfirmBaseUrl = resolveOpenclawCardConfirmBaseUrl()
   const gatewayPort = parseNumber(settingMap.gateway_port, DEFAULT_GATEWAY_PORT) || DEFAULT_GATEWAY_PORT
   const gatewayBind = (settingMap.gateway_bind || 'loopback').trim() || 'loopback'
   const gatewayAuthRateLimit = normalizeGatewayAuthRateLimit(
@@ -569,12 +534,7 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
     if (!accountConfig || typeof accountConfig !== 'object' || Array.isArray(accountConfig)) {
       continue
     }
-    mergedFeishuAccounts[accountId] = applyFeishuCardAutoDefaults({
-      accountId,
-      accountConfig: accountConfig as Record<string, any>,
-      gatewayToken,
-      cardConfirmBaseUrl,
-    })
+    mergedFeishuAccounts[accountId] = normalizeFeishuAccountForRuntime(accountConfig as Record<string, any>)
   }
 
   config.channels.feishu.accounts = mergedFeishuAccounts

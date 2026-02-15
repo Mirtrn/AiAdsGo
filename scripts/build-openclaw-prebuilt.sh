@@ -7,18 +7,46 @@ OUT_DIR="${ROOT_DIR}/openclaw-prebuilt"
 TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
 TMP_OUT_DIR="${TMP_DIR}/out"
 ROOT_SKILLS_DIR="${ROOT_DIR}/skills"
+SOURCE_COMMIT_PIN_FILE="${OPENCLAW_DIR}/.source-commit"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
-SOURCE_COMMIT="unknown"
+SOURCE_COMMIT_GIT=""
 if [[ -e "${OPENCLAW_DIR}/.git" ]]; then
-  SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || echo "unknown")"
+  SOURCE_COMMIT_GIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
 fi
+SOURCE_COMMIT_PIN=""
+if [[ -f "${SOURCE_COMMIT_PIN_FILE}" ]]; then
+  SOURCE_COMMIT_PIN="$(tr -d '[:space:]' < "${SOURCE_COMMIT_PIN_FILE}")"
+fi
+
+if [[ -n "${SOURCE_COMMIT_PIN}" && ! "${SOURCE_COMMIT_PIN}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ openclaw/.source-commit 非法: ${SOURCE_COMMIT_PIN}"
+  exit 1
+fi
+
+if [[ -n "${SOURCE_COMMIT_GIT}" && ! "${SOURCE_COMMIT_GIT}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ openclaw git commit 非法: ${SOURCE_COMMIT_GIT}"
+  exit 1
+fi
+
+SOURCE_COMMIT="${SOURCE_COMMIT_GIT:-${SOURCE_COMMIT_PIN}}"
 BUILT_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 if [[ -z "${SOURCE_VERSION}" ]]; then
   echo "❌ 无法读取 openclaw/package.json version"
   exit 1
+fi
+
+if [[ -z "${SOURCE_COMMIT}" ]]; then
+  echo "❌ 无法确定 openclaw 源码 commit：缺少 openclaw/.git 且未提供 openclaw/.source-commit"
+  exit 1
+fi
+
+if [[ -n "${SOURCE_COMMIT_GIT}" && "${SOURCE_COMMIT_PIN}" != "${SOURCE_COMMIT_GIT}" ]]; then
+  printf '%s\n' "${SOURCE_COMMIT_GIT}" > "${SOURCE_COMMIT_PIN_FILE}"
+  echo "ℹ️ 已同步 openclaw/.source-commit -> ${SOURCE_COMMIT_GIT}"
+  SOURCE_COMMIT="${SOURCE_COMMIT_GIT}"
 fi
 
 echo "🚧 构建 OpenClaw 预编译产物（生产依赖）..."
@@ -130,7 +158,8 @@ fi
 
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}"
-cp -r "${TMP_OUT_DIR}/"* "${OUT_DIR}/"
+# 保留 pnpm 符号链接结构，避免 cp -r 跟随失效链接导致复制失败
+cp -a "${TMP_OUT_DIR}/." "${OUT_DIR}/"
 
 # 合并仓库根目录技能（autoads-report-qa 等）到预编译产物
 if [[ -d "${ROOT_SKILLS_DIR}" ]]; then

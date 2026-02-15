@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREBUILT_DIR="${ROOT_DIR}/openclaw-prebuilt"
 OPENCLAW_DIR="${ROOT_DIR}/openclaw"
 META_FILE="${PREBUILT_DIR}/.build-meta.json"
+SOURCE_COMMIT_PIN_FILE="${OPENCLAW_DIR}/.source-commit"
 
 read_meta_value() {
   local key="$1"
@@ -12,10 +13,32 @@ read_meta_value() {
 }
 
 SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
-SOURCE_COMMIT=""
+SOURCE_COMMIT_GIT=""
 if [[ -e "${OPENCLAW_DIR}/.git" ]]; then
-  SOURCE_COMMIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
+  SOURCE_COMMIT_GIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
 fi
+
+SOURCE_COMMIT_PIN=""
+if [[ -f "${SOURCE_COMMIT_PIN_FILE}" ]]; then
+  SOURCE_COMMIT_PIN="$(tr -d '[:space:]' < "${SOURCE_COMMIT_PIN_FILE}")"
+fi
+
+if [[ -n "${SOURCE_COMMIT_PIN}" && ! "${SOURCE_COMMIT_PIN}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ openclaw/.source-commit 非法: ${SOURCE_COMMIT_PIN}"
+  exit 1
+fi
+
+if [[ -n "${SOURCE_COMMIT_GIT}" && ! "${SOURCE_COMMIT_GIT}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ openclaw git commit 非法: ${SOURCE_COMMIT_GIT}"
+  exit 1
+fi
+
+if [[ -n "${SOURCE_COMMIT_GIT}" && -n "${SOURCE_COMMIT_PIN}" && "${SOURCE_COMMIT_GIT}" != "${SOURCE_COMMIT_PIN}" ]]; then
+  echo "❌ openclaw commit pin 与 git HEAD 不一致: pin=${SOURCE_COMMIT_PIN}, git=${SOURCE_COMMIT_GIT}"
+  exit 1
+fi
+
+SOURCE_COMMIT="${SOURCE_COMMIT_GIT:-${SOURCE_COMMIT_PIN}}"
 
 if [[ ! -f "${META_FILE}" ]]; then
   echo "❌ openclaw-prebuilt/.build-meta.json 不存在"
@@ -31,6 +54,11 @@ if [[ -z "${META_SOURCE_VERSION}" || -z "${META_SOURCE_COMMIT}" || -z "${META_BU
   exit 1
 fi
 
+if [[ ! "${META_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "❌ openclaw-prebuilt/.build-meta.json source_commit 非法: ${META_SOURCE_COMMIT}"
+  exit 1
+fi
+
 if [[ -z "${SOURCE_VERSION}" ]]; then
   echo "❌ 无法读取 openclaw/package.json version"
   exit 1
@@ -41,7 +69,12 @@ if [[ "${META_SOURCE_VERSION}" != "${SOURCE_VERSION}" ]]; then
   exit 1
 fi
 
-if [[ -n "${SOURCE_COMMIT}" && "${META_SOURCE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
+if [[ -z "${SOURCE_COMMIT}" ]]; then
+  echo "❌ 无法确定 openclaw 源码 commit：缺少 openclaw/.git 且未提供 openclaw/.source-commit"
+  exit 1
+fi
+
+if [[ "${META_SOURCE_COMMIT}" != "${SOURCE_COMMIT}" ]]; then
   echo "❌ openclaw-prebuilt commit不一致: meta=${META_SOURCE_COMMIT}, source=${SOURCE_COMMIT}"
   exit 1
 fi

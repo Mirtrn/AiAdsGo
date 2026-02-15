@@ -287,7 +287,7 @@ describe('syncOpenclawConfig user scope', () => {
     expect(written.models.providers.openai).toBeDefined()
   })
 
-  it('keeps main Feishu account and normalizes callback paths during actor user sync', async () => {
+  it('keeps main Feishu account and maps legacy card key names to runtime keys', async () => {
     getSettingsByCategoryMock
       .mockResolvedValueOnce([
         {
@@ -296,7 +296,8 @@ describe('syncOpenclawConfig user scope', () => {
             main: {
               appId: 'cli_actor',
               appSecret: 'sec_actor',
-              cardCallbackPath: '/feishu/user-42/card-action',
+              cardVerificationToken: 'v1_legacy_main',
+              cardEncryptKey: 'enc_legacy_main',
             },
           }),
         },
@@ -310,7 +311,8 @@ describe('syncOpenclawConfig user scope', () => {
         appId: 'cli_actor',
         appSecret: 'sec_actor',
         dmPolicy: 'allowlist',
-        cardCallbackPath: '/feishu/card-action',
+        cardVerificationToken: 'v1_legacy_user',
+        cardEncryptKey: 'enc_legacy_user',
       },
     })
 
@@ -319,42 +321,30 @@ describe('syncOpenclawConfig user scope', () => {
     const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     expect(written.channels.feishu.accounts['user-42']).toBeDefined()
     expect(written.channels.feishu.accounts.main).toBeDefined()
-    expect(written.channels.feishu.accounts.main.cardCallbackPath).toBe('/feishu/card-action')
-    expect(written.channels.feishu.accounts['user-42'].cardCallbackPath).toBe('/feishu/user-42/card-action')
+    expect(written.channels.feishu.accounts.main.verificationToken).toBe('v1_legacy_main')
+    expect(written.channels.feishu.accounts.main.encryptKey).toBe('enc_legacy_main')
+    expect(written.channels.feishu.accounts.main.cardVerificationToken).toBeUndefined()
+    expect(written.channels.feishu.accounts.main.cardEncryptKey).toBeUndefined()
+    expect(written.channels.feishu.accounts['user-42'].verificationToken).toBe('v1_legacy_user')
+    expect(written.channels.feishu.accounts['user-42'].encryptKey).toBe('enc_legacy_user')
+    expect(written.channels.feishu.accounts['user-42'].cardVerificationToken).toBeUndefined()
+    expect(written.channels.feishu.accounts['user-42'].cardEncryptKey).toBeUndefined()
   })
 
-  it('prefers INTERNAL_APP_URL when auto-filling Feishu card confirm URL', async () => {
-    const previousInternal = process.env.INTERNAL_APP_URL
-    const previousPublic = process.env.NEXT_PUBLIC_APP_URL
+  it('does not auto-fill legacy card confirm fields', async () => {
+    getSettingsByCategoryMock
+      .mockResolvedValueOnce([
+        { key: 'feishu_app_id', value: 'cli_main' },
+        { key: 'feishu_app_secret', value: 'sec_main' },
+      ])
+      .mockResolvedValueOnce([])
 
-    process.env.INTERNAL_APP_URL = 'http://127.0.0.1:9000/'
-    process.env.NEXT_PUBLIC_APP_URL = 'https://public.example.com'
+    await syncOpenclawConfig({ reason: 'test-feishu-no-card-confirm-autofill' })
 
-    try {
-      getSettingsByCategoryMock
-        .mockResolvedValueOnce([
-          { key: 'feishu_app_id', value: 'cli_main' },
-          { key: 'feishu_app_secret', value: 'sec_main' },
-        ])
-        .mockResolvedValueOnce([])
-
-      await syncOpenclawConfig({ reason: 'test-feishu-confirm-url-internal' })
-
-      const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-      expect(written.channels.feishu.accounts.main.cardConfirmUrl)
-        .toBe('http://127.0.0.1:9000/api/openclaw/commands/confirm')
-    } finally {
-      if (previousInternal === undefined) {
-        delete process.env.INTERNAL_APP_URL
-      } else {
-        process.env.INTERNAL_APP_URL = previousInternal
-      }
-      if (previousPublic === undefined) {
-        delete process.env.NEXT_PUBLIC_APP_URL
-      } else {
-        process.env.NEXT_PUBLIC_APP_URL = previousPublic
-      }
-    }
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.channels.feishu.accounts.main.cardConfirmUrl).toBeUndefined()
+    expect(written.channels.feishu.accounts.main.cardConfirmAuthToken).toBeUndefined()
+    expect(written.channels.feishu.accounts.main.cardConfirmTimeoutMs).toBeUndefined()
   })
 
   it('falls back to existing Feishu account credentials when settings decrypt fails', async () => {

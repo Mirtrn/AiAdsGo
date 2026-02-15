@@ -8,6 +8,8 @@ const {
   isBackgroundWorkerAliveMock,
   createOrRefreshCommandConfirmationMock,
   expireStaleCommandConfirmationsMock,
+  consumeCommandConfirmationMock,
+  consumeCommandConfirmationByOwnerMock,
 } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
   getQueueManagerForTaskTypeMock: vi.fn(),
@@ -16,6 +18,8 @@ const {
   isBackgroundWorkerAliveMock: vi.fn(),
   createOrRefreshCommandConfirmationMock: vi.fn(),
   expireStaleCommandConfirmationsMock: vi.fn(),
+  consumeCommandConfirmationMock: vi.fn(),
+  consumeCommandConfirmationByOwnerMock: vi.fn(),
 }))
 
 vi.mock('../db', () => ({
@@ -38,11 +42,12 @@ vi.mock('../queue/background-worker-heartbeat', () => ({
 vi.mock('../openclaw/commands/confirm-service', () => ({
   createOrRefreshCommandConfirmation: createOrRefreshCommandConfirmationMock,
   expireStaleCommandConfirmations: expireStaleCommandConfirmationsMock,
-  consumeCommandConfirmation: vi.fn(),
+  consumeCommandConfirmation: consumeCommandConfirmationMock,
+  consumeCommandConfirmationByOwner: consumeCommandConfirmationByOwnerMock,
   recordOpenclawCallbackEvent: vi.fn(),
 }))
 
-import { executeOpenclawCommand } from '../openclaw/commands/command-service'
+import { confirmOpenclawCommandByOwner, executeOpenclawCommand } from '../openclaw/commands/command-service'
 
 describe('openclaw command service confirmation guard', () => {
   let db: {
@@ -115,6 +120,24 @@ describe('openclaw command service confirmation guard', () => {
     })
     expireStaleCommandConfirmationsMock.mockReset()
     expireStaleCommandConfirmationsMock.mockResolvedValue(0)
+    consumeCommandConfirmationMock.mockReset()
+    consumeCommandConfirmationMock.mockResolvedValue({
+      ok: true,
+      status: 'confirmed',
+      runId: 'run-confirm',
+      userId: 1001,
+      riskLevel: 'high',
+      confirmStatus: 'confirmed',
+    })
+    consumeCommandConfirmationByOwnerMock.mockReset()
+    consumeCommandConfirmationByOwnerMock.mockResolvedValue({
+      ok: true,
+      status: 'confirmed',
+      runId: 'run-confirm',
+      userId: 1001,
+      riskLevel: 'high',
+      confirmStatus: 'confirmed',
+    })
   })
 
   it.each([
@@ -545,6 +568,119 @@ describe('openclaw command service confirmation guard', () => {
       isActive: true,
       tokenExpiresAt: '2026-02-12T00:00:00.000Z',
     })
+  })
+
+  it('owner confirmation queues command when decision is confirm', async () => {
+    db.queryOne.mockResolvedValueOnce({
+      id: 'run-owner-confirm-1',
+      status: 'pending_confirm',
+      risk_level: 'high',
+    })
+
+    const result = await confirmOpenclawCommandByOwner({
+      runId: 'run-owner-confirm-1',
+      userId: 1001,
+      decision: 'confirm',
+      parentRequestId: 'req_parent_1',
+    })
+
+    expect(result).toMatchObject({
+      status: 'queued',
+      runId: 'run-owner-confirm-1',
+      riskLevel: 'high',
+    })
+    expect(consumeCommandConfirmationByOwnerMock).toHaveBeenCalledWith({
+      runId: 'run-owner-confirm-1',
+      userId: 1001,
+      decision: 'confirm',
+    })
+    expect(queueManager.enqueue).toHaveBeenCalledWith(
+      'openclaw-command',
+      expect.objectContaining({
+        runId: 'run-owner-confirm-1',
+        userId: 1001,
+        trigger: 'confirm',
+      }),
+      1001,
+      expect.objectContaining({
+        priority: 'high',
+        maxRetries: 0,
+        parentRequestId: 'req_parent_1',
+      })
+    )
+  })
+
+  it('owner confirmation returns canceled when decision is cancel', async () => {
+    db.queryOne.mockResolvedValueOnce({
+      id: 'run-owner-confirm-2',
+      status: 'pending_confirm',
+      risk_level: 'high',
+    })
+    consumeCommandConfirmationByOwnerMock.mockResolvedValueOnce({
+      ok: true,
+      status: 'canceled',
+      runId: 'run-owner-confirm-2',
+      userId: 1001,
+      riskLevel: 'high',
+      confirmStatus: 'canceled',
+    })
+
+    const result = await confirmOpenclawCommandByOwner({
+      runId: 'run-owner-confirm-2',
+      userId: 1001,
+      decision: 'cancel',
+    })
+
+    expect(result).toEqual({
+      status: 'canceled',
+      runId: 'run-owner-confirm-2',
+    })
+    expect(queueManager.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('owner confirmation returns not_found when run does not exist', async () => {
+    db.queryOne.mockResolvedValueOnce(null)
+
+    const result = await confirmOpenclawCommandByOwner({
+      runId: 'run-owner-missing',
+      userId: 1001,
+      decision: 'confirm',
+    })
+
+    expect(result).toEqual({
+      status: 'not_found',
+      runId: 'run-owner-missing',
+    })
+    expect(consumeCommandConfirmationByOwnerMock).not.toHaveBeenCalled()
+    expect(queueManager.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('owner confirmation returns already_processed when confirm already consumed', async () => {
+    db.queryOne.mockResolvedValueOnce({
+      id: 'run-owner-confirm-3',
+      status: 'pending_confirm',
+      risk_level: 'high',
+    })
+    consumeCommandConfirmationByOwnerMock.mockResolvedValueOnce({
+      ok: false,
+      code: 'already_processed',
+      confirmStatus: 'confirmed',
+      runStatus: 'queued',
+    })
+
+    const result = await confirmOpenclawCommandByOwner({
+      runId: 'run-owner-confirm-3',
+      userId: 1001,
+      decision: 'confirm',
+    })
+
+    expect(result).toEqual({
+      status: 'already_processed',
+      runId: 'run-owner-confirm-3',
+      confirmStatus: 'confirmed',
+      runStatus: 'queued',
+    })
+    expect(queueManager.enqueue).not.toHaveBeenCalled()
   })
 
 })

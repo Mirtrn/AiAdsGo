@@ -34,7 +34,7 @@ const FEISHU_OPTIONAL_PARAMS: ParamRow[] = [
   { key: 'feishu_bitable_table_id', desc: 'Bitable Table ID', note: '可留空自动创建' },
   { key: 'feishu_bitable_table_name', desc: 'Bitable Table 名称', note: '可选' },
   { key: 'feishu_groups_json', desc: '群组级覆盖 JSON', note: '高级可选' },
-  { key: 'feishu_accounts_json', desc: '多账号 / 卡片确认 JSON', note: '高风险动作建议配置' },
+  { key: 'feishu_accounts_json', desc: '多账号 / Webhook 扩展 JSON', note: '可选' },
 ]
 
 const FEISHU_ADVANCED_DEFAULT_PARAMS: ParamRow[] = [
@@ -47,33 +47,31 @@ const FEISHU_ADVANCED_DEFAULT_PARAMS: ParamRow[] = [
   { key: 'feishu_text_chunk_limit', desc: '消息分块长度', note: '默认 2000' },
 ]
 
-const FEISHU_CARD_ACCOUNT_FIELDS: ParamRow[] = [
+const FEISHU_ACCOUNT_JSON_FIELDS: ParamRow[] = [
   {
-    key: 'feishu_accounts_json.<account>.cardCallbackPath',
-    desc: '卡片回调路径',
-    note: '默认 main=/feishu/card-action；子账号=/feishu/<accountId>/card-action',
+    key: 'feishu_accounts_json.<account>.name',
+    desc: '账号显示名',
   },
   {
-    key: 'feishu_accounts_json.<account>.cardVerificationToken',
-    desc: '飞书卡片回调 Verification Token',
+    key: 'feishu_accounts_json.<account>.appId',
+    desc: '账号 App ID',
   },
   {
-    key: 'feishu_accounts_json.<account>.cardEncryptKey',
-    desc: '飞书卡片回调 Encrypt Key',
+    key: 'feishu_accounts_json.<account>.appSecret',
+    desc: '账号 App Secret',
   },
   {
-    key: 'feishu_accounts_json.<account>.cardConfirmUrl',
-    desc: '确认接口地址',
-    note: '建议 https://<domain>/api/openclaw/commands/confirm',
+    key: 'feishu_accounts_json.<account>.verificationToken',
+    desc: 'Webhook Verification Token（仅 webhook 模式）',
   },
   {
-    key: 'feishu_accounts_json.<account>.cardConfirmAuthToken',
-    desc: '确认接口鉴权 Token',
+    key: 'feishu_accounts_json.<account>.encryptKey',
+    desc: 'Webhook Encrypt Key（仅 webhook 模式）',
   },
   {
-    key: 'feishu_accounts_json.<account>.cardConfirmTimeoutMs',
-    desc: '确认请求超时（ms）',
-    note: '推荐 10000（范围 1000~60000）',
+    key: 'feishu_accounts_json.<account>.connectionMode',
+    desc: '连接模式 websocket / webhook',
+    note: '默认 websocket',
   },
 ]
 
@@ -142,12 +140,15 @@ const FEISHU_ACCOUNTS_JSON_EXAMPLE = `{
     "appId": "cli_xxx",
     "appSecret": "xxx",
     "botName": "AutoAds",
-    "cardCallbackPath": "/feishu/card-action",
-    "cardVerificationToken": "your_feishu_verification_token",
-    "cardEncryptKey": "your_feishu_encrypt_key",
-    "cardConfirmUrl": "https://your-domain.com/api/openclaw/commands/confirm",
-    "cardConfirmAuthToken": "your_openclaw_gateway_token",
-    "cardConfirmTimeoutMs": 10000
+    "connectionMode": "websocket"
+  },
+  "backup": {
+    "name": "backup-bot",
+    "appId": "cli_backup_xxx",
+    "appSecret": "backup_secret_xxx",
+    "connectionMode": "webhook",
+    "verificationToken": "your_verify_token",
+    "encryptKey": "your_encrypt_key"
   }
 }`
 
@@ -252,8 +253,11 @@ export default function OpenClawConfigGuidePage() {
               <ParamTable rows={FEISHU_ADVANCED_DEFAULT_PARAMS} />
             </section>
             <section className="space-y-3">
-              <div className="text-sm font-semibold text-slate-700">高风险动作卡片确认（推荐）</div>
-              <ParamTable rows={FEISHU_CARD_ACCOUNT_FIELDS} />
+              <div className="text-sm font-semibold text-slate-700">多账号 / Webhook 扩展（可选）</div>
+              <div className="text-xs text-slate-500">
+                高风险命令确认默认走 Web 控制面，不建议通过飞书回调直连确认。
+              </div>
+              <ParamTable rows={FEISHU_ACCOUNT_JSON_FIELDS} />
               <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{FEISHU_ACCOUNTS_JSON_EXAMPLE}</pre>
             </section>
           </CardContent>

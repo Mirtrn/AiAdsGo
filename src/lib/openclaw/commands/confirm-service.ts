@@ -155,6 +155,37 @@ export async function consumeCommandConfirmation(params: {
   decision: ConfirmDecision
   callbackEventId?: string | null
 }): Promise<ConsumeConfirmResult> {
+  return consumeCommandConfirmationInternal({
+    runId: params.runId,
+    userId: params.userId,
+    decision: params.decision,
+    callbackEventId: params.callbackEventId,
+    confirmToken: params.confirmToken,
+    requireTokenCheck: true,
+  })
+}
+
+export async function consumeCommandConfirmationByOwner(params: {
+  runId: string
+  userId: number
+  decision: ConfirmDecision
+}): Promise<ConsumeConfirmResult> {
+  return consumeCommandConfirmationInternal({
+    runId: params.runId,
+    userId: params.userId,
+    decision: params.decision,
+    requireTokenCheck: false,
+  })
+}
+
+async function consumeCommandConfirmationInternal(params: {
+  runId: string
+  userId: number
+  decision: ConfirmDecision
+  callbackEventId?: string | null
+  confirmToken?: string
+  requireTokenCheck: boolean
+}): Promise<ConsumeConfirmResult> {
   const db = await getDatabase()
   const nowSql = nowFunc(db.type)
 
@@ -218,8 +249,11 @@ export async function consumeCommandConfirmation(params: {
     return { ok: false, code: 'expired', confirmStatus: 'expired', runStatus: 'expired' }
   }
 
-  if (!safeTokenHashCompare(params.confirmToken, row.confirm_token_hash)) {
-    return { ok: false, code: 'invalid_token' }
+  if (params.requireTokenCheck) {
+    const confirmToken = String(params.confirmToken || '').trim()
+    if (!confirmToken || !safeTokenHashCompare(confirmToken, row.confirm_token_hash)) {
+      return { ok: false, code: 'invalid_token' }
+    }
   }
 
   if (params.decision === 'cancel') {

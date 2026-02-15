@@ -232,6 +232,47 @@ type FeishuChatHealthResponse = {
   limit: number
 }
 
+type OpenclawCommandRunStatus =
+  | 'draft'
+  | 'pending_confirm'
+  | 'confirmed'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'expired'
+
+type OpenclawCommandRiskLevel = 'low' | 'medium' | 'high' | 'critical'
+
+type OpenclawCommandRunItem = {
+  runId: string
+  intent: string | null
+  request: {
+    method: string
+    path: string
+  }
+  riskLevel: OpenclawCommandRiskLevel
+  status: OpenclawCommandRunStatus
+  confirmRequired: boolean
+  confirmExpiresAt: string | null
+  confirmStatus: string | null
+  queueTaskId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type OpenclawCommandRunsResponse = {
+  success: boolean
+  items: OpenclawCommandRunItem[]
+  pagination?: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
+}
+
 const AI_MINIMAL_PLACEHOLDER = `{
   "providers": {
     "openai": {
@@ -477,93 +518,6 @@ function parseFeishuVerifyTarget(input?: string | null): {
   return null
 }
 
-function parseFeishuCardSettingsFromAccountsJson(value?: string | null): {
-  verificationToken: string
-  encryptKey: string
-} {
-  const raw = String(value || '').trim()
-  if (!raw) {
-    return { verificationToken: '', encryptKey: '' }
-  }
-
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { verificationToken: '', encryptKey: '' }
-    }
-
-    const main = (parsed as Record<string, unknown>).main
-    if (!main || typeof main !== 'object' || Array.isArray(main)) {
-      return { verificationToken: '', encryptKey: '' }
-    }
-
-    const verificationTokenValue = (main as Record<string, unknown>).cardVerificationToken
-    const encryptKeyValue = (main as Record<string, unknown>).cardEncryptKey
-
-    const verificationToken = typeof verificationTokenValue === 'string'
-      ? verificationTokenValue.trim()
-      : ''
-
-    const encryptKey = typeof encryptKeyValue === 'string'
-      ? encryptKeyValue.trim()
-      : ''
-
-    return {
-      verificationToken,
-      encryptKey,
-    }
-  } catch {
-    return { verificationToken: '', encryptKey: '' }
-  }
-}
-
-function buildAutoFeishuAccountsJson(params: {
-  existingValue?: string
-  userId: number
-  appBaseUrl?: string
-  verificationToken: string
-  encryptKey: string
-}): string {
-  const root: Record<string, any> = (() => {
-    const raw = String(params.existingValue || '').trim()
-    if (!raw) return {}
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, any>
-      }
-      return {}
-    } catch {
-      return {}
-    }
-  })()
-
-  const main = root.main && typeof root.main === 'object' && !Array.isArray(root.main)
-    ? { ...root.main }
-    : {}
-
-  delete (main as Record<string, any>).appId
-  delete (main as Record<string, any>).appSecret
-  delete (main as Record<string, any>).appSecretFile
-
-  const callbackPath = `/feishu/user-${params.userId}/card-action`
-  const trimmedBaseUrl = String(params.appBaseUrl || '').trim().replace(/\/+$/, '')
-
-  main.cardCallbackPath = callbackPath
-  main.cardVerificationToken = params.verificationToken.trim()
-  main.cardEncryptKey = params.encryptKey.trim()
-  if (trimmedBaseUrl) {
-    main.cardConfirmUrl = `${trimmedBaseUrl}/api/openclaw/commands/confirm`
-  }
-
-  if (!Number.isFinite(Number(main.cardConfirmTimeoutMs)) || Number(main.cardConfirmTimeoutMs) <= 0) {
-    main.cardConfirmTimeoutMs = 10000
-  }
-
-  root.main = main
-  return JSON.stringify(root, null, 2)
-}
-
 const normalizeStrategyAccountId = (value: unknown): number | string | null => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value !== 'string') return null
@@ -731,6 +685,25 @@ const resolveFeishuExecutionBadge = (state: FeishuChatExecutionState): {
   return { label: '未知', variant: 'outline' }
 }
 
+const resolveCommandRiskBadge = (riskLevel: OpenclawCommandRiskLevel): {
+  label: string
+  variant: 'default' | 'secondary' | 'outline' | 'destructive'
+} => {
+  if (riskLevel === 'critical') return { label: 'critical', variant: 'destructive' }
+  if (riskLevel === 'high') return { label: 'high', variant: 'destructive' }
+  if (riskLevel === 'medium') return { label: 'medium', variant: 'secondary' }
+  return { label: 'low', variant: 'outline' }
+}
+
+const resolveCommandConfirmStatusText = (status?: string | null): string => {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'pending') return '待确认'
+  if (normalized === 'confirmed') return '已确认'
+  if (normalized === 'canceled') return '已取消'
+  if (normalized === 'expired') return '已过期'
+  return normalized || '-'
+}
+
 const formatFeishuRunIdShort = (value?: string | null): string => {
   const text = String(value || '').trim()
   if (!text) return '-'
@@ -791,13 +764,15 @@ export default function OpenClawPage() {
   const [feishuVerifyResult, setFeishuVerifyResult] = useState<FeishuVerifyResultState | null>(null)
   const [feishuVerifyNow, setFeishuVerifyNow] = useState<number>(Date.now())
   const [showFeishuAdvanced, setShowFeishuAdvanced] = useState(false)
-  const [feishuCardVerificationToken, setFeishuCardVerificationToken] = useState('')
-  const [feishuCardEncryptKey, setFeishuCardEncryptKey] = useState('')
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
   const [feishuHealthLoading, setFeishuHealthLoading] = useState(false)
   const [feishuHealthError, setFeishuHealthError] = useState<string | null>(null)
   const [feishuHealthData, setFeishuHealthData] = useState<FeishuChatHealthResponse | null>(null)
   const [feishuHealthDialogItem, setFeishuHealthDialogItem] = useState<FeishuChatHealthLogItem | null>(null)
+  const [pendingCommandRuns, setPendingCommandRuns] = useState<OpenclawCommandRunItem[]>([])
+  const [pendingCommandRunsLoading, setPendingCommandRunsLoading] = useState(false)
+  const [pendingCommandRunsError, setPendingCommandRunsError] = useState<string | null>(null)
+  const [pendingCommandActionRunId, setPendingCommandActionRunId] = useState<string | null>(null)
 
   useEffect(() => {
     setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
@@ -909,10 +884,6 @@ export default function OpenClawPage() {
           }
         })
 
-        const cardSettings = parseFeishuCardSettingsFromAccountsJson(userMap.feishu_accounts_json)
-        setFeishuCardVerificationToken(cardSettings.verificationToken)
-        setFeishuCardEncryptKey(cardSettings.encryptKey)
-
         setUserValues(userMap)
         setSavedUserValues(userMap)
       } catch (error: any) {
@@ -929,16 +900,10 @@ export default function OpenClawPage() {
     return () => {
       active = false
     }
+    // Keep this effect keyed to reportDate/refreshKey only; expanding deps here can trigger
+    // repeated initial-load loops due to function identity churn in local async loaders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportDate, refreshKey])
-
-  const appBaseUrl = useMemo(() => {
-    const fromEnv = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
-    if (fromEnv) return fromEnv.replace(/\/+$/, '')
-    if (typeof window !== 'undefined' && window.location?.origin) {
-      return window.location.origin.replace(/\/+$/, '')
-    }
-    return ''
-  }, [])
 
   const strategySaveKeys = [...STRATEGY_USER_KEYS]
 
@@ -970,6 +935,39 @@ export default function OpenClawPage() {
     const saved = savedUserValues
     return keys.some((key) => (current[key] ?? '') !== (saved[key] ?? ''))
   }
+
+  const loadPendingCommandRuns = useCallback(async (silent = false, isActive?: () => boolean) => {
+    if (!silent) {
+      setPendingCommandRunsLoading(true)
+    }
+    setPendingCommandRunsError(null)
+
+    try {
+      const response = await fetch('/api/openclaw/commands/runs?page=1&limit=20&status=pending_confirm', {
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => null) as OpenclawCommandRunsResponse | null
+      if (!response.ok || !payload?.success) {
+        throw new Error((payload as any)?.error || '待确认命令加载失败')
+      }
+
+      if (isActive && !isActive()) return
+      const items = Array.isArray(payload.items) ? payload.items : []
+      setPendingCommandRuns(items)
+    } catch (error: any) {
+      if (isActive && !isActive()) return
+      const message = error?.message || '待确认命令加载失败'
+      setPendingCommandRunsError(message)
+      if (!silent) {
+        setPendingCommandRuns([])
+      }
+    } finally {
+      if (isActive && !isActive()) return
+      if (!silent) {
+        setPendingCommandRunsLoading(false)
+      }
+    }
+  }, [])
 
   const loadGatewayStatus = async (force = false, isActive?: () => boolean) => {
     setGatewayLoading(true)
@@ -1032,6 +1030,29 @@ export default function OpenClawPage() {
       setWorkspaceLoading(false)
     }
   }
+
+  useEffect(() => {
+    let active = true
+
+    if (!settings?.userId) {
+      setPendingCommandRuns([])
+      setPendingCommandRunsError(null)
+      setPendingCommandRunsLoading(false)
+      return () => {
+        active = false
+      }
+    }
+
+    void loadPendingCommandRuns(false, () => active)
+    const timer = window.setInterval(() => {
+      void loadPendingCommandRuns(true, () => active)
+    }, 30000)
+
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [settings?.userId, refreshKey, loadPendingCommandRuns])
 
   const handleWorkspaceBootstrap = async (options?: { silent?: boolean }): Promise<boolean> => {
     const silent = options?.silent === true
@@ -1143,30 +1164,6 @@ export default function OpenClawPage() {
 
       const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
       if (isSavingFeishuSettings) {
-        const hasVerificationToken = hasText(feishuCardVerificationToken)
-        const hasEncryptKey = hasText(feishuCardEncryptKey)
-
-        if (!hasVerificationToken || !hasEncryptKey) {
-          toast.error('飞书交互卡片参数为必填，请填写 Verification Token 和 Encrypt Key')
-          return
-        }
-
-        if (!settings?.userId) {
-          toast.error('无法识别当前用户ID，请刷新页面后重试')
-          return
-        }
-
-        const generatedFeishuAccountsJson = buildAutoFeishuAccountsJson({
-          existingValue: normalizedUserValues.feishu_accounts_json,
-          userId: settings.userId,
-          appBaseUrl,
-          verificationToken: feishuCardVerificationToken,
-          encryptKey: feishuCardEncryptKey,
-        })
-
-        normalizedUserValues.feishu_accounts_json = generatedFeishuAccountsJson
-        setUserValues((prev) => ({ ...prev, feishu_accounts_json: generatedFeishuAccountsJson }))
-
         const hasAppSecret = hasText(normalizedUserValues.feishu_app_secret)
         if (!hasAppSecret) {
           toast.error('飞书 App Secret 为必填项')
@@ -1335,8 +1332,6 @@ export default function OpenClawPage() {
     const appId = (userValues.feishu_app_id || '').trim()
     const appSecret = (userValues.feishu_app_secret || '').trim()
     const target = (userValues.feishu_target || '').trim()
-    const cardVerificationToken = feishuCardVerificationToken.trim()
-    const cardEncryptKey = feishuCardEncryptKey.trim()
 
     if (!appId) {
       toast.error('请先填写飞书 App ID')
@@ -1348,10 +1343,6 @@ export default function OpenClawPage() {
     }
     if (!target) {
       toast.error('请先填写飞书推送目标')
-      return
-    }
-    if (!cardVerificationToken || !cardEncryptKey) {
-      toast.error('请先填写交互卡片参数（Verification Token / Encrypt Key）')
       return
     }
 
@@ -1511,6 +1502,38 @@ export default function OpenClawPage() {
     }
   }
 
+  const handlePendingCommandDecision = async (runId: string, decision: 'confirm' | 'cancel') => {
+    if (!runId.trim()) return
+
+    setPendingCommandActionRunId(runId)
+    try {
+      const response = await fetch('/api/openclaw/commands/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          runId,
+          decision,
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '命令确认失败')
+      }
+
+      if (decision === 'confirm') {
+        toast.success('已确认，命令已进入执行队列')
+      } else {
+        toast.success('已取消该命令')
+      }
+      await loadPendingCommandRuns(true)
+    } catch (error: any) {
+      toast.error(error?.message || '命令确认失败')
+    } finally {
+      setPendingCommandActionRunId(null)
+    }
+  }
+
   const handleFormatAiJson = () => {
     const raw = userValues.ai_models_json || ''
     if (!raw.trim()) return
@@ -1652,7 +1675,10 @@ export default function OpenClawPage() {
   })()
   const gatewayHealth = gatewayStatus?.health || null
   const gatewaySkillsReport = gatewayStatus?.skills || null
-  const gatewaySkillsList = Array.isArray(gatewaySkillsReport?.skills) ? gatewaySkillsReport.skills : []
+  const gatewaySkillsList = useMemo<any[]>(
+    () => (Array.isArray(gatewaySkillsReport?.skills) ? gatewaySkillsReport.skills : []),
+    [gatewaySkillsReport]
+  )
   const gatewaySkillsSummary = gatewaySkillsList.reduce(
     (acc: { total: number; ready: number; missing: number; disabled: number; blocked: number }, item: any) => {
       const missing = item?.missing || {}
@@ -1732,8 +1758,6 @@ export default function OpenClawPage() {
     hasText(userValues.feishu_app_id)
     && hasText(userValues.feishu_app_secret)
     && hasText(userValues.feishu_target)
-    && hasText(feishuCardVerificationToken)
-    && hasText(feishuCardEncryptKey)
   const canRunFeishuVerifyStart =
     hasText(userValues.feishu_app_id)
     && hasText(userValues.feishu_app_secret)
@@ -1793,13 +1817,8 @@ export default function OpenClawPage() {
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
-  const savedFeishuCardSettings = parseFeishuCardSettingsFromAccountsJson(savedUserValues.feishu_accounts_json)
-  const feishuCardDirty =
-    feishuCardVerificationToken !== savedFeishuCardSettings.verificationToken ||
-    feishuCardEncryptKey !== savedFeishuCardSettings.encryptKey
-  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS) || feishuCardDirty
-  const feishuCardPairConfigured = hasText(feishuCardVerificationToken) && hasText(feishuCardEncryptKey)
-  const feishuCardPairInvalid = hasText(feishuCardVerificationToken) !== hasText(feishuCardEncryptKey)
+  const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
+  const pendingCommandCount = pendingCommandRuns.length
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
@@ -1881,6 +1900,100 @@ export default function OpenClawPage() {
               <div className="text-xs text-slate-500">
                 建议顺序：Gateway → AI引擎 → 飞书聊天 → 策略中心。
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <div>
+                <CardTitle>高风险命令确认</CardTitle>
+                <CardDescription>控制面待确认队列（仅 Web 会话可操作）</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={pendingCommandCount > 0 ? 'destructive' : 'secondary'}>
+                  待确认 {pendingCommandCount}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadPendingCommandRuns(false)}
+                  disabled={pendingCommandRunsLoading || Boolean(pendingCommandActionRunId)}
+                >
+                  {pendingCommandRunsLoading ? '刷新中...' : '刷新'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {pendingCommandRunsError && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">
+                  {pendingCommandRunsError}
+                </div>
+              )}
+              {pendingCommandRunsLoading && pendingCommandRuns.length === 0 && (
+                <div className="text-sm text-slate-500">待确认队列加载中...</div>
+              )}
+              {!pendingCommandRunsLoading && pendingCommandRuns.length === 0 && (
+                <div className="text-sm text-slate-500">当前没有待确认命令。</div>
+              )}
+              {pendingCommandRuns.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>创建时间</TableHead>
+                      <TableHead>请求</TableHead>
+                      <TableHead>风险</TableHead>
+                      <TableHead>确认状态</TableHead>
+                      <TableHead>到期时间</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingCommandRuns.map((run) => {
+                      const riskBadge = resolveCommandRiskBadge(run.riskLevel)
+                      const rowBusy = pendingCommandActionRunId === run.runId
+                      const runPath = `${run.request.method} ${run.request.path}`
+                      return (
+                        <TableRow key={run.runId}>
+                          <TableCell className="text-xs">{formatTimestamp(run.createdAt)}</TableCell>
+                          <TableCell className="text-xs">
+                            <div className="font-medium">{runPath}</div>
+                            <div className="text-slate-500">run: {formatFeishuRunIdShort(run.runId)}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={riskBadge.variant}>{riskBadge.label}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{resolveCommandConfirmStatusText(run.confirmStatus)}</TableCell>
+                          <TableCell className="text-xs">
+                            {run.confirmExpiresAt ? formatTimestamp(run.confirmExpiresAt) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handlePendingCommandDecision(run.runId, 'confirm')}
+                                disabled={rowBusy || Boolean(pendingCommandActionRunId)}
+                              >
+                                {rowBusy ? '处理中...' : '确认执行'}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePendingCommandDecision(run.runId, 'cancel')}
+                                disabled={rowBusy || Boolean(pendingCommandActionRunId)}
+                              >
+                                取消
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
 
@@ -2363,21 +2476,15 @@ export default function OpenClawPage() {
                 飞书聊天
                 {feishuChatDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="飞书配置未保存" />}
               </CardTitle>
-              <CardDescription>最小必填：App ID / App Secret / 推送目标 / 交互卡片参数</CardDescription>
+              <CardDescription>最小必填：App ID / App Secret / 推送目标</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-3 md:grid-cols-2 text-xs">
+              <div className="grid gap-3 text-xs">
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
                   <div className="font-medium text-slate-800">聊天参数（* 为必需）</div>
                   <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App ID</div>
                   <div><span className="text-red-500" aria-hidden="true">*</span> 飞书 App Secret</div>
                   <div><span className="text-red-500" aria-hidden="true">*</span> 飞书推送目标（open_id / union_id / chat_id）</div>
-                </div>
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-slate-600 space-y-1">
-                  <div className="font-medium text-slate-800">交互卡片参数（* 为必需）</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 卡片 Verification Token</div>
-                  <div><span className="text-red-500" aria-hidden="true">*</span> 卡片 Encrypt Key</div>
-                  <div>卡片回调路径 / 确认回调 URL 自动生成。</div>
                 </div>
               </div>
 
@@ -2391,6 +2498,9 @@ export default function OpenClawPage() {
                 >
                   {showFeishuAdvanced ? '收起高级参数' : '展开高级参数'}
                 </Button>
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                高风险命令确认默认在 Web 控制面完成；飞书通道不直连执行确认回调。
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -2415,20 +2525,6 @@ export default function OpenClawPage() {
                   value={userValues.feishu_app_secret || ''}
                   onChange={(v) => setUserValue('feishu_app_secret', v)}
                   placeholder={FEISHU_BASIC_EXAMPLE_VALUES.feishu_app_secret}
-                />
-                <InputWithLabel
-                  label="卡片 Verification Token"
-                  required
-                  value={feishuCardVerificationToken}
-                  onChange={setFeishuCardVerificationToken}
-                  placeholder="v1_verify_xxx"
-                />
-                <InputWithLabel
-                  label="卡片 Encrypt Key"
-                  required
-                  value={feishuCardEncryptKey}
-                  onChange={setFeishuCardEncryptKey}
-                  placeholder="encrypt_key_xxx"
                 />
               </div>
 
@@ -2507,12 +2603,6 @@ export default function OpenClawPage() {
                 <div className={hasText(userValues.feishu_target) ? 'text-emerald-600' : 'text-slate-500'}>
                   {hasText(userValues.feishu_target) ? '✓ 推送目标已填写' : '• 推送目标未填写'}
                 </div>
-                <div className={hasText(feishuCardVerificationToken) ? 'text-emerald-600' : 'text-slate-500'}>
-                  {hasText(feishuCardVerificationToken) ? '✓ Verification Token 已填写' : '• Verification Token 未填写'}
-                </div>
-                <div className={hasText(feishuCardEncryptKey) ? 'text-emerald-600' : 'text-slate-500'}>
-                  {hasText(feishuCardEncryptKey) ? '✓ Encrypt Key 已填写' : '• Encrypt Key 未填写'}
-                </div>
                 {showFeishuAdvanced && (
                   <>
                     <div className={isTruthy(userValues.feishu_require_tenant_key, true) ? 'text-emerald-600' : 'text-amber-600'}>
@@ -2533,20 +2623,6 @@ export default function OpenClawPage() {
                   </>
                 )}
               </div>
-
-              {showFeishuAdvanced && (
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                  <div>卡片回调路径（自动）: <code>{settings?.userId ? `/feishu/user-${settings.userId}/card-action` : '/feishu/card-action'}</code></div>
-                  <div>确认回调 URL（自动）: <code>{appBaseUrl ? `${appBaseUrl}/api/openclaw/commands/confirm` : '/api/openclaw/commands/confirm'}</code></div>
-                  <div className={feishuCardPairInvalid ? 'text-red-600' : 'text-slate-600'}>
-                    {feishuCardPairInvalid
-                      ? 'Verification Token 与 Encrypt Key 需同时填写或同时留空'
-                      : feishuCardPairConfigured
-                        ? '✅ 交互卡片参数已配置'
-                        : '未配置交互卡片参数（如需卡片交互请填写）'}
-                  </div>
-                </div>
-              )}
 
               <div className="rounded-md border bg-slate-50 px-3 py-3 space-y-3">
                 <div className="text-sm font-medium text-slate-800">双向通信验证（半自动）</div>
@@ -2595,7 +2671,7 @@ export default function OpenClawPage() {
                     size="sm"
                     onClick={handleFeishuTestConnection}
                     disabled={feishuTestLoading || !canRunFeishuConnectionTest}
-                    title={canRunFeishuConnectionTest ? undefined : '请先填写飞书必填参数（含卡片 Verification/Encrypt Key）'}
+                    title={canRunFeishuConnectionTest ? undefined : '请先填写飞书 App ID / App Secret / 推送目标'}
                   >
                     {feishuTestLoading ? '测试中...' : '测试连接'}
                   </Button>
@@ -2626,7 +2702,7 @@ export default function OpenClawPage() {
                 <Button
                   onClick={() => saveSettings({ scope: 'user', keys: [...FEISHU_CHAT_USER_KEYS], successMessage: '飞书配置已保存' })}
                   disabled={savingUser || !canRunFeishuConnectionTest}
-                  title={canRunFeishuConnectionTest ? undefined : '请先填写飞书必填参数（含卡片 Verification/Encrypt Key）'}
+                  title={canRunFeishuConnectionTest ? undefined : '请先填写飞书 App ID / App Secret / 推送目标'}
                 >
                   {savingUser ? '保存中...' : feishuChatDirty ? '保存飞书配置 *' : '保存飞书配置'}
                 </Button>

@@ -90,7 +90,8 @@ if [[ -f "$HASH_FILE" ]]; then
   fi
 fi
 
-pnpm -s exec tsc -p "$A2UI_RENDERER_DIR/tsconfig.json"
+# 显式固定 types，避免在 monorepo/父目录存在异常 @types 条目时被隐式拾取导致构建失败
+pnpm -s exec tsc -p "$A2UI_RENDERER_DIR/tsconfig.json" --types node
 rolldown -c "$A2UI_APP_DIR/rolldown.config.mjs"
 
 echo "$current_hash" > "$HASH_FILE"

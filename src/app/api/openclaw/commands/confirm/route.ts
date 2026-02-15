@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { confirmOpenclawCommand } from '@/lib/openclaw/commands/command-service'
+import {
+  confirmOpenclawCommand,
+  confirmOpenclawCommandByOwner,
+} from '@/lib/openclaw/commands/command-service'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
 import {
   resolveOpenclawParentRequestId,
@@ -11,7 +14,7 @@ export const dynamic = 'force-dynamic'
 
 const confirmSchema = z.object({
   runId: z.string().min(1),
-  confirmToken: z.string().min(8),
+  confirmToken: z.string().min(8).optional(),
   decision: z.enum(['confirm', 'cancel']).optional(),
   action: z.enum(['confirm', 'cancel']).optional(),
   channel: z.string().optional(),
@@ -31,6 +34,11 @@ const confirmSchema = z.object({
 function normalizeHeaderValue(value: string | null | undefined): string | undefined {
   const normalized = String(value || '').trim()
   return normalized || undefined
+}
+
+function isGatewayBindingConfirmAllowed(): boolean {
+  const normalized = String(process.env.OPENCLAW_CONFIRM_ALLOW_GATEWAY_BINDING || '').trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 export async function POST(request: NextRequest) {
@@ -64,6 +72,15 @@ export async function POST(request: NextRequest) {
     })
     if (!auth) {
       return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
+    }
+    if (auth.authType === 'gateway-binding' && !isGatewayBindingConfirmAllowed()) {
+      return NextResponse.json(
+        {
+          error: '已禁用 gateway-binding 直连确认，请改用 Web 控制台会话或用户令牌执行确认。',
+          code: 'gateway_binding_confirm_disabled',
+        },
+        { status: 403 }
+      )
     }
 
     if (!parsed.success) {
@@ -100,17 +117,33 @@ export async function POST(request: NextRequest) {
       accountId,
     })
 
-    const result = await confirmOpenclawCommand({
-      runId: parsed.data.runId,
-      userId: auth.userId,
-      confirmToken: parsed.data.confirmToken,
-      decision,
-      channel,
-      callbackEventId: parsed.data.callbackEventId,
-      callbackEventType: parsed.data.callbackEventType,
-      callbackPayload: parsed.data.callbackPayload,
-      parentRequestId,
-    })
+    const confirmToken = normalizeHeaderValue(parsed.data.confirmToken)
+    const result = confirmToken
+      ? await confirmOpenclawCommand({
+          runId: parsed.data.runId,
+          userId: auth.userId,
+          confirmToken,
+          decision,
+          channel,
+          callbackEventId: parsed.data.callbackEventId,
+          callbackEventType: parsed.data.callbackEventType,
+          callbackPayload: parsed.data.callbackPayload,
+          parentRequestId,
+        })
+      : await (() => {
+          if (auth.authType !== 'session') {
+            return Promise.resolve({
+              status: 'invalid_token' as const,
+              runId: parsed.data.runId,
+            })
+          }
+          return confirmOpenclawCommandByOwner({
+            runId: parsed.data.runId,
+            userId: auth.userId,
+            decision,
+            parentRequestId,
+          })
+        })()
 
     if (result.status === 'not_found') {
       return NextResponse.json({ error: '命令不存在', ...result }, { status: 404 })

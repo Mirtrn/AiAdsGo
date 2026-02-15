@@ -116,7 +116,8 @@ ${OVERLAY_HEADING}
 - \`127.0.0.1:18789\` 仅为 OpenClaw Gateway 端口，不是 AutoAds 业务 API 主机，禁止作为业务 API base URL。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；\`/api/offers/*\`、\`/api/campaigns/*\` 等业务路由必须通过 proxy/execute 链路以用户身份执行。
 - 内网可达时禁止回退公网域名调用业务 API，避免 Cloudflare 拦截与鉴权错配。
-- 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
+- 允许通过 shell/curl 仅调用 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/runs\`；禁止直连 \`/api/offers/*\`、\`/api/campaigns/*\`、\`/api/click-farm/*\` 等业务路由。
+- \`/api/openclaw/commands/confirm\` 默认仅允许 Web 会话或用户 Token；飞书 gateway-binding 场景禁止直连确认，需引导用户到 Web 控制面完成确认。
 - 飞书绑定场景禁止向用户索要 token；默认使用系统注入的 \`OPENCLAW_GATEWAY_TOKEN\` 调用 \`/api/openclaw/*\`，若 401 先补齐 \`channel/senderId/accountId/tenantKey\` 后重试一次。
 - token 读取顺序固定：\`OPENCLAW_GATEWAY_TOKEN\` -> \`OPENCLAW_TOKEN\`；若仍为空，直接报告“网关注入缺失”，禁止继续猜测或多轮重试。
 - 禁止执行 token 自检命令（例如输出 token 长度/前缀）；禁止在回复中泄露任何密钥信息。
@@ -157,7 +158,8 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - \`127.0.0.1:18789\` 是 OpenClaw Gateway 端口，不是业务 API 基址，不可直接请求业务路由。
 - Gateway Token 仅用于 \`/api/openclaw/*\`；业务路由必须通过 proxy/execute 链路并以用户身份执行。
 - 内网可达时禁止改走公网域名，避免 Cloudflare 拦截和 token 类型不匹配。
-- 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/confirm\`、\`/api/openclaw/commands/runs\`，禁止直连业务路由。
+- 如需经 shell/curl 调用 API，仅允许 \`/api/openclaw/proxy\`、\`/api/openclaw/commands/execute\`、\`/api/openclaw/commands/runs\`，禁止直连业务路由。
+- \`/api/openclaw/commands/confirm\` 默认仅允许 Web 会话或用户 Token；飞书 gateway-binding 场景禁止直连确认，需引导用户到 Web 控制面完成确认。
 - 飞书绑定会话默认使用 \`OPENCLAW_GATEWAY_TOKEN\`；禁止向用户索要 token。
 - token 读取顺序固定：\`OPENCLAW_GATEWAY_TOKEN\` -> \`OPENCLAW_TOKEN\`；若仍为空，立即报错并停止，不做猜测性重试。
 - 禁止执行 token 长度/前缀探测命令，禁止在任何输出中泄露 token。

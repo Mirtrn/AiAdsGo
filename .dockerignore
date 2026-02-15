@@ -121,7 +121,9 @@ CHANGELOG.md
 .eslintrc.json
 .eslintignore
 # OpenClaw 源码不参与镜像构建（使用预编译产物）
-openclaw/
+openclaw/*
+!openclaw/package.json
+!openclaw/.source-commit
 # 注意：以下配置文件是构建必需的，不能排除
 # tailwind.config.ts  - Tailwind CSS配置
 # postcss.config.js   - PostCSS配置
