@@ -173,4 +173,79 @@ describe('openclaw command executor click-farm guard', () => {
       })
     )
   })
+
+  it('hydrates campaign.publish payload with fallback keywords before forwarding', async () => {
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn().mockResolvedValue([]),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-pub-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            request_method: 'POST',
+            request_path: '/api/campaigns/publish',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              offerId: 3343,
+              adCreativeId: 4331,
+              googleAdsAccountId: 999,
+              campaignConfig: {
+                budgetAmount: 10,
+                budgetType: 'DAILY',
+                targetCountry: 'US',
+                targetLanguage: 'en',
+                biddingStrategy: 'MAXIMIZE_CLICKS',
+                maxCpcBid: 0.2,
+              },
+            }),
+            risk_level: 'medium',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        if (sql.includes('FROM ad_creatives')) {
+          return {
+            id: 4331,
+            keywords: JSON.stringify(['sonic toothbrush', 'electric toothbrush']),
+            negative_keywords: JSON.stringify(['manual', 'free']),
+          }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const result = await executeOpenclawCommandTask(createTask('run-pub-1'))
+
+    expect(result.success).toBe(true)
+    expect(mocks.fetchAutoadsAsUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/api/campaigns/publish',
+        method: 'POST',
+        body: expect.objectContaining({
+          campaignConfig: expect.objectContaining({
+            keywords: ['sonic toothbrush', 'electric toothbrush'],
+            negativeKeywords: ['manual', 'free'],
+          }),
+        }),
+      })
+    )
+  })
 })

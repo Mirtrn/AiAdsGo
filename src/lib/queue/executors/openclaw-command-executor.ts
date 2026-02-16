@@ -3,6 +3,8 @@ import { getDatabase } from '@/lib/db'
 import { nowFunc } from '@/lib/db-helpers'
 import { fetchAutoadsAsUser } from '@/lib/openclaw/autoads-client'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
+import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 
 export type OpenclawCommandTaskData = {
   runId: string
@@ -46,6 +48,132 @@ function toPositiveInteger(value: unknown): number | null {
   if (!Number.isFinite(parsed)) return null
   const normalized = Math.floor(parsed)
   return normalized > 0 ? normalized : null
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isCampaignPublishCommand(method: string, path: string): boolean {
+  return method.toUpperCase() === 'POST' && path === '/api/campaigns/publish'
+}
+
+async function hydrateCampaignPublishRequestBody(params: {
+  db: any
+  userId: number
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (!isCampaignPublishCommand(params.method, params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const body = params.body as Record<string, any>
+  const campaignConfigRaw = body.campaignConfig ?? body.campaign_config
+  if (!isPlainObject(campaignConfigRaw)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const campaignConfig = campaignConfigRaw as Record<string, any>
+  const configuredNegativeKeywords =
+    campaignConfig.negativeKeywords !== undefined
+      ? campaignConfig.negativeKeywords
+      : campaignConfig.negative_keywords
+
+  const probe = resolveTaskCampaignKeywords({
+    configuredKeywords: campaignConfig.keywords,
+    configuredNegativeKeywords,
+    fallbackKeywords: [],
+    fallbackNegativeKeywords: [],
+  })
+
+  if (!probe.usedKeywordFallback && !probe.usedNegativeKeywordFallback) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const offerId = toPositiveInteger(body.offerId ?? body.offer_id)
+  const adCreativeId = toPositiveInteger(body.adCreativeId ?? body.ad_creative_id)
+  if (!offerId || !adCreativeId) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const creative = await params.db.queryOne<{
+    id: number
+    keywords: unknown
+    negative_keywords: unknown
+  }>(
+    `SELECT id, keywords, negative_keywords
+     FROM ad_creatives
+     WHERE id = ? AND offer_id = ? AND user_id = ?
+     LIMIT 1`,
+    [adCreativeId, offerId, params.userId]
+  )
+
+  if (!creative) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const effectiveCreative = buildEffectiveCreative({
+    dbCreative: {
+      headlines: [],
+      descriptions: [],
+      keywords: creative.keywords,
+      negativeKeywords: creative.negative_keywords,
+      callouts: [],
+      sitelinks: [],
+      finalUrl: '',
+      finalUrlSuffix: null,
+    },
+    campaignConfig,
+  })
+
+  const resolvedKeywordConfig = resolveTaskCampaignKeywords({
+    configuredKeywords: campaignConfig.keywords,
+    configuredNegativeKeywords,
+    fallbackKeywords: effectiveCreative.keywords,
+    fallbackNegativeKeywords: effectiveCreative.negativeKeywords,
+  })
+
+  if (!resolvedKeywordConfig.usedKeywordFallback && !resolvedKeywordConfig.usedNegativeKeywordFallback) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const hydratedCampaignConfig: Record<string, any> = {
+    ...campaignConfig,
+  }
+
+  if (resolvedKeywordConfig.usedKeywordFallback) {
+    hydratedCampaignConfig.keywords = resolvedKeywordConfig.keywords
+  }
+
+  if (resolvedKeywordConfig.usedNegativeKeywordFallback) {
+    hydratedCampaignConfig.negativeKeywords = resolvedKeywordConfig.negativeKeywords
+  }
+
+  const hydratedBody: Record<string, any> = {
+    ...body,
+    campaignConfig: hydratedCampaignConfig,
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'campaign_config')) {
+    hydratedBody.campaign_config = hydratedCampaignConfig
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.log(
+      `[OpenClawCommand] 补齐campaign.publish参数: offerId=${offerId}, adCreativeId=${adCreativeId}, keywords=${resolvedKeywordConfig.keywords.length}, negativeKeywords=${resolvedKeywordConfig.negativeKeywords.length}`
+    )
+  }
+
+  return {
+    body: hydratedBody,
+    hydrated: true,
+  }
 }
 
 function extractOfferIdFromClickFarmBody(body: unknown): number | null {
@@ -236,7 +364,26 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   )
 
   const requestQuery = parseJsonObject(run.request_query_json)
-  const requestBody = parseJsonAny(run.request_body_json)
+  let requestBody = parseJsonAny(run.request_body_json)
+  const hydratedPayload = await hydrateCampaignPublishRequestBody({
+    db,
+    userId: data.userId,
+    method: run.request_method,
+    path: run.request_path,
+    body: requestBody,
+  })
+  requestBody = hydratedPayload.body
+
+  const requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
+  if (hydratedPayload.hydrated && requestBodyForAudit !== run.request_body_json) {
+    await db.exec(
+      `UPDATE openclaw_command_runs
+       SET request_body_json = ?,
+           updated_at = ${nowSql}
+       WHERE id = ? AND user_id = ?`,
+      [requestBodyForAudit, data.runId, data.userId]
+    )
+  }
 
   const requestPayload = {
     method: run.request_method,
@@ -331,7 +478,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       action,
       targetType,
       targetId,
-      requestBody: run.request_body_json,
+      requestBody: requestBodyForAudit,
       responseBody,
       status: 'success',
       runId: data.runId,
@@ -380,7 +527,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       action,
       targetType,
       targetId,
-      requestBody: run.request_body_json,
+      requestBody: requestBodyForAudit,
       responseBody,
       status: 'error',
       errorMessage: message,
