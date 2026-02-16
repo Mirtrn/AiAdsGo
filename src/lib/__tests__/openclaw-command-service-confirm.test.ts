@@ -387,6 +387,32 @@ describe('openclaw command service confirmation guard', () => {
     expect(campaignConfig.negative_keywords_match_type).toBeUndefined()
   })
 
+  it('applies web defaults for publish top-level optional flags', async () => {
+    await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/campaigns/publish',
+      body: {
+        offerId: 11,
+        googleAdsAccountId: 22,
+        campaignConfig: {
+          campaignName: 'Defaulted Campaign',
+        },
+      },
+    })
+
+    const body = getInsertedBody()
+    expect(body).toMatchObject({
+      offerId: 11,
+      googleAdsAccountId: 22,
+      pauseOldCampaigns: false,
+      enableCampaignImmediately: false,
+      enableSmartOptimization: false,
+      variantCount: 3,
+    })
+  })
+
   it('normalizes click-farm aliases to snake_case payload', async () => {
     await executeOpenclawCommand({
       userId: 1001,
@@ -423,6 +449,28 @@ describe('openclaw command service confirmation guard', () => {
     expect(body.dailyClickCount).toBeUndefined()
   })
 
+  it('applies web defaults for click-farm payload when fields are omitted', async () => {
+    await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/click-farm/tasks',
+      body: {
+        offer_id: 31,
+      },
+    })
+
+    const body = getInsertedBody()
+    expect(body).toMatchObject({
+      offer_id: 31,
+      daily_click_count: 216,
+      start_time: '06:00',
+      end_time: '24:00',
+      duration_days: 14,
+      referer_config: { type: 'none' },
+    })
+  })
+
   it('normalizes offer-extract aliases to snake_case payload', async () => {
     await executeOpenclawCommand({
       userId: 1001,
@@ -450,6 +498,30 @@ describe('openclaw command service confirmation guard', () => {
     expect(body.brand).toBeUndefined()
     expect(body.targetCountry).toBeUndefined()
     expect(body.productPrice).toBeUndefined()
+    expect(body.page_type).toBe('product')
+    expect(body.skipCache).toBe(false)
+    expect(body.skipWarmup).toBe(false)
+  })
+
+  it('applies web defaults for offer-extract payload when fields are omitted', async () => {
+    await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://aff.example.com/track',
+      },
+    })
+
+    const body = getInsertedBody()
+    expect(body).toMatchObject({
+      affiliate_link: 'https://aff.example.com/track',
+      target_country: 'US',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
   })
 
   it('rejects guarded route when required field is missing', async () => {
@@ -460,7 +532,7 @@ describe('openclaw command service confirmation guard', () => {
         method: 'POST',
         path: '/api/offers/extract',
         body: {
-          affiliate_link: 'https://aff.example.com/track',
+          target_country: 'US',
         },
       })
     ).rejects.toThrow('missing required fields')

@@ -72,6 +72,11 @@ function isMissingRequiredValue(value: unknown): boolean {
   return false
 }
 
+function toSafeNumber(value: unknown): number | undefined {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, key: string): string[] {
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
@@ -250,6 +255,19 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
         normalizedBody.forcePublish = PUBLISH_FORCE_KEYS.some((key) => isTruthyFlag(sourceBody[key]))
       }
 
+      if (normalizedBody.pauseOldCampaigns === undefined) {
+        normalizedBody.pauseOldCampaigns = false
+      }
+      if (normalizedBody.enableCampaignImmediately === undefined) {
+        normalizedBody.enableCampaignImmediately = false
+      }
+      if (normalizedBody.enableSmartOptimization === undefined) {
+        normalizedBody.enableSmartOptimization = false
+      }
+      if (normalizedBody.variantCount === undefined) {
+        normalizedBody.variantCount = 3
+      }
+
       const normalizedCampaignConfig = normalizeCampaignPublishCampaignConfig(normalizedBody.campaignConfig)
       if (normalizedCampaignConfig) {
         normalizedBody.campaignConfig = normalizedCampaignConfig
@@ -283,6 +301,35 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       hourlyDistribution: 'hourly_distribution',
       refererConfig: 'referer_config',
     },
+    normalize: ({ normalizedBody }) => {
+      const normalizedDailyClicks = toSafeNumber(normalizedBody.daily_click_count)
+      normalizedBody.daily_click_count = normalizedDailyClicks && normalizedDailyClicks > 0
+        ? Math.floor(normalizedDailyClicks)
+        : 216
+
+      if (!isMissingRequiredValue(normalizedBody.start_time)) {
+        normalizedBody.start_time = String(normalizedBody.start_time).trim()
+      } else {
+        normalizedBody.start_time = '06:00'
+      }
+
+      if (!isMissingRequiredValue(normalizedBody.end_time)) {
+        normalizedBody.end_time = String(normalizedBody.end_time).trim()
+      } else {
+        normalizedBody.end_time = '24:00'
+      }
+
+      const normalizedDuration = toSafeNumber(normalizedBody.duration_days)
+      normalizedBody.duration_days = normalizedDuration !== undefined
+        ? Math.floor(normalizedDuration)
+        : 14
+
+      if (!isPlainObject(normalizedBody.referer_config)) {
+        normalizedBody.referer_config = { type: 'none' }
+      }
+
+      return normalizedBody
+    },
   },
   {
     method: 'POST',
@@ -298,7 +345,7 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'skipCache',
       'skipWarmup',
     ],
-    requiredKeys: ['affiliate_link', 'target_country'],
+    requiredKeys: ['affiliate_link'],
     aliasMap: {
       affiliateLink: 'affiliate_link',
       url: 'affiliate_link',
@@ -311,6 +358,24 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       storeProductLinks: 'store_product_links',
       skip_cache: 'skipCache',
       skip_warmup: 'skipWarmup',
+    },
+    normalize: ({ normalizedBody }) => {
+      if (isMissingRequiredValue(normalizedBody.target_country)) {
+        normalizedBody.target_country = 'US'
+      }
+
+      if (isMissingRequiredValue(normalizedBody.page_type)) {
+        normalizedBody.page_type = 'product'
+      }
+
+      normalizedBody.skipCache = normalizedBody.skipCache !== undefined
+        ? isTruthyFlag(normalizedBody.skipCache)
+        : false
+      normalizedBody.skipWarmup = normalizedBody.skipWarmup !== undefined
+        ? isTruthyFlag(normalizedBody.skipWarmup)
+        : false
+
+      return normalizedBody
     },
   },
   {
@@ -327,7 +392,7 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'skipCache',
       'skipWarmup',
     ],
-    requiredKeys: ['affiliate_link', 'target_country'],
+    requiredKeys: ['affiliate_link'],
     aliasMap: {
       affiliateLink: 'affiliate_link',
       url: 'affiliate_link',
@@ -340,6 +405,24 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       storeProductLinks: 'store_product_links',
       skip_cache: 'skipCache',
       skip_warmup: 'skipWarmup',
+    },
+    normalize: ({ normalizedBody }) => {
+      if (isMissingRequiredValue(normalizedBody.target_country)) {
+        normalizedBody.target_country = 'US'
+      }
+
+      if (isMissingRequiredValue(normalizedBody.page_type)) {
+        normalizedBody.page_type = 'product'
+      }
+
+      normalizedBody.skipCache = normalizedBody.skipCache !== undefined
+        ? isTruthyFlag(normalizedBody.skipCache)
+        : false
+      normalizedBody.skipWarmup = normalizedBody.skipWarmup !== undefined
+        ? isTruthyFlag(normalizedBody.skipWarmup)
+        : false
+
+      return normalizedBody
     },
   },
   {
