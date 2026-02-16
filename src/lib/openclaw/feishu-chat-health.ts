@@ -135,6 +135,7 @@ const FEISHU_CHAT_HEALTH_NOISE_REASON_CODE = 'duplicate_message'
 // which may happen after one or more command runs were already created. Keep a relatively
 // forgiving "link before" window, but not too large to avoid cross-message mislinks.
 const FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS = 180
+const FEISHU_HEALTH_BACKFILL_LINK_BEFORE_SECONDS = 15 * 60
 const FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS = 5 * 60
 
 let lastCleanupAt = 0
@@ -162,6 +163,14 @@ function resolveExecutionLinkBeforeSeconds(): number {
     return FEISHU_HEALTH_EXECUTION_LINK_BEFORE_SECONDS
   }
   return clamp(envValue, 0, 3600)
+}
+
+function resolveBackfillLinkBeforeSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_BACKFILL_LINK_BEFORE_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_BACKFILL_LINK_BEFORE_SECONDS
+  }
+  return clamp(envValue, 30, 3600)
 }
 
 function resolveExecutionLinkAfterSeconds(): number {
@@ -291,13 +300,58 @@ export async function backfillFeishuChatHealthRunLinks(params: {
     return { updatedRuns: 0 }
   }
 
-  const linkBeforeMs = resolveExecutionLinkBeforeSeconds() * 1000
+  const senderPlaceholders = senderIds.map(() => '?').join(', ')
+
+  const previousAllowedHealthRow = await db.queryOne<FeishuChatHealthCreatedAtRow>(
+    `SELECT created_at
+     FROM openclaw_feishu_chat_health_logs
+     WHERE user_id = ?
+       AND decision = 'allowed'
+       AND lower(trim(reason_code)) = 'reply_dispatched'
+       AND message_id IS NOT NULL
+       AND message_id <> ?
+       AND created_at < (
+         SELECT created_at
+         FROM openclaw_feishu_chat_health_logs
+         WHERE user_id = ?
+           AND message_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1
+       )
+       AND (
+         sender_primary_id IN (${senderPlaceholders})
+         OR sender_open_id IN (${senderPlaceholders})
+         OR sender_union_id IN (${senderPlaceholders})
+         OR sender_user_id IN (${senderPlaceholders})
+       )
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [
+      params.userId,
+      messageId,
+      params.userId,
+      messageId,
+      ...senderIds,
+      ...senderIds,
+      ...senderIds,
+      ...senderIds,
+    ]
+  )
+
+  const linkBeforeMs = resolveBackfillLinkBeforeSeconds() * 1000
   const linkAfterMs = resolveExecutionLinkAfterSeconds() * 1000
-  const startMs = healthMs - linkBeforeMs
+  let startMs = healthMs - linkBeforeMs
   const endMs = healthMs + linkAfterMs
 
+  if (previousAllowedHealthRow) {
+    const previousMs = Date.parse(toIsoTimestamp(previousAllowedHealthRow.created_at))
+    if (Number.isFinite(previousMs)) {
+      // Avoid crossing into the previous allowed message window for the same sender.
+      startMs = Math.max(startMs, previousMs + 1)
+    }
+  }
+
   const cutoffExpr = datetimeMinusHours(6, db.type)
-  const senderPlaceholders = senderIds.map(() => '?').join(', ')
   const candidateRuns = await db.query<OpenclawCommandRunLinkRow>(
     `SELECT id, parent_request_id, channel, sender_id, status, created_at
      FROM openclaw_command_runs

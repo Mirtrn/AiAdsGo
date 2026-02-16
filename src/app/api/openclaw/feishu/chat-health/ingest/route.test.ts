@@ -228,10 +228,12 @@ describe('openclaw feishu chat health ingest route', () => {
       expect.objectContaining({
         userId: 11,
         accountId: 'unknown',
+        messageId: undefined,
         senderPrimaryId: 'ou_alias_1',
         senderCandidates: ['ou_alias_1'],
       })
     )
+    expect(healthFns.backfillFeishuChatHealthRunLinks).not.toHaveBeenCalled()
   })
 
   it('accepts snake_case payload fields and decision alias', async () => {
@@ -263,6 +265,43 @@ describe('openclaw feishu chat health ingest route', () => {
         decision: 'allowed',
         reasonCode: 'reply_dispatched',
         messageId: 'om_x1',
+      })
+    )
+  })
+
+  it('accepts inbound_message_id as message id for allowed events', async () => {
+    accountFns.parseFeishuAccountUserId.mockReturnValue(null)
+    bindingFns.resolveOpenclawUserFromBinding.mockResolvedValue(21)
+
+    const res = await POST(createRequest({
+      account_id: 'cli_feishu_main',
+      sender_open_id: 'ou_inbound_1',
+      sender_candidates: ['ou_inbound_1'],
+      decision: 'allowed',
+      reason_code: 'reply_dispatched',
+      inbound_message_id: 'om_inbound_123',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(true)
+    expect(payload.userId).toBe(21)
+
+    expect(healthFns.recordFeishuChatHealthLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 21,
+        accountId: 'cli_feishu_main',
+        messageId: 'om_inbound_123',
+        reasonCode: 'reply_dispatched',
+      })
+    )
+    expect(healthFns.backfillFeishuChatHealthRunLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 21,
+        messageId: 'om_inbound_123',
+        senderIds: ['ou_inbound_1'],
       })
     )
   })

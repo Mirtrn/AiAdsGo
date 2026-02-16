@@ -19,6 +19,7 @@ vi.mock('@/lib/db-helpers', () => ({
 }))
 
 import {
+  backfillFeishuChatHealthRunLinks,
   listFeishuChatHealthLogs,
   recordFeishuChatHealthLog,
 } from '@/lib/openclaw/feishu-chat-health'
@@ -306,6 +307,80 @@ describe('feishu chat health lib', () => {
     expect(result.stats.execution.failed).toBe(0)
 
     vi.useRealTimers()
+  })
+
+  it('backfills long-running feishu runs without crossing previous allowed message boundary', async () => {
+    const db = {
+      type: 'sqlite',
+      queryOne: vi
+        .fn()
+        .mockResolvedValueOnce({
+          created_at: '2026-02-10 03:11:17',
+        })
+        .mockResolvedValueOnce({
+          created_at: '2026-02-10 02:59:59',
+        }),
+      query: vi.fn().mockResolvedValueOnce([
+        {
+          id: 'run-late',
+          parent_request_id: 'uuid-late',
+          channel: 'feishu',
+          sender_id: 'ou_1',
+          status: 'completed',
+          created_at: '2026-02-10 03:17:00',
+        },
+        {
+          id: 'run-2',
+          parent_request_id: null,
+          channel: 'feishu',
+          sender_id: 'ou_1',
+          status: 'completed',
+          created_at: '2026-02-10 03:10:00',
+        },
+        {
+          id: 'run-bound-other',
+          parent_request_id: 'om_other_message',
+          channel: 'feishu',
+          sender_id: 'ou_1',
+          status: 'failed',
+          created_at: '2026-02-10 03:09:00',
+        },
+        {
+          id: 'run-1',
+          parent_request_id: 'uuid-1',
+          channel: 'feishu',
+          sender_id: 'ou_1',
+          status: 'queued',
+          created_at: '2026-02-10 03:01:00',
+        },
+        {
+          id: 'run-prev-boundary',
+          parent_request_id: 'uuid-prev',
+          channel: 'feishu',
+          sender_id: 'ou_1',
+          status: 'completed',
+          created_at: '2026-02-10 02:59:59',
+        },
+      ]),
+      exec: vi.fn().mockResolvedValue({ changes: 2 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await backfillFeishuChatHealthRunLinks({
+      userId: 7,
+      messageId: 'om_target',
+      senderIds: ['ou_1', 'ou_1'],
+    })
+
+    expect(result).toEqual({ updatedRuns: 2 })
+    expect(db.exec).toHaveBeenCalledTimes(1)
+
+    const execArgs = db.exec.mock.calls[0]?.[1] as any[]
+    expect(execArgs[0]).toBe('om_target')
+    expect(execArgs[1]).toBe(7)
+    expect(execArgs.slice(2)).toHaveLength(2)
+    expect(execArgs.slice(2)).toEqual(expect.arrayContaining(['run-1', 'run-2']))
   })
 
   it('records logs with deduplicated sender candidates', async () => {

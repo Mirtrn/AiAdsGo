@@ -75,6 +75,21 @@ function firstNonEmpty(...values: Array<unknown>): string | undefined {
   return undefined
 }
 
+function isFeishuMessageId(value: unknown): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized.startsWith('om_')
+}
+
+function firstFeishuMessageId(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    const candidate = firstNonEmpty(value)
+    if (!candidate) continue
+    if (!isFeishuMessageId(candidate)) continue
+    return candidate
+  }
+  return undefined
+}
+
 function valueByKeys(source: Record<string, unknown> | undefined, keys: string[]): unknown {
   if (!source) return undefined
   for (const key of keys) {
@@ -240,15 +255,19 @@ function normalizeIngestPayload(raw: RawIngestPayload): IngestPayload | null {
 
   return {
     accountId,
-    messageId: firstNonEmpty(
+    messageId: firstFeishuMessageId(
       raw.messageId,
       raw.message_id,
+      raw.inboundMessageId,
+      raw.inbound_message_id,
       raw.requestId,
       raw.request_id,
       raw.parentRequestId,
       raw.parent_request_id,
       metadata?.messageId,
       metadata?.message_id,
+      metadata?.inboundMessageId,
+      metadata?.inbound_message_id,
       metadata?.requestId,
       metadata?.request_id,
       metadata?.parentRequestId,
