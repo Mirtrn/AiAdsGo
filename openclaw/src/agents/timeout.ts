@@ -1,6 +1,9 @@
 import type { OpenClawConfig } from "../config/config.js";
 
-const DEFAULT_AGENT_TIMEOUT_SECONDS = 600;
+// Default agent run timeout.
+// AutoAds multi-step workflows (extract -> A/B/D creatives -> publish -> click farm)
+// can legitimately exceed 10 minutes on slower upstreams.
+const DEFAULT_AGENT_TIMEOUT_SECONDS = 1200;
 const MAX_SAFE_TIMEOUT_MS = 2_147_000_000;
 
 const normalizeNumber = (value: unknown): number | undefined =>

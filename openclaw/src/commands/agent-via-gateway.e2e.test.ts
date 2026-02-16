@@ -48,6 +48,40 @@ beforeEach(() => {
 });
 
 describe("agentCliCommand", () => {
+  it("defaults to 20-minute timeout when config timeout is omitted", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-agent-cli-"));
+    const store = path.join(dir, "sessions.json");
+    configSpy.mockReturnValue({
+      agents: {
+        defaults: {},
+      },
+      session: {
+        store,
+        mainKey: "main",
+      },
+    });
+
+    vi.mocked(callGateway).mockResolvedValue({
+      runId: "idem-1",
+      status: "ok",
+      result: {
+        payloads: [{ text: "hello" }],
+        meta: { stub: true },
+      },
+    });
+
+    try {
+      await agentCliCommand({ message: "hi", to: "+1555" }, runtime);
+
+      const [gatewayCall] = vi.mocked(callGateway).mock.calls[0] ?? [];
+      expect(gatewayCall).toBeDefined();
+      expect((gatewayCall as any)?.params?.timeout).toBe(1200);
+      expect((gatewayCall as any)?.timeoutMs).toBe(1_230_000);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses gateway by default", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-agent-cli-"));
     const store = path.join(dir, "sessions.json");

@@ -7,6 +7,7 @@ import { withProgress } from "../cli/progress.js";
 import { loadConfig } from "../config/config.js";
 import { callGateway, randomIdempotencyKey } from "../gateway/call.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { resolveAgentTimeoutSeconds } from "../agents/timeout.js";
 import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
@@ -56,7 +57,7 @@ function parseTimeoutSeconds(opts: { cfg: ReturnType<typeof loadConfig>; timeout
   const raw =
     opts.timeout !== undefined
       ? Number.parseInt(String(opts.timeout), 10)
-      : (opts.cfg.agents?.defaults?.timeoutSeconds ?? 600);
+      : resolveAgentTimeoutSeconds(opts.cfg);
   if (Number.isNaN(raw) || raw <= 0) {
     throw new Error("--timeout must be a positive integer (seconds)");
   }

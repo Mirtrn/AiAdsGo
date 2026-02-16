@@ -43,7 +43,7 @@ export function registerAgentCommands(program: Command, args: { agentChannelOpti
     .option("--json", "Output result as JSON", false)
     .option(
       "--timeout <seconds>",
-      "Override agent command timeout (seconds, default 600 or config value)",
+      "Override agent command timeout (seconds, default 1200 or config value)",
     )
     .addHelpText(
       "after",
