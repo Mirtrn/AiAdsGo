@@ -141,4 +141,66 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(String(lastUpdateText)).toContain("[OK] create_offer");
     expect(onFirstReplyDispatched).toHaveBeenCalledTimes(1);
   });
+
+  it("renders readable exec step label with detail metadata", async () => {
+    const { replyOptions } = createFeishuReplyDispatcher({
+      cfg: {} as never,
+      agentId: "agent",
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      chatId: "oc_chat",
+    });
+
+    await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "start", name: "exec", toolCallId: "tool-1" },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "result",
+        name: "exec",
+        toolCallId: "tool-1",
+        isError: false,
+        meta: "POST /api/offers/3639/generate-creatives-queue bucket=A",
+      },
+    });
+
+    const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).toContain("[OK] 执行命令");
+    expect(String(lastUpdateText)).toContain("生成第 1 个创意（A桶）");
+  });
+
+  it("stops progress-card updates after partial reply stream starts", async () => {
+    const { replyOptions } = createFeishuReplyDispatcher({
+      cfg: {} as never,
+      agentId: "agent",
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      chatId: "oc_chat",
+    });
+
+    await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "start", name: "create_offer", toolCallId: "tool-1" },
+    });
+    expect(streamingInstances).toHaveLength(1);
+
+    const updateCountBeforePartial = streamingInstances[0].update.mock.calls.length;
+    replyOptions.onPartialReply?.({ text: "正在生成最终结果..." });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const updateCountAfterPartial = streamingInstances[0].update.mock.calls.length;
+    expect(updateCountAfterPartial).toBeGreaterThanOrEqual(updateCountBeforePartial);
+    const partialUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(partialUpdateText)).toContain("正在生成最终结果...");
+
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "result", name: "create_offer", toolCallId: "tool-1", isError: false },
+    });
+    expect(streamingInstances[0].update.mock.calls.length).toBe(updateCountAfterPartial);
+
+    const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).toContain("正在生成最终结果...");
+  });
 });

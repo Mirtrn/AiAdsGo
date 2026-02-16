@@ -87,9 +87,13 @@ export async function handleToolExecutionStart(
     },
   });
   // Best-effort typing signal; do not block tool summaries on slow emitters.
+  const startEventData: Record<string, unknown> = { phase: "start", name: toolName, toolCallId };
+  if (meta) {
+    startEventData.meta = meta;
+  }
   void ctx.params.onAgentEvent?.({
     stream: "tool",
-    data: { phase: "start", name: toolName, toolCallId },
+    data: startEventData,
   });
 
   if (
@@ -142,13 +146,18 @@ export function handleToolExecutionUpdate(
       partialResult: sanitized,
     },
   });
+  const updateEventData: Record<string, unknown> = {
+    phase: "update",
+    name: toolName,
+    toolCallId,
+  };
+  const updateMeta = ctx.state.toolMetaById.get(toolCallId);
+  if (updateMeta) {
+    updateEventData.meta = updateMeta;
+  }
   void ctx.params.onAgentEvent?.({
     stream: "tool",
-    data: {
-      phase: "update",
-      name: toolName,
-      toolCallId,
-    },
+    data: updateEventData,
   });
 }
 

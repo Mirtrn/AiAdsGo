@@ -100,6 +100,15 @@ describe('feishu chat health lib', () => {
         notApplicable: 1,
         unknown: 0,
       },
+      workflow: {
+        tracked: 0,
+        completed: 0,
+        running: 0,
+        incomplete: 0,
+        failed: 0,
+        notRequired: 1,
+        unknown: 0,
+      },
     })
 
     expect(db.query).toHaveBeenNthCalledWith(
@@ -245,6 +254,554 @@ describe('feishu chat health lib', () => {
     expect(result.stats.execution.linked).toBe(1)
     expect(result.stats.execution.completed).toBe(1)
 
+    vi.useRealTimers()
+  })
+
+  it('marks 3-creatives-and-publish workflow as incomplete when D/publish are missing', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const logs = [
+      {
+        id: 31,
+        user_id: 7,
+        account_id: 'user-7',
+        message_id: 'om_chain',
+        chat_id: 'oc_1',
+        chat_type: 'p2p',
+        message_type: 'text',
+        sender_primary_id: 'ou_1',
+        sender_open_id: 'ou_1',
+        sender_union_id: null,
+        sender_user_id: null,
+        sender_candidates_json: '["ou_1"]',
+        decision: 'allowed',
+        reason_code: 'reply_dispatched',
+        reason_message: 'message passed access checks and entered reply pipeline',
+        message_text:
+          '请依次生成3个新的广告创意（前一个成功后再生成下一个），3个创意都完成后再发布广告。',
+        message_text_length: 50,
+        metadata_json: null,
+        created_at: '2026-02-10 03:00:00',
+      },
+    ]
+
+    const parentRuns = [
+      {
+        id: 'run-b',
+        parent_request_id: 'om_chain',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/offers/123/generate-creatives-queue',
+        request_body_json: '{"bucket":"B"}',
+        response_status: 200,
+        response_body: '{"taskId":"task-b","bucket":"B"}',
+        created_at: '2026-02-10 03:05:00',
+      },
+      {
+        id: 'run-a',
+        parent_request_id: 'om_chain',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/offers/123/generate-creatives-queue',
+        request_body_json: '{"bucket":"A"}',
+        response_status: 200,
+        response_body: '{"taskId":"task-a","bucket":"A"}',
+        created_at: '2026-02-10 03:04:00',
+      },
+    ]
+
+    const db = {
+      type: 'sqlite',
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs') && sql.includes('GROUP BY decision')) {
+          return [{ decision: 'allowed', total: 1 }]
+        }
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return logs
+        }
+        if (sql.includes('parent_request_id IN')) {
+          return parentRuns
+        }
+        if (sql.includes('sender_id IN') && sql.includes('ORDER BY created_at ASC')) {
+          return parentRuns
+        }
+        if (sql.includes('FROM creative_tasks')) {
+          return [
+            {
+              id: 'task-a',
+              offer_id: 123,
+              status: 'completed',
+              stage: 'complete',
+              progress: 100,
+              message: 'ok',
+              completed_at: '2026-02-10 03:04:45',
+              updated_at: '2026-02-10 03:04:45',
+            },
+            {
+              id: 'task-b',
+              offer_id: 123,
+              status: 'completed',
+              stage: 'complete',
+              progress: 100,
+              message: 'ok',
+              completed_at: '2026-02-10 03:05:30',
+              updated_at: '2026-02-10 03:05:30',
+            },
+          ]
+        }
+        return []
+      }),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].executionState).toBe('completed')
+    expect(result.rows[0].workflowState).toBe('incomplete')
+    expect(result.rows[0].workflowDetail).toContain('生成桶 D')
+    expect(result.rows[0].workflowDetail).toContain('发布广告')
+    expect(result.stats.workflow.tracked).toBe(1)
+    expect(result.stats.workflow.incomplete).toBe(1)
+    expect(result.stats.workflow.completed).toBe(0)
+
+    vi.useRealTimers()
+  })
+
+  it('marks workflow completed when remaining steps continue under another parent_request_id', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:30:00.000Z'))
+
+    const logs = [
+      {
+        id: 32,
+        user_id: 7,
+        account_id: 'user-7',
+        message_id: 'om_other',
+        chat_id: 'oc_1',
+        chat_type: 'p2p',
+        message_type: 'text',
+        sender_primary_id: 'ou_1',
+        sender_open_id: 'ou_1',
+        sender_union_id: null,
+        sender_user_id: null,
+        sender_candidates_json: '["ou_1"]',
+        decision: 'allowed',
+        reason_code: 'reply_dispatched',
+        reason_message: 'message passed access checks and entered reply pipeline',
+        message_text: '今天天气如何',
+        message_text_length: 6,
+        metadata_json: null,
+        created_at: '2026-02-10 03:25:00',
+      },
+      {
+        id: 31,
+        user_id: 7,
+        account_id: 'user-7',
+        message_id: 'om_chain',
+        chat_id: 'oc_1',
+        chat_type: 'p2p',
+        message_type: 'text',
+        sender_primary_id: 'ou_1',
+        sender_open_id: 'ou_1',
+        sender_union_id: null,
+        sender_user_id: null,
+        sender_candidates_json: '["ou_1"]',
+        decision: 'allowed',
+        reason_code: 'reply_dispatched',
+        reason_message: 'message passed access checks and entered reply pipeline',
+        message_text:
+          '请依次生成3个新的广告创意（前一个成功后再生成下一个），3个创意都完成后再发布广告。',
+        message_text_length: 50,
+        metadata_json: null,
+        created_at: '2026-02-10 03:00:00',
+      },
+    ]
+
+    const parentRuns = [
+      {
+        id: 'run-b',
+        parent_request_id: 'om_chain',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/offers/123/generate-creatives-queue',
+        request_body_json: '{"bucket":"B"}',
+        response_status: 200,
+        response_body: '{"taskId":"task-b","bucket":"B"}',
+        created_at: '2026-02-10 03:05:00',
+      },
+      {
+        id: 'run-a',
+        parent_request_id: 'om_chain',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/offers/123/generate-creatives-queue',
+        request_body_json: '{"bucket":"A"}',
+        response_status: 200,
+        response_body: '{"taskId":"task-a","bucket":"A"}',
+        created_at: '2026-02-10 03:04:00',
+      },
+      {
+        id: 'run-d',
+        parent_request_id: 'om_other',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/offers/123/generate-creatives-queue',
+        request_body_json: '{"bucket":"D"}',
+        response_status: 200,
+        response_body: '{"taskId":"task-d","bucket":"D"}',
+        created_at: '2026-02-10 03:10:00',
+      },
+      {
+        id: 'run-publish',
+        parent_request_id: 'om_other',
+        channel: 'feishu',
+        sender_id: 'ou_1',
+        status: 'completed',
+        request_path: '/api/campaigns/publish',
+        request_body_json: '{"offerId":123,"adCreativeId":999}',
+        response_status: 202,
+        response_body: '{"campaigns":[{"id":501,"creationStatus":"pending"}]}',
+        created_at: '2026-02-10 03:12:00',
+      },
+    ]
+
+    const db = {
+      type: 'sqlite',
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs') && sql.includes('GROUP BY decision')) {
+          return [{ decision: 'allowed', total: 2 }]
+        }
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return logs
+        }
+        if (sql.includes('parent_request_id IN')) {
+          return parentRuns
+        }
+        if (sql.includes('sender_id IN') && sql.includes('ORDER BY created_at ASC')) {
+          return parentRuns
+        }
+        if (sql.includes('FROM creative_tasks')) {
+          return [
+            {
+              id: 'task-a',
+              offer_id: 123,
+              status: 'completed',
+              stage: 'complete',
+              progress: 100,
+              message: 'ok',
+              completed_at: '2026-02-10 03:04:45',
+              updated_at: '2026-02-10 03:04:45',
+            },
+            {
+              id: 'task-b',
+              offer_id: 123,
+              status: 'completed',
+              stage: 'complete',
+              progress: 100,
+              message: 'ok',
+              completed_at: '2026-02-10 03:05:30',
+              updated_at: '2026-02-10 03:05:30',
+            },
+            {
+              id: 'task-d',
+              offer_id: 123,
+              status: 'completed',
+              stage: 'complete',
+              progress: 100,
+              message: 'ok',
+              completed_at: '2026-02-10 03:10:40',
+              updated_at: '2026-02-10 03:10:40',
+            },
+          ]
+        }
+        if (sql.includes('FROM campaigns')) {
+          return [
+            {
+              id: 501,
+              offer_id: 123,
+              ad_creative_id: 999,
+              creation_status: 'synced',
+              creation_error: null,
+              status: 'ENABLED',
+              is_deleted: 0,
+              created_at: '2026-02-10 03:12:30',
+              updated_at: '2026-02-10 03:13:00',
+              published_at: '2026-02-10 03:13:00',
+            },
+          ]
+        }
+        return []
+      }),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+    const workflowRow = result.rows.find((row) => row.messageId === 'om_chain')
+    const nonWorkflowRow = result.rows.find((row) => row.messageId === 'om_other')
+
+    expect(workflowRow?.workflowState).toBe('completed')
+    expect(workflowRow?.workflowDetail).toContain('业务链路完成')
+    expect(nonWorkflowRow?.workflowState).toBe('not_required')
+    expect(result.stats.workflow.tracked).toBe(1)
+    expect(result.stats.workflow.completed).toBe(1)
+    vi.useRealTimers()
+  })
+
+  it('keeps workflow running when publish is accepted but campaign is still pending', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:15:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs') && sql.includes('GROUP BY decision')) {
+          return [{ decision: 'allowed', total: 1 }]
+        }
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return [
+            {
+              id: 41,
+              user_id: 7,
+              account_id: 'user-7',
+              message_id: 'om_chain',
+              chat_id: 'oc_1',
+              chat_type: 'p2p',
+              message_type: 'text',
+              sender_primary_id: 'ou_1',
+              sender_open_id: 'ou_1',
+              sender_union_id: null,
+              sender_user_id: null,
+              sender_candidates_json: '["ou_1"]',
+              decision: 'allowed',
+              reason_code: 'reply_dispatched',
+              reason_message: 'message passed access checks and entered reply pipeline',
+              message_text: '生成3个创意后发布广告',
+              message_text_length: 12,
+              metadata_json: null,
+              created_at: '2026-02-10 03:00:00',
+            },
+          ]
+        }
+        if (sql.includes('parent_request_id IN') || (sql.includes('sender_id IN') && sql.includes('ORDER BY created_at ASC'))) {
+          return [
+            {
+              id: 'run-a',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"A"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-a","bucket":"A"}',
+              created_at: '2026-02-10 03:01:00',
+            },
+            {
+              id: 'run-b',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"B"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-b","bucket":"B"}',
+              created_at: '2026-02-10 03:02:00',
+            },
+            {
+              id: 'run-d',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"D"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-d","bucket":"D"}',
+              created_at: '2026-02-10 03:03:00',
+            },
+            {
+              id: 'run-publish',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/campaigns/publish',
+              request_body_json: '{"offerId":123,"adCreativeId":999}',
+              response_status: 202,
+              response_body: '{"campaigns":[{"id":601,"creationStatus":"pending"}]}',
+              created_at: '2026-02-10 03:04:00',
+            },
+          ]
+        }
+        if (sql.includes('FROM creative_tasks')) {
+          return [
+            { id: 'task-a', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:01:30', updated_at: '2026-02-10 03:01:30' },
+            { id: 'task-b', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:02:30', updated_at: '2026-02-10 03:02:30' },
+            { id: 'task-d', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:03:30', updated_at: '2026-02-10 03:03:30' },
+          ]
+        }
+        if (sql.includes('FROM campaigns')) {
+          return [
+            {
+              id: 601,
+              offer_id: 123,
+              ad_creative_id: 999,
+              creation_status: 'pending',
+              creation_error: null,
+              status: 'PAUSED',
+              is_deleted: 0,
+              created_at: '2026-02-10 03:04:30',
+              updated_at: '2026-02-10 03:05:00',
+              published_at: null,
+            },
+          ]
+        }
+        return []
+      }),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].workflowState).toBe('running')
+    expect(result.rows[0].workflowDetail).toContain('发布广告')
+    expect(result.stats.workflow.running).toBe(1)
+    vi.useRealTimers()
+  })
+
+  it('marks workflow failed when publish command is accepted but campaign creation fails', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:15:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs') && sql.includes('GROUP BY decision')) {
+          return [{ decision: 'allowed', total: 1 }]
+        }
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return [
+            {
+              id: 42,
+              user_id: 7,
+              account_id: 'user-7',
+              message_id: 'om_chain',
+              chat_id: 'oc_1',
+              chat_type: 'p2p',
+              message_type: 'text',
+              sender_primary_id: 'ou_1',
+              sender_open_id: 'ou_1',
+              sender_union_id: null,
+              sender_user_id: null,
+              sender_candidates_json: '["ou_1"]',
+              decision: 'allowed',
+              reason_code: 'reply_dispatched',
+              reason_message: 'message passed access checks and entered reply pipeline',
+              message_text: '生成3个创意后发布广告',
+              message_text_length: 12,
+              metadata_json: null,
+              created_at: '2026-02-10 03:00:00',
+            },
+          ]
+        }
+        if (sql.includes('parent_request_id IN') || (sql.includes('sender_id IN') && sql.includes('ORDER BY created_at ASC'))) {
+          return [
+            {
+              id: 'run-a',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"A"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-a","bucket":"A"}',
+              created_at: '2026-02-10 03:01:00',
+            },
+            {
+              id: 'run-b',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"B"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-b","bucket":"B"}',
+              created_at: '2026-02-10 03:02:00',
+            },
+            {
+              id: 'run-d',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"D"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-d","bucket":"D"}',
+              created_at: '2026-02-10 03:03:00',
+            },
+            {
+              id: 'run-publish',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/campaigns/publish',
+              request_body_json: '{"offerId":123,"adCreativeId":999}',
+              response_status: 202,
+              response_body: '{"campaigns":[{"id":602,"creationStatus":"pending"}]}',
+              created_at: '2026-02-10 03:04:00',
+            },
+          ]
+        }
+        if (sql.includes('FROM creative_tasks')) {
+          return [
+            { id: 'task-a', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:01:30', updated_at: '2026-02-10 03:01:30' },
+            { id: 'task-b', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:02:30', updated_at: '2026-02-10 03:02:30' },
+            { id: 'task-d', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:03:30', updated_at: '2026-02-10 03:03:30' },
+          ]
+        }
+        if (sql.includes('FROM campaigns')) {
+          return [
+            {
+              id: 602,
+              offer_id: 123,
+              ad_creative_id: 999,
+              creation_status: 'failed',
+              creation_error: 'quota exceeded',
+              status: 'REMOVED',
+              is_deleted: 0,
+              created_at: '2026-02-10 03:04:30',
+              updated_at: '2026-02-10 03:05:00',
+              published_at: null,
+            },
+          ]
+        }
+        return []
+      }),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].workflowState).toBe('failed')
+    expect(result.rows[0].workflowDetail).toContain('发布广告')
+    expect(result.stats.workflow.failed).toBe(1)
     vi.useRealTimers()
   })
 

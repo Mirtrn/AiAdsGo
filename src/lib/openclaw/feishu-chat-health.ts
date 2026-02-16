@@ -16,6 +16,21 @@ export type FeishuChatHealthExecutionState =
   | 'expired'
   | 'unknown'
 
+export type FeishuChatHealthWorkflowState =
+  | 'not_required'
+  | 'running'
+  | 'incomplete'
+  | 'completed'
+  | 'failed'
+  | 'unknown'
+
+export type FeishuChatHealthWorkflowStepStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'unknown'
+
 export type FeishuChatHealthLogInput = {
   userId: number
   accountId: string
@@ -68,11 +83,46 @@ type OpenclawCommandRunLinkRow = {
   channel: string | null
   sender_id: string | null
   status: string
+  request_path?: string | null
+  request_body_json?: string | null
+  response_status?: number | null
+  response_body?: string | null
   created_at: string | Date
 }
 
 type FeishuChatHealthCreatedAtRow = {
   created_at: string | Date
+}
+
+type CreativeTaskStatusRow = {
+  id: string
+  offer_id: number
+  status: string
+  stage: string | null
+  progress: number | null
+  message: string | null
+  completed_at: string | Date | null
+  updated_at: string | Date
+}
+
+type CampaignWorkflowStatusRow = {
+  id: number
+  offer_id: number
+  ad_creative_id: number | null
+  creation_status: string | null
+  creation_error: string | null
+  status: string | null
+  is_deleted: boolean | number | null
+  created_at: string | Date
+  updated_at: string | Date
+  published_at: string | Date | null
+}
+
+type FeishuChatHealthWorkflowStep = {
+  key: string
+  label: string
+  status: FeishuChatHealthWorkflowStepStatus
+  detail: string
 }
 
 export type FeishuChatHealthLogItem = {
@@ -101,6 +151,11 @@ export type FeishuChatHealthLogItem = {
   executionRunCount: number
   executionRunCreatedAt: string | null
   executionDetail: string
+  workflowState: FeishuChatHealthWorkflowState
+  workflowProgress: number
+  workflowDetail: string
+  workflowOfferId: number | null
+  workflowSteps: FeishuChatHealthWorkflowStep[]
   ageSeconds: number
   createdAt: string
 }
@@ -122,6 +177,15 @@ export type FeishuChatHealthListResult = {
       notApplicable: number
       unknown: number
     }
+    workflow: {
+      tracked: number
+      completed: number
+      running: number
+      incomplete: number
+      failed: number
+      notRequired: number
+      unknown: number
+    }
   }
 }
 
@@ -130,6 +194,8 @@ const FEISHU_HEALTH_RETENTION_HOURS = FEISHU_HEALTH_RETENTION_DAYS * 24
 const FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT = 500
 const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
+const FEISHU_HEALTH_WORKFLOW_INCOMPLETE_SECONDS = 10 * 60
+const FEISHU_HEALTH_WORKFLOW_MAX_WINDOW_SECONDS = 6 * 60 * 60
 const FEISHU_CHAT_HEALTH_NOISE_REASON_CODE = 'duplicate_message'
 // Note: `created_at` in chat health logs is written when the gateway reports the event,
 // which may happen after one or more command runs were already created. Keep a relatively
@@ -179,6 +245,22 @@ function resolveExecutionLinkAfterSeconds(): number {
     return FEISHU_HEALTH_EXECUTION_LINK_AFTER_SECONDS
   }
   return clamp(envValue, 0, 3600)
+}
+
+function resolveWorkflowIncompleteSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_WORKFLOW_INCOMPLETE_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_WORKFLOW_INCOMPLETE_SECONDS
+  }
+  return clamp(envValue, 120, 86_400)
+}
+
+function resolveWorkflowMaxWindowSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_WORKFLOW_MAX_WINDOW_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_WORKFLOW_MAX_WINDOW_SECONDS
+  }
+  return clamp(envValue, 300, 86_400)
 }
 
 function normalizeShortText(value: unknown, maxLength: number): string | null {
@@ -264,6 +346,810 @@ function mapRunStatusToExecutionState(status: string): FeishuChatHealthExecution
   if (normalized === 'expired') return 'expired'
 
   return 'unknown'
+}
+
+type NormalizedCreativeBucket = 'A' | 'B' | 'D'
+
+type FeishuBusinessWorkflowExpectation = {
+  kind: 'creative_triplet_publish'
+  requirePublish: boolean
+}
+
+type ParsedWorkflowRun = {
+  id: string
+  createdAt: string
+  createdMs: number
+  status: string
+  requestPath: string
+  offerId: number | null
+  bucket: NormalizedCreativeBucket | null
+  creativeTaskId: string | null
+  publishAdCreativeId: number | null
+  publishCampaignIds: number[]
+  isCreativeGenerate: boolean
+  isPublish: boolean
+  isFailed: boolean
+  isAccepted: boolean
+}
+
+type WorkflowContext = {
+  messageId: string
+  createdMs: number
+  senderCandidates: string[]
+  expectation: FeishuBusinessWorkflowExpectation
+  linkedRuns: OpenclawCommandRunLinkRow[]
+  ageSeconds: number
+  windowStartMs: number
+  windowEndMs: number
+}
+
+type WorkflowAssessment = {
+  state: FeishuChatHealthWorkflowState
+  progress: number
+  detail: string
+  offerId: number | null
+  steps: FeishuChatHealthWorkflowStep[]
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  const normalized = Math.floor(parsed)
+  return normalized > 0 ? normalized : null
+}
+
+function normalizeCreativeBucket(value: unknown): NormalizedCreativeBucket | null {
+  const upper = String(value || '').trim().toUpperCase()
+  if (!upper) return null
+  if (upper === 'A') return 'A'
+  if (upper === 'B' || upper === 'C') return 'B'
+  if (upper === 'D' || upper === 'S') return 'D'
+  return null
+}
+
+function resolveCreativeWorkflowExpectation(
+  messageText: string | null
+): FeishuBusinessWorkflowExpectation | null {
+  const normalized = String(messageText || '').replace(/\s+/g, '')
+  if (!normalized) {
+    return null
+  }
+
+  const requireThreeCreatives =
+    /生成.*(?:3|三)个.*创意/.test(normalized) || /(?:3|三)个.*创意.*生成/.test(normalized)
+  if (!requireThreeCreatives) {
+    return null
+  }
+
+  const requirePublish = normalized.includes('发布') || normalized.includes('投放')
+  return {
+    kind: 'creative_triplet_publish',
+    requirePublish,
+  }
+}
+
+function collectSenderCandidatesFromHealthRow(row: FeishuChatHealthRow): string[] {
+  const senderSet = new Set<string>()
+  const push = (value: unknown) => {
+    const normalized = normalizeShortText(value, 255)
+    if (normalized) {
+      senderSet.add(normalized)
+    }
+  }
+
+  push(row.sender_primary_id)
+  push(row.sender_open_id)
+  push(row.sender_union_id)
+  push(row.sender_user_id)
+  for (const candidate of safeParseJsonArray(row.sender_candidates_json)) {
+    push(candidate)
+  }
+  return Array.from(senderSet)
+}
+
+function hasSharedSender(a: string[], b: string[]): boolean {
+  if (a.length === 0 || b.length === 0) return false
+  const set = new Set(a)
+  return b.some((value) => set.has(value))
+}
+
+function isRunFailed(status: string, responseStatus?: number | null): boolean {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'failed' || normalized === 'canceled' || normalized === 'expired') {
+    return true
+  }
+  const code = Number(responseStatus)
+  return Number.isFinite(code) && code >= 400
+}
+
+function isRunAccepted(status: string, responseStatus?: number | null): boolean {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized !== 'completed') {
+    return false
+  }
+  const code = Number(responseStatus)
+  if (!Number.isFinite(code)) {
+    return true
+  }
+  return code >= 200 && code < 300
+}
+
+function parseOfferIdFromGeneratePath(path: string): number | null {
+  const matched = path.match(/\/api\/offers\/(\d+)\/generate-creatives-queue$/)
+  if (!matched) return null
+  return toPositiveInteger(matched[1])
+}
+
+function parseOfferIdFromRebuildPath(path: string): number | null {
+  const matched = path.match(/\/api\/offers\/(\d+)\/rebuild$/)
+  if (!matched) return null
+  return toPositiveInteger(matched[1])
+}
+
+function parsePublishCampaignIds(responseBodyJson: Record<string, unknown> | null): number[] {
+  if (!responseBodyJson) return []
+  const campaigns = responseBodyJson.campaigns
+  if (!Array.isArray(campaigns)) return []
+  return campaigns
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const row = item as Record<string, unknown>
+      return toPositiveInteger(row.id)
+    })
+    .filter((value): value is number => Boolean(value))
+}
+
+function parseWorkflowRun(run: OpenclawCommandRunLinkRow): ParsedWorkflowRun | null {
+  const createdAt = toIsoTimestamp(run.created_at)
+  const createdMs = Date.parse(createdAt)
+  if (!Number.isFinite(createdMs)) {
+    return null
+  }
+
+  const requestPath = String(run.request_path || '').trim()
+  const requestBody = safeParseJsonObject(run.request_body_json)
+  const responseBody = safeParseJsonObject(run.response_body)
+
+  const isCreativeGenerate = /\/api\/offers\/\d+\/generate-creatives-queue$/.test(requestPath)
+  const isPublish = requestPath === '/api/campaigns/publish'
+
+  let offerId: number | null = null
+  let bucket: NormalizedCreativeBucket | null = null
+  let creativeTaskId: string | null = null
+  let publishAdCreativeId: number | null = null
+  let publishCampaignIds: number[] = []
+
+  if (isCreativeGenerate) {
+    offerId = parseOfferIdFromGeneratePath(requestPath)
+    bucket = normalizeCreativeBucket(requestBody?.bucket)
+    creativeTaskId = normalizeShortText(responseBody?.taskId, 120)
+  } else if (isPublish) {
+    offerId = toPositiveInteger(requestBody?.offerId ?? requestBody?.offer_id)
+    publishAdCreativeId = toPositiveInteger(requestBody?.adCreativeId ?? requestBody?.ad_creative_id)
+    publishCampaignIds = parsePublishCampaignIds(responseBody)
+  } else if (requestPath === '/api/offers/extract') {
+    offerId = toPositiveInteger(responseBody?.offerId)
+  } else if (/\/api\/offers\/\d+\/rebuild$/.test(requestPath)) {
+    offerId = parseOfferIdFromRebuildPath(requestPath)
+  }
+
+  return {
+    id: String(run.id),
+    createdAt,
+    createdMs,
+    status: String(run.status || ''),
+    requestPath,
+    offerId,
+    bucket,
+    creativeTaskId,
+    publishAdCreativeId,
+    publishCampaignIds,
+    isCreativeGenerate,
+    isPublish,
+    isFailed: isRunFailed(run.status, run.response_status),
+    isAccepted: isRunAccepted(run.status, run.response_status),
+  }
+}
+
+function resolvePrimaryOfferId(runs: ParsedWorkflowRun[]): number | null {
+  const statsByOffer = new Map<number, { score: number; bucketSet: Set<NormalizedCreativeBucket>; latestMs: number }>()
+
+  for (const run of runs) {
+    if (!run.offerId) continue
+    const current = statsByOffer.get(run.offerId) || {
+      score: 0,
+      bucketSet: new Set<NormalizedCreativeBucket>(),
+      latestMs: 0,
+    }
+
+    if (run.isCreativeGenerate) {
+      current.score += 10
+      if (run.bucket) {
+        current.bucketSet.add(run.bucket)
+      }
+    } else if (run.isPublish) {
+      current.score += 8
+    } else if (/\/api\/offers\/\d+\/rebuild$/.test(run.requestPath)) {
+      current.score += 3
+    } else if (run.requestPath === '/api/offers/extract') {
+      current.score += 1
+    }
+
+    current.latestMs = Math.max(current.latestMs, run.createdMs)
+    statsByOffer.set(run.offerId, current)
+  }
+
+  let bestOfferId: number | null = null
+  let bestScore = -1
+  let bestLatestMs = -1
+  for (const [offerId, stat] of statsByOffer.entries()) {
+    const totalScore = stat.score + stat.bucketSet.size * 100
+    if (totalScore > bestScore || (totalScore === bestScore && stat.latestMs > bestLatestMs)) {
+      bestScore = totalScore
+      bestLatestMs = stat.latestMs
+      bestOfferId = offerId
+    }
+  }
+
+  return bestOfferId
+}
+
+function evaluateCreativeBucketStep(params: {
+  bucket: NormalizedCreativeBucket
+  offerId: number | null
+  runs: ParsedWorkflowRun[]
+  creativeTaskById: Map<string, CreativeTaskStatusRow>
+}): FeishuChatHealthWorkflowStep {
+  const label = `生成桶 ${params.bucket}`
+  const scopedRuns = params.runs.filter((run) => {
+    if (!run.isCreativeGenerate) return false
+    if (run.bucket !== params.bucket) return false
+    if (params.offerId && run.offerId && run.offerId !== params.offerId) return false
+    return true
+  })
+
+  if (scopedRuns.length === 0) {
+    return {
+      key: `creative_${params.bucket.toLowerCase()}`,
+      label,
+      status: 'pending',
+      detail: `待生成桶 ${params.bucket}`,
+    }
+  }
+
+  const ordered = scopedRuns.slice().sort((a, b) => b.createdMs - a.createdMs)
+  let hasRunning = false
+  let hasFailure = false
+  let hasUnknown = false
+  let runningDetail = ''
+  let failureDetail = ''
+
+  for (const run of ordered) {
+    if (run.creativeTaskId) {
+      const task = params.creativeTaskById.get(run.creativeTaskId)
+      const taskStatus = String(task?.status || '').trim().toLowerCase()
+      if (taskStatus === 'completed') {
+        return {
+          key: `creative_${params.bucket.toLowerCase()}`,
+          label,
+          status: 'completed',
+          detail: `桶 ${params.bucket} 创意已完成`,
+        }
+      }
+      if (taskStatus === 'running' || taskStatus === 'pending') {
+        hasRunning = true
+        runningDetail = task?.message ? String(task.message) : `桶 ${params.bucket} 创意生成中`
+        continue
+      }
+      if (taskStatus === 'failed') {
+        hasFailure = true
+        failureDetail = task?.message ? String(task.message) : `桶 ${params.bucket} 创意任务失败`
+        continue
+      }
+    }
+
+    if (run.isFailed) {
+      hasFailure = true
+      failureDetail = `桶 ${params.bucket} 命令失败`
+      continue
+    }
+
+    const normalizedStatus = String(run.status || '').trim().toLowerCase()
+    if (run.isAccepted || normalizedStatus === 'running' || normalizedStatus === 'queued' || normalizedStatus === 'pending_confirm') {
+      hasRunning = true
+      runningDetail = `桶 ${params.bucket} 命令已受理，等待任务完成`
+      continue
+    }
+
+    hasUnknown = true
+  }
+
+  if (hasRunning) {
+    return {
+      key: `creative_${params.bucket.toLowerCase()}`,
+      label,
+      status: 'running',
+      detail: runningDetail || `桶 ${params.bucket} 处理中`,
+    }
+  }
+  if (hasFailure) {
+    return {
+      key: `creative_${params.bucket.toLowerCase()}`,
+      label,
+      status: 'failed',
+      detail: failureDetail || `桶 ${params.bucket} 失败`,
+    }
+  }
+  if (hasUnknown) {
+    return {
+      key: `creative_${params.bucket.toLowerCase()}`,
+      label,
+      status: 'unknown',
+      detail: `桶 ${params.bucket} 状态未知`,
+    }
+  }
+
+  return {
+    key: `creative_${params.bucket.toLowerCase()}`,
+    label,
+    status: 'pending',
+    detail: `待生成桶 ${params.bucket}`,
+  }
+}
+
+function evaluatePublishStep(params: {
+  offerId: number | null
+  runs: ParsedWorkflowRun[]
+  campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
+}): FeishuChatHealthWorkflowStep {
+  const key = 'publish'
+  const label = '发布广告'
+  const scopedRuns = params.runs
+    .filter((run) => run.isPublish && (!params.offerId || !run.offerId || run.offerId === params.offerId))
+    .sort((a, b) => b.createdMs - a.createdMs)
+
+  if (scopedRuns.length === 0) {
+    return {
+      key,
+      label,
+      status: 'pending',
+      detail: '待发布',
+    }
+  }
+
+  const campaignIds = new Set<number>()
+  const adCreativeIds = new Set<number>()
+  const acceptedRuns = scopedRuns.filter((run) => run.isAccepted)
+  const failedRuns = scopedRuns.filter((run) => run.isFailed)
+  const firstPublishMs = Math.min(...scopedRuns.map((run) => run.createdMs))
+  for (const run of scopedRuns) {
+    run.publishCampaignIds.forEach((id) => campaignIds.add(id))
+    if (run.publishAdCreativeId) {
+      adCreativeIds.add(run.publishAdCreativeId)
+    }
+  }
+
+  const offerCampaigns = params.offerId
+    ? (params.campaignsByOfferId.get(params.offerId) || [])
+    : []
+
+  const campaignRows = offerCampaigns.filter((row) => {
+    if (campaignIds.size > 0) {
+      return campaignIds.has(Number(row.id))
+    }
+    const createdMs = Date.parse(toIsoTimestamp(row.created_at))
+    if (!Number.isFinite(createdMs) || createdMs < firstPublishMs - 5 * 60 * 1000) {
+      return false
+    }
+    if (adCreativeIds.size > 0) {
+      return row.ad_creative_id ? adCreativeIds.has(Number(row.ad_creative_id)) : false
+    }
+    return true
+  })
+
+  if (campaignRows.length > 0) {
+    const hasSynced = campaignRows.some((campaign) => {
+      const creationStatus = String(campaign.creation_status || '').trim().toLowerCase()
+      const isDeleted = campaign.is_deleted === true || Number(campaign.is_deleted) === 1
+      return creationStatus === 'synced' && !isDeleted
+    })
+    if (hasSynced) {
+      return {
+        key,
+        label,
+        status: 'completed',
+        detail: '发布完成并已同步',
+      }
+    }
+
+    const hasPending = campaignRows.some((campaign) => {
+      const creationStatus = String(campaign.creation_status || '').trim().toLowerCase()
+      return creationStatus === 'pending' || creationStatus === 'draft'
+    })
+    if (hasPending) {
+      return {
+        key,
+        label,
+        status: 'running',
+        detail: '发布已受理，等待 Campaign 同步',
+      }
+    }
+
+    const hasFailed = campaignRows.some((campaign) => {
+      const creationStatus = String(campaign.creation_status || '').trim().toLowerCase()
+      return creationStatus === 'failed'
+    })
+    if (hasFailed) {
+      return {
+        key,
+        label,
+        status: 'failed',
+        detail: 'Campaign 发布失败',
+      }
+    }
+  }
+
+  if (acceptedRuns.length > 0) {
+    return {
+      key,
+      label,
+      status: 'running',
+      detail: '发布请求已受理，等待业务结果',
+    }
+  }
+  if (failedRuns.length > 0) {
+    return {
+      key,
+      label,
+      status: 'failed',
+      detail: '发布命令失败',
+    }
+  }
+
+  return {
+    key,
+    label,
+    status: 'unknown',
+    detail: '发布状态未知',
+  }
+}
+
+function buildWorkflowAssessmentForMessage(params: {
+  context: WorkflowContext
+  runs: ParsedWorkflowRun[]
+  creativeTaskById: Map<string, CreativeTaskStatusRow>
+  campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
+  workflowIncompleteSeconds: number
+}): WorkflowAssessment {
+  const primaryOfferId = resolvePrimaryOfferId(params.runs)
+  const steps: FeishuChatHealthWorkflowStep[] = [
+    evaluateCreativeBucketStep({
+      bucket: 'A',
+      offerId: primaryOfferId,
+      runs: params.runs,
+      creativeTaskById: params.creativeTaskById,
+    }),
+    evaluateCreativeBucketStep({
+      bucket: 'B',
+      offerId: primaryOfferId,
+      runs: params.runs,
+      creativeTaskById: params.creativeTaskById,
+    }),
+    evaluateCreativeBucketStep({
+      bucket: 'D',
+      offerId: primaryOfferId,
+      runs: params.runs,
+      creativeTaskById: params.creativeTaskById,
+    }),
+  ]
+
+  if (params.context.expectation.requirePublish) {
+    steps.push(
+      evaluatePublishStep({
+        offerId: primaryOfferId,
+        runs: params.runs,
+        campaignsByOfferId: params.campaignsByOfferId,
+      })
+    )
+  }
+
+  if (steps.length === 0) {
+    return {
+      state: 'unknown',
+      progress: 0,
+      detail: 'workflow 步骤为空',
+      offerId: primaryOfferId,
+      steps,
+    }
+  }
+
+  const completedSteps = steps.filter((step) => step.status === 'completed')
+  const runningSteps = steps.filter((step) => step.status === 'running')
+  const failedSteps = steps.filter((step) => step.status === 'failed')
+  const pendingSteps = steps.filter((step) => step.status === 'pending')
+  const unknownSteps = steps.filter((step) => step.status === 'unknown')
+  const progress = clamp(
+    Math.round(((completedSteps.length + runningSteps.length * 0.5) / steps.length) * 100),
+    0,
+    100
+  )
+
+  if (failedSteps.length > 0) {
+    return {
+      state: 'failed',
+      progress,
+      detail: `业务链路失败：${failedSteps.map((step) => step.label).join('，')}`,
+      offerId: primaryOfferId,
+      steps,
+    }
+  }
+
+  if (completedSteps.length === steps.length) {
+    return {
+      state: 'completed',
+      progress: 100,
+      detail: '业务链路完成',
+      offerId: primaryOfferId,
+      steps,
+    }
+  }
+
+  if (runningSteps.length > 0 || unknownSteps.length > 0) {
+    const activeLabels = [...runningSteps, ...unknownSteps].map((step) => step.label)
+    return {
+      state: 'running',
+      progress,
+      detail: `业务链路执行中：${activeLabels.join('，')}`,
+      offerId: primaryOfferId,
+      steps,
+    }
+  }
+
+  if (pendingSteps.length > 0) {
+    const pendingLabels = pendingSteps.map((step) => step.label).join('，')
+    if (params.context.ageSeconds >= params.workflowIncompleteSeconds) {
+      return {
+        state: 'incomplete',
+        progress,
+        detail: `业务链路未完成：${pendingLabels}`,
+        offerId: primaryOfferId,
+        steps,
+      }
+    }
+    return {
+      state: 'running',
+      progress,
+      detail: `业务链路等待：${pendingLabels}`,
+      offerId: primaryOfferId,
+      steps,
+    }
+  }
+
+  return {
+    state: 'unknown',
+    progress,
+    detail: '业务链路状态未知',
+    offerId: primaryOfferId,
+    steps,
+  }
+}
+
+async function buildWorkflowAssessmentsByMessageId(params: {
+  db: Awaited<ReturnType<typeof getDatabase>>
+  userId: number
+  rows: FeishuChatHealthRow[]
+  runsByMessageId: Map<string, OpenclawCommandRunLinkRow[]>
+  withinHours: number
+  nowMs: number
+}): Promise<Map<string, WorkflowAssessment>> {
+  const workflowContexts: WorkflowContext[] = []
+  const allowedMessageBoundaries: Array<{ createdMs: number; senderCandidates: string[] }> = []
+
+  for (const row of params.rows) {
+    if (row.decision !== 'allowed') continue
+    const messageId = normalizeShortText(row.message_id, 120)
+    if (!messageId) continue
+
+    const createdAt = toIsoTimestamp(row.created_at)
+    const createdMs = Date.parse(createdAt)
+    if (!Number.isFinite(createdMs)) continue
+
+    const senderCandidates = collectSenderCandidatesFromHealthRow(row)
+    allowedMessageBoundaries.push({
+      createdMs,
+      senderCandidates,
+    })
+
+    const expectation = resolveCreativeWorkflowExpectation(normalizeMessageText(row.message_text))
+    if (!expectation) continue
+
+    const ageSeconds = Math.max(0, Math.floor((params.nowMs - createdMs) / 1000))
+    workflowContexts.push({
+      messageId,
+      createdMs,
+      senderCandidates,
+      expectation,
+      linkedRuns: params.runsByMessageId.get(messageId) || [],
+      ageSeconds,
+      windowStartMs: createdMs,
+      windowEndMs: createdMs,
+    })
+  }
+
+  if (workflowContexts.length === 0) {
+    return new Map<string, WorkflowAssessment>()
+  }
+
+  const linkBeforeMs = resolveBackfillLinkBeforeSeconds() * 1000
+  const maxWindowMs = resolveWorkflowMaxWindowSeconds() * 1000
+  const sortedContexts = workflowContexts.slice().sort((a, b) => a.createdMs - b.createdMs)
+  const sortedAllowedBoundaries = allowedMessageBoundaries
+    .slice()
+    .sort((a, b) => a.createdMs - b.createdMs)
+  for (let i = 0; i < sortedContexts.length; i += 1) {
+    const context = sortedContexts[i]
+    let nextBoundaryMs: number | null = null
+    for (const boundary of sortedAllowedBoundaries) {
+      if (boundary.createdMs <= context.createdMs) continue
+      if (hasSharedSender(context.senderCandidates, boundary.senderCandidates)) {
+        nextBoundaryMs = boundary.createdMs
+        break
+      }
+    }
+
+    const hardWindowEnd = context.createdMs + maxWindowMs
+    context.windowStartMs = context.createdMs - linkBeforeMs
+    context.windowEndMs = nextBoundaryMs
+      ? Math.min(hardWindowEnd, nextBoundaryMs - 1)
+      : hardWindowEnd
+    if (context.windowEndMs < context.windowStartMs) {
+      context.windowEndMs = context.windowStartMs
+    }
+  }
+
+  const workflowSenderSet = new Set<string>()
+  sortedContexts.forEach((context) => {
+    context.senderCandidates.forEach((sender) => workflowSenderSet.add(sender))
+  })
+  const workflowSendersAll = Array.from(workflowSenderSet)
+  const canUseSenderFilter = workflowSendersAll.length > 0 && workflowSendersAll.length <= 200
+  const workflowSenders = canUseSenderFilter ? workflowSendersAll : []
+  const cutoffExpr = datetimeMinusHours(params.withinHours + 1, params.db.type)
+
+  const workflowCandidateRuns = await (async () => {
+    if (workflowSenders.length > 0) {
+      const senderPlaceholders = workflowSenders.map(() => '?').join(', ')
+      return await params.db.query<OpenclawCommandRunLinkRow>(
+        `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
+         FROM openclaw_command_runs
+         WHERE user_id = ?
+           AND channel = 'feishu'
+           AND sender_id IN (${senderPlaceholders})
+           AND created_at >= ${cutoffExpr}
+         ORDER BY created_at ASC`,
+        [params.userId, ...workflowSenders]
+      )
+    }
+
+    return await params.db.query<OpenclawCommandRunLinkRow>(
+      `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
+       FROM openclaw_command_runs
+       WHERE user_id = ?
+         AND channel = 'feishu'
+         AND created_at >= ${cutoffExpr}
+       ORDER BY created_at ASC`,
+      [params.userId]
+    )
+  })()
+
+  const runsBySender = new Map<string, OpenclawCommandRunLinkRow[]>()
+  for (const run of workflowCandidateRuns) {
+    const sender = normalizeShortText(run.sender_id, 255)
+    if (!sender) continue
+    const bucket = runsBySender.get(sender) || []
+    bucket.push(run)
+    runsBySender.set(sender, bucket)
+  }
+
+  const parsedRunsByContextMessageId = new Map<string, ParsedWorkflowRun[]>()
+  const parsedRunsById = new Map<string, ParsedWorkflowRun>()
+  for (const context of sortedContexts) {
+    const mergedRuns = new Map<string, OpenclawCommandRunLinkRow>()
+    context.linkedRuns.forEach((run) => mergedRuns.set(String(run.id), run))
+
+    for (const sender of context.senderCandidates) {
+      const senderRuns = runsBySender.get(sender) || []
+      for (const run of senderRuns) {
+        const runMs = Date.parse(toIsoTimestamp(run.created_at))
+        if (!Number.isFinite(runMs)) continue
+        if (runMs < context.windowStartMs) continue
+        if (runMs > context.windowEndMs) break
+        mergedRuns.set(String(run.id), run)
+      }
+    }
+
+    const parsedRuns = Array.from(mergedRuns.values())
+      .map((run) => {
+        const cached = parsedRunsById.get(String(run.id))
+        if (cached) return cached
+        const parsed = parseWorkflowRun(run)
+        if (!parsed) return null
+        parsedRunsById.set(String(run.id), parsed)
+        return parsed
+      })
+      .filter((value): value is ParsedWorkflowRun => Boolean(value))
+      .sort((a, b) => a.createdMs - b.createdMs)
+
+    parsedRunsByContextMessageId.set(context.messageId, parsedRuns)
+  }
+
+  const creativeTaskIds = Array.from(
+    new Set(
+      Array.from(parsedRunsById.values())
+        .map((run) => normalizeShortText(run.creativeTaskId, 120))
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  const creativeTaskById = new Map<string, CreativeTaskStatusRow>()
+  for (let start = 0; start < creativeTaskIds.length; start += 200) {
+    const chunk = creativeTaskIds.slice(start, start + 200)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const rows = await params.db.query<CreativeTaskStatusRow>(
+      `SELECT id, offer_id, status, stage, progress, message, completed_at, updated_at
+       FROM creative_tasks
+       WHERE id IN (${placeholders})`,
+      [...chunk]
+    )
+    rows.forEach((row) => {
+      creativeTaskById.set(String(row.id), row)
+    })
+  }
+
+  const offerIdSet = new Set<number>()
+  const hasPublishRun = Array.from(parsedRunsById.values()).some((run) => run.isPublish)
+  if (hasPublishRun) {
+    Array.from(parsedRunsById.values()).forEach((run) => {
+      if (run.offerId) offerIdSet.add(run.offerId)
+    })
+  }
+
+  const campaignsByOfferId = new Map<number, CampaignWorkflowStatusRow[]>()
+  const offerIds = Array.from(offerIdSet)
+  for (let start = 0; start < offerIds.length; start += 100) {
+    const chunk = offerIds.slice(start, start + 100)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const campaignRows = await params.db.query<CampaignWorkflowStatusRow>(
+      `SELECT id, offer_id, ad_creative_id, creation_status, creation_error, status, is_deleted, created_at, updated_at, published_at
+       FROM campaigns
+       WHERE user_id = ?
+         AND offer_id IN (${placeholders})
+       ORDER BY updated_at DESC`,
+      [params.userId, ...chunk]
+    )
+    campaignRows.forEach((row) => {
+      const key = Number(row.offer_id)
+      const bucket = campaignsByOfferId.get(key) || []
+      bucket.push(row)
+      campaignsByOfferId.set(key, bucket)
+    })
+  }
+
+  const workflowIncompleteSeconds = resolveWorkflowIncompleteSeconds()
+  const result = new Map<string, WorkflowAssessment>()
+  for (const context of sortedContexts) {
+    const parsedRuns = parsedRunsByContextMessageId.get(context.messageId) || []
+    const assessment = buildWorkflowAssessmentForMessage({
+      context,
+      runs: parsedRuns,
+      creativeTaskById,
+      campaignsByOfferId,
+      workflowIncompleteSeconds,
+    })
+    result.set(context.messageId, assessment)
+  }
+
+  return result
 }
 
 export async function backfillFeishuChatHealthRunLinks(params: {
@@ -533,7 +1419,7 @@ export async function listFeishuChatHealthLogs(params: {
   if (allowedMessageIds.length > 0) {
     const placeholders = allowedMessageIds.map(() => '?').join(', ')
     const runRows = await db.query<OpenclawCommandRunLinkRow>(
-      `SELECT id, parent_request_id, channel, sender_id, status, created_at
+      `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
        FROM openclaw_command_runs
        WHERE user_id = ?
          AND channel = 'feishu'
@@ -585,7 +1471,7 @@ export async function listFeishuChatHealthLogs(params: {
       if (candidateSenders.length > 0) {
         const senderPlaceholders = candidateSenders.map(() => '?').join(', ')
         return await db.query<OpenclawCommandRunLinkRow>(
-          `SELECT id, parent_request_id, channel, sender_id, status, created_at
+          `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
            FROM openclaw_command_runs
            WHERE user_id = ?
              AND channel = 'feishu'
@@ -598,7 +1484,7 @@ export async function listFeishuChatHealthLogs(params: {
 
       // Fallback: still keep channel in SQL to avoid scanning other channels.
       return await db.query<OpenclawCommandRunLinkRow>(
-        `SELECT id, parent_request_id, channel, sender_id, status, created_at
+        `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
          FROM openclaw_command_runs
          WHERE user_id = ?
            AND channel = 'feishu'
@@ -689,6 +1575,15 @@ export async function listFeishuChatHealthLogs(params: {
 
   const executionMissingSeconds = getFeishuChatHealthExecutionMissingSeconds()
   const nowMs = Date.now()
+  const workflowByMessageId = await buildWorkflowAssessmentsByMessageId({
+    db,
+    userId: params.userId,
+    rows,
+    runsByMessageId,
+    withinHours,
+    nowMs,
+  })
+
   const mapped: FeishuChatHealthLogItem[] = rows.map((row) => {
     const messageText = normalizeMessageText(row.message_text)
     const senderCandidates = safeParseJsonArray(row.sender_candidates_json)
@@ -705,12 +1600,20 @@ export async function listFeishuChatHealthLogs(params: {
     let executionRunCount = 0
     let executionRunCreatedAt: string | null = null
     let executionDetail = '非放行消息，无执行链路'
+    let workflowState: FeishuChatHealthWorkflowState = 'not_required'
+    let workflowProgress = 0
+    let workflowDetail = '非放行消息，无需业务 workflow'
+    let workflowOfferId: number | null = null
+    let workflowSteps: FeishuChatHealthWorkflowStep[] = []
 
     if (row.decision === 'allowed') {
       const messageId = normalizeShortText(row.message_id, 120)
       if (!messageId) {
         executionState = 'unknown'
         executionDetail = '放行消息缺少 message_id，无法关联执行链路'
+        workflowState = 'unknown'
+        workflowProgress = 0
+        workflowDetail = '放行消息缺少 message_id，无法评估业务 workflow'
       } else {
         const linkedRuns = runsByMessageId.get(messageId) || []
         executionRunCount = linkedRuns.length
@@ -732,6 +1635,15 @@ export async function listFeishuChatHealthLogs(params: {
           const linkMode = linkModeByMessageId.get(messageId)
           const modeHint = linkMode === 'sender_time' ? '（按 sender/time 推断）' : ''
           executionDetail = `已关联 ${executionRunCount} 条命令记录${modeHint}，最新状态 ${executionRunStatus || 'unknown'}`
+        }
+
+        const workflowAssessment = workflowByMessageId.get(messageId)
+        if (workflowAssessment) {
+          workflowState = workflowAssessment.state
+          workflowProgress = workflowAssessment.progress
+          workflowDetail = workflowAssessment.detail
+          workflowOfferId = workflowAssessment.offerId
+          workflowSteps = workflowAssessment.steps
         }
       }
     }
@@ -762,6 +1674,11 @@ export async function listFeishuChatHealthLogs(params: {
       executionRunCount,
       executionRunCreatedAt,
       executionDetail,
+      workflowState,
+      workflowProgress,
+      workflowDetail,
+      workflowOfferId,
+      workflowSteps,
       ageSeconds,
       createdAt,
     }
@@ -831,6 +1748,44 @@ export async function listFeishuChatHealthLogs(params: {
     }
   )
 
+  const workflowStats = mapped.reduce(
+    (acc, row) => {
+      if (row.workflowState === 'not_required') {
+        acc.notRequired += 1
+        return acc
+      }
+
+      acc.tracked += 1
+      if (row.workflowState === 'completed') {
+        acc.completed += 1
+        return acc
+      }
+      if (row.workflowState === 'running') {
+        acc.running += 1
+        return acc
+      }
+      if (row.workflowState === 'incomplete') {
+        acc.incomplete += 1
+        return acc
+      }
+      if (row.workflowState === 'failed') {
+        acc.failed += 1
+        return acc
+      }
+      acc.unknown += 1
+      return acc
+    },
+    {
+      tracked: 0,
+      completed: 0,
+      running: 0,
+      incomplete: 0,
+      failed: 0,
+      notRequired: 0,
+      unknown: 0,
+    }
+  )
+
   void cleanupFeishuChatHealthLogsIfNeeded().catch(() => {})
 
   return {
@@ -838,6 +1793,7 @@ export async function listFeishuChatHealthLogs(params: {
     stats: {
       ...stats,
       execution: executionStats,
+      workflow: workflowStats,
     },
   }
 }

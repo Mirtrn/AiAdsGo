@@ -31,19 +31,110 @@ type ProgressToolStatus = "running" | "completed" | "failed";
 type ProgressToolState = {
   toolCallId: string;
   name: string;
+  detail?: string;
   status: ProgressToolStatus;
   updatedAt: number;
 };
 
 const FEISHU_PROGRESS_RENDER_THROTTLE_MS = 1200;
 const FEISHU_PROGRESS_MAX_LINES = 6;
+const CREATIVE_BUCKET_ORDER: Record<string, number> = {
+  A: 1,
+  B: 2,
+  D: 3,
+};
+const PROGRESS_TOOL_LABELS: Record<string, string> = {
+  exec: "执行命令",
+  bash: "执行命令",
+  read: "读取文件",
+  write: "写入文件",
+  edit: "编辑文件",
+  apply_patch: "应用补丁",
+  message: "发送消息",
+  sessions_send: "会话消息发送",
+  session_status: "会话状态检查",
+  web_search: "网页搜索",
+  web_fetch: "网页抓取",
+  card_progress_sync: "状态同步（卡片）",
+  chat_record_sync: "状态同步（聊天记录）",
+  transcript_sync: "状态同步（聊天记录）",
+};
 
 function normalizeProgressToolName(value: unknown): string {
   const normalized = String(value || "").trim();
   if (!normalized) {
     return "tool";
   }
-  return normalized.slice(0, 80);
+
+  const mapped = PROGRESS_TOOL_LABELS[normalized.toLowerCase()];
+  return (mapped || normalized).slice(0, 80);
+}
+
+function extractCreativeBucket(value: string): "A" | "B" | "D" | undefined {
+  const match = value.match(/["']?bucket["']?\s*[:=]\s*["']?([ABD])["']?/i);
+  const bucket = (match?.[1] || "").toUpperCase();
+  if (bucket === "A" || bucket === "B" || bucket === "D") {
+    return bucket;
+  }
+  return undefined;
+}
+
+function resolveBusinessStepFromCommand(detail: string): string | undefined {
+  if (/\/api\/offers\/extract\b/i.test(detail)) {
+    return "创建新Offer";
+  }
+  if (/\/api\/offers\/\d+\/rebuild\b/i.test(detail)) {
+    return "重建Offer";
+  }
+  if (/\/api\/offers\/\d+\/generate-creatives-queue\b/i.test(detail)) {
+    const bucket = extractCreativeBucket(detail);
+    if (bucket) {
+      const order = CREATIVE_BUCKET_ORDER[bucket];
+      return `生成第 ${order} 个创意（${bucket}桶）`;
+    }
+    return "生成广告创意";
+  }
+  if (/\/api\/campaigns\/publish\b/i.test(detail)) {
+    const accountMatch = detail.match(
+      /googleAdsAccountId["']?\s*[:=]\s*["']?(\d{6,})["']?/i,
+    );
+    if (accountMatch?.[1]) {
+      return `发布广告（账号 ${accountMatch[1]}）`;
+    }
+    return "发布广告";
+  }
+  if (/\/api\/click-farm\/tasks\b/i.test(detail)) {
+    const countMatch = detail.match(/daily_click_count["']?\s*[:=]\s*(\d+)/i);
+    if (countMatch?.[1]) {
+      return `创建补点击任务（每天 ${countMatch[1]} 次）`;
+    }
+    return "创建补点击任务";
+  }
+  return undefined;
+}
+
+function normalizeProgressToolDetail(
+  toolNameValue: unknown,
+  value: unknown,
+): string | undefined {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const toolName = String(toolNameValue || "")
+    .trim()
+    .toLowerCase();
+  if (toolName === "exec" || toolName === "bash") {
+    const businessStep = resolveBusinessStepFromCommand(normalized);
+    if (businessStep) {
+      return businessStep.slice(0, 120);
+    }
+  }
+
+  return normalized.slice(0, 120);
 }
 
 function formatProgressToolLine(tool: ProgressToolState): string {
@@ -51,7 +142,8 @@ function formatProgressToolLine(tool: ProgressToolState): string {
     tool.status === "completed" ? "[OK]"
       : tool.status === "failed" ? "[ERR]"
         : "[RUN]";
-  return `${marker} ${tool.name}`;
+  const detail = tool.detail && tool.detail !== tool.name ? tool.detail : undefined;
+  return detail ? `${marker} ${tool.name} · ${detail}` : `${marker} ${tool.name}`;
 }
 
 export type CreateFeishuReplyDispatcherParams = {
@@ -118,8 +210,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let firstReplyDispatched = false;
   let progressStartedAt = 0;
   let progressLastRenderAt = 0;
+  let progressLastRenderedText = "";
   let progressSyntheticId = 0;
   let progressEventCount = 0;
+  let partialStreamStarted = false;
   const progressToolsById = new Map<string, ProgressToolState>();
 
   const markFirstReplyDispatched = () => {
@@ -161,7 +255,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   };
 
   const pushProgressUpdate = async (force = false): Promise<void> => {
-    if (!streamingEnabled) {
+    if (!streamingEnabled || partialStreamStarted) {
       return;
     }
 
@@ -174,11 +268,17 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     if (streamingStartPromise) {
       await streamingStartPromise;
     }
-    if (!streaming?.isActive()) {
+    if (!streaming?.isActive() || partialStreamStarted) {
       return;
     }
 
-    streamText = renderProgressText();
+    const progressText = renderProgressText();
+    if (progressText === progressLastRenderedText) {
+      return;
+    }
+
+    streamText = progressText;
+    progressLastRenderedText = progressText;
     await streaming.update(streamText);
     progressLastRenderAt = now;
     markFirstReplyDispatched();
@@ -225,6 +325,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     streamingStartPromise = null;
     streamText = "";
     lastPartial = "";
+    progressLastRenderedText = "";
+    partialStreamStarted = false;
   };
 
   const { dispatcher, replyOptions, markDispatchIdle } =
@@ -344,7 +446,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             }
 
             const phase = String(data.phase || "").trim().toLowerCase();
-            const toolName = normalizeProgressToolName(data.name);
+            const rawToolName = String(data.name || "").trim();
+            const toolName = normalizeProgressToolName(rawToolName);
+            const toolDetail = normalizeProgressToolDetail(rawToolName, data.meta);
             const rawToolCallId = String(data.toolCallId || data.tool_call_id || "").trim();
             const toolCallId = rawToolCallId || `synthetic_${++progressSyntheticId}`;
             const now = Date.now();
@@ -362,6 +466,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             progressToolsById.set(toolCallId, {
               toolCallId,
               name: toolName || previous?.name || "tool",
+              detail: toolDetail || previous?.detail,
               status,
               updatedAt: now,
             });
@@ -375,6 +480,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             if (!payload.text || payload.text === lastPartial) {
               return;
             }
+            partialStreamStarted = true;
             lastPartial = payload.text;
             streamText = payload.text;
             partialUpdateQueue = partialUpdateQueue.then(async () => {
@@ -383,6 +489,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               }
               if (streaming?.isActive()) {
                 await streaming.update(streamText);
+                markFirstReplyDispatched();
               }
             });
           }

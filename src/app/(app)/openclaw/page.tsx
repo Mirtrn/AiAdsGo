@@ -176,6 +176,23 @@ type FeishuChatExecutionState =
   | 'expired'
   | 'unknown'
 
+type FeishuChatWorkflowState =
+  | 'not_required'
+  | 'running'
+  | 'incomplete'
+  | 'completed'
+  | 'failed'
+  | 'unknown'
+
+type FeishuChatWorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'unknown'
+
+type FeishuChatWorkflowStep = {
+  key: string
+  label: string
+  status: FeishuChatWorkflowStepStatus
+  detail: string
+}
+
 type FeishuChatHealthLogItem = {
   id: number
   userId: number
@@ -202,6 +219,11 @@ type FeishuChatHealthLogItem = {
   executionRunCount: number
   executionRunCreatedAt: string | null
   executionDetail: string
+  workflowState: FeishuChatWorkflowState
+  workflowProgress: number
+  workflowDetail: string
+  workflowOfferId: number | null
+  workflowSteps: FeishuChatWorkflowStep[]
   ageSeconds: number
   createdAt: string
 }
@@ -222,6 +244,15 @@ type FeishuChatHealthResponse = {
       missing: number
       failed: number
       notApplicable: number
+      unknown: number
+    }
+    workflow: {
+      tracked: number
+      completed: number
+      running: number
+      incomplete: number
+      failed: number
+      notRequired: number
       unknown: number
     }
   }
@@ -685,6 +716,18 @@ const resolveFeishuExecutionBadge = (state: FeishuChatExecutionState): {
     return { label: '执行失败', variant: 'destructive' }
   }
   if (state === 'not_applicable') return { label: '不适用', variant: 'outline' }
+  return { label: '未知', variant: 'outline' }
+}
+
+const resolveFeishuWorkflowBadge = (state: FeishuChatWorkflowState): {
+  label: string
+  variant: 'default' | 'secondary' | 'outline' | 'destructive'
+} => {
+  if (state === 'completed') return { label: '业务完成', variant: 'default' }
+  if (state === 'running') return { label: '业务执行中', variant: 'secondary' }
+  if (state === 'incomplete') return { label: '业务未完成', variant: 'destructive' }
+  if (state === 'failed') return { label: '业务失败', variant: 'destructive' }
+  if (state === 'not_required') return { label: '不跟踪', variant: 'outline' }
   return { label: '未知', variant: 'outline' }
 }
 
@@ -1857,6 +1900,15 @@ export default function OpenClawPage() {
     notApplicable: 0,
     unknown: 0,
   }
+  const feishuHealthWorkflowStats = feishuHealthData?.stats?.workflow || {
+    tracked: 0,
+    completed: 0,
+    running: 0,
+    incomplete: 0,
+    failed: 0,
+    notRequired: 0,
+    unknown: 0,
+  }
   const feishuHealthWindowHours = feishuHealthData?.windowHours || 24 * 7
   const feishuHealthWindowDays = Math.max(1, Math.floor(feishuHealthWindowHours / 24))
   const feishuHealthRetentionDays = feishuHealthData?.retentionDays || 7
@@ -2973,6 +3025,33 @@ export default function OpenClawPage() {
                     <div className="mt-1 text-xl font-semibold text-red-600">{feishuHealthExecutionStats.failed}</div>
                   </div>
                 </div>
+
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">业务跟踪</div>
+                    <div className="mt-1 text-xl font-semibold text-sky-600">{feishuHealthWorkflowStats.tracked}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">业务完成</div>
+                    <div className="mt-1 text-xl font-semibold text-emerald-600">{feishuHealthWorkflowStats.completed}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">业务执行中</div>
+                    <div className="mt-1 text-xl font-semibold text-indigo-600">{feishuHealthWorkflowStats.running}</div>
+                  </div>
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
+                    <div className="text-xs text-red-600">业务未完成</div>
+                    <div className="mt-1 text-xl font-semibold text-red-600">{feishuHealthWorkflowStats.incomplete}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">业务失败</div>
+                    <div className="mt-1 text-xl font-semibold text-red-600">{feishuHealthWorkflowStats.failed}</div>
+                  </div>
+                  <div className="rounded-md border px-3 py-2">
+                    <div className="text-xs text-slate-500">无需跟踪</div>
+                    <div className="mt-1 text-xl font-semibold text-slate-600">{feishuHealthWorkflowStats.notRequired}</div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -2983,18 +3062,19 @@ export default function OpenClawPage() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <Table className="table-fixed min-w-[1320px]">
+                  <Table className="table-fixed min-w-[1460px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="h-8 w-[86px] whitespace-nowrap">时间</TableHead>
                         <TableHead className="h-8 w-[88px] whitespace-nowrap">记录ID</TableHead>
                         <TableHead className="h-8 w-[78px] whitespace-nowrap">决策</TableHead>
                         <TableHead className="h-8 w-[88px] whitespace-nowrap">执行状态</TableHead>
-                        <TableHead className="h-8 w-[19%] whitespace-nowrap">执行详情</TableHead>
-                        <TableHead className="h-8 w-[20%] whitespace-nowrap">原因</TableHead>
-                        <TableHead className="h-8 w-[12%] whitespace-nowrap">发送者</TableHead>
-                        <TableHead className="h-8 w-[12%] whitespace-nowrap">会话</TableHead>
-                        <TableHead className="h-8 w-[21%] whitespace-nowrap">消息片段</TableHead>
+                        <TableHead className="h-8 w-[96px] whitespace-nowrap">业务状态</TableHead>
+                        <TableHead className="h-8 w-[21%] whitespace-nowrap">链路详情</TableHead>
+                        <TableHead className="h-8 w-[18%] whitespace-nowrap">原因</TableHead>
+                        <TableHead className="h-8 w-[11%] whitespace-nowrap">发送者</TableHead>
+                        <TableHead className="h-8 w-[11%] whitespace-nowrap">会话</TableHead>
+                        <TableHead className="h-8 w-[20%] whitespace-nowrap">消息片段</TableHead>
                         <TableHead className="h-8 w-[56px] whitespace-nowrap text-center">原文</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -3002,6 +3082,7 @@ export default function OpenClawPage() {
                       {feishuHealthRows.map((row) => {
                         const decisionBadge = resolveFeishuHealthDecisionBadge(row.decision)
                         const executionBadge = resolveFeishuExecutionBadge(row.executionState)
+                        const workflowBadge = resolveFeishuWorkflowBadge(row.workflowState)
                         const senderText = resolveFeishuHealthSenderText(row)
                         const chatText = row.chatId || '-'
                         const excerpt = row.messageExcerpt || '-'
@@ -3011,12 +3092,15 @@ export default function OpenClawPage() {
                         const executionRunCreatedAt = row.executionRunCreatedAt ? formatTimestamp(row.executionRunCreatedAt) : '-'
                         const executionRunCount = Number.isFinite(row.executionRunCount) ? row.executionRunCount : 0
                         const executionAgeText = row.decision === 'allowed' ? formatAgeSeconds(row.ageSeconds) : '-'
+                        const workflowProgress = Number.isFinite(row.workflowProgress) ? Math.max(0, Math.min(100, Math.floor(row.workflowProgress))) : 0
+                        const workflowProgressText = row.workflowState === 'not_required' ? '-' : `${workflowProgress}%`
                         const timestampLines = formatTimestampCompactLines(row.createdAt)
                         const canViewFullText = hasText(row.messageText || '')
                         const isMissing = row.executionState === 'missing'
+                        const isWorkflowRisk = row.workflowState === 'incomplete' || row.workflowState === 'failed'
 
                         return (
-                          <TableRow key={row.id} className={isMissing ? 'bg-red-50/70' : undefined}>
+                          <TableRow key={row.id} className={isMissing || isWorkflowRisk ? 'bg-red-50/70' : undefined}>
                             <TableCell className="whitespace-nowrap py-1.5 text-[11px] leading-4 text-slate-600">
                               <div>{timestampLines.date}</div>
                               <div className="text-slate-500">{timestampLines.time}</div>
@@ -3030,8 +3114,15 @@ export default function OpenClawPage() {
                             <TableCell className="whitespace-nowrap py-1.5">
                               <Badge className="whitespace-nowrap" variant={executionBadge.variant}>{executionBadge.label}</Badge>
                             </TableCell>
+                            <TableCell className="whitespace-nowrap py-1.5">
+                              <Badge className="whitespace-nowrap" variant={workflowBadge.variant}>{workflowBadge.label}</Badge>
+                              <div className="mt-1 text-[11px] text-slate-500">{workflowProgressText}</div>
+                            </TableCell>
                             <TableCell className="py-1.5 align-top text-xs">
-                              <div className="line-clamp-2 break-all font-medium leading-4" title={row.executionDetail || '-'}>
+                              <div className="line-clamp-2 break-all font-medium leading-4" title={row.workflowDetail || '-'}>
+                                {row.workflowDetail || '-'}
+                              </div>
+                              <div className="mt-1 line-clamp-2 break-all leading-4 text-slate-600" title={row.executionDetail || '-'}>
                                 {row.executionDetail || '-'}
                               </div>
                               <div
@@ -3073,7 +3164,7 @@ export default function OpenClawPage() {
 
                       {feishuHealthRows.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center text-slate-500">
+                          <TableCell colSpan={11} className="text-center text-slate-500">
                             最近 {feishuHealthWindowDays} 天暂无飞书链路日志
                           </TableCell>
                         </TableRow>
