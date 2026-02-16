@@ -39,22 +39,15 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格按 We
 
 ## 请求模板
 
-### 初始化（每次会话先执行一次）
+### 初始化（不要单独执行 `export`）
 
-```bash
-export AUTOADS_HOST="${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}"
-export OPENCLAW_AUTH_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-}}"
-if [ -z "$OPENCLAW_AUTH_TOKEN" ]; then
-  echo "ERROR: missing OPENCLAW gateway token (OPENCLAW_GATEWAY_TOKEN/OPENCLAW_TOKEN)"
-  exit 1
-fi
-```
+> 某些执行器会把 `export ...` 当成可执行文件，导致 `Exec: export ... failed`。以下 `curl` 模板已内置 host/token fallback，不需要再单独执行初始化导出命令。
 
 ### 读（proxy）
 
 ```bash
-curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
-  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
+curl -sS "${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}/api/openclaw/proxy" \
+  -H "Authorization: Bearer ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-${OPENCLAW_AUTH_TOKEN:-}}}" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "GET",
@@ -71,8 +64,8 @@ curl -sS "$AUTOADS_HOST/api/openclaw/proxy" \
 ### 写（execute）
 
 ```bash
-curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
-  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
+curl -sS "${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}/api/openclaw/commands/execute" \
+  -H "Authorization: Bearer ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-${OPENCLAW_AUTH_TOKEN:-}}}" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "POST",
@@ -93,8 +86,8 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/execute" \
 ### 确认（confirm）
 
 ```bash
-curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
-  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
+curl -sS "${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}/api/openclaw/commands/confirm" \
+  -H "Authorization: Bearer ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-${OPENCLAW_AUTH_TOKEN:-}}}" \
   -H "Content-Type: application/json" \
   -d '{
     "runId": "<RUN_ID>",
@@ -110,8 +103,8 @@ curl -sS "$AUTOADS_HOST/api/openclaw/commands/confirm" \
 ### 记录查询（runs，直连）
 
 ```bash
-curl -sS -G "$AUTOADS_HOST/api/openclaw/commands/runs" \
-  -H "Authorization: Bearer $OPENCLAW_AUTH_TOKEN" \
+curl -sS -G "${AUTOADS_HOST:-${INTERNAL_APP_URL:-http://127.0.0.1:${PORT:-3000}}}/api/openclaw/commands/runs" \
+  -H "Authorization: Bearer ${OPENCLAW_GATEWAY_TOKEN:-${OPENCLAW_TOKEN:-${OPENCLAW_AUTH_TOKEN:-}}}" \
   --data-urlencode "channel=feishu" \
   --data-urlencode "senderId=<sender_open_id>" \
   --data-urlencode "accountId=<account_id>" \

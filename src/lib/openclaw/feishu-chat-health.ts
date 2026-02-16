@@ -556,6 +556,14 @@ export async function listFeishuChatHealthLogs(params: {
 
     const runsBySender = new Map<string, OpenclawCommandRunLinkRow[]>()
     for (const run of candidateRuns) {
+      // A run already bound to another Feishu message id (`om_*`) should not
+      // be re-linked by sender/time fallback, otherwise different messages can
+      // incorrectly share the same execution result.
+      const parentRequestId = normalizeShortText(run.parent_request_id, 120)
+      if (parentRequestId && parentRequestId.toLowerCase().startsWith('om_')) {
+        continue
+      }
+
       const sender = normalizeShortText(run.sender_id, 255)
       if (!sender) continue
       const bucket = runsBySender.get(sender) || []

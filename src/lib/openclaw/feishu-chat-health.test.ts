@@ -247,6 +247,67 @@ describe('feishu chat health lib', () => {
     vi.useRealTimers()
   })
 
+  it('does not link sender/time fallback to runs already bound to other message ids', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 4,
+            user_id: 7,
+            account_id: 'user-7',
+            message_id: 'om_target',
+            chat_id: 'oc_1',
+            chat_type: 'p2p',
+            message_type: 'text',
+            sender_primary_id: 'ou_1',
+            sender_open_id: 'ou_1',
+            sender_union_id: null,
+            sender_user_id: null,
+            sender_candidates_json: '["ou_1"]',
+            decision: 'allowed',
+            reason_code: 'reply_dispatched',
+            reason_message: 'message passed access checks and entered reply pipeline',
+            message_text: 'do something',
+            message_text_length: 12,
+            metadata_json: null,
+            created_at: '2026-02-10 03:00:00',
+          },
+        ])
+        .mockResolvedValueOnce([
+          { decision: 'allowed', total: 1 },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'run-bound-other',
+            parent_request_id: 'om_other_message',
+            channel: 'feishu',
+            sender_id: 'ou_1',
+            status: 'failed',
+            created_at: '2026-02-10 03:00:10',
+          },
+        ]),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].executionRunCount).toBe(0)
+    expect(result.rows[0].executionRunId).toBeNull()
+    expect(result.rows[0].executionState).toBe('missing')
+    expect(result.stats.execution.missing).toBe(1)
+    expect(result.stats.execution.failed).toBe(0)
+
+    vi.useRealTimers()
+  })
+
   it('records logs with deduplicated sender candidates', async () => {
     const longText = 'x'.repeat(21_000)
     const db = {
