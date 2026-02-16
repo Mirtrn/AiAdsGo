@@ -98,4 +98,49 @@ describe('openclaw runs service', () => {
     expect(result.items[1].confirmRequired).toBe(true)
     expect(result.items[1].confirmStatus).toBe('pending')
   })
+
+  it('supports high_or_above risk filter with createdAfter window', async () => {
+    const queryOne = vi.fn().mockResolvedValue({ total: 0 })
+    const exec = vi.fn().mockResolvedValue({ changes: 0 })
+    const query = vi.fn().mockResolvedValue([])
+
+    getDatabaseMock.mockResolvedValue({ type: 'sqlite', queryOne, query, exec })
+
+    const result = await listOpenclawCommandRuns({
+      userId: 77,
+      page: 2,
+      limit: 10,
+      riskLevel: 'high_or_above',
+      createdAfter: '2026-02-10T00:00:00.000Z',
+    })
+
+    expect(queryOne).toHaveBeenCalledTimes(1)
+    expect(queryOne.mock.calls[0]?.[1]).toEqual([
+      77,
+      'high',
+      'critical',
+      '2026-02-10T00:00:00.000Z',
+    ])
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      77,
+      'high',
+      'critical',
+      '2026-02-10T00:00:00.000Z',
+      10,
+      10,
+    ])
+    expect(result.items).toEqual([])
+    expect(result.pagination).toEqual({
+      page: 2,
+      limit: 10,
+      total: 0,
+      totalPages: 1,
+    })
+    expect(result.filters).toEqual({
+      status: null,
+      riskLevel: 'high_or_above',
+      createdAfter: '2026-02-10T00:00:00.000Z',
+    })
+  })
 })

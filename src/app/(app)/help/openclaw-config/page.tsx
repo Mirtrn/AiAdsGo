@@ -255,7 +255,7 @@ export default function OpenClawConfigGuidePage() {
             <section className="space-y-3">
               <div className="text-sm font-semibold text-slate-700">多账号 / Webhook 扩展（可选）</div>
               <div className="text-xs text-slate-500">
-                高风险命令确认默认走 Web 控制面，不建议通过飞书回调直连确认。
+                高风险命令默认自动确认并入队执行；本页仅保留近 7 天命令审计记录查看。
               </div>
               <ParamTable rows={FEISHU_ACCOUNT_JSON_FIELDS} />
               <pre className="overflow-auto rounded-md bg-slate-900 p-4 text-xs text-slate-100">{FEISHU_ACCOUNTS_JSON_EXAMPLE}</pre>

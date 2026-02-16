@@ -10,6 +10,7 @@ const runsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   status: z.string().optional(),
   riskLevel: z.string().optional(),
+  createdAfter: z.string().optional(),
   channel: z.string().optional(),
   senderId: z.string().optional(),
   sender_id: z.string().optional(),
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
       limit: request.nextUrl.searchParams.get('limit') || undefined,
       status: request.nextUrl.searchParams.get('status') || undefined,
       riskLevel: request.nextUrl.searchParams.get('riskLevel') || undefined,
+      createdAfter: request.nextUrl.searchParams.get('createdAfter') || undefined,
       channel: normalizeQueryValue(request.nextUrl.searchParams.get('channel')),
       senderId: normalizeQueryValue(request.nextUrl.searchParams.get('senderId')),
       sender_id: normalizeQueryValue(request.nextUrl.searchParams.get('sender_id')),
@@ -71,6 +73,7 @@ export async function GET(request: NextRequest) {
       limit: parsedQuery.data.limit,
       status: parsedQuery.data.status,
       riskLevel: parsedQuery.data.riskLevel,
+      createdAfter: parsedQuery.data.createdAfter,
     })
 
     return NextResponse.json({ success: true, ...result })

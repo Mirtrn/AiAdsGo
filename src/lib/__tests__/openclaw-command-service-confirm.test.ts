@@ -165,7 +165,7 @@ describe('openclaw command service confirmation guard', () => {
         developer_token: 'developer-token',
       },
     },
-  ])('returns pending_confirm for high-risk path $method $path', async ({ method, path, body }) => {
+  ])('auto-confirms and queues high-risk path $method $path', async ({ method, path, body }) => {
     const result = await executeOpenclawCommand({
       userId: 1001,
       authType: 'session',
@@ -177,19 +177,60 @@ describe('openclaw command service confirmation guard', () => {
     })
 
     expect(result).toMatchObject({
-      status: 'pending_confirm',
+      status: 'queued',
       riskLevel: 'high',
-      confirmToken: 'occf_test',
+      taskId: 'task-1',
     })
 
     expect(createOrRefreshCommandConfirmationMock).toHaveBeenCalledTimes(1)
     expect(createOrRefreshCommandConfirmationMock).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 1001 })
     )
-
-    expect(getQueueManagerForTaskTypeMock).not.toHaveBeenCalled()
-    expect(queueManager.enqueue).not.toHaveBeenCalled()
+    expect(consumeCommandConfirmationByOwnerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1001,
+        decision: 'confirm',
+      })
+    )
+    expect(getQueueManagerForTaskTypeMock).toHaveBeenCalledTimes(1)
+    expect(queueManager.enqueue).toHaveBeenCalledTimes(1)
     expect(db.exec).toHaveBeenCalled()
+  })
+
+  it('auto-confirms existing pending run when idempotency key is reused', async () => {
+    db.queryOne.mockResolvedValueOnce({
+      id: 'run-existing-1',
+      status: 'pending_confirm',
+      risk_level: 'high',
+      queue_task_id: null,
+    })
+
+    const result = await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'gateway-binding',
+      method: 'POST',
+      path: '/api/sync/trigger',
+      idempotencyKey: 'idem-existing-1',
+    })
+
+    expect(result).toMatchObject({
+      status: 'queued',
+      runId: 'run-existing-1',
+      taskId: 'task-1',
+      riskLevel: 'high',
+    })
+    expect(createOrRefreshCommandConfirmationMock).toHaveBeenCalledWith({
+      runId: 'run-existing-1',
+      userId: 1001,
+    })
+    expect(consumeCommandConfirmationByOwnerMock).toHaveBeenCalledWith({
+      runId: 'run-existing-1',
+      userId: 1001,
+      decision: 'confirm',
+    })
+    expect(
+      db.exec.mock.calls.some((call) => String(call[0]).includes('INSERT INTO openclaw_command_runs'))
+    ).toBe(false)
   })
 
   it('fills fallback channel for session auth when channel is missing', async () => {

@@ -273,6 +273,9 @@ type OpenclawCommandRunsResponse = {
   }
 }
 
+const HIGH_RISK_COMMAND_LOOKBACK_DAYS = 7
+const HIGH_RISK_COMMAND_PAGE_LIMIT = 10
+
 const AI_MINIMAL_PLACEHOLDER = `{
   "providers": {
     "openai": {
@@ -725,6 +728,11 @@ const formatAgeSeconds = (value?: number): string => {
   return `${hours}h${String(remainMinutes).padStart(2, '0')}m`
 }
 
+const resolveRecentHighRiskCreatedAfter = (): string => {
+  const lookbackMs = HIGH_RISK_COMMAND_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
+  return new Date(Date.now() - lookbackMs).toISOString()
+}
+
 export default function OpenClawPage() {
   const router = useRouter()
   const [settings, setSettings] = useState<OpenclawSettingsResponse | null>(null)
@@ -772,7 +780,9 @@ export default function OpenClawPage() {
   const [pendingCommandRuns, setPendingCommandRuns] = useState<OpenclawCommandRunItem[]>([])
   const [pendingCommandRunsLoading, setPendingCommandRunsLoading] = useState(false)
   const [pendingCommandRunsError, setPendingCommandRunsError] = useState<string | null>(null)
-  const [pendingCommandActionRunId, setPendingCommandActionRunId] = useState<string | null>(null)
+  const [pendingCommandRunsPage, setPendingCommandRunsPage] = useState(1)
+  const [pendingCommandRunsTotal, setPendingCommandRunsTotal] = useState(0)
+  const [pendingCommandRunsTotalPages, setPendingCommandRunsTotalPages] = useState(1)
 
   useEffect(() => {
     setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
@@ -936,30 +946,59 @@ export default function OpenClawPage() {
     return keys.some((key) => (current[key] ?? '') !== (saved[key] ?? ''))
   }
 
-  const loadPendingCommandRuns = useCallback(async (silent = false, isActive?: () => boolean) => {
+  const loadPendingCommandRuns = useCallback(async (options?: {
+    silent?: boolean
+    page?: number
+    isActive?: () => boolean
+  }) => {
+    const silent = options?.silent === true
+    const page = Number.isFinite(options?.page) && Number(options?.page) > 0
+      ? Math.floor(Number(options?.page))
+      : 1
+    const isActive = options?.isActive
+
     if (!silent) {
       setPendingCommandRunsLoading(true)
     }
     setPendingCommandRunsError(null)
 
     try {
-      const response = await fetch('/api/openclaw/commands/runs?page=1&limit=20&status=pending_confirm', {
+      const query = new URLSearchParams({
+        page: String(page),
+        limit: String(HIGH_RISK_COMMAND_PAGE_LIMIT),
+        riskLevel: 'high_or_above',
+        createdAfter: resolveRecentHighRiskCreatedAfter(),
+      })
+      const response = await fetch(`/api/openclaw/commands/runs?${query.toString()}`, {
         credentials: 'include',
       })
       const payload = await response.json().catch(() => null) as OpenclawCommandRunsResponse | null
       if (!response.ok || !payload?.success) {
-        throw new Error((payload as any)?.error || '待确认命令加载失败')
+        throw new Error((payload as any)?.error || '高风险命令记录加载失败')
       }
 
       if (isActive && !isActive()) return
       const items = Array.isArray(payload.items) ? payload.items : []
+      const pagination = payload.pagination || null
+      const total = Number(pagination?.total || items.length || 0)
+      const totalPages = Math.max(1, Number(pagination?.totalPages || 1))
+      const resolvedPage = Math.min(
+        totalPages,
+        Math.max(1, Number(pagination?.page || page))
+      )
+
       setPendingCommandRuns(items)
+      setPendingCommandRunsTotal(total)
+      setPendingCommandRunsTotalPages(totalPages)
+      setPendingCommandRunsPage((prev) => (prev === resolvedPage ? prev : resolvedPage))
     } catch (error: any) {
       if (isActive && !isActive()) return
-      const message = error?.message || '待确认命令加载失败'
+      const message = error?.message || '高风险命令记录加载失败'
       setPendingCommandRunsError(message)
       if (!silent) {
         setPendingCommandRuns([])
+        setPendingCommandRunsTotal(0)
+        setPendingCommandRunsTotalPages(1)
       }
     } finally {
       if (isActive && !isActive()) return
@@ -1038,21 +1077,32 @@ export default function OpenClawPage() {
       setPendingCommandRuns([])
       setPendingCommandRunsError(null)
       setPendingCommandRunsLoading(false)
+      setPendingCommandRunsPage(1)
+      setPendingCommandRunsTotal(0)
+      setPendingCommandRunsTotalPages(1)
       return () => {
         active = false
       }
     }
 
-    void loadPendingCommandRuns(false, () => active)
+    void loadPendingCommandRuns({
+      silent: false,
+      page: pendingCommandRunsPage,
+      isActive: () => active,
+    })
     const timer = window.setInterval(() => {
-      void loadPendingCommandRuns(true, () => active)
+      void loadPendingCommandRuns({
+        silent: true,
+        page: pendingCommandRunsPage,
+        isActive: () => active,
+      })
     }, 30000)
 
     return () => {
       active = false
       window.clearInterval(timer)
     }
-  }, [settings?.userId, refreshKey, loadPendingCommandRuns])
+  }, [settings?.userId, refreshKey, pendingCommandRunsPage, loadPendingCommandRuns])
 
   const handleWorkspaceBootstrap = async (options?: { silent?: boolean }): Promise<boolean> => {
     const silent = options?.silent === true
@@ -1502,38 +1552,6 @@ export default function OpenClawPage() {
     }
   }
 
-  const handlePendingCommandDecision = async (runId: string, decision: 'confirm' | 'cancel') => {
-    if (!runId.trim()) return
-
-    setPendingCommandActionRunId(runId)
-    try {
-      const response = await fetch('/api/openclaw/commands/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          runId,
-          decision,
-        }),
-      })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || '命令确认失败')
-      }
-
-      if (decision === 'confirm') {
-        toast.success('已确认，命令已进入执行队列')
-      } else {
-        toast.success('已取消该命令')
-      }
-      await loadPendingCommandRuns(true)
-    } catch (error: any) {
-      toast.error(error?.message || '命令确认失败')
-    } finally {
-      setPendingCommandActionRunId(null)
-    }
-  }
-
   const handleFormatAiJson = () => {
     const raw = userValues.ai_models_json || ''
     if (!raw.trim()) return
@@ -1818,7 +1836,7 @@ export default function OpenClawPage() {
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
   const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
-  const pendingCommandCount = pendingCommandRuns.length
+  const pendingCommandCount = pendingCommandRunsTotal
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
 
@@ -1907,18 +1925,22 @@ export default function OpenClawPage() {
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div>
                 <CardTitle>高风险命令确认</CardTitle>
-                <CardDescription>控制面待确认队列（仅 Web 会话可操作）</CardDescription>
+                <CardDescription>
+                  已启用自动确认执行；本区域仅展示最近 {HIGH_RISK_COMMAND_LOOKBACK_DAYS} 天高风险命令记录。
+                </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={pendingCommandCount > 0 ? 'destructive' : 'secondary'}>
-                  待确认 {pendingCommandCount}
+                  近{HIGH_RISK_COMMAND_LOOKBACK_DAYS}天 {pendingCommandCount}
                 </Badge>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => loadPendingCommandRuns(false)}
-                  disabled={pendingCommandRunsLoading || Boolean(pendingCommandActionRunId)}
+                  onClick={() => loadPendingCommandRuns({
+                    page: pendingCommandRunsPage,
+                  })}
+                  disabled={pendingCommandRunsLoading}
                 >
                   {pendingCommandRunsLoading ? '刷新中...' : '刷新'}
                 </Button>
@@ -1931,68 +1953,77 @@ export default function OpenClawPage() {
                 </div>
               )}
               {pendingCommandRunsLoading && pendingCommandRuns.length === 0 && (
-                <div className="text-sm text-slate-500">待确认队列加载中...</div>
+                <div className="text-sm text-slate-500">高风险命令记录加载中...</div>
               )}
               {!pendingCommandRunsLoading && pendingCommandRuns.length === 0 && (
-                <div className="text-sm text-slate-500">当前没有待确认命令。</div>
+                <div className="text-sm text-slate-500">
+                  最近 {HIGH_RISK_COMMAND_LOOKBACK_DAYS} 天暂无高风险命令记录。
+                </div>
               )}
               {pendingCommandRuns.length > 0 && (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>创建时间</TableHead>
-                      <TableHead>请求</TableHead>
-                      <TableHead>风险</TableHead>
-                      <TableHead>确认状态</TableHead>
-                      <TableHead>到期时间</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pendingCommandRuns.map((run) => {
-                      const riskBadge = resolveCommandRiskBadge(run.riskLevel)
-                      const rowBusy = pendingCommandActionRunId === run.runId
-                      const runPath = `${run.request.method} ${run.request.path}`
-                      return (
-                        <TableRow key={run.runId}>
-                          <TableCell className="text-xs">{formatTimestamp(run.createdAt)}</TableCell>
-                          <TableCell className="text-xs">
-                            <div className="font-medium">{runPath}</div>
-                            <div className="text-slate-500">run: {formatFeishuRunIdShort(run.runId)}</div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={riskBadge.variant}>{riskBadge.label}</Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">{resolveCommandConfirmStatusText(run.confirmStatus)}</TableCell>
-                          <TableCell className="text-xs">
-                            {run.confirmExpiresAt ? formatTimestamp(run.confirmExpiresAt) : '-'}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => handlePendingCommandDecision(run.runId, 'confirm')}
-                                disabled={rowBusy || Boolean(pendingCommandActionRunId)}
-                              >
-                                {rowBusy ? '处理中...' : '确认执行'}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handlePendingCommandDecision(run.runId, 'cancel')}
-                                disabled={rowBusy || Boolean(pendingCommandActionRunId)}
-                              >
-                                取消
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>创建时间</TableHead>
+                        <TableHead>请求</TableHead>
+                        <TableHead>风险</TableHead>
+                        <TableHead>运行状态</TableHead>
+                        <TableHead>确认状态</TableHead>
+                        <TableHead>最近更新时间</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingCommandRuns.map((run) => {
+                        const riskBadge = resolveCommandRiskBadge(run.riskLevel)
+                        const runPath = `${run.request.method} ${run.request.path}`
+                        return (
+                          <TableRow key={run.runId}>
+                            <TableCell className="text-xs">{formatTimestamp(run.createdAt)}</TableCell>
+                            <TableCell className="text-xs">
+                              <div className="font-medium">{runPath}</div>
+                              <div className="text-slate-500">run: {formatFeishuRunIdShort(run.runId)}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={riskBadge.variant}>{riskBadge.label}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">{run.status}</TableCell>
+                            <TableCell className="text-xs">{resolveCommandConfirmStatusText(run.confirmStatus)}</TableCell>
+                            <TableCell className="text-xs">
+                              {run.updatedAt ? formatTimestamp(run.updatedAt) : '-'}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                  <div className="flex flex-col gap-2 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      最近 {HIGH_RISK_COMMAND_LOOKBACK_DAYS} 天共 {pendingCommandRunsTotal} 条，
+                      第 {pendingCommandRunsPage} / {pendingCommandRunsTotalPages} 页
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingCommandRunsPage((prev) => Math.max(1, prev - 1))}
+                        disabled={pendingCommandRunsLoading || pendingCommandRunsPage <= 1}
+                      >
+                        上一页
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingCommandRunsPage((prev) => Math.min(pendingCommandRunsTotalPages, prev + 1))}
+                        disabled={pendingCommandRunsLoading || pendingCommandRunsPage >= pendingCommandRunsTotalPages}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -2500,7 +2531,7 @@ export default function OpenClawPage() {
                 </Button>
               </div>
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                高风险命令确认默认在 Web 控制面完成；飞书通道不直连执行确认回调。
+                高风险命令已启用自动确认执行；控制面仅保留近 7 天审计记录展示。
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">

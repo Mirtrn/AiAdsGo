@@ -14,6 +14,7 @@ type OpenclawRunStatus =
   | 'expired'
 
 type OpenclawRiskLevel = 'low' | 'medium' | 'high' | 'critical'
+type OpenclawRiskLevelFilter = OpenclawRiskLevel | 'high_or_above'
 
 const ALLOWED_STATUSES = new Set<OpenclawRunStatus>([
   'draft',
@@ -27,7 +28,13 @@ const ALLOWED_STATUSES = new Set<OpenclawRunStatus>([
   'expired',
 ])
 
-const ALLOWED_RISK_LEVELS = new Set<OpenclawRiskLevel>(['low', 'medium', 'high', 'critical'])
+const ALLOWED_RISK_LEVELS = new Set<OpenclawRiskLevelFilter>([
+  'low',
+  'medium',
+  'high',
+  'critical',
+  'high_or_above',
+])
 
 function normalizePage(value?: number): number {
   if (!Number.isFinite(value)) return 1
@@ -51,13 +58,24 @@ function normalizeStatus(value?: string | null): OpenclawRunStatus | null {
   return null
 }
 
-function normalizeRiskLevel(value?: string | null): OpenclawRiskLevel | null {
+function normalizeRiskLevel(value?: string | null): OpenclawRiskLevelFilter | null {
   const normalized = String(value || '').trim().toLowerCase()
   if (!normalized || normalized === 'all') return null
-  if (ALLOWED_RISK_LEVELS.has(normalized as OpenclawRiskLevel)) {
-    return normalized as OpenclawRiskLevel
+  if (ALLOWED_RISK_LEVELS.has(normalized as OpenclawRiskLevelFilter)) {
+    return normalized as OpenclawRiskLevelFilter
   }
   return null
+}
+
+function normalizeCreatedAfter(value?: string | null): string | null {
+  const normalized = String(value || '').trim()
+  if (!normalized) return null
+
+  const parsedAt = Date.parse(normalized)
+  if (!Number.isFinite(parsedAt)) {
+    return null
+  }
+  return new Date(parsedAt).toISOString()
 }
 
 type ListOpenclawCommandRunsInput = {
@@ -66,6 +84,7 @@ type ListOpenclawCommandRunsInput = {
   limit?: number
   status?: string | null
   riskLevel?: string | null
+  createdAfter?: string | null
 }
 
 type OpenclawCommandRunRow = {
@@ -144,7 +163,8 @@ export type ListOpenclawCommandRunsResult = {
   }
   filters: {
     status: OpenclawRunStatus | null
-    riskLevel: OpenclawRiskLevel | null
+    riskLevel: OpenclawRiskLevelFilter | null
+    createdAfter: string | null
   }
 }
 
@@ -163,6 +183,7 @@ export async function listOpenclawCommandRuns(
   const limit = normalizeLimit(input.limit)
   const status = normalizeStatus(input.status)
   const riskLevel = normalizeRiskLevel(input.riskLevel)
+  const createdAfter = normalizeCreatedAfter(input.createdAfter)
   const offset = (page - 1) * limit
 
   const whereSqlParts = ['user_id = ?']
@@ -174,8 +195,18 @@ export async function listOpenclawCommandRuns(
   }
 
   if (riskLevel) {
-    whereSqlParts.push('risk_level = ?')
-    whereParams.push(riskLevel)
+    if (riskLevel === 'high_or_above') {
+      whereSqlParts.push('risk_level IN (?, ?)')
+      whereParams.push('high', 'critical')
+    } else {
+      whereSqlParts.push('risk_level = ?')
+      whereParams.push(riskLevel)
+    }
+  }
+
+  if (createdAfter) {
+    whereSqlParts.push('created_at >= ?')
+    whereParams.push(createdAfter)
   }
 
   const whereSql = whereSqlParts.join(' AND ')
@@ -272,6 +303,7 @@ export async function listOpenclawCommandRuns(
     filters: {
       status,
       riskLevel,
+      createdAfter,
     },
   }
 }

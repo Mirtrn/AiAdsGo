@@ -122,17 +122,19 @@ type DuplicateResult = {
 
 export type ExecuteCommandResult = QueueResult | PendingConfirmResult | DuplicateResult
 
+type OpenclawCommandRunSnapshot = {
+  id: string
+  status: string
+  risk_level: OpenclawCommandRiskLevel
+  queue_task_id: string | null
+}
+
 async function findRunByIdempotency(params: {
   userId: number
   idempotencyKey: string
 }) {
   const db = await getDatabase()
-  return db.queryOne<{
-    id: string
-    status: string
-    risk_level: OpenclawCommandRiskLevel
-    queue_task_id: string | null
-  }>(
+  return db.queryOne<OpenclawCommandRunSnapshot>(
     `SELECT id, status, risk_level, queue_task_id
      FROM openclaw_command_runs
      WHERE user_id = ? AND idempotency_key = ?
@@ -140,6 +142,108 @@ async function findRunByIdempotency(params: {
      LIMIT 1`,
     [params.userId, params.idempotencyKey]
   )
+}
+
+async function findRunById(params: {
+  db: Awaited<ReturnType<typeof getDatabase>>
+  userId: number
+  runId: string
+}) {
+  return params.db.queryOne<OpenclawCommandRunSnapshot>(
+    `SELECT id, status, risk_level, queue_task_id
+     FROM openclaw_command_runs
+     WHERE user_id = ? AND id = ?
+     LIMIT 1`,
+    [params.userId, params.runId]
+  )
+}
+
+async function autoConfirmAndQueueCommandRun(params: {
+  db: Awaited<ReturnType<typeof getDatabase>>
+  nowSql: string
+  runId: string
+  userId: number
+  riskLevel: OpenclawCommandRiskLevel
+  parentRequestId?: string | null
+}): Promise<QueueResult | DuplicateResult> {
+  await createOrRefreshCommandConfirmation({
+    runId: params.runId,
+    userId: params.userId,
+  })
+
+  const consumeResult = await consumeCommandConfirmationByOwner({
+    runId: params.runId,
+    userId: params.userId,
+    decision: 'confirm',
+  })
+
+  if (!consumeResult.ok) {
+    if (consumeResult.code !== 'already_processed') {
+      throw new Error(`[OpenClawCommand] auto-confirm failed: ${consumeResult.code}`)
+    }
+
+    const latestRun = await findRunById({
+      db: params.db,
+      userId: params.userId,
+      runId: params.runId,
+    })
+    const runStatus = latestRun?.status || consumeResult.runStatus || 'queued'
+    const runRisk = latestRun?.risk_level || params.riskLevel
+    const taskId = latestRun?.queue_task_id || null
+
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] auto-confirm 命中并发幂等，runId=${params.runId}, runStatus=${runStatus}`
+      )
+    }
+
+    return {
+      status: 'duplicate',
+      runId: params.runId,
+      runStatus,
+      riskLevel: runRisk,
+      taskId,
+    }
+  }
+
+  if (consumeResult.status !== 'confirmed') {
+    throw new Error(`[OpenClawCommand] auto-confirm failed: ${consumeResult.status}`)
+  }
+
+  const confirmedRiskLevel = consumeResult.riskLevel as OpenclawCommandRiskLevel
+
+  try {
+    const taskId = await enqueueCommandRun({
+      runId: params.runId,
+      userId: params.userId,
+      riskLevel: confirmedRiskLevel,
+      parentRequestId: params.parentRequestId,
+      trigger: 'confirm',
+    })
+
+    await params.db.exec(
+      `UPDATE openclaw_command_runs
+       SET status = 'queued', queue_task_id = ?, updated_at = ${params.nowSql}
+       WHERE id = ? AND user_id = ?`,
+      [taskId, params.runId, params.userId]
+    )
+
+    return {
+      status: 'queued',
+      runId: params.runId,
+      taskId,
+      riskLevel: confirmedRiskLevel,
+    }
+  } catch (error: any) {
+    const message = error?.message || 'enqueue failed'
+    await params.db.exec(
+      `UPDATE openclaw_command_runs
+       SET status = 'failed', error_message = ?, completed_at = ${params.nowSql}, updated_at = ${params.nowSql}
+       WHERE id = ? AND user_id = ?`,
+      [message, params.runId, params.userId]
+    )
+    throw error
+  }
 }
 
 export async function executeOpenclawCommand(input: ExecuteCommandInput): Promise<ExecuteCommandResult> {
@@ -178,17 +282,14 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
     const existing = await findRunByIdempotency({ userId: input.userId, idempotencyKey })
     if (existing) {
       if (existing.status === 'pending_confirm') {
-        const confirmation = await createOrRefreshCommandConfirmation({
+        return autoConfirmAndQueueCommandRun({
+          db,
+          nowSql,
           runId: existing.id,
           userId: input.userId,
-        })
-        return {
-          status: 'pending_confirm',
-          runId: existing.id,
           riskLevel: existing.risk_level,
-          confirmToken: confirmation.confirmToken,
-          expiresAt: confirmation.expiresAt,
-        }
+          parentRequestId: input.parentRequestId,
+        })
       }
 
       return {
@@ -233,18 +334,14 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
   )
 
   if (requireConfirm) {
-    const confirmation = await createOrRefreshCommandConfirmation({
+    return autoConfirmAndQueueCommandRun({
+      db,
+      nowSql,
       runId,
       userId: input.userId,
-    })
-
-    return {
-      status: 'pending_confirm',
-      runId,
       riskLevel,
-      confirmToken: confirmation.confirmToken,
-      expiresAt: confirmation.expiresAt,
-    }
+      parentRequestId: input.parentRequestId,
+    })
   }
 
   try {

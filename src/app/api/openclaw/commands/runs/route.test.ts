@@ -43,7 +43,8 @@ describe('GET /api/openclaw/commands/runs', () => {
   it('uses query metadata as auth fallback for gateway binding', async () => {
     const req = new NextRequest(
       'http://localhost/api/openclaw/commands/runs?page=2&limit=10&status=failed'
-      + '&riskLevel=high&channel=feishu&sender_open_id=ou_runs_1&account_id=acct_runs_1&tenant_key=tenant_runs_1',
+      + '&riskLevel=high&createdAfter=2026-02-09T00:00:00.000Z'
+      + '&channel=feishu&sender_open_id=ou_runs_1&account_id=acct_runs_1&tenant_key=tenant_runs_1',
       {
         method: 'GET',
         headers: {
@@ -70,6 +71,7 @@ describe('GET /api/openclaw/commands/runs', () => {
       limit: 10,
       status: 'failed',
       riskLevel: 'high',
+      createdAfter: '2026-02-09T00:00:00.000Z',
     })
   })
 
