@@ -41,6 +41,21 @@ type NormalizedProxyTarget = {
   rewritten: boolean
 }
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(String(value || '').trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
+const OPENCLAW_PROXY_TIMEOUT_MS = parsePositiveIntEnv(
+  process.env.OPENCLAW_PROXY_TIMEOUT_MS,
+  45000
+)
+const OPENCLAW_PROXY_STREAM_TIMEOUT_MS = parsePositiveIntEnv(
+  process.env.OPENCLAW_PROXY_STREAM_TIMEOUT_MS,
+  10 * 60 * 1000
+)
+
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null
   const value = authHeader.trim()
@@ -241,14 +256,40 @@ export async function handleOpenclawProxyRequest(params: {
     : finalPath
   const action = `${method} ${actionPath}`
   const requestBodyString = request.body ? JSON.stringify(request.body) : null
+  const startedAt = Date.now()
+  const timeoutMs = finalPath.includes('/stream')
+    ? OPENCLAW_PROXY_STREAM_TIMEOUT_MS
+    : OPENCLAW_PROXY_TIMEOUT_MS
+  let upstream: Response
 
-  const upstream = await fetchAutoadsAsUser({
-    userId: resolved.userId,
-    path: finalPath,
-    method,
-    query: normalizedTarget.query,
-    body: request.body,
-  })
+  try {
+    upstream = await fetchAutoadsAsUser({
+      userId: resolved.userId,
+      path: finalPath,
+      method,
+      query: normalizedTarget.query,
+      body: request.body,
+      timeoutMs,
+    })
+  } catch (error: any) {
+    const latencyMs = Date.now() - startedAt
+    const errorMessage = error?.message || 'OpenClaw proxy upstream request failed'
+    await recordOpenclawAction({
+      userId: resolved.userId,
+      channel: request.channel || null,
+      senderId: request.senderId || null,
+      action,
+      targetType,
+      targetId,
+      requestBody: requestBodyString,
+      status: 'error',
+      errorMessage,
+      latencyMs,
+    })
+    throw error
+  }
+
+  const latencyMs = Date.now() - startedAt
 
   const contentType = upstream.headers.get('content-type') || ''
   const isEventStream = contentType.includes('text/event-stream')
@@ -274,6 +315,7 @@ export async function handleOpenclawProxyRequest(params: {
     responseBody: responseBodyText,
     status: upstream.ok ? 'success' : 'error',
     errorMessage: upstream.ok ? null : responseBodyText,
+    latencyMs,
   })
 
   return new Response(upstream.body, {

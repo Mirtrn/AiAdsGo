@@ -33,23 +33,47 @@ export async function GET(
     // 获取所有创意
     const creatives = await findAdCreativesByOfferId(offerId, parseInt(userId, 10))
 
+    const creativesPayload = creatives.map((c: any) => {
+      const keywordsWithVolume = Array.isArray(c.keywordsWithVolume)
+        ? c.keywordsWithVolume
+            .map((item: any) => ({
+              keyword: typeof item?.keyword === 'string' ? item.keyword : '',
+              searchVolume: Number(item?.searchVolume || 0),
+              matchType: typeof item?.matchType === 'string' ? item.matchType : undefined,
+              competition: typeof item?.competition === 'string' ? item.competition : undefined,
+              source: typeof item?.source === 'string' ? item.source : undefined,
+            }))
+            .filter((item: any) => item.keyword)
+        : []
+
+      const keywordVolumeTotal = keywordsWithVolume.reduce((sum: number, item: any) => {
+        const volume = Number(item.searchVolume || 0)
+        return sum + (Number.isFinite(volume) && volume > 0 ? volume : 0)
+      }, 0)
+
+      return {
+        id: c.id,
+        version: c.version,
+        headlines: c.headlines,
+        descriptions: c.descriptions,
+        keywords: c.keywords,
+        keywordsWithVolume,
+        keywordVolumeTotal,
+        keywordCount: Array.isArray(c.keywords) ? c.keywords.length : 0,
+        keywordBucket: c.keyword_bucket || null,
+        finalUrl: c.final_url,
+        score: c.score,
+        creationStatus: c.creation_status,
+        createdAt: c.created_at,
+      }
+    })
+
     return NextResponse.json({
       success: true,
       data: {
         offerId,
-        total: creatives.length,
-        // 🔧 修复(2025-12-11): snake_case → camelCase
-        creatives: creatives.map((c: any) => ({
-          id: c.id,
-          version: c.version,
-          headlines: c.headlines,
-          descriptions: c.descriptions,
-          keywords: c.keywords,
-          finalUrl: c.final_url,
-          score: c.score,
-          creationStatus: c.creation_status,
-          createdAt: c.created_at,
-        })),
+        total: creativesPayload.length,
+        creatives: creativesPayload,
       },
     })
   } catch (error: any) {

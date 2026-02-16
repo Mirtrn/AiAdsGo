@@ -31,10 +31,40 @@ export async function GET(
     }
 
     if (!campaignId) {
-      return NextResponse.json(
-        { error: 'campaignId 参数缺失' },
-        { status: 400 }
-      )
+      // 向后兼容：某些OpenClaw流程会遗漏campaignId，兜底返回该Offer最新Campaign状态
+      const db = await getDatabase()
+      const latestCampaign = await db.queryOne(
+        `SELECT
+          id,
+          offer_id,
+          creation_status,
+          creation_error,
+          google_campaign_id
+        FROM campaigns
+        WHERE offer_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1`,
+        [parseInt(id), parseInt(userId)]
+      ) as any
+
+      if (!latestCampaign) {
+        return NextResponse.json(
+          { error: 'Campaign not found' },
+          { status: 404 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        warning: 'campaignId 参数缺失，已返回该Offer最新Campaign状态',
+        campaign: {
+          id: latestCampaign.id,
+          offer_id: latestCampaign.offer_id,
+          creation_status: latestCampaign.creation_status,
+          creation_error: latestCampaign.creation_error,
+          google_campaign_id: latestCampaign.google_campaign_id
+        }
+      })
     }
 
     // 从数据库查询campaign状态

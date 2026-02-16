@@ -123,6 +123,7 @@ export async function fetchAutoadsAsUser<T = any>(params: {
   query?: Record<string, string | number | boolean | null | undefined>
   body?: any
   headers?: Record<string, string>
+  timeoutMs?: number
 }): Promise<Response> {
   const user = await resolveUser(params.userId)
   if (!user) {
@@ -149,11 +150,31 @@ export async function fetchAutoadsAsUser<T = any>(params: {
     }
   }
 
-  return fetch(url, {
-    method,
-    headers,
-    body,
-  })
+  const normalizedTimeoutMs = Number.isFinite(Number(params.timeoutMs))
+    ? Math.max(0, Math.floor(Number(params.timeoutMs)))
+    : 0
+  const controller = normalizedTimeoutMs > 0 ? new AbortController() : null
+  const timeoutHandle = controller
+    ? setTimeout(() => controller.abort(), normalizedTimeoutMs)
+    : null
+
+  try {
+    return await fetch(url, {
+      method,
+      headers,
+      body,
+      signal: controller?.signal,
+    })
+  } catch (error: any) {
+    if (normalizedTimeoutMs > 0 && error?.name === 'AbortError') {
+      throw new Error(`AutoAds API timeout after ${normalizedTimeoutMs}ms: ${method} ${params.path}`)
+    }
+    throw error
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle)
+    }
+  }
 }
 
 export async function fetchAutoadsJson<T = any>(params: {
@@ -162,6 +183,7 @@ export async function fetchAutoadsJson<T = any>(params: {
   method?: string
   query?: Record<string, string | number | boolean | null | undefined>
   body?: any
+  timeoutMs?: number
 }): Promise<T> {
   const response = await fetchAutoadsAsUser({
     userId: params.userId,
@@ -169,6 +191,7 @@ export async function fetchAutoadsJson<T = any>(params: {
     method: params.method,
     query: params.query,
     body: params.body,
+    timeoutMs: params.timeoutMs,
     headers: { Accept: 'application/json' },
   })
   if (!response.ok) {

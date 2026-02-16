@@ -17,6 +17,11 @@ export type OpenclawCommandTaskData = {
 type OpenclawExecutorDb = Awaited<ReturnType<typeof getDatabase>>
 
 const MAX_BODY_LENGTH = 20000
+const OPENCLAW_COMMAND_UPSTREAM_TIMEOUT_MS = (() => {
+  const parsed = Number.parseInt(String(process.env.OPENCLAW_COMMAND_UPSTREAM_TIMEOUT_MS || '').trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 120000
+  return parsed
+})()
 
 function truncateBody(value: string | null | undefined): string | null {
   if (!value) return null
@@ -755,6 +760,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       method: run.request_method,
       query: requestQuery,
       body: requestBody,
+      timeoutMs: OPENCLAW_COMMAND_UPSTREAM_TIMEOUT_MS,
       headers: {
         Accept: 'application/json',
       },
