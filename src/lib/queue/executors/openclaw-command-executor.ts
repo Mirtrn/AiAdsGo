@@ -6,13 +6,15 @@ import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { inferNegativeKeywordMatchType, normalizeMatchType } from '@/lib/campaign-publish/negative-keyword-match-type'
-import { normalizeCampaignPublishCampaignConfig } from '@/lib/openclaw/commands/payload-policy'
+import { normalizeCampaignPublishCampaignConfig } from '@/lib/autoads-request-normalizers'
 
 export type OpenclawCommandTaskData = {
   runId: string
   userId: number
   trigger?: 'direct' | 'confirm' | 'retry'
 }
+
+type OpenclawExecutorDb = Awaited<ReturnType<typeof getDatabase>>
 
 const MAX_BODY_LENGTH = 20000
 
@@ -236,7 +238,7 @@ function buildNormalizedNegativeKeywordMatchTypeMap(params: {
 }
 
 async function resolvePublishOfferContext(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   offerId: number | null
 }): Promise<{ url: string; targetCountry: string; targetLanguage: string } | null> {
@@ -263,7 +265,7 @@ async function resolvePublishOfferContext(params: {
 }
 
 async function resolvePublishAccountCurrency(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   rawAccountId: unknown
 }): Promise<string | null> {
@@ -307,7 +309,7 @@ function isCampaignPublishCommand(method: string, path: string): boolean {
 }
 
 async function hydrateCampaignPublishRequestBody(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   method: string
   path: string
@@ -435,8 +437,8 @@ async function hydrateCampaignPublishRequestBody(params: {
     dbCreative: {
       headlines: [],
       descriptions: [],
-      keywords: creative?.keywords || [],
-      negativeKeywords: creative?.negative_keywords || [],
+      keywords: (creative?.keywords as any) || [],
+      negativeKeywords: (creative?.negative_keywords as any) || [],
       callouts: [],
       sitelinks: [],
       finalUrl: finalUrlCandidate || '',
@@ -504,7 +506,7 @@ function extractOfferIdFromClickFarmBody(body: unknown): number | null {
 }
 
 async function hasEnabledCampaignForOffer(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   offerId: number
 }): Promise<boolean> {
@@ -528,7 +530,7 @@ async function hasEnabledCampaignForOffer(params: {
 }
 
 async function hasRecentSuccessfulPublishForOffer(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   offerId: number
 }): Promise<boolean> {
@@ -564,7 +566,7 @@ async function hasRecentSuccessfulPublishForOffer(params: {
 }
 
 async function assertClickFarmTaskPrerequisites(params: {
-  db: any
+  db: OpenclawExecutorDb
   userId: number
   method: string
   path: string

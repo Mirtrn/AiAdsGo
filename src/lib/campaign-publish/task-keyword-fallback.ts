@@ -9,7 +9,7 @@ export type CampaignKeywordConfigItem =
 interface ResolveTaskKeywordParams {
   configuredKeywords: unknown
   configuredNegativeKeywords: unknown
-  fallbackKeywords: string[]
+  fallbackKeywords: CampaignKeywordConfigItem[]
   fallbackNegativeKeywords: string[]
 }
 

@@ -12,6 +12,7 @@ import { getAllProxyUrls } from '@/lib/settings';
 import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getQueueRoutingDiagnostics } from '@/lib/queue/queue-routing';
 import { isBackgroundWorkerAlive, getBackgroundWorkerHeartbeatKey } from '@/lib/queue/background-worker-heartbeat';
+import { normalizeClickFarmTaskRequestBody } from '@/lib/autoads-request-normalizers';
 
 /**
  * POST - 创建补点击任务
@@ -42,6 +43,10 @@ export async function POST(request: NextRequest) {
     let body: CreateClickFarmTaskRequest;
     try {
       body = JSON.parse(rawBody) as CreateClickFarmTaskRequest;
+      const normalizedBody = normalizeClickFarmTaskRequestBody(body);
+      if (normalizedBody) {
+        body = normalizedBody as CreateClickFarmTaskRequest;
+      }
     } catch (parseError) {
       console.error('[CreateClickFarmTask] JSON解析失败:', parseError);
       console.error('[CreateClickFarmTask] 原始请求体:', rawBody);

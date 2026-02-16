@@ -31,6 +31,7 @@ import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creativ
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
+import { normalizeCampaignPublishRequestBody } from '@/lib/autoads-request-normalizers'
 
 const SINGLE_BRAND_PER_ACCOUNT_ENFORCED = (
   process.env.CAMPAIGN_PUBLISH_ENFORCE_SINGLE_BRAND_PER_ACCOUNT
@@ -167,7 +168,8 @@ export async function POST(request: NextRequest) {
     const userId = authResult.user.userId
 
     // 2. 解析请求体 - 🔧 修复(2025-12-11): 接受camelCase字段名
-    const body = await request.json()
+    const rawBody = await request.json()
+    const body = normalizeCampaignPublishRequestBody(rawBody) || rawBody
     const {
       // 支持camelCase（推荐）
       offerId,

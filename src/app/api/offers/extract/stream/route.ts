@@ -22,6 +22,7 @@ import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
+import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 900 // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -55,7 +56,8 @@ export async function POST(req: NextRequest) {
     const userIdNum = parseInt(userId, 10)
 
     // 2. 解析请求参数
-    const body = await req.json()
+    const rawBody = await req.json()
+    const body = normalizeOfferExtractRequestBody(rawBody) || rawBody
     const {
       affiliate_link,
       target_country,

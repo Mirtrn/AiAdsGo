@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
+import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
 
 export const maxDuration = 120
 
@@ -49,7 +50,8 @@ export async function POST(req: NextRequest) {
     const userIdNum = parseInt(userId, 10)
 
     // 2. 解析请求参数
-    const body = await req.json()
+    const rawBody = await req.json()
+    const body = normalizeOfferExtractRequestBody(rawBody) || rawBody
     // 🔥 修复（2025-12-08）：添加product_price和commission_payout参数支持
     const {
       affiliate_link,

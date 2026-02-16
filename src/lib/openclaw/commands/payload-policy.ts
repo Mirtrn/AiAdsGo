@@ -1,3 +1,9 @@
+import {
+  normalizeCampaignPublishRequestBody,
+  normalizeClickFarmTaskRequestBody,
+  normalizeOfferExtractRequestBody,
+} from '@/lib/autoads-request-normalizers'
+
 type PlainObject = Record<string, any>
 
 type RoutePayloadPolicy = {
@@ -48,18 +54,6 @@ function isPlainObject(value: unknown): value is PlainObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isTruthyFlag(value: unknown): boolean {
-  if (value === true || value === 1 || value === '1') {
-    return true
-  }
-
-  if (typeof value === 'string') {
-    return value.trim().toLowerCase() === 'true'
-  }
-
-  return false
-}
-
 function isMissingRequiredValue(value: unknown): boolean {
   if (value === undefined || value === null) {
     return true
@@ -72,151 +66,9 @@ function isMissingRequiredValue(value: unknown): boolean {
   return false
 }
 
-function toSafeNumber(value: unknown): number | undefined {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, key: string): string[] {
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
-
-const PUBLISH_CAMPAIGN_CONFIG_ALIAS_MAP: Readonly<Record<string, string>> = {
-  campaign_name: 'campaignName',
-  ad_group_name: 'adGroupName',
-  ad_name: 'adName',
-  budget_amount: 'budgetAmount',
-  budget_type: 'budgetType',
-  target_country: 'targetCountry',
-  target_language: 'targetLanguage',
-  bidding_strategy: 'biddingStrategy',
-  marketing_objective: 'marketingObjective',
-  final_url_suffix: 'finalUrlSuffix',
-  final_urls: 'finalUrls',
-  max_cpc_bid: 'maxCpcBid',
-  negative_keywords: 'negativeKeywords',
-  negative_keywords_match_type: 'negativeKeywordMatchType',
-  negative_keyword_match_type: 'negativeKeywordMatchType',
-}
-
-const SUPPORTED_KEYWORD_MATCH_TYPES = new Set(['EXACT', 'PHRASE', 'BROAD'])
-
-function normalizePublishKeywordEntries(value: unknown): unknown {
-  if (!Array.isArray(value)) {
-    return value
-  }
-
-  const normalizedEntries = value
-    .map((entry) => {
-      if (typeof entry === 'string') {
-        const text = entry.trim()
-        return text ? text : null
-      }
-
-      if (!isPlainObject(entry)) {
-        return null
-      }
-
-      const normalizedEntry: PlainObject = { ...entry }
-      const textCandidate = typeof normalizedEntry.text === 'string'
-        ? normalizedEntry.text
-        : (typeof normalizedEntry.keyword === 'string' ? normalizedEntry.keyword : '')
-      const normalizedText = textCandidate.trim()
-      if (!normalizedText) {
-        return null
-      }
-
-      normalizedEntry.text = normalizedText
-      delete normalizedEntry.keyword
-
-      const normalizedMatchType = typeof normalizedEntry.matchType === 'string'
-        ? normalizedEntry.matchType.trim().toUpperCase()
-        : ''
-      if (normalizedMatchType && SUPPORTED_KEYWORD_MATCH_TYPES.has(normalizedMatchType)) {
-        normalizedEntry.matchType = normalizedMatchType
-      }
-
-      return normalizedEntry
-    })
-    .filter((entry) => entry !== null)
-
-  return normalizedEntries
-}
-
-function normalizePublishNegativeKeywords(value: unknown): unknown {
-  if (!Array.isArray(value)) {
-    return value
-  }
-
-  const seen = new Set<string>()
-  const normalized: string[] = []
-
-  for (const entry of value) {
-    let text = ''
-    if (typeof entry === 'string') {
-      text = entry.trim()
-    } else if (isPlainObject(entry)) {
-      const candidate = typeof entry.text === 'string'
-        ? entry.text
-        : (typeof entry.keyword === 'string' ? entry.keyword : '')
-      text = candidate.trim()
-    }
-
-    if (!text) continue
-
-    const dedupeKey = text.toLowerCase()
-    if (seen.has(dedupeKey)) continue
-    seen.add(dedupeKey)
-    normalized.push(text)
-  }
-
-  return normalized
-}
-
-function normalizePublishFinalUrls(value: unknown): unknown {
-  if (!Array.isArray(value)) {
-    return value
-  }
-
-  return value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter((entry) => entry.length > 0)
-}
-
-export function normalizeCampaignPublishCampaignConfig(value: unknown): PlainObject | undefined {
-  if (!isPlainObject(value)) {
-    return undefined
-  }
-
-  const source = value as PlainObject
-  const normalized: PlainObject = {
-    ...source,
-  }
-
-  for (const [alias, canonical] of Object.entries(PUBLISH_CAMPAIGN_CONFIG_ALIAS_MAP)) {
-    if (normalized[canonical] === undefined && source[alias] !== undefined) {
-      normalized[canonical] = source[alias]
-    }
-    if (alias !== canonical) {
-      delete normalized[alias]
-    }
-  }
-
-  normalized.keywords = normalizePublishKeywordEntries(normalized.keywords)
-  normalized.negativeKeywords = normalizePublishNegativeKeywords(normalized.negativeKeywords)
-  normalized.finalUrls = normalizePublishFinalUrls(normalized.finalUrls)
-
-  return normalized
-}
-
-const PUBLISH_FORCE_KEYS = [
-  'forcePublish',
-  'force_publish',
-  'forceLaunch',
-  'force_launch',
-  'skipLaunchScore',
-  'skip_launch_score',
-]
 
 const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
   {
@@ -250,30 +102,8 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_launch_score: 'forcePublish',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const hasForce = PUBLISH_FORCE_KEYS.some((key) => sourceBody[key] !== undefined)
-      if (hasForce) {
-        normalizedBody.forcePublish = PUBLISH_FORCE_KEYS.some((key) => isTruthyFlag(sourceBody[key]))
-      }
-
-      if (normalizedBody.pauseOldCampaigns === undefined) {
-        normalizedBody.pauseOldCampaigns = false
-      }
-      if (normalizedBody.enableCampaignImmediately === undefined) {
-        normalizedBody.enableCampaignImmediately = false
-      }
-      if (normalizedBody.enableSmartOptimization === undefined) {
-        normalizedBody.enableSmartOptimization = false
-      }
-      if (normalizedBody.variantCount === undefined) {
-        normalizedBody.variantCount = 3
-      }
-
-      const normalizedCampaignConfig = normalizeCampaignPublishCampaignConfig(normalizedBody.campaignConfig)
-      if (normalizedCampaignConfig) {
-        normalizedBody.campaignConfig = normalizedCampaignConfig
-      }
-
-      return normalizedBody
+      const normalized = normalizeCampaignPublishRequestBody(sourceBody)
+      return normalized || normalizedBody
     },
   },
   {
@@ -301,34 +131,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       hourlyDistribution: 'hourly_distribution',
       refererConfig: 'referer_config',
     },
-    normalize: ({ normalizedBody }) => {
-      const normalizedDailyClicks = toSafeNumber(normalizedBody.daily_click_count)
-      normalizedBody.daily_click_count = normalizedDailyClicks && normalizedDailyClicks > 0
-        ? Math.floor(normalizedDailyClicks)
-        : 216
-
-      if (!isMissingRequiredValue(normalizedBody.start_time)) {
-        normalizedBody.start_time = String(normalizedBody.start_time).trim()
-      } else {
-        normalizedBody.start_time = '06:00'
-      }
-
-      if (!isMissingRequiredValue(normalizedBody.end_time)) {
-        normalizedBody.end_time = String(normalizedBody.end_time).trim()
-      } else {
-        normalizedBody.end_time = '24:00'
-      }
-
-      const normalizedDuration = toSafeNumber(normalizedBody.duration_days)
-      normalizedBody.duration_days = normalizedDuration !== undefined
-        ? Math.floor(normalizedDuration)
-        : 14
-
-      if (!isPlainObject(normalizedBody.referer_config)) {
-        normalizedBody.referer_config = { type: 'none' }
-      }
-
-      return normalizedBody
+    normalize: ({ sourceBody, normalizedBody }) => {
+      const normalized = normalizeClickFarmTaskRequestBody(sourceBody)
+      return normalized || normalizedBody
     },
   },
   {
@@ -359,23 +164,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_cache: 'skipCache',
       skip_warmup: 'skipWarmup',
     },
-    normalize: ({ normalizedBody }) => {
-      if (isMissingRequiredValue(normalizedBody.target_country)) {
-        normalizedBody.target_country = 'US'
-      }
-
-      if (isMissingRequiredValue(normalizedBody.page_type)) {
-        normalizedBody.page_type = 'product'
-      }
-
-      normalizedBody.skipCache = normalizedBody.skipCache !== undefined
-        ? isTruthyFlag(normalizedBody.skipCache)
-        : false
-      normalizedBody.skipWarmup = normalizedBody.skipWarmup !== undefined
-        ? isTruthyFlag(normalizedBody.skipWarmup)
-        : false
-
-      return normalizedBody
+    normalize: ({ sourceBody, normalizedBody }) => {
+      const normalized = normalizeOfferExtractRequestBody(sourceBody)
+      return normalized || normalizedBody
     },
   },
   {
@@ -406,23 +197,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_cache: 'skipCache',
       skip_warmup: 'skipWarmup',
     },
-    normalize: ({ normalizedBody }) => {
-      if (isMissingRequiredValue(normalizedBody.target_country)) {
-        normalizedBody.target_country = 'US'
-      }
-
-      if (isMissingRequiredValue(normalizedBody.page_type)) {
-        normalizedBody.page_type = 'product'
-      }
-
-      normalizedBody.skipCache = normalizedBody.skipCache !== undefined
-        ? isTruthyFlag(normalizedBody.skipCache)
-        : false
-      normalizedBody.skipWarmup = normalizedBody.skipWarmup !== undefined
-        ? isTruthyFlag(normalizedBody.skipWarmup)
-        : false
-
-      return normalizedBody
+    normalize: ({ sourceBody, normalizedBody }) => {
+      const normalized = normalizeOfferExtractRequestBody(sourceBody)
+      return normalized || normalizedBody
     },
   },
   {
