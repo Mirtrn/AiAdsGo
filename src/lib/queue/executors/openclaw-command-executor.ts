@@ -5,6 +5,7 @@ import { fetchAutoadsAsUser } from '@/lib/openclaw/autoads-client'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
+import { inferNegativeKeywordMatchType, normalizeMatchType } from '@/lib/campaign-publish/negative-keyword-match-type'
 import { normalizeCampaignPublishCampaignConfig } from '@/lib/openclaw/commands/payload-policy'
 
 export type OpenclawCommandTaskData = {
@@ -43,6 +44,37 @@ function parseJsonAny(value: string | null | undefined): any {
 }
 
 const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
+const MAX_INT32 = 2147483647
+
+const WEB_DEFAULT_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
+  USD: 10,
+  CNY: 70,
+  EUR: 10,
+  GBP: 8,
+  JPY: 1500,
+  KRW: 13000,
+  AUD: 15,
+  CAD: 14,
+  HKD: 78,
+  TWD: 315,
+  SGD: 13,
+  INR: 830,
+}
+
+const WEB_DEFAULT_CPC_BY_CURRENCY: Record<string, number> = {
+  USD: 0.17,
+  CNY: 1.2,
+  EUR: 0.16,
+  GBP: 0.13,
+  JPY: 25,
+  KRW: 220,
+  AUD: 0.26,
+  CAD: 0.24,
+  HKD: 1.3,
+  TWD: 5.4,
+  SGD: 0.23,
+  INR: 14,
+}
 
 function toPositiveInteger(value: unknown): number | null {
   const parsed = Number(value)
@@ -51,8 +83,223 @@ function toPositiveInteger(value: unknown): number | null {
   return normalized > 0 ? normalized : null
 }
 
+function toSafePositiveInt32(value: unknown): number | null {
+  const normalized = toPositiveInteger(value)
+  if (!normalized) return null
+  return normalized <= MAX_INT32 ? normalized : null
+}
+
 function isPlainObject(value: unknown): value is Record<string, any> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isPositiveNumber(value: unknown): boolean {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0
+}
+
+function normalizeCurrencyCode(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toUpperCase() : ''
+}
+
+function getWebDefaultDailyBudget(currency: unknown): number {
+  return WEB_DEFAULT_DAILY_BUDGET_BY_CURRENCY[normalizeCurrencyCode(currency)] || 10
+}
+
+function getWebDefaultCpc(currency: unknown): number {
+  return WEB_DEFAULT_CPC_BY_CURRENCY[normalizeCurrencyCode(currency)] || 0.17
+}
+
+function ensureStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item.trim()
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>
+        const candidate = typeof obj.text === 'string' ? obj.text : (typeof obj.keyword === 'string' ? obj.keyword : '')
+        return candidate.trim()
+      }
+      return ''
+    })
+    .filter((item) => item.length > 0)
+}
+
+function parseJsonArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function buildWebDefaultKeywords(params: {
+  keywordsWithVolume: unknown
+  keywords: unknown
+}): Array<Record<string, any>> {
+  const candidateKeywordsWithVolume = parseJsonArray(params.keywordsWithVolume)
+  const candidateKeywords = parseJsonArray(params.keywords)
+  const source = candidateKeywordsWithVolume.length > 0 ? candidateKeywordsWithVolume : candidateKeywords
+  if (source.length === 0) return []
+
+  const validMatchTypes = new Set(['EXACT', 'PHRASE', 'BROAD', 'BROAD_MATCH_MODIFIER'])
+  const normalizedKeywords: Array<Record<string, any>> = []
+  const dedupe = new Set<string>()
+
+  source.forEach((entry, index) => {
+    let text = ''
+    let matchType = ''
+    let searchVolume: unknown
+    let lowTopPageBid: unknown
+    let highTopPageBid: unknown
+
+    if (typeof entry === 'string') {
+      text = entry.trim()
+    } else if (entry && typeof entry === 'object') {
+      const obj = entry as Record<string, unknown>
+      const textCandidate = typeof obj.keyword === 'string' ? obj.keyword : (typeof obj.text === 'string' ? obj.text : '')
+      text = textCandidate.trim()
+      matchType = typeof obj.matchType === 'string' ? obj.matchType.trim().toUpperCase() : ''
+      searchVolume = obj.searchVolume
+      lowTopPageBid = obj.lowTopPageBid
+      highTopPageBid = obj.highTopPageBid
+    }
+
+    if (!text) return
+    const dedupeKey = text.toLowerCase()
+    if (dedupe.has(dedupeKey)) return
+    dedupe.add(dedupeKey)
+
+    const normalizedMatchType = validMatchTypes.has(matchType) ? matchType : (index === 0 ? 'EXACT' : 'PHRASE')
+    const normalizedEntry: Record<string, any> = {
+      text,
+      matchType: normalizedMatchType,
+    }
+
+    if (isPositiveNumber(searchVolume)) normalizedEntry.searchVolume = Number(searchVolume)
+    if (isPositiveNumber(lowTopPageBid)) normalizedEntry.lowTopPageBid = Number(lowTopPageBid)
+    if (isPositiveNumber(highTopPageBid)) normalizedEntry.highTopPageBid = Number(highTopPageBid)
+
+    normalizedKeywords.push(normalizedEntry)
+  })
+
+  return normalizedKeywords
+}
+
+function buildWebDefaultNegativeKeywords(value: unknown): string[] {
+  const dedupe = new Set<string>()
+  const normalized: string[] = []
+
+  for (const keyword of ensureStringArray(parseJsonArray(value))) {
+    const key = keyword.toLowerCase()
+    if (dedupe.has(key)) continue
+    dedupe.add(key)
+    normalized.push(keyword)
+  }
+
+  return normalized
+}
+
+function buildDefaultNegativeKeywordMatchTypeMap(keywords: string[]): Record<string, string> {
+  const map: Record<string, string> = {}
+  keywords.forEach((keyword) => {
+    map[keyword] = inferNegativeKeywordMatchType(keyword)
+  })
+  return map
+}
+
+function buildNormalizedNegativeKeywordMatchTypeMap(params: {
+  keywords: string[]
+  currentMap: unknown
+}): Record<string, string> {
+  const sourceMap = isPlainObject(params.currentMap)
+    ? (params.currentMap as Record<string, unknown>)
+    : {}
+
+  const normalizedMap: Record<string, string> = {}
+  params.keywords.forEach((keyword) => {
+    const candidate = sourceMap[keyword]
+      ?? sourceMap[keyword.toLowerCase()]
+      ?? sourceMap[keyword.toUpperCase()]
+    const normalized = normalizeMatchType(typeof candidate === 'string' ? candidate : null)
+    normalizedMap[keyword] = normalized || inferNegativeKeywordMatchType(keyword)
+  })
+
+  return normalizedMap
+}
+
+async function resolvePublishOfferContext(params: {
+  db: any
+  userId: number
+  offerId: number | null
+}): Promise<{ url: string; targetCountry: string; targetLanguage: string } | null> {
+  if (!params.offerId) return null
+
+  const row = await params.db.queryOne<{
+    url: string | null
+    target_country: string | null
+    target_language: string | null
+  }>(
+    `SELECT url, target_country, target_language
+     FROM offers
+     WHERE id = ? AND user_id = ?
+     LIMIT 1`,
+    [params.offerId, params.userId]
+  )
+
+  if (!row) return null
+  return {
+    url: typeof row.url === 'string' ? row.url : '',
+    targetCountry: typeof row.target_country === 'string' ? row.target_country : '',
+    targetLanguage: typeof row.target_language === 'string' ? row.target_language : '',
+  }
+}
+
+async function resolvePublishAccountCurrency(params: {
+  db: any
+  userId: number
+  rawAccountId: unknown
+}): Promise<string | null> {
+  const raw = String(params.rawAccountId ?? '').trim().replace(/\s+/g, '')
+  if (!raw) return null
+
+  const accountId = toSafePositiveInt32(raw)
+  const notDeletedCondition = params.db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  if (accountId) {
+    const byId = await params.db.queryOne<{ currency: string | null }>(
+      `SELECT currency
+       FROM google_ads_accounts
+       WHERE id = ? AND user_id = ? AND ${notDeletedCondition}
+       LIMIT 1`,
+      [accountId, params.userId]
+    )
+    if (byId?.currency) {
+      return byId.currency
+    }
+  }
+
+  const customerId = raw.replace(/-/g, '')
+  if (!customerId) return null
+
+  const byCustomerId = await params.db.queryOne<{ currency: string | null }>(
+    `SELECT currency
+     FROM google_ads_accounts
+     WHERE customer_id = ? AND user_id = ? AND ${notDeletedCondition}
+     LIMIT 1`,
+    [customerId, params.userId]
+  )
+
+  return byCustomerId?.currency || null
 }
 
 function isCampaignPublishCommand(method: string, path: string): boolean {
@@ -90,72 +337,121 @@ async function hydrateCampaignPublishRequestBody(params: {
     normalizedBody.campaign_config = campaignConfig
   }
 
-  const configuredNegativeKeywords =
-    campaignConfig.negativeKeywords !== undefined
-      ? campaignConfig.negativeKeywords
-      : campaignConfig.negative_keywords
-
-  const probe = resolveTaskCampaignKeywords({
-    configuredKeywords: campaignConfig.keywords,
-    configuredNegativeKeywords,
-    fallbackKeywords: [],
-    fallbackNegativeKeywords: [],
-  })
-
-  if (!probe.usedKeywordFallback && !probe.usedNegativeKeywordFallback) {
-    return { body: normalizedBody, hydrated: true }
-  }
-
   const offerId = toPositiveInteger(normalizedBody.offerId ?? normalizedBody.offer_id)
   const adCreativeId = toPositiveInteger(normalizedBody.adCreativeId ?? normalizedBody.ad_creative_id)
-  if (!offerId || !adCreativeId) {
-    return { body: normalizedBody, hydrated: true }
+  const rawGoogleAdsAccountId = normalizedBody.googleAdsAccountId ?? normalizedBody.google_ads_account_id
+
+  const [offerContext, accountCurrency] = await Promise.all([
+    resolvePublishOfferContext({
+      db: params.db,
+      userId: params.userId,
+      offerId,
+    }),
+    resolvePublishAccountCurrency({
+      db: params.db,
+      userId: params.userId,
+      rawAccountId: rawGoogleAdsAccountId,
+    }),
+  ])
+
+  const creative = (offerId && adCreativeId)
+    ? await params.db.queryOne<{
+        id: number
+        keywords: unknown
+        keywords_with_volume: unknown
+        negative_keywords: unknown
+        final_url: string | null
+        final_url_suffix: string | null
+      }>(
+        `SELECT id, keywords, keywords_with_volume, negative_keywords, final_url, final_url_suffix
+         FROM ad_creatives
+         WHERE id = ? AND offer_id = ? AND user_id = ?
+         LIMIT 1`,
+        [adCreativeId, offerId, params.userId]
+      )
+    : null
+
+  const hydratedCampaignConfig: Record<string, any> = {
+    ...campaignConfig,
   }
 
-  const creative = await params.db.queryOne<{
-    id: number
-    keywords: unknown
-    negative_keywords: unknown
-  }>(
-    `SELECT id, keywords, negative_keywords
-     FROM ad_creatives
-     WHERE id = ? AND offer_id = ? AND user_id = ?
-     LIMIT 1`,
-    [adCreativeId, offerId, params.userId]
-  )
-
-  if (!creative) {
-    return { body: normalizedBody, hydrated: true }
+  if (!isPositiveNumber(hydratedCampaignConfig.budgetAmount)) {
+    hydratedCampaignConfig.budgetAmount = getWebDefaultDailyBudget(accountCurrency)
   }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.budgetType)) {
+    hydratedCampaignConfig.budgetType = 'DAILY'
+  }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.targetCountry)) {
+    hydratedCampaignConfig.targetCountry = offerContext?.targetCountry || 'US'
+  }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.targetLanguage)) {
+    hydratedCampaignConfig.targetLanguage = offerContext?.targetLanguage || 'en'
+  }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.biddingStrategy)) {
+    hydratedCampaignConfig.biddingStrategy = 'MAXIMIZE_CLICKS'
+  }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.marketingObjective)) {
+    hydratedCampaignConfig.marketingObjective = 'WEB_TRAFFIC'
+  }
+
+  if (!isPositiveNumber(hydratedCampaignConfig.maxCpcBid)) {
+    hydratedCampaignConfig.maxCpcBid = getWebDefaultCpc(accountCurrency)
+  }
+
+  if (!isNonEmptyString(hydratedCampaignConfig.finalUrlSuffix)) {
+    hydratedCampaignConfig.finalUrlSuffix = isNonEmptyString(creative?.final_url_suffix)
+      ? String(creative?.final_url_suffix).trim()
+      : ''
+  }
+
+  const finalUrlCandidate = isNonEmptyString(creative?.final_url)
+    ? String(creative?.final_url).trim()
+    : (isNonEmptyString(offerContext?.url) ? String(offerContext?.url).trim() : '')
+  if ((!Array.isArray(hydratedCampaignConfig.finalUrls) || hydratedCampaignConfig.finalUrls.length === 0) && finalUrlCandidate) {
+    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
+  }
+
+  const defaultKeywords = creative
+    ? buildWebDefaultKeywords({
+        keywordsWithVolume: creative.keywords_with_volume,
+        keywords: creative.keywords,
+      })
+    : []
+  const defaultNegativeKeywords = creative
+    ? buildWebDefaultNegativeKeywords(creative.negative_keywords)
+    : []
+
+  const configuredNegativeKeywords =
+    hydratedCampaignConfig.negativeKeywords !== undefined
+      ? hydratedCampaignConfig.negativeKeywords
+      : hydratedCampaignConfig.negative_keywords
 
   const effectiveCreative = buildEffectiveCreative({
     dbCreative: {
       headlines: [],
       descriptions: [],
-      keywords: creative.keywords,
-      negativeKeywords: creative.negative_keywords,
+      keywords: creative?.keywords || [],
+      negativeKeywords: creative?.negative_keywords || [],
       callouts: [],
       sitelinks: [],
-      finalUrl: '',
-      finalUrlSuffix: null,
+      finalUrl: finalUrlCandidate || '',
+      finalUrlSuffix: creative?.final_url_suffix || null,
     },
-    campaignConfig,
+    campaignConfig: hydratedCampaignConfig,
+    offerUrlFallback: offerContext?.url || undefined,
   })
 
   const resolvedKeywordConfig = resolveTaskCampaignKeywords({
-    configuredKeywords: campaignConfig.keywords,
+    configuredKeywords: hydratedCampaignConfig.keywords,
     configuredNegativeKeywords,
-    fallbackKeywords: effectiveCreative.keywords,
-    fallbackNegativeKeywords: effectiveCreative.negativeKeywords,
+    fallbackKeywords: defaultKeywords.length > 0 ? defaultKeywords : effectiveCreative.keywords,
+    fallbackNegativeKeywords: defaultNegativeKeywords.length > 0 ? defaultNegativeKeywords : effectiveCreative.negativeKeywords,
   })
-
-  if (!resolvedKeywordConfig.usedKeywordFallback && !resolvedKeywordConfig.usedNegativeKeywordFallback) {
-    return { body: normalizedBody, hydrated: true }
-  }
-
-  const hydratedCampaignConfig: Record<string, any> = {
-    ...campaignConfig,
-  }
 
   if (resolvedKeywordConfig.usedKeywordFallback) {
     hydratedCampaignConfig.keywords = resolvedKeywordConfig.keywords
@@ -163,6 +459,18 @@ async function hydrateCampaignPublishRequestBody(params: {
 
   if (resolvedKeywordConfig.usedNegativeKeywordFallback) {
     hydratedCampaignConfig.negativeKeywords = resolvedKeywordConfig.negativeKeywords
+  }
+
+  const normalizedNegativeKeywords = ensureStringArray(hydratedCampaignConfig.negativeKeywords)
+  if (normalizedNegativeKeywords.length > 0) {
+    hydratedCampaignConfig.negativeKeywords = normalizedNegativeKeywords
+    hydratedCampaignConfig.negativeKeywordMatchType = buildNormalizedNegativeKeywordMatchTypeMap({
+      keywords: normalizedNegativeKeywords,
+      currentMap:
+        hydratedCampaignConfig.negativeKeywordMatchType
+        ?? hydratedCampaignConfig.negativeKeywordsMatchType
+        ?? buildDefaultNegativeKeywordMatchTypeMap(normalizedNegativeKeywords),
+    })
   }
 
   const hydratedBody: Record<string, any> = {
@@ -176,7 +484,7 @@ async function hydrateCampaignPublishRequestBody(params: {
 
   if (process.env.NODE_ENV !== 'test') {
     console.log(
-      `[OpenClawCommand] 补齐campaign.publish参数: offerId=${offerId}, adCreativeId=${adCreativeId}, keywords=${resolvedKeywordConfig.keywords.length}, negativeKeywords=${resolvedKeywordConfig.negativeKeywords.length}`
+      `[OpenClawCommand] 补齐campaign.publish默认参数: offerId=${offerId || '-'}, adCreativeId=${adCreativeId || '-'}, currency=${normalizeCurrencyCode(accountCurrency) || 'USD'}, keywords=${resolvedKeywordConfig.keywords.length}, negativeKeywords=${resolvedKeywordConfig.negativeKeywords.length}`
     )
   }
 

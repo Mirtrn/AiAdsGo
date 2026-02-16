@@ -242,7 +242,10 @@ describe('openclaw command executor click-farm guard', () => {
         body: expect.objectContaining({
           campaignConfig: expect.objectContaining({
             targetCountry: 'US',
-            keywords: ['sonic toothbrush', 'electric toothbrush'],
+            keywords: [
+              { text: 'sonic toothbrush', matchType: 'EXACT' },
+              { text: 'electric toothbrush', matchType: 'PHRASE' },
+            ],
             negativeKeywords: ['manual', 'free'],
           }),
         }),
@@ -252,5 +255,100 @@ describe('openclaw command executor click-farm guard', () => {
     const forwardedBody = (mocks.fetchAutoadsAsUser.mock.calls[0]?.[0] as any)?.body || {}
     expect(forwardedBody.campaignConfig?.target_country).toBeUndefined()
     expect(forwardedBody.campaignConfig?.budget_amount).toBeUndefined()
+  })
+
+  it('applies web defaults for campaign.publish when params are omitted', async () => {
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn().mockResolvedValue([]),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-pub-default-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            request_method: 'POST',
+            request_path: '/api/campaigns/publish',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              offerId: 3343,
+              adCreativeId: 4331,
+              googleAdsAccountId: 999,
+              campaignConfig: {},
+            }),
+            risk_level: 'medium',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        if (sql.includes('FROM offers')) {
+          return {
+            url: 'https://offer.example.com',
+            target_country: 'US',
+            target_language: 'en',
+          }
+        }
+
+        if (sql.includes('FROM google_ads_accounts')) {
+          return {
+            currency: 'USD',
+          }
+        }
+
+        if (sql.includes('FROM ad_creatives')) {
+          return {
+            id: 4331,
+            keywords: JSON.stringify(['fallback keyword']),
+            keywords_with_volume: JSON.stringify([
+              { keyword: 'Water Flosser' },
+              { keyword: 'Sonic Toothbrush' },
+            ]),
+            negative_keywords: JSON.stringify(['free', 'manual', 'FREE']),
+            final_url: 'https://creative.example.com',
+            final_url_suffix: 'src=openclaw',
+          }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const result = await executeOpenclawCommandTask(createTask('run-pub-default-1'))
+    expect(result.success).toBe(true)
+
+    const forwardedBody = (mocks.fetchAutoadsAsUser.mock.calls[0]?.[0] as any)?.body || {}
+    expect(forwardedBody.campaignConfig).toMatchObject({
+      budgetAmount: 10,
+      budgetType: 'DAILY',
+      targetCountry: 'US',
+      targetLanguage: 'en',
+      biddingStrategy: 'MAXIMIZE_CLICKS',
+      marketingObjective: 'WEB_TRAFFIC',
+      maxCpcBid: 0.17,
+      finalUrlSuffix: 'src=openclaw',
+      finalUrls: ['https://creative.example.com'],
+      keywords: [
+        { text: 'Water Flosser', matchType: 'EXACT' },
+        { text: 'Sonic Toothbrush', matchType: 'PHRASE' },
+      ],
+      negativeKeywords: ['free', 'manual'],
+    })
+    expect(forwardedBody.campaignConfig?.negativeKeywordMatchType?.free).toBeDefined()
+    expect(forwardedBody.campaignConfig?.negativeKeywordMatchType?.manual).toBeDefined()
   })
 })
