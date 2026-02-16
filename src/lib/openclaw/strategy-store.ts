@@ -72,6 +72,21 @@ export async function updateStrategyRun(params: {
   )
 }
 
+export async function touchStrategyRun(params: {
+  runId: string
+  userId: number
+}): Promise<void> {
+  const db = await getDatabase()
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+  await db.exec(
+    `UPDATE openclaw_strategy_runs
+     SET updated_at = ${nowFunc}
+     WHERE id = ? AND user_id = ?`,
+    [params.runId, params.userId]
+  )
+}
+
 export async function recordStrategyAction(params: {
   runId: string
   userId: number

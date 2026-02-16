@@ -775,6 +775,7 @@ export class UnifiedQueueManager {
         }
         // 队列恢复功能已移除，用户可重新提交任务
         await this.adapter.updateTaskStatus(task.id, 'failed', error.message)
+        await this.syncTaskFailureToDatabase(task, error)
       }
       } finally {
       // 减少并发计数
@@ -805,6 +806,41 @@ export class UnifiedQueueManager {
       }
       }
     })
+  }
+
+  /**
+   * 将队列层失败同步回业务数据库，避免业务任务长期停留在 running 状态。
+   * 目前仅对 offer-extraction 做强一致兜底。
+   */
+  private async syncTaskFailureToDatabase(task: Task, error: any): Promise<void> {
+    if (task.type !== 'offer-extraction') {
+      return
+    }
+
+    try {
+      const { getDatabase } = await import('@/lib/db')
+      const db = getDatabase()
+      const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      const message = error?.message || '任务执行失败'
+      const errorPayload = JSON.stringify({
+        message,
+        source: 'queue-manager',
+      })
+
+      await db.exec(
+        `UPDATE offer_tasks
+         SET status = 'failed',
+             message = ?,
+             error = ?,
+             completed_at = COALESCE(completed_at, ${nowSql}),
+             updated_at = ${nowSql}
+         WHERE id = ?
+           AND status IN ('pending', 'running')`,
+        [message, errorPayload, task.id]
+      )
+    } catch (syncError: any) {
+      console.warn(`⚠️ 同步 offer_tasks 失败状态失败: ${task.id}: ${syncError?.message || syncError}`)
+    }
   }
 
   /**
@@ -1087,15 +1123,20 @@ export class UnifiedQueueManager {
 
       // 将超时任务标记为 failed
       const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
+      const timeoutErrorJson = JSON.stringify({
+        timeout: true,
+        message: 'Task timeout - no heartbeat received',
+      })
       const updateResult = await db.exec(`
         UPDATE offer_tasks
         SET status = 'failed',
             message = '任务超时',
-            error = jsonb_build_object('timeout', true, 'message', 'Task timeout - no heartbeat received'),
+            error = ?,
+            completed_at = COALESCE(completed_at, ${nowFunc}),
             updated_at = ${nowFunc}
         WHERE status = 'running'
           AND started_at < ${timeoutThreshold}
-      `, [])
+      `, [timeoutErrorJson])
 
       // 如果有超时的 batch 任务，一并处理
       const staleBatchIds = [...new Set(staleTasks.filter(t => t.batch_id).map(t => t.batch_id!))]

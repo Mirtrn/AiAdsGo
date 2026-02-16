@@ -94,6 +94,29 @@ function computeAveragePriceFromStrings(prices: Array<unknown>): string | undefi
   return avg > 0 ? avg.toFixed(2) : undefined
 }
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+  })
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 function deriveFallbackProductInfoFromExtractData(extractData: any): {
   brandDescription?: string
   uniqueSellingPoints?: string
@@ -422,27 +445,66 @@ export async function executeOfferExtraction(
     `, [task.id])
 
     let aiAnalysisResult = null
+    const aiAnalysisTimeoutMs = parsePositiveIntEnv(
+      process.env.OFFER_AI_ANALYSIS_TIMEOUT_MS,
+      8 * 60 * 1000
+    )
+    const aiAnalysisHeartbeatMs = parsePositiveIntEnv(
+      process.env.OFFER_AI_ANALYSIS_HEARTBEAT_MS,
+      15000
+    )
+    const aiAnalysisStartedAt = Date.now()
+    let aiAnalysisHeartbeatTimer: NodeJS.Timeout | null = null
+
+    const updateAiAnalysisHeartbeat = async () => {
+      const elapsedSeconds = Math.floor((Date.now() - aiAnalysisStartedAt) / 1000)
+      await db.exec(`
+        UPDATE offer_tasks
+        SET stage = 'ai_analysis',
+            message = ?,
+            progress = 90,
+            updated_at = ${nowFunc}
+        WHERE id = ?
+      `, [`正在进行AI分析... (${elapsedSeconds}s)`, task.id])
+    }
+
     try {
+      await updateAiAnalysisHeartbeat()
+      aiAnalysisHeartbeatTimer = setInterval(() => {
+        void updateAiAnalysisHeartbeat().catch((heartbeatError: any) => {
+          console.warn(`⚠️ AI分析心跳更新失败: ${task.id}:`, heartbeatError?.message || heartbeatError)
+        })
+      }, aiAnalysisHeartbeatMs)
+
       const targetLanguage = getTargetLanguage(targetCountry)
 
-      aiAnalysisResult = await executeAIAnalysis({
-        extractResult: extractResult.data,
-        targetCountry,
-        targetLanguage,
-        userId: task.userId,
-        enableReviewAnalysis: true,
-        enableCompetitorAnalysis: true,
-        enableAdExtraction: true,
-        // 🔥 修复（2025-12-08）：所有offer-extraction任务都启用Playwright深度抓取
-        // 不再区分是否为批量任务，确保与手动创建流程(performScrapeAndAnalysis)完全一致
-        // 抓取30条真实评论 + 5个真实竞品
-        enablePlaywrightDeepScraping: true,
-      })
+      aiAnalysisResult = await withTimeout(
+        executeAIAnalysis({
+          extractResult: extractResult.data,
+          targetCountry,
+          targetLanguage,
+          userId: task.userId,
+          enableReviewAnalysis: true,
+          enableCompetitorAnalysis: true,
+          enableAdExtraction: true,
+          // 🔥 修复（2025-12-08）：所有offer-extraction任务都启用Playwright深度抓取
+          // 不再区分是否为批量任务，确保与手动创建流程(performScrapeAndAnalysis)完全一致
+          // 抓取30条真实评论 + 5个真实竞品
+          enablePlaywrightDeepScraping: true,
+        }),
+        aiAnalysisTimeoutMs,
+        `AI分析超时（>${Math.floor(aiAnalysisTimeoutMs / 1000)}秒）`
+      )
 
       console.log(`✅ AI分析完成: ${task.id}`)
     } catch (aiError: any) {
       console.warn(`⚠️ AI分析失败（不影响流程）: ${task.id}:`, aiError.message)
       // AI分析失败不中断流程，继续保存基础数据
+    } finally {
+      if (aiAnalysisHeartbeatTimer) {
+        clearInterval(aiAnalysisHeartbeatTimer)
+        aiAnalysisHeartbeatTimer = null
+      }
     }
 
     // 🔥 独立站增强：合并Google品牌词搜索补充数据到“已提取广告元素”维度中

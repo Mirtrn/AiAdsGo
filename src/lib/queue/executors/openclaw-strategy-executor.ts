@@ -2,7 +2,7 @@ import type { Task } from '../types'
 import { getDatabase } from '@/lib/db'
 import { fetchAutoadsJson } from '@/lib/openclaw/autoads-client'
 import { getOpenclawStrategyConfig, type OpenclawStrategyConfig } from '@/lib/openclaw/strategy-config'
-import { createStrategyRun, recordStrategyAction, updateStrategyAction, updateStrategyRun } from '@/lib/openclaw/strategy-store'
+import { createStrategyRun, recordStrategyAction, touchStrategyRun, updateStrategyAction, updateStrategyRun } from '@/lib/openclaw/strategy-store'
 import { fetchPartnerboostAssociates, fetchPartnerboostLinkByAsin } from '@/lib/openclaw/affiliate'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
@@ -191,6 +191,13 @@ function formatLocalDate(date: Date): string {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -1584,6 +1591,36 @@ export async function executeOpenclawStrategy(
     startedAt: nowIso,
   })
 
+  const strategyHeartbeatMs = parsePositiveIntEnv(
+    process.env.OPENCLAW_STRATEGY_HEARTBEAT_MS,
+    15000
+  )
+  const strategyStartedAt = Date.now()
+  let strategyHeartbeatTimer: NodeJS.Timeout | null = null
+  let lastHeartbeatLogAt = 0
+
+  const sendStrategyHeartbeat = async () => {
+    await touchStrategyRun({ runId, userId })
+    const now = Date.now()
+    if (now - lastHeartbeatLogAt >= 60000) {
+      lastHeartbeatLogAt = now
+      const elapsedSeconds = Math.floor((now - strategyStartedAt) / 1000)
+      console.log(`💓 OpenClaw策略运行心跳: runId=${runId}, elapsed=${elapsedSeconds}s`)
+    }
+  }
+
+  try {
+    await sendStrategyHeartbeat()
+  } catch (heartbeatError: any) {
+    console.warn(`⚠️ OpenClaw策略初始心跳更新失败: runId=${runId}: ${heartbeatError?.message || heartbeatError}`)
+  }
+
+  strategyHeartbeatTimer = setInterval(() => {
+    void sendStrategyHeartbeat().catch((heartbeatError: any) => {
+      console.warn(`⚠️ OpenClaw策略心跳更新失败: runId=${runId}: ${heartbeatError?.message || heartbeatError}`)
+    })
+  }, strategyHeartbeatMs)
+
   const enforceAutoadsOnly = config.enforceAutoadsOnly !== false
   const shouldAutoPauseConflicts = config.enableAutoPause || enforceAutoadsOnly
 
@@ -2879,5 +2916,10 @@ export async function executeOpenclawStrategy(
       completedAt: new Date().toISOString(),
     })
     return { success: false, runId }
+  } finally {
+    if (strategyHeartbeatTimer) {
+      clearInterval(strategyHeartbeatTimer)
+      strategyHeartbeatTimer = null
+    }
   }
 }

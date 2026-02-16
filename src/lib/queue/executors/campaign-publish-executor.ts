@@ -48,6 +48,13 @@ function describeLoginCustomerId(value: string | undefined): string {
   return value || 'null(omit)'
 }
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
 /**
  * 广告系列发布任务数据接口
  */
@@ -256,6 +263,61 @@ export async function executeCampaignPublish(
   let apiSuccess = false
   let apiErrorMessage: string | undefined
   let totalApiOperations = 0
+  const nowExpr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const campaignPublishHeartbeatMs = parsePositiveIntEnv(
+    process.env.CAMPAIGN_PUBLISH_HEARTBEAT_MS,
+    15000
+  )
+  const campaignPublishStartedAt = Date.now()
+  let lastHeartbeatLogAt = 0
+  let lastHeartbeatStage = ''
+
+  const touchCampaignHeartbeat = async (stage: string) => {
+    await db.exec(
+      `
+        UPDATE campaigns
+        SET updated_at = ${nowExpr}
+        WHERE id = ? AND user_id = ? AND creation_status = 'pending'
+      `,
+      [campaignId, userId]
+    )
+
+    const now = Date.now()
+    if (stage !== lastHeartbeatStage || now - lastHeartbeatLogAt >= 60000) {
+      lastHeartbeatLogAt = now
+      lastHeartbeatStage = stage
+      const elapsedSeconds = Math.floor((now - campaignPublishStartedAt) / 1000)
+      console.log(`💓 Campaign发布心跳: ${task.id} - ${stage} (${elapsedSeconds}s)`)
+    }
+  }
+
+  const runWithCampaignHeartbeat = async <T>(
+    stage: string,
+    operation: () => Promise<T>
+  ): Promise<T> => {
+    let heartbeatTimer: NodeJS.Timeout | null = null
+
+    try {
+      await touchCampaignHeartbeat(stage)
+    } catch (heartbeatError: any) {
+      console.warn(`⚠️ Campaign发布初始心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+    }
+
+    heartbeatTimer = setInterval(() => {
+      void touchCampaignHeartbeat(stage).catch((heartbeatError: any) => {
+        console.warn(`⚠️ Campaign发布心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+      })
+    }, campaignPublishHeartbeatMs)
+
+    try {
+      return await operation()
+    } finally {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer)
+        heartbeatTimer = null
+      }
+    }
+  }
 
   try {
     console.log(`🚀 开始执行Campaign发布任务: ${task.id}`)
@@ -375,6 +437,16 @@ export async function executeCampaignPublish(
       throw lastError || new Error(`${actionName} 失败`)
     }
 
+    const runWithLoginCustomerFallbackAndHeartbeat = async <T>(
+      actionName: string,
+      callback: (loginCustomerId: string | undefined) => Promise<T>
+    ): Promise<T> => {
+      return runWithCampaignHeartbeat(
+        actionName,
+        () => runWithLoginCustomerFallback(actionName, callback)
+      )
+    }
+
     // 3. 根据货币获取CPC默认值
     const getDefaultCPC = (currency: string): number => {
       const defaults: Record<string, number> = {
@@ -423,7 +495,7 @@ export async function executeCampaignPublish(
       || `Campaign_${creative.id}`
     const adGroupName = task.data.naming?.adGroupName || `AdGroup_${creative.id}`
 
-    const { campaignId: googleCampaignId } = await runWithLoginCustomerFallback(
+    const { campaignId: googleCampaignId } = await runWithLoginCustomerFallbackAndHeartbeat(
       '创建Campaign',
       (loginCustomerId) => createGoogleAdsCampaign({
         customerId: adsAccount.customer_id,
@@ -451,7 +523,7 @@ export async function executeCampaignPublish(
     // 回读远端Google Ads中的真实Campaign名称，作为本地权威名称
     let authoritativeCampaignName = campaignName
     try {
-      const campaignDetails = await runWithLoginCustomerFallback(
+      const campaignDetails = await runWithLoginCustomerFallbackAndHeartbeat(
         '查询Campaign名称',
         (loginCustomerId) => getGoogleAdsCampaign({
           customerId: adsAccount.customer_id,
@@ -479,7 +551,7 @@ export async function executeCampaignPublish(
 
     // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
-    const { adGroupId: googleAdGroupId } = await runWithLoginCustomerFallback(
+    const { adGroupId: googleAdGroupId } = await runWithLoginCustomerFallbackAndHeartbeat(
       '创建Ad Group',
       (loginCustomerId) => createGoogleAdsAdGroup({
         customerId: adsAccount.customer_id,
@@ -764,7 +836,7 @@ export async function executeCampaignPublish(
     let keywordsCount = 0
     if (keywordOperations.length > 0) {
       totalApiOperations += keywordOperations.length
-      await runWithLoginCustomerFallback(
+      await runWithLoginCustomerFallbackAndHeartbeat(
         '创建正向关键词',
         (loginCustomerId) => createGoogleAdsKeywordsBatch({
           customerId: adsAccount.customer_id,
@@ -786,7 +858,7 @@ export async function executeCampaignPublish(
     let negativeKeywordsCount = 0
     if (negativeKeywordOperations.length > 0) {
       totalApiOperations += negativeKeywordOperations.length
-      await runWithLoginCustomerFallback(
+      await runWithLoginCustomerFallbackAndHeartbeat(
         '创建否定关键词',
         (loginCustomerId) => createGoogleAdsKeywordsBatch({
           customerId: adsAccount.customer_id,
@@ -820,7 +892,7 @@ export async function executeCampaignPublish(
     )
 
     totalApiOperations++
-    const adResult = await runWithLoginCustomerFallback(
+    const adResult = await runWithLoginCustomerFallbackAndHeartbeat(
       '创建RSA广告',
       (loginCustomerId) => createGoogleAdsResponsiveSearchAd({
         customerId: adsAccount.customer_id,
@@ -859,7 +931,7 @@ export async function executeCampaignPublish(
     // 13.1 添加Callout Extensions（非致命，失败时记录错误但继续）
     try {
       totalApiOperations += finalCallouts.length + 1
-      await runWithLoginCustomerFallback(
+      await runWithLoginCustomerFallbackAndHeartbeat(
         '创建Callout扩展',
         (loginCustomerId) => createGoogleAdsCalloutExtensions({
           customerId: adsAccount.customer_id,
@@ -883,7 +955,7 @@ export async function executeCampaignPublish(
     // 13.2 添加Sitelink Extensions（非致命，失败时记录错误但继续）
     try {
       totalApiOperations += formattedSitelinks.length + 1
-      await runWithLoginCustomerFallback(
+      await runWithLoginCustomerFallbackAndHeartbeat(
         '创建Sitelink扩展',
         (loginCustomerId) => createGoogleAdsSitelinkExtensions({
           customerId: adsAccount.customer_id,
@@ -910,7 +982,7 @@ export async function executeCampaignPublish(
     // 14. 配置Campaign转化目标为"网页浏览"（非阻塞操作）
     console.log(`\n🎯 配置Campaign转化目标...`)
     try {
-      await runWithLoginCustomerFallback(
+      await runWithLoginCustomerFallbackAndHeartbeat(
         '配置Page View目标',
         (loginCustomerId) => setCampaignPageViewGoalWithCredentials({
           customerId: adsAccount.customer_id,
@@ -931,7 +1003,7 @@ export async function executeCampaignPublish(
     if (enableCampaignImmediately) {
       try {
         totalApiOperations++
-        await runWithLoginCustomerFallback(
+        await runWithLoginCustomerFallbackAndHeartbeat(
           '启用Campaign',
           (loginCustomerId) => updateGoogleAdsCampaignStatus({
             customerId: adsAccount.customer_id,
@@ -981,7 +1053,7 @@ export async function executeCampaignPublish(
     if (wasOfflinedDuringPublish) {
       console.warn(`⚠️ Campaign在发布过程中已下线，跳过成功回写（campaignId=${campaignId}, googleCampaignId=${googleCampaignId}）`)
       try {
-        await runWithLoginCustomerFallback(
+        await runWithLoginCustomerFallbackAndHeartbeat(
           '发布后兜底暂停Campaign',
           (loginCustomerId) => updateGoogleAdsCampaignStatus({
             customerId: adsAccount.customer_id,
