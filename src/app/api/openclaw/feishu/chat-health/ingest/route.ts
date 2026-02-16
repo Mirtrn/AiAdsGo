@@ -33,6 +33,8 @@ type IngestPayload = {
   tenantKey?: string
 }
 
+const FEISHU_CHAT_HEALTH_NOISE_REASON_CODE = 'duplicate_message'
+
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null
   const value = authHeader.trim()
@@ -123,6 +125,10 @@ function normalizeReasonCode(value: unknown, decision: FeishuChatHealthDecision)
   if (decision === 'allowed') return 'reply_dispatched'
   if (decision === 'blocked') return 'blocked_by_policy'
   return 'dispatch_error'
+}
+
+function normalizeReasonCodeKey(value: unknown): string {
+  return String(value || '').trim().toLowerCase()
 }
 
 function normalizeIngestPayload(raw: RawIngestPayload): IngestPayload | null {
@@ -404,6 +410,16 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       )
+    }
+
+    // duplicate_message is expected transport-level redelivery noise, not a business-path block.
+    // Skip persisting it to keep chain health focused on actionable failures.
+    if (normalizeReasonCodeKey(payload.reasonCode) === FEISHU_CHAT_HEALTH_NOISE_REASON_CODE) {
+      return NextResponse.json({
+        success: true,
+        stored: false,
+        skippedReason: FEISHU_CHAT_HEALTH_NOISE_REASON_CODE,
+      })
     }
 
     const userId = await resolveUserIdForPayload(payload)

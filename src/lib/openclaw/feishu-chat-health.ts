@@ -130,6 +130,7 @@ const FEISHU_HEALTH_RETENTION_HOURS = FEISHU_HEALTH_RETENTION_DAYS * 24
 const FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT = 500
 const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
+const FEISHU_CHAT_HEALTH_NOISE_REASON_CODE = 'duplicate_message'
 // Note: `created_at` in chat health logs is written when the gateway reports the event,
 // which may happen after one or more command runs were already created. Keep a relatively
 // forgiving "link before" window, but not too large to avoid cross-message mislinks.
@@ -448,6 +449,7 @@ export async function listFeishuChatHealthLogs(params: {
      FROM openclaw_feishu_chat_health_logs
      WHERE user_id = ?
        AND created_at >= ${cutoffExpr}
+       AND lower(trim(reason_code)) <> '${FEISHU_CHAT_HEALTH_NOISE_REASON_CODE}'
      ORDER BY created_at DESC
      LIMIT ?`,
     [params.userId, limit]
@@ -458,6 +460,7 @@ export async function listFeishuChatHealthLogs(params: {
      FROM openclaw_feishu_chat_health_logs
      WHERE user_id = ?
        AND created_at >= ${cutoffExpr}
+       AND lower(trim(reason_code)) <> '${FEISHU_CHAT_HEALTH_NOISE_REASON_CODE}'
      GROUP BY decision`,
     [params.userId]
   )

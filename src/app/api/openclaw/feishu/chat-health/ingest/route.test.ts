@@ -109,6 +109,25 @@ describe('openclaw feishu chat health ingest route', () => {
     expect(healthFns.backfillFeishuChatHealthRunLinks).not.toHaveBeenCalled()
   })
 
+  it('skips duplicate_message noise events without storing logs', async () => {
+    const res = await POST(createRequest({
+      accountId: 'user-7',
+      decision: 'blocked',
+      reasonCode: 'duplicate_message',
+      reasonMessage: 'duplicate message skipped by dedup',
+      messageId: 'om_dup_1',
+    }, 'gateway-token'))
+
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.stored).toBe(false)
+    expect(payload.skippedReason).toBe('duplicate_message')
+    expect(healthFns.recordFeishuChatHealthLog).not.toHaveBeenCalled()
+    expect(healthFns.backfillFeishuChatHealthRunLinks).not.toHaveBeenCalled()
+  })
+
   it('rejects non-admin session when gateway token invalid', async () => {
     gatewayAuthFns.verifyOpenclawGatewayToken.mockResolvedValue(false)
     sessionAuthFns.verifyOpenclawSessionAuth.mockResolvedValue({

@@ -111,6 +111,12 @@ describe('feishu chat health lib', () => {
       expect.stringContaining('GROUP BY decision'),
       [7]
     )
+    const rowsSql = String(db.query.mock.calls[0]?.[0] || '')
+    const statsSql = String(db.query.mock.calls[1]?.[0] || '')
+    expect(rowsSql).toContain("reason_code")
+    expect(rowsSql).toContain("duplicate_message")
+    expect(statsSql).toContain("reason_code")
+    expect(statsSql).toContain("duplicate_message")
     expect(db.query).toHaveBeenCalledTimes(2)
 
     vi.useRealTimers()
