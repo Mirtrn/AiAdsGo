@@ -5,6 +5,7 @@ import { fetchAutoadsAsUser } from '@/lib/openclaw/autoads-client'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
+import { normalizeCampaignPublishCampaignConfig } from '@/lib/openclaw/commands/payload-policy'
 
 export type OpenclawCommandTaskData = {
   runId: string
@@ -75,11 +76,20 @@ async function hydrateCampaignPublishRequestBody(params: {
 
   const body = params.body as Record<string, any>
   const campaignConfigRaw = body.campaignConfig ?? body.campaign_config
-  if (!isPlainObject(campaignConfigRaw)) {
+  const normalizedCampaignConfig = normalizeCampaignPublishCampaignConfig(campaignConfigRaw)
+  if (!normalizedCampaignConfig) {
     return { body: params.body, hydrated: false }
   }
 
-  const campaignConfig = campaignConfigRaw as Record<string, any>
+  const campaignConfig = normalizedCampaignConfig
+  const normalizedBody: Record<string, any> = {
+    ...body,
+    campaignConfig,
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'campaign_config')) {
+    normalizedBody.campaign_config = campaignConfig
+  }
+
   const configuredNegativeKeywords =
     campaignConfig.negativeKeywords !== undefined
       ? campaignConfig.negativeKeywords
@@ -93,13 +103,13 @@ async function hydrateCampaignPublishRequestBody(params: {
   })
 
   if (!probe.usedKeywordFallback && !probe.usedNegativeKeywordFallback) {
-    return { body: params.body, hydrated: false }
+    return { body: normalizedBody, hydrated: true }
   }
 
-  const offerId = toPositiveInteger(body.offerId ?? body.offer_id)
-  const adCreativeId = toPositiveInteger(body.adCreativeId ?? body.ad_creative_id)
+  const offerId = toPositiveInteger(normalizedBody.offerId ?? normalizedBody.offer_id)
+  const adCreativeId = toPositiveInteger(normalizedBody.adCreativeId ?? normalizedBody.ad_creative_id)
   if (!offerId || !adCreativeId) {
-    return { body: params.body, hydrated: false }
+    return { body: normalizedBody, hydrated: true }
   }
 
   const creative = await params.db.queryOne<{
@@ -115,7 +125,7 @@ async function hydrateCampaignPublishRequestBody(params: {
   )
 
   if (!creative) {
-    return { body: params.body, hydrated: false }
+    return { body: normalizedBody, hydrated: true }
   }
 
   const effectiveCreative = buildEffectiveCreative({
@@ -140,7 +150,7 @@ async function hydrateCampaignPublishRequestBody(params: {
   })
 
   if (!resolvedKeywordConfig.usedKeywordFallback && !resolvedKeywordConfig.usedNegativeKeywordFallback) {
-    return { body: params.body, hydrated: false }
+    return { body: normalizedBody, hydrated: true }
   }
 
   const hydratedCampaignConfig: Record<string, any> = {
@@ -156,11 +166,11 @@ async function hydrateCampaignPublishRequestBody(params: {
   }
 
   const hydratedBody: Record<string, any> = {
-    ...body,
+    ...normalizedBody,
     campaignConfig: hydratedCampaignConfig,
   }
 
-  if (Object.prototype.hasOwnProperty.call(body, 'campaign_config')) {
+  if (Object.prototype.hasOwnProperty.call(normalizedBody, 'campaign_config')) {
     hydratedBody.campaign_config = hydratedCampaignConfig
   }
 

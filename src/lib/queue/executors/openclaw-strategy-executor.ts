@@ -2754,7 +2754,6 @@ export async function executeOpenclawStrategy(
             adCreativeId: creativeId,
             googleAdsAccountId: account.id,
             campaignConfig,
-            budgetDecision,
             pauseOldCampaigns: shouldAutoPauseConflicts,
             enableCampaignImmediately: true,
             enableSmartOptimization: false,

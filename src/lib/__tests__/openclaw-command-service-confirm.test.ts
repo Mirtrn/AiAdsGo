@@ -337,6 +337,56 @@ describe('openclaw command service confirmation guard', () => {
     expect(body.skipLaunchScore).toBeUndefined()
   })
 
+  it('normalizes nested publish campaignConfig fields to web-style camelCase', async () => {
+    await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'POST',
+      path: '/api/campaigns/publish',
+      body: {
+        offerId: 11,
+        adCreativeId: 99,
+        googleAdsAccountId: 22,
+        campaignConfig: {
+          target_country: 'US',
+          target_language: 'en',
+          budget_amount: 10,
+          budget_type: 'DAILY',
+          bidding_strategy: 'MAXIMIZE_CLICKS',
+          max_cpc_bid: 0.2,
+          final_urls: [' https://example.com '],
+          keywords: [{ keyword: ' sonic toothbrush ', matchType: 'phrase' }],
+          negative_keywords: [' free ', 'FREE'],
+          negative_keywords_match_type: {
+            free: 'PHRASE',
+          },
+        },
+      },
+    })
+
+    const body = getInsertedBody()
+    const campaignConfig = body.campaignConfig || {}
+
+    expect(campaignConfig).toMatchObject({
+      targetCountry: 'US',
+      targetLanguage: 'en',
+      budgetAmount: 10,
+      budgetType: 'DAILY',
+      biddingStrategy: 'MAXIMIZE_CLICKS',
+      maxCpcBid: 0.2,
+      finalUrls: ['https://example.com'],
+      keywords: [{ text: 'sonic toothbrush', matchType: 'PHRASE' }],
+      negativeKeywords: ['free'],
+      negativeKeywordMatchType: { free: 'PHRASE' },
+    })
+
+    expect(campaignConfig.target_country).toBeUndefined()
+    expect(campaignConfig.max_cpc_bid).toBeUndefined()
+    expect(campaignConfig.final_urls).toBeUndefined()
+    expect(campaignConfig.negative_keywords).toBeUndefined()
+    expect(campaignConfig.negative_keywords_match_type).toBeUndefined()
+  })
+
   it('normalizes click-farm aliases to snake_case payload', async () => {
     await executeOpenclawCommand({
       userId: 1001,

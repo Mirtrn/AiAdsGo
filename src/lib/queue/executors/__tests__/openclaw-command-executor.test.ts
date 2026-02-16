@@ -194,12 +194,12 @@ describe('openclaw command executor click-farm guard', () => {
               adCreativeId: 4331,
               googleAdsAccountId: 999,
               campaignConfig: {
-                budgetAmount: 10,
-                budgetType: 'DAILY',
-                targetCountry: 'US',
-                targetLanguage: 'en',
-                biddingStrategy: 'MAXIMIZE_CLICKS',
-                maxCpcBid: 0.2,
+                budget_amount: 10,
+                budget_type: 'DAILY',
+                target_country: 'US',
+                target_language: 'en',
+                bidding_strategy: 'MAXIMIZE_CLICKS',
+                max_cpc_bid: 0.2,
               },
             }),
             risk_level: 'medium',
@@ -241,11 +241,16 @@ describe('openclaw command executor click-farm guard', () => {
         method: 'POST',
         body: expect.objectContaining({
           campaignConfig: expect.objectContaining({
+            targetCountry: 'US',
             keywords: ['sonic toothbrush', 'electric toothbrush'],
             negativeKeywords: ['manual', 'free'],
           }),
         }),
       })
     )
+
+    const forwardedBody = (mocks.fetchAutoadsAsUser.mock.calls[0]?.[0] as any)?.body || {}
+    expect(forwardedBody.campaignConfig?.target_country).toBeUndefined()
+    expect(forwardedBody.campaignConfig?.budget_amount).toBeUndefined()
   })
 })

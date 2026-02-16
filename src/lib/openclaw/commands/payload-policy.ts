@@ -76,6 +76,134 @@ function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, k
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
 
+const PUBLISH_CAMPAIGN_CONFIG_ALIAS_MAP: Readonly<Record<string, string>> = {
+  campaign_name: 'campaignName',
+  ad_group_name: 'adGroupName',
+  ad_name: 'adName',
+  budget_amount: 'budgetAmount',
+  budget_type: 'budgetType',
+  target_country: 'targetCountry',
+  target_language: 'targetLanguage',
+  bidding_strategy: 'biddingStrategy',
+  marketing_objective: 'marketingObjective',
+  final_url_suffix: 'finalUrlSuffix',
+  final_urls: 'finalUrls',
+  max_cpc_bid: 'maxCpcBid',
+  negative_keywords: 'negativeKeywords',
+  negative_keywords_match_type: 'negativeKeywordMatchType',
+  negative_keyword_match_type: 'negativeKeywordMatchType',
+}
+
+const SUPPORTED_KEYWORD_MATCH_TYPES = new Set(['EXACT', 'PHRASE', 'BROAD'])
+
+function normalizePublishKeywordEntries(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value
+  }
+
+  const normalizedEntries = value
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        const text = entry.trim()
+        return text ? text : null
+      }
+
+      if (!isPlainObject(entry)) {
+        return null
+      }
+
+      const normalizedEntry: PlainObject = { ...entry }
+      const textCandidate = typeof normalizedEntry.text === 'string'
+        ? normalizedEntry.text
+        : (typeof normalizedEntry.keyword === 'string' ? normalizedEntry.keyword : '')
+      const normalizedText = textCandidate.trim()
+      if (!normalizedText) {
+        return null
+      }
+
+      normalizedEntry.text = normalizedText
+      delete normalizedEntry.keyword
+
+      const normalizedMatchType = typeof normalizedEntry.matchType === 'string'
+        ? normalizedEntry.matchType.trim().toUpperCase()
+        : ''
+      if (normalizedMatchType && SUPPORTED_KEYWORD_MATCH_TYPES.has(normalizedMatchType)) {
+        normalizedEntry.matchType = normalizedMatchType
+      }
+
+      return normalizedEntry
+    })
+    .filter((entry) => entry !== null)
+
+  return normalizedEntries
+}
+
+function normalizePublishNegativeKeywords(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value
+  }
+
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const entry of value) {
+    let text = ''
+    if (typeof entry === 'string') {
+      text = entry.trim()
+    } else if (isPlainObject(entry)) {
+      const candidate = typeof entry.text === 'string'
+        ? entry.text
+        : (typeof entry.keyword === 'string' ? entry.keyword : '')
+      text = candidate.trim()
+    }
+
+    if (!text) continue
+
+    const dedupeKey = text.toLowerCase()
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    normalized.push(text)
+  }
+
+  return normalized
+}
+
+function normalizePublishFinalUrls(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value
+  }
+
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
+}
+
+export function normalizeCampaignPublishCampaignConfig(value: unknown): PlainObject | undefined {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+
+  const source = value as PlainObject
+  const normalized: PlainObject = {
+    ...source,
+  }
+
+  for (const [alias, canonical] of Object.entries(PUBLISH_CAMPAIGN_CONFIG_ALIAS_MAP)) {
+    if (normalized[canonical] === undefined && source[alias] !== undefined) {
+      normalized[canonical] = source[alias]
+    }
+    if (alias !== canonical) {
+      delete normalized[alias]
+    }
+  }
+
+  normalized.keywords = normalizePublishKeywordEntries(normalized.keywords)
+  normalized.negativeKeywords = normalizePublishNegativeKeywords(normalized.negativeKeywords)
+  normalized.finalUrls = normalizePublishFinalUrls(normalized.finalUrls)
+
+  return normalized
+}
+
 const PUBLISH_FORCE_KEYS = [
   'forcePublish',
   'force_publish',
@@ -121,6 +249,12 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       if (hasForce) {
         normalizedBody.forcePublish = PUBLISH_FORCE_KEYS.some((key) => isTruthyFlag(sourceBody[key]))
       }
+
+      const normalizedCampaignConfig = normalizeCampaignPublishCampaignConfig(normalizedBody.campaignConfig)
+      if (normalizedCampaignConfig) {
+        normalizedBody.campaignConfig = normalizedCampaignConfig
+      }
+
       return normalizedBody
     },
   },
