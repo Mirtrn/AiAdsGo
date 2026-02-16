@@ -31,6 +31,8 @@ export type GetReplyOptions = {
   heartbeatModelOverride?: string;
   onPartialReply?: (payload: ReplyPayload) => Promise<void> | void;
   onReasoningStream?: (payload: ReplyPayload) => Promise<void> | void;
+  /** Low-level agent execution events (tool/lifecycle/etc.), for channel-side progress UX. */
+  onAgentEvent?: (evt: { stream: string; data: Record<string, unknown> }) => Promise<void> | void;
   onBlockReply?: (payload: ReplyPayload, context?: BlockReplyContext) => Promise<void> | void;
   onToolResult?: (payload: ReplyPayload) => Promise<void> | void;
   /** Called when the actual model is selected (including after fallback).

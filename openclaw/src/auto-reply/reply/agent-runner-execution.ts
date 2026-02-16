@@ -358,6 +358,16 @@ export async function runAgentTurnWithFallback(params: {
                   autoCompactionCompleted = true;
                 }
               }
+              if (params.opts?.onAgentEvent) {
+                const stream = String(evt.stream || "").trim();
+                const data =
+                  evt.data && typeof evt.data === "object"
+                    ? (evt.data as Record<string, unknown>)
+                    : {};
+                void Promise.resolve(params.opts.onAgentEvent({ stream, data })).catch((err) => {
+                  logVerbose(`agent event callback failed: ${String(err)}`);
+                });
+              }
             },
             // Always pass onBlockReply so flushBlockReplyBuffer works before tool execution,
             // even when regular block streaming is disabled. The handler sends directly

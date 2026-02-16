@@ -21,6 +21,39 @@ function shouldUseCard(text: string): boolean {
   return /```[\s\S]*?```/.test(text) || /\|.+\|[\r\n]+\|[-:| ]+\|/.test(text);
 }
 
+type AgentEventEnvelope = {
+  stream?: string;
+  data?: Record<string, unknown>;
+};
+
+type ProgressToolStatus = "running" | "completed" | "failed";
+
+type ProgressToolState = {
+  toolCallId: string;
+  name: string;
+  status: ProgressToolStatus;
+  updatedAt: number;
+};
+
+const FEISHU_PROGRESS_RENDER_THROTTLE_MS = 1200;
+const FEISHU_PROGRESS_MAX_LINES = 6;
+
+function normalizeProgressToolName(value: unknown): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "tool";
+  }
+  return normalized.slice(0, 80);
+}
+
+function formatProgressToolLine(tool: ProgressToolState): string {
+  const marker =
+    tool.status === "completed" ? "[OK]"
+      : tool.status === "failed" ? "[ERR]"
+        : "[RUN]";
+  return `${marker} ${tool.name}`;
+}
+
 export type CreateFeishuReplyDispatcherParams = {
   cfg: ClawdbotConfig;
   agentId: string;
@@ -29,6 +62,7 @@ export type CreateFeishuReplyDispatcherParams = {
   replyToMessageId?: string;
   mentionTargets?: MentionTarget[];
   accountId?: string;
+  onFirstReplyDispatched?: () => void;
 };
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
@@ -81,6 +115,74 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let lastPartial = "";
   let partialUpdateQueue: Promise<void> = Promise.resolve();
   let streamingStartPromise: Promise<void> | null = null;
+  let firstReplyDispatched = false;
+  let progressStartedAt = 0;
+  let progressLastRenderAt = 0;
+  let progressSyntheticId = 0;
+  let progressEventCount = 0;
+  const progressToolsById = new Map<string, ProgressToolState>();
+
+  const markFirstReplyDispatched = () => {
+    if (firstReplyDispatched) {
+      return;
+    }
+    firstReplyDispatched = true;
+    params.onFirstReplyDispatched?.();
+  };
+
+  const renderProgressText = (): string => {
+    const now = Date.now();
+    const elapsedSeconds = progressStartedAt > 0 ? Math.max(0, Math.floor((now - progressStartedAt) / 1000)) : 0;
+    const toolStates = Array.from(progressToolsById.values());
+    const running = toolStates.filter((tool) => tool.status === "running").length;
+    const completed = toolStates.filter((tool) => tool.status === "completed").length;
+    const failed = toolStates.filter((tool) => tool.status === "failed").length;
+    const recent = toolStates
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, FEISHU_PROGRESS_MAX_LINES);
+
+    const lines: string[] = [
+      "⏳ 正在处理请求",
+      elapsedSeconds > 0
+        ? `已用时 ${elapsedSeconds}s · 进度事件 ${progressEventCount}`
+        : "已接收请求，正在启动执行",
+      `运行中 ${running} · 已完成 ${completed} · 失败 ${failed}`,
+    ];
+
+    if (recent.length > 0) {
+      lines.push("", "步骤状态：");
+      for (const tool of recent) {
+        lines.push(formatProgressToolLine(tool));
+      }
+    }
+
+    lines.push("", "处理中，完成后会自动发送最终结果。");
+    return lines.join("\n");
+  };
+
+  const pushProgressUpdate = async (force = false): Promise<void> => {
+    if (!streamingEnabled) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - progressLastRenderAt < FEISHU_PROGRESS_RENDER_THROTTLE_MS) {
+      return;
+    }
+
+    startStreaming();
+    if (streamingStartPromise) {
+      await streamingStartPromise;
+    }
+    if (!streaming?.isActive()) {
+      return;
+    }
+
+    streamText = renderProgressText();
+    await streaming.update(streamText);
+    progressLastRenderAt = now;
+    markFirstReplyDispatched();
+  };
 
   const startStreaming = () => {
     if (!streamingEnabled || streamingStartPromise || streaming) {
@@ -141,6 +243,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         if (!text.trim()) {
           return;
         }
+        markFirstReplyDispatched();
 
         const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
 
@@ -216,6 +319,57 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     replyOptions: {
       ...replyOptions,
       onModelSelected: prefixContext.onModelSelected,
+      onAgentEvent: streamingEnabled
+        ? async (evt: AgentEventEnvelope) => {
+            const stream = String(evt?.stream || "").trim().toLowerCase();
+            const data = (evt?.data && typeof evt.data === "object" ? evt.data : {}) as Record<
+              string,
+              unknown
+            >;
+
+            if (stream === "lifecycle") {
+              const phase = String(data.phase || "").trim().toLowerCase();
+              if (phase === "start" && progressStartedAt <= 0) {
+                progressStartedAt = Date.now();
+                await pushProgressUpdate(true);
+              }
+              if (phase === "error" || phase === "end") {
+                await pushProgressUpdate(true);
+              }
+              return;
+            }
+
+            if (stream !== "tool") {
+              return;
+            }
+
+            const phase = String(data.phase || "").trim().toLowerCase();
+            const toolName = normalizeProgressToolName(data.name);
+            const rawToolCallId = String(data.toolCallId || data.tool_call_id || "").trim();
+            const toolCallId = rawToolCallId || `synthetic_${++progressSyntheticId}`;
+            const now = Date.now();
+
+            if (progressStartedAt <= 0) {
+              progressStartedAt = now;
+            }
+
+            const previous = progressToolsById.get(toolCallId);
+            const status: ProgressToolStatus =
+              phase === "result"
+                ? (Boolean(data.isError) ? "failed" : "completed")
+                : "running";
+
+            progressToolsById.set(toolCallId, {
+              toolCallId,
+              name: toolName || previous?.name || "tool",
+              status,
+              updatedAt: now,
+            });
+            progressEventCount += 1;
+
+            await pushProgressUpdate(phase === "start" || phase === "result");
+          }
+        : undefined,
       onPartialReply: streamingEnabled
         ? (payload: ReplyPayload) => {
             if (!payload.text || payload.text === lastPartial) {

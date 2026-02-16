@@ -74,6 +74,31 @@ const senderNameCache = new Map<string, { name: string; expireAt: number }>();
 // Key: appId or "default", Value: timestamp of last notification
 const permissionErrorNotifiedAt = new Map<string, number>();
 const PERMISSION_ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const FEISHU_SLOW_REPLY_NOTICE_DELAY_MS = 20 * 1000;
+const FEISHU_SLOW_REPLY_NOTICE_DEFAULT_TEXT =
+  "已收到指令，正在处理中。复杂操作可能需要几分钟，我会在完成后回复结果。";
+
+function resolveSlowReplyNoticeDelayMs(): number {
+  const raw = process.env.OPENCLAW_FEISHU_SLOW_REPLY_NOTICE_SECONDS;
+  if (raw === undefined) {
+    return FEISHU_SLOW_REPLY_NOTICE_DELAY_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return FEISHU_SLOW_REPLY_NOTICE_DELAY_MS;
+  }
+  if (parsed <= 0) {
+    return 0;
+  }
+
+  return Math.max(5, Math.min(300, Math.floor(parsed))) * 1000;
+}
+
+function resolveSlowReplyNoticeText(): string {
+  const raw = String(process.env.OPENCLAW_FEISHU_SLOW_REPLY_NOTICE_TEXT || "").trim();
+  return raw || FEISHU_SLOW_REPLY_NOTICE_DEFAULT_TEXT;
+}
 
 type SenderNameResult = {
   name?: string;
@@ -1055,6 +1080,17 @@ export async function handleFeishuMessage(params: {
       ...mediaPayload,
     });
 
+    const slowReplyNoticeDelayMs = resolveSlowReplyNoticeDelayMs();
+    const slowReplyNoticeText = resolveSlowReplyNoticeText();
+    let slowReplyNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearSlowReplyNoticeTimer = () => {
+      if (!slowReplyNoticeTimer) {
+        return;
+      }
+      clearTimeout(slowReplyNoticeTimer);
+      slowReplyNoticeTimer = null;
+    };
+
     const { dispatcher, replyOptions, markDispatchIdle } = createFeishuReplyDispatcher({
       cfg,
       agentId: route.agentId,
@@ -1063,18 +1099,41 @@ export async function handleFeishuMessage(params: {
       replyToMessageId: ctx.messageId,
       mentionTargets: ctx.mentionTargets,
       accountId: account.accountId,
+      onFirstReplyDispatched: clearSlowReplyNoticeTimer,
     });
+
+    if (slowReplyNoticeDelayMs > 0) {
+      slowReplyNoticeTimer = setTimeout(() => {
+        slowReplyNoticeTimer = null;
+        void sendMessageFeishu({
+          cfg,
+          to: ctx.chatId,
+          text: slowReplyNoticeText,
+          replyToMessageId: ctx.messageId,
+          accountId: account.accountId,
+        }).catch((noticeErr) => {
+          log(
+            `feishu[${account.accountId}]: failed to send slow reply notice: ${String(noticeErr)}`,
+          );
+        });
+      }, slowReplyNoticeDelayMs);
+    }
 
     log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
 
-    const { queuedFinal, counts } = await core.channel.reply.dispatchReplyFromConfig({
-      ctx: ctxPayload,
-      cfg,
-      dispatcher,
-      replyOptions,
-    });
-
-    markDispatchIdle();
+    const { queuedFinal, counts } = await (async () => {
+      try {
+        return await core.channel.reply.dispatchReplyFromConfig({
+          ctx: ctxPayload,
+          cfg,
+          dispatcher,
+          replyOptions,
+        });
+      } finally {
+        clearSlowReplyNoticeTimer();
+        markDispatchIdle();
+      }
+    })();
 
     if (isGroup && historyKey && chatHistories) {
       clearHistoryEntriesIfEnabled({

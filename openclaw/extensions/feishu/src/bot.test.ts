@@ -38,6 +38,7 @@ describe("handleFeishuMessage command authorization", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.OPENCLAW_FEISHU_SLOW_REPLY_NOTICE_SECONDS;
     setFeishuRuntime({
       system: {
         enqueueSystemEvent: vi.fn(),
@@ -261,5 +262,125 @@ describe("handleFeishuMessage command authorization", () => {
         SenderId: "ou-attacker",
       }),
     );
+  });
+
+  it("sends delayed in-progress notice when dispatch takes too long", async () => {
+    vi.useFakeTimers();
+    process.env.OPENCLAW_FEISHU_SLOW_REPLY_NOTICE_SECONDS = "1";
+
+    let resolveDispatch!: (value: { queuedFinal: boolean; counts: { final: number } }) => void;
+    mockDispatchReplyFromConfig.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDispatch = resolve;
+        }),
+    );
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-slow-notice",
+        },
+      },
+      message: {
+        message_id: "msg-slow-notice",
+        chat_id: "oc-dm",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "run long task" }),
+      },
+    };
+
+    const pending = handleFeishuMessage({
+      cfg,
+      event,
+      runtime: { log: vi.fn(), error: vi.fn() } as RuntimeEnv,
+    });
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "oc-dm",
+        replyToMessageId: "msg-slow-notice",
+      }),
+    );
+
+    resolveDispatch({ queuedFinal: false, counts: { final: 1 } });
+    await pending;
+    vi.useRealTimers();
+  });
+
+  it("cancels delayed in-progress notice once first reply starts", async () => {
+    vi.useFakeTimers();
+    process.env.OPENCLAW_FEISHU_SLOW_REPLY_NOTICE_SECONDS = "1";
+
+    let resolveDispatch!: (value: { queuedFinal: boolean; counts: { final: number } }) => void;
+    mockDispatchReplyFromConfig.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDispatch = resolve;
+        }),
+    );
+
+    let onFirstReplyDispatched: (() => void) | undefined;
+    mockCreateFeishuReplyDispatcher.mockImplementationOnce((params: { onFirstReplyDispatched?: () => void }) => {
+      onFirstReplyDispatched = params.onFirstReplyDispatched;
+      return {
+        dispatcher: vi.fn(),
+        replyOptions: {},
+        markDispatchIdle: vi.fn(),
+      };
+    });
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-slow-cancel",
+        },
+      },
+      message: {
+        message_id: "msg-slow-cancel",
+        chat_id: "oc-dm",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "run long task quickly starts output" }),
+      },
+    };
+
+    const pending = handleFeishuMessage({
+      cfg,
+      event,
+      runtime: { log: vi.fn(), error: vi.fn() } as RuntimeEnv,
+    });
+
+    onFirstReplyDispatched?.();
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(mockSendMessageFeishu).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyToMessageId: "msg-slow-cancel",
+      }),
+    );
+
+    resolveDispatch({ queuedFinal: false, counts: { final: 1 } });
+    await pending;
+    vi.useRealTimers();
   });
 });

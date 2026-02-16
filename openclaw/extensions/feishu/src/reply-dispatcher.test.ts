@@ -113,4 +113,32 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(sendMessageFeishuMock).not.toHaveBeenCalled();
     expect(sendMarkdownCardFeishuMock).not.toHaveBeenCalled();
   });
+
+  it("updates a single streaming card from agent progress events", async () => {
+    const onFirstReplyDispatched = vi.fn();
+    const { replyOptions } = createFeishuReplyDispatcher({
+      cfg: {} as never,
+      agentId: "agent",
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      chatId: "oc_chat",
+      onFirstReplyDispatched,
+    });
+
+    await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "start", name: "create_offer", toolCallId: "tool-1" },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "result", name: "create_offer", toolCallId: "tool-1", isError: false },
+    });
+
+    expect(streamingInstances).toHaveLength(1);
+    expect(streamingInstances[0].start).toHaveBeenCalledTimes(1);
+    expect(streamingInstances[0].update).toHaveBeenCalled();
+    const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).toContain("[OK] create_offer");
+    expect(onFirstReplyDispatched).toHaveBeenCalledTimes(1);
+  });
 });
