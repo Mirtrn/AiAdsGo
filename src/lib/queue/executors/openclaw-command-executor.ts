@@ -22,6 +22,11 @@ const OPENCLAW_COMMAND_UPSTREAM_TIMEOUT_MS = (() => {
   if (!Number.isFinite(parsed) || parsed <= 0) return 120000
   return parsed
 })()
+const OPENCLAW_COMMAND_HEARTBEAT_MS = (() => {
+  const parsed = Number.parseInt(String(process.env.OPENCLAW_COMMAND_HEARTBEAT_MS || '').trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 15000
+  return parsed
+})()
 
 function truncateBody(value: string | null | undefined): string | null {
   if (!value) return null
@@ -741,11 +746,33 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   let responseStatus: number | null = null
   let responseBody: string | null = null
   let latencyMs = 0
+  let heartbeatTimer: NodeJS.Timeout | null = null
 
   const action = `${run.request_method} ${run.request_path}`
   const { targetType, targetId } = deriveTarget(run.request_path)
+  const updateRunHeartbeat = async () => {
+    await db.exec(
+      `UPDATE openclaw_command_runs
+       SET updated_at = ${nowSql}
+       WHERE id = ? AND user_id = ? AND status = 'running'`,
+      [data.runId, data.userId]
+    )
+    await db.exec(
+      `UPDATE openclaw_command_steps
+       SET updated_at = ${nowSql}
+       WHERE run_id = ? AND step_index = 0 AND status = 'running'`,
+      [data.runId]
+    )
+  }
 
   try {
+    await updateRunHeartbeat()
+    heartbeatTimer = setInterval(() => {
+      void updateRunHeartbeat().catch((heartbeatError: any) => {
+        console.warn(`⚠️ OpenClaw命令心跳更新失败: runId=${data.runId}: ${heartbeatError?.message || heartbeatError}`)
+      })
+    }, OPENCLAW_COMMAND_HEARTBEAT_MS)
+
     await assertClickFarmTaskPrerequisites({
       db,
       userId: data.userId,
@@ -864,5 +891,10 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     })
 
     throw error
+  } finally {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
+    }
   }
 }

@@ -49,6 +49,12 @@ function normalizeRequestedBucket(value: unknown): BucketType | null {
   return null
 }
 
+function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(String(value || '').trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
 /**
  * 广告创意生成任务数据接口
  */
@@ -76,6 +82,10 @@ export async function executeAdCreativeGeneration(
   const db = getDatabase()
   const effectiveMaxRetries = Math.min(maxRetries, 2)
   const requestedBucket = normalizeRequestedBucket(bucket)
+  const creativeTaskHeartbeatMs = parsePositiveIntEnv(
+    process.env.CREATIVE_TASK_HEARTBEAT_MS,
+    15000
+  )
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -242,30 +252,49 @@ export async function executeAdCreativeGeneration(
 
       // 更新进度：生成中
       const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
-      const progressMessage = `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
-      await db.exec(`
-        UPDATE creative_tasks
-        SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
-        WHERE id = ?
-      `, [attemptBaseProgress, progressMessage, attempts, task.id])
+      const generationMessageBase = `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
+      const generationStartedAt = Date.now()
+      let generationHeartbeatTimer: NodeJS.Timeout | null = null
+      const updateGenerationHeartbeat = async () => {
+        const elapsedSeconds = Math.floor((Date.now() - generationStartedAt) / 1000)
+        await db.exec(`
+          UPDATE creative_tasks
+          SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
+          WHERE id = ?
+        `, [attemptBaseProgress, `${generationMessageBase} (${elapsedSeconds}s)`, attempts, task.id])
+      }
+      await updateGenerationHeartbeat()
+      generationHeartbeatTimer = setInterval(() => {
+        void updateGenerationHeartbeat().catch((heartbeatError: any) => {
+          console.warn(`⚠️ 创意生成心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+        })
+      }, creativeTaskHeartbeatMs)
 
       // 1. 生成创意
       // 🔥 2025-12-12修复：始终跳过缓存，确保每次重新生成都产生新创意
       // 🆕 v4.10: 传递关键词池信息，实现分层关键词策略
-      const creative = await generateAdCreative(
-        offerId,
-        task.userId,
-        {
-          skipCache: true,  // 始终跳过缓存
-          excludeKeywords: attempts > 1 ? usedKeywords : undefined,
-          // 🆕 v4.10: 关键词池参数
-          keywordPool: keywordPool || undefined,
-          bucket: selectedBucket || undefined,
-          bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
-          bucketIntent: bucketInfo?.intent,
-          bucketIntentEn: bucketInfo?.intentEn
+      let creative: Awaited<ReturnType<typeof generateAdCreative>>
+      try {
+        creative = await generateAdCreative(
+          offerId,
+          task.userId,
+          {
+            skipCache: true,  // 始终跳过缓存
+            excludeKeywords: attempts > 1 ? usedKeywords : undefined,
+            // 🆕 v4.10: 关键词池参数
+            keywordPool: keywordPool || undefined,
+            bucket: selectedBucket || undefined,
+            bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
+            bucketIntent: bucketInfo?.intent,
+            bucketIntentEn: bucketInfo?.intentEn
+          }
+        )
+      } finally {
+        if (generationHeartbeatTimer) {
+          clearInterval(generationHeartbeatTimer)
+          generationHeartbeatTimer = null
         }
-      )
+      }
 
       // 🔧 修复(2026-01-21): 强制将创意关键词同步为桶关键词
       // 背景：generateAdCreative 内部会对关键词做多轮过滤，极端情况下会导致仅保留 1-3 个关键词
@@ -310,11 +339,23 @@ export async function executeAdCreativeGeneration(
       }
 
       // 更新进度：评估中
-      await db.exec(`
-        UPDATE creative_tasks
-        SET stage = 'evaluating', progress = ?, message = ?, updated_at = ${nowFunc}
-        WHERE id = ?
-      `, [attemptBaseProgress + 10, `第${attempts}次生成: 评估创意质量...`, task.id])
+      const evaluationMessageBase = `第${attempts}次生成: 评估创意质量...`
+      const evaluationStartedAt = Date.now()
+      let evaluationHeartbeatTimer: NodeJS.Timeout | null = null
+      const updateEvaluationHeartbeat = async () => {
+        const elapsedSeconds = Math.floor((Date.now() - evaluationStartedAt) / 1000)
+        await db.exec(`
+          UPDATE creative_tasks
+          SET stage = 'evaluating', progress = ?, message = ?, updated_at = ${nowFunc}
+          WHERE id = ?
+        `, [attemptBaseProgress + 10, `${evaluationMessageBase} (${elapsedSeconds}s)`, task.id])
+      }
+      await updateEvaluationHeartbeat()
+      evaluationHeartbeatTimer = setInterval(() => {
+        void updateEvaluationHeartbeat().catch((heartbeatError: any) => {
+          console.warn(`⚠️ 创意评估心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+        })
+      }, creativeTaskHeartbeatMs)
 
       // 2. 检查metadata
       const hasMetadata = creative.headlinesWithMetadata && creative.descriptionsWithMetadata
@@ -324,17 +365,25 @@ export async function executeAdCreativeGeneration(
       }
 
       // 3. 评估Ad Strength
-      const evaluation = await evaluateCreativeAdStrength(
-        creative.headlinesWithMetadata!,
-        creative.descriptionsWithMetadata!,
-        creative.keywords,
-        {
-          brandName: offer.brand,
-          targetCountry: offer.target_country || 'US',
-          targetLanguage: offer.target_language || 'en',
-          userId: task.userId
+      let evaluation: Awaited<ReturnType<typeof evaluateCreativeAdStrength>>
+      try {
+        evaluation = await evaluateCreativeAdStrength(
+          creative.headlinesWithMetadata!,
+          creative.descriptionsWithMetadata!,
+          creative.keywords,
+          {
+            brandName: offer.brand,
+            targetCountry: offer.target_country || 'US',
+            targetLanguage: offer.target_language || 'en',
+            userId: task.userId
+          }
+        )
+      } finally {
+        if (evaluationHeartbeatTimer) {
+          clearInterval(evaluationHeartbeatTimer)
+          evaluationHeartbeatTimer = null
         }
-      )
+      }
 
       // 更新进度：评估完成
       await db.exec(`
