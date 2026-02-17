@@ -45,8 +45,8 @@ const CREATIVE_BUCKET_ORDER: Record<string, number> = {
   D: 3,
 };
 const PROGRESS_TOOL_LABELS: Record<string, string> = {
-  exec: "执行命令",
-  bash: "执行命令",
+  exec: "执行操作",
+  bash: "执行操作",
   read: "读取文件",
   write: "写入文件",
   edit: "编辑文件",
@@ -69,6 +69,13 @@ function normalizeProgressToolName(value: unknown): string {
 
   const mapped = PROGRESS_TOOL_LABELS[normalized.toLowerCase()];
   return (mapped || normalized).slice(0, 80);
+}
+
+function isCommandToolName(value: unknown): boolean {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "exec" || normalized === "bash";
 }
 
 function extractCreativeBucket(value: string): "A" | "B" | "D" | undefined {
@@ -125,14 +132,12 @@ function normalizeProgressToolDetail(
     return undefined;
   }
 
-  const toolName = String(toolNameValue || "")
-    .trim()
-    .toLowerCase();
-  if (toolName === "exec" || toolName === "bash") {
+  if (isCommandToolName(toolNameValue)) {
     const businessStep = resolveBusinessStepFromCommand(normalized);
     if (businessStep) {
       return businessStep.slice(0, 120);
     }
+    return undefined;
   }
 
   return normalized.slice(0, 120);
@@ -493,8 +498,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
             const phase = String(data.phase || "").trim().toLowerCase();
             const rawToolName = String(data.name || "").trim();
-            const toolName = normalizeProgressToolName(rawToolName);
-            const toolDetail = normalizeProgressToolDetail(rawToolName, data.meta);
             const rawToolCallId = String(data.toolCallId || data.tool_call_id || "").trim();
             const toolCallId = rawToolCallId || `synthetic_${++progressSyntheticId}`;
             const now = Date.now();
@@ -504,6 +507,12 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             }
 
             const previous = progressToolsById.get(toolCallId);
+            const toolDetail = normalizeProgressToolDetail(rawToolName, data.meta);
+            if (isCommandToolName(rawToolName) && !toolDetail && !previous) {
+              // Skip low-value command chatter (e.g. sleep/poll loops) from progress cards.
+              return;
+            }
+            const toolName = normalizeProgressToolName(rawToolName);
             const status: ProgressToolStatus =
               phase === "result"
                 ? (Boolean(data.isError) ? "failed" : "completed")

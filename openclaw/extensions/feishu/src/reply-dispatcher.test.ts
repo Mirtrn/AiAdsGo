@@ -167,8 +167,43 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     });
 
     const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
-    expect(String(lastUpdateText)).toContain("[OK] 执行命令");
+    expect(String(lastUpdateText)).toContain("[OK] 执行操作");
     expect(String(lastUpdateText)).toContain("生成第 1 个创意（A桶）");
+  });
+
+  it("skips low-value exec command steps in progress card", async () => {
+    const { replyOptions } = createFeishuReplyDispatcher({
+      cfg: {} as never,
+      agentId: "agent",
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      chatId: "oc_chat",
+    });
+
+    await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+    expect(streamingInstances).toHaveLength(1);
+
+    const updateCountBefore = streamingInstances[0].update.mock.calls.length;
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: { phase: "start", name: "exec", toolCallId: "tool-sleep", meta: "sleep 30" },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "result",
+        name: "exec",
+        toolCallId: "tool-sleep",
+        isError: false,
+        meta: "sleep 30",
+      },
+    });
+
+    const updateCountAfter = streamingInstances[0].update.mock.calls.length;
+    expect(updateCountAfter).toBe(updateCountBefore);
+
+    const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).not.toContain("sleep 30");
+    expect(String(lastUpdateText)).not.toContain("执行操作");
   });
 
   it("stops progress-card updates after partial reply stream starts", async () => {
