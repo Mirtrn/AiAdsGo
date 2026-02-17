@@ -33,6 +33,18 @@ const OPENCLAW_COMMAND_HEARTBEAT_MS = (() => {
   return parsed
 })()
 
+class OpenclawCommandValidationError extends Error {
+  status: number
+  response: Record<string, any>
+
+  constructor(status: number, response: Record<string, any>) {
+    super(typeof response?.error === 'string' ? response.error : 'OpenClaw command validation failed')
+    this.name = 'OpenclawCommandValidationError'
+    this.status = status
+    this.response = response
+  }
+}
+
 function truncateBody(value: string | null | undefined): string | null {
   if (!value) return null
   return value.length > MAX_BODY_LENGTH ? `${value.slice(0, MAX_BODY_LENGTH)}...` : value
@@ -669,6 +681,84 @@ function extractUpdateCpcCampaignId(path: string): string | null {
   return match?.[1] || null
 }
 
+function extractLocalCampaignRoutePath(path: string): { campaignId: string; suffix: '' | '/toggle-status' | '/offline' | '/sync' } | null {
+  const match = String(path || '').match(/^\/api\/campaigns\/(\d+)(?:\/(toggle-status|offline|sync))?$/)
+  if (!match) return null
+  const suffixRaw = match[2]
+  if (!suffixRaw) return { campaignId: match[1], suffix: '' }
+  if (suffixRaw === 'toggle-status') return { campaignId: match[1], suffix: '/toggle-status' }
+  if (suffixRaw === 'offline') return { campaignId: match[1], suffix: '/offline' }
+  if (suffixRaw === 'sync') return { campaignId: match[1], suffix: '/sync' }
+  return null
+}
+
+function isLocalCampaignRoute(params: {
+  method: string
+  suffix: '' | '/toggle-status' | '/offline' | '/sync'
+}): boolean {
+  const method = params.method.toUpperCase()
+  if (params.suffix === '') {
+    return method === 'PUT' || method === 'DELETE'
+  }
+  if (params.suffix === '/toggle-status') return method === 'PUT'
+  if (params.suffix === '/offline') return method === 'POST'
+  if (params.suffix === '/sync') return method === 'POST'
+  return false
+}
+
+async function assertLocalCampaignRouteIdSemantic(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  method: string
+  path: string
+}): Promise<void> {
+  const parsed = extractLocalCampaignRoutePath(params.path)
+  if (!parsed) return
+  if (!isLocalCampaignRoute({ method: params.method, suffix: parsed.suffix })) return
+
+  const localCampaignId = Number(parsed.campaignId)
+  if (!Number.isFinite(localCampaignId)) return
+
+  const localCampaign = await params.db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM campaigns
+      WHERE user_id = ?
+        AND id = ?
+      LIMIT 1
+    `,
+    [params.userId, localCampaignId]
+  )
+  if (localCampaign?.id) return
+
+  const linkedByGoogleCampaignId = await params.db.queryOne<{
+    id: number
+    campaign_id: string | null
+    google_campaign_id: string | null
+  }>(
+    `
+      SELECT id, campaign_id, google_campaign_id
+      FROM campaigns
+      WHERE user_id = ?
+        AND status != 'REMOVED'
+        AND google_campaign_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [params.userId, parsed.campaignId]
+  )
+
+  if (!linkedByGoogleCampaignId?.id) return
+
+  throw new OpenclawCommandValidationError(422, {
+    error: `路由参数语义错误：${params.path} 的 :id 必须是本地 campaign.id，收到 googleCampaignId=${parsed.campaignId}`,
+    action: 'USE_LOCAL_CAMPAIGN_ID',
+    localCampaignId: linkedByGoogleCampaignId.id,
+    googleCampaignId: parsed.campaignId,
+    expectedPath: `/api/campaigns/${linkedByGoogleCampaignId.id}${parsed.suffix}`,
+  })
+}
+
 async function assertUpdateCpcRouteIdSemantic(params: {
   db: OpenclawExecutorDb
   userId: number
@@ -721,7 +811,9 @@ async function assertUpdateCpcRouteIdSemantic(params: {
     || localCampaign.is_deleted === true
     || localCampaign.is_deleted === 1
   if (isRemoved) {
-    throw new Error(`CPC调整失败：campaign ${localCampaignId} 已下线/删除，无法调用 update-cpc`)
+    throw new OpenclawCommandValidationError(400, {
+      error: '该广告系列已下线/删除，无法调整CPC',
+    })
   }
 
   const expectedGoogleCampaignId =
@@ -729,13 +821,19 @@ async function assertUpdateCpcRouteIdSemantic(params: {
     || normalizeGoogleCampaignId(localCampaign.campaign_id)
 
   if (!expectedGoogleCampaignId) {
-    throw new Error(`CPC调整失败：campaign ${localCampaignId} 尚未发布到 Google Ads（缺少 googleCampaignId）`)
+    throw new OpenclawCommandValidationError(400, {
+      error: '该广告系列尚未发布到Google Ads，无法调整CPC',
+    })
   }
 
   if (expectedGoogleCampaignId !== pathCampaignId) {
-    throw new Error(
-      `CPC调整路由参数语义错误：update-cpc 的 :id 必须是 googleCampaignId；收到本地 campaign.id=${localCampaignId}，请改用 /api/campaigns/${expectedGoogleCampaignId}/update-cpc`
-    )
+    throw new OpenclawCommandValidationError(422, {
+      error: `路由参数语义错误：update-cpc 的 :id 必须是 googleCampaignId，收到本地 campaign.id=${localCampaignId}`,
+      action: 'USE_GOOGLE_CAMPAIGN_ID',
+      localCampaignId,
+      googleCampaignId: expectedGoogleCampaignId,
+      expectedPath: `/api/campaigns/${expectedGoogleCampaignId}/update-cpc`,
+    })
   }
 }
 
@@ -912,6 +1010,12 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       path: run.request_path,
       requestBody,
     })
+    await assertLocalCampaignRouteIdSemantic({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+    })
     await assertUpdateCpcRouteIdSemantic({
       db,
       userId: data.userId,
@@ -985,6 +1089,10 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       latencyMs,
     }
   } catch (error: any) {
+    if (error instanceof OpenclawCommandValidationError) {
+      responseStatus = error.status
+      responseBody = truncateBody(JSON.stringify(error.response))
+    }
     latencyMs = latencyMs || Date.now() - startedAt
     const message = error?.message || 'OpenClaw command execution failed'
 

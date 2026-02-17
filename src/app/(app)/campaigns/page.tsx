@@ -209,7 +209,7 @@ export default function CampaignsPage() {
     return deletedFlag || removedStatus
   }
   const isOfferDeleted = (campaign: Campaign) => campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-  const getCampaignGoogleId = (campaign: Campaign) => campaign.campaignId || campaign.googleCampaignId
+  const getCampaignGoogleId = (campaign: Campaign) => campaign.googleCampaignId || campaign.campaignId
 
   const currencySet = new Set(
     campaigns
@@ -657,7 +657,7 @@ export default function CampaignsPage() {
   const openToggleStatusConfirm = (campaign: Campaign) => {
     const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
     const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+    const googleCampaignId = getCampaignGoogleId(campaign)
 
     if (isDeleted || offerDeleted) {
       showError('无法操作', '该广告系列已删除')
@@ -707,7 +707,7 @@ export default function CampaignsPage() {
   const openOfflineDialog = (campaign: Campaign) => {
     const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
     const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+    const googleCampaignId = getCampaignGoogleId(campaign)
     const normalizedCreationStatus = String(campaign.creationStatus || '').toLowerCase()
     const canOfflineWithoutGoogleCampaign = normalizedCreationStatus === 'pending' || normalizedCreationStatus === 'failed'
 
@@ -989,7 +989,7 @@ export default function CampaignsPage() {
   ) => {
     const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
     const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
-    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+    const googleCampaignId = getCampaignGoogleId(campaign)
 
     if (isDeleted || offerDeleted) {
       showError('无法操作', '该广告系列已删除')
