@@ -29,6 +29,8 @@ type IngestPayload = {
   reasonCode: string
   reasonMessage?: string
   messageText?: string
+  messageReceivedAt?: string
+  replyDispatchedAt?: string
   metadata?: Record<string, unknown>
   tenantKey?: string
 }
@@ -71,6 +73,51 @@ function firstNonEmpty(...values: Array<unknown>): string | undefined {
     if (typeof value === 'number' || typeof value === 'boolean') {
       return String(value)
     }
+  }
+  return undefined
+}
+
+function epochToIso(value: number): string | undefined {
+  if (!Number.isFinite(value)) return undefined
+  const abs = Math.abs(value)
+  const millis = abs >= 1e14
+    ? Math.floor(value / 1000)
+    : abs >= 1e11
+      ? Math.floor(value)
+      : Math.floor(value * 1000)
+  const date = new Date(millis)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}
+
+function normalizeTimestamp(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString()
+  }
+  if (typeof value === 'number') {
+    return epochToIso(value)
+  }
+
+  const text = String(value || '').trim()
+  if (!text) return undefined
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    return epochToIso(Number(text))
+  }
+
+  const hasTimezone = /z$/i.test(text) || /[+-]\d{2}:\d{2}$/.test(text)
+  const normalized = text.includes('T')
+    ? (hasTimezone ? text : `${text}Z`)
+    : `${text.replace(' ', 'T')}${hasTimezone ? '' : 'Z'}`
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}
+
+function firstTimestamp(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    const normalized = normalizeTimestamp(value)
+    if (normalized) return normalized
   }
   return undefined
 }
@@ -297,6 +344,42 @@ function normalizeIngestPayload(raw: RawIngestPayload): IngestPayload | null {
       metadata?.message_text,
       metadata?.text
     ),
+    messageReceivedAt: firstTimestamp(
+      raw.messageReceivedAt,
+      raw.message_received_at,
+      raw.inboundMessageAt,
+      raw.inbound_message_at,
+      raw.messageCreateTime,
+      raw.message_create_time,
+      metadata?.messageReceivedAt,
+      metadata?.message_received_at,
+      metadata?.inboundMessageAt,
+      metadata?.inbound_message_at,
+      metadata?.messageCreateTime,
+      metadata?.message_create_time
+    ),
+    replyDispatchedAt: firstTimestamp(
+      raw.replyDispatchedAt,
+      raw.reply_dispatched_at,
+      raw.dispatchAt,
+      raw.dispatch_at,
+      raw.replySentAt,
+      raw.reply_sent_at,
+      raw.responseSentAt,
+      raw.response_sent_at,
+      metadata?.replyDispatchedAt,
+      metadata?.reply_dispatched_at,
+      metadata?.dispatchAt,
+      metadata?.dispatch_at,
+      metadata?.replySentAt,
+      metadata?.reply_sent_at,
+      metadata?.responseSentAt,
+      metadata?.response_sent_at,
+      metadata?.createdAt,
+      metadata?.created_at,
+      raw.createdAt,
+      raw.created_at
+    ),
     metadata,
     tenantKey: firstNonEmpty(raw.tenantKey, raw.tenant_key, metadata?.tenantKey, metadata?.tenant_key),
   }
@@ -472,6 +555,8 @@ export async function POST(request: NextRequest) {
       reasonCode: payload.reasonCode,
       reasonMessage: payload.reasonMessage,
       messageText: payload.messageText,
+      messageReceivedAt: payload.messageReceivedAt,
+      replyDispatchedAt: payload.replyDispatchedAt,
       metadata: sanitizeMetadata(payload.metadata),
     })
 

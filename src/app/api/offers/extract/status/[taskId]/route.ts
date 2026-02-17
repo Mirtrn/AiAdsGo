@@ -42,6 +42,33 @@ interface OfferTask {
   completed_at: string | null
 }
 
+function parseBooleanQuery(value: string | null): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+}
+
+function parseTimeoutMs(value: string | null, fallback = 8000): number {
+  const parsed = Number.parseInt(String(value || '').trim(), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(1000, Math.min(30000, parsed))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function resolveRecommendedPollIntervalMs(task: OfferTask): number {
+  if (task.status === 'completed' || task.status === 'failed') {
+    return 0
+  }
+
+  const stage = String(task.stage || '').trim().toLowerCase()
+  if (task.status === 'pending') return 3000
+  if (stage === 'ai_analysis') return 4000
+  if (stage === 'accessing_page' || stage === 'scraping_products' || stage === 'processing_data') return 2000
+  return 2500
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { taskId: string } }
@@ -60,20 +87,39 @@ export async function GET(
     }
     const userIdNum = parseInt(userId, 10)
 
-    // 查询任务
-    const rows = await db.query<OfferTask>(
-      'SELECT * FROM offer_tasks WHERE id = ? AND user_id = ?',
-      [taskId, userIdNum]
-    )
+    const waitForUpdate = parseBooleanQuery(req.nextUrl.searchParams.get('waitForUpdate'))
+    const lastUpdatedAt = req.nextUrl.searchParams.get('lastUpdatedAt')
+    const timeoutMs = parseTimeoutMs(req.nextUrl.searchParams.get('timeoutMs'))
+    const loadTask = async (): Promise<OfferTask | null> => {
+      const rows = await db.query<OfferTask>(
+        'SELECT * FROM offer_tasks WHERE id = ? AND user_id = ?',
+        [taskId, userIdNum]
+      )
+      if (!rows || rows.length === 0) return null
+      return rows[0]
+    }
 
-    if (!rows || rows.length === 0) {
+    let task = await loadTask()
+
+    if (!task) {
       return NextResponse.json(
         { error: 'Not found', message: '任务不存在或无权访问' },
         { status: 404 }
       )
     }
 
-    const task = rows[0]
+    if (waitForUpdate && lastUpdatedAt && task.updated_at === lastUpdatedAt && task.status === 'running') {
+      const startedAt = Date.now()
+      while (Date.now() - startedAt < timeoutMs) {
+        await sleep(600)
+        const latestTask = await loadTask()
+        if (!latestTask) break
+        task = latestTask
+        if (task.updated_at !== lastUpdatedAt || task.status !== 'running') {
+          break
+        }
+      }
+    }
 
     // 构造响应
     return NextResponse.json({
@@ -88,6 +134,10 @@ export async function GET(
       updatedAt: task.updated_at,
       startedAt: task.started_at,
       completedAt: task.completed_at,
+      recommendedPollIntervalMs: resolveRecommendedPollIntervalMs(task),
+      streamSupported: true,
+      streamUrl: `/api/offers/extract/stream/${task.id}`,
+      waitApplied: waitForUpdate && Boolean(lastUpdatedAt),
     })
 
   } catch (error: any) {

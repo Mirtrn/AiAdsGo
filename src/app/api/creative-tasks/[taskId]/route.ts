@@ -22,6 +22,33 @@ interface CreativeTaskRow {
   completed_at: string | null
 }
 
+function parseBooleanQuery(value: string | null): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+}
+
+function parseTimeoutMs(value: string | null, fallback = 8000): number {
+  const parsed = Number.parseInt(String(value || '').trim(), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(1000, Math.min(30000, parsed))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function resolveRecommendedPollIntervalMs(task: CreativeTaskRow): number {
+  if (task.status === 'completed' || task.status === 'failed') {
+    return 0
+  }
+
+  const stage = String(task.stage || '').trim().toLowerCase()
+  if (task.status === 'pending') return 3000
+  if (stage === 'generating' || stage === 'evaluating') return 2500
+  if (stage === 'preparing' || stage === 'saving') return 1500
+  return 2000
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { taskId: string } }
@@ -39,19 +66,39 @@ export async function GET(
     }
     const userIdNum = parseInt(userId, 10)
 
-    const rows = await db.query<CreativeTaskRow>(
-      'SELECT * FROM creative_tasks WHERE id = ? AND user_id = ?',
-      [taskId, userIdNum]
-    )
+    const waitForUpdate = parseBooleanQuery(req.nextUrl.searchParams.get('waitForUpdate'))
+    const lastUpdatedAt = req.nextUrl.searchParams.get('lastUpdatedAt')
+    const timeoutMs = parseTimeoutMs(req.nextUrl.searchParams.get('timeoutMs'))
+    const loadTask = async (): Promise<CreativeTaskRow | null> => {
+      const rows = await db.query<CreativeTaskRow>(
+        'SELECT * FROM creative_tasks WHERE id = ? AND user_id = ?',
+        [taskId, userIdNum]
+      )
+      if (!rows || rows.length === 0) return null
+      return rows[0]
+    }
 
-    if (!rows || rows.length === 0) {
+    let task = await loadTask()
+
+    if (!task) {
       return NextResponse.json(
         { error: 'Not found', message: '任务不存在或无权访问' },
         { status: 404 }
       )
     }
 
-    const task = rows[0]
+    if (waitForUpdate && lastUpdatedAt && task.updated_at === lastUpdatedAt && task.status === 'running') {
+      const startedAt = Date.now()
+      while (Date.now() - startedAt < timeoutMs) {
+        await sleep(600)
+        const latestTask = await loadTask()
+        if (!latestTask) break
+        task = latestTask
+        if (task.updated_at !== lastUpdatedAt || task.status !== 'running') {
+          break
+        }
+      }
+    }
 
     let errorMessage: string | null = null
     let errorDetails: any = null
@@ -77,6 +124,10 @@ export async function GET(
       updatedAt: task.updated_at,
       startedAt: task.started_at,
       completedAt: task.completed_at,
+      recommendedPollIntervalMs: resolveRecommendedPollIntervalMs(task),
+      streamSupported: true,
+      streamUrl: `/api/creative-tasks/${task.id}/stream`,
+      waitApplied: waitForUpdate && Boolean(lastUpdatedAt),
     })
   } catch (error: any) {
     console.error('Query creative task status failed:', error)
@@ -89,4 +140,3 @@ export async function GET(
     )
   }
 }
-

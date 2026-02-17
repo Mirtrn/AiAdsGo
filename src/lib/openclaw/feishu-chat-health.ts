@@ -1,5 +1,5 @@
 import { getDatabase } from '@/lib/db'
-import { datetimeMinusHours, nowFunc } from '@/lib/db-helpers'
+import { datetimeMinusHours } from '@/lib/db-helpers'
 import { failStaleQueuedCommandRuns } from './commands/queued-timeout'
 
 export type FeishuChatHealthDecision = 'allowed' | 'blocked' | 'error'
@@ -47,6 +47,8 @@ export type FeishuChatHealthLogInput = {
   reasonCode: string
   reasonMessage?: string | null
   messageText?: string | null
+  messageReceivedAt?: string | null
+  replyDispatchedAt?: string | null
   metadata?: Record<string, unknown> | null
 }
 
@@ -92,6 +94,12 @@ type OpenclawCommandRunLinkRow = {
 
 type FeishuChatHealthCreatedAtRow = {
   created_at: string | Date
+}
+
+type FeishuChatHealthAnchorRow = {
+  created_at: string | Date
+  message_text: string | null
+  metadata_json: string | null
 }
 
 type CreativeTaskStatusRow = {
@@ -145,6 +153,8 @@ export type FeishuChatHealthLogItem = {
   messageExcerpt: string
   messageTextLength: number
   metadata: Record<string, unknown> | null
+  messageReceivedAt: string | null
+  replyDispatchedAt: string | null
   executionState: FeishuChatHealthExecutionState
   executionRunId: string | null
   executionRunStatus: string | null
@@ -282,6 +292,46 @@ function normalizeMessageText(value: unknown): string | null {
   return text.slice(0, 20_000)
 }
 
+function epochValueToIso(value: number): string | null {
+  if (!Number.isFinite(value)) return null
+  const abs = Math.abs(value)
+  // seconds / milliseconds / microseconds
+  const millis = abs >= 1e14
+    ? Math.floor(value / 1000)
+    : abs >= 1e11
+      ? Math.floor(value)
+      : Math.floor(value * 1000)
+  const date = new Date(millis)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
+function normalizeIsoTimestampInput(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  if (typeof value === 'number') {
+    return epochValueToIso(value)
+  }
+
+  const text = String(value || '').trim()
+  if (!text) return null
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const numeric = Number(text)
+    if (!Number.isFinite(numeric)) return null
+    return epochValueToIso(numeric)
+  }
+
+  const hasTimezone = /z$/i.test(text) || /[+-]\d{2}:\d{2}$/.test(text)
+  const normalized = text.includes('T')
+    ? (hasTimezone ? text : `${text}Z`)
+    : `${text.replace(' ', 'T')}${hasTimezone ? '' : 'Z'}`
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
 function safeParseJsonObject(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'string' || !value.trim()) return null
   try {
@@ -305,6 +355,108 @@ function safeParseJsonArray(value: unknown): string[] {
       .filter(Boolean)
   } catch {
     return []
+  }
+}
+
+function firstMetadataTimestamp(metadata: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!metadata) return null
+  for (const key of keys) {
+    const iso = normalizeIsoTimestampInput(metadata[key])
+    if (iso) return iso
+  }
+  return null
+}
+
+type FeishuChatHealthEventTiming = {
+  ingestedAt: string
+  messageReceivedAt: string | null
+  replyDispatchedAt: string | null
+  linkAnchorAt: string
+  linkAnchorMs: number
+  dispatchAnchorAt: string
+  dispatchAnchorMs: number
+}
+
+function resolveFeishuChatHealthEventTiming(input: {
+  metadataJson: string | null
+  createdAt: string | Date
+}): FeishuChatHealthEventTiming {
+  const metadata = safeParseJsonObject(input.metadataJson)
+  const ingestedAt = toIsoTimestamp(input.createdAt)
+  const messageReceivedAt = firstMetadataTimestamp(metadata, [
+    'messageReceivedAt',
+    'message_received_at',
+    'inboundMessageAt',
+    'inbound_message_at',
+    'messageCreateTime',
+    'message_create_time',
+  ])
+  const replyDispatchedAt = firstMetadataTimestamp(metadata, [
+    'replyDispatchedAt',
+    'reply_dispatched_at',
+    'dispatchAt',
+    'dispatch_at',
+    'replySentAt',
+    'reply_sent_at',
+    'responseSentAt',
+    'response_sent_at',
+  ])
+
+  const linkAnchorAt = messageReceivedAt || replyDispatchedAt || ingestedAt
+  const dispatchAnchorAt = replyDispatchedAt || ingestedAt
+  const linkAnchorMsRaw = Date.parse(linkAnchorAt)
+  const dispatchAnchorMsRaw = Date.parse(dispatchAnchorAt)
+  const ingestedMsRaw = Date.parse(ingestedAt)
+  const fallbackMs = Number.isFinite(ingestedMsRaw) ? ingestedMsRaw : Date.now()
+
+  return {
+    ingestedAt,
+    messageReceivedAt,
+    replyDispatchedAt,
+    linkAnchorAt,
+    linkAnchorMs: Number.isFinite(linkAnchorMsRaw) ? linkAnchorMsRaw : fallbackMs,
+    dispatchAnchorAt,
+    dispatchAnchorMs: Number.isFinite(dispatchAnchorMsRaw) ? dispatchAnchorMsRaw : fallbackMs,
+  }
+}
+
+function extractExpectedOfferCountFromMessageText(messageText: string | null): number {
+  const text = String(messageText || '')
+  if (!text) return 1
+
+  const urlMatches = text.match(/https?:\/\/[^\s)]+/gi) || []
+  const asinMatches = text.match(/\bB0[A-Z0-9]{8}\b/gi) || []
+  const urls = new Set(urlMatches.map((item) => item.trim()).filter(Boolean))
+  const asins = new Set(asinMatches.map((item) => item.toUpperCase()))
+  const estimated = Math.max(urls.size, asins.size, 1)
+  return clamp(estimated, 1, 10)
+}
+
+function resolveDynamicLinkWindowSeconds(params: {
+  messageText: string | null
+  expectation: FeishuBusinessWorkflowExpectation | null
+}): { beforeSeconds: number; afterSeconds: number } {
+  const baseBefore = resolveBackfillLinkBeforeSeconds()
+  const baseAfter = resolveExecutionLinkAfterSeconds()
+  if (!params.expectation) {
+    return {
+      beforeSeconds: baseBefore,
+      afterSeconds: baseAfter,
+    }
+  }
+
+  const offerCount = clamp(
+    params.expectation.expectedOffers || extractExpectedOfferCountFromMessageText(params.messageText),
+    1,
+    10
+  )
+  const perOfferSeconds = params.expectation.requirePublish ? 22 * 60 : 14 * 60
+  const dynamicBefore = 3 * 60 + offerCount * perOfferSeconds
+  const dynamicAfter = 2 * 60 + offerCount * 90
+
+  return {
+    beforeSeconds: clamp(Math.max(baseBefore, dynamicBefore), 30, 3 * 60 * 60),
+    afterSeconds: clamp(Math.max(baseAfter, dynamicAfter), 30, 3600),
   }
 }
 
@@ -353,6 +505,7 @@ type NormalizedCreativeBucket = 'A' | 'B' | 'D'
 type FeishuBusinessWorkflowExpectation = {
   kind: 'creative_triplet_publish'
   requirePublish: boolean
+  expectedOffers: number
 }
 
 type ParsedWorkflowRun = {
@@ -381,6 +534,7 @@ type WorkflowContext = {
   ageSeconds: number
   windowStartMs: number
   windowEndMs: number
+  primaryOfferId: number | null
 }
 
 type WorkflowAssessment = {
@@ -422,9 +576,11 @@ function resolveCreativeWorkflowExpectation(
   }
 
   const requirePublish = normalized.includes('发布') || normalized.includes('投放')
+  const expectedOffers = extractExpectedOfferCountFromMessageText(messageText)
   return {
     kind: 'creative_triplet_publish',
     requirePublish,
+    expectedOffers,
   }
 }
 
@@ -552,9 +708,16 @@ function parseWorkflowRun(run: OpenclawCommandRunLinkRow): ParsedWorkflowRun | n
 }
 
 function resolvePrimaryOfferId(runs: ParsedWorkflowRun[]): number | null {
+  return resolveWorkflowOfferIds({ runs, expectedOffers: 1 })[0] || null
+}
+
+function resolveWorkflowOfferIds(params: {
+  runs: ParsedWorkflowRun[]
+  expectedOffers: number
+}): number[] {
   const statsByOffer = new Map<number, { score: number; bucketSet: Set<NormalizedCreativeBucket>; latestMs: number }>()
 
-  for (const run of runs) {
+  for (const run of params.runs) {
     if (!run.offerId) continue
     const current = statsByOffer.get(run.offerId) || {
       score: 0,
@@ -579,28 +742,36 @@ function resolvePrimaryOfferId(runs: ParsedWorkflowRun[]): number | null {
     statsByOffer.set(run.offerId, current)
   }
 
-  let bestOfferId: number | null = null
-  let bestScore = -1
-  let bestLatestMs = -1
-  for (const [offerId, stat] of statsByOffer.entries()) {
-    const totalScore = stat.score + stat.bucketSet.size * 100
-    if (totalScore > bestScore || (totalScore === bestScore && stat.latestMs > bestLatestMs)) {
-      bestScore = totalScore
-      bestLatestMs = stat.latestMs
-      bestOfferId = offerId
-    }
-  }
+  const sortedOffers = Array.from(statsByOffer.entries())
+    .map(([offerId, stat]) => ({
+      offerId,
+      score: stat.score + stat.bucketSet.size * 100,
+      latestMs: stat.latestMs,
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return b.latestMs - a.latestMs
+    })
+    .map((item) => item.offerId)
 
-  return bestOfferId
+  if (sortedOffers.length === 0) return []
+
+  const maxOffers = clamp(params.expectedOffers || 1, 1, 10)
+  return sortedOffers.slice(0, Math.min(maxOffers, sortedOffers.length))
 }
 
 function evaluateCreativeBucketStep(params: {
   bucket: NormalizedCreativeBucket
   offerId: number | null
+  labelPrefix?: string
+  keyPrefix?: string
   runs: ParsedWorkflowRun[]
   creativeTaskById: Map<string, CreativeTaskStatusRow>
 }): FeishuChatHealthWorkflowStep {
-  const label = `生成桶 ${params.bucket}`
+  const label = params.labelPrefix
+    ? `${params.labelPrefix} · 生成桶 ${params.bucket}`
+    : `生成桶 ${params.bucket}`
+  const key = `${params.keyPrefix || ''}creative_${params.bucket.toLowerCase()}`
   const scopedRuns = params.runs.filter((run) => {
     if (!run.isCreativeGenerate) return false
     if (run.bucket !== params.bucket) return false
@@ -610,7 +781,7 @@ function evaluateCreativeBucketStep(params: {
 
   if (scopedRuns.length === 0) {
     return {
-      key: `creative_${params.bucket.toLowerCase()}`,
+      key,
       label,
       status: 'pending',
       detail: `待生成桶 ${params.bucket}`,
@@ -630,7 +801,7 @@ function evaluateCreativeBucketStep(params: {
       const taskStatus = String(task?.status || '').trim().toLowerCase()
       if (taskStatus === 'completed') {
         return {
-          key: `creative_${params.bucket.toLowerCase()}`,
+          key,
           label,
           status: 'completed',
           detail: `桶 ${params.bucket} 创意已完成`,
@@ -666,7 +837,7 @@ function evaluateCreativeBucketStep(params: {
 
   if (hasRunning) {
     return {
-      key: `creative_${params.bucket.toLowerCase()}`,
+      key,
       label,
       status: 'running',
       detail: runningDetail || `桶 ${params.bucket} 处理中`,
@@ -674,7 +845,7 @@ function evaluateCreativeBucketStep(params: {
   }
   if (hasFailure) {
     return {
-      key: `creative_${params.bucket.toLowerCase()}`,
+      key,
       label,
       status: 'failed',
       detail: failureDetail || `桶 ${params.bucket} 失败`,
@@ -682,7 +853,7 @@ function evaluateCreativeBucketStep(params: {
   }
   if (hasUnknown) {
     return {
-      key: `creative_${params.bucket.toLowerCase()}`,
+      key,
       label,
       status: 'unknown',
       detail: `桶 ${params.bucket} 状态未知`,
@@ -690,7 +861,7 @@ function evaluateCreativeBucketStep(params: {
   }
 
   return {
-    key: `creative_${params.bucket.toLowerCase()}`,
+    key,
     label,
     status: 'pending',
     detail: `待生成桶 ${params.bucket}`,
@@ -699,11 +870,13 @@ function evaluateCreativeBucketStep(params: {
 
 function evaluatePublishStep(params: {
   offerId: number | null
+  labelPrefix?: string
+  keyPrefix?: string
   runs: ParsedWorkflowRun[]
   campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
 }): FeishuChatHealthWorkflowStep {
-  const key = 'publish'
-  const label = '发布广告'
+  const key = `${params.keyPrefix || ''}publish`
+  const label = params.labelPrefix ? `${params.labelPrefix} · 发布广告` : '发布广告'
   const scopedRuns = params.runs
     .filter((run) => run.isPublish && (!params.offerId || !run.offerId || run.offerId === params.offerId))
     .sort((a, b) => b.createdMs - a.createdMs)
@@ -821,36 +994,71 @@ function buildWorkflowAssessmentForMessage(params: {
   campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
   workflowIncompleteSeconds: number
 }): WorkflowAssessment {
-  const primaryOfferId = resolvePrimaryOfferId(params.runs)
-  const steps: FeishuChatHealthWorkflowStep[] = [
-    evaluateCreativeBucketStep({
-      bucket: 'A',
-      offerId: primaryOfferId,
-      runs: params.runs,
-      creativeTaskById: params.creativeTaskById,
-    }),
-    evaluateCreativeBucketStep({
-      bucket: 'B',
-      offerId: primaryOfferId,
-      runs: params.runs,
-      creativeTaskById: params.creativeTaskById,
-    }),
-    evaluateCreativeBucketStep({
-      bucket: 'D',
-      offerId: primaryOfferId,
-      runs: params.runs,
-      creativeTaskById: params.creativeTaskById,
-    }),
-  ]
+  const expectedOffers = clamp(params.context.expectation.expectedOffers || 1, 1, 10)
+  const workflowOfferIds = resolveWorkflowOfferIds({
+    runs: params.runs,
+    expectedOffers,
+  })
+  const primaryOfferId = workflowOfferIds[0] || params.context.primaryOfferId || resolvePrimaryOfferId(params.runs)
+  const steps: FeishuChatHealthWorkflowStep[] = []
 
-  if (params.context.expectation.requirePublish) {
+  for (const offerId of workflowOfferIds) {
+    const multiOffer = expectedOffers > 1 || workflowOfferIds.length > 1
+    const labelPrefix = multiOffer ? `Offer ${offerId}` : undefined
+    const keyPrefix = multiOffer ? `offer_${offerId}_` : ''
+
     steps.push(
-      evaluatePublishStep({
-        offerId: primaryOfferId,
+      evaluateCreativeBucketStep({
+        bucket: 'A',
+        offerId,
+        labelPrefix,
+        keyPrefix,
         runs: params.runs,
-        campaignsByOfferId: params.campaignsByOfferId,
+        creativeTaskById: params.creativeTaskById,
+      }),
+      evaluateCreativeBucketStep({
+        bucket: 'B',
+        offerId,
+        labelPrefix,
+        keyPrefix,
+        runs: params.runs,
+        creativeTaskById: params.creativeTaskById,
+      }),
+      evaluateCreativeBucketStep({
+        bucket: 'D',
+        offerId,
+        labelPrefix,
+        keyPrefix,
+        runs: params.runs,
+        creativeTaskById: params.creativeTaskById,
       })
     )
+
+    if (params.context.expectation.requirePublish) {
+      steps.push(
+        evaluatePublishStep({
+          offerId,
+          labelPrefix,
+          keyPrefix,
+          runs: params.runs,
+          campaignsByOfferId: params.campaignsByOfferId,
+        })
+      )
+    }
+  }
+
+  if (workflowOfferIds.length < expectedOffers) {
+    for (let index = workflowOfferIds.length; index < expectedOffers; index += 1) {
+      const seq = index + 1
+      steps.push({
+        key: `offer_missing_${seq}`,
+        label: `Offer #${seq} 链路`,
+        status: 'pending',
+        detail: params.context.expectation.requirePublish
+          ? `待识别第${seq}个 Offer 并完成 A/B/D + 发布`
+          : `待识别第${seq}个 Offer 并完成 A/B/D`,
+      })
+    }
   }
 
   if (steps.length === 0) {
@@ -950,9 +1158,11 @@ async function buildWorkflowAssessmentsByMessageId(params: {
     const messageId = normalizeShortText(row.message_id, 120)
     if (!messageId) continue
 
-    const createdAt = toIsoTimestamp(row.created_at)
-    const createdMs = Date.parse(createdAt)
-    if (!Number.isFinite(createdMs)) continue
+    const timing = resolveFeishuChatHealthEventTiming({
+      metadataJson: row.metadata_json,
+      createdAt: row.created_at,
+    })
+    const createdMs = timing.linkAnchorMs
 
     const senderCandidates = collectSenderCandidatesFromHealthRow(row)
     allowedMessageBoundaries.push({
@@ -973,6 +1183,7 @@ async function buildWorkflowAssessmentsByMessageId(params: {
       ageSeconds,
       windowStartMs: createdMs,
       windowEndMs: createdMs,
+      primaryOfferId: null,
     })
   }
 
@@ -980,7 +1191,6 @@ async function buildWorkflowAssessmentsByMessageId(params: {
     return new Map<string, WorkflowAssessment>()
   }
 
-  const linkBeforeMs = resolveBackfillLinkBeforeSeconds() * 1000
   const maxWindowMs = resolveWorkflowMaxWindowSeconds() * 1000
   const sortedContexts = workflowContexts.slice().sort((a, b) => a.createdMs - b.createdMs)
   const sortedAllowedBoundaries = allowedMessageBoundaries
@@ -998,7 +1208,11 @@ async function buildWorkflowAssessmentsByMessageId(params: {
     }
 
     const hardWindowEnd = context.createdMs + maxWindowMs
-    context.windowStartMs = context.createdMs - linkBeforeMs
+    const dynamicWindow = resolveDynamicLinkWindowSeconds({
+      messageText: null,
+      expectation: context.expectation,
+    })
+    context.windowStartMs = context.createdMs - dynamicWindow.beforeSeconds * 1000
     context.windowEndMs = nextBoundaryMs
       ? Math.min(hardWindowEnd, nextBoundaryMs - 1)
       : hardWindowEnd
@@ -1081,6 +1295,7 @@ async function buildWorkflowAssessmentsByMessageId(params: {
       .sort((a, b) => a.createdMs - b.createdMs)
 
     parsedRunsByContextMessageId.set(context.messageId, parsedRuns)
+    context.primaryOfferId = resolvePrimaryOfferId(parsedRuns)
   }
 
   const creativeTaskIds = Array.from(
@@ -1170,8 +1385,8 @@ export async function backfillFeishuChatHealthRunLinks(params: {
     return { updatedRuns: 0 }
   }
 
-  const healthRow = await db.queryOne<FeishuChatHealthCreatedAtRow>(
-    `SELECT created_at
+  const healthRow = await db.queryOne<FeishuChatHealthAnchorRow>(
+    `SELECT created_at, message_text, metadata_json
      FROM openclaw_feishu_chat_health_logs
      WHERE user_id = ?
        AND message_id = ?
@@ -1180,11 +1395,15 @@ export async function backfillFeishuChatHealthRunLinks(params: {
     [params.userId, messageId]
   )
 
-  const healthCreatedAt = healthRow ? toIsoTimestamp(healthRow.created_at) : new Date().toISOString()
-  const healthMs = Date.parse(healthCreatedAt)
-  if (!Number.isFinite(healthMs)) {
-    return { updatedRuns: 0 }
-  }
+  const healthTiming = resolveFeishuChatHealthEventTiming({
+    metadataJson: healthRow?.metadata_json || null,
+    createdAt: healthRow?.created_at || new Date().toISOString(),
+  })
+  const expectation = resolveCreativeWorkflowExpectation(normalizeMessageText(healthRow?.message_text || null))
+  const dynamicWindow = resolveDynamicLinkWindowSeconds({
+    messageText: normalizeMessageText(healthRow?.message_text || null),
+    expectation,
+  })
 
   const senderPlaceholders = senderIds.map(() => '?').join(', ')
 
@@ -1224,10 +1443,11 @@ export async function backfillFeishuChatHealthRunLinks(params: {
     ]
   )
 
-  const linkBeforeMs = resolveBackfillLinkBeforeSeconds() * 1000
-  const linkAfterMs = resolveExecutionLinkAfterSeconds() * 1000
-  let startMs = healthMs - linkBeforeMs
-  const endMs = healthMs + linkAfterMs
+  let startMs = Math.min(
+    healthTiming.linkAnchorMs,
+    healthTiming.dispatchAnchorMs - dynamicWindow.beforeSeconds * 1000
+  )
+  const endMs = healthTiming.dispatchAnchorMs + dynamicWindow.afterSeconds * 1000
 
   if (previousAllowedHealthRow) {
     const previousMs = Date.parse(toIsoTimestamp(previousAllowedHealthRow.created_at))
@@ -1267,11 +1487,10 @@ export async function backfillFeishuChatHealthRunLinks(params: {
     return { updatedRuns: 0 }
   }
 
-  const nowSql = nowFunc(db.type)
   const runIdPlaceholders = uniqueRunIds.map(() => '?').join(', ')
   const result = await db.exec(
     `UPDATE openclaw_command_runs
-     SET parent_request_id = ?, updated_at = ${nowSql}
+     SET parent_request_id = ?
      WHERE user_id = ?
        AND id IN (${runIdPlaceholders})
        AND (parent_request_id IS NULL OR lower(trim(parent_request_id)) NOT LIKE 'om_%')`,
@@ -1317,6 +1536,18 @@ export async function recordFeishuChatHealthLog(input: FeishuChatHealthLogInput)
   )
 
   const messageText = normalizeMessageText(input.messageText)
+  const messageReceivedAt = normalizeIsoTimestampInput(input.messageReceivedAt)
+  const replyDispatchedAt = normalizeIsoTimestampInput(input.replyDispatchedAt)
+  const metadataPayload = input.metadata && typeof input.metadata === 'object'
+    ? { ...input.metadata }
+    : {} as Record<string, unknown>
+  if (messageReceivedAt) {
+    metadataPayload.messageReceivedAt = messageReceivedAt
+  }
+  if (replyDispatchedAt) {
+    metadataPayload.replyDispatchedAt = replyDispatchedAt
+  }
+  const metadataJson = Object.keys(metadataPayload).length > 0 ? JSON.stringify(metadataPayload) : null
 
   await db.exec(
     `INSERT INTO openclaw_feishu_chat_health_logs
@@ -1342,9 +1573,7 @@ export async function recordFeishuChatHealthLog(input: FeishuChatHealthLogInput)
       normalizeShortText(input.reasonMessage, 500),
       messageText,
       messageText ? messageText.length : 0,
-      input.metadata && typeof input.metadata === 'object'
-        ? JSON.stringify(input.metadata)
-        : null,
+      metadataJson,
     ]
   )
 
@@ -1520,12 +1749,21 @@ export async function listFeishuChatHealthLogs(params: {
       if (!messageId) continue
       if (!missingMessageIdSet.has(messageId)) continue
 
-      const createdAt = toIsoTimestamp(row.created_at)
-      const createdMs = Date.parse(createdAt)
-      if (!Number.isFinite(createdMs)) continue
+      const timing = resolveFeishuChatHealthEventTiming({
+        metadataJson: row.metadata_json,
+        createdAt: row.created_at,
+      })
+      const expectation = resolveCreativeWorkflowExpectation(normalizeMessageText(row.message_text))
+      const dynamicWindow = resolveDynamicLinkWindowSeconds({
+        messageText: normalizeMessageText(row.message_text),
+        expectation,
+      })
 
-      const startMs = createdMs - linkBeforeMs
-      const endMs = createdMs + linkAfterMs
+      const startMs = Math.min(
+        timing.linkAnchorMs,
+        timing.dispatchAnchorMs - Math.max(linkBeforeMs, dynamicWindow.beforeSeconds * 1000)
+      )
+      const endMs = timing.dispatchAnchorMs + Math.max(linkAfterMs, dynamicWindow.afterSeconds * 1000)
 
       const senderCandidates = new Set<string>()
       const pushCandidate = (value: unknown) => {
@@ -1588,11 +1826,12 @@ export async function listFeishuChatHealthLogs(params: {
     const messageText = normalizeMessageText(row.message_text)
     const senderCandidates = safeParseJsonArray(row.sender_candidates_json)
     const metadata = safeParseJsonObject(row.metadata_json)
-    const createdAt = toIsoTimestamp(row.created_at)
-    const createdMs = Date.parse(createdAt)
-    const ageSeconds = Number.isFinite(createdMs)
-      ? Math.max(0, Math.floor((nowMs - createdMs) / 1000))
-      : 0
+    const timing = resolveFeishuChatHealthEventTiming({
+      metadataJson: row.metadata_json,
+      createdAt: row.created_at,
+    })
+    const createdAt = timing.ingestedAt
+    const ageSeconds = Math.max(0, Math.floor((nowMs - timing.dispatchAnchorMs) / 1000))
 
     let executionState: FeishuChatHealthExecutionState = 'not_applicable'
     let executionRunId: string | null = null
@@ -1668,6 +1907,8 @@ export async function listFeishuChatHealthLogs(params: {
       messageExcerpt: toMessageExcerpt(messageText),
       messageTextLength: Number(row.message_text_length || (messageText ? messageText.length : 0)),
       metadata,
+      messageReceivedAt: timing.messageReceivedAt,
+      replyDispatchedAt: timing.replyDispatchedAt,
       executionState,
       executionRunId,
       executionRunStatus,
