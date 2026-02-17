@@ -1,11 +1,18 @@
 import { createOffer, deleteOffer } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
-import { generateUpsertSql, getInsertedId, toBool } from '@/lib/db-helpers'
+import { getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single'
+export type AffiliateProductSyncProgress = {
+  totalFetched: number
+  processedCount: number
+  createdCount: number
+  updatedCount: number
+  failedCount: number
+}
 export type AffiliateLandingPageType =
   | 'amazon_product'
   | 'amazon_store'
@@ -1698,14 +1705,47 @@ async function loadExistingMidSet(userId: number, platform: AffiliatePlatform, m
   return new Set(rows.map((row) => row.mid))
 }
 
-export async function upsertAffiliateProducts(userId: number, platform: AffiliatePlatform, items: NormalizedAffiliateProduct[]): Promise<{
+function isUniqueConstraintError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase()
+  return message.includes('unique constraint')
+    || message.includes('duplicate key value')
+    || message.includes('duplicate entry')
+}
+
+export async function upsertAffiliateProducts(
+  userId: number,
+  platform: AffiliatePlatform,
+  items: NormalizedAffiliateProduct[],
+  options?: {
+    progressEvery?: number
+    onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
+  }
+): Promise<{
   totalFetched: number
   createdCount: number
   updatedCount: number
 }> {
   const db = await getDatabase()
   const deduped = dedupeNormalizedProducts(items)
+  const totalFetched = deduped.length
+
+  const emitProgress = async (progress: AffiliateProductSyncProgress): Promise<void> => {
+    if (!options?.onProgress) return
+    try {
+      await options.onProgress(progress)
+    } catch (error: any) {
+      console.warn('[affiliate-products] onProgress callback failed:', error?.message || error)
+    }
+  }
+
   if (deduped.length === 0) {
+    await emitProgress({
+      totalFetched: 0,
+      processedCount: 0,
+      createdCount: 0,
+      updatedCount: 0,
+      failedCount: 0,
+    })
     return {
       totalFetched: 0,
       createdCount: 0,
@@ -1715,68 +1755,68 @@ export async function upsertAffiliateProducts(userId: number, platform: Affiliat
 
   const mids = deduped.map((item) => item.mid)
   const existingMidSet = await loadExistingMidSet(userId, platform, mids)
-
-  const upsertSql = generateUpsertSql(
-    'affiliate_products',
-    ['user_id', 'platform', 'mid'],
-    [
-      'user_id',
-      'platform',
-      'mid',
-      'asin',
-      'brand',
-      'product_name',
-      'product_url',
-      'promo_link',
-      'short_promo_link',
-      'allowed_countries_json',
-      'price_amount',
-      'price_currency',
-      'commission_rate',
-      'commission_amount',
-      'review_count',
-      'raw_json',
-      'last_synced_at',
-      'last_seen_at',
-      'updated_at',
-    ],
-    [
-      'asin',
-      'brand',
-      'product_name',
-      'product_url',
-      'promo_link',
-      'short_promo_link',
-      'allowed_countries_json',
-      'price_amount',
-      'price_currency',
-      'commission_rate',
-      'commission_amount',
-      'review_count',
-      'raw_json',
-      'last_synced_at',
-      'last_seen_at',
-      'updated_at',
-    ],
-    db.type
-  )
+  const insertSql = `
+    INSERT INTO affiliate_products (
+      user_id,
+      platform,
+      mid,
+      asin,
+      brand,
+      product_name,
+      product_url,
+      promo_link,
+      short_promo_link,
+      allowed_countries_json,
+      price_amount,
+      price_currency,
+      commission_rate,
+      commission_amount,
+      review_count,
+      raw_json,
+      last_synced_at,
+      last_seen_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
+  const updateSql = `
+    UPDATE affiliate_products
+    SET
+      asin = ?,
+      brand = ?,
+      product_name = ?,
+      product_url = ?,
+      promo_link = ?,
+      short_promo_link = ?,
+      allowed_countries_json = ?,
+      price_amount = ?,
+      price_currency = ?,
+      commission_rate = ?,
+      commission_amount = ?,
+      review_count = ?,
+      raw_json = ?,
+      last_synced_at = ?,
+      last_seen_at = ?,
+      updated_at = ?
+    WHERE user_id = ? AND platform = ? AND mid = ?
+  `
 
   let createdCount = 0
   let updatedCount = 0
+  let processedCount = 0
   const nowIso = new Date().toISOString()
+  const progressEvery = Math.max(1, Math.floor(Number(options?.progressEvery || 20)))
+
+  await emitProgress({
+    totalFetched,
+    processedCount,
+    createdCount,
+    updatedCount,
+    failedCount: 0,
+  })
 
   for (const item of deduped) {
-    const existed = existingMidSet.has(item.mid)
-    if (existed) {
-      updatedCount += 1
-    } else {
-      createdCount += 1
-    }
-
-    await db.exec(upsertSql, [
-      userId,
-      platform,
-      item.mid,
+    const rowValues = [
       item.asin,
       item.brand,
       item.productName,
@@ -1790,14 +1830,66 @@ export async function upsertAffiliateProducts(userId: number, platform: Affiliat
       item.commissionAmount,
       item.reviewCount,
       item.rawJson,
-      nowIso,
-      nowIso,
-      nowIso,
-    ])
+    ]
+    const existed = existingMidSet.has(item.mid)
+
+    if (existed) {
+      await db.exec(updateSql, [
+        ...rowValues,
+        nowIso,
+        nowIso,
+        nowIso,
+        userId,
+        platform,
+        item.mid,
+      ])
+      updatedCount += 1
+    } else {
+      try {
+        await db.exec(insertSql, [
+          userId,
+          platform,
+          item.mid,
+          ...rowValues,
+          nowIso,
+          nowIso,
+          nowIso,
+        ])
+        createdCount += 1
+        existingMidSet.add(item.mid)
+      } catch (error: any) {
+        if (!isUniqueConstraintError(error)) {
+          throw error
+        }
+
+        await db.exec(updateSql, [
+          ...rowValues,
+          nowIso,
+          nowIso,
+          nowIso,
+          userId,
+          platform,
+          item.mid,
+        ])
+        updatedCount += 1
+        existingMidSet.add(item.mid)
+      }
+    }
+
+    processedCount += 1
+    if (processedCount % progressEvery === 0 || processedCount === totalFetched) {
+      await emitProgress({
+        totalFetched,
+        processedCount,
+        createdCount,
+        updatedCount,
+        failedCount: 0,
+      })
+    }
   }
 
   return {
-    totalFetched: deduped.length,
+    totalFetched,
     createdCount,
     updatedCount,
   }
@@ -2532,6 +2624,8 @@ export async function syncAffiliateProducts(params: {
   platform: AffiliatePlatform
   mode: SyncMode
   productId?: number
+  progressEvery?: number
+  onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
 }): Promise<{
   totalFetched: number
   createdCount: number
@@ -2578,5 +2672,8 @@ export async function syncAffiliateProducts(params: {
     }
   }
 
-  return await upsertAffiliateProducts(params.userId, params.platform, normalizedItems)
+  return await upsertAffiliateProducts(params.userId, params.platform, normalizedItems, {
+    progressEvery: params.progressEvery,
+    onProgress: params.onProgress,
+  })
 }

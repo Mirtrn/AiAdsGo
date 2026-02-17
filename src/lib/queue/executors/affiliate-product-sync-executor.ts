@@ -2,6 +2,7 @@ import type { Task } from '@/lib/queue/types'
 import {
   checkAffiliatePlatformConfig,
   type AffiliatePlatform,
+  type AffiliateProductSyncProgress,
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   type ProductSortField,
@@ -190,6 +191,10 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     runId: data.runId,
     status: 'running',
     startedAt,
+    totalItems: 0,
+    createdCount: 0,
+    updatedCount: 0,
+    failedCount: 0,
     errorMessage: null,
   })
 
@@ -204,6 +209,16 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       platform: data.platform,
       mode: data.mode || 'platform',
       productId: data.productId,
+      progressEvery: 20,
+      onProgress: async (progress: AffiliateProductSyncProgress) => {
+        await updateAffiliateProductSyncRun({
+          runId: data.runId,
+          totalItems: progress.totalFetched,
+          createdCount: progress.createdCount,
+          updatedCount: progress.updatedCount,
+          failedCount: progress.failedCount,
+        })
+      },
     })
 
     try {

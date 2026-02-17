@@ -279,6 +279,22 @@ function getSyncRunStatusIcon(status: SyncRunItem['status']) {
   return Clock3
 }
 
+function getSyncRunProcessedCount(run: SyncRunItem): number {
+  const created = Number.isFinite(run.created_count) ? Math.max(0, run.created_count) : 0
+  const updated = Number.isFinite(run.updated_count) ? Math.max(0, run.updated_count) : 0
+  const failed = Number.isFinite(run.failed_count) ? Math.max(0, run.failed_count) : 0
+  return created + updated + failed
+}
+
+function getSyncRunProgressText(run: SyncRunItem): string {
+  const processed = getSyncRunProcessedCount(run)
+  const total = Number.isFinite(run.total_items) ? Math.max(0, run.total_items) : 0
+  if (total > 0) {
+    return `已处理 ${processed}/${total}`
+  }
+  return `已处理 ${processed}/待统计`
+}
+
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
@@ -892,34 +908,13 @@ export default function ProductsPage() {
                 aria-label="全选"
               />
             </TableHead>
-            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[78px] whitespace-nowrap">
-              记录ID
+            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
+              记录ID(MID)
             </SortableTableHead>
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
             </SortableTableHead>
-            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
-              <span className="inline-flex items-center gap-1">
-                平台商品ID
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span
-                        className="inline-flex items-center text-muted-foreground"
-                        onClick={(event) => event.stopPropagation()}
-                        aria-label="平台商品ID说明"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs leading-5">
-                      <div>PB: product_id（联盟平台商品ID）</div>
-                      <div>YP: mid / advert_id（联盟商家ID）</div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
-            </SortableTableHead>
+            <TableHead className="w-[120px] whitespace-nowrap">商品页</TableHead>
             <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[122px] whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
                 ASIN
@@ -994,7 +989,9 @@ export default function ProductsPage() {
                   />
                 </TableCell>
                 <TableCell className="font-medium">
-                  <div className={item.isBlacklisted ? 'opacity-50' : ''}>#{item.serial}</div>
+                  <div className={`max-w-[138px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={item.mid}>
+                    {item.mid}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className={item.isBlacklisted ? 'opacity-50' : ''}>
@@ -1002,19 +999,19 @@ export default function ProductsPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`flex items-center gap-1 ${item.isBlacklisted ? 'opacity-50' : ''}`}>
+                  <div className={`${item.isBlacklisted ? 'opacity-50' : ''}`}>
                     {midTargetUrl ? (
                       <button
                         type="button"
-                        className="inline-flex max-w-[138px] items-center gap-1 font-medium text-blue-600 hover:underline"
+                        className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline"
                         onClick={() => safeOpenExternal(midTargetUrl)}
                         title={`打开联盟平台商品页：${item.mid}`}
                       >
-                        <span className="truncate">{item.mid}</span>
+                        <span>打开页面</span>
                         <ExternalLink className="h-3.5 w-3.5" />
                       </button>
                     ) : (
-                      <span className="block max-w-[138px] truncate font-medium" title={item.mid}>{item.mid}</span>
+                      '-'
                     )}
                   </div>
                 </TableCell>
@@ -1216,6 +1213,9 @@ export default function ProductsPage() {
                           <StatusIcon className="mr-1 h-3 w-3" />
                           {run.status}
                         </Badge>
+                      </div>
+                      <div className="text-muted-foreground">
+                        {getSyncRunProgressText(run)}
                       </div>
                       <div className="text-muted-foreground">
                         新增 {run.created_count} · 更新 {run.updated_count} · 失败 {run.failed_count}
