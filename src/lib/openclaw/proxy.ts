@@ -115,6 +115,30 @@ export function normalizeOpenclawProxyTarget(params: {
   const path = (params.path || '').trim()
   const query = params.query
 
+  // Legacy Google Ads account listing aliases (read-only):
+  // map them to canonical /api/google-ads-accounts to avoid
+  // accidental match with /api/campaigns/:id (NaN id errors).
+  if (
+    path === '/api/google-ads/accounts'
+    || path === '/api/campaigns/accounts'
+    || path === '/api/campaigns/google-ads-accounts'
+  ) {
+    return {
+      path: '/api/google-ads-accounts',
+      query,
+      rewritten: true,
+    }
+  }
+
+  const googleAdsAccountDetailMatch = path.match(/^\/api\/google-ads\/accounts\/(\d+)$/)
+  if (googleAdsAccountDetailMatch) {
+    return {
+      path: `/api/google-ads-accounts/${googleAdsAccountDetailMatch[1]}`,
+      query,
+      rewritten: true,
+    }
+  }
+
   if (path === '/api/reports/campaigns' || path === '/api/google-ads/reports') {
     return {
       path: '/api/campaigns/performance',

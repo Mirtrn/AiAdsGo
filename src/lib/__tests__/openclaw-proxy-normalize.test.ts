@@ -42,6 +42,40 @@ describe('normalizeOpenclawProxyTarget', () => {
     })
   })
 
+  it('rewrites legacy google ads accounts list aliases to canonical account list path', () => {
+    const aliasPaths = [
+      '/api/google-ads/accounts',
+      '/api/campaigns/accounts',
+      '/api/campaigns/google-ads-accounts',
+    ]
+
+    for (const aliasPath of aliasPaths) {
+      const result = normalizeOpenclawProxyTarget({
+        path: aliasPath,
+        query: { limit: 20 },
+      })
+
+      expect(result).toEqual({
+        path: '/api/google-ads-accounts',
+        query: { limit: 20 },
+        rewritten: true,
+      })
+    }
+  })
+
+  it('rewrites legacy google ads account detail path to canonical account detail path', () => {
+    const result = normalizeOpenclawProxyTarget({
+      path: '/api/google-ads/accounts/856',
+      query: { includeStats: true },
+    })
+
+    expect(result).toEqual({
+      path: '/api/google-ads-accounts/856',
+      query: { includeStats: true },
+      rewritten: true,
+    })
+  })
+
   it('rewrites legacy account campaigns path and injects googleAdsAccountId', () => {
     const result = normalizeOpenclawProxyTarget({
       path: '/api/google-ads/accounts/109/campaigns',
