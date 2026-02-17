@@ -1122,6 +1122,8 @@ export async function POST(request: NextRequest) {
         negativeKeywords: persistedKeywordConfig.negativeKeywords,
         ...(resolvedAdName ? { adName: resolvedAdName } : {})
       }
+      const normalizedBudgetType =
+        (normalizedCampaignConfig as Record<string, any>).budgetType ?? _campaignConfig.budgetType
       const namingWithOverrides = {
         ...naming,
         campaignName: resolvedCampaignName,
@@ -1157,7 +1159,7 @@ export async function POST(request: NextRequest) {
         resolvedGoogleAdsAccountId,
         resolvedCampaignName,  // 🔥 使用用户配置或规范化的Campaign名称
         variantBudget,
-        normalizedCampaignConfig.budgetType,
+        normalizedBudgetType,
         creative.id,
         JSON.stringify(normalizedCampaignConfig),
         _pauseOldCampaigns ? 1 : 0,
