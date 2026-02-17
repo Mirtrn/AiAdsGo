@@ -36,6 +36,13 @@ function normalizeBiddingStrategyType(raw: string): string {
   return raw
 }
 
+function normalizeGoogleCampaignId(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  return /^\d+$/.test(raw) ? raw : null
+}
+
 function safeParseJson<T = any>(value: unknown): T | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'object') return value as T
@@ -102,6 +109,49 @@ export async function GET(
     } | undefined
 
     if (!linked?.customer_id) {
+      const localCampaign = await db.queryOne(`
+        SELECT id, campaign_id, google_campaign_id, status, is_deleted
+        FROM campaigns
+        WHERE user_id = ?
+          AND id = ?
+        LIMIT 1
+      `, [numericUserId, campaignIdNum]) as {
+        id: number
+        campaign_id: string | null
+        google_campaign_id: string | null
+        status: string | null
+        is_deleted: any
+      } | undefined
+
+      if (localCampaign) {
+        const isRemoved = String(localCampaign.status || '').toUpperCase() === 'REMOVED'
+          || localCampaign.is_deleted === true
+          || localCampaign.is_deleted === 1
+        if (isRemoved) {
+          return NextResponse.json({ error: '该广告系列已下线/删除，无法查询CPC' }, { status: 400 })
+        }
+
+        const expectedGoogleCampaignId =
+          normalizeGoogleCampaignId(localCampaign.google_campaign_id)
+          || normalizeGoogleCampaignId(localCampaign.campaign_id)
+        if (expectedGoogleCampaignId && expectedGoogleCampaignId !== String(campaignIdNum)) {
+          return NextResponse.json(
+            {
+              error: `路由参数语义错误：cpc 的 :id 必须是 googleCampaignId，收到本地 campaign.id=${campaignIdNum}`,
+              action: 'USE_GOOGLE_CAMPAIGN_ID',
+              localCampaignId: campaignIdNum,
+              googleCampaignId: expectedGoogleCampaignId,
+              expectedPath: `/api/campaigns/${expectedGoogleCampaignId}/cpc`,
+            },
+            { status: 422 }
+          )
+        }
+
+        if (!expectedGoogleCampaignId) {
+          return NextResponse.json({ error: '该广告系列尚未发布到Google Ads，无法查询CPC' }, { status: 400 })
+        }
+      }
+
       return NextResponse.json({ error: '未找到关联的Ads账号或Campaign未发布' }, { status: 404 })
     }
 

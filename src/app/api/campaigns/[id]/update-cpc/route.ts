@@ -16,6 +16,13 @@ function toBiddingStrategyType(value: unknown): string {
   return String(value).toUpperCase()
 }
 
+function normalizeGoogleCampaignId(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  return /^\d+$/.test(raw) ? raw : null
+}
+
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
  * 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务更新
@@ -91,6 +98,8 @@ async function mutateResources(
 /**
  * PUT /api/campaigns/:id/update-cpc
  * 更新广告系列的CPC出价
+ *
+ * - :id 必须是 Google Ads campaign id（google_campaign_id）
  */
 export async function PUT(
   request: NextRequest,
@@ -135,6 +144,57 @@ export async function PUT(
     `, [numericUserId, String(campaignId)]) as { local_campaign_id?: number | string | null; google_ads_account_id: number; offer_id: number | null } | undefined
 
     if (!linked?.google_ads_account_id) {
+      // 严格语义校验：该路由的 :id 必须是 google_campaign_id，不接受本地 campaigns.id
+      const localCampaign = await db.queryOne(`
+        SELECT id, campaign_id, google_campaign_id, status, is_deleted
+        FROM campaigns
+        WHERE user_id = ?
+          AND id = ?
+        LIMIT 1
+      `, [numericUserId, campaignIdNum]) as {
+        id: number
+        campaign_id: string | null
+        google_campaign_id: string | null
+        status: string | null
+        is_deleted: any
+      } | undefined
+
+      if (localCampaign) {
+        const isRemoved = String(localCampaign.status || '').toUpperCase() === 'REMOVED'
+          || localCampaign.is_deleted === true
+          || localCampaign.is_deleted === 1
+        if (isRemoved) {
+          return NextResponse.json(
+            { error: '该广告系列已下线/删除，无法调整CPC' },
+            { status: 400 }
+          )
+        }
+
+        const expectedGoogleCampaignId =
+          normalizeGoogleCampaignId(localCampaign.google_campaign_id)
+          || normalizeGoogleCampaignId(localCampaign.campaign_id)
+
+        if (expectedGoogleCampaignId && expectedGoogleCampaignId !== String(campaignIdNum)) {
+          return NextResponse.json(
+            {
+              error: `路由参数语义错误：update-cpc 的 :id 必须是 googleCampaignId，收到本地 campaign.id=${campaignIdNum}`,
+              action: 'USE_GOOGLE_CAMPAIGN_ID',
+              localCampaignId: campaignIdNum,
+              googleCampaignId: expectedGoogleCampaignId,
+              expectedPath: `/api/campaigns/${expectedGoogleCampaignId}/update-cpc`,
+            },
+            { status: 422 }
+          )
+        }
+
+        if (!expectedGoogleCampaignId) {
+          return NextResponse.json(
+            { error: '该广告系列尚未发布到Google Ads，无法调整CPC' },
+            { status: 400 }
+          )
+        }
+      }
+
       return NextResponse.json(
         { error: '未找到该广告系列对应的Ads账号，请确认该广告系列已由系统发布' },
         { status: 404 }

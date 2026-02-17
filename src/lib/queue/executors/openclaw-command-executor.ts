@@ -657,6 +657,88 @@ async function assertClickFarmTaskPrerequisites(params: {
   throw new Error(`补点击前置校验失败：Offer ${offerId} 缺少可用Campaign，请先成功发布广告`)
 }
 
+function normalizeGoogleCampaignId(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  return /^\d+$/.test(raw) ? raw : null
+}
+
+function extractUpdateCpcCampaignId(path: string): string | null {
+  const match = String(path || '').match(/^\/api\/campaigns\/(\d+)\/update-cpc$/)
+  return match?.[1] || null
+}
+
+async function assertUpdateCpcRouteIdSemantic(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  method: string
+  path: string
+}): Promise<void> {
+  if (params.method.toUpperCase() !== 'PUT') return
+
+  const pathCampaignId = extractUpdateCpcCampaignId(params.path)
+  if (!pathCampaignId) return
+
+  const linkedByGoogleCampaignId = await params.db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM campaigns
+      WHERE user_id = ?
+        AND status != 'REMOVED'
+        AND google_campaign_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [params.userId, pathCampaignId]
+  )
+
+  if (linkedByGoogleCampaignId?.id) return
+
+  const localCampaignId = Number(pathCampaignId)
+  if (!Number.isFinite(localCampaignId)) return
+
+  const localCampaign = await params.db.queryOne<{
+    id: number
+    campaign_id: string | null
+    google_campaign_id: string | null
+    status: string | null
+    is_deleted: any
+  }>(
+    `
+      SELECT id, campaign_id, google_campaign_id, status, is_deleted
+      FROM campaigns
+      WHERE user_id = ?
+        AND id = ?
+      LIMIT 1
+    `,
+    [params.userId, localCampaignId]
+  )
+
+  if (!localCampaign) return
+
+  const isRemoved = String(localCampaign.status || '').toUpperCase() === 'REMOVED'
+    || localCampaign.is_deleted === true
+    || localCampaign.is_deleted === 1
+  if (isRemoved) {
+    throw new Error(`CPC调整失败：campaign ${localCampaignId} 已下线/删除，无法调用 update-cpc`)
+  }
+
+  const expectedGoogleCampaignId =
+    normalizeGoogleCampaignId(localCampaign.google_campaign_id)
+    || normalizeGoogleCampaignId(localCampaign.campaign_id)
+
+  if (!expectedGoogleCampaignId) {
+    throw new Error(`CPC调整失败：campaign ${localCampaignId} 尚未发布到 Google Ads（缺少 googleCampaignId）`)
+  }
+
+  if (expectedGoogleCampaignId !== pathCampaignId) {
+    throw new Error(
+      `CPC调整路由参数语义错误：update-cpc 的 :id 必须是 googleCampaignId；收到本地 campaign.id=${localCampaignId}，请改用 /api/campaigns/${expectedGoogleCampaignId}/update-cpc`
+    )
+  }
+}
+
 function deriveTarget(path: string): { targetType?: string; targetId?: string } {
   const cleanPath = (path || '').split('?')[0]
   const parts = cleanPath.split('/').filter(Boolean)
@@ -829,6 +911,12 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       method: run.request_method,
       path: run.request_path,
       requestBody,
+    })
+    await assertUpdateCpcRouteIdSemantic({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
     })
 
     const upstream = await fetchAutoadsAsUser({

@@ -441,4 +441,71 @@ describe('openclaw command executor click-farm guard', () => {
       })
     )
   })
+
+  it('rejects update-cpc when path id is local campaign id instead of googleCampaignId', async () => {
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn().mockResolvedValue([]),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-cpc-local-id-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            request_method: 'PUT',
+            request_path: '/api/campaigns/1972/update-cpc',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              newCpc: 0.2,
+            }),
+            risk_level: 'high',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        if (sql.includes('google_campaign_id = ?')) {
+          return null
+        }
+
+        if (sql.includes('FROM campaigns')) {
+          return {
+            id: 1972,
+            campaign_id: '23578044853',
+            google_campaign_id: '23578044853',
+            status: 'ENABLED',
+            is_deleted: false,
+          }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    await expect(executeOpenclawCommandTask(createTask('run-cpc-local-id-1'))).rejects.toThrow(
+      'update-cpc 的 :id 必须是 googleCampaignId'
+    )
+
+    expect(mocks.fetchAutoadsAsUser).not.toHaveBeenCalled()
+    expect(mocks.recordOpenclawAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'error',
+        action: 'PUT /api/campaigns/1972/update-cpc',
+      })
+    )
+  })
 })
