@@ -183,7 +183,7 @@ describe('openclaw proxy write bridge', () => {
         userId: 1001,
         method: 'GET',
         path: '/api/offers/extract/stream/task-1',
-        timeoutMs: 20 * 60 * 1000,
+        timeoutMs: 30 * 60 * 1000,
       })
     )
   })

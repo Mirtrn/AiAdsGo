@@ -53,7 +53,7 @@ const OPENCLAW_PROXY_TIMEOUT_MS = parsePositiveIntEnv(
 )
 const OPENCLAW_PROXY_STREAM_TIMEOUT_MS = parsePositiveIntEnv(
   process.env.OPENCLAW_PROXY_STREAM_TIMEOUT_MS,
-  20 * 60 * 1000
+  30 * 60 * 1000
 )
 
 function extractBearerToken(authHeader: string | null): string | null {
