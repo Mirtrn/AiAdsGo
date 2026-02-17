@@ -53,6 +53,38 @@ type ExecOverrides = Pick<ExecToolDefaults, "host" | "security" | "ask" | "node"
 const BARE_SESSION_RESET_PROMPT =
   "A new session was started via /new or /reset. Greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning.";
 
+const FEISHU_CHANNEL_ALIASES = new Set(["feishu", "lark"]);
+
+function normalizeChannelValue(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+export function buildChannelLanguageSystemPrompt(ctx: TemplateContext): string {
+  const channelCandidates = [
+    normalizeChannelValue(ctx.OriginatingChannel),
+    normalizeChannelValue(ctx.Surface),
+    normalizeChannelValue(ctx.Provider),
+  ].filter(Boolean) as string[];
+
+  const channel = channelCandidates.find((entry) => FEISHU_CHANNEL_ALIASES.has(entry));
+  if (!channel) {
+    return "";
+  }
+
+  return [
+    "## 渠道语言硬约束",
+    "当前会话渠道为飞书（Feishu/Lark）。",
+    "所有对用户可见文本必须使用简体中文。",
+    "范围包含：最终答复、执行中间进度、步骤说明、状态反馈、工具结果解读。",
+    "禁止输出英文叙述句（API 路径、参数键、代码标识、ID 可保留原文）。",
+    "发送前必须自检：若存在英文叙述句，先改写为中文再发送。",
+  ].join("\n");
+}
+
 type RunPreparedReplyParams = {
   ctx: MsgContext;
   sessionCtx: TemplateContext;
@@ -183,10 +215,11 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
+  const channelLanguagePrompt = buildChannelLanguageSystemPrompt(sessionCtx);
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
   );
-  const extraSystemPrompt = [inboundMetaPrompt, groupIntro, groupSystemPrompt]
+  const extraSystemPrompt = [inboundMetaPrompt, groupIntro, groupSystemPrompt, channelLanguagePrompt]
     .filter(Boolean)
     .join("\n\n");
   const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
