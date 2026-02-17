@@ -39,6 +39,8 @@ type ProgressToolState = {
 const FEISHU_PROGRESS_RENDER_THROTTLE_MS = 1200;
 const FEISHU_PROGRESS_MAX_LINES = 6;
 const FEISHU_PARTIAL_PROGRESS_SUPPRESS_MS = 5000;
+const LOW_VALUE_COMMAND_HEARTBEAT_ID = "__command_heartbeat__";
+const LOW_VALUE_COMMAND_HEARTBEAT_DETAIL = "后台轮询中";
 const CREATIVE_BUCKET_ORDER: Record<string, number> = {
   A: 1,
   B: 2,
@@ -506,22 +508,24 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               progressStartedAt = now;
             }
 
-            const previous = progressToolsById.get(toolCallId);
             const toolDetail = normalizeProgressToolDetail(rawToolName, data.meta);
-            if (isCommandToolName(rawToolName) && !toolDetail && !previous) {
-              // Skip low-value command chatter (e.g. sleep/poll loops) from progress cards.
-              return;
-            }
+            const isLowValueCommandEvent = isCommandToolName(rawToolName) && !toolDetail;
+            const progressToolCallId = isLowValueCommandEvent
+              ? LOW_VALUE_COMMAND_HEARTBEAT_ID
+              : toolCallId;
+            const previous = progressToolsById.get(progressToolCallId);
             const toolName = normalizeProgressToolName(rawToolName);
             const status: ProgressToolStatus =
               phase === "result"
                 ? (Boolean(data.isError) ? "failed" : "completed")
                 : "running";
 
-            progressToolsById.set(toolCallId, {
-              toolCallId,
+            progressToolsById.set(progressToolCallId, {
+              toolCallId: progressToolCallId,
               name: toolName || previous?.name || "tool",
-              detail: toolDetail || previous?.detail,
+              detail:
+                toolDetail
+                || (isLowValueCommandEvent ? LOW_VALUE_COMMAND_HEARTBEAT_DETAIL : previous?.detail),
               status,
               updatedAt: now,
             });

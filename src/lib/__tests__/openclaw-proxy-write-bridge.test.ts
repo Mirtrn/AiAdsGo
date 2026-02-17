@@ -7,6 +7,7 @@ const {
   isOpenclawEnabledForUserMock,
   checkOpenclawRateLimitMock,
   fetchAutoadsAsUserMock,
+  recordOpenclawActionMock,
   executeOpenclawCommandMock,
   resolveOpenclawParentRequestIdMock,
 } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const {
   isOpenclawEnabledForUserMock: vi.fn(),
   checkOpenclawRateLimitMock: vi.fn(),
   fetchAutoadsAsUserMock: vi.fn(),
+  recordOpenclawActionMock: vi.fn(),
   executeOpenclawCommandMock: vi.fn(),
   resolveOpenclawParentRequestIdMock: vi.fn(),
 }))
@@ -44,6 +46,10 @@ vi.mock('../openclaw/autoads-client', () => ({
   fetchAutoadsAsUser: fetchAutoadsAsUserMock,
 }))
 
+vi.mock('../openclaw/action-logs', () => ({
+  recordOpenclawAction: recordOpenclawActionMock,
+}))
+
 vi.mock('../openclaw/commands/command-service', () => ({
   executeOpenclawCommand: executeOpenclawCommandMock,
 }))
@@ -62,12 +68,14 @@ describe('openclaw proxy write bridge', () => {
     isOpenclawEnabledForUserMock.mockReset()
     checkOpenclawRateLimitMock.mockReset()
     fetchAutoadsAsUserMock.mockReset()
+    recordOpenclawActionMock.mockReset()
     executeOpenclawCommandMock.mockReset()
     resolveOpenclawParentRequestIdMock.mockReset()
 
     verifyOpenclawGatewayTokenMock.mockResolvedValue(true)
     resolveOpenclawUserFromBindingMock.mockResolvedValue(1001)
     isOpenclawEnabledForUserMock.mockResolvedValue(true)
+    recordOpenclawActionMock.mockResolvedValue(undefined)
     resolveOpenclawParentRequestIdMock.mockImplementation(async (params: { explicitParentRequestId?: string }) => {
       return params.explicitParentRequestId
     })
@@ -149,5 +157,63 @@ describe('openclaw proxy write bridge', () => {
       status: 'pending_confirm',
       runId: 'run-2',
     })
+  })
+
+  it('uses stream timeout for /stream read routes', async () => {
+    fetchAutoadsAsUserMock.mockResolvedValue(
+      new Response('data: ok\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    )
+
+    const response = await handleOpenclawProxyRequest({
+      authHeader: 'Bearer gateway-token',
+      request: {
+        method: 'GET',
+        path: '/api/offers/extract/stream/task-1',
+        channel: 'feishu',
+        senderId: 'ou_test',
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(fetchAutoadsAsUserMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1001,
+        method: 'GET',
+        path: '/api/offers/extract/stream/task-1',
+        timeoutMs: 20 * 60 * 1000,
+      })
+    )
+  })
+
+  it('keeps standard timeout for non-stream read routes', async () => {
+    fetchAutoadsAsUserMock.mockResolvedValue(
+      new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const response = await handleOpenclawProxyRequest({
+      authHeader: 'Bearer gateway-token',
+      request: {
+        method: 'GET',
+        path: '/api/campaigns',
+        channel: 'feishu',
+        senderId: 'ou_test',
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(fetchAutoadsAsUserMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1001,
+        method: 'GET',
+        path: '/api/campaigns',
+        timeoutMs: 45_000,
+      })
+    )
   })
 })

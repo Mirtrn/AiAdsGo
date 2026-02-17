@@ -171,7 +171,7 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(String(lastUpdateText)).toContain("生成第 1 个创意（A桶）");
   });
 
-  it("skips low-value exec command steps in progress card", async () => {
+  it("aggregates low-value exec command steps as heartbeat progress", async () => {
     const { replyOptions } = createFeishuReplyDispatcher({
       cfg: {} as never,
       agentId: "agent",
@@ -197,13 +197,34 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
         meta: "sleep 30",
       },
     });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "start",
+        name: "exec",
+        toolCallId: "tool-poll",
+        meta: "poll interval=8s",
+      },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "result",
+        name: "exec",
+        toolCallId: "tool-poll",
+        isError: false,
+        meta: "poll interval=8s",
+      },
+    });
 
     const updateCountAfter = streamingInstances[0].update.mock.calls.length;
-    expect(updateCountAfter).toBe(updateCountBefore);
+    expect(updateCountAfter).toBeGreaterThan(updateCountBefore);
 
     const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).toContain("执行操作");
+    expect(String(lastUpdateText)).toContain("后台轮询中");
     expect(String(lastUpdateText)).not.toContain("sleep 30");
-    expect(String(lastUpdateText)).not.toContain("执行操作");
+    expect(String(lastUpdateText)).not.toContain("poll interval=8s");
   });
 
   it("stops progress-card updates after partial reply stream starts", async () => {
