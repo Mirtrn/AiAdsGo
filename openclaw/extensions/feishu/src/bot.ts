@@ -1148,8 +1148,12 @@ export async function handleFeishuMessage(params: {
     );
     reportChatHealth(
       "allowed",
-      "reply_dispatched",
-      "message passed access checks and entered reply pipeline",
+      "reply_delivered",
+      "reply delivery completed",
+      {
+        queuedFinal,
+        replyCount: counts.final,
+      },
     );
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);

@@ -38,6 +38,7 @@ type ProgressToolState = {
 
 const FEISHU_PROGRESS_RENDER_THROTTLE_MS = 1200;
 const FEISHU_PROGRESS_MAX_LINES = 6;
+const FEISHU_PARTIAL_PROGRESS_SUPPRESS_MS = 5000;
 const CREATIVE_BUCKET_ORDER: Record<string, number> = {
   A: 1,
   B: 2,
@@ -214,6 +215,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let progressSyntheticId = 0;
   let progressEventCount = 0;
   let partialStreamStarted = false;
+  let partialLastUpdatedAt = 0;
+  let finalReplyDelivered = false;
   const progressToolsById = new Map<string, ProgressToolState>();
 
   const markFirstReplyDispatched = () => {
@@ -254,12 +257,38 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     return lines.join("\n");
   };
 
+  const renderNoFinalFallbackText = (): string => {
+    const now = Date.now();
+    const elapsedSeconds = progressStartedAt > 0 ? Math.max(0, Math.floor((now - progressStartedAt) / 1000)) : 0;
+    const toolStates = Array.from(progressToolsById.values());
+    const running = toolStates.filter((tool) => tool.status === "running").length;
+    const completed = toolStates.filter((tool) => tool.status === "completed").length;
+    const failed = toolStates.filter((tool) => tool.status === "failed").length;
+
+    if (running > 0) {
+      return `⏳ 任务仍在后台执行（已用时 ${elapsedSeconds}s，运行中 ${running}，已完成 ${completed}，失败 ${failed}）。请继续等待，我会自动回传最终结果。`;
+    }
+    if (failed > 0) {
+      return `⚠️ 本轮执行已结束，但存在失败步骤（已用时 ${elapsedSeconds}s，已完成 ${completed}，失败 ${failed}）。可发送“继续”查看详情。`;
+    }
+    return `✅ 本轮执行已结束（已用时 ${elapsedSeconds}s，已完成 ${completed}）。如暂未看到完整总结，可发送“继续”获取结果。`;
+  };
+
+  const shouldSuppressProgressRender = (now: number): boolean => {
+    if (!partialStreamStarted) return false;
+    if (partialLastUpdatedAt <= 0) return false;
+    return now - partialLastUpdatedAt < FEISHU_PARTIAL_PROGRESS_SUPPRESS_MS;
+  };
+
   const pushProgressUpdate = async (force = false): Promise<void> => {
-    if (!streamingEnabled || partialStreamStarted) {
+    if (!streamingEnabled) {
       return;
     }
 
     const now = Date.now();
+    if (shouldSuppressProgressRender(now)) {
+      return;
+    }
     if (!force && now - progressLastRenderAt < FEISHU_PROGRESS_RENDER_THROTTLE_MS) {
       return;
     }
@@ -268,7 +297,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     if (streamingStartPromise) {
       await streamingStartPromise;
     }
-    if (!streaming?.isActive() || partialStreamStarted) {
+    if (!streaming?.isActive()) {
+      return;
+    }
+    if (shouldSuppressProgressRender(Date.now())) {
       return;
     }
 
@@ -327,6 +359,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     lastPartial = "";
     progressLastRenderedText = "";
     partialStreamStarted = false;
+    partialLastUpdatedAt = 0;
   };
 
   const { dispatcher, replyOptions, markDispatchIdle } =
@@ -345,7 +378,6 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         if (!text.trim()) {
           return;
         }
-        markFirstReplyDispatched();
 
         const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
 
@@ -358,8 +390,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
         if (streaming?.isActive()) {
           if (info?.kind === "final") {
+            finalReplyDelivered = true;
             streamText = text;
             await closeStreaming();
+            markFirstReplyDispatched();
           }
           return;
         }
@@ -379,6 +413,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               mentions: first ? mentionTargets : undefined,
               accountId,
             });
+            if (first) {
+              markFirstReplyDispatched();
+            }
             first = false;
           }
         } else {
@@ -396,8 +433,14 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               mentions: first ? mentionTargets : undefined,
               accountId,
             });
+            if (first) {
+              markFirstReplyDispatched();
+            }
             first = false;
           }
+        }
+        if (info?.kind === "final") {
+          finalReplyDelivered = true;
         }
       },
       onError: async (error, info) => {
@@ -408,6 +451,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         typingCallbacks.onIdle?.();
       },
       onIdle: async () => {
+        if (streaming?.isActive() && !finalReplyDelivered && progressEventCount > 0) {
+          streamText = renderNoFinalFallbackText();
+        }
         await closeStreaming();
         typingCallbacks.onIdle?.();
       },
@@ -481,6 +527,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               return;
             }
             partialStreamStarted = true;
+            partialLastUpdatedAt = Date.now();
             lastPartial = payload.text;
             streamText = payload.text;
             partialUpdateQueue = partialUpdateQueue.then(async () => {

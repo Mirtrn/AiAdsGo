@@ -1412,7 +1412,7 @@ export async function backfillFeishuChatHealthRunLinks(params: {
      FROM openclaw_feishu_chat_health_logs
      WHERE user_id = ?
        AND decision = 'allowed'
-       AND lower(trim(reason_code)) = 'reply_dispatched'
+       AND lower(trim(reason_code)) IN ('reply_dispatched', 'reply_enqueued', 'reply_delivered')
        AND message_id IS NOT NULL
        AND message_id <> ?
        AND created_at < (
