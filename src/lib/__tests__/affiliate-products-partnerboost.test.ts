@@ -49,6 +49,24 @@ describe('calculateExponentialBackoffDelay', () => {
   })
 })
 
+describe('resolveSyncMaxPages', () => {
+  it('returns null when no positive limit is provided', () => {
+    expect(__testOnly.resolveSyncMaxPages(undefined, null, 20000)).toBeNull()
+    expect(__testOnly.resolveSyncMaxPages(0, null, 20000)).toBeNull()
+    expect(__testOnly.resolveSyncMaxPages(-1, null, 20000)).toBeNull()
+  })
+
+  it('uses fallback when requested value is missing', () => {
+    expect(__testOnly.resolveSyncMaxPages(undefined, 1, 20000)).toBe(1)
+    expect(__testOnly.resolveSyncMaxPages(undefined, 500, 20000)).toBe(500)
+  })
+
+  it('prioritizes requested value and clamps to max allowed', () => {
+    expect(__testOnly.resolveSyncMaxPages(20, 500, 20000)).toBe(20)
+    expect(__testOnly.resolveSyncMaxPages(50000, 500, 20000)).toBe(20000)
+  })
+})
+
 describe('extractPartnerboostProductsPayload', () => {
   it('extracts products from object list and reads has_more flag', () => {
     const payload = {

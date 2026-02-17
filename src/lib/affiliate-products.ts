@@ -188,8 +188,8 @@ const PLATFORM_KEY_REQUIREMENTS: Record<AffiliatePlatform, string[]> = {
 const DEFAULT_PB_BASE_URL = 'https://app.partnerboost.com'
 const DEFAULT_PB_COUNTRY_CODE = 'US'
 const DEFAULT_PB_PRODUCTS_PAGE_SIZE = 100
-const DEFAULT_PB_SYNC_MAX_PAGES = 500
-const MAX_PB_SYNC_MAX_PAGES = 1000
+const MAX_PB_SYNC_MAX_PAGES = 20000
+const MAX_PB_EMPTY_PAGE_STREAK = 3
 const DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE = 20
 const MAX_PB_PRODUCTS_LINK_BATCH_SIZE = 50
 const DEFAULT_PB_ASIN_LINK_BATCH_SIZE = 20
@@ -204,8 +204,8 @@ const MAX_YP_REQUEST_DELAY_MS = 5000
 const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 3
 const DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS = 600
 const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 10000
-const DEFAULT_YP_SYNC_MAX_PAGES = 500
 const MAX_YP_SYNC_MAX_PAGES = 1000
+const MAX_YP_EMPTY_PAGE_STREAK = 3
 
 type PartnerboostProduct = {
   product_id?: string
@@ -410,6 +410,21 @@ function parseInteger(value: unknown, fallback: number): number {
 function parseIntegerInRange(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = parseInteger(value, fallback)
   return Math.max(min, Math.min(parsed, max))
+}
+
+function resolveSyncMaxPages(
+  requestedMaxPages: number | undefined,
+  fallbackMaxPages: number | null,
+  maxAllowedPages: number
+): number | null {
+  const candidates: Array<number | null | undefined> = [requestedMaxPages, fallbackMaxPages]
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) continue
+    const parsed = Math.trunc(Number(candidate))
+    if (!Number.isFinite(parsed) || parsed <= 0) continue
+    return Math.min(parsed, maxAllowedPages)
+  }
+  return null
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1217,15 +1232,16 @@ async function fetchPartnerboostPromotableProducts(params: {
   const uid = check.values.partnerboost_link_uid || ''
   const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
   const isAsinTargetedSync = allAsins.length > 0
-  const defaultMaxPages = isAsinTargetedSync ? 1 : DEFAULT_PB_SYNC_MAX_PAGES
-  const maxPages = Math.max(1, Math.min(params.maxPages || defaultMaxPages, MAX_PB_SYNC_MAX_PAGES))
+  const defaultMaxPages = isAsinTargetedSync ? 1 : null
+  const maxPages = resolveSyncMaxPages(params.maxPages, defaultMaxPages, MAX_PB_SYNC_MAX_PAGES)
 
   const products: PartnerboostProduct[] = []
   let page = startPage
   let hasMore = true
   let fetchedPages = 0
+  let emptyPageStreak = 0
 
-  while (hasMore && fetchedPages < maxPages) {
+  while (hasMore && (maxPages === null || fetchedPages < maxPages)) {
     const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostProductsResponse>(
       `${baseUrl}/api/datafeed/get_fba_products`,
       {
@@ -1263,6 +1279,22 @@ async function fetchPartnerboostPromotableProducts(params: {
     products.push(...extracted.products)
     hasMore = extracted.hasMore
 
+    if (!isAsinTargetedSync && hasMore) {
+      if (extracted.products.length === 0) {
+        emptyPageStreak += 1
+        if (emptyPageStreak >= MAX_PB_EMPTY_PAGE_STREAK) {
+          console.warn(
+            `[partnerboost] received ${emptyPageStreak} consecutive empty pages with has_more=true; stopping early to avoid infinite pagination`
+          )
+          hasMore = false
+        }
+      } else {
+        emptyPageStreak = 0
+      }
+    } else {
+      emptyPageStreak = 0
+    }
+
     fetchedPages += 1
     page += 1
 
@@ -1275,7 +1307,7 @@ async function fetchPartnerboostPromotableProducts(params: {
     }
   }
 
-  if (!isAsinTargetedSync && hasMore && fetchedPages >= maxPages) {
+  if (!isAsinTargetedSync && maxPages !== null && hasMore && fetchedPages >= maxPages) {
     console.warn(`[partnerboost] reached page limit (${maxPages}) while has_more=true; results may be truncated`)
   }
 
@@ -1469,14 +1501,15 @@ async function fetchYeahPromosPromotableProducts(params: {
       120000
     ),
   }
-  const maxPages = Math.max(1, Math.min(params.maxPages || DEFAULT_YP_SYNC_MAX_PAGES, MAX_YP_SYNC_MAX_PAGES))
+  const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
   const startPage = Number(check.values.yeahpromos_page || '1') || 1
   let page = startPage
   let pageTotal = page
+  let emptyMerchantPageStreak = 0
 
   const merchants: YeahPromosMerchant[] = []
 
-  while (page <= pageTotal && page - startPage < maxPages) {
+  while (page <= pageTotal && (maxPages === null || page - startPage < maxPages)) {
     const url = new URL('https://yeahpromos.com/index/getadvert/getadvert')
     url.searchParams.set('site_id', siteId)
     url.searchParams.set('page', String(page))
@@ -1509,7 +1542,23 @@ async function fetchYeahPromosPromotableProducts(params: {
     const extracted = extractYeahPromosPayload(payload)
     merchants.push(...extracted.merchants)
 
-    pageTotal = Number(extracted.pageTotal ?? page) || page
+    const nextPageTotal = Number(extracted.pageTotal ?? page) || page
+    const hasMorePages = page < nextPageTotal
+    if (hasMorePages && extracted.merchants.length === 0) {
+      emptyMerchantPageStreak += 1
+      if (emptyMerchantPageStreak >= MAX_YP_EMPTY_PAGE_STREAK) {
+        console.warn(
+          `[yeahpromos] received ${emptyMerchantPageStreak} consecutive empty pages while page_total indicates more data; stopping early to avoid infinite pagination`
+        )
+        pageTotal = page
+      } else {
+        pageTotal = nextPageTotal
+      }
+    } else {
+      emptyMerchantPageStreak = 0
+      pageTotal = nextPageTotal
+    }
+
     page += 1
 
     if (page <= pageTotal && requestDelayMs > 0) {
@@ -1517,7 +1566,7 @@ async function fetchYeahPromosPromotableProducts(params: {
     }
   }
 
-  if (page <= pageTotal && page - startPage >= maxPages) {
+  if (maxPages !== null && page <= pageTotal && page - startPage >= maxPages) {
     console.warn(`[yeahpromos] reached page limit (${maxPages}) while page_total=${pageTotal}; product results may be truncated`)
   }
 
@@ -1535,8 +1584,9 @@ async function fetchYeahPromosPromotableProducts(params: {
   try {
     let orderPage = startPage
     let orderPageTotal = orderPage
+    let emptyOrderPageStreak = 0
 
-    while (orderPage <= orderPageTotal && orderPage - startPage < maxPages) {
+    while (orderPage <= orderPageTotal && (maxPages === null || orderPage - startPage < maxPages)) {
       const url = new URL('https://yeahpromos.com/index/Getorder/getorder')
       url.searchParams.set('site_id', siteId)
       url.searchParams.set('startDate', startDate)
@@ -1612,7 +1662,23 @@ async function fetchYeahPromosPromotableProducts(params: {
         })
       }
 
-      orderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
+      const nextOrderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
+      const hasMoreOrderPages = orderPage < nextOrderPageTotal
+      if (hasMoreOrderPages && extracted.transactions.length === 0) {
+        emptyOrderPageStreak += 1
+        if (emptyOrderPageStreak >= MAX_YP_EMPTY_PAGE_STREAK) {
+          console.warn(
+            `[yeahpromos] received ${emptyOrderPageStreak} consecutive empty order pages while page_total indicates more data; stopping order pagination early`
+          )
+          orderPageTotal = orderPage
+        } else {
+          orderPageTotal = nextOrderPageTotal
+        }
+      } else {
+        emptyOrderPageStreak = 0
+        orderPageTotal = nextOrderPageTotal
+      }
+
       orderPage += 1
 
       if (orderPage <= orderPageTotal && requestDelayMs > 0) {
@@ -1620,7 +1686,7 @@ async function fetchYeahPromosPromotableProducts(params: {
       }
     }
 
-    if (orderPage <= orderPageTotal && orderPage - startPage >= maxPages) {
+    if (maxPages !== null && orderPage <= orderPageTotal && orderPage - startPage >= maxPages) {
       console.warn(`[yeahpromos] reached order page limit (${maxPages}) while page_total=${orderPageTotal}; transaction enrichment may be partial`)
     }
   } catch (error: any) {
@@ -2169,6 +2235,7 @@ export const __testOnly = {
   isYeahPromosRateLimited,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
+  resolveSyncMaxPages,
 }
 
 export async function getAffiliateProductById(userId: number, productId: number): Promise<AffiliateProduct | null> {
