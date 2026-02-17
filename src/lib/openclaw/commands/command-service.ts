@@ -8,7 +8,7 @@ import { failStaleQueuedCommandRuns } from './queued-timeout'
 import type { OpenclawCommandRiskLevel } from './risk-policy'
 import { deriveOpenclawCommandRiskLevel, requiresOpenclawCommandConfirmation } from './risk-policy'
 import { assertOpenclawCommandRouteAllowed } from '@/lib/openclaw/canonical-routes'
-import { normalizeOpenclawCommandPayload } from './payload-policy'
+import { normalizeOpenclawCommandPayload, normalizeOpenclawCommandQuery } from './payload-policy'
 import {
   consumeCommandConfirmation,
   consumeCommandConfirmationByOwner,
@@ -265,8 +265,13 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
     path,
     body: input.body,
   })
+  const normalizedCommandQuery = normalizeOpenclawCommandQuery({
+    method,
+    path,
+    query: input.query,
+  })
 
-  const riskLevel = deriveOpenclawCommandRiskLevel({ method, path })
+  const riskLevel = deriveOpenclawCommandRiskLevel({ method, path, strictCanonicalWrite: true })
   const requireConfirm = requiresOpenclawCommandConfirmation(riskLevel)
   const idempotencyKey = String(input.idempotencyKey || '').trim() || null
 
@@ -323,7 +328,7 @@ export async function executeOpenclawCommand(input: ExecuteCommandInput): Promis
       input.intent || null,
       method,
       path,
-      input.query ? JSON.stringify(input.query) : null,
+      normalizedCommandQuery.query ? JSON.stringify(normalizedCommandQuery.query) : null,
       normalizedCommandPayload.body === undefined ? null : JSON.stringify(normalizedCommandPayload.body),
       riskLevel,
       requireConfirm ? 'pending_confirm' : 'draft',

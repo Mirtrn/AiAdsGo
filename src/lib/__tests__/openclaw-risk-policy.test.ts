@@ -44,5 +44,25 @@ describe('openclaw risk policy', () => {
     expect(riskLevel).toBe('low')
     expect(requiresOpenclawCommandConfirmation(riskLevel)).toBe(false)
   })
-})
 
+  it('fails closed for unknown write route when strict mode is enabled', () => {
+    expect(() =>
+      deriveOpenclawCommandRiskLevel({
+        method: 'POST',
+        path: '/api/unknown/internal-write',
+        strictCanonicalWrite: true,
+      })
+    ).toThrow('missing route risk policy')
+  })
+
+  it('keeps non-strict mode fallback for parser-only unknown route', () => {
+    const riskLevel = deriveOpenclawCommandRiskLevel({
+      method: 'DELETE',
+      path: '/api/offers/123/delete',
+      strictCanonicalWrite: false,
+    })
+
+    expect(riskLevel).toBe('high')
+    expect(requiresOpenclawCommandConfirmation(riskLevel)).toBe(true)
+  })
+})

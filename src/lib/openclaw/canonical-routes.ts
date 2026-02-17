@@ -7,6 +7,12 @@ export type OpenclawCanonicalRouteMatch = {
   normalizedPath: string
 }
 
+export type OpenclawCanonicalRouteDefinition = Readonly<{
+  method: OpenclawHttpMethod
+  pattern: string
+  feature: string
+}>
+
 type CanonicalRouteDefinition = {
   method: OpenclawHttpMethod
   pattern: string
@@ -272,6 +278,22 @@ function compileRouteDefinitions(definitions: CanonicalRouteDefinition[]): Compi
     }
   })
 }
+
+function snapshotRouteDefinitions(
+  definitions: CanonicalRouteDefinition[]
+): OpenclawCanonicalRouteDefinition[] {
+  return definitions.map((definition) => ({
+    method: definition.method,
+    pattern: normalizePattern(definition.pattern),
+    feature: definition.feature,
+  }))
+}
+
+export const OPENCLAW_CANONICAL_READ_ROUTE_DEFINITIONS: readonly OpenclawCanonicalRouteDefinition[] =
+  Object.freeze(snapshotRouteDefinitions(READ_ROUTE_DEFINITIONS))
+
+export const OPENCLAW_CANONICAL_WRITE_ROUTE_DEFINITIONS: readonly OpenclawCanonicalRouteDefinition[] =
+  Object.freeze(snapshotRouteDefinitions(WRITE_ROUTE_DEFINITIONS))
 
 const READ_ROUTES = compileRouteDefinitions(READ_ROUTE_DEFINITIONS)
 const WRITE_ROUTES = compileRouteDefinitions(WRITE_ROUTE_DEFINITIONS)

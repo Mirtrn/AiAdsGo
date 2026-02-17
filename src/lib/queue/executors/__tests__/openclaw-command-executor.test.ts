@@ -352,7 +352,7 @@ describe('openclaw command executor click-farm guard', () => {
     expect(forwardedBody.campaignConfig?.negativeKeywordMatchType?.manual).toBeDefined()
   })
 
-  it('aligns campaign.publish finalUrls with web behavior when adCreativeId is provided', async () => {
+  it('rejects campaign.publish when explicit finalUrls violate web ownership', async () => {
     const db = {
       type: 'postgres',
       exec: vi.fn().mockResolvedValue({ changes: 1 }),
@@ -430,13 +430,15 @@ describe('openclaw command executor click-farm guard', () => {
       })
     )
 
-    const result = await executeOpenclawCommandTask(createTask('run-pub-final-url-1'))
-    expect(result.success).toBe(true)
-
-    const forwardedBody = (mocks.fetchAutoadsAsUser.mock.calls[0]?.[0] as any)?.body || {}
-    expect(forwardedBody.campaignConfig).toMatchObject({
-      finalUrls: ['https://creative.example.com/pdp'],
-      finalUrlSuffix: 'creative_suffix=1',
-    })
+    await expect(executeOpenclawCommandTask(createTask('run-pub-final-url-1'))).rejects.toThrow(
+      'campaign.publish URL字段归属校验失败'
+    )
+    expect(mocks.fetchAutoadsAsUser).not.toHaveBeenCalled()
+    expect(mocks.recordOpenclawAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'error',
+        action: 'POST /api/campaigns/publish',
+      })
+    )
   })
 })

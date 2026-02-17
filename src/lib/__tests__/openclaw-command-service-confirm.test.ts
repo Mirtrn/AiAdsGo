@@ -75,6 +75,12 @@ describe('openclaw command service confirmation guard', () => {
     return bodyJson ? JSON.parse(bodyJson) : {}
   }
 
+  function getInsertedQuery(): Record<string, any> {
+    const params = getInsertParams()
+    const queryJson = params[8]
+    return queryJson ? JSON.parse(queryJson) : {}
+  }
+
   function getValidPublishBody() {
     return {
       offerId: 1,
@@ -577,6 +583,64 @@ describe('openclaw command service confirmation guard', () => {
         },
       })
     ).rejects.toThrow('missing required fields')
+
+    expect(db.exec).not.toHaveBeenCalled()
+  })
+
+  it('normalizes delete-offer query aliases before persistence', async () => {
+    await executeOpenclawCommand({
+      userId: 1001,
+      authType: 'session',
+      method: 'DELETE',
+      path: '/api/offers/77',
+      query: {
+        auto_unlink: true,
+        remove_google_ads_campaigns: 'true',
+      },
+    })
+
+    const query = getInsertedQuery()
+    expect(query).toEqual({
+      autoUnlink: true,
+      removeGoogleAdsCampaigns: 'true',
+    })
+  })
+
+  it('rejects unsupported query params for delete-offer route', async () => {
+    await expect(
+      executeOpenclawCommand({
+        userId: 1001,
+        authType: 'session',
+        method: 'DELETE',
+        path: '/api/offers/77',
+        query: {
+          autoUnlink: true,
+          force: true,
+        },
+      })
+    ).rejects.toThrow('unsupported params')
+
+    expect(db.exec).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-empty query params on routes that do not accept query', async () => {
+    await expect(
+      executeOpenclawCommand({
+        userId: 1001,
+        authType: 'session',
+        method: 'POST',
+        path: '/api/campaigns',
+        query: {
+          debug: true,
+        },
+        body: {
+          offerId: 11,
+          googleAdsAccountId: 22,
+          campaignName: 'test-campaign',
+          budgetAmount: 10,
+        },
+      })
+    ).rejects.toThrow('unsupported params')
 
     expect(db.exec).not.toHaveBeenCalled()
   })

@@ -22,6 +22,37 @@ type CompiledRoutePayloadPolicy = RoutePayloadPolicy & {
   regex: RegExp
 }
 
+type RouteQueryPolicy = {
+  method: string
+  path: string
+  canonicalKeys: readonly string[]
+  requiredKeys?: readonly string[]
+  aliasMap?: Readonly<Record<string, string>>
+  allowEmptyQuery?: boolean
+}
+
+type CompiledRouteQueryPolicy = RouteQueryPolicy & {
+  method: string
+  regex: RegExp
+}
+
+export type OpenclawCommandPayloadPolicyDefinition = Readonly<{
+  method: string
+  path: string
+  canonicalKeys: readonly string[]
+  requiredKeys: readonly string[]
+  requireAtLeastOneOf: readonly string[]
+  allowEmptyBody: boolean
+}>
+
+export type OpenclawCommandQueryPolicyDefinition = Readonly<{
+  method: string
+  path: string
+  canonicalKeys: readonly string[]
+  requiredKeys: readonly string[]
+  allowEmptyQuery: boolean
+}>
+
 function normalizePathPattern(path: string): string {
   const trimmed = path.trim()
   if (!trimmed) return trimmed
@@ -362,6 +393,441 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
     canonicalKeys: [],
     allowEmptyBody: true,
   },
+  {
+    method: 'DELETE',
+    path: '/api/offers/:id',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/scrape',
+    canonicalKeys: ['priority'],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/launch-ads',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/pause-campaigns',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/resolve-url',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/validate-url',
+    canonicalKeys: ['url'],
+    requiredKeys: ['url'],
+    aliasMap: {
+      final_url: 'url',
+      finalUrl: 'url',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/launch-score',
+    canonicalKeys: ['creativeId'],
+    requiredKeys: ['creativeId'],
+    aliasMap: {
+      creative_id: 'creativeId',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/:id/launch-score/compare',
+    canonicalKeys: ['creativeIds'],
+    requiredKeys: ['creativeIds'],
+    aliasMap: {
+      creative_ids: 'creativeIds',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/offers/batch/:batchId/cancel',
+    canonicalKeys: ['reason'],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'PUT',
+    path: '/api/ad-creatives/:id',
+    canonicalKeys: [
+      'headlines',
+      'descriptions',
+      'keywords',
+      'keywords_with_volume',
+      'negative_keywords',
+      'callouts',
+      'sitelinks',
+      'final_url',
+      'final_url_suffix',
+      'score',
+      'score_breakdown',
+      'ad_strength',
+      'theme',
+    ],
+    requireAtLeastOneOf: [
+      'headlines',
+      'descriptions',
+      'keywords',
+      'keywords_with_volume',
+      'negative_keywords',
+      'callouts',
+      'sitelinks',
+      'final_url',
+      'final_url_suffix',
+      'score',
+      'score_breakdown',
+      'ad_strength',
+      'theme',
+    ],
+    aliasMap: {
+      keywordsWithVolume: 'keywords_with_volume',
+      negativeKeywords: 'negative_keywords',
+      finalUrl: 'final_url',
+      finalUrlSuffix: 'final_url_suffix',
+      scoreBreakdown: 'score_breakdown',
+      adStrength: 'ad_strength',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/ad-creatives/:id',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/ad-creatives/:id/conversion-feedback',
+    canonicalKeys: ['conversions', 'conversionValue', 'periodStart', 'periodEnd', 'feedbackNote'],
+    requiredKeys: ['conversions', 'periodStart', 'periodEnd'],
+    aliasMap: {
+      conversion_value: 'conversionValue',
+      period_start: 'periodStart',
+      period_end: 'periodEnd',
+      feedback_note: 'feedbackNote',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns',
+    canonicalKeys: [
+      'offerId',
+      'googleAdsAccountId',
+      'campaignName',
+      'budgetAmount',
+      'budgetType',
+      'targetCpa',
+      'maxCpc',
+      'status',
+      'startDate',
+      'endDate',
+    ],
+    requiredKeys: ['offerId', 'googleAdsAccountId', 'campaignName', 'budgetAmount'],
+    aliasMap: {
+      offer_id: 'offerId',
+      google_ads_account_id: 'googleAdsAccountId',
+      campaign_name: 'campaignName',
+      budget_amount: 'budgetAmount',
+      budget_type: 'budgetType',
+      target_cpa: 'targetCpa',
+      max_cpc: 'maxCpc',
+      start_date: 'startDate',
+      end_date: 'endDate',
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/campaigns/:id',
+    canonicalKeys: [
+      'campaignName',
+      'budgetAmount',
+      'budgetType',
+      'targetCpa',
+      'maxCpc',
+      'status',
+      'startDate',
+      'endDate',
+    ],
+    requireAtLeastOneOf: [
+      'campaignName',
+      'budgetAmount',
+      'budgetType',
+      'targetCpa',
+      'maxCpc',
+      'status',
+      'startDate',
+      'endDate',
+    ],
+    aliasMap: {
+      campaign_name: 'campaignName',
+      budget_amount: 'budgetAmount',
+      budget_type: 'budgetType',
+      target_cpa: 'targetCpa',
+      max_cpc: 'maxCpc',
+      start_date: 'startDate',
+      end_date: 'endDate',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/campaigns/:id',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/:id/sync',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/campaigns/circuit-break',
+    canonicalKeys: ['accountId', 'googleAdsAccountId', 'reason', 'source', 'dryRun'],
+    requireAtLeastOneOf: ['accountId', 'googleAdsAccountId'],
+    aliasMap: {
+      account_id: 'accountId',
+      google_ads_account_id: 'googleAdsAccountId',
+      dry_run: 'dryRun',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/url-swap/tasks',
+    canonicalKeys: [
+      'offer_id',
+      'swap_interval_minutes',
+      'duration_days',
+      'google_customer_id',
+      'google_campaign_id',
+      'swap_mode',
+      'manual_affiliate_links',
+    ],
+    requiredKeys: ['offer_id'],
+    aliasMap: {
+      offerId: 'offer_id',
+      swapIntervalMinutes: 'swap_interval_minutes',
+      durationDays: 'duration_days',
+      googleCustomerId: 'google_customer_id',
+      googleCampaignId: 'google_campaign_id',
+      swapMode: 'swap_mode',
+      manualAffiliateLinks: 'manual_affiliate_links',
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/url-swap/tasks/:id',
+    canonicalKeys: [
+      'offer_id',
+      'swap_interval_minutes',
+      'duration_days',
+      'google_customer_id',
+      'google_campaign_id',
+      'swap_mode',
+      'manual_affiliate_links',
+    ],
+    aliasMap: {
+      offerId: 'offer_id',
+      swapIntervalMinutes: 'swap_interval_minutes',
+      durationDays: 'duration_days',
+      googleCustomerId: 'google_customer_id',
+      googleCampaignId: 'google_campaign_id',
+      swapMode: 'swap_mode',
+      manualAffiliateLinks: 'manual_affiliate_links',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/url-swap/tasks/:id',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/url-swap/tasks/:id/swap-now',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/url-swap/tasks/:id/disable',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/url-swap/tasks/:id/enable',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/url-swap/tasks/:id/targets/refresh',
+    canonicalKeys: ['googleAdsAccountId'],
+    aliasMap: {
+      google_ads_account_id: 'googleAdsAccountId',
+    },
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/sync/:platform',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/:id/sync',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/:id/create-offer',
+    canonicalKeys: ['targetCountry'],
+    aliasMap: {
+      target_country: 'targetCountry',
+    },
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/:id/offline',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/:id/blacklist',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'DELETE',
+    path: '/api/products/:id/blacklist',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/products/batch-offline',
+    canonicalKeys: ['productIds'],
+    requiredKeys: ['productIds'],
+    aliasMap: {
+      product_ids: 'productIds',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/products/batch-create-offers',
+    canonicalKeys: ['items'],
+    requiredKeys: ['items'],
+  },
+  {
+    method: 'POST',
+    path: '/api/products/clear',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'PUT',
+    path: '/api/click-farm/tasks/:id',
+    canonicalKeys: [
+      'daily_click_count',
+      'start_time',
+      'end_time',
+      'duration_days',
+      'scheduled_start_date',
+      'hourly_distribution',
+      'timezone',
+      'referer_config',
+    ],
+    requireAtLeastOneOf: [
+      'daily_click_count',
+      'start_time',
+      'end_time',
+      'duration_days',
+      'scheduled_start_date',
+      'hourly_distribution',
+      'timezone',
+      'referer_config',
+    ],
+    aliasMap: {
+      dailyClickCount: 'daily_click_count',
+      startTime: 'start_time',
+      endTime: 'end_time',
+      durationDays: 'duration_days',
+      scheduledStartDate: 'scheduled_start_date',
+      hourlyDistribution: 'hourly_distribution',
+      refererConfig: 'referer_config',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/api/click-farm/tasks/:id',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/click-farm/tasks/:id/stop',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/click-farm/tasks/:id/restart',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/click-farm/tasks/:id/trigger',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/click-farm/distribution/generate',
+    canonicalKeys: ['daily_click_count', 'start_time', 'end_time'],
+    requiredKeys: ['daily_click_count', 'start_time', 'end_time'],
+    aliasMap: {
+      dailyClickCount: 'daily_click_count',
+      startTime: 'start_time',
+      endTime: 'end_time',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/click-farm/distribution/normalize',
+    canonicalKeys: ['distribution', 'targetTotal'],
+    requiredKeys: ['distribution', 'targetTotal'],
+    aliasMap: {
+      target_total: 'targetTotal',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/risk-alerts',
+    canonicalKeys: [],
+    allowEmptyBody: true,
+  },
+  {
+    method: 'PATCH',
+    path: '/api/risk-alerts/:id',
+    canonicalKeys: ['status', 'note'],
+    requiredKeys: ['status'],
+  },
 
   // Settings
   {
@@ -561,7 +1027,49 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
   },
 ]
 
+export const OPENCLAW_COMMAND_PAYLOAD_POLICIES: readonly OpenclawCommandPayloadPolicyDefinition[] =
+  Object.freeze(
+    PAYLOAD_POLICIES.map((policy) => ({
+      method: policy.method.toUpperCase(),
+      path: normalizePathPattern(policy.path),
+      canonicalKeys: [...policy.canonicalKeys],
+      requiredKeys: [...(policy.requiredKeys || [])],
+      requireAtLeastOneOf: [...(policy.requireAtLeastOneOf || [])],
+      allowEmptyBody: Boolean(policy.allowEmptyBody),
+    }))
+  )
+
+const QUERY_POLICIES: RouteQueryPolicy[] = [
+  {
+    method: 'DELETE',
+    path: '/api/offers/:id',
+    canonicalKeys: ['autoUnlink', 'removeGoogleAdsCampaigns'],
+    aliasMap: {
+      auto_unlink: 'autoUnlink',
+      remove_google_ads_campaigns: 'removeGoogleAdsCampaigns',
+    },
+    allowEmptyQuery: true,
+  },
+]
+
+export const OPENCLAW_COMMAND_QUERY_POLICIES: readonly OpenclawCommandQueryPolicyDefinition[] =
+  Object.freeze(
+    QUERY_POLICIES.map((policy) => ({
+      method: policy.method.toUpperCase(),
+      path: normalizePathPattern(policy.path),
+      canonicalKeys: [...policy.canonicalKeys],
+      requiredKeys: [...(policy.requiredKeys || [])],
+      allowEmptyQuery: policy.allowEmptyQuery !== false,
+    }))
+  )
+
 const COMPILED_PAYLOAD_POLICIES: CompiledRoutePayloadPolicy[] = PAYLOAD_POLICIES.map((policy) => ({
+  ...policy,
+  method: policy.method.toUpperCase(),
+  regex: compilePathPattern(policy.path),
+}))
+
+const COMPILED_QUERY_POLICIES: CompiledRouteQueryPolicy[] = QUERY_POLICIES.map((policy) => ({
   ...policy,
   method: policy.method.toUpperCase(),
   regex: compilePathPattern(policy.path),
@@ -570,6 +1078,13 @@ const COMPILED_PAYLOAD_POLICIES: CompiledRoutePayloadPolicy[] = PAYLOAD_POLICIES
 function findPolicy(method: string, path: string): CompiledRoutePayloadPolicy | undefined {
   const normalizedMethod = method.toUpperCase()
   return COMPILED_PAYLOAD_POLICIES.find(
+    (policy) => policy.method === normalizedMethod && policy.regex.test(path)
+  )
+}
+
+function findQueryPolicy(method: string, path: string): CompiledRouteQueryPolicy | undefined {
+  const normalizedMethod = method.toUpperCase()
+  return COMPILED_QUERY_POLICIES.find(
     (policy) => policy.method === normalizedMethod && policy.regex.test(path)
   )
 }
@@ -658,7 +1173,7 @@ export function normalizeOpenclawCommandPayload(params: {
   const policy = findPolicy(method, params.path)
 
   if (!policy) {
-    return { body: params.body }
+    throw new Error(`Invalid payload policy: missing route payload policy for ${method} ${params.path}`)
   }
 
   const normalizedBody = normalizeBodyByPolicy({
@@ -669,4 +1184,64 @@ export function normalizeOpenclawCommandPayload(params: {
   })
 
   return { body: normalizedBody }
+}
+
+export function normalizeOpenclawCommandQuery(params: {
+  method: string
+  path: string
+  query: unknown
+}): { query: Record<string, string | number | boolean | null | undefined> | undefined } {
+  const method = params.method.toUpperCase()
+
+  if (params.query === undefined || params.query === null) {
+    return { query: undefined }
+  }
+
+  if (!isPlainObject(params.query)) {
+    throw new Error(`Invalid query: ${method} ${params.path} expects an object query`)
+  }
+
+  const sourceQuery = params.query as PlainObject
+  const policy = findQueryPolicy(method, params.path)
+  const aliasMap = policy?.aliasMap || {}
+  const canonicalKeys = policy?.canonicalKeys || []
+  const requiredKeys = policy?.requiredKeys || []
+  const allowEmptyQuery = policy?.allowEmptyQuery !== false
+
+  const allowedInputKeys = new Set([...canonicalKeys, ...Object.keys(aliasMap)])
+  const unknownKeys = Object.keys(sourceQuery).filter((key) => !allowedInputKeys.has(key))
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Invalid query: unsupported params for ${method} ${params.path}: ${unknownKeys.join(', ')}`
+    )
+  }
+
+  const normalizedQuery: PlainObject = {}
+
+  for (const canonicalKey of canonicalKeys) {
+    const aliases = getAliasesForCanonicalKey(aliasMap, canonicalKey)
+    const candidateKeys = [canonicalKey, ...aliases]
+
+    for (const key of candidateKeys) {
+      if (sourceQuery[key] !== undefined) {
+        normalizedQuery[canonicalKey] = sourceQuery[key]
+        break
+      }
+    }
+  }
+
+  const missingKeys = requiredKeys.filter((requiredKey) =>
+    isMissingRequiredValue(normalizedQuery[requiredKey])
+  )
+  if (missingKeys.length > 0) {
+    throw new Error(
+      `Invalid query: missing required params for ${method} ${params.path}: ${missingKeys.join(', ')}`
+    )
+  }
+
+  if (Object.keys(normalizedQuery).length === 0 && allowEmptyQuery) {
+    return { query: undefined }
+  }
+
+  return { query: normalizedQuery }
 }

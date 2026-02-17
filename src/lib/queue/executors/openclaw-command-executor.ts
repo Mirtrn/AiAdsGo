@@ -4,6 +4,11 @@ import { nowFunc } from '@/lib/db-helpers'
 import { fetchAutoadsAsUser } from '@/lib/openclaw/autoads-client'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import {
+  buildAlignedPublishCampaignConfig,
+  evaluatePublishCampaignConfigOwnership,
+  hasPublishCampaignConfigOwnershipViolation,
+} from '@/lib/campaign-publish/aligned-campaign-config'
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { inferNegativeKeywordMatchType, normalizeMatchType } from '@/lib/campaign-publish/negative-keyword-match-type'
 import { normalizeCampaignPublishCampaignConfig } from '@/lib/autoads-request-normalizers'
@@ -393,7 +398,30 @@ async function hydrateCampaignPublishRequestBody(params: {
       )
     : null
 
-  const hydratedCampaignConfig: Record<string, any> = {
+  const ownershipCheck = evaluatePublishCampaignConfigOwnership({
+    campaignConfig,
+    creative: {
+      finalUrl: creative?.final_url || null,
+      finalUrlSuffix: creative?.final_url_suffix || null,
+    },
+    offer: {
+      url: offerContext?.url || null,
+      finalUrl: offerContext?.finalUrl || null,
+      finalUrlSuffix: offerContext?.finalUrlSuffix || null,
+    },
+  })
+  if (hasPublishCampaignConfigOwnershipViolation(ownershipCheck.violation)) {
+    const violationHints: string[] = []
+    if (ownershipCheck.violation.finalUrls) {
+      violationHints.push(`finalUrls input=${ownershipCheck.violation.inputFinalUrl || '-'} expected=${ownershipCheck.violation.expectedFinalUrl || '-'}`)
+    }
+    if (ownershipCheck.violation.finalUrlSuffix) {
+      violationHints.push(`finalUrlSuffix input=${ownershipCheck.violation.inputFinalUrlSuffix || '-'} expected=${ownershipCheck.violation.expectedFinalUrlSuffix || '-'}`)
+    }
+    throw new Error(`[OpenClawCommand] campaign.publish URL字段归属校验失败: ${violationHints.join('; ')}`)
+  }
+
+  let hydratedCampaignConfig: Record<string, any> = {
     ...campaignConfig,
   }
 
@@ -425,38 +453,24 @@ async function hydrateCampaignPublishRequestBody(params: {
     hydratedCampaignConfig.maxCpcBid = getWebDefaultCpc(accountCurrency)
   }
 
-  if (!isNonEmptyString(hydratedCampaignConfig.finalUrlSuffix)) {
-    hydratedCampaignConfig.finalUrlSuffix = isNonEmptyString(creative?.final_url_suffix)
-      ? String(creative?.final_url_suffix).trim()
-      : (isNonEmptyString(offerContext?.finalUrlSuffix) ? String(offerContext?.finalUrlSuffix).trim() : '')
-  }
+  const alignedCampaignConfig = buildAlignedPublishCampaignConfig({
+    campaignConfig: hydratedCampaignConfig,
+    creative: {
+      finalUrl: creative?.final_url || null,
+      finalUrlSuffix: creative?.final_url_suffix || null,
+    },
+    offer: {
+      url: offerContext?.url || null,
+      finalUrl: offerContext?.finalUrl || null,
+      finalUrlSuffix: offerContext?.finalUrlSuffix || null,
+    },
+  })
+  hydratedCampaignConfig = alignedCampaignConfig.campaignConfig
 
-  const creativeFinalUrl = isNonEmptyString(creative?.final_url)
-    ? String(creative?.final_url).trim()
-    : ''
-  const offerFinalUrl = isNonEmptyString(offerContext?.finalUrl)
-    ? String(offerContext?.finalUrl).trim()
-    : ''
-  const offerUrl = isNonEmptyString(offerContext?.url)
-    ? String(offerContext?.url).trim()
-    : ''
-  const finalUrlCandidate = creativeFinalUrl || offerFinalUrl || offerUrl
-
-  // 与 Web 端保持一致：当指定 adCreativeId 发布时，Final URL 默认来自该创意（其次 offer.final_url，再其次 offer.url）。
-  // OpenClaw 生成的自由文本参数不应覆盖这一路径，避免传入 affiliate/tracking 短链。
-  if (adCreativeId && finalUrlCandidate) {
-    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
-  } else if ((!Array.isArray(hydratedCampaignConfig.finalUrls) || hydratedCampaignConfig.finalUrls.length === 0) && finalUrlCandidate) {
-    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
-  } else if (Array.isArray(hydratedCampaignConfig.finalUrls)) {
-    hydratedCampaignConfig.finalUrls = hydratedCampaignConfig.finalUrls
-      .map((entry: unknown) => (typeof entry === 'string' ? entry.trim() : ''))
-      .filter((entry: string) => entry.length > 0)
-  }
-
-  // 若外部传入空数组，仍回填 web 默认值
-  if (Array.isArray(hydratedCampaignConfig.finalUrls) && hydratedCampaignConfig.finalUrls.length === 0 && finalUrlCandidate) {
-    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
+  if (process.env.NODE_ENV !== 'test' && (alignedCampaignConfig.overridden.finalUrls || alignedCampaignConfig.overridden.finalUrlSuffix)) {
+    console.log(
+      `[OpenClawCommand] campaign.publish URL字段按Web来源对齐: inputFinalUrl=${alignedCampaignConfig.overridden.inputFinalUrl || '-'} -> appliedFinalUrl=${alignedCampaignConfig.overridden.appliedFinalUrl || '-'}`
+    )
   }
 
   const defaultKeywords = creative
@@ -482,7 +496,7 @@ async function hydrateCampaignPublishRequestBody(params: {
       negativeKeywords: (creative?.negative_keywords as any) || [],
       callouts: [],
       sitelinks: [],
-      finalUrl: finalUrlCandidate || '',
+      finalUrl: creative?.final_url || offerContext?.finalUrl || offerContext?.url || '',
       finalUrlSuffix: creative?.final_url_suffix || null,
     },
     campaignConfig: hydratedCampaignConfig,
@@ -726,52 +740,8 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
 
   const requestQuery = parseJsonObject(run.request_query_json)
   let requestBody = parseJsonAny(run.request_body_json)
-  const hydratedPayload = await hydrateCampaignPublishRequestBody({
-    db,
-    userId: data.userId,
-    method: run.request_method,
-    path: run.request_path,
-    body: requestBody,
-  })
-  requestBody = hydratedPayload.body
-
-  const requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
-  if (hydratedPayload.hydrated && requestBodyForAudit !== run.request_body_json) {
-    await db.exec(
-      `UPDATE openclaw_command_runs
-       SET request_body_json = ?,
-           updated_at = ${nowSql}
-       WHERE id = ? AND user_id = ?`,
-      [requestBodyForAudit, data.runId, data.userId]
-    )
-  }
-
-  const requestPayload = {
-    method: run.request_method,
-    path: run.request_path,
-    query: requestQuery,
-    body: requestBody,
-  }
-
-  await db.exec(
-    `INSERT INTO openclaw_command_steps
-     (run_id, step_index, action_type, request_json, status, created_at, updated_at)
-     VALUES (?, 0, 'proxy', ?, 'running', ${nowSql}, ${nowSql})
-     ON CONFLICT(run_id, step_index)
-     DO UPDATE SET
-       action_type = excluded.action_type,
-       request_json = excluded.request_json,
-       status = 'running',
-       error_message = NULL,
-       updated_at = ${nowSql}`,
-    [data.runId, JSON.stringify(requestPayload)]
-  )
-
-  const confirm = await db.queryOne<{ status: string }>(
-    'SELECT status FROM openclaw_command_confirms WHERE run_id = ? LIMIT 1',
-    [data.runId]
-  )
-  const confirmStatus = confirm?.status || (((run.confirm_required as any) === 1 || (run.confirm_required as any) === true) ? 'required' : 'not_required')
+  let requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
+  let confirmStatus = (((run.confirm_required as any) === 1 || (run.confirm_required as any) === true) ? 'required' : 'not_required')
 
   const startedAt = Date.now()
   let responseStatus: number | null = null
@@ -797,6 +767,55 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
+    const hydratedPayload = await hydrateCampaignPublishRequestBody({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = hydratedPayload.body
+    requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
+
+    if (hydratedPayload.hydrated && requestBodyForAudit !== run.request_body_json) {
+      await db.exec(
+        `UPDATE openclaw_command_runs
+         SET request_body_json = ?,
+             updated_at = ${nowSql}
+         WHERE id = ? AND user_id = ?`,
+        [requestBodyForAudit, data.runId, data.userId]
+      )
+    }
+
+    const requestPayload = {
+      method: run.request_method,
+      path: run.request_path,
+      query: requestQuery,
+      body: requestBody,
+    }
+
+    await db.exec(
+      `INSERT INTO openclaw_command_steps
+       (run_id, step_index, action_type, request_json, status, created_at, updated_at)
+       VALUES (?, 0, 'proxy', ?, 'running', ${nowSql}, ${nowSql})
+       ON CONFLICT(run_id, step_index)
+       DO UPDATE SET
+         action_type = excluded.action_type,
+         request_json = excluded.request_json,
+         status = 'running',
+         error_message = NULL,
+         updated_at = ${nowSql}`,
+      [data.runId, JSON.stringify(requestPayload)]
+    )
+
+    const confirm = await db.queryOne<{ status: string }>(
+      'SELECT status FROM openclaw_command_confirms WHERE run_id = ? LIMIT 1',
+      [data.runId]
+    )
+    if (confirm?.status) {
+      confirmStatus = confirm.status
+    }
+
     await updateRunHeartbeat()
     heartbeatTimer = setInterval(() => {
       void updateRunHeartbeat().catch((heartbeatError: any) => {

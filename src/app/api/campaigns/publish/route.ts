@@ -28,6 +28,11 @@ import {
 } from '@/lib/launch-scores'
 import { generateNamingScheme, parseAdGroupName } from '@/lib/naming-convention'
 import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
+import {
+  buildAlignedPublishCampaignConfig,
+  evaluatePublishCampaignConfigOwnership,
+  hasPublishCampaignConfigOwnershipViolation,
+} from '@/lib/campaign-publish/aligned-campaign-config'
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
@@ -256,7 +261,7 @@ export async function POST(request: NextRequest) {
 
     // 4. 验证Offer归属
     const offer = await db.queryOne(`
-      SELECT id, url, brand, target_country, target_language, scrape_status, category, offer_name
+      SELECT id, url, final_url, final_url_suffix, brand, target_country, target_language, scrape_status, category, offer_name
       FROM offers
       WHERE id = ? AND user_id = ?
     `, [_offerId, userId]) as any
@@ -619,22 +624,107 @@ export async function POST(request: NextRequest) {
       console.log(`✅ 旧广告系列暂停完成`)
     }
 
+    const campaignConfigBaseObject = (
+      typeof _campaignConfig === 'object' && _campaignConfig !== null
+        ? _campaignConfig
+        : {}
+    ) as Record<string, any>
+
+    for (const creative of creatives) {
+      const ownershipCheck = evaluatePublishCampaignConfigOwnership({
+        campaignConfig: campaignConfigBaseObject,
+        creative: {
+          finalUrl: creative?.final_url || null,
+          finalUrlSuffix: creative?.final_url_suffix || null,
+        },
+        offer: {
+          url: offer?.url || null,
+          finalUrl: offer?.final_url || null,
+          finalUrlSuffix: offer?.final_url_suffix || null,
+        },
+      })
+
+      if (hasPublishCampaignConfigOwnershipViolation(ownershipCheck.violation)) {
+        const violatedFields: string[] = []
+        if (ownershipCheck.violation.finalUrls) violatedFields.push('finalUrls')
+        if (ownershipCheck.violation.finalUrlSuffix) violatedFields.push('finalUrlSuffix')
+
+        console.error(
+          `[CampaignPublish] URL字段归属校验失败: creativeId=${creative?.id || '-'}, fields=${violatedFields.join(',')}, inputFinalUrl=${ownershipCheck.violation.inputFinalUrl || '-'}, expectedFinalUrl=${ownershipCheck.violation.expectedFinalUrl || '-'}`
+        )
+
+        return NextResponse.json(
+          {
+            action: 'CAMPAIGN_CONFIG_FIELD_OWNERSHIP_VIOLATION',
+            message: 'campaignConfig URL字段与系统归属来源不一致，请移除这些字段或改为与创意/Offer一致',
+            ownership: ownershipCheck.ownership,
+            details: {
+              creativeId: creative?.id || null,
+              fields: violatedFields,
+              finalUrls: ownershipCheck.violation.finalUrls
+                ? {
+                    input: ownershipCheck.violation.inputFinalUrl || null,
+                    expected: ownershipCheck.violation.expectedFinalUrl || null,
+                  }
+                : undefined,
+              finalUrlSuffix: ownershipCheck.violation.finalUrlSuffix
+                ? {
+                    input: ownershipCheck.violation.inputFinalUrlSuffix || null,
+                    expected: ownershipCheck.violation.expectedFinalUrlSuffix || null,
+                  }
+                : undefined,
+            },
+          },
+          { status: 422 }
+        )
+      }
+    }
+
+    const buildAlignedCampaignConfigForCreative = (creative: any, stage: string) => {
+      const baseCampaignConfig = _enableSmartOptimization
+        ? {
+            ...campaignConfigBaseObject,
+            headlines: undefined,
+            descriptions: undefined,
+            callouts: undefined,
+            sitelinks: undefined,
+            finalUrls: undefined,
+          }
+        : campaignConfigBaseObject
+
+      const alignedCampaignConfig = buildAlignedPublishCampaignConfig({
+        campaignConfig: baseCampaignConfig,
+        creative: {
+          finalUrl: creative?.final_url || null,
+          finalUrlSuffix: creative?.final_url_suffix || null,
+        },
+        offer: {
+          url: offer?.url || null,
+          finalUrl: offer?.final_url || null,
+          finalUrlSuffix: offer?.final_url_suffix || null,
+        },
+      })
+
+      if (
+        process.env.NODE_ENV !== 'test'
+        && (alignedCampaignConfig.overridden.finalUrls || alignedCampaignConfig.overridden.finalUrlSuffix)
+      ) {
+        console.log(
+          `[CampaignPublish] [${stage}] URL字段按字段归属对齐: inputFinalUrl=${alignedCampaignConfig.overridden.inputFinalUrl || '-'} -> appliedFinalUrl=${alignedCampaignConfig.overridden.appliedFinalUrl || '-'}`
+        )
+      }
+
+      return alignedCampaignConfig.campaignConfig
+    }
+
     // 7.5 Launch Score评估（投放风险评估）
     console.log(`\n🎯 开始Launch Score评估...`)
     const primaryCreative = creatives[0]
 
-    // Step 3 用户可编辑：Headlines/Descriptions/Callouts/Sitelinks 等内容
-    // 必须以 campaignConfig 为准（单创意模式），并保持Launch Score与实际发布内容一致
-    const campaignConfigForCreativeContent = _enableSmartOptimization
-      ? {
-          ..._campaignConfig,
-          headlines: undefined,
-          descriptions: undefined,
-          callouts: undefined,
-          sitelinks: undefined,
-          finalUrls: undefined,
-        }
-      : _campaignConfig
+    const campaignConfigForCreativeContent = buildAlignedCampaignConfigForCreative(
+      primaryCreative,
+      'launch_score'
+    )
 
     const creativeData = buildEffectiveCreative({
       dbCreative: {
@@ -997,6 +1087,10 @@ export async function POST(request: NextRequest) {
             : (parsedAdGroupName!.creativeId === creative.id ? baseAdGroupName : naming.adGroupName))
         : (allowCustomAdGroupName ? baseAdGroupName : naming.adGroupName)
       const resolvedAdName = baseAdName || naming.adName
+      const campaignConfigForCreative = buildAlignedCampaignConfigForCreative(
+        creative,
+        `persist_${variantName || 'single'}`
+      )
 
       const effectiveCreativeForPersistence = buildEffectiveCreative({
         dbCreative: {
@@ -1009,28 +1103,19 @@ export async function POST(request: NextRequest) {
           finalUrl: creative.final_url,
           finalUrlSuffix: creative.final_url_suffix,
         },
-        campaignConfig: (typeof _enableSmartOptimization === 'boolean' && _enableSmartOptimization)
-          ? {
-              ..._campaignConfig,
-              headlines: undefined,
-              descriptions: undefined,
-              callouts: undefined,
-              sitelinks: undefined,
-              finalUrls: undefined,
-            }
-          : _campaignConfig,
+        campaignConfig: campaignConfigForCreative,
         offerUrlFallback: offer.url,
       })
 
       const persistedKeywordConfig = resolveTaskCampaignKeywords({
-        configuredKeywords: _campaignConfig.keywords,
-        configuredNegativeKeywords: _campaignConfig.negativeKeywords,
+        configuredKeywords: campaignConfigForCreative.keywords,
+        configuredNegativeKeywords: campaignConfigForCreative.negativeKeywords,
         fallbackKeywords: effectiveCreativeForPersistence.keywords,
         fallbackNegativeKeywords: effectiveCreativeForPersistence.negativeKeywords,
       })
 
       const normalizedCampaignConfig = {
-        ...(typeof _campaignConfig === 'object' && _campaignConfig !== null ? _campaignConfig : {}),
+        ...campaignConfigForCreative,
         campaignName: resolvedCampaignName,
         adGroupName: resolvedAdGroupName,
         keywords: persistedKeywordConfig.keywords,
@@ -1072,7 +1157,7 @@ export async function POST(request: NextRequest) {
         resolvedGoogleAdsAccountId,
         resolvedCampaignName,  // 🔥 使用用户配置或规范化的Campaign名称
         variantBudget,
-        _campaignConfig.budgetType,
+        normalizedCampaignConfig.budgetType,
         creative.id,
         JSON.stringify(normalizedCampaignConfig),
         _pauseOldCampaigns ? 1 : 0,
@@ -1089,7 +1174,8 @@ export async function POST(request: NextRequest) {
         creative,
         variantName,
         variantBudget,
-        naming: namingWithOverrides  // 🔥 保存命名方案供后续使用
+        naming: namingWithOverrides,  // 🔥 保存命名方案供后续使用
+        campaignConfig: normalizedCampaignConfig,
       })
     }
 
@@ -1105,7 +1191,7 @@ export async function POST(request: NextRequest) {
       const { getOrCreateQueueManager } = await import('@/lib/queue/init-queue')
       const queue = await getOrCreateQueueManager()
 
-      for (const { campaignId, creative, variantName, variantBudget, naming } of createdCampaigns) {
+      for (const { campaignId, creative, variantName, naming, campaignConfig: campaignConfigForTask } of createdCampaigns) {
         try {
           console.log(`🚀 队列化Campaign发布任务 ${campaignId} (Variant ${variantName || 'Single'})...`)
 
@@ -1120,22 +1206,13 @@ export async function POST(request: NextRequest) {
               finalUrl: creative.final_url,
               finalUrlSuffix: creative.final_url_suffix
             },
-            campaignConfig: (typeof _enableSmartOptimization === 'boolean' && _enableSmartOptimization)
-              ? {
-                  ..._campaignConfig,
-                  headlines: undefined,
-                  descriptions: undefined,
-                  callouts: undefined,
-                  sitelinks: undefined,
-                  finalUrls: undefined,
-                }
-              : _campaignConfig,
+            campaignConfig: campaignConfigForTask,
             offerUrlFallback: offer.url
           })
 
           const taskKeywordConfig = resolveTaskCampaignKeywords({
-            configuredKeywords: _campaignConfig.keywords,
-            configuredNegativeKeywords: _campaignConfig.negativeKeywords,
+            configuredKeywords: campaignConfigForTask.keywords,
+            configuredNegativeKeywords: campaignConfigForTask.negativeKeywords,
             fallbackKeywords: effectiveCreativeForTask.keywords,
             fallbackNegativeKeywords: effectiveCreativeForTask.negativeKeywords,
           })
@@ -1154,19 +1231,19 @@ export async function POST(request: NextRequest) {
             googleAdsAccountId: resolvedGoogleAdsAccountId,
             userId: userId,
             naming: naming, // 🔥 新增：传递规范化命名
-            marketingObjective: _campaignConfig.marketingObjective || 'WEB_TRAFFIC', // 🔧 新增(2025-12-19): 营销目标
+            marketingObjective: campaignConfigForTask.marketingObjective || 'WEB_TRAFFIC', // 🔧 新增(2025-12-19): 营销目标
             campaignConfig: {
-              targetCountry: _campaignConfig.targetCountry,
-              targetLanguage: _campaignConfig.targetLanguage,
-              biddingStrategy: _campaignConfig.biddingStrategy,
-              budgetAmount: _campaignConfig.budgetAmount,
-              budgetType: _campaignConfig.budgetType,
-              maxCpcBid: _campaignConfig.maxCpcBid,
+              targetCountry: campaignConfigForTask.targetCountry,
+              targetLanguage: campaignConfigForTask.targetLanguage,
+              biddingStrategy: campaignConfigForTask.biddingStrategy,
+              budgetAmount: campaignConfigForTask.budgetAmount,
+              budgetType: campaignConfigForTask.budgetType,
+              maxCpcBid: campaignConfigForTask.maxCpcBid,
               keywords: taskKeywordConfig.keywords,
               negativeKeywords: taskKeywordConfig.negativeKeywords,
               negativeKeywordMatchType:
-                _campaignConfig.negativeKeywordMatchType ||
-                _campaignConfig.negativeKeywordsMatchType ||
+                campaignConfigForTask.negativeKeywordMatchType ||
+                campaignConfigForTask.negativeKeywordsMatchType ||
                 undefined
             },
             creative: {
