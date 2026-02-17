@@ -46,6 +46,8 @@ export function sanitizeGoogleAdsSymbols(text: string): { text: string; removed:
   cleaned = cleaned
     .replace(EMOJI_REGEX, ' ')
     .replace(EMOJI_JOINERS_REGEX, ' ')
+    // Normalize compatibility characters (e.g. 𝗔/𝟭) to plain forms.
+    .normalize('NFKC')
     .replace(/\s+/g, ' ')
     .trim()
   return { text: cleaned, removed }

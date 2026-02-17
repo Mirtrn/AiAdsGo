@@ -57,6 +57,11 @@ describe('google-ads-ad-text', () => {
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('Rated')
   })
 
+  it('normalizes mathematical alphanumeric symbols (fancy bold text)', () => {
+    const text = '𝗚𝗼 𝗕𝗶𝗴 𝗼𝗻 𝗖𝗼𝗼𝗹'
+    expect(sanitizeGoogleAdsAdText(text, 25)).toBe('Go Big on Cool')
+  })
+
   it('sanitizes rsa path values', () => {
     expect(sanitizeGoogleAdsPath('Best ~ Deals', 15)).toBe('Best-Deals')
   })

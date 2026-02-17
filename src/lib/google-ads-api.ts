@@ -2266,7 +2266,8 @@ export async function createGoogleAdsCalloutExtensions(params: {
     // Step 1: Create Callout Assets
     const assetOperations = normalizedCallouts.map(calloutText => ({
       callout_asset: {
-        callout_text: calloutText.substring(0, 25) // Google Ads限制：最多25个字符
+        // normalizedCallouts 已经过 sanitizeGoogleAdsAdText(..., 25) 处理
+        callout_text: calloutText
       }
     }))
 
@@ -2417,15 +2418,16 @@ export async function createGoogleAdsSitelinkExtensions(params: {
       console.log(`🔍 处理Sitelink: text="${sitelink.text}", url="${sitelink.url}", desc1="${sitelink.description1}"`)
 
       const sitelinkAsset: any = {
-        link_text: sitelink.text.substring(0, 25) // 最多25个字符
+        // sanitizedSitelinks 已经过 sanitizeGoogleAdsAdText(..., 25) 处理
+        link_text: sitelink.text
       }
 
       // description1 和 description2 必须要么都存在，要么都不存在
       if (sitelink.description1 && sitelink.description1.trim()) {
         const desc1 = sitelink.description1
         const desc2 = sitelink.description2 || sitelink.description1
-        sitelinkAsset.description1 = desc1.substring(0, 35)
-        sitelinkAsset.description2 = desc2.substring(0, 35)
+        sitelinkAsset.description1 = desc1
+        sitelinkAsset.description2 = desc2
       }
 
       // 关键修复：final_urls必须在Asset层级，不是sitelink_asset内部
@@ -2476,9 +2478,20 @@ export async function createGoogleAdsSitelinkExtensions(params: {
 
     return { assetIds }
   } catch (error: any) {
-    console.error('❌ 创建Sitelink扩展失败:', error.message)
-    console.error('❌ 错误详情:', JSON.stringify(error, null, 2))
-    throw new Error(`创建Sitelink扩展失败: ${error.message}`)
+    const errorMessage =
+      error?.errors?.[0]?.message ||
+      error?.error?.message ||
+      error?.message ||
+      (typeof error === 'string' ? error : 'Unknown error')
+    let errorDetails = ''
+    try {
+      errorDetails = JSON.stringify(error, null, 2)
+    } catch {
+      errorDetails = String(error)
+    }
+    console.error('❌ 创建Sitelink扩展失败:', errorMessage)
+    console.error('❌ 错误详情:', errorDetails)
+    throw new Error(`创建Sitelink扩展失败: ${errorMessage}`)
   }
 }
 

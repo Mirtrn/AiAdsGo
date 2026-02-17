@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import uuid
+import unicodedata
 
 request_id_ctx: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
 user_id_ctx: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("user_id", default=None)
@@ -233,6 +234,9 @@ def sanitize_ad_text(text: str, *, max_len: Optional[int] = None) -> str:
     for ch, repl in PROHIBITED_AD_TEXT_REPLACEMENTS.items():
         sanitized = sanitized.replace(ch, repl)
 
+    # Normalize compatibility glyphs (e.g. 𝗔/𝟭) to plain forms.
+    sanitized = unicodedata.normalize("NFKC", sanitized)
+
     # 统一空白字符（避免换行/制表符）
     sanitized = " ".join(sanitized.split()).strip()
 
@@ -241,6 +245,7 @@ def sanitize_ad_text(text: str, *, max_len: Optional[int] = None) -> str:
         removed = str(text)
         for ch in PROHIBITED_AD_TEXT_REPLACEMENTS.keys():
             removed = removed.replace(ch, "")
+        removed = unicodedata.normalize("NFKC", removed)
         removed = " ".join(removed.split()).strip()
         if ad_text_effective_length(removed) <= max_len:
             return removed
