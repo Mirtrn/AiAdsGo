@@ -251,15 +251,23 @@ async function resolvePublishOfferContext(params: {
   db: OpenclawExecutorDb
   userId: number
   offerId: number | null
-}): Promise<{ url: string; targetCountry: string; targetLanguage: string } | null> {
+}): Promise<{
+  url: string
+  finalUrl: string
+  finalUrlSuffix: string
+  targetCountry: string
+  targetLanguage: string
+} | null> {
   if (!params.offerId) return null
 
   const row = await params.db.queryOne<{
     url: string | null
+    final_url: string | null
+    final_url_suffix: string | null
     target_country: string | null
     target_language: string | null
   }>(
-    `SELECT url, target_country, target_language
+    `SELECT url, final_url, final_url_suffix, target_country, target_language
      FROM offers
      WHERE id = ? AND user_id = ?
      LIMIT 1`,
@@ -269,6 +277,8 @@ async function resolvePublishOfferContext(params: {
   if (!row) return null
   return {
     url: typeof row.url === 'string' ? row.url : '',
+    finalUrl: typeof row.final_url === 'string' ? row.final_url : '',
+    finalUrlSuffix: typeof row.final_url_suffix === 'string' ? row.final_url_suffix : '',
     targetCountry: typeof row.target_country === 'string' ? row.target_country : '',
     targetLanguage: typeof row.target_language === 'string' ? row.target_language : '',
   }
@@ -418,13 +428,34 @@ async function hydrateCampaignPublishRequestBody(params: {
   if (!isNonEmptyString(hydratedCampaignConfig.finalUrlSuffix)) {
     hydratedCampaignConfig.finalUrlSuffix = isNonEmptyString(creative?.final_url_suffix)
       ? String(creative?.final_url_suffix).trim()
-      : ''
+      : (isNonEmptyString(offerContext?.finalUrlSuffix) ? String(offerContext?.finalUrlSuffix).trim() : '')
   }
 
-  const finalUrlCandidate = isNonEmptyString(creative?.final_url)
+  const creativeFinalUrl = isNonEmptyString(creative?.final_url)
     ? String(creative?.final_url).trim()
-    : (isNonEmptyString(offerContext?.url) ? String(offerContext?.url).trim() : '')
-  if ((!Array.isArray(hydratedCampaignConfig.finalUrls) || hydratedCampaignConfig.finalUrls.length === 0) && finalUrlCandidate) {
+    : ''
+  const offerFinalUrl = isNonEmptyString(offerContext?.finalUrl)
+    ? String(offerContext?.finalUrl).trim()
+    : ''
+  const offerUrl = isNonEmptyString(offerContext?.url)
+    ? String(offerContext?.url).trim()
+    : ''
+  const finalUrlCandidate = creativeFinalUrl || offerFinalUrl || offerUrl
+
+  // 与 Web 端保持一致：当指定 adCreativeId 发布时，Final URL 默认来自该创意（其次 offer.final_url，再其次 offer.url）。
+  // OpenClaw 生成的自由文本参数不应覆盖这一路径，避免传入 affiliate/tracking 短链。
+  if (adCreativeId && finalUrlCandidate) {
+    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
+  } else if ((!Array.isArray(hydratedCampaignConfig.finalUrls) || hydratedCampaignConfig.finalUrls.length === 0) && finalUrlCandidate) {
+    hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
+  } else if (Array.isArray(hydratedCampaignConfig.finalUrls)) {
+    hydratedCampaignConfig.finalUrls = hydratedCampaignConfig.finalUrls
+      .map((entry: unknown) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry: string) => entry.length > 0)
+  }
+
+  // 若外部传入空数组，仍回填 web 默认值
+  if (Array.isArray(hydratedCampaignConfig.finalUrls) && hydratedCampaignConfig.finalUrls.length === 0 && finalUrlCandidate) {
     hydratedCampaignConfig.finalUrls = [finalUrlCandidate]
   }
 
