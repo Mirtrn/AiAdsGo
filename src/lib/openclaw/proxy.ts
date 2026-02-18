@@ -41,6 +41,10 @@ type NormalizedProxyTarget = {
   rewritten: boolean
 }
 
+type OpenclawPollingRouteKind = 'offer-extract-status' | 'creative-task-status'
+
+const OPENCLAW_TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'canceled', 'cancelled', 'expired'])
+
 function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value || '').trim(), 10)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
@@ -192,6 +196,212 @@ function deriveTarget(path: string): { targetType?: string; targetId?: string } 
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseJsonObject(value: string): Record<string, any> | null {
+  try {
+    const parsed = JSON.parse(value)
+    return isPlainObject(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function parseNestedJsonValue(value: unknown): unknown {
+  let current = value
+  for (let depth = 0; depth < 2; depth += 1) {
+    if (typeof current !== 'string') return current
+    const trimmed = current.trim()
+    if (!trimmed) return null
+    try {
+      current = JSON.parse(trimmed)
+    } catch {
+      return current
+    }
+  }
+  return current
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  const normalized = Math.floor(parsed)
+  return normalized > 0 ? normalized : null
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function summarizeOfferExtractResult(result: unknown): Record<string, any> | null {
+  const parsed = parseNestedJsonValue(result)
+  if (!isPlainObject(parsed)) return null
+
+  const offer = isPlainObject(parsed.offer) ? parsed.offer : null
+  const summary: Record<string, any> = {}
+
+  const offerId = toPositiveInteger(parsed.offerId ?? parsed.offer_id ?? offer?.id)
+  if (offerId) summary.offerId = offerId
+
+  const asin = toNonEmptyString(parsed.asin)
+  if (asin) summary.asin = asin
+
+  const brand = toNonEmptyString(parsed.brand)
+  if (brand) summary.brand = brand
+
+  const productName = toNonEmptyString(parsed.productName ?? parsed.product_name)
+  if (productName) summary.productName = productName
+
+  const productPriceRaw = parsed.productPrice ?? parsed.product_price
+  const productPriceNumber = toOptionalNumber(productPriceRaw)
+  if (productPriceNumber !== null) {
+    summary.productPrice = productPriceNumber
+  } else {
+    const productPrice = toNonEmptyString(productPriceRaw)
+    if (productPrice) summary.productPrice = productPrice
+  }
+
+  const finalUrl = toNonEmptyString(parsed.finalUrl ?? parsed.final_url)
+  if (finalUrl) summary.finalUrl = finalUrl
+
+  return Object.keys(summary).length > 0 ? summary : null
+}
+
+function summarizeCreativeTaskResult(result: unknown): Record<string, any> | null {
+  const parsed = parseNestedJsonValue(result)
+  if (!isPlainObject(parsed)) return null
+
+  const creative = isPlainObject(parsed.creative) ? parsed.creative : null
+  const offer = isPlainObject(parsed.offer) ? parsed.offer : null
+  const summary: Record<string, any> = {}
+
+  if (typeof parsed.success === 'boolean') {
+    summary.success = parsed.success
+  }
+
+  const offerId = toPositiveInteger(parsed.offerId ?? parsed.offer_id ?? offer?.id ?? offer?.offerId)
+  if (offerId) summary.offerId = offerId
+
+  const creativeId = toPositiveInteger(parsed.creativeId ?? parsed.creative_id ?? creative?.id)
+  if (creativeId) summary.creativeId = creativeId
+
+  const adStrength = toNonEmptyString(parsed.adStrength ?? creative?.adStrength)
+  if (adStrength) summary.adStrength = adStrength
+
+  const bucket = toNonEmptyString(parsed.bucket ?? creative?.bucket)
+  if (bucket) summary.bucket = bucket
+
+  if (Array.isArray(creative?.headlines)) {
+    summary.headlinesCount = creative.headlines.length
+  }
+  if (Array.isArray(creative?.descriptions)) {
+    summary.descriptionsCount = creative.descriptions.length
+  }
+  if (Array.isArray(creative?.keywords)) {
+    summary.keywordsCount = creative.keywords.length
+  }
+
+  return Object.keys(summary).length > 0 ? summary : null
+}
+
+function resolvePollingRouteKind(path: string): OpenclawPollingRouteKind | null {
+  if (/^\/api\/offers\/extract\/status\/[^/]+$/.test(path)) {
+    return 'offer-extract-status'
+  }
+  if (/^\/api\/creative-tasks\/[^/]+$/.test(path)) {
+    return 'creative-task-status'
+  }
+  return null
+}
+
+function isJsonContentType(contentType: string): boolean {
+  const normalized = String(contentType || '').toLowerCase()
+  return normalized.includes('application/json') || normalized.includes('+json')
+}
+
+function compactPollingStatusResponse(params: {
+  path: string
+  bodyText: string
+}): { compacted: boolean; bodyText: string } {
+  const routeKind = resolvePollingRouteKind(params.path)
+  if (!routeKind) {
+    return {
+      compacted: false,
+      bodyText: params.bodyText,
+    }
+  }
+
+  const parsed = parseJsonObject(params.bodyText)
+  if (!parsed) {
+    return {
+      compacted: false,
+      bodyText: params.bodyText,
+    }
+  }
+
+  if (typeof parsed.taskId !== 'string' || typeof parsed.status !== 'string') {
+    return {
+      compacted: false,
+      bodyText: params.bodyText,
+    }
+  }
+
+  const compacted: Record<string, any> = {}
+  const passthroughFields = [
+    'taskId',
+    'status',
+    'stage',
+    'progress',
+    'message',
+    'error',
+    'errorDetails',
+    'createdAt',
+    'updatedAt',
+    'startedAt',
+    'completedAt',
+    'recommendedPollIntervalMs',
+    'streamSupported',
+    'streamUrl',
+    'waitApplied',
+  ]
+  for (const field of passthroughFields) {
+    if (parsed[field] !== undefined) {
+      compacted[field] = parsed[field]
+    }
+  }
+
+  const resultSummary = routeKind === 'offer-extract-status'
+    ? summarizeOfferExtractResult(parsed.result)
+    : summarizeCreativeTaskResult(parsed.result)
+
+  compacted.result = resultSummary
+  compacted.resultSummary = resultSummary
+
+  const normalizedStatus = String(parsed.status || '').trim().toLowerCase()
+  const terminal = OPENCLAW_TERMINAL_TASK_STATUSES.has(normalizedStatus)
+  const recommendedPollIntervalMs = toOptionalNumber(parsed.recommendedPollIntervalMs)
+  compacted.polling = {
+    terminal,
+    shouldStop: terminal,
+    status: normalizedStatus || null,
+    nextPollInMs: terminal ? 0 : (recommendedPollIntervalMs ?? null),
+  }
+
+  return {
+    compacted: true,
+    bodyText: JSON.stringify(compacted),
+  }
+}
+
 export async function handleOpenclawProxyRequest(params: {
   request: OpenclawProxyRequest
   authHeader: string | null
@@ -319,12 +529,24 @@ export async function handleOpenclawProxyRequest(params: {
   const isEventStream = contentType.includes('text/event-stream')
 
   let responseBodyText: string | null = null
+  let responseBodyForClient: string | null = null
   if (!isEventStream) {
     const cloned = upstream.clone()
     try {
       responseBodyText = await cloned.text()
     } catch {
       responseBodyText = null
+    }
+
+    if (responseBodyText !== null && isJsonContentType(contentType)) {
+      const compacted = compactPollingStatusResponse({
+        path: finalPath,
+        bodyText: responseBodyText,
+      })
+      if (compacted.compacted) {
+        responseBodyText = compacted.bodyText
+        responseBodyForClient = compacted.bodyText
+      }
     }
   }
 
@@ -341,6 +563,15 @@ export async function handleOpenclawProxyRequest(params: {
     errorMessage: upstream.ok ? null : responseBodyText,
     latencyMs,
   })
+
+  if (responseBodyForClient !== null) {
+    const headers = new Headers(upstream.headers)
+    headers.delete('content-length')
+    return new Response(responseBodyForClient, {
+      status: upstream.status,
+      headers,
+    })
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,
