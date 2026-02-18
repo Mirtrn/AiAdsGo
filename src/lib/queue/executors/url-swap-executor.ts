@@ -26,6 +26,7 @@ import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
+import { resolveLoginCustomerCandidates, isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { initializeProxyPool } from '@/lib/offer-utils'
 
 /**
@@ -72,6 +73,123 @@ function shouldRetryTargetOnSameSuffix(target: UrlSwapTaskTarget): boolean {
   return Boolean(target.last_error) || (target.consecutive_failures ?? 0) > 0
 }
 
+interface GoogleAdsUpdateAuthContext {
+  refreshToken: string
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string
+  oauthLoginCustomerId?: string
+  serviceAccountMccId?: string
+}
+
+function describeLoginCustomerId(loginCustomerId: string | undefined): string {
+  return loginCustomerId || '(omit header)'
+}
+
+async function updateSingleTargetWithLoginCustomerFallback(params: {
+  target: UrlSwapTaskTarget
+  finalUrlSuffix: string
+  userId: number
+  refreshToken: string
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string
+  oauthLoginCustomerId?: string
+  serviceAccountMccId?: string
+}): Promise<void> {
+  const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
+    authType: params.authType,
+    oauthLoginCustomerId: params.oauthLoginCustomerId,
+    serviceAccountMccId: params.serviceAccountMccId,
+    targetCustomerId: params.target.google_customer_id,
+  })
+
+  let lastError: any = null
+
+  for (let i = 0; i < loginCustomerIdCandidates.length; i++) {
+    const loginCustomerId = loginCustomerIdCandidates[i]
+
+    try {
+      await updateCampaignFinalUrlSuffix({
+        customerId: params.target.google_customer_id,
+        refreshToken: params.authType === 'oauth' ? params.refreshToken : '',
+        campaignId: params.target.google_campaign_id,
+        finalUrlSuffix: params.finalUrlSuffix,
+        userId: params.userId,
+        authType: params.authType,
+        serviceAccountId: params.authType === 'service_account' ? params.serviceAccountId : undefined,
+        loginCustomerId,
+      })
+
+      if (i > 0) {
+        console.log(
+          `[url-swap-executor] 目标 ${params.target.google_campaign_id} 使用备用 login_customer_id=${describeLoginCustomerId(loginCustomerId)} 成功`
+        )
+      }
+      return
+    } catch (error: any) {
+      lastError = error
+      const hasNextCandidate = i < loginCustomerIdCandidates.length - 1
+      if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+        const nextLoginCustomerId = loginCustomerIdCandidates[i + 1]
+        console.warn(
+          `[url-swap-executor] 目标 ${params.target.google_campaign_id} login_customer_id=${describeLoginCustomerId(loginCustomerId)} 失败，切换到 ${describeLoginCustomerId(nextLoginCustomerId)} 重试`
+        )
+        continue
+      }
+      throw error
+    }
+  }
+
+  throw lastError || new Error('Google Ads 更新失败')
+}
+
+async function loadGoogleAdsUpdateAuthContext(params: {
+  userId: number
+  db: Awaited<ReturnType<typeof getDatabase>>
+}): Promise<GoogleAdsUpdateAuthContext> {
+  const credentials = await getGoogleAdsCredentials(params.userId)
+  const auth = await getUserAuthType(params.userId)
+
+  const isActiveCondition = params.db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const serviceAccount = await params.db.queryOne(`
+    SELECT id FROM google_ads_service_accounts
+    WHERE user_id = ? AND ${isActiveCondition}
+    ORDER BY created_at DESC LIMIT 1
+  `, [params.userId]) as { id: string } | undefined
+
+  const effectiveServiceAccountId = auth.authType === 'service_account'
+    ? (auth.serviceAccountId || serviceAccount?.id)
+    : (serviceAccount?.id ?? auth.serviceAccountId)
+
+  if ((!credentials || !credentials.refresh_token) && !effectiveServiceAccountId) {
+    throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
+  }
+
+  let serviceAccountMccId: string | undefined
+  if (effectiveServiceAccountId) {
+    try {
+      const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
+      const serviceAccountConfig = await getServiceAccountConfig(params.userId, effectiveServiceAccountId)
+      serviceAccountMccId = serviceAccountConfig?.mccCustomerId
+        ? String(serviceAccountConfig.mccCustomerId).trim()
+        : undefined
+    } catch (error: any) {
+      console.warn(`[url-swap-executor] 获取服务账号MCC失败: ${error?.message || error}`)
+    }
+  }
+
+  const oauthLoginCustomerId = credentials?.login_customer_id
+    ? String(credentials.login_customer_id).trim()
+    : undefined
+
+  return {
+    refreshToken: credentials?.refresh_token || '',
+    authType: auth.authType,
+    serviceAccountId: effectiveServiceAccountId,
+    oauthLoginCustomerId,
+    serviceAccountMccId,
+  }
+}
+
 async function updateTargetsFinalUrlSuffix(params: {
   targets: UrlSwapTaskTarget[]
   finalUrlSuffix: string
@@ -79,6 +197,8 @@ async function updateTargetsFinalUrlSuffix(params: {
   refreshToken: string
   authType: 'oauth' | 'service_account'
   serviceAccountId?: string
+  oauthLoginCustomerId?: string
+  serviceAccountMccId?: string
 }): Promise<{ successCount: number; failureCount: number; failures: string[] }> {
   const failures: string[] = []
   let successCount = 0
@@ -90,26 +210,28 @@ async function updateTargetsFinalUrlSuffix(params: {
     const attemptAuthType = forcedAuthType ?? params.authType
     try {
       try {
-        await updateCampaignFinalUrlSuffix({
-          customerId: target.google_customer_id,
-          refreshToken: attemptAuthType === 'oauth' ? params.refreshToken : '',
-          campaignId: target.google_campaign_id,
+        await updateSingleTargetWithLoginCustomerFallback({
+          target,
           finalUrlSuffix: params.finalUrlSuffix,
           userId: params.userId,
+          refreshToken: params.refreshToken,
           authType: attemptAuthType,
           serviceAccountId: attemptAuthType === 'service_account' ? params.serviceAccountId : undefined,
+          oauthLoginCustomerId: params.oauthLoginCustomerId,
+          serviceAccountMccId: params.serviceAccountMccId,
         })
       } catch (firstError: any) {
         const message = firstError?.message || String(firstError)
         if (attemptAuthType === 'oauth' && isOAuthInvalidGrantError(message) && params.serviceAccountId) {
-          await updateCampaignFinalUrlSuffix({
-            customerId: target.google_customer_id,
-            refreshToken: '',
-            campaignId: target.google_campaign_id,
+          await updateSingleTargetWithLoginCustomerFallback({
+            target,
             finalUrlSuffix: params.finalUrlSuffix,
             userId: params.userId,
+            refreshToken: '',
             authType: 'service_account',
             serviceAccountId: params.serviceAccountId,
+            oauthLoginCustomerId: params.oauthLoginCustomerId,
+            serviceAccountMccId: params.serviceAccountMccId,
           })
           forcedAuthType = 'service_account'
         } else {
@@ -303,29 +425,20 @@ export async function executeUrlSwapTask(
         let adsApiError: Error | null = null
 
         try {
-          const credentials = await getGoogleAdsCredentials(task.userId)
-          const auth = await getUserAuthType(task.userId)
-
-          const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-          const serviceAccount = await db.queryOne(`
-            SELECT id FROM google_ads_service_accounts
-            WHERE user_id = ? AND ${isActiveCondition}
-            ORDER BY created_at DESC LIMIT 1
-          `, [task.userId]) as { id: string } | undefined
-
-          if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
-            throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
-          }
-
-          const refreshToken = credentials?.refresh_token || ''
+          const authContext = await loadGoogleAdsUpdateAuthContext({
+            userId: task.userId,
+            db,
+          })
 
           updateResult = await updateTargetsFinalUrlSuffix({
             targets: targetsToUpdate,
             finalUrlSuffix: resolved.finalUrlSuffix,
             userId: task.userId,
-            refreshToken,
-            authType: auth.authType,
-            serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+            refreshToken: authContext.refreshToken,
+            authType: authContext.authType,
+            serviceAccountId: authContext.serviceAccountId,
+            oauthLoginCustomerId: authContext.oauthLoginCustomerId,
+            serviceAccountMccId: authContext.serviceAccountMccId,
           })
         } catch (adsError: any) {
           const message = formatGoogleAdsError(adsError)
@@ -416,30 +529,20 @@ export async function executeUrlSwapTask(
       console.log(`[url-swap-executor] URL未变化，尝试重试失败目标: ${retryTargets.length}`)
       let retryResult: { successCount: number; failureCount: number; failures: string[] } | null = null
       try {
-        const credentials = await getGoogleAdsCredentials(task.userId)
-        const auth = await getUserAuthType(task.userId)
-
-        const db = await getDatabase()
-        const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-        const serviceAccount = await db.queryOne(`
-          SELECT id FROM google_ads_service_accounts
-          WHERE user_id = ? AND ${isActiveCondition}
-          ORDER BY created_at DESC LIMIT 1
-        `, [task.userId]) as { id: string } | undefined
-
-        if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
-          throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
-        }
-
-        const refreshToken = credentials?.refresh_token || ''
+        const authContext = await loadGoogleAdsUpdateAuthContext({
+          userId: task.userId,
+          db,
+        })
 
         retryResult = await updateTargetsFinalUrlSuffix({
           targets: retryTargets,
           finalUrlSuffix: resolved.finalUrlSuffix,
           userId: task.userId,
-          refreshToken,
-          authType: auth.authType,
-          serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+          refreshToken: authContext.refreshToken,
+          authType: authContext.authType,
+          serviceAccountId: authContext.serviceAccountId,
+          oauthLoginCustomerId: authContext.oauthLoginCustomerId,
+          serviceAccountMccId: authContext.serviceAccountMccId,
         })
       } catch (adsError: any) {
         const message = formatGoogleAdsError(adsError)
@@ -475,32 +578,20 @@ export async function executeUrlSwapTask(
       console.log(`[url-swap-executor] 更新Google Ads目标数: ${targetsToUpdate.length}`)
 
       try {
-        // 获取用户认证信息
-        const credentials = await getGoogleAdsCredentials(task.userId)
-        const auth = await getUserAuthType(task.userId)
-
-        // 查询服务账号配置（如果使用服务账号模式）
-        const db = await getDatabase()
-        const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-        const serviceAccount = await db.queryOne(`
-          SELECT id FROM google_ads_service_accounts
-          WHERE user_id = ? AND ${isActiveCondition}
-          ORDER BY created_at DESC LIMIT 1
-        `, [task.userId]) as { id: string } | undefined
-
-        if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
-          throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
-        }
-
-        const refreshToken = credentials?.refresh_token || ''
+        const authContext = await loadGoogleAdsUpdateAuthContext({
+          userId: task.userId,
+          db,
+        })
 
         updateResult = await updateTargetsFinalUrlSuffix({
           targets: targetsToUpdate,
           finalUrlSuffix: resolved.finalUrlSuffix,
           userId: task.userId,
-          refreshToken,
-          authType: auth.authType,
-          serviceAccountId: auth.authType === 'service_account' ? auth.serviceAccountId : (serviceAccount?.id ?? auth.serviceAccountId)
+          refreshToken: authContext.refreshToken,
+          authType: authContext.authType,
+          serviceAccountId: authContext.serviceAccountId,
+          oauthLoginCustomerId: authContext.oauthLoginCustomerId,
+          serviceAccountMccId: authContext.serviceAccountMccId,
         })
 
         console.log(`[url-swap-executor] Google Ads更新完成: ${taskId}`)
