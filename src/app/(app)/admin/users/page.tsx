@@ -678,7 +678,7 @@ export default function UserManagementPage() {
                 </CardHeader>
                 <CardContent>
                     <div className="rounded-md border">
-                        <Table className="w-max min-w-[1040px] table-fixed text-xs xl:text-sm [&_th]:h-8 [&_th]:px-1.5 [&_td]:px-1.5 [&_td]:py-1">
+                        <Table className="w-max min-w-[1040px] table-fixed text-sm [&_th]:h-9 [&_th]:px-2 [&_td]:px-2 [&_td]:py-2">
                             <TableHeader>
                                 <TableRow>
                                     <TableHead
@@ -785,7 +785,7 @@ export default function UserManagementPage() {
                                             {renderSortIcon('status')}
                                         </button>
                                     </TableHead>
-                                    <TableHead className="w-[52px] text-center whitespace-nowrap sm:w-[70px]">操作</TableHead>
+                                    <TableHead className="w-[96px] text-center whitespace-nowrap sm:w-[136px]">操作</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -798,29 +798,29 @@ export default function UserManagementPage() {
                                 ) : (
                                     users.map((user) => (
                                         <TableRow key={user.id}>
-                                            <TableCell className="hidden font-mono text-xs text-muted-foreground whitespace-nowrap sm:table-cell">
+                                            <TableCell className="hidden font-mono text-sm text-muted-foreground whitespace-nowrap sm:table-cell">
                                                 {user.id}
                                             </TableCell>
                                             <TableCell className="min-w-0">
                                                 <div className="flex min-w-0 items-center gap-1.5">
-                                                    <Avatar className="h-7 w-7 shrink-0">
+                                                    <Avatar className="h-8 w-8 shrink-0">
                                                         <AvatarFallback className="bg-indigo-100 text-indigo-600">
                                                             {user.username.substring(0, 2).toUpperCase()}
                                                         </AvatarFallback>
                                                     </Avatar>
                                                     <div className="min-w-0">
-                                                        <div className="truncate font-medium leading-4">{user.username}</div>
-                                                        <div className="hidden truncate text-[11px] text-muted-foreground 2xl:block">{user.email || '无邮箱'}</div>
+                                                        <div className="truncate font-medium leading-5">{user.username}</div>
+                                                        <div className="hidden truncate text-xs text-muted-foreground 2xl:block">{user.email || '无邮箱'}</div>
                                                     </div>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="hidden whitespace-nowrap lg:table-cell">
-                                                <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className="h-5 px-1.5 text-[11px]">
+                                                <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className="h-6 px-2 text-xs">
                                                     {user.role === 'admin' ? '管理员' : '用户'}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="hidden whitespace-nowrap md:table-cell">
-                                                <Badge variant="outline" className="h-5 px-1.5 text-[11px] capitalize whitespace-nowrap">
+                                                <Badge variant="outline" className="h-6 px-2 text-xs capitalize whitespace-nowrap">
                                                     {user.packageType === 'trial' ? '试用版' :
                                                      user.packageType === 'annual' ? '年度会员' :
                                                      user.packageType === 'lifetime' ? '长期会员' : '私有化部署'}
@@ -834,7 +834,7 @@ export default function UserManagementPage() {
                                             </TableCell>
                                             <TableCell className="hidden text-muted-foreground whitespace-nowrap xl:table-cell">
                                                 {user.lastLoginAt ? (
-                                                    <span className="text-[11px] xl:text-xs">
+                                                    <span className="text-xs">
                                                         {new Date(user.lastLoginAt).toLocaleDateString('zh-CN')} {new Date(user.lastLoginAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                 ) : (
@@ -844,46 +844,59 @@ export default function UserManagementPage() {
                                             <TableCell className="whitespace-nowrap">
                                                 {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
                                                 {!user.isActive ? (
-                                                    <Badge variant="destructive" className="h-5 px-1.5 text-[11px] whitespace-nowrap">
+                                                    <Badge variant="destructive" className="h-6 px-2 text-xs whitespace-nowrap">
                                                         <span className="sm:hidden">禁用</span>
                                                         <span className="hidden sm:inline">🚫 已禁用</span>
                                                     </Badge>
                                                 ) : isUserLocked(user) ? (
-                                                    <Badge variant="outline" className="h-5 px-1.5 text-[11px] text-yellow-600 border-yellow-600 whitespace-nowrap">
+                                                    <Badge variant="outline" className="h-6 px-2 text-xs text-yellow-600 border-yellow-600 whitespace-nowrap">
                                                         <span className="2xl:hidden">⏳ 已锁定</span>
                                                         <span className="hidden 2xl:inline">⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）</span>
                                                     </Badge>
                                                 ) : (
-                                                    <Badge variant="outline" className="h-5 px-1.5 text-[11px] text-green-600 border-green-600 whitespace-nowrap">
+                                                    <Badge variant="outline" className="h-6 px-2 text-xs text-green-600 border-green-600 whitespace-nowrap">
                                                         <span className="sm:hidden">正常</span>
                                                         <span className="hidden sm:inline">✅ 正常</span>
                                                     </Badge>
                                                 )}
                                             </TableCell>
-                                            <TableCell className="px-0.5">
+                                            <TableCell className="px-1">
                                                 <div className="flex items-center justify-center gap-0">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="hidden h-7 w-7 lg:inline-flex"
+                                                        className="hidden h-8 w-8 lg:inline-flex"
                                                         onClick={() => openEditModal(user)}
                                                         title="编辑"
                                                     >
-                                                        <Edit className="w-3.5 h-3.5" />
+                                                        <Edit className="w-4 h-4" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="hidden h-7 w-7 lg:inline-flex"
+                                                        className="hidden h-8 w-8 lg:inline-flex"
                                                         onClick={() => handleResetPassword(user.id, user.username)}
                                                         title="重置密码"
                                                     >
-                                                        <Key className="w-3.5 h-3.5" />
+                                                        <Key className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="hidden h-8 w-8 lg:inline-flex"
+                                                        onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
+                                                        title={user.isActive ? '禁用账户' : '启用账户'}
+                                                    >
+                                                        {user.isActive ? (
+                                                            <XCircle className="w-4 h-4 text-orange-600" />
+                                                        ) : (
+                                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                                        )}
                                                     </Button>
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7" title="更多操作">
-                                                                <MoreHorizontal className="w-3.5 h-3.5" />
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8" title="更多操作">
+                                                                <MoreHorizontal className="w-4 h-4" />
                                                             </Button>
                                                         </DropdownMenuTrigger>
                                                         <DropdownMenuContent align="end" className="w-72">
@@ -940,7 +953,7 @@ export default function UserManagementPage() {
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem
                                                                 onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
-                                                                className="items-start gap-2 py-2"
+                                                                className="items-start gap-2 py-2 lg:hidden"
                                                                 title={user.isActive ? '禁用此账号登录能力' : '恢复此账号登录能力'}
                                                             >
                                                                 {user.isActive ? (
