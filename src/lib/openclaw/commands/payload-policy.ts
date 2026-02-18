@@ -682,7 +682,7 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
   {
     method: 'POST',
     path: '/api/products/sync/:platform',
-    canonicalKeys: [],
+    canonicalKeys: ['strategy'],
     allowEmptyBody: true,
   },
   {

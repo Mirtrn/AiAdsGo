@@ -11,6 +11,9 @@ import { NextResponse } from 'next/server'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import { getDatabase } from '@/lib/db'
 import type { QueueConfig } from '@/lib/queue/types'
+import { getDataSyncScheduler } from '@/lib/queue/schedulers/data-sync-scheduler'
+import { getUrlSwapScheduler } from '@/lib/queue/schedulers/url-swap-scheduler'
+import { getAffiliateProductSyncScheduler } from '@/lib/queue/schedulers/affiliate-product-sync-scheduler'
 
 // 全局标记：队列是否已初始化
 let queueInitialized = false
@@ -91,6 +94,11 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
 
       // 安全注册所有任务执行器（只注册一次）
       await queue.registerAllExecutorsSafe()
+
+      // 启动内置调度器（各调度器内部具备幂等保护）
+      getDataSyncScheduler().start()
+      getUrlSwapScheduler().start()
+      getAffiliateProductSyncScheduler().start()
 
       queueInitialized = true
       console.log('✅ 统一队列系统初始化完成')

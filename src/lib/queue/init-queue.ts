@@ -22,6 +22,7 @@ import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
 import { getDataSyncScheduler } from './schedulers/data-sync-scheduler'
 import { getUrlSwapScheduler } from './schedulers/url-swap-scheduler'
+import { getAffiliateProductSyncScheduler } from './schedulers/affiliate-product-sync-scheduler'
 import { getQueueRoutingDiagnostics } from './queue-routing'
 import { logger } from '@/lib/structured-logger'
 
@@ -91,10 +92,15 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     const urlSwapScheduler = getUrlSwapScheduler()
     urlSwapScheduler.start()
 
+    // 🔄 启动内置的联盟商品同步调度器（PB：60分钟轻量 + 24小时全量）
+    const affiliateProductSyncScheduler = getAffiliateProductSyncScheduler()
+    affiliateProductSyncScheduler.start()
+
     console.log('✅ 统一队列系统已启动')
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
     console.log('🔄 数据同步调度器已集成启动')
     console.log('🔄 URL Swap调度器已集成启动')
+    console.log('🔄 联盟商品同步调度器已集成启动')
 
     // 🔧 修复(2025-01-01): 标记为已初始化
     __queueInitialized = true
@@ -125,6 +131,10 @@ export async function shutdownQueue() {
     // 停止URL Swap调度器
     const urlSwapScheduler = getUrlSwapScheduler()
     urlSwapScheduler.stop()
+
+    // 停止联盟商品同步调度器
+    const affiliateProductSyncScheduler = getAffiliateProductSyncScheduler()
+    affiliateProductSyncScheduler.stop()
 
     // 停止队列处理
     const queue = getQueueManager()

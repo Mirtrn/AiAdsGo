@@ -5,7 +5,7 @@ import { getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
-export type SyncMode = 'platform' | 'single'
+export type SyncMode = 'platform' | 'single' | 'delta'
 export type AffiliateProductSyncProgress = {
   totalFetched: number
   processedCount: number
@@ -195,6 +195,10 @@ const MAX_PB_PRODUCTS_LINK_BATCH_SIZE = 50
 const DEFAULT_PB_ASIN_LINK_BATCH_SIZE = 20
 const MAX_PB_ASIN_LINK_BATCH_SIZE = 50
 const PB_LINK_HEARTBEAT_EVERY_BATCHES = 20
+const DEFAULT_PB_DELTA_ASIN_BATCH_SIZE = 100
+const MAX_PB_DELTA_ASIN_BATCH_SIZE = 300
+const DEFAULT_PB_ACTIVE_DAYS = 14
+const MAX_PB_ACTIVE_DAYS = 60
 const DEFAULT_PB_REQUEST_DELAY_MS = 150
 const MAX_PB_REQUEST_DELAY_MS = 5000
 const DEFAULT_PB_RATE_LIMIT_MAX_RETRIES = 4
@@ -1887,6 +1891,115 @@ async function loadExistingMidSet(userId: number, platform: AffiliatePlatform, m
   return new Set(rows.map((row) => row.mid))
 }
 
+async function getPartnerboostDeltaSyncSettings(userId: number): Promise<{
+  asinBatchSize: number
+  activeDays: number
+}> {
+  const [asinBatchSetting, activeDaysSetting] = await Promise.all([
+    getUserOnlySetting('system', 'affiliate_pb_delta_asin_batch_size', userId),
+    getUserOnlySetting('system', 'affiliate_pb_active_days', userId),
+  ])
+
+  const asinBatchSize = parseIntegerInRange(
+    asinBatchSetting?.value || String(DEFAULT_PB_DELTA_ASIN_BATCH_SIZE),
+    DEFAULT_PB_DELTA_ASIN_BATCH_SIZE,
+    10,
+    MAX_PB_DELTA_ASIN_BATCH_SIZE
+  )
+  const activeDays = parseIntegerInRange(
+    activeDaysSetting?.value || String(DEFAULT_PB_ACTIVE_DAYS),
+    DEFAULT_PB_ACTIVE_DAYS,
+    1,
+    MAX_PB_ACTIVE_DAYS
+  )
+
+  return {
+    asinBatchSize,
+    activeDays,
+  }
+}
+
+async function listActivePartnerboostAsins(userId: number, activeDays: number): Promise<string[]> {
+  const db = await getDatabase()
+  const isBlacklistedCondition = db.type === 'postgres'
+    ? 'p.is_blacklisted = FALSE'
+    : 'p.is_blacklisted = 0'
+  const recentUpdatedCondition = db.type === 'postgres'
+    ? `p.updated_at >= CURRENT_TIMESTAMP - INTERVAL '${Math.max(1, activeDays)} days'`
+    : `p.updated_at >= datetime('now', '-${Math.max(1, activeDays)} days')`
+
+  const rows = await db.query<{ asin: string | null }>(
+    `
+      SELECT DISTINCT p.asin
+      FROM affiliate_products p
+      WHERE p.user_id = ?
+        AND p.platform = 'partnerboost'
+        AND ${isBlacklistedCondition}
+        AND p.asin IS NOT NULL
+        AND TRIM(p.asin) <> ''
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM affiliate_product_offer_links l
+            WHERE l.user_id = p.user_id
+              AND l.product_id = p.id
+            LIMIT 1
+          )
+          OR ${recentUpdatedCondition}
+        )
+      ORDER BY p.asin
+    `,
+    [userId]
+  )
+
+  const asins: string[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const asin = normalizeAsin(row.asin)
+    if (!asin || seen.has(asin)) continue
+    seen.add(asin)
+    asins.push(asin)
+  }
+  return asins
+}
+
+async function fetchPartnerboostDeltaProducts(params: {
+  userId: number
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
+}): Promise<NormalizedAffiliateProduct[]> {
+  const settings = await getPartnerboostDeltaSyncSettings(params.userId)
+  const asins = await listActivePartnerboostAsins(params.userId, settings.activeDays)
+  if (asins.length === 0) {
+    if (params.onFetchProgress) {
+      await params.onFetchProgress(0)
+    }
+    return []
+  }
+
+  const normalizedItems: NormalizedAffiliateProduct[] = []
+  const batchSize = Math.max(10, settings.asinBatchSize)
+
+  for (let index = 0; index < asins.length; index += batchSize) {
+    const batch = asins.slice(index, index + batchSize)
+    const batchItems = await fetchPartnerboostPromotableProducts({
+      userId: params.userId,
+      asins: batch,
+      maxPages: 1,
+      onFetchProgress: async (fetchedCount: number) => {
+        if (!params.onFetchProgress) return
+        await params.onFetchProgress(normalizedItems.length + fetchedCount)
+      },
+    })
+    normalizedItems.push(...batchItems)
+
+    if (params.onFetchProgress) {
+      await params.onFetchProgress(normalizedItems.length)
+    }
+  }
+
+  return normalizedItems
+}
+
 function isUniqueConstraintError(error: any): boolean {
   const message = String(error?.message || '').toLowerCase()
   return message.includes('unique constraint')
@@ -2831,7 +2944,16 @@ export async function syncAffiliateProducts(params: {
     }
   }
 
-  if (params.mode === 'single') {
+  if (params.mode === 'delta') {
+    if (params.platform !== 'partnerboost') {
+      throw new Error('当前平台暂不支持轻量刷新')
+    }
+
+    normalizedItems = await fetchPartnerboostDeltaProducts({
+      userId: params.userId,
+      onFetchProgress: emitFetchProgress,
+    })
+  } else if (params.mode === 'single') {
     if (!params.productId) {
       throw new Error('缺少商品ID')
     }

@@ -72,6 +72,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
+type PlatformSyncStrategy = 'light' | 'full'
 type LandingPageType = 'amazon_product' | 'amazon_store' | 'independent_product' | 'independent_store' | 'unknown'
 type SortOrder = 'asc' | 'desc'
 type SortField =
@@ -126,7 +127,7 @@ type ProductListResponse = {
 type SyncRunItem = {
   id: number
   platform: ProductPlatform
-  mode: 'platform' | 'single'
+  mode: 'platform' | 'single' | 'delta' | string
   status: 'queued' | 'running' | 'completed' | 'failed' | string
   total_items: number
   created_count: number
@@ -313,6 +314,13 @@ function getSyncRunMetricsText(run: SyncRunItem): string {
   return `新增 ${created} · 更新 ${updated} · 失败 ${failed}`
 }
 
+function getSyncRunModeLabel(mode: SyncRunItem['mode']): string {
+  if (mode === 'delta') return '轻量刷新'
+  if (mode === 'platform') return '全量同步'
+  if (mode === 'single') return '单商品同步'
+  return String(mode || '未知模式')
+}
+
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
@@ -376,7 +384,7 @@ export default function ProductsPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set())
 
-  const [syncingPlatform, setSyncingPlatform] = useState<ProductPlatform | null>(null)
+  const [syncingPlatform, setSyncingPlatform] = useState<{ platform: ProductPlatform; strategy: PlatformSyncStrategy } | null>(null)
   const [latestRuns, setLatestRuns] = useState<SyncRunItem[]>([])
   const [syncingProductId, setSyncingProductId] = useState<number | null>(null)
   const [creatingOfferId, setCreatingOfferId] = useState<number | null>(null)
@@ -617,13 +625,16 @@ export default function ProductsPage() {
     })
   }
 
-  const handlePlatformSync = async (platform: ProductPlatform) => {
+  const handlePlatformSync = async (platform: ProductPlatform, strategy?: PlatformSyncStrategy) => {
     if (syncingPlatform) return
-    setSyncingPlatform(platform)
+    const resolvedStrategy: PlatformSyncStrategy = strategy || (platform === 'partnerboost' ? 'light' : 'full')
+    setSyncingPlatform({ platform, strategy: resolvedStrategy })
     try {
       const response = await fetch(`/api/products/sync/${platform}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({ strategy: resolvedStrategy }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -635,7 +646,8 @@ export default function ProductsPage() {
         throw new Error(data?.error || '提交同步任务失败')
       }
 
-      showSuccess('任务已提交', `${PLATFORM_LABEL[platform]} 商品同步已加入队列`)
+      const strategyLabel = resolvedStrategy === 'light' ? '轻量同步' : '全量同步'
+      showSuccess('任务已提交', `${PLATFORM_LABEL[platform]} ${strategyLabel}已加入队列`)
       setTimeout(() => {
         fetchProducts(true)
         fetchSyncRuns()
@@ -1150,19 +1162,27 @@ export default function ProductsPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handlePlatformSync('yeahpromos')}
+                onClick={() => handlePlatformSync('yeahpromos', 'full')}
                 disabled={syncingPlatform !== null}
               >
-                {syncingPlatform === 'yeahpromos' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {syncingPlatform?.platform === 'yeahpromos' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 同步 YP
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handlePlatformSync('partnerboost')}
+                onClick={() => handlePlatformSync('partnerboost', 'light')}
                 disabled={syncingPlatform !== null}
               >
-                {syncingPlatform === 'partnerboost' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步 PB
+                {syncingPlatform?.platform === 'partnerboost' && syncingPlatform.strategy === 'light' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                同步 PB(轻量)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handlePlatformSync('partnerboost', 'full')}
+                disabled={syncingPlatform !== null}
+              >
+                {syncingPlatform?.platform === 'partnerboost' && syncingPlatform.strategy === 'full' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                PB全量同步
               </Button>
               <Button variant="secondary" onClick={() => router.push('/openclaw')}>
                 平台配置
@@ -1231,6 +1251,9 @@ export default function ProductsPage() {
                           <StatusIcon className="mr-1 h-3 w-3" />
                           {run.status}
                         </Badge>
+                      </div>
+                      <div className="text-muted-foreground">
+                        {getSyncRunModeLabel(run.mode)}
                       </div>
                       <div className="text-muted-foreground">
                         {getSyncRunProgressText(run)}
@@ -1351,7 +1374,7 @@ export default function ProductsPage() {
                   title="暂无商品数据"
                   description="请先执行联盟平台同步，系统会自动拉取可推广商品。"
                   actionLabel="立即同步PB商品"
-                  onAction={() => handlePlatformSync('partnerboost')}
+                  onAction={() => handlePlatformSync('partnerboost', 'light')}
                 />
               )
             ) : (

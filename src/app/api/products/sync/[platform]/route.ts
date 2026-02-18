@@ -4,12 +4,38 @@ import {
   checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun,
   normalizeAffiliatePlatform,
+  type SyncMode,
 } from '@/lib/affiliate-products'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
 
 type RouteParams = {
   platform: string
+}
+
+type SyncStrategy = 'light' | 'full'
+
+function resolveSyncMode(params: {
+  platform: 'partnerboost' | 'yeahpromos'
+  strategy?: string
+}): { mode: SyncMode; strategy: SyncStrategy } {
+  const strategyRaw = String(params.strategy || '').trim().toLowerCase()
+  const strategy: SyncStrategy = strategyRaw === 'full' ? 'full' : strategyRaw === 'light' ? 'light' : (
+    params.platform === 'partnerboost' ? 'light' : 'full'
+  )
+
+  if (params.platform === 'partnerboost') {
+    return {
+      mode: strategy === 'full' ? 'platform' : 'delta',
+      strategy,
+    }
+  }
+
+  if (strategy === 'light') {
+    throw new Error('当前平台暂不支持轻量刷新，请使用全量同步')
+  }
+
+  return { mode: 'platform', strategy: 'full' }
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<RouteParams> }) {
@@ -35,6 +61,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       return NextResponse.json({ error: '不支持的平台' }, { status: 400 })
     }
 
+    const body = await request.json().catch(() => ({}))
+    const { mode } = resolveSyncMode({
+      platform,
+      strategy: body?.strategy,
+    })
+
     const configCheck = await checkAffiliatePlatformConfig(userId, platform)
     if (!configCheck.configured) {
       throw new ConfigRequiredError(platform, configCheck.missingKeys)
@@ -43,7 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     const runId = await createAffiliateProductSyncRun({
       userId,
       platform,
-      mode: 'platform',
+      mode,
       triggerSource: 'manual',
       status: 'queued',
     })
@@ -54,7 +86,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       {
         userId,
         platform,
-        mode: 'platform',
+        mode,
         runId,
         trigger: 'manual',
       },
@@ -84,6 +116,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
         },
         { status: 400 }
       )
+    }
+
+    if (String(error?.message || '').includes('暂不支持轻量刷新')) {
+      return NextResponse.json({ error: error?.message || '参数错误' }, { status: 400 })
     }
 
     console.error('[POST /api/products/sync/:platform] failed:', error)
