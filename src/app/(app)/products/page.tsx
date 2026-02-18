@@ -1182,7 +1182,7 @@ export default function ProductsPage() {
                 disabled={syncingPlatform !== null}
               >
                 {syncingPlatform?.platform === 'partnerboost' && syncingPlatform.strategy === 'full' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                PB全量同步
+                同步PB（全量）
               </Button>
               <Button variant="secondary" onClick={() => router.push('/openclaw')}>
                 平台配置
