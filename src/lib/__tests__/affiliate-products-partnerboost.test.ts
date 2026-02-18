@@ -40,6 +40,18 @@ describe('isPartnerboostRateLimited', () => {
   })
 })
 
+describe('isPartnerboostRateLimitError', () => {
+  it('detects wrapped 429 error messages', () => {
+    const error = new Error('PartnerBoost 推广链接拉取失败 (429): {"status":{"code":1002,"msg":"Too many request"},"data":null}')
+    expect(__testOnly.isPartnerboostRateLimitError(error)).toBe(true)
+  })
+
+  it('returns false for non-rate-limit errors', () => {
+    const error = new Error('PartnerBoost 商品拉取失败: user not exist')
+    expect(__testOnly.isPartnerboostRateLimitError(error)).toBe(false)
+  })
+})
+
 describe('calculateExponentialBackoffDelay', () => {
   it('grows exponentially and caps at max delay', () => {
     expect(__testOnly.calculateExponentialBackoffDelay(0, 800, 12000)).toBe(0)

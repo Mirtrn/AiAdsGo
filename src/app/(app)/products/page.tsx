@@ -295,6 +295,24 @@ function getSyncRunProgressText(run: SyncRunItem): string {
   return `已处理 ${processed}/待统计`
 }
 
+function getSyncRunMetricsText(run: SyncRunItem): string {
+  const created = Number.isFinite(run.created_count) ? Math.max(0, run.created_count) : 0
+  const updated = Number.isFinite(run.updated_count) ? Math.max(0, run.updated_count) : 0
+  const failed = Number.isFinite(run.failed_count) ? Math.max(0, run.failed_count) : 0
+  const total = Number.isFinite(run.total_items) ? Math.max(0, run.total_items) : 0
+
+  if ((run.status === 'queued' || run.status === 'running') && created === 0 && updated === 0 && failed === 0) {
+    if (total > 0) {
+      return `已抓取 ${total} 条 · 正在写入数据库`
+    }
+    return run.status === 'queued'
+      ? '任务排队中...'
+      : '正在抓取商品数据...'
+  }
+
+  return `新增 ${created} · 更新 ${updated} · 失败 ${failed}`
+}
+
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
@@ -908,8 +926,8 @@ export default function ProductsPage() {
                 aria-label="全选"
               />
             </TableHead>
-            <SortableTableHead field="mid" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
-              记录ID(MID)
+            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[110px] whitespace-nowrap">
+              记录ID
             </SortableTableHead>
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
@@ -989,8 +1007,8 @@ export default function ProductsPage() {
                   />
                 </TableCell>
                 <TableCell className="font-medium">
-                  <div className={`max-w-[138px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={item.mid}>
-                    {item.mid}
+                  <div className={`max-w-[98px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.id)}>
+                    {item.id}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -1218,7 +1236,7 @@ export default function ProductsPage() {
                         {getSyncRunProgressText(run)}
                       </div>
                       <div className="text-muted-foreground">
-                        新增 {run.created_count} · 更新 {run.updated_count} · 失败 {run.failed_count}
+                        {getSyncRunMetricsText(run)}
                       </div>
                     </div>
                   )

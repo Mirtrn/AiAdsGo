@@ -447,6 +447,29 @@ function isPartnerboostRateLimited(payloadStatusCode: number | null, payloadStat
     || normalizedMessage.includes('rate limit')
 }
 
+function isPartnerboostRateLimitError(error: unknown): boolean {
+  const raw = error as {
+    message?: string
+    status?: {
+      code?: number | string
+      msg?: string
+    }
+  }
+  const message = String(raw?.message || '')
+  const statusMatch = message.match(/\((\d{3})\):/)
+  const responseStatus = statusMatch ? Number(statusMatch[1]) : undefined
+  const payloadStatusCode = normalizePartnerboostStatusCode(raw?.status?.code)
+  const payloadStatusMessage = String(raw?.status?.msg || message)
+
+  if (isPartnerboostRateLimited(payloadStatusCode, payloadStatusMessage, responseStatus)) {
+    return true
+  }
+
+  const normalizedMessage = message.toLowerCase()
+  return normalizedMessage.includes('"code":1002')
+    || normalizedMessage.includes('code:1002')
+}
+
 function isYeahPromosRateLimited(code: number | null, message: string, responseStatus?: number): boolean {
   if (responseStatus === 429) return true
 
@@ -1166,6 +1189,7 @@ async function fetchPartnerboostPromotableProducts(params: {
   userId: number
   asins?: string[]
   maxPages?: number
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
 }): Promise<NormalizedAffiliateProduct[]> {
   const check = await checkAffiliatePlatformConfig(params.userId, 'partnerboost')
   ensurePlatformConfigured(check, 'partnerboost')
@@ -1240,6 +1264,18 @@ async function fetchPartnerboostPromotableProducts(params: {
   let hasMore = true
   let fetchedPages = 0
   let emptyPageStreak = 0
+  let lastFetchProgressCount = 0
+
+  const emitFetchProgress = async (force: boolean = false): Promise<void> => {
+    if (!params.onFetchProgress) return
+    if (!force && products.length === lastFetchProgressCount) return
+    lastFetchProgressCount = products.length
+    try {
+      await params.onFetchProgress(products.length)
+    } catch (error: any) {
+      console.warn('[partnerboost] onFetchProgress callback failed:', error?.message || error)
+    }
+  }
 
   while (hasMore && (maxPages === null || fetchedPages < maxPages)) {
     const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostProductsResponse>(
@@ -1278,6 +1314,11 @@ async function fetchPartnerboostPromotableProducts(params: {
     const extracted = extractPartnerboostProductsPayload(payload)
     products.push(...extracted.products)
     hasMore = extracted.hasMore
+    fetchedPages += 1
+
+    if (fetchedPages === 1 || fetchedPages % 5 === 0 || !hasMore) {
+      await emitFetchProgress()
+    }
 
     if (!isAsinTargetedSync && hasMore) {
       if (extracted.products.length === 0) {
@@ -1295,7 +1336,6 @@ async function fetchPartnerboostPromotableProducts(params: {
       emptyPageStreak = 0
     }
 
-    fetchedPages += 1
     page += 1
 
     if (isAsinTargetedSync) {
@@ -1311,6 +1351,8 @@ async function fetchPartnerboostPromotableProducts(params: {
     console.warn(`[partnerboost] reached page limit (${maxPages}) while has_more=true; results may be truncated`)
   }
 
+  await emitFetchProgress(true)
+
   if (products.length === 0) return []
 
   const productIds = products
@@ -1318,36 +1360,48 @@ async function fetchPartnerboostPromotableProducts(params: {
     .filter(Boolean)
 
   const linkMap = new Map<string, string>()
+  let rateLimitedProductLinkBatchCount = 0
   for (let index = 0; index < productIds.length; index += productLinkBatchSize) {
     const batchIds = productIds.slice(index, index + productLinkBatchSize)
-    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostLinkResponse>(
-      `${baseUrl}/api/datafeed/get_fba_products_link`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          product_ids: batchIds.join(','),
-          uid,
-        }),
-      },
-      'PartnerBoost 推广链接拉取失败',
-      rateLimitRetryOptions
-    )
+    try {
+      const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostLinkResponse>(
+        `${baseUrl}/api/datafeed/get_fba_products_link`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            product_ids: batchIds.join(','),
+            uid,
+          }),
+        },
+        'PartnerBoost 推广链接拉取失败',
+        rateLimitRetryOptions
+      )
 
-    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
-    if (statusCode === null) {
-      throw new Error(`PartnerBoost 推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
-    }
-    if (statusCode !== 0) {
-      throw new Error(`PartnerBoost 推广链接拉取失败: ${payload.status?.msg || statusCode}`)
-    }
+      const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+      if (statusCode === null) {
+        throw new Error(`PartnerBoost 推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
+      }
+      if (statusCode !== 0) {
+        throw new Error(`PartnerBoost 推广链接拉取失败: ${payload.status?.msg || statusCode}`)
+      }
 
-    for (const item of payload.data || []) {
-      const productId = String(item.product_id || '').trim()
-      const link = normalizeUrl(item.partnerboost_link || item.link)
-      if (!productId || !link) continue
-      linkMap.set(productId, link)
+      for (const item of payload.data || []) {
+        const productId = String(item.product_id || '').trim()
+        const link = normalizeUrl(item.partnerboost_link || item.link)
+        if (!productId || !link) continue
+        linkMap.set(productId, link)
+      }
+    } catch (error) {
+      if (!isPartnerboostRateLimitError(error)) {
+        throw error
+      }
+
+      rateLimitedProductLinkBatchCount += 1
+      console.warn(
+        `[partnerboost] product link batch rate-limited, falling back to ASIN link for this batch (${index + 1}-${Math.min(index + productLinkBatchSize, productIds.length)}/${productIds.length})`
+      )
     }
 
     const hasRemaining = index + productLinkBatchSize < productIds.length
@@ -1357,53 +1411,76 @@ async function fetchPartnerboostPromotableProducts(params: {
   }
 
   const asinLinkMap = new Map<string, { link: string | null; partnerboostLink: string | null }>()
+  // 优先使用 product_id 链接；仅对缺失 product_id 链接的商品补查 ASIN 链接，
+  // 可显著减少 API 请求量并降低触发 429 的概率。
   const linkLookupAsins = Array.from(new Set(
     products
+      .filter((item) => {
+        const productId = String(item.product_id || '').trim()
+        return !productId || !linkMap.has(productId)
+      })
       .map((item) => normalizeAsin(item.asin))
       .filter((asin): asin is string => Boolean(asin))
   ))
 
   for (let index = 0; index < linkLookupAsins.length; index += asinLinkBatchSize) {
     const batchAsins = linkLookupAsins.slice(index, index + asinLinkBatchSize)
-    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostAsinLinkResponse>(
-      `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          asins: batchAsins.join(','),
-          country_code: linkCountryCode,
-          uid,
-          return_partnerboost_link: returnPartnerboostLink,
-        }),
-      },
-      'PartnerBoost ASIN推广链接拉取失败',
-      rateLimitRetryOptions
-    )
+    try {
+      const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostAsinLinkResponse>(
+        `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            asins: batchAsins.join(','),
+            country_code: linkCountryCode,
+            uid,
+            return_partnerboost_link: returnPartnerboostLink,
+          }),
+        },
+        'PartnerBoost ASIN推广链接拉取失败',
+        rateLimitRetryOptions
+      )
 
-    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
-    if (statusCode === null) {
-      throw new Error(`PartnerBoost ASIN推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
-    }
-    if (statusCode !== 0) {
-      throw new Error(`PartnerBoost ASIN推广链接拉取失败: ${payload.status?.msg || statusCode}`)
-    }
+      const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+      if (statusCode === null) {
+        throw new Error(`PartnerBoost ASIN推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
+      }
+      if (statusCode !== 0) {
+        throw new Error(`PartnerBoost ASIN推广链接拉取失败: ${payload.status?.msg || statusCode}`)
+      }
 
-    for (const item of payload.data || []) {
-      const asinKey = normalizeAsin(item.asin)
-      if (!asinKey) continue
+      for (const item of payload.data || []) {
+        const asinKey = normalizeAsin(item.asin)
+        if (!asinKey) continue
 
-      asinLinkMap.set(asinKey, {
-        link: normalizeUrl(item.link),
-        partnerboostLink: normalizeUrl(item.partnerboost_link),
-      })
+        asinLinkMap.set(asinKey, {
+          link: normalizeUrl(item.link),
+          partnerboostLink: normalizeUrl(item.partnerboost_link),
+        })
+      }
+    } catch (error) {
+      if (!isPartnerboostRateLimitError(error)) {
+        throw error
+      }
+
+      console.warn(
+        `[partnerboost] asin link batch rate-limited; stop remaining ASIN enrichment (${index + 1}-${Math.min(index + asinLinkBatchSize, linkLookupAsins.length)}/${linkLookupAsins.length})`
+      )
+      break
     }
 
     const hasRemaining = index + asinLinkBatchSize < linkLookupAsins.length
     if (hasRemaining && requestDelayMs > 0) {
       await sleep(requestDelayMs)
     }
+  }
+
+  if (rateLimitedProductLinkBatchCount > 0) {
+    console.warn(
+      `[partnerboost] product link batches rate-limited: ${rateLimitedProductLinkBatchCount}; used ASIN fallback for missing links`
+    )
   }
 
   const normalized: NormalizedAffiliateProduct[] = []
@@ -1468,6 +1545,7 @@ async function fetchPartnerboostPromotableProducts(params: {
 async function fetchYeahPromosPromotableProducts(params: {
   userId: number
   maxPages?: number
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
 }): Promise<NormalizedAffiliateProduct[]> {
   const check = await checkAffiliatePlatformConfig(params.userId, 'yeahpromos')
   ensurePlatformConfigured(check, 'yeahpromos')
@@ -1508,6 +1586,19 @@ async function fetchYeahPromosPromotableProducts(params: {
   let emptyMerchantPageStreak = 0
 
   const merchants: YeahPromosMerchant[] = []
+  let merchantPageCount = 0
+  let lastFetchProgressCount = 0
+
+  const emitFetchProgress = async (force: boolean = false): Promise<void> => {
+    if (!params.onFetchProgress) return
+    if (!force && merchants.length === lastFetchProgressCount) return
+    lastFetchProgressCount = merchants.length
+    try {
+      await params.onFetchProgress(merchants.length)
+    } catch (error: any) {
+      console.warn('[yeahpromos] onFetchProgress callback failed:', error?.message || error)
+    }
+  }
 
   while (page <= pageTotal && (maxPages === null || page - startPage < maxPages)) {
     const url = new URL('https://yeahpromos.com/index/getadvert/getadvert')
@@ -1541,6 +1632,11 @@ async function fetchYeahPromosPromotableProducts(params: {
 
     const extracted = extractYeahPromosPayload(payload)
     merchants.push(...extracted.merchants)
+    merchantPageCount += 1
+
+    if (merchantPageCount === 1 || merchantPageCount % 5 === 0 || page >= pageTotal) {
+      await emitFetchProgress()
+    }
 
     const nextPageTotal = Number(extracted.pageTotal ?? page) || page
     const hasMorePages = page < nextPageTotal
@@ -1569,6 +1665,8 @@ async function fetchYeahPromosPromotableProducts(params: {
   if (maxPages !== null && page <= pageTotal && page - startPage >= maxPages) {
     console.warn(`[yeahpromos] reached page limit (${maxPages}) while page_total=${pageTotal}; product results may be truncated`)
   }
+
+  await emitFetchProgress(true)
 
   const configuredStartDate = normalizeYmdDate(check.values.yeahpromos_start_date)
   const configuredEndDate = normalizeYmdDate(check.values.yeahpromos_end_date)
@@ -2232,6 +2330,7 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
 export const __testOnly = {
   calculateExponentialBackoffDelay,
   isPartnerboostRateLimited,
+  isPartnerboostRateLimitError,
   isYeahPromosRateLimited,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
@@ -2699,6 +2798,20 @@ export async function syncAffiliateProducts(params: {
   updatedCount: number
 }> {
   let normalizedItems: NormalizedAffiliateProduct[] = []
+  const emitFetchProgress = async (fetchedCount: number): Promise<void> => {
+    if (!params.onProgress) return
+    try {
+      await params.onProgress({
+        totalFetched: Math.max(0, fetchedCount),
+        processedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        failedCount: 0,
+      })
+    } catch (error: any) {
+      console.warn('[affiliate-products] fetch stage progress callback failed:', error?.message || error)
+    }
+  }
 
   if (params.mode === 'single') {
     if (!params.productId) {
@@ -2721,10 +2834,15 @@ export async function syncAffiliateProducts(params: {
         userId: params.userId,
         asins: [existing.asin],
         maxPages: 1,
+        onFetchProgress: emitFetchProgress,
       })
       normalizedItems = fetched.filter((item) => item.mid === existing.mid)
     } else {
-      const fetched = await fetchYeahPromosPromotableProducts({ userId: params.userId, maxPages: 20 })
+      const fetched = await fetchYeahPromosPromotableProducts({
+        userId: params.userId,
+        maxPages: 20,
+        onFetchProgress: emitFetchProgress,
+      })
       normalizedItems = fetched.filter((item) => item.mid === existing.mid)
     }
 
@@ -2733,9 +2851,15 @@ export async function syncAffiliateProducts(params: {
     }
   } else {
     if (params.platform === 'partnerboost') {
-      normalizedItems = await fetchPartnerboostPromotableProducts({ userId: params.userId })
+      normalizedItems = await fetchPartnerboostPromotableProducts({
+        userId: params.userId,
+        onFetchProgress: emitFetchProgress,
+      })
     } else {
-      normalizedItems = await fetchYeahPromosPromotableProducts({ userId: params.userId })
+      normalizedItems = await fetchYeahPromosPromotableProducts({
+        userId: params.userId,
+        onFetchProgress: emitFetchProgress,
+      })
     }
   }
 
