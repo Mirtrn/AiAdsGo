@@ -191,6 +191,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     runId: data.runId,
     status: 'running',
     startedAt,
+    completedAt: null,
     totalItems: 0,
     createdCount: 0,
     updatedCount: 0,

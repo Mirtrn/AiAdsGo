@@ -303,7 +303,7 @@ function getSyncRunMetricsText(run: SyncRunItem): string {
 
   if ((run.status === 'queued' || run.status === 'running') && created === 0 && updated === 0 && failed === 0) {
     if (total > 0) {
-      return `已抓取 ${total} 条 · 正在写入数据库`
+      return `已抓取 ${total} 条 · 正在补全推广链接并写入数据库`
     }
     return run.status === 'queued'
       ? '任务排队中...'

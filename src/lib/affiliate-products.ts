@@ -194,6 +194,7 @@ const DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE = 20
 const MAX_PB_PRODUCTS_LINK_BATCH_SIZE = 50
 const DEFAULT_PB_ASIN_LINK_BATCH_SIZE = 20
 const MAX_PB_ASIN_LINK_BATCH_SIZE = 50
+const PB_LINK_HEARTBEAT_EVERY_BATCHES = 20
 const DEFAULT_PB_REQUEST_DELAY_MS = 150
 const MAX_PB_REQUEST_DELAY_MS = 5000
 const DEFAULT_PB_RATE_LIMIT_MAX_RETRIES = 4
@@ -1361,6 +1362,7 @@ async function fetchPartnerboostPromotableProducts(params: {
 
   const linkMap = new Map<string, string>()
   let rateLimitedProductLinkBatchCount = 0
+  let productLinkBatchProcessed = 0
   for (let index = 0; index < productIds.length; index += productLinkBatchSize) {
     const batchIds = productIds.slice(index, index + productLinkBatchSize)
     try {
@@ -1405,6 +1407,14 @@ async function fetchPartnerboostPromotableProducts(params: {
     }
 
     const hasRemaining = index + productLinkBatchSize < productIds.length
+    productLinkBatchProcessed += 1
+    if (
+      productLinkBatchProcessed % PB_LINK_HEARTBEAT_EVERY_BATCHES === 0
+      || !hasRemaining
+    ) {
+      await emitFetchProgress(true)
+    }
+
     if (hasRemaining && requestDelayMs > 0) {
       await sleep(requestDelayMs)
     }
@@ -1422,7 +1432,7 @@ async function fetchPartnerboostPromotableProducts(params: {
       .map((item) => normalizeAsin(item.asin))
       .filter((asin): asin is string => Boolean(asin))
   ))
-
+  let asinLinkBatchProcessed = 0
   for (let index = 0; index < linkLookupAsins.length; index += asinLinkBatchSize) {
     const batchAsins = linkLookupAsins.slice(index, index + asinLinkBatchSize)
     try {
@@ -1472,6 +1482,14 @@ async function fetchPartnerboostPromotableProducts(params: {
     }
 
     const hasRemaining = index + asinLinkBatchSize < linkLookupAsins.length
+    asinLinkBatchProcessed += 1
+    if (
+      asinLinkBatchProcessed % PB_LINK_HEARTBEAT_EVERY_BATCHES === 0
+      || !hasRemaining
+    ) {
+      await emitFetchProgress(true)
+    }
+
     if (hasRemaining && requestDelayMs > 0) {
       await sleep(requestDelayMs)
     }

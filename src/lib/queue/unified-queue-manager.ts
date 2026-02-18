@@ -810,36 +810,53 @@ export class UnifiedQueueManager {
 
   /**
    * 将队列层失败同步回业务数据库，避免业务任务长期停留在 running 状态。
-   * 目前仅对 offer-extraction 做强一致兜底。
+   * 目前对 offer-extraction / affiliate-product-sync 做强一致兜底。
    */
   private async syncTaskFailureToDatabase(task: Task, error: any): Promise<void> {
-    if (task.type !== 'offer-extraction') {
+    if (task.type === 'affiliate-product-sync') {
+      try {
+        const runId = Number(task.data?.runId)
+        if (!Number.isFinite(runId) || runId <= 0) return
+
+        const { updateAffiliateProductSyncRun } = await import('@/lib/affiliate-products')
+        await updateAffiliateProductSyncRun({
+          runId,
+          status: 'failed',
+          failedCount: 1,
+          completedAt: new Date().toISOString(),
+          errorMessage: error?.message || '任务执行失败',
+        })
+      } catch (syncError: any) {
+        console.warn(`⚠️ 同步 affiliate_product_sync_runs 失败状态失败: ${task.id}: ${syncError?.message || syncError}`)
+      }
       return
     }
 
-    try {
-      const { getDatabase } = await import('@/lib/db')
-      const db = getDatabase()
-      const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
-      const message = error?.message || '任务执行失败'
-      const errorPayload = JSON.stringify({
-        message,
-        source: 'queue-manager',
-      })
+    if (task.type === 'offer-extraction') {
+      try {
+        const { getDatabase } = await import('@/lib/db')
+        const db = getDatabase()
+        const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+        const message = error?.message || '任务执行失败'
+        const errorPayload = JSON.stringify({
+          message,
+          source: 'queue-manager',
+        })
 
-      await db.exec(
-        `UPDATE offer_tasks
-         SET status = 'failed',
-             message = ?,
-             error = ?,
-             completed_at = COALESCE(completed_at, ${nowSql}),
-             updated_at = ${nowSql}
-         WHERE id = ?
-           AND status IN ('pending', 'running')`,
-        [message, errorPayload, task.id]
-      )
-    } catch (syncError: any) {
-      console.warn(`⚠️ 同步 offer_tasks 失败状态失败: ${task.id}: ${syncError?.message || syncError}`)
+        await db.exec(
+          `UPDATE offer_tasks
+           SET status = 'failed',
+               message = ?,
+               error = ?,
+               completed_at = COALESCE(completed_at, ${nowSql}),
+               updated_at = ${nowSql}
+           WHERE id = ?
+             AND status IN ('pending', 'running')`,
+          [message, errorPayload, task.id]
+        )
+      } catch (syncError: any) {
+        console.warn(`⚠️ 同步 offer_tasks 失败状态失败: ${task.id}: ${syncError?.message || syncError}`)
+      }
     }
   }
 
