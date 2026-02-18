@@ -2,7 +2,9 @@ import type { Task } from '@/lib/queue/types'
 import {
   checkAffiliatePlatformConfig,
   type AffiliatePlatform,
+  type AffiliateProductSyncCheckpoint,
   type AffiliateProductSyncProgress,
+  getAffiliateProductSyncRunById,
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   type ProductSortField,
@@ -186,16 +188,34 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     throw new Error('任务参数不完整')
   }
 
+  const existingRun = await getAffiliateProductSyncRunById({
+    runId: data.runId,
+    userId: data.userId,
+  })
+  const canResumeFromCheckpoint = (
+    data.platform === 'partnerboost'
+    && data.mode === 'platform'
+    && Number(existingRun?.cursor_page || 0) > 0
+  )
+  const resumeFromPage = canResumeFromCheckpoint
+    ? Math.max(1, Number(existingRun?.cursor_page || 1))
+    : undefined
+
   const startedAt = new Date().toISOString()
   await updateAffiliateProductSyncRun({
     runId: data.runId,
     status: 'running',
-    startedAt,
+    startedAt: canResumeFromCheckpoint
+      ? (existingRun?.started_at || startedAt)
+      : startedAt,
     completedAt: null,
-    totalItems: 0,
-    createdCount: 0,
-    updatedCount: 0,
-    failedCount: 0,
+    totalItems: canResumeFromCheckpoint ? Number(existingRun?.total_items || 0) : 0,
+    createdCount: canResumeFromCheckpoint ? Number(existingRun?.created_count || 0) : 0,
+    updatedCount: canResumeFromCheckpoint ? Number(existingRun?.updated_count || 0) : 0,
+    failedCount: canResumeFromCheckpoint ? Number(existingRun?.failed_count || 0) : 0,
+    cursorPage: canResumeFromCheckpoint ? resumeFromPage || 1 : 1,
+    processedBatches: canResumeFromCheckpoint ? Number(existingRun?.processed_batches || 0) : 0,
+    lastHeartbeatAt: startedAt,
     errorMessage: null,
   })
 
@@ -210,6 +230,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       platform: data.platform,
       mode: data.mode || 'platform',
       productId: data.productId,
+      resumeFromPage,
       progressEvery: 20,
       onProgress: async (progress: AffiliateProductSyncProgress) => {
         await updateAffiliateProductSyncRun({
@@ -218,6 +239,19 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
           createdCount: progress.createdCount,
           updatedCount: progress.updatedCount,
           failedCount: progress.failedCount,
+          lastHeartbeatAt: new Date().toISOString(),
+        })
+      },
+      onCheckpoint: async (checkpoint: AffiliateProductSyncCheckpoint) => {
+        await updateAffiliateProductSyncRun({
+          runId: data.runId,
+          totalItems: checkpoint.totalFetched,
+          createdCount: checkpoint.createdCount,
+          updatedCount: checkpoint.updatedCount,
+          failedCount: checkpoint.failedCount,
+          cursorPage: checkpoint.cursorPage,
+          processedBatches: checkpoint.processedBatches,
+          lastHeartbeatAt: new Date().toISOString(),
         })
       },
     })
@@ -235,7 +269,9 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       createdCount: result.createdCount,
       updatedCount: result.updatedCount,
       failedCount: 0,
+      cursorPage: 0,
       completedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
       errorMessage: null,
     })
 
@@ -249,6 +285,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       runId: data.runId,
       status: 'failed',
       failedCount: 1,
+      lastHeartbeatAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),
       errorMessage: error?.message || '同步失败',
     })

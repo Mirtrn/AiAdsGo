@@ -1,5 +1,5 @@
 import { createOffer, deleteOffer } from '@/lib/offers'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
@@ -204,6 +204,10 @@ const MAX_PB_REQUEST_DELAY_MS = 5000
 const DEFAULT_PB_RATE_LIMIT_MAX_RETRIES = 4
 const DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS = 800
 const DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS = 12000
+const DEFAULT_PB_STREAM_WINDOW_PAGES = 10
+const MAX_PB_STREAM_WINDOW_PAGES = 200
+const DEFAULT_UPSERT_BATCH_SIZE_POSTGRES = 800
+const DEFAULT_UPSERT_BATCH_SIZE_SQLITE = 40
 const DEFAULT_YP_REQUEST_DELAY_MS = 120
 const MAX_YP_REQUEST_DELAY_MS = 5000
 const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 3
@@ -258,6 +262,22 @@ type PartnerboostAsinLinkResponse = {
   status?: { code?: number | string; msg?: string }
   data?: PartnerboostLinkItem[]
   error_list?: Array<{ asin?: string; country_code?: string; message?: string }>
+}
+
+type PartnerboostPromotableFetchParams = {
+  userId: number
+  asins?: string[]
+  maxPages?: number
+  startPage?: number
+  suppressMaxPagesWarning?: boolean
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
+}
+
+type PartnerboostPromotableFetchResult = {
+  items: NormalizedAffiliateProduct[]
+  hasMore: boolean
+  nextPage: number
+  fetchedPages: number
 }
 
 type YeahPromosMerchant = {
@@ -1190,12 +1210,9 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
   }
 }
 
-async function fetchPartnerboostPromotableProducts(params: {
-  userId: number
-  asins?: string[]
-  maxPages?: number
-  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
-}): Promise<NormalizedAffiliateProduct[]> {
+async function fetchPartnerboostPromotableProductsWithMeta(
+  params: PartnerboostPromotableFetchParams
+): Promise<PartnerboostPromotableFetchResult> {
   const check = await checkAffiliatePlatformConfig(params.userId, 'partnerboost')
   ensurePlatformConfigured(check, 'partnerboost')
 
@@ -1205,7 +1222,8 @@ async function fetchPartnerboostPromotableProducts(params: {
     parseInteger(check.values.partnerboost_products_page_size || String(DEFAULT_PB_PRODUCTS_PAGE_SIZE), DEFAULT_PB_PRODUCTS_PAGE_SIZE),
     200
   ))
-  const startPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
+  const configuredStartPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
+  const startPage = Math.max(1, parseInteger(params.startPage, configuredStartPage))
   const defaultFilter = parseInteger(check.values.partnerboost_products_default_filter || '0', 0)
   const countryCode = resolvePartnerboostCountryCode(check.values.partnerboost_products_country_code)
   const brandId = (check.values.partnerboost_products_brand_id || '').trim() || null
@@ -1352,13 +1370,26 @@ async function fetchPartnerboostPromotableProducts(params: {
     }
   }
 
-  if (!isAsinTargetedSync && maxPages !== null && hasMore && fetchedPages >= maxPages) {
+  if (
+    !isAsinTargetedSync
+    && maxPages !== null
+    && hasMore
+    && fetchedPages >= maxPages
+    && !params.suppressMaxPagesWarning
+  ) {
     console.warn(`[partnerboost] reached page limit (${maxPages}) while has_more=true; results may be truncated`)
   }
 
   await emitFetchProgress(true)
 
-  if (products.length === 0) return []
+  if (products.length === 0) {
+    return {
+      items: [],
+      hasMore,
+      nextPage: page,
+      fetchedPages,
+    }
+  }
 
   const productIds = products
     .map((item) => String(item.product_id || '').trim())
@@ -1561,7 +1592,19 @@ async function fetchPartnerboostPromotableProducts(params: {
     })
   }
 
-  return normalized
+  return {
+    items: normalized,
+    hasMore,
+    nextPage: page,
+    fetchedPages,
+  }
+}
+
+async function fetchPartnerboostPromotableProducts(
+  params: PartnerboostPromotableFetchParams
+): Promise<NormalizedAffiliateProduct[]> {
+  const result = await fetchPartnerboostPromotableProductsWithMeta(params)
+  return result.items
 }
 
 async function fetchYeahPromosPromotableProducts(params: {
@@ -1877,18 +1920,40 @@ function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): Normaliz
 async function loadExistingMidSet(userId: number, platform: AffiliatePlatform, mids: string[]): Promise<Set<string>> {
   if (mids.length === 0) return new Set<string>()
   const db = await getDatabase()
-  const placeholders = mids.map(() => '?').join(', ')
-  const rows = await db.query<{ mid: string }>(
-    `
-      SELECT mid
-      FROM affiliate_products
-      WHERE user_id = ?
-        AND platform = ?
-        AND mid IN (${placeholders})
-    `,
-    [userId, platform, ...mids]
-  )
-  return new Set(rows.map((row) => row.mid))
+  const existing = new Set<string>()
+  const dedupedMids = Array.from(new Set(
+    mids
+      .map((mid) => String(mid || '').trim())
+      .filter(Boolean)
+  ))
+  if (dedupedMids.length === 0) return existing
+
+  // 避免 PostgreSQL 参数上限（65534）与 SQLite 变量上限导致大批量同步失败。
+  const batchSize = db.type === 'postgres' ? 10000 : 500
+  for (let index = 0; index < dedupedMids.length; index += batchSize) {
+    const batch = dedupedMids.slice(index, index + batchSize)
+    if (batch.length === 0) continue
+
+    const placeholders = batch.map(() => '?').join(', ')
+    const rows = await db.query<{ mid: string }>(
+      `
+        SELECT mid
+        FROM affiliate_products
+        WHERE user_id = ?
+          AND platform = ?
+          AND mid IN (${placeholders})
+      `,
+      [userId, platform, ...batch]
+    )
+
+    for (const row of rows) {
+      if (row?.mid) {
+        existing.add(row.mid)
+      }
+    }
+  }
+
+  return existing
 }
 
 async function getPartnerboostDeltaSyncSettings(userId: number): Promise<{
@@ -2000,11 +2065,92 @@ async function fetchPartnerboostDeltaProducts(params: {
   return normalizedItems
 }
 
-function isUniqueConstraintError(error: any): boolean {
-  const message = String(error?.message || '').toLowerCase()
-  return message.includes('unique constraint')
-    || message.includes('duplicate key value')
-    || message.includes('duplicate entry')
+function getAffiliateProductsUpsertBatchSize(dbType: 'sqlite' | 'postgres'): number {
+  return dbType === 'postgres'
+    ? DEFAULT_UPSERT_BATCH_SIZE_POSTGRES
+    : DEFAULT_UPSERT_BATCH_SIZE_SQLITE
+}
+
+async function upsertAffiliateProductsChunk(params: {
+  db: DatabaseAdapter
+  userId: number
+  platform: AffiliatePlatform
+  items: NormalizedAffiliateProduct[]
+  nowIso: string
+}): Promise<void> {
+  if (params.items.length === 0) return
+
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
+
+  const sql = `
+    INSERT INTO affiliate_products (
+      user_id,
+      platform,
+      mid,
+      asin,
+      brand,
+      product_name,
+      product_url,
+      promo_link,
+      short_promo_link,
+      allowed_countries_json,
+      price_amount,
+      price_currency,
+      commission_rate,
+      commission_amount,
+      review_count,
+      raw_json,
+      last_synced_at,
+      last_seen_at,
+      updated_at
+    )
+    VALUES ${placeholders}
+    ON CONFLICT (user_id, platform, mid) DO UPDATE SET
+      asin = EXCLUDED.asin,
+      brand = EXCLUDED.brand,
+      product_name = EXCLUDED.product_name,
+      product_url = EXCLUDED.product_url,
+      promo_link = EXCLUDED.promo_link,
+      short_promo_link = EXCLUDED.short_promo_link,
+      allowed_countries_json = EXCLUDED.allowed_countries_json,
+      price_amount = EXCLUDED.price_amount,
+      price_currency = EXCLUDED.price_currency,
+      commission_rate = EXCLUDED.commission_rate,
+      commission_amount = EXCLUDED.commission_amount,
+      review_count = EXCLUDED.review_count,
+      raw_json = EXCLUDED.raw_json,
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_seen_at = EXCLUDED.last_seen_at,
+      updated_at = EXCLUDED.updated_at
+  `
+
+  const values: any[] = []
+  for (const item of params.items) {
+    values.push(
+      params.userId,
+      params.platform,
+      item.mid,
+      item.asin,
+      item.brand,
+      item.productName,
+      item.productUrl,
+      item.promoLink,
+      item.shortPromoLink,
+      JSON.stringify(item.allowedCountries || []),
+      item.priceAmount,
+      item.priceCurrency,
+      item.commissionRate,
+      item.commissionAmount,
+      item.reviewCount,
+      item.rawJson,
+      params.nowIso,
+      params.nowIso,
+      params.nowIso
+    )
+  }
+
+  await params.db.exec(sql, values)
 }
 
 export async function upsertAffiliateProducts(
@@ -2048,59 +2194,13 @@ export async function upsertAffiliateProducts(
     }
   }
 
-  const mids = deduped.map((item) => item.mid)
-  const existingMidSet = await loadExistingMidSet(userId, platform, mids)
-  const insertSql = `
-    INSERT INTO affiliate_products (
-      user_id,
-      platform,
-      mid,
-      asin,
-      brand,
-      product_name,
-      product_url,
-      promo_link,
-      short_promo_link,
-      allowed_countries_json,
-      price_amount,
-      price_currency,
-      commission_rate,
-      commission_amount,
-      review_count,
-      raw_json,
-      last_synced_at,
-      last_seen_at,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `
-  const updateSql = `
-    UPDATE affiliate_products
-    SET
-      asin = ?,
-      brand = ?,
-      product_name = ?,
-      product_url = ?,
-      promo_link = ?,
-      short_promo_link = ?,
-      allowed_countries_json = ?,
-      price_amount = ?,
-      price_currency = ?,
-      commission_rate = ?,
-      commission_amount = ?,
-      review_count = ?,
-      raw_json = ?,
-      last_synced_at = ?,
-      last_seen_at = ?,
-      updated_at = ?
-    WHERE user_id = ? AND platform = ? AND mid = ?
-  `
-
   let createdCount = 0
   let updatedCount = 0
   let processedCount = 0
+  let lastEmittedProcessed = 0
   const nowIso = new Date().toISOString()
   const progressEvery = Math.max(1, Math.floor(Number(options?.progressEvery || 20)))
+  const upsertBatchSize = Math.max(1, getAffiliateProductsUpsertBatchSize(db.type))
 
   await emitProgress({
     totalFetched,
@@ -2110,69 +2210,36 @@ export async function upsertAffiliateProducts(
     failedCount: 0,
   })
 
-  for (const item of deduped) {
-    const rowValues = [
-      item.asin,
-      item.brand,
-      item.productName,
-      item.productUrl,
-      item.promoLink,
-      item.shortPromoLink,
-      JSON.stringify(item.allowedCountries || []),
-      item.priceAmount,
-      item.priceCurrency,
-      item.commissionRate,
-      item.commissionAmount,
-      item.reviewCount,
-      item.rawJson,
-    ]
-    const existed = existingMidSet.has(item.mid)
+  for (let index = 0; index < deduped.length; index += upsertBatchSize) {
+    const batch = deduped.slice(index, index + upsertBatchSize)
+    const existingMidSet = await loadExistingMidSet(
+      userId,
+      platform,
+      batch.map((item) => item.mid)
+    )
 
-    if (existed) {
-      await db.exec(updateSql, [
-        ...rowValues,
-        nowIso,
-        nowIso,
-        nowIso,
-        userId,
-        platform,
-        item.mid,
-      ])
-      updatedCount += 1
-    } else {
-      try {
-        await db.exec(insertSql, [
-          userId,
-          platform,
-          item.mid,
-          ...rowValues,
-          nowIso,
-          nowIso,
-          nowIso,
-        ])
-        createdCount += 1
-        existingMidSet.add(item.mid)
-      } catch (error: any) {
-        if (!isUniqueConstraintError(error)) {
-          throw error
-        }
-
-        await db.exec(updateSql, [
-          ...rowValues,
-          nowIso,
-          nowIso,
-          nowIso,
-          userId,
-          platform,
-          item.mid,
-        ])
+    for (const item of batch) {
+      if (existingMidSet.has(item.mid)) {
         updatedCount += 1
-        existingMidSet.add(item.mid)
+      } else {
+        createdCount += 1
       }
     }
 
-    processedCount += 1
-    if (processedCount % progressEvery === 0 || processedCount === totalFetched) {
+    await upsertAffiliateProductsChunk({
+      db,
+      userId,
+      platform,
+      items: batch,
+      nowIso,
+    })
+
+    processedCount += batch.length
+    if (
+      processedCount - lastEmittedProcessed >= progressEvery
+      || processedCount === totalFetched
+    ) {
+      lastEmittedProcessed = processedCount
       await emitProgress({
         totalFetched,
         processedCount,
@@ -2817,6 +2884,9 @@ export async function updateAffiliateProductSyncRun(params: {
   createdCount?: number
   updatedCount?: number
   failedCount?: number
+  cursorPage?: number | null
+  processedBatches?: number
+  lastHeartbeatAt?: string | null
   errorMessage?: string | null
   startedAt?: string | null
   completedAt?: string | null
@@ -2845,6 +2915,18 @@ export async function updateAffiliateProductSyncRun(params: {
     updates.push('failed_count = ?')
     values.push(params.failedCount)
   }
+  if (params.cursorPage !== undefined) {
+    updates.push('cursor_page = ?')
+    values.push(params.cursorPage === null ? 0 : params.cursorPage)
+  }
+  if (params.processedBatches !== undefined) {
+    updates.push('processed_batches = ?')
+    values.push(params.processedBatches)
+  }
+  if (params.lastHeartbeatAt !== undefined) {
+    updates.push('last_heartbeat_at = ?')
+    values.push(params.lastHeartbeatAt)
+  }
   if (params.errorMessage !== undefined) {
     updates.push('error_message = ?')
     values.push(params.errorMessage)
@@ -2872,6 +2954,68 @@ export async function updateAffiliateProductSyncRun(params: {
     `,
     values
   )
+}
+
+export async function getAffiliateProductSyncRunById(params: {
+  runId: number
+  userId?: number
+}): Promise<{
+  id: number
+  user_id: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  status: string
+  trigger_source: string | null
+  total_items: number
+  created_count: number
+  updated_count: number
+  failed_count: number
+  cursor_page: number
+  processed_batches: number
+  last_heartbeat_at: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+} | null> {
+  const db = await getDatabase()
+  const whereUser = params.userId ? 'AND user_id = ?' : ''
+  const values = params.userId ? [params.runId, params.userId] : [params.runId]
+
+  const row = await db.queryOne<any>(
+    `
+      SELECT *
+      FROM affiliate_product_sync_runs
+      WHERE id = ?
+      ${whereUser}
+      LIMIT 1
+    `,
+    values
+  )
+
+  if (!row) return null
+
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    platform: row.platform,
+    mode: row.mode,
+    status: String(row.status || ''),
+    trigger_source: row.trigger_source ?? null,
+    total_items: Number(row.total_items || 0),
+    created_count: Number(row.created_count || 0),
+    updated_count: Number(row.updated_count || 0),
+    failed_count: Number(row.failed_count || 0),
+    cursor_page: Number(row.cursor_page || 0),
+    processed_batches: Number(row.processed_batches || 0),
+    last_heartbeat_at: row.last_heartbeat_at ?? null,
+    error_message: row.error_message ?? null,
+    started_at: row.started_at ?? null,
+    completed_at: row.completed_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
 }
 
 export async function getAffiliateProductSyncRuns(userId: number, limit: number = 20): Promise<Array<{
@@ -2916,13 +3060,140 @@ export async function getAffiliateProductSyncRuns(userId: number, limit: number 
   )
 }
 
+export type AffiliateProductSyncCheckpoint = {
+  cursorPage: number
+  processedBatches: number
+  totalFetched: number
+  createdCount: number
+  updatedCount: number
+  failedCount: number
+}
+
+async function syncPartnerboostPlatformByWindow(params: {
+  userId: number
+  startPage?: number
+  pageWindowSize?: number
+  progressEvery?: number
+  onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
+  onCheckpoint?: (checkpoint: AffiliateProductSyncCheckpoint) => Promise<void> | void
+}): Promise<{
+  totalFetched: number
+  createdCount: number
+  updatedCount: number
+}> {
+  const pageWindowSize = parseIntegerInRange(
+    params.pageWindowSize ?? DEFAULT_PB_STREAM_WINDOW_PAGES,
+    DEFAULT_PB_STREAM_WINDOW_PAGES,
+    1,
+    MAX_PB_STREAM_WINDOW_PAGES
+  )
+
+  let cursorPage = Math.max(1, parseInteger(params.startPage, 1))
+  let hasMore = true
+  let totalFetched = 0
+  let createdCount = 0
+  let updatedCount = 0
+  const failedCount = 0
+  let processedBatches = 0
+  const seenMids = new Set<string>()
+
+  const emitProgress = async (nextFetched: number): Promise<void> => {
+    if (!params.onProgress) return
+    try {
+      await params.onProgress({
+        totalFetched: Math.max(0, nextFetched),
+        processedCount: createdCount + updatedCount + failedCount,
+        createdCount,
+        updatedCount,
+        failedCount,
+      })
+    } catch (error: any) {
+      console.warn('[affiliate-products] PB stream onProgress callback failed:', error?.message || error)
+    }
+  }
+
+  const emitCheckpoint = async (): Promise<void> => {
+    if (!params.onCheckpoint) return
+    try {
+      await params.onCheckpoint({
+        cursorPage,
+        processedBatches,
+        totalFetched,
+        createdCount,
+        updatedCount,
+        failedCount,
+      })
+    } catch (error: any) {
+      console.warn('[affiliate-products] PB stream onCheckpoint callback failed:', error?.message || error)
+    }
+  }
+
+  await emitProgress(0)
+  await emitCheckpoint()
+
+  while (hasMore) {
+    const windowStartPage = cursorPage
+    const fetchResult = await fetchPartnerboostPromotableProductsWithMeta({
+      userId: params.userId,
+      startPage: windowStartPage,
+      maxPages: pageWindowSize,
+      suppressMaxPagesWarning: true,
+      onFetchProgress: async (fetchedCount) => {
+        await emitProgress(totalFetched + Math.max(0, fetchedCount))
+        await emitCheckpoint()
+      },
+    })
+
+    const dedupedWindowItems: NormalizedAffiliateProduct[] = []
+    for (const item of fetchResult.items) {
+      const mid = String(item.mid || '').trim()
+      if (!mid || seenMids.has(mid)) continue
+      seenMids.add(mid)
+      dedupedWindowItems.push(item)
+    }
+
+    const upserted = await upsertAffiliateProducts(
+      params.userId,
+      'partnerboost',
+      dedupedWindowItems,
+      {
+        progressEvery: params.progressEvery,
+      }
+    )
+    totalFetched += upserted.totalFetched
+    createdCount += upserted.createdCount
+    updatedCount += upserted.updatedCount
+    processedBatches += 1
+
+    const nextPage = fetchResult.nextPage > windowStartPage
+      ? fetchResult.nextPage
+      : windowStartPage + Math.max(1, fetchResult.fetchedPages)
+    cursorPage = nextPage
+    hasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
+
+    await emitProgress(totalFetched)
+    await emitCheckpoint()
+
+    if (fetchResult.fetchedPages <= 0) break
+  }
+
+  return {
+    totalFetched,
+    createdCount,
+    updatedCount,
+  }
+}
+
 export async function syncAffiliateProducts(params: {
   userId: number
   platform: AffiliatePlatform
   mode: SyncMode
   productId?: number
+  resumeFromPage?: number
+  pageWindowSize?: number
   progressEvery?: number
   onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
+  onCheckpoint?: (checkpoint: AffiliateProductSyncCheckpoint) => Promise<void> | void
 }): Promise<{
   totalFetched: number
   createdCount: number
@@ -2991,9 +3262,13 @@ export async function syncAffiliateProducts(params: {
     }
   } else {
     if (params.platform === 'partnerboost') {
-      normalizedItems = await fetchPartnerboostPromotableProducts({
+      return await syncPartnerboostPlatformByWindow({
         userId: params.userId,
-        onFetchProgress: emitFetchProgress,
+        startPage: params.resumeFromPage,
+        pageWindowSize: params.pageWindowSize,
+        progressEvery: params.progressEvery,
+        onProgress: params.onProgress,
+        onCheckpoint: params.onCheckpoint,
       })
     } else {
       normalizedItems = await fetchYeahPromosPromotableProducts({
