@@ -54,7 +54,7 @@ describe('DELETE /api/campaigns/:id', () => {
     const data = await res.json()
 
     expect(res.status).toBe(409)
-    expect(data.error).toContain('仅草稿广告系列支持删除')
+    expect(data.error).toContain('仅草稿或已移除广告系列支持删除')
   })
 
   it('returns 409 when campaign already deleted', async () => {

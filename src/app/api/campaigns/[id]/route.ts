@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 /**
  * DELETE /api/campaigns/:id
- * 删除广告系列（仅草稿）
+ * 删除广告系列（草稿软删除，已移除永久删除）
  */
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -125,7 +125,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       if (result.reason === 'NOT_DRAFT') {
         return NextResponse.json(
           {
-            error: '仅草稿广告系列支持删除，请使用下线功能处理已发布广告系列',
+            error: '仅草稿或已移除广告系列支持删除，请先下线该广告系列',
           },
           { status: 409 }
         )

@@ -286,14 +286,16 @@ export type DeleteCampaignResult =
     }
 
 /**
- * 删除广告系列（仅草稿可删，软删除保留历史数据）
+ * 删除广告系列
+ * - 草稿广告系列：软删除（保留历史）
+ * - 已移除广告系列：永久删除（不再出现在列表）
  */
 export async function deleteCampaign(id: number, userId: number): Promise<DeleteCampaignResult> {
   const db = await getDatabase()
 
   const campaign = await db.queryOne(
     `
-      SELECT creation_status, is_deleted
+      SELECT creation_status, is_deleted, status
       FROM campaigns
       WHERE id = ? AND user_id = ?
       LIMIT 1
@@ -303,11 +305,29 @@ export async function deleteCampaign(id: number, userId: number): Promise<Delete
     | {
         creation_status: string | null
         is_deleted: any
+        status: string | null
       }
     | undefined
 
   if (!campaign) {
     return { success: false, reason: 'NOT_FOUND' }
+  }
+
+  const normalizedStatus = String(campaign.status || '').trim().toUpperCase()
+  if (normalizedStatus === 'REMOVED') {
+    const result = await db.exec(
+      `
+        DELETE FROM campaigns
+        WHERE id = ? AND user_id = ?
+      `,
+      [id, userId]
+    )
+
+    if ((result.changes || 0) <= 0) {
+      return { success: false, reason: 'NOT_FOUND' }
+    }
+
+    return { success: true }
   }
 
   const isDeleted = campaign.is_deleted === true || campaign.is_deleted === 1

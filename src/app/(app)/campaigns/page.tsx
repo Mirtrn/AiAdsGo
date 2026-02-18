@@ -190,6 +190,9 @@ export default function CampaignsPage() {
   const [isDeleteDraftDialogOpen, setIsDeleteDraftDialogOpen] = useState(false)
   const [deleteDraftTarget, setDeleteDraftTarget] = useState<Campaign | null>(null)
   const [deleteDraftSubmitting, setDeleteDraftSubmitting] = useState(false)
+  const [isDeleteRemovedDialogOpen, setIsDeleteRemovedDialogOpen] = useState(false)
+  const [deleteRemovedTarget, setDeleteRemovedTarget] = useState<Campaign | null>(null)
+  const [deleteRemovedSubmitting, setDeleteRemovedSubmitting] = useState(false)
 
   // Offline (下线) dialog states
   const [isOfflineDialogOpen, setIsOfflineDialogOpen] = useState(false)
@@ -486,6 +489,57 @@ export default function CampaignsPage() {
       setDeleteDraftSubmitting(false)
       setIsDeleteDraftDialogOpen(false)
       setDeleteDraftTarget(null)
+    }
+  }
+
+  const openDeleteRemovedDialog = (campaign: Campaign) => {
+    if (String(campaign.status || '').toUpperCase() !== 'REMOVED') {
+      showError('无法操作', '仅已移除广告系列可删除')
+      return
+    }
+
+    setDeleteRemovedTarget(campaign)
+    setIsDeleteRemovedDialogOpen(true)
+  }
+
+  const confirmDeleteRemoved = async () => {
+    if (!deleteRemovedTarget || deleteRemovedSubmitting) return
+
+    const campaignId = deleteRemovedTarget.id
+    const campaignName = deleteRemovedTarget.campaignName
+
+    setDeleteRemovedSubmitting(true)
+
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || '删除广告系列失败')
+      }
+
+      setSelectedCampaignIds((prev) => {
+        const next = new Set(prev)
+        next.delete(campaignId)
+        return next
+      })
+
+      setCampaigns((prev) => prev.filter((item) => item.id !== campaignId))
+      showSuccess('删除广告系列成功', `已永久删除“${campaignName}”`)
+    } catch (err: any) {
+      showError('删除广告系列失败', err?.message || '网络错误')
+    } finally {
+      setDeleteRemovedSubmitting(false)
+      setIsDeleteRemovedDialogOpen(false)
+      setDeleteRemovedTarget(null)
     }
   }
 
@@ -1660,6 +1714,8 @@ export default function CampaignsPage() {
 
 		                    const canDeleteDraft = campaign.creationStatus === 'draft'
 		                    const canDeleteDraftAction = canDeleteDraft && !deleteDraftSubmitting
+		                    const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
+		                    const canDeleteRemovedAction = isRemovedStatus && !deleteRemovedSubmitting
 
 
 		                    return (
@@ -1811,19 +1867,30 @@ export default function CampaignsPage() {
                               <span>下线广告系列</span>
                             </DropdownMenuItem>
 
+                            {(isRemovedStatus || canDeleteDraft) && <DropdownMenuSeparator />}
+
+                            {isRemovedStatus && (
+                              <DropdownMenuItem
+                                className="gap-2"
+                                onClick={() => openDeleteRemovedDialog(campaign)}
+                                disabled={!canDeleteRemovedAction}
+                                title={canDeleteRemovedAction ? '永久删除已移除广告系列' : '删除中...'}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-600" />
+                                <span>删除广告系列</span>
+                              </DropdownMenuItem>
+                            )}
+
                             {canDeleteDraft && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="gap-2"
-                                  onClick={() => openDeleteDraftDialog(campaign)}
-                                  disabled={!canDeleteDraftAction}
-                                  title={canDeleteDraftAction ? '删除草稿广告系列' : '删除中...'}
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-600" />
-                                  <span>删除草稿</span>
-                                </DropdownMenuItem>
-                              </>
+                              <DropdownMenuItem
+                                className="gap-2"
+                                onClick={() => openDeleteDraftDialog(campaign)}
+                                disabled={!canDeleteDraftAction}
+                                title={canDeleteDraftAction ? '删除草稿广告系列' : '删除中...'}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-600" />
+                                <span>删除草稿</span>
+                              </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -2086,6 +2153,49 @@ export default function CampaignsPage() {
               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               {batchOfflineSubmitting ? '处理中...' : '仅本地下线异常项'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Removed Campaign Confirmation Dialog */}
+      <AlertDialog
+        open={isDeleteRemovedDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteRemovedDialogOpen(open)
+          if (!open && !deleteRemovedSubmitting) {
+            setDeleteRemovedTarget(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除广告系列</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要永久删除已移除广告系列{' '}
+                  <strong className="text-gray-900">{deleteRemovedTarget?.campaignName || '-'}</strong> 吗？
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  <p className="font-medium mb-1">删除后将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>从广告系列列表中彻底移除</li>
+                    <li>仅删除本地记录，不会触发新的 Google Ads 操作</li>
+                    <li>此操作不可恢复</li>
+                  </ul>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteRemovedSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void confirmDeleteRemoved()}
+              disabled={deleteRemovedSubmitting || !deleteRemovedTarget}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deleteRemovedSubmitting ? '删除中...' : '确认删除'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
