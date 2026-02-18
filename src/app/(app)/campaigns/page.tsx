@@ -120,6 +120,11 @@ type BatchOfflineFailure = {
   message: string
 }
 
+type BatchDeleteFailure = {
+  campaignName: string
+  message: string
+}
+
 type BatchOfflineAccountIssue = {
   campaign: Campaign
   message: string
@@ -175,6 +180,8 @@ export default function CampaignsPage() {
   const [batchOfflinePauseClickFarm, setBatchOfflinePauseClickFarm] = useState(false)
   const [batchOfflinePauseUrlSwap, setBatchOfflinePauseUrlSwap] = useState(false)
   const [batchOfflineRemoveGoogleAds, setBatchOfflineRemoveGoogleAds] = useState(false)
+  const [batchDeleteSubmitting, setBatchDeleteSubmitting] = useState(false)
+  const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
 
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
@@ -226,6 +233,9 @@ export default function CampaignsPage() {
   const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
   const visibleCampaignCount = campaigns.filter((campaign) => showDeletedCampaigns || !isCampaignDeleted(campaign)).length
   const hasBatchOfflineSelection = selectedCampaignIds.size > 0
+  const selectedRemovedCampaignCount = campaigns.filter(
+    (campaign) => selectedCampaignIds.has(campaign.id) && String(campaign.status || '').toUpperCase() === 'REMOVED'
+  ).length
   const activeCampaignCount = campaigns.filter((campaign) => !isCampaignDeleted(campaign)).length
 
   const resetBatchOfflineOptions = () => {
@@ -622,6 +632,14 @@ export default function CampaignsPage() {
   }
 
   const getSelectedCampaigns = () => campaigns.filter((campaign) => selectedCampaignIds.has(campaign.id))
+  const getRemovedCampaigns = (list: Campaign[]) =>
+    list.filter((campaign) => String(campaign.status || '').toUpperCase() === 'REMOVED')
+
+  const buildBatchDeleteFailureSummary = (failures: BatchDeleteFailure[]): string =>
+    failures
+      .slice(0, 3)
+      .map((failure) => `- ${failure.campaignName}：${failure.message}`)
+      .join('\n')
 
   const buildBatchAccountStatusSummary = (accountIssues: BatchOfflineAccountIssue[]): string | null => {
     if (accountIssues.length === 0) return null
@@ -859,6 +877,121 @@ export default function CampaignsPage() {
 
     resetBatchOfflineState()
     setIsBatchOfflineDialogOpen(true)
+  }
+
+  const handleOpenBatchDeleteDialog = () => {
+    if (!hasBatchOfflineSelection || batchDeleteSubmitting) return
+
+    const selectedCampaigns = getSelectedCampaigns()
+    const removedCampaigns = getRemovedCampaigns(selectedCampaigns)
+    if (removedCampaigns.length === 0) {
+      showError('批量删除失败', '仅已移除广告系列可批量删除')
+      return
+    }
+
+    setIsBatchDeleteDialogOpen(true)
+  }
+
+  const handleBatchDeleteRemoved = async () => {
+    if (!hasBatchOfflineSelection || batchDeleteSubmitting) return
+
+    const selectedCampaigns = getSelectedCampaigns()
+    if (selectedCampaigns.length === 0) {
+      showError('批量删除失败', '未找到可操作的广告系列')
+      return
+    }
+
+    const removedCampaigns = getRemovedCampaigns(selectedCampaigns)
+    if (removedCampaigns.length === 0) {
+      showError('批量删除失败', '仅已移除广告系列可批量删除')
+      return
+    }
+
+    setBatchDeleteSubmitting(true)
+    setIsBatchDeleteDialogOpen(false)
+
+    try {
+      const deletePromises = removedCampaigns.map(async (campaign) => {
+        const response = await fetch(`/api/campaigns/${campaign.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+
+        if (response.status === 401) {
+          handleUnauthorized()
+          throw new Error('UNAUTHORIZED')
+        }
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => null)
+          throw new Error(data?.error || '删除失败')
+        }
+
+        return campaign.id
+      })
+
+      const results = await Promise.allSettled(deletePromises)
+      const successIds: number[] = []
+      const failures: BatchDeleteFailure[] = []
+      let unauthorizedDetected = false
+
+      results.forEach((item, index) => {
+        const campaign = removedCampaigns[index]
+        if (item.status === 'fulfilled') {
+          successIds.push(item.value)
+          return
+        }
+
+        if (item.reason?.message === 'UNAUTHORIZED') {
+          unauthorizedDetected = true
+          return
+        }
+
+        failures.push({
+          campaignName: campaign?.campaignName || '未知广告系列',
+          message: item.reason?.message || '网络错误',
+        })
+      })
+
+      if (unauthorizedDetected) return
+
+      if (successIds.length > 0) {
+        const successIdSet = new Set(successIds)
+        setCampaigns((prev) => prev.filter((campaign) => !successIdSet.has(campaign.id)))
+        setSelectedCampaignIds((prev) => {
+          const next = new Set(prev)
+          successIds.forEach((id) => next.delete(id))
+          return next
+        })
+      }
+
+      const skippedCount = selectedCampaigns.length - removedCampaigns.length
+      if (failures.length === 0) {
+        const desc = skippedCount > 0
+          ? `已删除 ${successIds.length} 个已移除广告系列，跳过 ${skippedCount} 个未移除广告系列`
+          : `已删除 ${successIds.length} 个已移除广告系列`
+        showSuccess('批量删除成功', desc)
+        return
+      }
+
+      if (successIds.length > 0) {
+        showSuccess('批量删除部分成功', `已删除 ${successIds.length} 个已移除广告系列`)
+      }
+
+      const failureSummary = buildBatchDeleteFailureSummary(failures)
+      const skippedNote = skippedCount > 0
+        ? `\n另有 ${skippedCount} 个未移除广告系列已跳过。`
+        : ''
+
+      showError(
+        '批量删除失败',
+        `${failures.length}/${removedCampaigns.length} 个已移除广告系列删除失败：\n${failureSummary}${skippedNote}`
+      )
+    } catch (err: any) {
+      showError('批量删除失败', err?.message || '网络错误')
+    } finally {
+      setBatchDeleteSubmitting(false)
+    }
   }
 
   const handleBatchOffline = async () => {
@@ -1256,6 +1389,21 @@ export default function CampaignsPage() {
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              {/* 批量删除按钮 - 多选后显示，仅已移除可删除 */}
+              {hasBatchOfflineSelection && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleOpenBatchDeleteDialog}
+                  disabled={batchDeleteSubmitting || selectedRemovedCampaignCount === 0}
+                  title={selectedRemovedCampaignCount > 0 ? '批量删除已移除广告系列' : '仅已移除广告系列可删除'}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {batchDeleteSubmitting
+                    ? '批量删除中...'
+                    : `批量删除 (${selectedRemovedCampaignCount})`}
+                </Button>
+              )}
               {/* 批量下线按钮 - 有选中项时显示 */}
               {hasBatchOfflineSelection && (
                 <Button
@@ -1995,6 +2143,52 @@ export default function CampaignsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog
+        open={isBatchDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsBatchDeleteDialogOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除广告系列</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  将永久删除选中项中状态为“已移除”的{' '}
+                  <strong className="text-gray-900">{selectedRemovedCampaignCount}</strong>{' '}
+                  个广告系列。
+                </p>
+                {selectedCampaignIds.size > selectedRemovedCampaignCount && (
+                  <p className="text-sm text-amber-700">
+                    另外 {selectedCampaignIds.size - selectedRemovedCampaignCount} 个未移除广告系列会被自动跳过。
+                  </p>
+                )}
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  <p className="font-medium mb-1">批量删除将会：</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>永久删除这些已移除广告系列</li>
+                    <li>删除后不再显示在当前列表</li>
+                    <li>此操作不可恢复</li>
+                  </ul>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleteSubmitting}>取消</AlertDialogCancel>
+            <Button
+              onClick={() => void handleBatchDeleteRemoved()}
+              disabled={batchDeleteSubmitting || selectedRemovedCampaignCount === 0}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {batchDeleteSubmitting ? '删除中...' : `确认批量删除 (${selectedRemovedCampaignCount})`}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Batch Offline Confirmation Dialog */}
       <AlertDialog
