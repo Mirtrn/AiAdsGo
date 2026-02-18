@@ -207,6 +207,21 @@ function buildRecommendationNote(params: {
   return '发布链路稳定，明日建议按建议参数稳步放量，同时持续监控ROAS与失败原因。'
 }
 
+function formatRecommendationSourceLabel(
+  source: StrategyKnowledgeSummary['recommendationSource']
+): string {
+  switch (source) {
+    case 'effective_config':
+      return '最终生效配置'
+    case 'failure_guard_after':
+      return '风控后参数'
+    case 'adaptive_after':
+      return '自适应后参数'
+    default:
+      return '无建议来源'
+  }
+}
+
 function buildStrategyKnowledgeSummary(report: DailyReportPayload): StrategyKnowledgeSummary {
   const strategyActions = Array.isArray(report.strategyActions) ? report.strategyActions : []
   const strategyStats = parseMaybeJson<Record<string, any>>(report.strategyRun?.stats_json, {})
@@ -530,72 +545,72 @@ function formatReportMessage(report: DailyReportPayload): string {
   const lines: string[] = []
   const strategySummary = buildStrategyKnowledgeSummary(report)
 
-  lines.push(`📊 OpenClaw 每日报表 ${report.date}`)
+  lines.push(`📊 OpenClaw 每日报表（${report.date}）`)
   if (summary) {
-    lines.push(`- Offers: ${summary.totalOffers ?? 0} | Campaigns: ${summary.totalCampaigns ?? 0}`)
-    lines.push(`- Clicks: ${summary.totalClicks ?? 0} | Cost: ${summary.totalCost ?? 0}`)
+    lines.push(`- 规模概览：Offer ${summary.totalOffers ?? 0} 个｜Campaign ${summary.totalCampaigns ?? 0} 个`)
+    lines.push(`- 投放消耗：点击 ${summary.totalClicks ?? 0} 次｜花费 ${summary.totalCost ?? 0}`)
   }
   if (kpis?.current) {
-    lines.push(`- Impressions: ${kpis.current.impressions ?? 0} | Commission: ${kpis.current.conversions ?? 0}`)
+    lines.push(`- 当日表现：曝光 ${kpis.current.impressions ?? 0}｜转化/佣金笔数 ${kpis.current.conversions ?? 0}`)
   }
 
   if (roi) {
     if (revenueAvailable) {
-      lines.push(`- Commission Revenue: ${roundTo2(totalRevenue || 0)} | Cost: ${totalCost} | Profit: ${roi.totalProfit ?? 0}`)
-      lines.push(`- ROAS: ${(roas || 0).toFixed(2)}x | ROI: ${roi.roi ?? 0}%`)
-      lines.push('- Revenue Source: Affiliate Commission (PartnerBoost / YeahPromos)')
+      lines.push(`- 佣金收入：${roundTo2(totalRevenue || 0)}｜花费：${totalCost}｜利润：${roi.totalProfit ?? 0}`)
+      lines.push(`- ROAS：${(roas || 0).toFixed(2)}x｜ROI：${roi.roi ?? 0}%`)
+      lines.push('- 收入来源：联盟佣金（PartnerBoost / YeahPromos）')
 
       if (affiliateBreakdown.length > 0) {
         const detail = affiliateBreakdown
-          .map((item) => `${item.platform || 'unknown'}: ${roundTo2(Number(item.totalCommission) || 0)} (records ${Number(item.records) || 0})`)
+          .map((item) => `${item.platform || '未知平台'}：${roundTo2(Number(item.totalCommission) || 0)}（记录 ${Number(item.records) || 0}）`)
           .join(' | ')
-        lines.push(`- Affiliate Breakdown: ${detail}`)
+        lines.push(`- 联盟拆分：${detail}`)
       }
     } else {
-      lines.push(`- Cost: ${totalCost}`)
-      lines.push('- Commission Revenue: 数据不可用（待联盟平台返回）')
-      lines.push('- ROAS: 数据不可用 | ROI: 数据不可用')
-      lines.push('- Revenue Source: Strict Affiliate Mode（不回退 AutoAds）')
+      lines.push(`- 花费：${totalCost}`)
+      lines.push('- 佣金收入：暂不可用（等待联盟平台返回）')
+      lines.push('- ROAS：暂不可用｜ROI：暂不可用')
+      lines.push('- 收入来源：严格联盟模式（不回退 AutoAds）')
     }
   }
 
   if (report.budget?.data?.overall) {
     const overall = report.budget.data.overall
-    lines.push(`- Budget: ${overall.totalBudget ?? 0} | Spent: ${overall.totalSpent ?? 0} | Remaining: ${overall.remaining ?? 0}`)
+    lines.push(`- 预算概览：预算 ${overall.totalBudget ?? 0}｜已花费 ${overall.totalSpent ?? 0}｜剩余 ${overall.remaining ?? 0}`)
   }
 
   if (strategySummary.runsTotal > 0) {
     lines.push(
-      `- Strategy: Mode ${strategySummary.mode} | Adj ${strategySummary.adjustment} | Guard ${strategySummary.guardLevel} | Published ${strategySummary.campaignsPublished} | Failed ${strategySummary.publishFailed}`
+      `- 策略执行：模式 ${strategySummary.mode}｜调节 ${strategySummary.adjustment}｜风控 ${strategySummary.guardLevel}｜发布成功 ${strategySummary.campaignsPublished}｜发布失败 ${strategySummary.publishFailed}`
     )
-    lines.push(`- Strategy Actions: Success ${strategySummary.actionSuccess} | Failed ${strategySummary.actionFailed}`)
+    lines.push(`- 策略动作：成功 ${strategySummary.actionSuccess}｜失败 ${strategySummary.actionFailed}`)
     if (strategySummary.publishFailureRate > 0) {
-      lines.push(`- Publish Failure Rate: ${(strategySummary.publishFailureRate * 100).toFixed(1)}%`)
+      lines.push(`- 发布失败率：${(strategySummary.publishFailureRate * 100).toFixed(1)}%`)
     }
     if (strategySummary.rankCandidateCount > 0) {
       lines.push(
-        `- Rank Model: Candidate ${strategySummary.rankCandidateCount} | Selected ${strategySummary.rankSelectedCount} | AvgScore ${strategySummary.rankSelectedAverageScore}`
+        `- 排序模型：候选 ${strategySummary.rankCandidateCount}｜入选 ${strategySummary.rankSelectedCount}｜入选均分 ${strategySummary.rankSelectedAverageScore}`
       )
     }
     if (strategySummary.recommendedMaxOffersPerRun > 0) {
       lines.push(
-        `- Next Config: Offers ${strategySummary.recommendedMaxOffersPerRun} | Budget ${strategySummary.recommendedDefaultBudget} | MaxCPC ${strategySummary.recommendedMaxCpc} | Source ${strategySummary.recommendationSource}`
+        `- 次日建议参数：Offer上限 ${strategySummary.recommendedMaxOffersPerRun}｜默认预算 ${strategySummary.recommendedDefaultBudget}｜最大CPC ${strategySummary.recommendedMaxCpc}｜来源 ${formatRecommendationSourceLabel(strategySummary.recommendationSource)}`
       )
     }
-    lines.push(`- Tomorrow Advice: ${strategySummary.recommendationNote}`)
+    lines.push(`- 次日建议：${strategySummary.recommendationNote}`)
     if (strategySummary.reason) {
-      lines.push(`- Strategy Reason: ${strategySummary.reason}`)
+      lines.push(`- 策略原因：${strategySummary.reason}`)
     }
     if (strategySummary.circuitBreakTriggered) {
-      lines.push(`- Circuit Break: ON | Paused ${strategySummary.circuitBreakPaused}`)
+      lines.push(`- 熔断状态：已触发｜暂停 ${strategySummary.circuitBreakPaused}`)
     }
     if (strategySummary.topPublishFailureReasons.length > 0) {
-      lines.push(`- Publish Fail Top: ${strategySummary.topPublishFailureReasons.join('；')}`)
+      lines.push(`- 发布失败TOP：${strategySummary.topPublishFailureReasons.join('；')}`)
     }
   }
 
   if (appUrl) {
-    lines.push(`🔗 查看详情: ${appUrl}/openclaw`)
+    lines.push(`🔗 详情链接：${appUrl}/openclaw`)
   }
 
   return lines.join('\n')

@@ -227,6 +227,64 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(String(lastUpdateText)).not.toContain("poll interval=8s");
   });
 
+  it("normalizes process poll progress as user-friendly heartbeat text", async () => {
+    const { replyOptions } = createFeishuReplyDispatcher({
+      cfg: {} as never,
+      agentId: "agent",
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      chatId: "oc_chat",
+    });
+
+    await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+    expect(streamingInstances).toHaveLength(1);
+
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "start",
+        name: "process",
+        toolCallId: "tool-poll-1",
+        meta: "poll · calm-bison",
+      },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "result",
+        name: "process",
+        toolCallId: "tool-poll-1",
+        isError: false,
+        meta: "poll · calm-bison",
+      },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "start",
+        name: "process",
+        toolCallId: "tool-poll-2",
+        meta: "action:poll sessionId:marine-otter",
+      },
+    });
+    await replyOptions.onAgentEvent?.({
+      stream: "tool",
+      data: {
+        phase: "result",
+        name: "process",
+        toolCallId: "tool-poll-2",
+        isError: false,
+        meta: "action:poll sessionId:marine-otter",
+      },
+    });
+
+    const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+    expect(String(lastUpdateText)).toContain("后台任务");
+    expect(String(lastUpdateText)).toContain("后台任务状态同步中");
+    expect(String(lastUpdateText)).not.toContain("calm-bison");
+    expect(String(lastUpdateText)).not.toContain("marine-otter");
+    expect(String(lastUpdateText)).not.toContain("action:poll");
+  });
+
   it("stops progress-card updates after partial reply stream starts", async () => {
     const { replyOptions } = createFeishuReplyDispatcher({
       cfg: {} as never,

@@ -41,6 +41,7 @@ const FEISHU_PROGRESS_MAX_LINES = 6;
 const FEISHU_PARTIAL_PROGRESS_SUPPRESS_MS = 5000;
 const LOW_VALUE_COMMAND_HEARTBEAT_ID = "__command_heartbeat__";
 const LOW_VALUE_COMMAND_HEARTBEAT_DETAIL = "后台轮询中";
+const LOW_VALUE_PROCESS_POLL_HEARTBEAT_DETAIL = "后台任务状态同步中";
 const CREATIVE_BUCKET_ORDER: Record<string, number> = {
   A: 1,
   B: 2,
@@ -49,6 +50,7 @@ const CREATIVE_BUCKET_ORDER: Record<string, number> = {
 const PROGRESS_TOOL_LABELS: Record<string, string> = {
   exec: "执行操作",
   bash: "执行操作",
+  process: "后台任务",
   read: "读取文件",
   write: "写入文件",
   edit: "编辑文件",
@@ -78,6 +80,13 @@ function isCommandToolName(value: unknown): boolean {
     .trim()
     .toLowerCase();
   return normalized === "exec" || normalized === "bash";
+}
+
+function isProcessToolName(value: unknown): boolean {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "process";
 }
 
 function extractCreativeBucket(value: string): "A" | "B" | "D" | undefined {
@@ -123,6 +132,46 @@ function resolveBusinessStepFromCommand(detail: string): string | undefined {
   return undefined;
 }
 
+function extractProcessAction(detail: string): string | undefined {
+  const normalized = detail.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const actionMatch = normalized.match(/(?:^|[\s,{])action\s*[:=]\s*["']?([a-z-]+)/i);
+  if (actionMatch?.[1]) {
+    return actionMatch[1];
+  }
+
+  const prefixMatch = normalized.match(/^([a-z-]+)(?:\s*[·\s]|$)/);
+  if (prefixMatch?.[1]) {
+    return prefixMatch[1];
+  }
+
+  return undefined;
+}
+
+function resolveBusinessStepFromProcess(detail: string): string | undefined {
+  const action = extractProcessAction(detail);
+  switch (action) {
+    case "poll":
+      return LOW_VALUE_PROCESS_POLL_HEARTBEAT_DETAIL;
+    case "log":
+      return "读取后台任务日志";
+    case "list":
+      return "检查后台任务会话";
+    case "write":
+    case "submit":
+    case "paste":
+    case "send-keys":
+      return "向后台任务发送输入";
+    case "kill":
+      return "终止后台任务";
+    default:
+      return undefined;
+  }
+}
+
 function normalizeProgressToolDetail(
   toolNameValue: unknown,
   value: unknown,
@@ -136,6 +185,14 @@ function normalizeProgressToolDetail(
 
   if (isCommandToolName(toolNameValue)) {
     const businessStep = resolveBusinessStepFromCommand(normalized);
+    if (businessStep) {
+      return businessStep.slice(0, 120);
+    }
+    return undefined;
+  }
+
+  if (isProcessToolName(toolNameValue)) {
+    const businessStep = resolveBusinessStepFromProcess(normalized);
     if (businessStep) {
       return businessStep.slice(0, 120);
     }
@@ -510,7 +567,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
             const toolDetail = normalizeProgressToolDetail(rawToolName, data.meta);
             const isLowValueCommandEvent = isCommandToolName(rawToolName) && !toolDetail;
-            const progressToolCallId = isLowValueCommandEvent
+            const isLowValueProcessPollEvent =
+              isProcessToolName(rawToolName) &&
+              toolDetail === LOW_VALUE_PROCESS_POLL_HEARTBEAT_DETAIL;
+            const progressToolCallId = isLowValueCommandEvent || isLowValueProcessPollEvent
               ? LOW_VALUE_COMMAND_HEARTBEAT_ID
               : toolCallId;
             const previous = progressToolsById.get(progressToolCallId);
@@ -525,7 +585,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               name: toolName || previous?.name || "tool",
               detail:
                 toolDetail
-                || (isLowValueCommandEvent ? LOW_VALUE_COMMAND_HEARTBEAT_DETAIL : previous?.detail),
+                || (isLowValueCommandEvent ? LOW_VALUE_COMMAND_HEARTBEAT_DETAIL : undefined)
+                || (isLowValueProcessPollEvent ? LOW_VALUE_PROCESS_POLL_HEARTBEAT_DETAIL : undefined)
+                || previous?.detail,
               status,
               updatedAt: now,
             });

@@ -124,6 +124,36 @@ function buildRecommendationNote(params: {
   return '发布链路稳定，明日建议按建议参数稳步放量，同时持续监控ROAS与失败原因。'
 }
 
+function formatRecommendationSourceLabel(
+  source: BitableStrategySummary['recommendationSource']
+): string {
+  switch (source) {
+    case 'effective_config':
+      return '最终生效配置'
+    case 'failure_guard_after':
+      return '风控后参数'
+    case 'adaptive_after':
+      return '自适应后参数'
+    default:
+      return '无建议来源'
+  }
+}
+
+function formatGuardLevelLabel(guardLevel: string): string {
+  switch (String(guardLevel || '').toLowerCase()) {
+    case 'strong':
+      return '强防守'
+    case 'mild':
+      return '温和防守'
+    case 'insufficient_data':
+      return '样本不足'
+    case 'none':
+      return '无'
+    default:
+      return guardLevel || '无'
+  }
+}
+
 function buildBitableStrategySummary(report: DailyReportPayload): BitableStrategySummary {
   const strategyStats = parseMaybeJson<Record<string, any>>(report.strategyRun?.stats_json, {})
   const failureGuard = parseMaybeJson<Record<string, any>>(strategyStats.failureGuardInsight, {})
@@ -194,43 +224,43 @@ function buildDocLines(report: DailyReportPayload): string[] {
   const strategySummary = buildBitableStrategySummary(report)
 
   const lines: string[] = []
-  lines.push(`OpenClaw 每日报表 ${report.date}`)
-  lines.push(`生成时间: ${report.generatedAt || new Date().toISOString()}`)
+  lines.push(`OpenClaw 每日报表（${report.date}）`)
+  lines.push(`生成时间：${report.generatedAt || new Date().toISOString()}`)
   lines.push('')
-  lines.push(`Offers: ${summary.totalOffers ?? 0}`)
-  lines.push(`Campaigns: ${summary.totalCampaigns ?? 0}`)
-  lines.push(`Clicks: ${summary.totalClicks ?? 0}`)
-  lines.push(`Cost: ${totalCost}`)
+  lines.push(`Offer 数量：${summary.totalOffers ?? 0}`)
+  lines.push(`Campaign 数量：${summary.totalCampaigns ?? 0}`)
+  lines.push(`点击数：${summary.totalClicks ?? 0}`)
+  lines.push(`花费：${totalCost}`)
 
   if (revenueAvailable) {
-    lines.push(`Commission Revenue: ${Number(totalRevenue || 0).toFixed(2)}`)
-    lines.push(`ROAS: ${(roas || 0).toFixed(2)}x`)
-    lines.push(`ROI: ${roi.roi ?? 0}%`)
-    lines.push('Revenue Source: Affiliate Commission (PartnerBoost / YeahPromos)')
+    lines.push(`佣金收入：${Number(totalRevenue || 0).toFixed(2)}`)
+    lines.push(`ROAS：${(roas || 0).toFixed(2)}x`)
+    lines.push(`ROI：${roi.roi ?? 0}%`)
+    lines.push('收入来源：联盟佣金（PartnerBoost / YeahPromos）')
 
     if (affiliateBreakdown.length > 0) {
       lines.push(
-        `Affiliate Breakdown: ${affiliateBreakdown
-          .map((item) => `${item.platform || 'unknown'} ${Number(item.totalCommission || 0).toFixed(2)} (records ${Number(item.records) || 0})`)
+        `联盟拆分：${affiliateBreakdown
+          .map((item) => `${item.platform || '未知平台'} ${Number(item.totalCommission || 0).toFixed(2)}（记录 ${Number(item.records) || 0}）`)
           .join(' | ')}`
       )
     }
   } else {
-    lines.push('Commission Revenue: 数据不可用（待联盟平台返回）')
-    lines.push('ROAS: 数据不可用')
-    lines.push('ROI: 数据不可用')
-    lines.push('Revenue Source: Strict Affiliate Mode（不回退 AutoAds）')
+    lines.push('佣金收入：暂不可用（等待联盟平台返回）')
+    lines.push('ROAS：暂不可用')
+    lines.push('ROI：暂不可用')
+    lines.push('收入来源：严格联盟模式（不回退 AutoAds）')
   }
 
-  lines.push(`操作记录: ${(report.actions || []).length}`)
+  lines.push(`操作记录：${(report.actions || []).length}`)
   if (strategySummary.recommendedMaxOffersPerRun > 0) {
     lines.push(
-      `明日建议参数: Offers ${strategySummary.recommendedMaxOffersPerRun} | Budget ${strategySummary.recommendedDefaultBudget} | MaxCPC ${strategySummary.recommendedMaxCpc} | Source ${strategySummary.recommendationSource}`
+      `明日建议参数：Offer上限 ${strategySummary.recommendedMaxOffersPerRun}｜预算 ${strategySummary.recommendedDefaultBudget}｜最大CPC ${strategySummary.recommendedMaxCpc}｜来源 ${formatRecommendationSourceLabel(strategySummary.recommendationSource)}`
     )
   }
-  lines.push(`明日建议: ${strategySummary.recommendationNote}`)
+  lines.push(`明日建议：${strategySummary.recommendationNote}`)
   if (strategySummary.reason) {
-    lines.push(`策略原因: ${strategySummary.reason}`)
+    lines.push(`策略原因：${strategySummary.reason}`)
   }
   return lines
 }
@@ -354,7 +384,7 @@ export async function writeDailyReportToBitable(userId: number, report: DailyRep
     userId,
     appToken: config.bitableAppToken,
     tableId: config.bitableTableId,
-    tableName: config.bitableTableName || 'OpenClaw Daily Report',
+    tableName: config.bitableTableName || 'OpenClaw 每日报表',
     token,
     apiBase,
   })
@@ -383,17 +413,17 @@ export async function writeDailyReportToBitable(userId: number, report: DailyRep
     ROAS: revenueAvailable ? roas!.toFixed(2) : '-',
     ROI: revenueAvailable ? String(roi.roi ?? 0) : '-',
     Actions: String((report.actions || []).length),
-    GuardLevel: strategySummary.guardLevel,
+    GuardLevel: formatGuardLevelLabel(strategySummary.guardLevel),
     PublishFailureRate: `${(strategySummary.publishFailureRate * 100).toFixed(1)}%`,
     NextMaxOffers: strategySummary.recommendedMaxOffersPerRun > 0 ? String(strategySummary.recommendedMaxOffersPerRun) : '',
     NextBudget: strategySummary.recommendedDefaultBudget > 0 ? String(strategySummary.recommendedDefaultBudget) : '',
     NextMaxCpc: strategySummary.recommendedMaxCpc > 0 ? String(strategySummary.recommendedMaxCpc) : '',
-    RecommendationSource: strategySummary.recommendationSource,
+    RecommendationSource: formatRecommendationSourceLabel(strategySummary.recommendationSource),
     TomorrowAdvice: strategySummary.recommendationNote,
     StrategyReason: strategySummary.reason || '',
     Notes: revenueAvailable
-      ? 'Revenue source: affiliate commission'
-      : 'Revenue unavailable: strict affiliate mode',
+      ? '收入来源：联盟佣金'
+      : '收入暂不可用：严格联盟模式',
   }
 
   let existingRecordId: string | null = null
