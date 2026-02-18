@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { showSuccess, showError, showInfo } from '@/lib/toast-utils'
 import { Card, CardContent } from '@/components/ui/card'
@@ -37,6 +37,7 @@ import { Label } from '@/components/ui/label'
 import { TrendingUp, DollarSign, Target, Activity, RefreshCcw } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import { formatCurrency } from '@/lib/currency'
+import { getCommissionPerConversion, parseCommissionPayoutValue } from '@/lib/offer-monetization'
 
 interface Offer {
   id: number
@@ -291,6 +292,39 @@ export default function OfferDetailPage() {
   const availableCurrencies = currencyInfo?.currencies ?? []
   const formatMoney = (value: number, currencyCode: string = selectedCurrency) =>
     formatCurrency(value, currencyCode)
+
+  const commissionDisplay = useMemo(() => {
+    if (!offer?.commissionPayout) return null
+
+    const parsedPayout = parseCommissionPayoutValue(offer.commissionPayout, {
+      targetCountry: offer.targetCountry,
+    })
+    if (!parsedPayout) {
+      return {
+        mode: 'unknown' as const,
+        payoutLabel: '佣金设置',
+        payoutValue: offer.commissionPayout,
+        absoluteValue: null as string | null,
+        absoluteHint: null as string | null,
+      }
+    }
+
+    const perConversion = getCommissionPerConversion({
+      productPrice: offer.productPrice,
+      commissionPayout: offer.commissionPayout,
+      targetCountry: offer.targetCountry,
+    })
+
+    return {
+      mode: parsedPayout.mode,
+      payoutLabel: parsedPayout.mode === 'percent' ? '佣金比例' : '佣金设置（绝对值）',
+      payoutValue: offer.commissionPayout,
+      absoluteValue: perConversion ? formatCurrency(perConversion.amount, perConversion.currency) : null,
+      absoluteHint: parsedPayout.mode === 'percent' && !perConversion
+        ? '缺少产品价格，暂无法换算绝对佣金'
+        : null,
+    }
+  }, [offer])
 
   const handleDelete = async () => {
     try {
@@ -901,10 +935,20 @@ export default function OfferDetailPage() {
                   <dd className="mt-1 text-sm text-gray-900">{offer.productPrice}</dd>
                 </div>
               )}
-              {offer.commissionPayout && (
+              {commissionDisplay && (
                 <div>
-                  <dt className="text-sm font-medium text-gray-500">佣金比例</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{offer.commissionPayout}</dd>
+                  <dt className="text-sm font-medium text-gray-500">{commissionDisplay.payoutLabel}</dt>
+                  <dd className="mt-1 text-sm text-gray-900">{commissionDisplay.payoutValue}</dd>
+                </div>
+              )}
+              {commissionDisplay && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">佣金绝对值（单次转化）</dt>
+                  <dd className="mt-1 text-sm text-gray-900">
+                    {commissionDisplay.absoluteValue || (
+                      <span className="text-gray-400">{commissionDisplay.absoluteHint || '暂无法计算'}</span>
+                    )}
+                  </dd>
                 </div>
               )}
               <div>

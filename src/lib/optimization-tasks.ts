@@ -10,7 +10,7 @@
 import { getDatabase } from '@/lib/db'
 import { dateMinusDays } from '@/lib/db-helpers'
 import { createOptimizationEngine, type CampaignMetrics, type OptimizationRecommendation } from './optimization-rules'
-import { parsePrice } from '@/lib/pricing-utils'
+import { getCommissionPerConversion as getOfferCommissionPerConversion } from './offer-monetization'
 
 export interface OptimizationTask {
   id: number
@@ -50,6 +50,7 @@ export async function generateOptimizationTasksForUser(userId: number): Promise<
       c.campaign_name as campaignName,
       c.status,
       c.created_at,
+      o.target_country,
       o.product_price,
       o.commission_payout
     FROM campaigns c
@@ -105,15 +106,13 @@ export async function generateOptimizationTasksForUser(userId: number): Promise<
     let conversionValue = 50 // 默认值$50（降级方案）
     if (campaign.product_price && campaign.commission_payout) {
       try {
-        // 解析产品价格（使用智能价格解析）
-        const price = parsePrice(campaign.product_price) || 0
-
-        // 解析佣金比例（移除%符号）
-        const payoutMatch = campaign.commission_payout.match(/[\d.]+/)
-        const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
-
-        if (price > 0 && payout > 0) {
-          conversionValue = price * payout
+        const parsed = getOfferCommissionPerConversion({
+          productPrice: campaign.product_price,
+          commissionPayout: campaign.commission_payout,
+          targetCountry: campaign.target_country,
+        })
+        if (parsed && parsed.amount > 0) {
+          conversionValue = parsed.amount
         }
       } catch (error) {
         console.warn(`计算转化价值失败，使用默认值$50: ${error}`)

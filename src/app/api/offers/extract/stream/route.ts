@@ -11,6 +11,7 @@
  * 请求体：
  * - affiliate_link: 推广链接
  * - target_country: 目标国家
+ * - commission_payout: 佣金（支持比例如 30% 或绝对值如 $15）
  *
  * SSE消息格式：
  * - { type: 'progress', data: { stage, status, message, timestamp, duration, details } }

@@ -13,7 +13,7 @@
  * - affiliate_link: 联盟链接（必填）
  * - target_country: 推广国家（必填）
  * - product_price: 产品价格（选填）
- * - commission_payout: 佣金比例（选填）
+ * - commission_payout: 佣金（选填，支持比例如 30% 或绝对值如 $15）
  * - skipCache: 跳过缓存（选填）
  * - skipWarmup: 跳过预热（选填）
  *

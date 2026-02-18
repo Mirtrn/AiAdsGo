@@ -4,6 +4,10 @@ import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSO
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from './offer-category'
 import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
 import {
+  normalizeOfferCommissionPayoutInput,
+  normalizeOfferProductPriceInput,
+} from './offer-monetization'
+import {
   markUrlSwapTargetsRemovedByOfferAccount,
   markUrlSwapTargetsRemovedByOfferId,
   pauseUrlSwapTargetsByOfferId
@@ -207,15 +211,18 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     console.log('[DEBUG] targetLanguage type:', typeof targetLanguage)
   }
 
+  const normalizedProductPrice = normalizeOfferProductPriceInput(input.product_price, input.target_country)
+  const normalizedCommissionPayout = normalizeOfferCommissionPayoutInput(input.commission_payout, input.target_country)
+
   // ========== 自动生成pricing、promotions、scraped_data JSON ==========
   // 1. 如果有product_price，自动解析并生成pricing JSON
-  const pricingJSON = input.product_price ? generatePricingJSON(input.product_price) : null
+  const pricingJSON = normalizedProductPrice ? generatePricingJSON(normalizedProductPrice) : null
 
   // 2. 初始化空的promotions JSON结构
   const promotionsJSON = initializePromotionsJSON()
 
   // 3. 初始化scraped_data JSON（包含price信息）
-  const scrapedDataJSON = initializeScrapedDataJSON(input.product_price)
+  const scrapedDataJSON = initializeScrapedDataJSON(normalizedProductPrice)
 
   const params = [
     userId,
@@ -233,8 +240,8 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     input.final_url_suffix ?? null,  // URL查询参数后缀
     offerName,  // 自动生成
     targetLanguage,  // 自动生成
-    input.product_price || null,  // 需求28
-    input.commission_payout || null,  // 需求28
+    normalizedProductPrice || null,  // 需求28
+    normalizedCommissionPayout || null,  // 需求28
     // 🔥 2025-12-16修复：添加product_name字段
     input.product_name || null,
     // 自动生成的JSON字段
@@ -586,6 +593,13 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
     }
   }
 
+  const normalizedProductPrice = input.product_price !== undefined
+    ? normalizeOfferProductPriceInput(input.product_price, nextTargetCountry)
+    : undefined
+  const normalizedCommissionPayout = input.commission_payout !== undefined
+    ? normalizeOfferCommissionPayoutInput(input.commission_payout, nextTargetCountry)
+    : undefined
+
   // 构建UPDATE语句
   const updates: string[] = []
   const params: any[] = []
@@ -657,11 +671,11 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   }
   if (input.product_price !== undefined) {
     updates.push('product_price = ?')
-    params.push(input.product_price)
+    params.push(normalizedProductPrice || null)
   }
   if (input.commission_payout !== undefined) {
     updates.push('commission_payout = ?')
-    params.push(input.commission_payout)
+    params.push(normalizedCommissionPayout || null)
   }
   // AI分析结果字段
   if (input.competitor_analysis !== undefined) {

@@ -156,6 +156,52 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
+  it('normalizes offer extract numeric amount payload with target-country currency symbol', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '399',
+        commission_payout: '74.81',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$399',
+      commission_payout: '$74.81',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
+  it('preserves explicit currency product price and percent commission for offer extract', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$349.99',
+        commission_payout: '30%',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$349.99',
+      commission_payout: '30%',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
   it('requires status when patching risk alert', () => {
     expect(() =>
       normalizeOpenclawCommandPayload({

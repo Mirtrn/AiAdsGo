@@ -1161,23 +1161,33 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
               {/* 🔧 修复(2025-12-13): 使用货币转换工具计算建议CPC */}
               {offer.productPrice && offer.commissionPayout && (() => {
+                const targetCountry = offer.targetCountry || offer.target_country || 'US'
                 // 使用货币转换工具计算建议最大CPC
                 const cpcResult = calculateMaxCPC(
                   offer.productPrice,
                   offer.commissionPayout,
                   'USD',  // 产品价格通常是USD
                   accountCurrency,  // 转换为账号货币
-                  50  // 假设50个点击出一单
+                  50,  // 假设50个点击出一单
+                  targetCountry
                 )
 
                 if (cpcResult) {
+                  const details = cpcResult.calculationDetails
                   return (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
                       <Info className="inline h-4 w-4 mr-1" />
                       <strong>建议最大CPC</strong>: {cpcResult.maxCPCFormatted}
-                      <span className="ml-1 text-xs text-blue-600">
-                        (${cpcResult.calculationDetails.productPrice} × {cpcResult.calculationDetails.commissionRate.toFixed(2)}% ÷ {cpcResult.calculationDetails.clicksPerSale}，假设{cpcResult.calculationDetails.clicksPerSale}个点击出一单)
-                      </span>
+                      {details.commissionMode === 'percent' && details.commissionRate !== null && (
+                        <span className="ml-1 text-xs text-blue-600">
+                          (${details.productPrice} × {details.commissionRate.toFixed(2)}% ÷ {details.clicksPerSale}，假设{details.clicksPerSale}个点击出一单)
+                        </span>
+                      )}
+                      {details.commissionMode === 'amount' && (
+                        <span className="ml-1 text-xs text-blue-600">
+                          ({details.commissionAmount.toFixed(2)} {details.sourceCurrency} ÷ {details.clicksPerSale}，绝对佣金模式，假设{details.clicksPerSale}个点击出一单)
+                        </span>
+                      )}
                     </div>
                   )
                 }

@@ -13,8 +13,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics } from '@/lib/optimization-rules'
-import { convertCurrency, parseCommission } from '@/lib/currency'
-import { parsePrice, parseProductPrice } from '@/lib/pricing-utils'
+import { convertCurrency } from '@/lib/currency'
+import { getCommissionPerConversion as getOfferCommissionPerConversion } from '@/lib/offer-monetization'
 
 interface CampaignPerformance {
   campaignId: number
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
 
     // 获取Offer信息
     const offer = await db.queryOne<any>(`
-      SELECT id, offer_name, product_price, commission_payout
+      SELECT id, offer_name, target_country, product_price, commission_payout
       FROM offers
       WHERE id = ? AND user_id = ?
     `, [offerId, auth.user!.userId])
@@ -224,16 +224,17 @@ export async function GET(request: NextRequest) {
 
     if (offer.product_price && offer.commission_payout) {
       try {
-        const parsed = parseProductPrice(offer.product_price)
-        const productCurrency = String(parsed?.currency || 'USD').trim().toUpperCase()
-        const price = parsePrice(parsed?.current || offer.product_price) || 0
-        const payoutRate = parseCommission(offer.commission_payout) || 0
+        const parsed = getOfferCommissionPerConversion({
+          productPrice: offer.product_price,
+          commissionPayout: offer.commission_payout,
+          targetCountry: offer.target_country,
+        })
 
-        if (price > 0 && payoutRate > 0) {
-          const commissionAmountInProductCurrency = price * payoutRate
-          conversionValue = productCurrency === reportingCurrency
-            ? commissionAmountInProductCurrency
-            : convertCurrency(commissionAmountInProductCurrency, productCurrency, reportingCurrency)
+        if (parsed && parsed.amount > 0) {
+          const sourceCurrency = String(parsed.currency || 'USD').trim().toUpperCase()
+          conversionValue = sourceCurrency === reportingCurrency
+            ? parsed.amount
+            : convertCurrency(parsed.amount, sourceCurrency, reportingCurrency)
         }
       } catch (error) {
         console.warn(`计算转化价值失败，使用默认值: ${error}`)

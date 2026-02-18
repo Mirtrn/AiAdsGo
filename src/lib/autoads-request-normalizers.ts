@@ -1,3 +1,7 @@
+import {
+  normalizeOfferCommissionPayoutInput,
+  normalizeOfferProductPriceInput,
+} from '@/lib/offer-monetization'
 type PlainObject = Record<string, any>
 
 function isPlainObject(value: unknown): value is PlainObject {
@@ -309,6 +313,10 @@ export function normalizeClickFarmTaskRequestBody(value: unknown): PlainObject |
   return normalized
 }
 
+export type NormalizeOfferExtractOptions = {
+  normalizeMonetization?: boolean
+}
+
 const OFFER_EXTRACT_ALIAS_MAP: Readonly<Record<string, string>> = {
   affiliateLink: 'affiliate_link',
   url: 'affiliate_link',
@@ -323,7 +331,10 @@ const OFFER_EXTRACT_ALIAS_MAP: Readonly<Record<string, string>> = {
   skip_warmup: 'skipWarmup',
 }
 
-export function normalizeOfferExtractRequestBody(value: unknown): PlainObject | undefined {
+export function normalizeOfferExtractRequestBody(
+  value: unknown,
+  options?: NormalizeOfferExtractOptions
+): PlainObject | undefined {
   if (!isPlainObject(value)) {
     return undefined
   }
@@ -353,6 +364,25 @@ export function normalizeOfferExtractRequestBody(value: unknown): PlainObject | 
   normalized.skipWarmup = normalized.skipWarmup !== undefined
     ? isTruthyFlag(normalized.skipWarmup)
     : false
+
+  const shouldNormalizeMonetization = options?.normalizeMonetization !== false
+  if (shouldNormalizeMonetization) {
+    if (normalized.product_price !== undefined && normalized.product_price !== null) {
+      const normalizedPrice = normalizeOfferProductPriceInput(
+        String(normalized.product_price),
+        String(normalized.target_country || 'US')
+      )
+      normalized.product_price = normalizedPrice ?? null
+    }
+
+    if (normalized.commission_payout !== undefined && normalized.commission_payout !== null) {
+      const normalizedCommission = normalizeOfferCommissionPayoutInput(
+        String(normalized.commission_payout),
+        String(normalized.target_country || 'US')
+      )
+      normalized.commission_payout = normalizedCommission ?? null
+    }
+  }
 
   return normalized
 }

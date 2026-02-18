@@ -103,4 +103,38 @@ describe('autoads request normalizers', () => {
     expect(normalized.brand).toBeUndefined()
     expect(normalized.skip_cache).toBeUndefined()
   })
+
+  it('supports command-safe offer normalization options', () => {
+    const normalized = normalizeOfferExtractRequestBody(
+      {
+        affiliate_link: 'https://aff.example.com/track',
+        target_country: 'US',
+        product_price: '349.99',
+        commission_payout: '105.00',
+      },
+      {
+        normalizeMonetization: true,
+      }
+    ) || {}
+
+    expect(normalized.product_price).toBe('$349.99')
+    expect(normalized.commission_payout).toBe('$105')
+  })
+
+  it('preserves explicit currency and percent commission when provided', () => {
+    const normalized = normalizeOfferExtractRequestBody(
+      {
+        affiliate_link: 'https://aff.example.com/track',
+        target_country: 'US',
+        product_price: '$349.99',
+        commission_payout: '30%',
+      },
+      {
+        normalizeMonetization: true,
+      }
+    ) || {}
+
+    expect(normalized.product_price).toBe('$349.99')
+    expect(normalized.commission_payout).toBe('30%')
+  })
 })

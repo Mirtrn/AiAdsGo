@@ -11,6 +11,8 @@
  * 更新时间：2025-11-18
  * 来源：Google Finance
  */
+import { parseCommissionPayoutValue, parseProductPriceMoney } from '@/lib/offer-monetization'
+
 export const EXCHANGE_RATES: Record<string, number> = {
   USD: 1,        // 美元（基准）
   CNY: 7.10,     // 人民币
@@ -182,36 +184,60 @@ export function calculateMaxCPC(
   commission: string,
   productCurrency: string = 'USD',
   targetCurrency: string = 'USD',
-  clicksPerSale: number = 50
+  clicksPerSale: number = 50,
+  targetCountry?: string
 ): {
   maxCPC: number
   maxCPCFormatted: string
   calculationDetails: {
     productPrice: number
-    commissionRate: number
+    productCurrency: string | null
+    commissionMode: 'percent' | 'amount'
+    commissionRate: number | null
     commissionAmount: number
+    sourceCurrency: string
     clicksPerSale: number
     targetCurrency: string
   }
 } | null {
-  // 解析产品价格
-  const price = parsePrice(productPrice)
-  if (price === null || price <= 0) return null
+  const parsedProduct = parseProductPriceMoney(productPrice, {
+    targetCountry,
+    fallbackCurrency: targetCountry ? undefined : productCurrency,
+  })
 
-  // 解析佣金比例
-  const commissionRate = parseCommission(commission)
-  if (commissionRate === null || commissionRate <= 0) return null
+  const parsedCommission = parseCommissionPayoutValue(commission, {
+    targetCountry,
+    fallbackCurrency: parsedProduct?.currency || (targetCountry ? undefined : productCurrency),
+  })
+  if (!parsedCommission) return null
 
-  // 计算佣金金额
-  const commissionAmount = price * commissionRate
+  let commissionAmount = 0
+  let sourceCurrency = parsedProduct?.currency || productCurrency
+  let commissionRate: number | null = null
 
-  // 计算最大CPC（产品原币）
-  const maxCPCInProductCurrency = commissionAmount / clicksPerSale
+  if (parsedCommission.mode === 'percent') {
+    if (!parsedProduct || parsedProduct.amount <= 0) return null
+    commissionAmount = parsedProduct.amount * parsedCommission.rate
+    sourceCurrency = parsedProduct.currency
+    commissionRate = parsedCommission.displayRate
+  } else {
+    commissionAmount = parsedCommission.amount
+    sourceCurrency = parsedCommission.currency
+
+    if (parsedProduct && parsedProduct.amount > 0) {
+      commissionRate = (parsedCommission.amount / parsedProduct.amount) * 100
+    }
+  }
+
+  if (!(commissionAmount > 0)) return null
+
+  // 计算最大CPC（佣金原币）
+  const maxCPCInSourceCurrency = commissionAmount / clicksPerSale
 
   // 货币转换
   const maxCPCInTargetCurrency = convertCurrency(
-    maxCPCInProductCurrency,
-    productCurrency,
+    maxCPCInSourceCurrency,
+    sourceCurrency,
     targetCurrency
   )
 
@@ -225,9 +251,12 @@ export function calculateMaxCPC(
     maxCPC: roundedMaxCPC,
     maxCPCFormatted,
     calculationDetails: {
-      productPrice: price,
-      commissionRate: commissionRate * 100, // 转回百分比显示
+      productPrice: parsedProduct?.amount || 0,
+      productCurrency: parsedProduct?.currency || null,
+      commissionMode: parsedCommission.mode,
+      commissionRate,
       commissionAmount,
+      sourceCurrency,
       clicksPerSale,
       targetCurrency,
     },

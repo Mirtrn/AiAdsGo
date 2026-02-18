@@ -2,7 +2,7 @@ import { getDatabase } from '@/lib/db'
 import { getAllProxyUrls } from '@/lib/settings'
 import { getProxyPool } from '@/lib/url-resolver-enhanced'
 import { getLanguageNameForCountry, getSupportedCountries, getCountryChineseName } from '@/lib/language-country-codes'
-import { parsePrice } from '@/lib/pricing-utils'
+import { calculateMaxCPC } from '@/lib/currency'
 import { maskProxyUrl } from '@/lib/proxy/validate-url'
 
 /**
@@ -410,35 +410,13 @@ export function calculateSuggestedMaxCPC(
   targetCurrency: string = 'USD'
 ): { amount: number; currency: string; formatted: string } | null {
   try {
-    // 解析价格（使用智能价格解析，支持欧洲/美国格式）
-    const price = parsePrice(productPrice)
-    if (!price || price <= 0) return null
-
-    // 解析佣金比例（去除%符号）
-    const payoutMatch = commissionPayout.match(/[\d.]+/)
-    if (!payoutMatch) return null
-    const payout = parseFloat(payoutMatch[0]) / 100 // 转换为小数（6.75% → 0.0675）
-
-    if (isNaN(payout) || payout <= 0 || payout > 1) return null
-
-    // 计算最大CPC（按50个点击出一单）
-    const maxCPC = (price * payout) / 50
-
-    // 货币符号映射
-    const currencySymbol: Record<string, string> = {
-      USD: '$',
-      CNY: '¥',
-      EUR: '€',
-      GBP: '£',
-      JPY: '¥',
-      CAD: 'C$',
-      AUD: 'A$',
-    }
+    const result = calculateMaxCPC(productPrice, commissionPayout, 'USD', targetCurrency, 50)
+    if (!result) return null
 
     return {
-      amount: maxCPC,
+      amount: result.maxCPC,
       currency: targetCurrency,
-      formatted: `${currencySymbol[targetCurrency] || targetCurrency}${maxCPC.toFixed(2)}`,
+      formatted: result.maxCPCFormatted,
     }
   } catch (error) {
     console.error('计算建议最大CPC失败:', error)

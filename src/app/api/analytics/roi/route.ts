@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import { convertCurrency, parseCommission } from '@/lib/currency'
+import { convertCurrency } from '@/lib/currency'
 import { toNumber } from '@/lib/utils'
-import { parsePrice, parseProductPrice } from '@/lib/pricing-utils'
+import { getCommissionPerConversion as getOfferCommissionPerConversion } from '@/lib/offer-monetization'
 
 /**
  * GET /api/analytics/roi
@@ -98,27 +98,21 @@ export async function GET(request: NextRequest) {
     const whereConditions = [...baseWhereConditions, 'cp.currency = ?']
     const params: any[] = [...baseParams, reportingCurrency]
 
-    const getCommissionPerConversion = (productPrice: any, commissionPayout: any): number => {
-      if (!productPrice || !commissionPayout) return 0
+    const getCommissionPerConversion = (productPrice: any, commissionPayout: any, targetCountry: any): number => {
+      const parsed = getOfferCommissionPerConversion({
+        productPrice: String(productPrice || ''),
+        commissionPayout: String(commissionPayout || ''),
+        targetCountry: String(targetCountry || ''),
+      })
+      if (!parsed || !(parsed.amount > 0)) return 0
 
-      const priceText = String(productPrice || '').trim()
-      const payoutText = String(commissionPayout || '').trim()
-      if (!priceText || !payoutText) return 0
-
-      const parsed = parseProductPrice(priceText)
-      const sourceCurrency = String(parsed?.currency || 'USD').trim().toUpperCase()
-      const price = parsePrice(parsed?.current || priceText) || 0
-      const payoutRate = parseCommission(payoutText) || 0
-
-      if (price <= 0 || payoutRate <= 0) return 0
-
-      const commissionInSourceCurrency = price * payoutRate
+      const sourceCurrency = String(parsed.currency || 'USD').trim().toUpperCase()
       if (sourceCurrency === reportingCurrency) {
-        return commissionInSourceCurrency
+        return parsed.amount
       }
 
       try {
-        return convertCurrency(commissionInSourceCurrency, sourceCurrency, reportingCurrency)
+        return convertCurrency(parsed.amount, sourceCurrency, reportingCurrency)
       } catch {
         // 跨币种无法换算时，避免混币种：返回0（该Offer的收益将不计入报表）
         return 0
@@ -129,6 +123,7 @@ export async function GET(request: NextRequest) {
     const offerMetaRows = await db.query<any>(`
       SELECT DISTINCT
         o.id as offer_id,
+        o.target_country,
         o.product_price,
         o.commission_payout
       FROM campaign_performance cp
@@ -141,7 +136,7 @@ export async function GET(request: NextRequest) {
     for (const row of (offerMetaRows || [])) {
       const id = Number(row.offer_id)
       if (!Number.isFinite(id)) continue
-      commissionMap.set(id, getCommissionPerConversion(row.product_price, row.commission_payout))
+      commissionMap.set(id, getCommissionPerConversion(row.product_price, row.commission_payout, row.target_country))
     }
 
     // 1. 整体ROI分析（按Offer汇总，避免SQL层混币种）

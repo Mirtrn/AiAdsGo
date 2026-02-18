@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import { parseProductPrice } from '@/lib/pricing-utils'
-import { parsePrice, parseCommission, convertCurrency } from '@/lib/currency'
+import { convertCurrency } from '@/lib/currency'
+import { getCommissionPerConversion as getOfferCommissionPerConversion } from '@/lib/offer-monetization'
 
 function toNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value)
@@ -27,25 +27,26 @@ function parseOptionalInt(value: string | null): number | null {
   return Math.floor(parsed)
 }
 
-function getCommissionPerConversion(productPrice: unknown, commissionPayout: unknown, reportingCurrency: string): number {
-  const priceText = String(productPrice || '').trim()
-  const payoutText = String(commissionPayout || '').trim()
-  if (!priceText || !payoutText) return 0
+function getCommissionPerConversion(
+  productPrice: unknown,
+  commissionPayout: unknown,
+  targetCountry: unknown,
+  reportingCurrency: string
+): number {
+  const parsed = getOfferCommissionPerConversion({
+    productPrice: String(productPrice || ''),
+    commissionPayout: String(commissionPayout || ''),
+    targetCountry: String(targetCountry || ''),
+  })
+  if (!parsed || !(parsed.amount > 0)) return 0
 
-  const parsedPrice = parseProductPrice(priceText)
-  const sourceCurrency = normalizeCurrency(parsedPrice?.currency || 'USD')
-  const basePrice = parsePrice(parsedPrice?.current || priceText) || 0
-  const payoutRate = parseCommission(payoutText) || 0
-
-  if (!(basePrice > 0) || !(payoutRate > 0)) return 0
-
-  const commissionInSourceCurrency = basePrice * payoutRate
+  const sourceCurrency = normalizeCurrency(parsed.currency)
   if (sourceCurrency === reportingCurrency) {
-    return commissionInSourceCurrency
+    return parsed.amount
   }
 
   try {
-    return convertCurrency(commissionInSourceCurrency, sourceCurrency, reportingCurrency)
+    return convertCurrency(parsed.amount, sourceCurrency, reportingCurrency)
   } catch {
     return 0
   }
@@ -145,6 +146,7 @@ export async function GET(request: NextRequest) {
           c.offer_id,
           o.brand as offer_brand,
           o.offer_name,
+          o.target_country,
           o.product_price,
           o.commission_payout,
           COALESCE(SUM(cp.impressions), 0) as impressions,
@@ -172,6 +174,7 @@ export async function GET(request: NextRequest) {
           c.offer_id,
           o.brand,
           o.offer_name,
+          o.target_country,
           o.product_price,
           o.commission_payout,
           COALESCE(cp.currency, gaa.currency, 'USD')
@@ -193,6 +196,7 @@ export async function GET(request: NextRequest) {
       const commissionPerConversion = getCommissionPerConversion(
         row.product_price,
         row.commission_payout,
+        row.target_country,
         reportingCurrency
       )
       const estimatedRevenue = conversions * commissionPerConversion
