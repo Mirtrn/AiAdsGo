@@ -45,7 +45,6 @@ import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/chart
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
   getCampaignStatusLabel,
-  getCreationStatusLabel,
 } from '@/lib/i18n-constants'
 import { formatCurrency } from '@/lib/currency'
 import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
@@ -53,7 +52,9 @@ import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '
 interface Campaign {
   id: number
   offerId: number
-  googleAdsAccountId: number
+  googleAdsAccountId: number | null
+  adsAccountCustomerId?: string | null
+  adsAccountName?: string | null
   googleCampaignId?: string | null
   campaignId: string | null
   campaignName: string
@@ -1304,31 +1305,6 @@ export default function CampaignsPage() {
     )
   }
 
-  const getCreationStatusBadge = (creationStatus?: string, creationError?: string | null) => {
-    const normalizedStatus = String(creationStatus || '').toLowerCase()
-    const hasKnownStatus = ['draft', 'pending', 'synced', 'failed'].includes(normalizedStatus)
-    const statusKey = (hasKnownStatus ? normalizedStatus : 'draft') as 'draft' | 'pending' | 'synced' | 'failed'
-    const label = getCreationStatusLabel(statusKey)
-
-    const configs = {
-      draft: 'bg-slate-100 text-slate-700 border-slate-200',
-      pending: 'bg-blue-50 text-blue-700 border-blue-200',
-      synced: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      failed: 'bg-red-50 text-red-700 border-red-200',
-    } as const
-
-    const className = configs[statusKey] || 'bg-gray-100 text-gray-700 border-gray-200'
-    const title = statusKey === 'failed' && creationError
-      ? `同步失败：${creationError}`
-      : label
-
-    return (
-      <Badge variant="outline" className={`w-fit whitespace-nowrap text-[11px] px-1.5 py-0 ${className}`} title={title}>
-        {label}
-      </Badge>
-    )
-  }
-
   // 排序处理函数
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -1791,6 +1767,7 @@ export default function CampaignsPage() {
                         />
                       </TableHead>
                       <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
+                      <TableHead className="w-[160px] whitespace-nowrap">关联Ads账号</TableHead>
                       <SortableHeader field="budgetAmount" className="w-[98px] whitespace-nowrap">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
@@ -1799,7 +1776,6 @@ export default function CampaignsPage() {
                       <SortableHeader field="conversions" className="w-[66px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[66px] whitespace-nowrap !px-0.5">花费</SortableHeader>
                       <SortableHeader field="status" className="w-[78px] whitespace-nowrap">投放状态</SortableHeader>
-                      <TableHead className="w-[74px] whitespace-nowrap">同步状态</TableHead>
                       <SortableHeader field="servingStartDate" className="w-[74px] whitespace-nowrap">投放日期</SortableHeader>
                       <TableHead className="w-[48px] whitespace-nowrap text-center">操作</TableHead>
                     </TableRow>
@@ -1812,6 +1788,13 @@ export default function CampaignsPage() {
 	                    const googleCampaignId = getCampaignGoogleId(campaign)
                         const isStatusUpdating = statusUpdatingIds.has(campaign.id)
 	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
+                        const adsAccountName = String(campaign.adsAccountName || '').trim()
+                        const adsAccountCustomerId = String(campaign.adsAccountCustomerId || '').trim()
+                        const adsAccountPrimaryText = adsAccountName
+                          || adsAccountCustomerId
+                          || (campaign.googleAdsAccountId !== null && campaign.googleAdsAccountId !== undefined
+                            ? `ID ${campaign.googleAdsAccountId}`
+                            : '-')
 
 		                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
 		                    const adjustCpcDisabledReason = !googleCampaignId
@@ -1902,6 +1885,23 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 truncate" title={adsAccountPrimaryText}>
+                            {adsAccountPrimaryText}
+                          </div>
+                          {adsAccountName && adsAccountCustomerId && (
+                            <div className="text-[11px] text-gray-500 font-mono truncate" title={adsAccountCustomerId}>
+                              {adsAccountCustomerId}
+                            </div>
+                          )}
+                          {campaign.adsAccountAvailable === false && (
+                            <Badge variant="outline" className="mt-0.5 text-[10px] px-1 py-0 whitespace-nowrap border-orange-200 text-orange-700 bg-orange-50">
+                              已解绑
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="flex items-center gap-0.5 min-w-0">
                           <div className="font-medium text-gray-900">
                             {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
@@ -1943,9 +1943,6 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {getStatusBadge(campaign.status, campaign.adsAccountAvailable)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {getCreationStatusBadge(campaign.creationStatus, campaign.creationError)}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <span className="text-sm text-gray-900">
