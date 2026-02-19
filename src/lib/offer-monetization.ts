@@ -287,7 +287,10 @@ export function normalizeOfferProductPriceInput(
 
 export function normalizeOfferCommissionPayoutInput(
   value: string | null | undefined,
-  targetCountry?: string | null
+  targetCountry?: string | null,
+  options?: {
+    numericMode?: 'amount' | 'percent'
+  }
 ): string | undefined {
   const raw = normalizeSpacing(String(value || ''))
   if (!raw) return undefined
@@ -304,6 +307,10 @@ export function normalizeOfferCommissionPayoutInput(
   const parsedAmount = parseNumberish(raw)
   if (parsedAmount === null) {
     return raw
+  }
+
+  if (options?.numericMode === 'percent') {
+    return `${formatCompactNumber(parsedAmount)}%`
   }
 
   return `${getCurrencySymbolByCountry(targetCountry)}${formatCompactNumber(parsedAmount)}`

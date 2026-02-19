@@ -21,6 +21,7 @@ describe('offer monetization helpers', () => {
     expect(normalizeOfferCommissionPayoutInput('30%', 'US')).toBe('30%')
     expect(normalizeOfferCommissionPayoutInput('15', 'US')).toBe('$15')
     expect(normalizeOfferCommissionPayoutInput('15', 'GB')).toBe('£15')
+    expect(normalizeOfferCommissionPayoutInput('15', 'US', { numericMode: 'percent' })).toBe('15%')
   })
 
   it('parses commission payout with percent and amount semantics', () => {

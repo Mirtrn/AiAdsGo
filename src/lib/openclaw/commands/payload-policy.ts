@@ -196,7 +196,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalized = normalizeOfferExtractRequestBody(sourceBody)
+      const normalized = normalizeOfferExtractRequestBody(sourceBody, {
+        numericCommissionMode: 'percent',
+      })
       return normalized || normalizedBody
     },
   },
@@ -229,7 +231,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalized = normalizeOfferExtractRequestBody(sourceBody)
+      const normalized = normalizeOfferExtractRequestBody(sourceBody, {
+        numericCommissionMode: 'percent',
+      })
       return normalized || normalizedBody
     },
   },

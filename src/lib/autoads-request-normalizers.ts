@@ -315,6 +315,7 @@ export function normalizeClickFarmTaskRequestBody(value: unknown): PlainObject |
 
 export type NormalizeOfferExtractOptions = {
   normalizeMonetization?: boolean
+  numericCommissionMode?: 'amount' | 'percent'
 }
 
 const OFFER_EXTRACT_ALIAS_MAP: Readonly<Record<string, string>> = {
@@ -378,7 +379,10 @@ export function normalizeOfferExtractRequestBody(
     if (normalized.commission_payout !== undefined && normalized.commission_payout !== null) {
       const normalizedCommission = normalizeOfferCommissionPayoutInput(
         String(normalized.commission_payout),
-        String(normalized.target_country || 'US')
+        String(normalized.target_country || 'US'),
+        {
+          numericMode: options?.numericCommissionMode || 'amount',
+        }
       )
       normalized.commission_payout = normalizedCommission ?? null
     }

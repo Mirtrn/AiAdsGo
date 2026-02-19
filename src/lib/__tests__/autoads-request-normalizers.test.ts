@@ -121,6 +121,24 @@ describe('autoads request normalizers', () => {
     expect(normalized.commission_payout).toBe('$105')
   })
 
+  it('supports percent mode for bare numeric commission in offer normalization', () => {
+    const normalized = normalizeOfferExtractRequestBody(
+      {
+        affiliate_link: 'https://aff.example.com/track',
+        target_country: 'US',
+        product_price: '349.99',
+        commission_payout: '30',
+      },
+      {
+        normalizeMonetization: true,
+        numericCommissionMode: 'percent',
+      }
+    ) || {}
+
+    expect(normalized.product_price).toBe('$349.99')
+    expect(normalized.commission_payout).toBe('30%')
+  })
+
   it('preserves explicit currency and percent commission when provided', () => {
     const normalized = normalizeOfferExtractRequestBody(
       {

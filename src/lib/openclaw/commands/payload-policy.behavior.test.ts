@@ -156,7 +156,7 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
-  it('normalizes offer extract numeric amount payload with target-country currency symbol', () => {
+  it('normalizes offer extract numeric commission payload as percent ratio', () => {
     const { body } = normalizeOpenclawCommandPayload({
       method: 'POST',
       path: '/api/offers/extract',
@@ -165,6 +165,29 @@ describe('openclaw command payload policy behavior', () => {
         target_country: 'US',
         product_price: '399',
         commission_payout: '74.81',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$399',
+      commission_payout: '74.81%',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
+  it('preserves explicit currency commission amount for offer extract', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '399',
+        commission_payout: '$74.81',
       },
     })
 
