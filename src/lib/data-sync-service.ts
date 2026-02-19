@@ -5,6 +5,7 @@ import { getUserAuthType, getGoogleAdsCredentials } from './google-ads-oauth'
 import { executeGAQLQueryPython } from './python-ads-client'
 import { getInsertedId, nowFunc } from './db-helpers'
 import { createRiskAlert } from './risk-alerts'
+import { resolveLoginCustomerCandidates, isGoogleAdsAccountAccessError } from './google-ads-login-customer'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { normalizeBrandKey, refreshBrandCoreKeywordCache } from './brand-core-keywords'
@@ -51,6 +52,7 @@ export interface GAQLQueryParams {
   endDate: string // YYYY-MM-DD
   accountId: number
   userId: number
+  accountParentMccId?: string
   credentials?: {
     client_id: string
     client_secret: string
@@ -302,7 +304,7 @@ export class DataSyncService {
       // 🔧 修复(2026-01-03): 添加account_name字段用于风险警报显示
       const accounts = await db.query(
         `
-        SELECT id, customer_id, account_name, refresh_token, user_id, service_account_id, currency
+        SELECT id, customer_id, parent_mcc_id, account_name, refresh_token, user_id, service_account_id, currency
         FROM google_ads_accounts
         WHERE user_id = ? AND ${isActiveCondition}
       `,
@@ -310,6 +312,7 @@ export class DataSyncService {
       ) as Array<{
         id: number
         customer_id: string
+        parent_mcc_id: string | null
         account_name: string | null
         refresh_token: string
         user_id: number
@@ -433,6 +436,7 @@ export class DataSyncService {
             endDate: endDateStr,
             accountId: account.id,
             userId: userId,
+            accountParentMccId: account.parent_mcc_id || undefined,
             credentials: userCredentials,
             authType: auth.authType,
             serviceAccountId: auth.serviceAccountId,
@@ -530,6 +534,7 @@ export class DataSyncService {
               startDate: startDateStr,
               endDate: endDateStr,
               accountId: account.id,
+              accountParentMccId: account.parent_mcc_id || undefined,
               credentials: userCredentials,
               authType: auth.authType,
               serviceAccountId: auth.serviceAccountId,
@@ -557,7 +562,7 @@ export class DataSyncService {
           )
         } catch (accountError) {
           // 🔧 修复(2025-12-28): 为该账户的sync_log记录错误
-          const errorMessage = accountError instanceof Error ? accountError.message : String(accountError)
+          const errorMessage = this.buildSyncErrorMessage(accountError)
 
           if (accountSyncLogId) {
             await db.exec(
@@ -649,7 +654,7 @@ export class DataSyncService {
     } catch (error) {
       const duration = Date.now() - startTime
       const completedAt = new Date().toISOString()
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = this.buildSyncErrorMessage(error)
 
       // 更新日志为失败
       if (syncLogId) {
@@ -685,47 +690,9 @@ export class DataSyncService {
   private async queryPerformanceData(
     params: GAQLQueryParams
   ): Promise<CampaignPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId } = params
+    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId, accountParentMccId } = params
 
     try {
-      let customer: any
-
-      if (authType === 'service_account' && serviceAccountId) {
-        // 服务账号模式
-        const config = await getServiceAccountConfig(userId, serviceAccountId)
-        if (!config) {
-          throw new Error('未找到服务账号配置')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          accountId,
-          userId,
-          loginCustomerId: credentials?.login_customer_id || '',
-          authType: 'service_account',
-          serviceAccountId,
-        })
-      } else {
-        // OAuth模式
-        if (!refreshToken) {
-          throw new Error('Google Ads账号缺少refresh token')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          refreshToken,
-          loginCustomerId: credentials?.login_customer_id || '',
-          credentials: credentials ? {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            developer_token: credentials.developer_token,
-          } : undefined,
-          accountId,
-          userId,
-        })
-      }
-
-      // GAQL查询语句
       const query = `
         SELECT
           customer.currency_code,
@@ -743,15 +710,8 @@ export class DataSyncService {
         ORDER BY segments.date DESC
       `
 
-      // 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务，而不是错误地使用 customer.search()
-      const isServiceAccountMode = authType === 'service_account' && serviceAccountId
-      const results = isServiceAccountMode
-        ? (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
-        : await (customer as any).query(query)
-
-      // 转换为标准格式
-      const performanceData: CampaignPerformanceData[] = results.map(
-        (row: any) => {
+      const toPerformanceData = (results: any[]): CampaignPerformanceData[] =>
+        results.map((row: any) => {
           const impressions = row.metrics?.impressions || 0
           const clicks = row.metrics?.clicks || 0
           const conversions = row.metrics?.conversions || 0
@@ -778,14 +738,72 @@ export class DataSyncService {
             currency_code: row.customer?.currency_code || undefined,
             time_zone: row.customer?.time_zone || undefined,
           }
-        }
-      )
+        })
 
-      return performanceData
+      if (authType === 'service_account' && serviceAccountId) {
+        // 服务账号模式
+        const config = await getServiceAccountConfig(userId, serviceAccountId)
+        if (!config) {
+          throw new Error('未找到服务账号配置')
+        }
+
+        const results = (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
+        return toPerformanceData(results)
+      }
+
+      // OAuth模式
+      if (!refreshToken) {
+        throw new Error('Google Ads账号缺少refresh token')
+      }
+
+      const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
+        authType: 'oauth',
+        accountParentMccId,
+        oauthLoginCustomerId: credentials?.login_customer_id,
+        targetCustomerId: customerId,
+      })
+
+      let lastQueryError: unknown = null
+      for (let i = 0; i < loginCustomerIdCandidates.length; i += 1) {
+        const loginCustomerId = loginCustomerIdCandidates[i]
+        try {
+          const customer = await getCustomerWithCredentials({
+            customerId,
+            refreshToken,
+            loginCustomerId: loginCustomerId ?? null,
+            credentials: credentials ? {
+              client_id: credentials.client_id,
+              client_secret: credentials.client_secret,
+              developer_token: credentials.developer_token,
+            } : undefined,
+            accountId,
+            userId,
+          })
+
+          const results = await (customer as any).query(query)
+          if (i > 0) {
+            console.log(`✅ 账号 ${customerId} 使用备用 login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询效果成功`)
+          }
+          return toPerformanceData(results)
+        } catch (error) {
+          lastQueryError = error
+          const hasNextCandidate = i < loginCustomerIdCandidates.length - 1
+          if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+            const nextLoginCustomerId = loginCustomerIdCandidates[i + 1]
+            console.warn(
+              `⚠️ 账号 ${customerId} login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询失败，切换到 ${this.describeLoginCustomerId(nextLoginCustomerId)} 重试`
+            )
+            continue
+          }
+          throw error
+        }
+      }
+
+      throw lastQueryError || new Error(`Google Ads账号 ${customerId} 查询失败`)
     } catch (error) {
       console.error('GAQL查询失败:', error)
       throw new Error(
-        `Google Ads API查询失败: ${error instanceof Error ? error.message : String(error)}`
+        `Google Ads API查询失败: ${this.buildSyncErrorMessage(error)}`
       )
     }
   }
@@ -796,44 +814,9 @@ export class DataSyncService {
   private async querySearchTermData(
     params: GAQLQueryParams
   ): Promise<SearchTermPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId } = params
+    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId, accountParentMccId } = params
 
     try {
-      let customer: any
-
-      if (authType === 'service_account' && serviceAccountId) {
-        const config = await getServiceAccountConfig(userId, serviceAccountId)
-        if (!config) {
-          throw new Error('未找到服务账号配置')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          accountId,
-          userId,
-          loginCustomerId: credentials?.login_customer_id || '',
-          authType: 'service_account',
-          serviceAccountId,
-        })
-      } else {
-        if (!refreshToken) {
-          throw new Error('Google Ads账号缺少refresh token')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          refreshToken,
-          loginCustomerId: credentials?.login_customer_id || '',
-          credentials: credentials ? {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            developer_token: credentials.developer_token,
-          } : undefined,
-          accountId,
-          userId,
-        })
-      }
-
       const queryWithMatchType = `
         SELECT
           campaign.id,
@@ -869,35 +852,111 @@ export class DataSyncService {
       `
 
       const isServiceAccountMode = authType === 'service_account' && serviceAccountId
+      const runQueryWithSchemaFallback = async (
+        primaryQuery: () => Promise<any[]>,
+        fallbackQuery: () => Promise<any[]>
+      ): Promise<any[]> => {
+        try {
+          return await primaryQuery()
+        } catch (error: any) {
+          const message = String(error?.message || '')
+          const canFallback = message.includes('search_term_match_type')
+            || message.includes('Unrecognized field')
+            || message.includes('Invalid field name')
+          if (!canFallback) {
+            throw error
+          }
+          console.warn('search_term_match_type字段不可用，降级为UNKNOWN继续同步')
+          return await fallbackQuery()
+        }
+      }
+
       let results: any[] = []
 
-      try {
-        results = isServiceAccountMode
-          ? (await executeGAQLQueryPython({
-            userId,
-            serviceAccountId,
-            customerId,
-            query: queryWithMatchType,
-          })).results || []
-          : await (customer as any).query(queryWithMatchType)
-      } catch (error: any) {
-        const message = String(error?.message || '')
-        const canFallback = message.includes('search_term_match_type')
-          || message.includes('Unrecognized field')
-          || message.includes('Invalid field name')
-        if (!canFallback) {
-          throw error
+      if (isServiceAccountMode) {
+        const config = await getServiceAccountConfig(userId, serviceAccountId)
+        if (!config) {
+          throw new Error('未找到服务账号配置')
         }
 
-        console.warn('search_term_match_type字段不可用，降级为UNKNOWN继续同步')
-        results = isServiceAccountMode
-          ? (await executeGAQLQueryPython({
-            userId,
-            serviceAccountId,
-            customerId,
-            query: queryFallback,
-          })).results || []
-          : await (customer as any).query(queryFallback)
+        results = await runQueryWithSchemaFallback(
+          async () => (
+            (await executeGAQLQueryPython({
+              userId,
+              serviceAccountId,
+              customerId,
+              query: queryWithMatchType,
+            })).results || []
+          ),
+          async () => (
+            (await executeGAQLQueryPython({
+              userId,
+              serviceAccountId,
+              customerId,
+              query: queryFallback,
+            })).results || []
+          )
+        )
+      } else {
+        if (!refreshToken) {
+          throw new Error('Google Ads账号缺少refresh token')
+        }
+
+        const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
+          authType: 'oauth',
+          accountParentMccId,
+          oauthLoginCustomerId: credentials?.login_customer_id,
+          targetCustomerId: customerId,
+        })
+
+        let lastQueryError: unknown = null
+        let querySucceeded = false
+
+        for (let i = 0; i < loginCustomerIdCandidates.length; i += 1) {
+          const loginCustomerId = loginCustomerIdCandidates[i]
+
+          try {
+            const customer = await getCustomerWithCredentials({
+              customerId,
+              refreshToken,
+              loginCustomerId: loginCustomerId ?? null,
+              credentials: credentials ? {
+                client_id: credentials.client_id,
+                client_secret: credentials.client_secret,
+                developer_token: credentials.developer_token,
+              } : undefined,
+              accountId,
+              userId,
+            })
+
+            results = await runQueryWithSchemaFallback(
+              async () => await (customer as any).query(queryWithMatchType),
+              async () => await (customer as any).query(queryFallback)
+            )
+
+            if (i > 0) {
+              console.log(`✅ 账号 ${customerId} 使用备用 login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询搜索词成功`)
+            }
+
+            querySucceeded = true
+            break
+          } catch (error) {
+            lastQueryError = error
+            const hasNextCandidate = i < loginCustomerIdCandidates.length - 1
+            if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+              const nextLoginCustomerId = loginCustomerIdCandidates[i + 1]
+              console.warn(
+                `⚠️ 账号 ${customerId} login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询搜索词失败，切换到 ${this.describeLoginCustomerId(nextLoginCustomerId)} 重试`
+              )
+              continue
+            }
+            throw error
+          }
+        }
+
+        if (!querySucceeded && lastQueryError) {
+          throw lastQueryError
+        }
       }
 
       return results.map((row: any) => {
@@ -920,7 +979,7 @@ export class DataSyncService {
     } catch (error) {
       console.error('GAQL查询搜索词报告失败:', error)
       throw new Error(
-        `Google Ads API查询失败(搜索词报告): ${error instanceof Error ? error.message : String(error)}`
+        `Google Ads API查询失败(搜索词报告): ${this.buildSyncErrorMessage(error)}`
       )
     }
   }
@@ -931,44 +990,9 @@ export class DataSyncService {
   private async queryKeywordPerformanceData(
     params: GAQLQueryParams
   ): Promise<KeywordPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId } = params
+    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId, accountParentMccId } = params
 
     try {
-      let customer: any
-
-      if (authType === 'service_account' && serviceAccountId) {
-        const config = await getServiceAccountConfig(userId, serviceAccountId)
-        if (!config) {
-          throw new Error('未找到服务账号配置')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          accountId,
-          userId,
-          loginCustomerId: credentials?.login_customer_id || '',
-          authType: 'service_account',
-          serviceAccountId,
-        })
-      } else {
-        if (!refreshToken) {
-          throw new Error('Google Ads账号缺少refresh token')
-        }
-
-        customer = await getCustomerWithCredentials({
-          customerId,
-          refreshToken,
-          loginCustomerId: credentials?.login_customer_id || '',
-          credentials: credentials ? {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            developer_token: credentials.developer_token,
-          } : undefined,
-          accountId,
-          userId,
-        })
-      }
-
       const query = `
         SELECT
           campaign.id,
@@ -986,9 +1010,72 @@ export class DataSyncService {
       `
 
       const isServiceAccountMode = authType === 'service_account' && serviceAccountId
-      const results = isServiceAccountMode
-        ? (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
-        : await (customer as any).query(query)
+      let results: any[] = []
+
+      if (isServiceAccountMode) {
+        const config = await getServiceAccountConfig(userId, serviceAccountId)
+        if (!config) {
+          throw new Error('未找到服务账号配置')
+        }
+        results = (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
+      } else {
+        if (!refreshToken) {
+          throw new Error('Google Ads账号缺少refresh token')
+        }
+
+        const loginCustomerIdCandidates = resolveLoginCustomerCandidates({
+          authType: 'oauth',
+          accountParentMccId,
+          oauthLoginCustomerId: credentials?.login_customer_id,
+          targetCustomerId: customerId,
+        })
+
+        let lastQueryError: unknown = null
+        let querySucceeded = false
+
+        for (let i = 0; i < loginCustomerIdCandidates.length; i += 1) {
+          const loginCustomerId = loginCustomerIdCandidates[i]
+
+          try {
+            const customer = await getCustomerWithCredentials({
+              customerId,
+              refreshToken,
+              loginCustomerId: loginCustomerId ?? null,
+              credentials: credentials ? {
+                client_id: credentials.client_id,
+                client_secret: credentials.client_secret,
+                developer_token: credentials.developer_token,
+              } : undefined,
+              accountId,
+              userId,
+            })
+
+            results = await (customer as any).query(query)
+
+            if (i > 0) {
+              console.log(`✅ 账号 ${customerId} 使用备用 login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询关键词成功`)
+            }
+
+            querySucceeded = true
+            break
+          } catch (error) {
+            lastQueryError = error
+            const hasNextCandidate = i < loginCustomerIdCandidates.length - 1
+            if (hasNextCandidate && isGoogleAdsAccountAccessError(error)) {
+              const nextLoginCustomerId = loginCustomerIdCandidates[i + 1]
+              console.warn(
+                `⚠️ 账号 ${customerId} login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询关键词失败，切换到 ${this.describeLoginCustomerId(nextLoginCustomerId)} 重试`
+              )
+              continue
+            }
+            throw error
+          }
+        }
+
+        if (!querySucceeded && lastQueryError) {
+          throw lastQueryError
+        }
+      }
 
       return results.map((row: any) => {
         const impressions = row.metrics?.impressions || 0
@@ -1009,9 +1096,58 @@ export class DataSyncService {
     } catch (error) {
       console.error('GAQL查询关键词表现失败:', error)
       throw new Error(
-        `Google Ads API查询失败(关键词表现): ${error instanceof Error ? error.message : String(error)}`
+        `Google Ads API查询失败(关键词表现): ${this.buildSyncErrorMessage(error)}`
       )
     }
+  }
+
+  private describeLoginCustomerId(value: string | undefined): string {
+    return value || 'null(omit)'
+  }
+
+  private safeStringify(value: unknown): string | null {
+    try {
+      const seen = new WeakSet<object>()
+      return JSON.stringify(value, (_, v) => {
+        if (v && typeof v === 'object') {
+          if (seen.has(v as object)) return '[Circular]'
+          seen.add(v as object)
+        }
+        return v
+      })
+    } catch {
+      return null
+    }
+  }
+
+  private buildSyncErrorMessage(error: unknown): string {
+    const err = error as any
+    const detailPayload: Record<string, unknown> = {
+      name: err?.name,
+      message: err?.message,
+      status: err?.status ?? err?.statusCode ?? err?.response?.status,
+      code: err?.code ?? err?.response?.statusCode,
+      details: err?.details,
+      errors: Array.isArray(err?.errors) ? err.errors : undefined,
+      statusDetails: Array.isArray(err?.statusDetails) ? err.statusDetails : undefined,
+    }
+
+    const detailJson = this.safeStringify(detailPayload)
+    let text = detailJson && detailJson !== '{}' ? detailJson : ''
+
+    if (!text || text === '{}' || text.includes('"message":"[object Object]"')) {
+      const fullJson = this.safeStringify(error)
+      if (fullJson && fullJson !== '{}') {
+        text = fullJson
+      }
+    }
+
+    if (!text) {
+      text = String(error ?? 'Unknown error')
+    }
+
+    const normalized = String(text).trim() || 'Unknown error'
+    return normalized.length > 2000 ? `${normalized.slice(0, 2000)}...` : normalized
   }
 
   /**
@@ -1024,6 +1160,7 @@ export class DataSyncService {
     startDate: string
     endDate: string
     accountId: number
+    accountParentMccId?: string
     credentials?: {
       client_id: string
       client_secret: string
@@ -1058,6 +1195,7 @@ export class DataSyncService {
       startDate,
       endDate,
       accountId,
+      accountParentMccId,
       credentials,
       authType,
       serviceAccountId,
@@ -1073,6 +1211,7 @@ export class DataSyncService {
         endDate,
         accountId,
         userId,
+        accountParentMccId,
         credentials,
         authType,
         serviceAccountId,
@@ -1084,6 +1223,7 @@ export class DataSyncService {
         endDate,
         accountId,
         userId,
+        accountParentMccId,
         credentials,
         authType,
         serviceAccountId,
