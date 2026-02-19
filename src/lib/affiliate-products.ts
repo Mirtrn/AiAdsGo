@@ -194,9 +194,10 @@ const DEFAULT_PB_PRODUCTS_LINK_BATCH_SIZE = 20
 const MAX_PB_PRODUCTS_LINK_BATCH_SIZE = 50
 const DEFAULT_PB_ASIN_LINK_BATCH_SIZE = 20
 const MAX_PB_ASIN_LINK_BATCH_SIZE = 50
+const MAX_PB_ASINS_PER_REQUEST = 50
 const PB_LINK_HEARTBEAT_EVERY_BATCHES = 20
-const DEFAULT_PB_DELTA_ASIN_BATCH_SIZE = 100
-const MAX_PB_DELTA_ASIN_BATCH_SIZE = 300
+const DEFAULT_PB_DELTA_ASIN_BATCH_SIZE = MAX_PB_ASINS_PER_REQUEST
+const MAX_PB_DELTA_ASIN_BATCH_SIZE = MAX_PB_ASINS_PER_REQUEST
 const DEFAULT_PB_ACTIVE_DAYS = 14
 const MAX_PB_ACTIVE_DAYS = 60
 const DEFAULT_PB_REQUEST_DELAY_MS = 150
@@ -579,6 +580,13 @@ export function resolvePartnerboostCountryCode(value: unknown, fallback: unknown
   if (backup) return backup
 
   return DEFAULT_PB_COUNTRY_CODE
+}
+
+function assertPartnerboostAsinRequestLimit(asins: string[]): void {
+  if (asins.length <= MAX_PB_ASINS_PER_REQUEST) return
+  throw new Error(
+    `PartnerBoost 商品拉取失败: The asins parameter can contain a maximum of ${MAX_PB_ASINS_PER_REQUEST} elements`
+  )
 }
 
 function normalizeYeahPromosMerchants(value: unknown): YeahPromosMerchant[] {
@@ -1275,6 +1283,7 @@ async function fetchPartnerboostPromotableProductsWithMeta(
   const allAsins = Array.from(new Set([...(params.asins || []), ...configuredAsins]))
     .map((asin) => normalizeAsin(asin))
     .filter((asin): asin is string => Boolean(asin))
+  assertPartnerboostAsinRequestLimit(allAsins)
   const linkCountryCode = resolvePartnerboostCountryCode(check.values.partnerboost_link_country_code, countryCode)
   const uid = check.values.partnerboost_link_uid || ''
   const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
@@ -2526,6 +2535,7 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
 }
 
 export const __testOnly = {
+  assertPartnerboostAsinRequestLimit,
   calculateExponentialBackoffDelay,
   isPartnerboostRateLimited,
   isPartnerboostRateLimitError,

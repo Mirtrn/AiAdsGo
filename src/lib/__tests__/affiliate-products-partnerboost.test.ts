@@ -79,6 +79,18 @@ describe('resolveSyncMaxPages', () => {
   })
 })
 
+describe('assertPartnerboostAsinRequestLimit', () => {
+  it('accepts up to 50 ASINs', () => {
+    const asins = Array.from({ length: 50 }, (_, index) => `B0TEST${String(index).padStart(4, '0')}`)
+    expect(() => __testOnly.assertPartnerboostAsinRequestLimit(asins)).not.toThrow()
+  })
+
+  it('rejects requests over 50 ASINs', () => {
+    const asins = Array.from({ length: 51 }, (_, index) => `B0TEST${String(index).padStart(4, '0')}`)
+    expect(() => __testOnly.assertPartnerboostAsinRequestLimit(asins)).toThrow(/maximum of 50 elements/)
+  })
+})
+
 describe('extractPartnerboostProductsPayload', () => {
   it('extracts products from object list and reads has_more flag', () => {
     const payload = {
