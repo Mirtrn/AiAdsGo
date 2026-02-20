@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { getInsertedId, generateUpsertSql } from '@/lib/db-helpers'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export type AffiliateProductRecord = {
   id: number
@@ -20,7 +21,7 @@ export type AffiliateProductRecord = {
   image_url: string | null
   product_url: string | null
   tracking_url: string | null
-  raw_data: string | null
+  raw_data: unknown
   synced_at: string
   created_at: string
   updated_at: string
@@ -77,7 +78,7 @@ export async function upsertAffiliateProducts(
   let synced = 0
 
   for (const p of products) {
-    const rawData = p.raw_data != null ? JSON.stringify(p.raw_data) : null
+    const rawData = toDbJsonObjectField(p.raw_data ?? null, db.type, null)
     const sql = generateUpsertSql(
       'openclaw_affiliate_products',
       ['user_id', 'platform', 'COALESCE(asin, external_product_id)'],

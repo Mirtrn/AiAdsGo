@@ -858,6 +858,9 @@ describe("security audit", () => {
         includeChannelSecurity: true,
         plugins: [discordPlugin],
       });
+      const warning = res.findings.find(
+        (f) => f.checkId === "channels.discord.commands.native.no_allowlists",
+      );
 
       expect(res.findings).toEqual(
         expect.arrayContaining([
@@ -867,6 +870,7 @@ describe("security audit", () => {
           }),
         ]),
       );
+      expect(warning?.remediation).toContain("channels.discord.allowFrom");
     } finally {
       if (prevStateDir == null) {
         delete process.env.OPENCLAW_STATE_DIR;
@@ -997,6 +1001,9 @@ describe("security audit", () => {
         includeChannelSecurity: true,
         plugins: [slackPlugin],
       });
+      const warning = res.findings.find(
+        (f) => f.checkId === "channels.slack.commands.slash.no_allowlists",
+      );
 
       expect(res.findings).toEqual(
         expect.arrayContaining([
@@ -1006,6 +1013,7 @@ describe("security audit", () => {
           }),
         ]),
       );
+      expect(warning?.remediation).toContain("channels.slack.allowFrom");
     } finally {
       if (prevStateDir == null) {
         delete process.env.OPENCLAW_STATE_DIR;
@@ -1087,6 +1095,50 @@ describe("security audit", () => {
           expect.objectContaining({
             checkId: "channels.telegram.groups.allowFrom.missing",
             severity: "critical",
+          }),
+        ]),
+      );
+    } finally {
+      if (prevStateDir == null) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = prevStateDir;
+      }
+    }
+  });
+
+  it("warns when Telegram allowFrom entries are non-numeric (legacy @username configs)", async () => {
+    const prevStateDir = process.env.OPENCLAW_STATE_DIR;
+    const tmp = await fs.mkdtemp(
+      path.join(os.tmpdir(), "openclaw-security-audit-telegram-invalid-allowfrom-"),
+    );
+    process.env.OPENCLAW_STATE_DIR = tmp;
+    await fs.mkdir(path.join(tmp, "credentials"), { recursive: true, mode: 0o700 });
+    try {
+      const cfg: OpenClawConfig = {
+        channels: {
+          telegram: {
+            enabled: true,
+            botToken: "t",
+            groupPolicy: "allowlist",
+            groupAllowFrom: ["@TrustedOperator"],
+            groups: { "-100123": {} },
+          },
+        },
+      };
+
+      const res = await runSecurityAudit({
+        config: cfg,
+        includeFilesystem: false,
+        includeChannelSecurity: true,
+        plugins: [telegramPlugin],
+      });
+
+      expect(res.findings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            checkId: "channels.telegram.allowFrom.invalid_entries",
+            severity: "warn",
           }),
         ]),
       );

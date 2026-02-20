@@ -1,4 +1,13 @@
 import { spawn } from "node:child_process";
+import { sanitizeEnvVars } from "./sanitize-env-vars.js";
+import { validateSandboxSecurity } from "./validate-sandbox-security.js";
+import { formatCliCommand } from "../../cli/command-format.js";
+import { defaultRuntime } from "../../runtime.js";
+import { computeSandboxConfigHash } from "./config-hash.js";
+import { DEFAULT_SANDBOX_IMAGE, SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
+import { readRegistry, updateRegistry } from "./registry.js";
+import { resolveSandboxAgentId, resolveSandboxScopeKey, slugifySessionKey } from "./shared.js";
+import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
 
 type ExecDockerRawOptions = {
   allowFailure?: boolean;
@@ -104,17 +113,40 @@ export function execDockerRaw(
   });
 }
 
-import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
-import { formatCliCommand } from "../../cli/command-format.js";
-import { defaultRuntime } from "../../runtime.js";
-import { computeSandboxConfigHash } from "./config-hash.js";
-import { DEFAULT_SANDBOX_IMAGE, SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
-import { readRegistry, updateRegistry } from "./registry.js";
-import { resolveSandboxAgentId, resolveSandboxScopeKey, slugifySessionKey } from "./shared.js";
-
 const HOT_CONTAINER_WINDOW_MS = 5 * 60 * 1000;
 
 export type ExecDockerOptions = ExecDockerRawOptions;
+
+type SandboxSecurityMode = "warn" | "enforce" | "off";
+
+function resolveSandboxSecurityMode(env: NodeJS.ProcessEnv = process.env): SandboxSecurityMode {
+  const raw = env.OPENCLAW_SANDBOX_SECURITY_MODE?.trim().toLowerCase();
+  if (raw === "enforce" || raw === "strict" || raw === "1") {
+    return "enforce";
+  }
+  if (raw === "off" || raw === "disabled" || raw === "0") {
+    return "off";
+  }
+  return "warn";
+}
+
+function validateSandboxSecurityWithMode(cfg: SandboxDockerConfig): void {
+  const mode = resolveSandboxSecurityMode();
+  if (mode === "off") {
+    return;
+  }
+  try {
+    validateSandboxSecurity(cfg);
+  } catch (err) {
+    if (mode === "enforce") {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    defaultRuntime.log(
+      `[Security] Sandbox config warning: ${message} (set OPENCLAW_SANDBOX_SECURITY_MODE=enforce to block)`,
+    );
+  }
+}
 
 export async function execDocker(args: string[], opts?: ExecDockerOptions) {
   const result = await execDockerRaw(args, opts);
@@ -123,6 +155,24 @@ export async function execDocker(args: string[], opts?: ExecDockerOptions) {
     stderr: result.stderr.toString("utf8"),
     code: result.code,
   };
+}
+
+export async function readDockerContainerLabel(
+  containerName: string,
+  label: string,
+): Promise<string | null> {
+  const result = await execDocker(
+    ["inspect", "-f", `{{ index .Config.Labels "${label}" }}`, containerName],
+    { allowFailure: true },
+  );
+  if (result.code !== 0) {
+    return null;
+  }
+  const raw = result.stdout.trim();
+  if (!raw || raw === "<no value>") {
+    return null;
+  }
+  return raw;
 }
 
 export async function readDockerPort(containerName: string, port: number) {
@@ -222,6 +272,8 @@ export function buildSandboxCreateArgs(params: {
   labels?: Record<string, string>;
   configHash?: string;
 }) {
+  validateSandboxSecurityWithMode(params.cfg);
+
   const createdAtMs = params.createdAtMs ?? Date.now();
   const args = ["create", "--name", params.name];
   args.push("--label", "openclaw.sandbox=1");
@@ -247,11 +299,19 @@ export function buildSandboxCreateArgs(params: {
   if (params.cfg.user) {
     args.push("--user", params.cfg.user);
   }
-  for (const [key, value] of Object.entries(params.cfg.env ?? {})) {
-    if (!key.trim()) {
-      continue;
-    }
-    args.push("--env", key + "=" + value);
+  const envSanitization = sanitizeEnvVars(params.cfg.env ?? {});
+  if (envSanitization.blocked.length > 0) {
+    defaultRuntime.log(
+      `[Security] Blocked sensitive environment variables: ${envSanitization.blocked.join(", ")}`,
+    );
+  }
+  if (envSanitization.warnings.length > 0) {
+    defaultRuntime.log(
+      `[Security] Suspicious environment variables: ${envSanitization.warnings.join("; ")}`,
+    );
+  }
+  for (const [key, value] of Object.entries(envSanitization.allowed)) {
+    args.push("--env", `${key}=${value}`);
   }
   for (const cap of params.cfg.capDrop) {
     args.push("--cap-drop", cap);
@@ -341,21 +401,7 @@ async function createSandboxContainer(params: {
 }
 
 async function readContainerConfigHash(containerName: string): Promise<string | null> {
-  const readLabel = async (label: string) => {
-    const result = await execDocker(
-      ["inspect", "-f", `{{ index .Config.Labels "${label}" }}`, containerName],
-      { allowFailure: true },
-    );
-    if (result.code !== 0) {
-      return null;
-    }
-    const raw = result.stdout.trim();
-    if (!raw || raw === "<no value>") {
-      return null;
-    }
-    return raw;
-  };
-  return await readLabel("openclaw.configHash");
+  return await readDockerContainerLabel(containerName, "openclaw.configHash");
 }
 
 function formatSandboxRecreateHint(params: { scope: SandboxConfig["scope"]; sessionKey: string }) {

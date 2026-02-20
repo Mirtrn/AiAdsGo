@@ -17,6 +17,7 @@
 
 import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -28,8 +29,8 @@ interface OfferTask {
   stage: string | null
   progress: number
   message: string | null
-  result: string | null
-  error: string | null
+  result: unknown
+  error: unknown
   updated_at: string
 }
 
@@ -128,7 +129,7 @@ export async function GET(
 
             // 任务完成
             if (task.status === 'completed') {
-              const result = task.result ? JSON.parse(task.result) : {}
+              const result = parseJsonField<Record<string, any>>(task.result, {})
               sendSSE({
                 type: 'complete',
                 data: result
@@ -140,7 +141,10 @@ export async function GET(
 
             // 任务失败
             if (task.status === 'failed') {
-              const error = task.error ? JSON.parse(task.error) : { message: task.message || '任务失败' }
+              const parsedError = parseJsonField<any>(task.error, null)
+              const error = parsedError && typeof parsedError === 'object'
+                ? parsedError
+                : { message: task.message || '任务失败' }
               sendSSE({
                 type: 'error',
                 data: {

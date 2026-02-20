@@ -7,6 +7,7 @@ import { fetchPartnerboostAssociates, fetchPartnerboostLinkByAsin } from '@/lib/
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export type OpenclawStrategyTaskData = {
   userId: number
@@ -28,7 +29,7 @@ type AsinItemRow = {
   status: string
   offer_id: number | null
   error_message: string | null
-  data_json: string | null
+  data_json: unknown
 }
 
 type AsinOutcomeRow = {
@@ -215,9 +216,9 @@ function parseJson<T>(value: unknown, fallback: T): T {
   return fallback
 }
 
-function mergeJson(existing: string | null | undefined, patch: Record<string, any>): string {
+function mergeJson(existing: unknown, patch: Record<string, any>, dbType: 'sqlite' | 'postgres'): unknown {
   const base = parseJson<Record<string, any>>(existing, {})
-  return JSON.stringify({ ...base, ...patch })
+  return toDbJsonObjectField({ ...base, ...patch }, dbType, {})
 }
 
 function normalizeKeywords(input: any, fallback: string[]): Array<{ text: string; matchType: string }> {
@@ -427,12 +428,12 @@ async function updateAsinItem(params: {
   }
 
   if (params.dataPatch) {
-    const existing = await db.queryOne<{ data_json: string | null }>(
+    const existing = await db.queryOne<{ data_json: unknown }>(
       'SELECT data_json FROM openclaw_asin_items WHERE id = ? AND user_id = ?',
       [params.itemId, params.userId]
     )
     fields.push('data_json = ?')
-    values.push(mergeJson(existing?.data_json, params.dataPatch))
+    values.push(mergeJson(existing?.data_json, params.dataPatch, db.type))
   }
 
   if (fields.length === 0) return

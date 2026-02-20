@@ -17,6 +17,7 @@ import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-sea
 import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
 import { filterNavigationLabels } from '@/lib/scrape-text-filters'
 import { parsePrice } from '@/lib/pricing-utils'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -290,6 +291,7 @@ export async function executeOfferExtraction(
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const toDbJson = (value: any): any => toDbJsonObjectField(value, db.type, null)
 
   try {
     // 更新任务状态为运行中
@@ -618,7 +620,7 @@ export async function executeOfferExtraction(
           extraction_metadata: Object.keys(mergedExtractionMetadata).length > 0 ?
             JSON.stringify(mergedExtractionMetadata) : undefined,
           extracted_at: new Date().toISOString(),
-          ai_keywords: aiKeywordSeeds ? JSON.stringify(aiKeywordSeeds) : undefined,
+          ai_keywords: aiKeywordSeeds || undefined,
           scraped_data: JSON.stringify(extractResult.data),
           page_type: pageTypeToPersist,
         })
@@ -647,7 +649,7 @@ export async function executeOfferExtraction(
         completed_at = ${nowFunc},
         updated_at = ${nowFunc}
       WHERE id = ?
-    `, [JSON.stringify(resultWithOfferId), createdOfferId, task.id])
+    `, [toDbJson(resultWithOfferId), createdOfferId, task.id])
 
     console.log(`✅ Offer提取任务完成: ${task.id}, offerId=${createdOfferId}`)
 
@@ -667,7 +669,7 @@ export async function executeOfferExtraction(
       WHERE id = ?
     `, [
       error.message,
-      JSON.stringify({ message: error.message, stack: error.stack }),
+      toDbJson({ message: error.message, stack: error.stack }),
       task.id
     ])
 

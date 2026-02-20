@@ -26,6 +26,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 
 interface BatchTask {
   id: string
@@ -36,7 +37,7 @@ interface BatchTask {
   completed_count: number
   failed_count: number
   source_file: string | null
-  metadata: string | null
+  metadata: unknown
   created_at: string
   updated_at: string
   started_at: string | null
@@ -91,7 +92,7 @@ export async function GET(
       failedCount: batch.failed_count,
       progress,
       sourceFile: batch.source_file,
-      metadata: batch.metadata ? JSON.parse(batch.metadata) : null,
+      metadata: parseJsonField(batch.metadata, null),
       createdAt: batch.created_at,
       updatedAt: batch.updated_at,
       startedAt: batch.started_at,

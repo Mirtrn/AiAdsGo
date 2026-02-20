@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export type OfferScoreRecord = {
   id: number
@@ -23,7 +24,7 @@ export type OfferScoreRecord = {
   suggested_cpc_max: number | null
   estimated_roas: number | null
   priority: string
-  raw_data: string | null
+  raw_data: unknown
   created_at: string
   updated_at: string
 }
@@ -79,13 +80,11 @@ export async function createOfferScore(
     suggested_cpc_max?: number | null
     estimated_roas?: number | null
     priority?: string
-    raw_data?: string | null
+    raw_data?: unknown
   }
 ): Promise<OfferScoreRecord> {
   const db = await getDatabase()
-  const rawData = data.raw_data != null
-    ? (typeof data.raw_data === 'string' ? data.raw_data : JSON.stringify(data.raw_data))
-    : null
+  const rawData = toDbJsonObjectField(data.raw_data ?? null, db.type, null)
 
   const result = await db.exec(
     `INSERT INTO openclaw_offer_scores

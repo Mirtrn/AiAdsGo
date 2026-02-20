@@ -10,6 +10,7 @@
  */
 
 import { getDatabase } from './db'
+import { toDbJsonObjectField } from './json-field'
 
 // ============================================================================
 // User-Agent 解析工具
@@ -182,7 +183,7 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       entry.eventType,
       entry.ipAddress,
       entry.userAgent,
-      entry.details ? JSON.stringify(entry.details) : null,
+      toDbJsonObjectField(entry.details || null, db.type, null),
       timestamp.toISOString()
     ])
   } catch (error) {
@@ -460,10 +461,10 @@ export async function logUserManagementAction(
       action,
       context.ipAddress,
       context.userAgent,
-      details ? JSON.stringify({
+      toDbJsonObjectField(details ? {
         ...details,
         parsedUserAgent: parsedUA,
-      }) : JSON.stringify({ parsedUserAgent: parsedUA }),
+      } : { parsedUserAgent: parsedUA }, db.type, { parsedUserAgent: parsedUA }),
       timestamp,
       context.operatorId,
       context.operatorUsername,

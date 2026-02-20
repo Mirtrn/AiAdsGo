@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 
 interface OfferTask {
   id: string
@@ -34,8 +35,8 @@ interface OfferTask {
   message: string | null
   affiliate_link: string
   target_country: string
-  result: string | null
-  error: string | null
+  result: unknown
+  error: unknown
   created_at: string
   updated_at: string
   started_at: string | null
@@ -128,8 +129,8 @@ export async function GET(
       stage: task.stage,
       progress: task.progress,
       message: task.message,
-      result: task.result ? JSON.parse(task.result) : null,
-      error: task.error ? JSON.parse(task.error) : null,
+      result: parseJsonField(task.result, null),
+      error: parseJsonField(task.error, null),
       createdAt: task.created_at,
       updatedAt: task.updated_at,
       startedAt: task.started_at,

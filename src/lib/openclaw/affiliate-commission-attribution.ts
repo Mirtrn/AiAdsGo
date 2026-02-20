@@ -1,4 +1,5 @@
 import { getDatabase, type DatabaseAdapter } from '@/lib/db'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export type AffiliatePlatform = 'partnerboost' | 'yeahpromos'
 
@@ -42,7 +43,7 @@ type AttributionRow = {
   campaignId: number | null
   commissionAmount: number
   currency: string
-  rawPayload: string | null
+  rawPayload: unknown
 }
 
 function roundTo(value: number, decimals = 4): number {
@@ -555,7 +556,7 @@ export async function persistAffiliateCommissionAttributions(params: {
           campaignId: null,
           commissionAmount: offerAmount,
           currency: entry.currency,
-          rawPayload: entry.raw ? JSON.stringify(entry.raw) : null,
+          rawPayload: toDbJsonObjectField(entry.raw ?? null, db.type, null),
         })
         attributedCommission = roundTo(attributedCommission + offerAmount)
         return
@@ -583,7 +584,7 @@ export async function persistAffiliateCommissionAttributions(params: {
           campaignId: campaign.campaignId,
           commissionAmount: campaignAmount,
           currency: entry.currency,
-          rawPayload: entry.raw ? JSON.stringify(entry.raw) : null,
+          rawPayload: toDbJsonObjectField(entry.raw ?? null, db.type, null),
         })
         attributedCommission = roundTo(attributedCommission + campaignAmount)
       })
@@ -597,10 +598,6 @@ export async function persistAffiliateCommissionAttributions(params: {
     )
 
     for (const row of rowsToInsert) {
-      const rawPayloadValue = db.type === 'postgres' && row.rawPayload
-        ? row.rawPayload
-        : row.rawPayload
-
       await db.exec(
         `
           INSERT INTO affiliate_commission_attributions
@@ -619,7 +616,7 @@ export async function persistAffiliateCommissionAttributions(params: {
           row.campaignId,
           row.commissionAmount,
           row.currency,
-          rawPayloadValue,
+          row.rawPayload,
         ]
       )
     }

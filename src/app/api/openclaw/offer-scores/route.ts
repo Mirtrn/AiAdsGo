@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
             suggested_cpc_max: ranked[i].suggested_cpc_max,
             estimated_roas: ranked[i].estimated_roas,
             priority: ranked[i].priority,
-            raw_data: JSON.stringify(product),
+            raw_data: product,
           })
         }
       }

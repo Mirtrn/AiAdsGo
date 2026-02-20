@@ -49,6 +49,46 @@ describe('autoads request normalizers', () => {
     })
   })
 
+  it('lifts misplaced campaign.publish top-level flags from campaignConfig', () => {
+    const normalized = normalizeCampaignPublishRequestBody({
+      offerId: 88,
+      googleAdsAccountId: 66,
+      campaignConfig: {
+        targetCountry: 'US',
+        targetLanguage: 'en',
+        budgetAmount: 12,
+        budgetType: 'DAILY',
+        maxCpcBid: 0.3,
+        enableSmartOptimization: 'true',
+        variantCount: '4',
+        pauseOldCampaigns: 1,
+        enableCampaignImmediately: '1',
+      },
+    }) || {}
+
+    expect(normalized).toMatchObject({
+      offerId: 88,
+      googleAdsAccountId: 66,
+      enableSmartOptimization: true,
+      variantCount: 4,
+      pauseOldCampaigns: true,
+      enableCampaignImmediately: true,
+    })
+
+    expect(normalized.campaignConfig).toMatchObject({
+      targetCountry: 'US',
+      targetLanguage: 'en',
+      budgetAmount: 12,
+      budgetType: 'DAILY',
+      maxCpcBid: 0.3,
+    })
+
+    expect(normalized.campaignConfig.enableSmartOptimization).toBeUndefined()
+    expect(normalized.campaignConfig.variantCount).toBeUndefined()
+    expect(normalized.campaignConfig.pauseOldCampaigns).toBeUndefined()
+    expect(normalized.campaignConfig.enableCampaignImmediately).toBeUndefined()
+  })
+
   it('normalizes campaign.publish campaignConfig fields directly', () => {
     const normalized = normalizeCampaignPublishCampaignConfig({
       final_urls: [' https://example.com '],

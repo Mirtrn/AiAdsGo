@@ -1,5 +1,6 @@
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export type ExperimentResultRecord = {
   id: number
@@ -8,10 +9,10 @@ export type ExperimentResultRecord = {
   experiment_type: string
   offer_id: number | null
   campaign_id: number | null
-  variant_a: string | null
-  variant_b: string | null
-  metrics_a: string | null
-  metrics_b: string | null
+  variant_a: unknown
+  variant_b: unknown
+  metrics_a: unknown
+  metrics_b: unknown
   winner: string | null
   confidence: number | null
   conclusion: string | null
@@ -59,8 +60,8 @@ export async function createExperiment(
   }
 ): Promise<ExperimentResultRecord> {
   const db = await getDatabase()
-  const variantA = data.variant_a != null ? JSON.stringify(data.variant_a) : null
-  const variantB = data.variant_b != null ? JSON.stringify(data.variant_b) : null
+  const variantA = toDbJsonObjectField(data.variant_a ?? null, db.type, null)
+  const variantB = toDbJsonObjectField(data.variant_b ?? null, db.type, null)
 
   const result = await db.exec(
     `INSERT INTO openclaw_experiment_results
@@ -98,7 +99,7 @@ export async function recordExperimentMetrics(
   metrics: Record<string, any>
 ): Promise<void> {
   const db = await getDatabase()
-  const metricsJson = JSON.stringify(metrics)
+  const metricsJson = toDbJsonObjectField(metrics, db.type, {})
   const field = variant === 'a' ? 'metrics_a' : 'metrics_b'
 
   await db.exec(
@@ -189,8 +190,12 @@ export async function getExperimentHistory(
   )
 }
 
-function safeParseJson(value: string | null | undefined): Record<string, any> {
+function safeParseJson(value: unknown): Record<string, any> {
   if (!value) return {}
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, any>
+  }
+  if (typeof value !== 'string') return {}
   try {
     const parsed = JSON.parse(value)
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}

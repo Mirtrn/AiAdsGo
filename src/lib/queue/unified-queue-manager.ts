@@ -18,6 +18,7 @@ import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loa
 import { isBackgroundTaskType } from './task-category'
 import { logger } from '@/lib/structured-logger'
 import { runWithLogContext } from '@/lib/log-context'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 function getPositiveIntFromEnv(key: string, fallback: number): number {
   const raw = process.env[key]
@@ -838,10 +839,10 @@ export class UnifiedQueueManager {
         const db = getDatabase()
         const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
         const message = error?.message || '任务执行失败'
-        const errorPayload = JSON.stringify({
+        const errorPayload = toDbJsonObjectField({
           message,
           source: 'queue-manager',
-        })
+        }, db.type, { message, source: 'queue-manager' })
 
         await db.exec(
           `UPDATE offer_tasks
@@ -1140,10 +1141,10 @@ export class UnifiedQueueManager {
 
       // 将超时任务标记为 failed
       const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
-      const timeoutErrorJson = JSON.stringify({
+      const timeoutErrorJson = toDbJsonObjectField({
         timeout: true,
         message: 'Task timeout - no heartbeat received',
-      })
+      }, db_type, { timeout: true, message: 'Task timeout - no heartbeat received' })
       const updateResult = await db.exec(`
         UPDATE offer_tasks
         SET status = 'failed',

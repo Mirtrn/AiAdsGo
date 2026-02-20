@@ -272,10 +272,17 @@ function buildFeishuChatHealthMetadata(params: {
 }
 
 function checkBotMentioned(event: FeishuMessageEvent, botOpenId?: string): boolean {
-  const mentions = event.message.mentions ?? [];
-  if (mentions.length === 0) return false;
   if (!botOpenId) return false;
-  return mentions.some((m) => m.id.open_id === botOpenId);
+  const mentions = event.message.mentions ?? [];
+  if (mentions.length > 0) {
+    return mentions.some((m) => m.id.open_id === botOpenId);
+  }
+  // Rich-text post messages can carry @mention payloads while mentions is empty.
+  if (event.message.message_type === "post") {
+    const { mentionedOpenIds } = parsePostContent(event.message.content);
+    return mentionedOpenIds.some((id) => id === botOpenId);
+  }
+  return false;
 }
 
 function stripBotMention(
@@ -331,6 +338,7 @@ function parseMediaKeys(
 function parsePostContent(content: string): {
   textContent: string;
   imageKeys: string[];
+  mentionedOpenIds: string[];
 } {
   try {
     const parsed = JSON.parse(content);
@@ -338,6 +346,7 @@ function parsePostContent(content: string): {
     const contentBlocks = parsed.content || [];
     let textContent = title ? `${title}\n\n` : "";
     const imageKeys: string[] = [];
+    const mentionedOpenIds: string[] = [];
 
     for (const paragraph of contentBlocks) {
       if (Array.isArray(paragraph)) {
@@ -350,6 +359,9 @@ function parsePostContent(content: string): {
           } else if (element.tag === "at") {
             // Mention: @username
             textContent += `@${element.user_name || element.user_id || ""}`;
+            if (element.user_id) {
+              mentionedOpenIds.push(element.user_id);
+            }
           } else if (element.tag === "img" && element.image_key) {
             // Embedded image
             imageKeys.push(element.image_key);
@@ -362,9 +374,10 @@ function parsePostContent(content: string): {
     return {
       textContent: textContent.trim() || "[富文本消息]",
       imageKeys,
+      mentionedOpenIds,
     };
   } catch {
-    return { textContent: "[富文本消息]", imageKeys: [] };
+    return { textContent: "[富文本消息]", imageKeys: [], mentionedOpenIds: [] };
   }
 }
 

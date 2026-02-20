@@ -209,6 +209,15 @@ export function normalizeCampaignPublishRequestBody(value: unknown): PlainObject
   }
 
   const source = value as PlainObject
+  const hasTopLevelPauseOldCampaigns =
+    source.pauseOldCampaigns !== undefined || source.pause_old_campaigns !== undefined
+  const hasTopLevelEnableCampaignImmediately =
+    source.enableCampaignImmediately !== undefined || source.enable_campaign_immediately !== undefined
+  const hasTopLevelEnableSmartOptimization =
+    source.enableSmartOptimization !== undefined || source.enable_smart_optimization !== undefined
+  const hasTopLevelVariantCount =
+    source.variantCount !== undefined || source.variant_count !== undefined
+
   const normalized: PlainObject = {
     ...source,
   }
@@ -251,6 +260,68 @@ export function normalizeCampaignPublishRequestBody(value: unknown): PlainObject
 
   const normalizedCampaignConfig = normalizeCampaignPublishCampaignConfig(normalized.campaignConfig)
   if (normalizedCampaignConfig) {
+    const campaignConfigFlags = normalizedCampaignConfig as PlainObject
+
+    // 兼容错误负载：部分调用方把这些顶层字段错误放进了 campaignConfig
+    if (!hasTopLevelPauseOldCampaigns) {
+      const nestedPauseFlag = campaignConfigFlags.pauseOldCampaigns ?? campaignConfigFlags.pause_old_campaigns
+      if (nestedPauseFlag !== undefined) {
+        normalized.pauseOldCampaigns = isTruthyFlag(nestedPauseFlag)
+      }
+    }
+
+    if (!hasTopLevelEnableCampaignImmediately) {
+      const nestedEnableFlag =
+        campaignConfigFlags.enableCampaignImmediately ?? campaignConfigFlags.enable_campaign_immediately
+      if (nestedEnableFlag !== undefined) {
+        normalized.enableCampaignImmediately = isTruthyFlag(nestedEnableFlag)
+      }
+    }
+
+    if (!hasTopLevelEnableSmartOptimization) {
+      const nestedSmartFlag =
+        campaignConfigFlags.enableSmartOptimization ?? campaignConfigFlags.enable_smart_optimization
+      if (nestedSmartFlag !== undefined) {
+        normalized.enableSmartOptimization = isTruthyFlag(nestedSmartFlag)
+      }
+    }
+
+    if (!hasTopLevelVariantCount) {
+      const nestedVariantCount = toSafeNumber(campaignConfigFlags.variantCount ?? campaignConfigFlags.variant_count)
+      if (nestedVariantCount !== undefined) {
+        normalized.variantCount = Math.floor(nestedVariantCount)
+      }
+    }
+
+    if (!hasForce) {
+      const nestedForce = [
+        campaignConfigFlags.forcePublish,
+        campaignConfigFlags.force_publish,
+        campaignConfigFlags.forceLaunch,
+        campaignConfigFlags.force_launch,
+        campaignConfigFlags.skipLaunchScore,
+        campaignConfigFlags.skip_launch_score,
+      ].find((flag) => flag !== undefined)
+      if (nestedForce !== undefined) {
+        normalized.forcePublish = isTruthyFlag(nestedForce)
+      }
+    }
+
+    delete campaignConfigFlags.pauseOldCampaigns
+    delete campaignConfigFlags.pause_old_campaigns
+    delete campaignConfigFlags.enableCampaignImmediately
+    delete campaignConfigFlags.enable_campaign_immediately
+    delete campaignConfigFlags.enableSmartOptimization
+    delete campaignConfigFlags.enable_smart_optimization
+    delete campaignConfigFlags.variantCount
+    delete campaignConfigFlags.variant_count
+    delete campaignConfigFlags.forcePublish
+    delete campaignConfigFlags.force_publish
+    delete campaignConfigFlags.forceLaunch
+    delete campaignConfigFlags.force_launch
+    delete campaignConfigFlags.skipLaunchScore
+    delete campaignConfigFlags.skip_launch_score
+
     normalized.campaignConfig = normalizedCampaignConfig
   }
 

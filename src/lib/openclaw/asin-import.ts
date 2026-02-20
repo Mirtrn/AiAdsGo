@@ -3,6 +3,7 @@ import Papa from 'papaparse'
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
 import { decodeCsvTextSmart, normalizeCsvHeaderCell } from '@/lib/offers/batch-offer-csv'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 type ParsedAsinItem = {
   asin: string | null
@@ -14,7 +15,7 @@ type ParsedAsinItem = {
   product_url?: string | null
   priority?: number | null
   source?: string | null
-  data_json?: string | null
+  data_json?: unknown
 }
 
 const HEADER_ALIASES: Record<string, string[]> = {
@@ -82,7 +83,7 @@ function parseRows(rows: string[][], defaultCountry?: string | null): ParsedAsin
       affiliate_link: map.affiliate_link !== undefined ? row[map.affiliate_link] : null,
       product_url: map.product_url !== undefined ? row[map.product_url] : null,
       priority: map.priority !== undefined ? parsePriority(row[map.priority]) : null,
-      data_json: JSON.stringify({ row }),
+      data_json: { row },
     }
     items.push(item)
   }
@@ -122,7 +123,7 @@ function parseJsonText(text: string, defaultCountry?: string | null): ParsedAsin
       affiliate_link: row?.affiliate_link ?? row?.link ?? row?.tracking_url ?? null,
       product_url: row?.product_url ?? row?.url ?? null,
       priority: parsePriority(row?.priority ?? row?.priority_score),
-      data_json: JSON.stringify(row),
+      data_json: row,
     })
   }
   return items
@@ -177,7 +178,7 @@ export async function importAsinFile(params: {
     params.fileType || null,
     params.fileSize ?? null,
     checksum,
-    params.metadata ? JSON.stringify(params.metadata) : null,
+    toDbJsonObjectField(params.metadata ?? null, db.type, null),
   ])
 
   const inputId = getInsertedId(result, db.type)
@@ -230,7 +231,7 @@ export async function importAsinFile(params: {
         sanitizeString(item.product_url),
         item.priority ?? 0,
         params.source,
-        item.data_json || null,
+        toDbJsonObjectField(item.data_json ?? null, db.type, null),
       ]
     )
     inserted += 1

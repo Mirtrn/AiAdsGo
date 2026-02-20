@@ -215,7 +215,10 @@ export {
   listWhatsAppDirectoryPeersFromConfig,
 } from "../channels/plugins/directory-config.js";
 export type { AllowlistMatch } from "../channels/plugins/allowlist-match.js";
-export { formatAllowlistMatchMeta } from "../channels/plugins/allowlist-match.js";
+export {
+  formatAllowlistMatchMeta,
+  resolveAllowlistMatchSimple,
+} from "../channels/plugins/allowlist-match.js";
 export { optionalStringEnum, stringEnum } from "../agents/schema/typebox.js";
 export type { PollInput } from "../polls.js";
 

@@ -4,6 +4,7 @@ import { fetchAffiliateCommissionRevenue, type AffiliateCommissionRevenue } from
 import { invokeOpenclawTool } from '@/lib/openclaw/gateway'
 import { resolveUserFeishuAccountId } from '@/lib/openclaw/feishu-accounts'
 import { writeDailyReportToBitable, writeDailyReportToDoc } from '@/lib/openclaw/feishu-docs'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 type DailyReportPayload = {
   date: string
@@ -491,13 +492,23 @@ export async function getOrCreateDailyReport(
       [
         userId,
         reportDate,
-        JSON.stringify({
-          summary: report.summary?.kpis,
-          roi: report.roi?.data?.overall,
-          budget: report.budget?.data?.overall,
-          actions: (report.actions || []).length,
-          strategy: strategySummary,
-        }),
+        toDbJsonObjectField(
+          {
+            summary: report.summary?.kpis,
+            roi: report.roi?.data?.overall,
+            budget: report.budget?.data?.overall,
+            actions: (report.actions || []).length,
+            strategy: strategySummary,
+          },
+          db.type,
+          {
+            summary: report.summary?.kpis,
+            roi: report.roi?.data?.overall,
+            budget: report.budget?.data?.overall,
+            actions: (report.actions || []).length,
+            strategy: strategySummary,
+          }
+        ),
         existingKnowledge?.notes || '待人工复盘：请补充今日有效策略、失败原因、修正规则。',
       ]
     )

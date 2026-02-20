@@ -1,12 +1,13 @@
 import crypto from 'crypto'
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export async function createStrategyRun(params: {
   userId: number
   mode: string
   runDate: string
-  configJson?: string | null
+  configJson?: unknown
 }): Promise<string> {
   const db = await getDatabase()
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -21,7 +22,7 @@ export async function createStrategyRun(params: {
     params.userId,
     params.mode,
     params.runDate,
-    params.configJson || null,
+    toDbJsonObjectField(params.configJson ?? null, db.type, null),
   ])
 
   return runId
@@ -31,7 +32,7 @@ export async function updateStrategyRun(params: {
   runId: string
   userId: number
   status?: string
-  statsJson?: string | null
+  statsJson?: unknown
   errorMessage?: string | null
   startedAt?: string | null
   completedAt?: string | null
@@ -47,7 +48,7 @@ export async function updateStrategyRun(params: {
   }
   if (params.statsJson !== undefined) {
     fields.push('stats_json = ?')
-    values.push(params.statsJson)
+    values.push(toDbJsonObjectField(params.statsJson, db.type, null))
   }
   if (params.errorMessage !== undefined) {
     fields.push('error_message = ?')
@@ -94,8 +95,8 @@ export async function recordStrategyAction(params: {
   targetType?: string | null
   targetId?: string | null
   status?: string
-  requestJson?: string | null
-  responseJson?: string | null
+  requestJson?: unknown
+  responseJson?: unknown
   errorMessage?: string | null
 }): Promise<number> {
   const db = await getDatabase()
@@ -115,8 +116,8 @@ export async function recordStrategyAction(params: {
     params.targetType || null,
     params.targetId || null,
     params.status || 'pending',
-    params.requestJson || null,
-    params.responseJson || null,
+    toDbJsonObjectField(params.requestJson ?? null, db.type, null),
+    toDbJsonObjectField(params.responseJson ?? null, db.type, null),
     params.errorMessage || null,
   ])
 
@@ -127,7 +128,7 @@ export async function updateStrategyAction(params: {
   actionId: number
   userId: number
   status?: string
-  responseJson?: string | null
+  responseJson?: unknown
   errorMessage?: string | null
 }): Promise<void> {
   const db = await getDatabase()
@@ -140,7 +141,7 @@ export async function updateStrategyAction(params: {
   }
   if (params.responseJson !== undefined) {
     fields.push('response_json = ?')
-    values.push(params.responseJson)
+    values.push(toDbJsonObjectField(params.responseJson, db.type, null))
   }
   if (params.errorMessage !== undefined) {
     fields.push('error_message = ?')
@@ -161,7 +162,7 @@ export async function updateStrategyAction(params: {
 
 export type KnowledgeEntry = {
   report_date: string
-  summary_json: string
+  summary_json: unknown
   notes?: string | null
 }
 
@@ -178,14 +179,14 @@ export async function saveKnowledgeEntry(
      VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id, report_date)
      DO UPDATE SET summary_json = excluded.summary_json, notes = excluded.notes`,
-    [userId, entry.report_date, entry.summary_json, entry.notes || null]
+    [userId, entry.report_date, toDbJsonObjectField(entry.summary_json, db.type, null), entry.notes || null]
   )
 }
 
 export async function getRecentKnowledge(
   userId: number,
   days: number
-): Promise<Array<{ id: number; report_date: string; summary_json: string; notes: string | null; created_at: string }>> {
+): Promise<Array<{ id: number; report_date: string; summary_json: unknown; notes: string | null; created_at: string }>> {
   const db = await getDatabase()
 
   return db.query(
@@ -197,8 +198,12 @@ export async function getRecentKnowledge(
   )
 }
 
-function safeParseJson(value: string | null | undefined): Record<string, any> {
+function safeParseJson(value: unknown): Record<string, any> {
   if (!value) return {}
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, any>
+  }
+  if (typeof value !== 'string') return {}
   try {
     const parsed = JSON.parse(value)
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}

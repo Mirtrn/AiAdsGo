@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 
 interface CreativeTaskRow {
   id: string
@@ -14,8 +15,8 @@ interface CreativeTaskRow {
   stage: string | null
   progress: number
   message: string | null
-  result: string | null
-  error: string | null
+  result: unknown
+  error: unknown
   created_at: string
   updated_at: string
   started_at: string | null
@@ -102,12 +103,17 @@ export async function GET(
 
     let errorMessage: string | null = null
     let errorDetails: any = null
-    if (task.error) {
-      try {
-        errorDetails = JSON.parse(task.error)
-        errorMessage = typeof errorDetails?.message === 'string' ? errorDetails.message : String(errorDetails)
-      } catch {
+    if (task.error !== null && task.error !== undefined) {
+      const parsedError = parseJsonField<any>(task.error, null)
+      if (parsedError && typeof parsedError === 'object') {
+        errorDetails = parsedError
+        errorMessage = typeof parsedError?.message === 'string'
+          ? parsedError.message
+          : String(parsedError)
+      } else if (typeof task.error === 'string') {
         errorMessage = task.error
+      } else {
+        errorMessage = String(task.error)
       }
     }
 
@@ -117,7 +123,7 @@ export async function GET(
       stage: task.stage,
       progress: task.progress,
       message: task.message,
-      result: task.result ? JSON.parse(task.result) : null,
+      result: parseJsonField(task.result, null),
       error: errorMessage,
       errorDetails,
       createdAt: task.created_at,

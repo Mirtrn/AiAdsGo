@@ -15,6 +15,7 @@ import {
 } from '@/lib/scoring'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
+import { toDbJsonObjectField } from '@/lib/json-field'
 // 🆕 v4.10: 关键词池集成
 import {
   getOrCreateKeywordPool,
@@ -89,6 +90,7 @@ export async function executeAdCreativeGeneration(
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const toDbJson = (value: any): any => toDbJsonObjectField(value, db.type, null)
 
   try {
     // 更新任务状态为运行中
@@ -575,8 +577,8 @@ export async function executeAdCreativeGeneration(
         ? `⚠️ 生成完成（质量${bestEvaluation.finalScore}分，建议优化）`
         : '✅ 生成完成',
       savedCreative.id,
-      JSON.stringify(finalResult),
-      JSON.stringify(retryHistory),
+      toDbJson(finalResult),
+      toDbJson(retryHistory),
       task.id
     ])
 
@@ -605,7 +607,7 @@ export async function executeAdCreativeGeneration(
       WHERE id = ?
     `, [
       error.message,
-      JSON.stringify({ message: error.message, stack: error.stack }),
+      toDbJson({ message: error.message, stack: error.stack }),
       task.id
     ])
 

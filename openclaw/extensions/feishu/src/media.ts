@@ -5,6 +5,8 @@ import path from "path";
 import { Readable } from "stream";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
+import { getFeishuRuntime } from "./runtime.js";
+import { assertFeishuMessageApiSuccess, toFeishuSendResult } from "./send-result.js";
 import { resolveReceiveIdType, normalizeFeishuTarget } from "./targets.js";
 
 export type DownloadImageResult = {
@@ -17,6 +19,64 @@ export type DownloadMessageResourceResult = {
   contentType?: string;
   fileName?: string;
 };
+
+async function readFeishuResponseBuffer(params: {
+  response: unknown;
+  tmpPath: string;
+  errorPrefix: string;
+}): Promise<Buffer> {
+  const { response } = params;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK response type
+  const responseAny = response as any;
+  if (responseAny.code !== undefined && responseAny.code !== 0) {
+    throw new Error(`${params.errorPrefix}: ${responseAny.msg || `code ${responseAny.code}`}`);
+  }
+
+  if (Buffer.isBuffer(response)) {
+    return response;
+  }
+  if (response instanceof ArrayBuffer) {
+    return Buffer.from(response);
+  }
+  if (responseAny.data && Buffer.isBuffer(responseAny.data)) {
+    return responseAny.data;
+  }
+  if (responseAny.data instanceof ArrayBuffer) {
+    return Buffer.from(responseAny.data);
+  }
+  if (typeof responseAny.getReadableStream === "function") {
+    const stream = responseAny.getReadableStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+  if (typeof responseAny.writeFile === "function") {
+    await responseAny.writeFile(params.tmpPath);
+    const buffer = await fs.promises.readFile(params.tmpPath);
+    await fs.promises.unlink(params.tmpPath).catch(() => {});
+    return buffer;
+  }
+  if (typeof responseAny[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of responseAny) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+  if (typeof responseAny.read === "function") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of responseAny as Readable) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  const keys = Object.keys(responseAny);
+  const types = keys.map((k) => `${k}: ${typeof responseAny[k]}`).join(", ");
+  throw new Error(`${params.errorPrefix}: unexpected response format. Keys: [${types}]`);
+}
 
 /**
  * Download an image from Feishu using image_key.
@@ -38,61 +98,12 @@ export async function downloadImageFeishu(params: {
   const response = await client.im.image.get({
     path: { image_key: imageKey },
   });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK response type
-  const responseAny = response as any;
-  if (responseAny.code !== undefined && responseAny.code !== 0) {
-    throw new Error(
-      `Feishu image download failed: ${responseAny.msg || `code ${responseAny.code}`}`,
-    );
-  }
-
-  // Handle various response formats from Feishu SDK
-  let buffer: Buffer;
-
-  if (Buffer.isBuffer(response)) {
-    buffer = response;
-  } else if (response instanceof ArrayBuffer) {
-    buffer = Buffer.from(response);
-  } else if (responseAny.data && Buffer.isBuffer(responseAny.data)) {
-    buffer = responseAny.data;
-  } else if (responseAny.data instanceof ArrayBuffer) {
-    buffer = Buffer.from(responseAny.data);
-  } else if (typeof responseAny.getReadableStream === "function") {
-    // SDK provides getReadableStream method
-    const stream = responseAny.getReadableStream();
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else if (typeof responseAny.writeFile === "function") {
-    // SDK provides writeFile method - use a temp file
-    const tmpPath = path.join(os.tmpdir(), `feishu_img_${Date.now()}_${imageKey}`);
-    await responseAny.writeFile(tmpPath);
-    buffer = await fs.promises.readFile(tmpPath);
-    await fs.promises.unlink(tmpPath).catch(() => {}); // cleanup
-  } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
-    // Response is an async iterable
-    const chunks: Buffer[] = [];
-    for await (const chunk of responseAny) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else if (typeof responseAny.read === "function") {
-    // Response is a Readable stream
-    const chunks: Buffer[] = [];
-    for await (const chunk of responseAny as Readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else {
-    // Debug: log what we actually received
-    const keys = Object.keys(responseAny);
-    const types = keys.map((k) => `${k}: ${typeof responseAny[k]}`).join(", ");
-    throw new Error(`Feishu image download failed: unexpected response format. Keys: [${types}]`);
-  }
-
+  const tmpPath = path.join(os.tmpdir(), `feishu_img_${Date.now()}_${imageKey}`);
+  const buffer = await readFeishuResponseBuffer({
+    response,
+    tmpPath,
+    errorPrefix: "Feishu image download failed",
+  });
   return { buffer };
 }
 
@@ -119,63 +130,12 @@ export async function downloadMessageResourceFeishu(params: {
     path: { message_id: messageId, file_key: fileKey },
     params: { type },
   });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK response type
-  const responseAny = response as any;
-  if (responseAny.code !== undefined && responseAny.code !== 0) {
-    throw new Error(
-      `Feishu message resource download failed: ${responseAny.msg || `code ${responseAny.code}`}`,
-    );
-  }
-
-  // Handle various response formats from Feishu SDK
-  let buffer: Buffer;
-
-  if (Buffer.isBuffer(response)) {
-    buffer = response;
-  } else if (response instanceof ArrayBuffer) {
-    buffer = Buffer.from(response);
-  } else if (responseAny.data && Buffer.isBuffer(responseAny.data)) {
-    buffer = responseAny.data;
-  } else if (responseAny.data instanceof ArrayBuffer) {
-    buffer = Buffer.from(responseAny.data);
-  } else if (typeof responseAny.getReadableStream === "function") {
-    // SDK provides getReadableStream method
-    const stream = responseAny.getReadableStream();
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else if (typeof responseAny.writeFile === "function") {
-    // SDK provides writeFile method - use a temp file
-    const tmpPath = path.join(os.tmpdir(), `feishu_${Date.now()}_${fileKey}`);
-    await responseAny.writeFile(tmpPath);
-    buffer = await fs.promises.readFile(tmpPath);
-    await fs.promises.unlink(tmpPath).catch(() => {}); // cleanup
-  } else if (typeof responseAny[Symbol.asyncIterator] === "function") {
-    // Response is an async iterable
-    const chunks: Buffer[] = [];
-    for await (const chunk of responseAny) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else if (typeof responseAny.read === "function") {
-    // Response is a Readable stream
-    const chunks: Buffer[] = [];
-    for await (const chunk of responseAny as Readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    buffer = Buffer.concat(chunks);
-  } else {
-    // Debug: log what we actually received
-    const keys = Object.keys(responseAny);
-    const types = keys.map((k) => `${k}: ${typeof responseAny[k]}`).join(", ");
-    throw new Error(
-      `Feishu message resource download failed: unexpected response format. Keys: [${types}]`,
-    );
-  }
-
+  const tmpPath = path.join(os.tmpdir(), `feishu_${Date.now()}_${fileKey}`);
+  const buffer = await readFeishuResponseBuffer({
+    response,
+    tmpPath,
+    errorPrefix: "Feishu message resource download failed",
+  });
   return { buffer };
 }
 
@@ -322,15 +282,8 @@ export async function sendImageFeishu(params: {
         msg_type: "image",
       },
     });
-
-    if (response.code !== 0) {
-      throw new Error(`Feishu image reply failed: ${response.msg || `code ${response.code}`}`);
-    }
-
-    return {
-      messageId: response.data?.message_id ?? "unknown",
-      chatId: receiveId,
-    };
+    assertFeishuMessageApiSuccess(response, "Feishu image reply failed");
+    return toFeishuSendResult(response, receiveId);
   }
 
   const response = await client.im.message.create({
@@ -341,15 +294,8 @@ export async function sendImageFeishu(params: {
       msg_type: "image",
     },
   });
-
-  if (response.code !== 0) {
-    throw new Error(`Feishu image send failed: ${response.msg || `code ${response.code}`}`);
-  }
-
-  return {
-    messageId: response.data?.message_id ?? "unknown",
-    chatId: receiveId,
-  };
+  assertFeishuMessageApiSuccess(response, "Feishu image send failed");
+  return toFeishuSendResult(response, receiveId);
 }
 
 /**
@@ -388,15 +334,8 @@ export async function sendFileFeishu(params: {
         msg_type: msgType,
       },
     });
-
-    if (response.code !== 0) {
-      throw new Error(`Feishu file reply failed: ${response.msg || `code ${response.code}`}`);
-    }
-
-    return {
-      messageId: response.data?.message_id ?? "unknown",
-      chatId: receiveId,
-    };
+    assertFeishuMessageApiSuccess(response, "Feishu file reply failed");
+    return toFeishuSendResult(response, receiveId);
   }
 
   const response = await client.im.message.create({
@@ -407,15 +346,8 @@ export async function sendFileFeishu(params: {
       msg_type: msgType,
     },
   });
-
-  if (response.code !== 0) {
-    throw new Error(`Feishu file send failed: ${response.msg || `code ${response.code}`}`);
-  }
-
-  return {
-    messageId: response.data?.message_id ?? "unknown",
-    chatId: receiveId,
-  };
+  assertFeishuMessageApiSuccess(response, "Feishu file send failed");
+  return toFeishuSendResult(response, receiveId);
 }
 
 /**
@@ -479,6 +411,11 @@ export async function sendMediaFeishu(params: {
   accountId?: string;
 }): Promise<SendMediaResult> {
   const { cfg, to, mediaUrl, mediaBuffer, fileName, replyToMessageId, accountId } = params;
+  const account = resolveFeishuAccount({ cfg, accountId });
+  if (!account.configured) {
+    throw new Error(`Feishu account "${account.accountId}" not configured`);
+  }
+  const mediaMaxBytes = (account.config?.mediaMaxMb ?? 30) * 1024 * 1024;
 
   let buffer: Buffer;
   let name: string;
@@ -499,13 +436,12 @@ export async function sendMediaFeishu(params: {
       buffer = fs.readFileSync(filePath);
       name = fileName ?? path.basename(filePath);
     } else {
-      // Remote URL - fetch
-      const response = await fetch(mediaUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch media from URL: ${response.status}`);
-      }
-      buffer = Buffer.from(await response.arrayBuffer());
-      name = fileName ?? (path.basename(new URL(mediaUrl).pathname) || "file");
+      const loaded = await getFeishuRuntime().media.loadWebMedia(mediaUrl, {
+        maxBytes: mediaMaxBytes,
+        optimizeImages: false,
+      });
+      buffer = loaded.buffer;
+      name = fileName ?? loaded.fileName ?? "file";
     }
   } else {
     throw new Error("Either mediaUrl or mediaBuffer must be provided");

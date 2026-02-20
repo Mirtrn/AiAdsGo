@@ -13,6 +13,7 @@ import {
   pauseUrlSwapTargetsByOfferId
 } from './url-swap'
 import { applyCampaignTransition, applyCampaignTransitionByIds } from './campaign-state-machine'
+import { toDbJsonObjectField } from './json-field'
 
 export interface Offer {
   id: number
@@ -178,7 +179,7 @@ export interface UpdateOfferInput {
   localization_adapt?: string
   brand_analysis?: string
   // v3.2架构：店铺/单品差异化分析字段
-  ai_analysis_v32?: string
+  ai_analysis_v32?: unknown
   page_type?: string
 }
 
@@ -738,7 +739,7 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   // v3.2架构：店铺/单品差异化分析字段
   if (input.ai_analysis_v32 !== undefined) {
     updates.push('ai_analysis_v32 = ?')
-    params.push(input.ai_analysis_v32)
+    params.push(toDbJsonObjectField(input.ai_analysis_v32, db.type, null))
   }
   if (input.page_type !== undefined) {
     updates.push('page_type = ?')
@@ -1310,11 +1311,11 @@ export async function updateOfferScrapeStatus(
     // 🔥 页面类型标识（店铺/单品）
     page_type?: 'store' | 'product'
     // 🔥 v3.2 AI分析结果（包含pageType、关键词策略等）
-    ai_analysis_v32?: string
+    ai_analysis_v32?: unknown
     // 🔥 v3.2 AI提取的关键词
-    ai_keywords?: string
+    ai_keywords?: unknown
     // 🔥 v3.2 AI分析的竞品优势
-    ai_competitive_edges?: string
+    ai_competitive_edges?: unknown
   }
 ): Promise<void> {
   const db = await getDatabase()
@@ -1554,9 +1555,9 @@ export async function updateOfferScrapeStatus(
       scrapedData.scraped_data || null,
       scrapedData.product_categories || null,
       scrapedData.page_type || null,
-      scrapedData.ai_analysis_v32 || null,
-      scrapedData.ai_keywords || null,
-      scrapedData.ai_competitive_edges || null,
+      toDbJsonObjectField(scrapedData.ai_analysis_v32, db.type, null),
+      toDbJsonObjectField(scrapedData.ai_keywords, db.type, null),
+      toDbJsonObjectField(scrapedData.ai_competitive_edges, db.type, null),
       id,
       userId
     ])

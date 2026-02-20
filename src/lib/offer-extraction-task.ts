@@ -1,6 +1,7 @@
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 type OfferPageType = 'store' | 'product'
 
@@ -131,7 +132,7 @@ export async function createOfferExtractionTaskForExistingOffer(
       `,
       [
         error?.message || '任务入队失败',
-        JSON.stringify({ message: error?.message || '任务入队失败' }),
+        toDbJsonObjectField({ message: error?.message || '任务入队失败' }, db.type, { message: '任务入队失败' }),
         taskId,
       ]
     )

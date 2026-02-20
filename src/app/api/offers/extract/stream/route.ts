@@ -24,6 +24,7 @@ import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
+import { parseJsonField } from '@/lib/json-field'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 900 // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -35,8 +36,8 @@ interface OfferTask {
   stage: string | null
   progress: number
   message: string | null
-  result: string | null
-  error: string | null
+  result: unknown
+  error: unknown
   updated_at: string
 }
 
@@ -224,13 +225,16 @@ export async function POST(req: NextRequest) {
               console.log(`🛑 任务${task.status}, 停止轮询: ${taskId}`)
 
               if (task.status === 'completed') {
-                const result = task.result ? JSON.parse(task.result) : {}
+                const result = parseJsonField<Record<string, any>>(task.result, {})
                 sendSSE({
                   type: 'complete',
                   data: result
                 })
               } else {
-                const error = task.error ? JSON.parse(task.error) : { message: task.message || '任务失败' }
+                const parsedError = parseJsonField<any>(task.error, null)
+                const error = parsedError && typeof parsedError === 'object'
+                  ? parsedError
+                  : { message: task.message || '任务失败' }
                 sendSSE({
                   type: 'error',
                   data: {

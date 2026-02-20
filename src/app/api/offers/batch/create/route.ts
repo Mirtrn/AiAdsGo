@@ -28,6 +28,7 @@ import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { BatchCreationTaskData } from '@/lib/queue/executors/batch-creation-executor'
 import { canonicalizeOfferBatchCsvHeader, decodeCsvTextSmart, normalizeCsvHeaderCell } from '@/lib/offers/batch-offer-csv'
+import { toDbJsonObjectField } from '@/lib/json-field'
 import Papa from 'papaparse'
 
 export const maxDuration = 60
@@ -284,10 +285,14 @@ export async function POST(req: NextRequest) {
       userIdNum,
       rows.length,
       file.name,
-      JSON.stringify({
-        skipped_rows: skippedCount,
-        valid_rows: rows.length
-      })
+      toDbJsonObjectField(
+        {
+          skipped_rows: skippedCount,
+          valid_rows: rows.length,
+        },
+        db.type,
+        { skipped_rows: skippedCount, valid_rows: rows.length }
+      )
     ])
 
     console.log(`📝 批量任务已创建: ${batchId} (${rows.length} 个Offer${skippedCount > 0 ? `，跳过${skippedCount}行` : ''})`)
@@ -317,10 +322,14 @@ export async function POST(req: NextRequest) {
       file.size,
       rows.length,
       skippedCount,
-      JSON.stringify({
-        skipped_rows: skippedCount,
-        valid_rows: rows.length
-      })
+      toDbJsonObjectField(
+        {
+          skipped_rows: skippedCount,
+          valid_rows: rows.length,
+        },
+        db.type,
+        { skipped_rows: skippedCount, valid_rows: rows.length }
+      )
     ])
 
     console.log(`📋 上传记录已创建: ${uploadRecordId}`)

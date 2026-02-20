@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +28,7 @@ interface UploadRecordDetail {
   success_rate: number
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'partial'
   completed_at: string | null
-  metadata: string | null
+  metadata: unknown
   batch_status: string
   batch_total_count: number
   batch_completed_count: number
@@ -86,15 +87,7 @@ export async function GET(
 
     const record = records[0]
 
-    // 解析metadata
-    let metadataObj = null
-    if (record.metadata) {
-      try {
-        metadataObj = JSON.parse(record.metadata)
-      } catch {
-        metadataObj = null
-      }
-    }
+    const metadataObj = parseJsonField(record.metadata, null)
 
     return NextResponse.json({
       success: true,

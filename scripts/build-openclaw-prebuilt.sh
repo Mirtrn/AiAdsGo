@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_DIR="${ROOT_DIR}/openclaw"
 OUT_DIR="${ROOT_DIR}/openclaw-prebuilt"
-TMP_DIR="${ROOT_DIR}/.openclaw-prebuilt-tmp"
+TMP_DIR="${OPENCLAW_PREBUILT_TMP_DIR:-${ROOT_DIR}/.openclaw-prebuilt-tmp}"
 TMP_OUT_DIR="${TMP_DIR}/out"
 ROOT_SKILLS_DIR="${ROOT_DIR}/skills"
 SOURCE_COMMIT_PIN_FILE="${OPENCLAW_DIR}/.source-commit"
@@ -60,6 +60,8 @@ build_with_docker() {
     -v "${TMP_OUT_DIR}:/out" \
     -w /openclaw \
     -e OPENCLAW_A2UI_SKIP_MISSING=1 \
+    -e SOURCE_COMMIT="${SOURCE_COMMIT}" \
+    -e SOURCE_VERSION="${SOURCE_VERSION}" \
     -e CI=true \
     -e HOST_UID="${HOST_UID}" \
     -e HOST_GID="${HOST_GID}" \
@@ -72,7 +74,10 @@ build_with_docker() {
 
       # 构建阶段需要完整依赖
       pnpm install --no-frozen-lockfile
-      OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+      OPENCLAW_A2UI_SKIP_MISSING=1 \
+      GIT_COMMIT="${SOURCE_COMMIT}" \
+      OPENCLAW_BUNDLED_VERSION="${SOURCE_VERSION}" \
+      pnpm build
 
       # 仅保留生产依赖，避免将 devDependencies 带入镜像
       # CI=true + confirmModulesPurge=false，避免无TTY环境交互中断
@@ -126,7 +131,10 @@ build_with_local_toolchain() {
     cd "${local_build_dir}"
     corepack prepare pnpm@10.23.0 --activate
     pnpm install --no-frozen-lockfile
-    OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+    OPENCLAW_A2UI_SKIP_MISSING=1 \
+    GIT_COMMIT="${SOURCE_COMMIT}" \
+    OPENCLAW_BUNDLED_VERSION="${SOURCE_VERSION}" \
+    pnpm build
     pnpm prune --prod --config.confirmModulesPurge=false
 
     rm -rf node_modules/.pnpm/@typescript+native-preview* \

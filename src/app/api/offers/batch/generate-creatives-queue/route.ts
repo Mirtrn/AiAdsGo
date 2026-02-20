@@ -17,6 +17,7 @@ import { getQueueManager } from '@/lib/queue'
 import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
+import { toDbJsonObjectField } from '@/lib/json-field'
 
 export const maxDuration = 60
 
@@ -235,7 +236,11 @@ export async function POST(request: NextRequest) {
              WHERE id = ? AND user_id = ?`,
             [
               error?.message || '任务入队失败',
-              JSON.stringify({ message: error?.message || String(error), stack: error?.stack }),
+              toDbJsonObjectField(
+                { message: error?.message || String(error), stack: error?.stack },
+                db.type,
+                { message: error?.message || String(error) }
+              ),
               taskId,
               userIdNum,
             ]
@@ -263,4 +268,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-

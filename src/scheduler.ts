@@ -601,6 +601,33 @@ async function linkAndAccountCheckTask() {
 }
 
 /**
+ * 任务3.1: 创意完成后未发布超时检查
+ * 频率：默认每30分钟
+ */
+async function creativePublishTimeoutAlertTask() {
+  const thresholdMinutes = parsePositiveInt(process.env.CREATIVE_PUBLISH_ALERT_THRESHOLD_MINUTES, 90)
+  const lookbackHours = parsePositiveInt(process.env.CREATIVE_PUBLISH_ALERT_LOOKBACK_HOURS, 48)
+  const limit = parsePositiveInt(process.env.CREATIVE_PUBLISH_ALERT_LIMIT, 500)
+
+  log(`🚨 开始执行创意发布超时检查任务... (threshold=${thresholdMinutes}m, lookback=${lookbackHours}h, limit=${limit})`)
+
+  try {
+    const { checkCreativePublishTimeouts } = await import('./lib/creative-publish-alerts')
+    const result = await checkCreativePublishTimeouts({
+      thresholdMinutes,
+      lookbackHours,
+      limit,
+    })
+
+    log(
+      `🚨 创意发布超时检查完成 - scanned=${result.scannedOffers}, stalled=${result.stalledOffers}, alerts=${result.alertsTriggered}, skippedWithPublish=${result.skippedWithPublishRequest}`
+    )
+  } catch (error) {
+    logError('❌ 创意发布超时检查任务执行失败:', error)
+  }
+}
+
+/**
  * 检查当前时间是否匹配目标时间（允许一定分钟误差）
  */
 function isTimeMatch(currentTime: string, targetTime: string, toleranceMinutes: number): boolean {
@@ -623,6 +650,7 @@ function startScheduler() {
   log('  - 数据同步: 每6小时 (0, 6, 12, 18点)')
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
+  log('  - 创意发布超时检查: 默认每30分钟')
   log('  - 数据清理: 每天凌晨3点')
   log('  - 禁用/过期用户任务暂停: 每天一次 (默认凌晨4点)')
   log('  - OpenClaw 每日报表推送: 每天上午9点')
@@ -672,6 +700,22 @@ function startScheduler() {
     log(`✅ 链接和账号检查任务已启动 (cron: ${linkCheckCron})`)
   } else {
     log('⏸️  链接和账号检查任务已禁用 (LINK_CHECK_ENABLED=false)')
+  }
+
+  // 任务3.1: 创意完成后未发布超时检查
+  const creativePublishAlertEnabled = process.env.CREATIVE_PUBLISH_ALERT_ENABLED !== 'false'
+  const creativePublishAlertCron = process.env.CREATIVE_PUBLISH_ALERT_CRON || '*/30 * * * *'
+
+  if (creativePublishAlertEnabled) {
+    cron.schedule(creativePublishAlertCron, async () => {
+      await creativePublishTimeoutAlertTask()
+    }, {
+      scheduled: true,
+      timezone: 'Asia/Shanghai'
+    })
+    log(`✅ 创意发布超时检查任务已启动 (cron: ${creativePublishAlertCron})`)
+  } else {
+    log('⏸️  创意发布超时检查任务已禁用 (CREATIVE_PUBLISH_ALERT_ENABLED=false)')
   }
 
   // 任务4: 每天凌晨3点清理旧数据

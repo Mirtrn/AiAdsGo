@@ -305,7 +305,8 @@ describe("handleFeishuMessage command authorization", () => {
       runtime: { log: vi.fn(), error: vi.fn() } as RuntimeEnv,
     });
 
-    await vi.advanceTimersByTimeAsync(1200);
+    // Runtime clamps slow-notice delay to >= 5s.
+    await vi.advanceTimersByTimeAsync(5200);
 
     expect(mockSendMessageFeishu).toHaveBeenCalledWith(
       expect.objectContaining({

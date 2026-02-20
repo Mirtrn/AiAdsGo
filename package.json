@@ -30,6 +30,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:schema": "tsx scripts/generate-schema.ts",
     "db:backup": "tsx scripts/backup-database.ts",
+    "db:backfill-jsonb": "tsx scripts/backfill-jsonb-double-encoded.ts",
     "campaigns:backfill-names": "tsx scripts/backfill-campaign-names-from-google.ts",
     "db:verify-settings": "tsx scripts/verify-database-settings.ts",
     "db:clean-settings": "tsx scripts/clean-database-settings.ts",
