@@ -174,6 +174,77 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
+  it('auto-corrects offer.extract commission when incoming percent matches historical amount-derived pattern', async () => {
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM offers')) {
+          return [
+            {
+              id: 3689,
+              product_price: '$199.99',
+              commission_payout: '11.25%',
+            },
+          ]
+        }
+        return []
+      }),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-offer-fix-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            request_method: 'POST',
+            request_path: '/api/offers/extract',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              affiliate_link: 'https://yeahpromos.com/index/index/openurlproduct?track=43e8d385119b639d&pid=429324',
+              target_country: 'US',
+              product_price: '$199.99',
+              commission_payout: '22.5%',
+              page_type: 'product',
+              skipCache: true,
+              skipWarmup: false,
+            }),
+            risk_level: 'medium',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, taskId: 'task-offer-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const result = await executeOpenclawCommandTask(createTask('run-offer-fix-1'))
+    expect(result.success).toBe(true)
+
+    expect(mocks.fetchAutoadsAsUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/api/offers/extract',
+        method: 'POST',
+        body: expect.objectContaining({
+          commission_payout: '11.25%',
+        }),
+      })
+    )
+  })
+
   it('hydrates campaign.publish payload with fallback keywords before forwarding', async () => {
     const db = {
       type: 'postgres',

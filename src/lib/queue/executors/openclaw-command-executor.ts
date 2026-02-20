@@ -12,6 +12,7 @@ import {
 import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword-fallback'
 import { inferNegativeKeywordMatchType, normalizeMatchType } from '@/lib/campaign-publish/negative-keyword-match-type'
 import { normalizeCampaignPublishCampaignConfig } from '@/lib/autoads-request-normalizers'
+import { parseCommissionPayoutValue, parseMoneyValue } from '@/lib/offer-monetization'
 
 export type OpenclawCommandTaskData = {
   runId: string
@@ -70,6 +71,28 @@ function parseJsonAny(value: string | null | undefined): any {
   } catch {
     return undefined
   }
+}
+
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function formatCompactNumber(value: number): string {
+  const rounded = roundTo2(value)
+  if (Number.isInteger(rounded)) {
+    return String(rounded)
+  }
+  return rounded.toFixed(2).replace(/\.?0+$/, '')
+}
+
+function toTrimmedString(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  const normalized = String(value).trim()
+  return normalized || null
+}
+
+function isOfferExtractPath(path: string): boolean {
+  return path === '/api/offers/extract' || path === '/api/offers/extract/stream'
 }
 
 const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
@@ -563,6 +586,122 @@ async function hydrateCampaignPublishRequestBody(params: {
   }
 }
 
+async function hydrateOfferExtractCommissionByHistory(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method !== 'POST') {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  const productPriceText = toTrimmedString(payload.product_price ?? payload.productPrice)
+  if (!affiliateLink || !commissionText || !productPriceText) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const incomingCommission = parseCommissionPayoutValue(commissionText, {
+    targetCountry,
+  })
+  if (!incomingCommission || incomingCommission.mode !== 'percent') {
+    return { body: params.body, hydrated: false }
+  }
+
+  const incomingProductPrice = parseMoneyValue(productPriceText, {
+    targetCountry,
+  })
+  if (!incomingProductPrice || incomingProductPrice.amount <= 0) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const historyRows = await params.db.query<{
+    id: number
+    product_price: string | null
+    commission_payout: string | null
+  }>(
+    `
+      SELECT id, product_price, commission_payout
+      FROM offers
+      WHERE user_id = ?
+        AND affiliate_link = ?
+        AND commission_payout IS NOT NULL
+        AND product_price IS NOT NULL
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 20
+    `,
+    [params.userId, affiliateLink]
+  )
+
+  if (!historyRows || historyRows.length === 0) {
+    return { body: params.body, hydrated: false }
+  }
+
+  for (const row of historyRows) {
+    const historyCommissionText = toTrimmedString(row.commission_payout)
+    const historyPriceText = toTrimmedString(row.product_price)
+    if (!historyCommissionText || !historyPriceText) continue
+
+    const historyCommission = parseCommissionPayoutValue(historyCommissionText, {
+      targetCountry,
+    })
+    if (!historyCommission || historyCommission.mode !== 'percent') continue
+
+    const historyPrice = parseMoneyValue(historyPriceText, {
+      targetCountry,
+    })
+    if (!historyPrice || historyPrice.amount <= 0) continue
+
+    if (Math.abs(historyPrice.amount - incomingProductPrice.amount) > 0.02) {
+      continue
+    }
+
+    const expectedAmount = roundTo2(historyPrice.amount * (historyCommission.displayRate / 100))
+    const isAmountDerivedPercent =
+      Math.abs(expectedAmount - incomingCommission.displayRate) <= 0.02
+      && Math.abs(historyCommission.displayRate - incomingCommission.displayRate) > 0.05
+
+    if (!isAmountDerivedPercent) {
+      continue
+    }
+
+    const correctedCommission = `${formatCompactNumber(historyCommission.displayRate)}%`
+    const hydratedBody: Record<string, unknown> = {
+      ...payload,
+      commission_payout: correctedCommission,
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'commissionPayout')) {
+      hydratedBody.commissionPayout = correctedCommission
+    }
+
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] 自动修正佣金比例(疑似金额误写为百分比): offer.extract ${incomingCommission.displayRate}% -> ${correctedCommission} (offerId=${row.id})`
+      )
+    }
+
+    return {
+      body: hydratedBody,
+      hydrated: true,
+    }
+  }
+
+  return { body: params.body, hydrated: false }
+}
+
 function extractOfferIdFromClickFarmBody(body: unknown): number | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return null
@@ -947,17 +1086,26 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
-    const hydratedPayload = await hydrateCampaignPublishRequestBody({
+    const offerExtractHydrated = await hydrateOfferExtractCommissionByHistory({
       db,
       userId: data.userId,
       method: run.request_method,
       path: run.request_path,
       body: requestBody,
     })
-    requestBody = hydratedPayload.body
+    requestBody = offerExtractHydrated.body
+
+    const publishHydrated = await hydrateCampaignPublishRequestBody({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = publishHydrated.body
     requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
 
-    if (hydratedPayload.hydrated && requestBodyForAudit !== run.request_body_json) {
+    if ((offerExtractHydrated.hydrated || publishHydrated.hydrated) && requestBodyForAudit !== run.request_body_json) {
       await db.exec(
         `UPDATE openclaw_command_runs
          SET request_body_json = ?,
