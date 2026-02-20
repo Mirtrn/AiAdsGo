@@ -288,7 +288,7 @@ export async function PUT(
           const { getRedisClient } = await import('@/lib/redis-client')
           const redis = getRedisClient()
           if (redis) {
-            const cacheKey = `cpc:history:user:${numericUserId}:campaign:${campaignIdNum}`
+            const cacheKey = `cpc:history:v2:user:${numericUserId}:campaign:${campaignIdNum}`
             await redis.del(cacheKey)
           }
         } catch {

@@ -54,6 +54,11 @@ function safeParseJson<T = any>(value: unknown): T | null {
   }
 }
 
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -316,7 +321,7 @@ export async function GET(
         : (biddingStrategyType === 'TARGET_CPA') ? 'TARGET_CPA'
           : biddingStrategyType
 
-    const historyCacheKey = linked.offer_id ? `cpc:history:user:${numericUserId}:campaign:${campaignIdNum}` : null
+    const historyCacheKey = linked.offer_id ? `cpc:history:v2:user:${numericUserId}:campaign:${campaignIdNum}` : null
     let history: Array<{ value: number; adjustmentType: string; createdAt: string; successCount: number; failureCount: number }> = []
 
     if (historyCacheKey) {
@@ -381,7 +386,7 @@ export async function GET(
       const localCampaignToken = linked.local_campaign_id !== null && linked.local_campaign_id !== undefined
         ? String(linked.local_campaign_id)
         : null
-      history = historyRows
+      const matchedHistoryRows = historyRows
         .filter((row: any) => {
           if (row.campaign_id !== null && row.campaign_id !== undefined) {
             const rowToken = String(row.campaign_id)
@@ -402,13 +407,27 @@ export async function GET(
           if (localCampaignToken && tokens.includes(localCampaignToken)) return true
           return false
         })
+      // 兼容历史写法：adjustment_value 曾记录“调整后值”，这里统一转换为“调整前值”展示。
+      history = matchedHistoryRows
         .map((row: any) => ({
-          value: Number(row.adjustment_value),
+          adjustmentValue: toPositiveNumberOrNull(row.adjustment_value),
           adjustmentType: row.adjustment_type,
           createdAt: row.created_at,
           successCount: Number(row.success_count) || 0,
           failureCount: Number(row.failure_count) || 0,
         }))
+        .map((row, index, rows) => {
+          const previousFromNextAdjustment = rows[index + 1]?.adjustmentValue ?? null
+          const previousFromInitialConfig = configuredCpc !== null && configuredCpc > 0 ? configuredCpc : null
+          const previousValue = previousFromNextAdjustment ?? previousFromInitialConfig
+          return {
+            value: previousValue ?? row.adjustmentValue ?? 0,
+            adjustmentType: row.adjustmentType,
+            createdAt: row.createdAt,
+            successCount: row.successCount,
+            failureCount: row.failureCount,
+          }
+        })
 
       if (historyCacheKey && history.length > 0) {
         try {
