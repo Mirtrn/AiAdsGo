@@ -2201,12 +2201,38 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     last_seen_at,
     updated_at
   `
+  const typedIncomingProjection = `
+    v.user_id::integer AS user_id,
+    v.platform::text AS platform,
+    v.mid::text AS mid,
+    v.asin::text AS asin,
+    v.brand::text AS brand,
+    v.product_name::text AS product_name,
+    v.product_url::text AS product_url,
+    v.promo_link::text AS promo_link,
+    v.short_promo_link::text AS short_promo_link,
+    v.allowed_countries_json::text AS allowed_countries_json,
+    v.price_amount::double precision AS price_amount,
+    v.price_currency::text AS price_currency,
+    v.commission_rate::double precision AS commission_rate,
+    v.commission_amount::double precision AS commission_amount,
+    v.review_count::integer AS review_count,
+    v.raw_json::text AS raw_json,
+    v.last_synced_at::timestamp AS last_synced_at,
+    v.last_seen_at::timestamp AS last_seen_at,
+    v.updated_at::timestamp AS updated_at
+  `
+  const incomingCte = `
+    WITH incoming AS (
+      SELECT
+        ${typedIncomingProjection}
+      FROM (VALUES ${placeholders}) AS v (${incomingColumns})
+    )
+  `
   const values = buildAffiliateProductsUpsertValues(params)
 
   await params.db.exec(`
-    WITH incoming (${incomingColumns}) AS (
-      VALUES ${placeholders}
-    )
+    ${incomingCte}
     UPDATE affiliate_products p
     SET
       asin = incoming.asin,
@@ -2226,15 +2252,13 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       last_seen_at = incoming.last_seen_at,
       updated_at = incoming.updated_at
     FROM incoming
-    WHERE p.user_id = incoming.user_id::integer
-      AND p.platform = incoming.platform::text
-      AND p.mid = incoming.mid::text
+    WHERE p.user_id = incoming.user_id
+      AND p.platform = incoming.platform
+      AND p.mid = incoming.mid
   `, values)
 
   await params.db.exec(`
-    WITH incoming (${incomingColumns}) AS (
-      VALUES ${placeholders}
-    )
+    ${incomingCte}
     INSERT INTO affiliate_products (
       user_id,
       platform,
@@ -2257,30 +2281,30 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       updated_at
     )
     SELECT
-      incoming.user_id::integer,
-      incoming.platform::text,
-      incoming.mid::text,
-      incoming.asin::text,
-      incoming.brand::text,
-      incoming.product_name::text,
-      incoming.product_url::text,
-      incoming.promo_link::text,
-      incoming.short_promo_link::text,
-      incoming.allowed_countries_json::text,
-      incoming.price_amount::double precision,
-      incoming.price_currency::text,
-      incoming.commission_rate::double precision,
-      incoming.commission_amount::double precision,
-      incoming.review_count::integer,
-      incoming.raw_json::text,
-      incoming.last_synced_at::timestamp,
-      incoming.last_seen_at::timestamp,
-      incoming.updated_at::timestamp
+      incoming.user_id,
+      incoming.platform,
+      incoming.mid,
+      incoming.asin,
+      incoming.brand,
+      incoming.product_name,
+      incoming.product_url,
+      incoming.promo_link,
+      incoming.short_promo_link,
+      incoming.allowed_countries_json,
+      incoming.price_amount,
+      incoming.price_currency,
+      incoming.commission_rate,
+      incoming.commission_amount,
+      incoming.review_count,
+      incoming.raw_json,
+      incoming.last_synced_at,
+      incoming.last_seen_at,
+      incoming.updated_at
     FROM incoming
     LEFT JOIN affiliate_products p
-      ON p.user_id = incoming.user_id::integer
-      AND p.platform = incoming.platform::text
-      AND p.mid = incoming.mid::text
+      ON p.user_id = incoming.user_id
+      AND p.platform = incoming.platform
+      AND p.mid = incoming.mid
     WHERE p.id IS NULL
     ON CONFLICT (user_id, platform, mid) DO UPDATE SET
       asin = EXCLUDED.asin,
