@@ -39,6 +39,7 @@ type ProgressToolState = {
 const FEISHU_PROGRESS_RENDER_THROTTLE_MS = 1200;
 const FEISHU_PROGRESS_MAX_LINES = 6;
 const FEISHU_PARTIAL_PROGRESS_SUPPRESS_MS = 5000;
+const FEISHU_PARTIAL_PROGRESS_HEARTBEAT_MS = 6000;
 const LOW_VALUE_COMMAND_HEARTBEAT_ID = "__command_heartbeat__";
 const LOW_VALUE_COMMAND_HEARTBEAT_DETAIL = "后台轮询中";
 const LOW_VALUE_PROCESS_POLL_HEARTBEAT_DETAIL = "后台任务状态同步中";
@@ -280,6 +281,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let progressEventCount = 0;
   let partialStreamStarted = false;
   let partialLastUpdatedAt = 0;
+  let progressHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let finalReplyDelivered = false;
   const progressToolsById = new Map<string, ProgressToolState>();
 
@@ -424,6 +426,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
     progressLastRenderedText = "";
     partialStreamStarted = false;
     partialLastUpdatedAt = 0;
+    if (progressHeartbeatTimer) {
+      clearInterval(progressHeartbeatTimer);
+      progressHeartbeatTimer = null;
+    }
   };
 
   const { dispatcher, replyOptions, markDispatchIdle } =
@@ -603,6 +609,15 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             }
             partialStreamStarted = true;
             partialLastUpdatedAt = Date.now();
+            if (!progressHeartbeatTimer) {
+              progressHeartbeatTimer = setInterval(() => {
+                if (!streamingEnabled || finalReplyDelivered) {
+                  return;
+                }
+                void pushProgressUpdate(true);
+              }, FEISHU_PARTIAL_PROGRESS_HEARTBEAT_MS);
+              progressHeartbeatTimer.unref?.();
+            }
             lastPartial = payload.text;
             streamText = payload.text;
             partialUpdateQueue = partialUpdateQueue.then(async () => {

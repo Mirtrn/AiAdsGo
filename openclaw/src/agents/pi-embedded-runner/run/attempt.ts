@@ -204,6 +204,20 @@ function summarizeSessionContext(messages: AgentMessage[]): {
   };
 }
 
+const DEFAULT_TIMEOUT_EXTENSION_LIMIT = 2;
+
+export function shouldExtendEmbeddedRunTimeout(params: {
+  isStreaming: boolean;
+  extensionCount: number;
+  maxExtensions?: number;
+}): boolean {
+  const maxExtensions =
+    typeof params.maxExtensions === "number" && Number.isFinite(params.maxExtensions)
+      ? Math.max(0, Math.floor(params.maxExtensions))
+      : DEFAULT_TIMEOUT_EXTENSION_LIMIT;
+  return params.isStreaming && params.extensionCount < maxExtensions;
+}
+
 export async function runEmbeddedAttempt(
   params: EmbeddedRunAttemptParams,
 ): Promise<EmbeddedRunAttemptResult> {
@@ -759,12 +773,36 @@ export async function runEmbeddedAttempt(
       setActiveEmbeddedRun(params.sessionId, queueHandle);
 
       let abortWarnTimer: NodeJS.Timeout | undefined;
+      let abortTimer: NodeJS.Timeout | undefined;
       const isProbeSession = params.sessionId?.startsWith("probe-") ?? false;
-      const abortTimer = setTimeout(
-        () => {
+      let timeoutExtensionCount = 0;
+      const timeoutWindowMs = Math.max(1, params.timeoutMs);
+      const armAbortTimer = () => {
+        if (abortTimer) {
+          clearTimeout(abortTimer);
+        }
+        abortTimer = setTimeout(() => {
+          if (runAbortController.signal.aborted) {
+            return;
+          }
+          if (
+            shouldExtendEmbeddedRunTimeout({
+              isStreaming: activeSession.isStreaming,
+              extensionCount: timeoutExtensionCount,
+            })
+          ) {
+            timeoutExtensionCount += 1;
+            if (!isProbeSession) {
+              log.warn(
+                `embedded run timeout extended: runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${params.timeoutMs} extension=${timeoutExtensionCount}/${DEFAULT_TIMEOUT_EXTENSION_LIMIT}`,
+              );
+            }
+            armAbortTimer();
+            return;
+          }
           if (!isProbeSession) {
             log.warn(
-              `embedded run timeout: runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${params.timeoutMs}`,
+              `embedded run timeout: runId=${params.runId} sessionId=${params.sessionId} timeoutMs=${params.timeoutMs} extensions=${timeoutExtensionCount}`,
             );
           }
           abortRun(true);
@@ -780,9 +818,9 @@ export async function runEmbeddedAttempt(
               }
             }, 10_000);
           }
-        },
-        Math.max(1, params.timeoutMs),
-      );
+        }, timeoutWindowMs);
+      };
+      armAbortTimer();
 
       let messagesSnapshot: AgentMessage[] = [];
       let sessionIdUsed = activeSession.sessionId;
@@ -997,7 +1035,9 @@ export async function runEmbeddedAttempt(
             });
         }
       } finally {
-        clearTimeout(abortTimer);
+        if (abortTimer) {
+          clearTimeout(abortTimer);
+        }
         if (abortWarnTimer) {
           clearTimeout(abortWarnTimer);
         }

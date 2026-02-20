@@ -317,4 +317,35 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
     expect(String(lastUpdateText)).toContain("正在生成最终结果...");
   });
+
+  it("resumes progress updates when partial stream stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const { replyOptions } = createFeishuReplyDispatcher({
+        cfg: {} as never,
+        agentId: "agent",
+        runtime: { log: vi.fn(), error: vi.fn() } as never,
+        chatId: "oc_chat",
+      });
+
+      await replyOptions.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
+      await replyOptions.onAgentEvent?.({
+        stream: "tool",
+        data: { phase: "start", name: "create_offer", toolCallId: "tool-1" },
+      });
+
+      replyOptions.onPartialReply?.({ text: "Both Bucket B tasks are at 35%." });
+      await vi.runAllTicks();
+      const updateCountAfterPartial = streamingInstances[0].update.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(6500);
+      await vi.runAllTicks();
+
+      expect(streamingInstances[0].update.mock.calls.length).toBeGreaterThan(updateCountAfterPartial);
+      const lastUpdateText = streamingInstances[0].update.mock.calls.at(-1)?.[0];
+      expect(String(lastUpdateText)).toContain("正在处理请求");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
