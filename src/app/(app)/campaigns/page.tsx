@@ -1790,11 +1790,16 @@ export default function CampaignsPage() {
 	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
                         const adsAccountName = String(campaign.adsAccountName || '').trim()
                         const adsAccountCustomerId = String(campaign.adsAccountCustomerId || '').trim()
-                        const adsAccountPrimaryText = adsAccountName
-                          || adsAccountCustomerId
-                          || (campaign.googleAdsAccountId !== null && campaign.googleAdsAccountId !== undefined
-                            ? `ID ${campaign.googleAdsAccountId}`
-                            : '-')
+                        const shouldHideAdsAccount = isDeleted
+                        const adsAccountPrimaryText = shouldHideAdsAccount
+                          ? '-'
+                          : (
+                            adsAccountName
+                            || adsAccountCustomerId
+                            || (campaign.googleAdsAccountId !== null && campaign.googleAdsAccountId !== undefined
+                              ? `ID ${campaign.googleAdsAccountId}`
+                              : '-')
+                          )
 
 		                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
 		                    const adjustCpcDisabledReason = !googleCampaignId
@@ -1889,12 +1894,12 @@ export default function CampaignsPage() {
                           <div className="font-medium text-gray-900 truncate" title={adsAccountPrimaryText}>
                             {adsAccountPrimaryText}
                           </div>
-                          {adsAccountName && adsAccountCustomerId && (
+                          {!shouldHideAdsAccount && adsAccountName && adsAccountCustomerId && (
                             <div className="text-[11px] text-gray-500 font-mono truncate" title={adsAccountCustomerId}>
                               {adsAccountCustomerId}
                             </div>
                           )}
-                          {campaign.adsAccountAvailable === false && (
+                          {!shouldHideAdsAccount && campaign.adsAccountAvailable === false && (
                             <Badge variant="outline" className="mt-0.5 text-[10px] px-1 py-0 whitespace-nowrap border-orange-200 text-orange-700 bg-orange-50">
                               已解绑
                             </Badge>
