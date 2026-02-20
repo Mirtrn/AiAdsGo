@@ -52,6 +52,23 @@ describe('isPartnerboostRateLimitError', () => {
   })
 })
 
+describe('isPartnerboostTransientError', () => {
+  it('detects HTTP 5xx gateway errors', () => {
+    const error = new Error('PartnerBoost 商品拉取失败 (502): <html><title>502 Bad Gateway</title></html>')
+    expect(__testOnly.isPartnerboostTransientError(error)).toBe(true)
+  })
+
+  it('detects common network transport failures', () => {
+    const error = new Error('fetch failed: ECONNRESET')
+    expect(__testOnly.isPartnerboostTransientError(error)).toBe(true)
+  })
+
+  it('returns false for normal business errors', () => {
+    const error = new Error('PartnerBoost 商品拉取失败: user not exist')
+    expect(__testOnly.isPartnerboostTransientError(error)).toBe(false)
+  })
+})
+
 describe('calculateExponentialBackoffDelay', () => {
   it('grows exponentially and caps at max delay', () => {
     expect(__testOnly.calculateExponentialBackoffDelay(0, 800, 12000)).toBe(0)
