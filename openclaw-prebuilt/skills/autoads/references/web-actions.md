@@ -49,6 +49,9 @@ Last verified: 2026-02-15 (from current Web pages + API routes in repo).
 - Web behavior:
 - `page_type` is `product` or `store`
 - `store_product_links` max 3 URLs
+- `commission_payout` 写入“佣金比例”时必须带 `%` 且保持源值（例如源数据是 `7.50%` 就传 `7.50%`，不要换算成金额）。
+- 禁止把 `product_price * 佣金比例` 的结果当作 `commission_payout` 百分比回传。
+- 仅在“绝对佣金”语义下才传金额，且必须带货币符号（如 `$15`）。
 
 ```json
 {
@@ -57,7 +60,7 @@ Last verified: 2026-02-15 (from current Web pages + API routes in repo).
   "brand_name": "Soocas",
   "page_type": "product",
   "product_price": "199.99",
-  "commission_payout": "25.00"
+  "commission_payout": "25%"
 }
 ```
 
