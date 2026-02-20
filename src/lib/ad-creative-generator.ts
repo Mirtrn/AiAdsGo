@@ -406,26 +406,41 @@ function validateOfferDataQuality(offer: {
   category?: string
   brand_description?: string
   extracted_keywords?: string
+  ai_keywords?: unknown
   scrape_status?: string
   scrape_error?: string
 }): { isValid: boolean; issues: string[] } {
   const issues: string[] = []
+  const UNKNOWN_KEYWORD_PATTERN = /^unknown(\s|$)/i
+
+  const parseKeywordList = (raw: unknown): string[] => {
+    const parsed = safeParseJson(raw, [])
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((kw: any) => {
+        if (typeof kw === 'string') return kw.trim()
+        if (kw && typeof kw.keyword === 'string') return kw.keyword.trim()
+        return ''
+      })
+      .filter(Boolean)
+  }
 
   // 1. 检查 extracted_keywords 是否包含 "unknown" 模式
   if (offer.extracted_keywords) {
-    try {
-      const keywords = JSON.parse(offer.extracted_keywords)
-      if (Array.isArray(keywords)) {
-        const unknownKeywords = keywords.filter((kw: any) => {
-          const kwStr = typeof kw === 'string' ? kw : kw?.keyword
-          return kwStr && /^unknown(\s|$)/i.test(kwStr.trim())
-        })
-        if (unknownKeywords.length > 3) {
-          issues.push(`关键词中包含过多 "unknown" 模式 (${unknownKeywords.length}个)，可能是抓取失败`)
-        }
+    const extractedKeywords = parseKeywordList(offer.extracted_keywords)
+    const unknownKeywords = extractedKeywords.filter((kw) => UNKNOWN_KEYWORD_PATTERN.test(kw))
+
+    if (unknownKeywords.length > 3) {
+      const aiKeywords = parseKeywordList(offer.ai_keywords)
+      const validAiKeywords = aiKeywords.filter((kw) => !UNKNOWN_KEYWORD_PATTERN.test(kw))
+
+      if (validAiKeywords.length <= 3) {
+        issues.push(`关键词中包含过多 "unknown" 模式 (${unknownKeywords.length}个)，可能是抓取失败`)
+      } else {
+        console.warn(
+          `[validateOfferDataQuality] Offer ${offer.id}: extracted_keywords异常(${unknownKeywords.length}个unknown)，但ai_keywords可用(${validAiKeywords.length}个)，跳过拦截`
+        )
       }
-    } catch {
-      // 解析失败忽略
     }
   }
 

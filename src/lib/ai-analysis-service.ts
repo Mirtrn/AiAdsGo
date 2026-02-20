@@ -10,6 +10,8 @@ import { extractAdElements } from './ad-elements-extractor'
 import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
 import { parsePrice } from './pricing-utils'  // 🔧 新增：统一价格解析函数
 import { getProxyUrlForCountry } from './settings'  // 🔥 修复（2025-12-09）：动态获取代理URL
+import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
+import { isInvalidKeyword } from './keyword-invalid-filter'
 
 export interface AIAnalysisInput {
   extractResult: {
@@ -173,6 +175,7 @@ export interface AIAnalysisInput {
   targetCountry: string
   targetLanguage: string
   userId: number
+  fallbackBrand?: string
   enableReviewAnalysis?: boolean
   enableCompetitorAnalysis?: boolean
   enableAdExtraction?: boolean
@@ -285,6 +288,71 @@ function getAmazonDomain(country: string): string {
     'BR': 'com.br',
   }
   return domainMap[country] || 'com'
+}
+
+const PLACEHOLDER_BRANDS = new Set([
+  'unknown',
+  'unknown brand',
+  'n a',
+  'na',
+  'null',
+  'undefined',
+])
+
+function toTrimmedText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function isPlaceholderBrandName(value: unknown): boolean {
+  const text = toTrimmedText(value)
+  if (!text) return true
+  const normalized = normalizeGoogleAdsKeyword(text)
+  if (!normalized) return true
+  if (PLACEHOLDER_BRANDS.has(normalized)) return true
+  return normalized.startsWith('unknown ') || normalized.endsWith(' unknown')
+}
+
+function resolveBrandForAdExtraction(candidates: Array<unknown>): string | null {
+  for (const candidate of candidates) {
+    const text = toTrimmedText(candidate)
+    if (!text) continue
+    if (isPlaceholderBrandName(text)) continue
+    return text
+  }
+  return null
+}
+
+function sanitizeExtractedKeywordList(
+  keywords: Array<{ keyword?: string }>
+): { cleaned: string[]; removedInvalid: number; removedDuplicate: number } {
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  let removedInvalid = 0
+  let removedDuplicate = 0
+
+  for (const item of keywords) {
+    const rawKeyword = toTrimmedText(item?.keyword)
+    if (!rawKeyword || isInvalidKeyword(rawKeyword)) {
+      removedInvalid += 1
+      continue
+    }
+
+    const normalized = normalizeGoogleAdsKeyword(rawKeyword)
+    if (!normalized) {
+      removedInvalid += 1
+      continue
+    }
+
+    if (seen.has(normalized)) {
+      removedDuplicate += 1
+      continue
+    }
+
+    seen.add(normalized)
+    cleaned.push(rawKeyword)
+  }
+
+  return { cleaned, removedInvalid, removedDuplicate }
 }
 
 // 🔥 新增（2025-12-09）：竞品详情缓存（24小时有效期）
@@ -1667,16 +1735,35 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           hasDeepData: !!(productData || storeProducts),
         }
 
+        const extractedBrand = toTrimmedText(extractResult.brand)
+        const fallbackBrand = toTrimmedText(input.fallbackBrand)
+        const brandForAdExtraction = resolveBrandForAdExtraction([
+          extractedBrand,
+          fallbackBrand,
+        ])
+
+        if (!brandForAdExtraction && extractedBrand) {
+          console.warn(`⚠️ 广告元素提取品牌异常，检测到占位品牌: "${extractedBrand}"`)
+        } else if (!extractedBrand && brandForAdExtraction) {
+          console.log(`ℹ️ 广告元素提取使用兜底品牌: "${brandForAdExtraction}"`)
+        }
+
         const adElements = await extractAdElements(
           scraped,
-          extractResult.brand || 'Unknown',
+          brandForAdExtraction || 'Unknown',
           targetCountry,
           targetLanguage,
           userId
         )
 
-        // 转换keywords为string[]格式（只保留keyword字段）
-        result.extractedKeywords = adElements.keywords.map(k => k.keyword)
+        // 转换keywords为string[]并清洗无效项（unknown/test/null等）
+        const sanitizedKeywordResult = sanitizeExtractedKeywordList(adElements.keywords)
+        if (sanitizedKeywordResult.removedInvalid > 0 || sanitizedKeywordResult.removedDuplicate > 0) {
+          console.warn(
+            `⚠️ 广告关键词清洗: 移除无效${sanitizedKeywordResult.removedInvalid}个，去重${sanitizedKeywordResult.removedDuplicate}个`
+          )
+        }
+        result.extractedKeywords = sanitizedKeywordResult.cleaned
         result.extractedHeadlines = adElements.headlines
         result.extractedDescriptions = adElements.descriptions
         result.extractionMetadata = adElements.sources

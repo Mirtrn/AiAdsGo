@@ -288,6 +288,82 @@ function deriveBrandFromFinalUrl(finalUrl: string): string | null {
   }
 }
 
+function extractAmazonAsinFromUrl(url: string): string | null {
+  try {
+    const match = new URL(url).pathname.match(/\/dp\/([A-Z0-9]{10})/i)
+    return match?.[1]?.toUpperCase() || null
+  } catch {
+    return null
+  }
+}
+
+function buildCanonicalAmazonProductUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url)
+    if (!/(^|\.)amazon\./i.test(urlObj.hostname)) return null
+
+    const asin = extractAmazonAsinFromUrl(url)
+    if (!asin) return null
+
+    return `${urlObj.protocol}//${urlObj.hostname}/dp/${asin}`
+  } catch {
+    return null
+  }
+}
+
+function getAmazonProductDataQualityScore(
+  data: {
+    productName?: string | null
+    productDescription?: string | null
+    brandName?: string | null
+    features?: string[] | null
+    aboutThisItem?: string[] | null
+    imageUrls?: string[] | null
+  } | null | undefined
+): number {
+  if (!data) return 0
+
+  const productNameScore = typeof data.productName === 'string' && data.productName.trim().length > 0 ? 3 : 0
+  const descriptionScore = typeof data.productDescription === 'string' && data.productDescription.trim().length > 0 ? 1 : 0
+  const brandScore = typeof data.brandName === 'string'
+    && data.brandName.trim().length > 0
+    && !isLikelyInvalidBrandName(data.brandName) ? 2 : 0
+  const featuresScore = Array.isArray(data.features)
+    ? Math.min(3, data.features.filter((item) => typeof item === 'string' && item.trim().length > 0).length)
+    : 0
+  const aboutScore = Array.isArray(data.aboutThisItem)
+    ? Math.min(2, data.aboutThisItem.filter((item) => typeof item === 'string' && item.trim().length > 0).length)
+    : 0
+  const imageScore = Array.isArray(data.imageUrls)
+    && data.imageUrls.some((item) => typeof item === 'string' && item.trim().length > 0) ? 1 : 0
+
+  return productNameScore + descriptionScore + brandScore + featuresScore + aboutScore + imageScore
+}
+
+function isAmazonProductDataInsufficient(
+  data: {
+    productName?: string | null
+    brandName?: string | null
+    features?: string[] | null
+    aboutThisItem?: string[] | null
+  } | null | undefined
+): boolean {
+  if (!data) return true
+
+  const hasProductName = typeof data.productName === 'string' && data.productName.trim().length > 0
+  if (!hasProductName) return true
+
+  const hasValidBrand = typeof data.brandName === 'string'
+    && data.brandName.trim().length > 0
+    && !isLikelyInvalidBrandName(data.brandName)
+  const hasFeatures = Array.isArray(data.features)
+    && data.features.some((item) => typeof item === 'string' && item.trim().length > 0)
+  const hasAboutThisItem = Array.isArray(data.aboutThisItem)
+    && data.aboutThisItem.some((item) => typeof item === 'string' && item.trim().length > 0)
+
+  return !hasValidBrand && !hasFeatures && !hasAboutThisItem
+}
+
 /**
  * Offer提取核心函数
  *
@@ -588,6 +664,30 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       } else if (isAmazonProductPage) {
         console.log('📦 检测到Amazon单品页面，使用非Crawlee方案抓取...')
         amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyApiUrl, targetCountry)
+
+        // 通用兜底：若“带追踪参数URL”抓取数据质量不足，则回退到 canonical /dp/ASIN URL 再抓取一次
+        const canonicalAmazonProductUrl = buildCanonicalAmazonProductUrl(resolvedData.finalUrl)
+        const canRetryWithCanonical = !!canonicalAmazonProductUrl && canonicalAmazonProductUrl !== fullTargetUrl
+
+        if (canRetryWithCanonical && isAmazonProductDataInsufficient(amazonProductData)) {
+          const primaryScore = getAmazonProductDataQualityScore(amazonProductData)
+          console.warn(`⚠️ Amazon单品抓取结果质量不足（score=${primaryScore}），尝试canonical回退: ${canonicalAmazonProductUrl}`)
+
+          try {
+            const canonicalProductData = await scrapeAmazonProduct(canonicalAmazonProductUrl, proxyApiUrl, targetCountry)
+            const canonicalScore = getAmazonProductDataQualityScore(canonicalProductData)
+
+            if (canonicalScore >= primaryScore) {
+              amazonProductData = canonicalProductData
+              console.log(`✅ Amazon canonical回退成功（score ${primaryScore} -> ${canonicalScore}）`)
+            } else {
+              console.warn(`⚠️ Amazon canonical回退未提升质量（score ${primaryScore} -> ${canonicalScore}），保留原结果`)
+            }
+          } catch (canonicalError: any) {
+            console.warn(`⚠️ Amazon canonical回退抓取失败，保留原结果: ${canonicalError?.message || canonicalError}`)
+          }
+        }
+
         brandName = amazonProductData.brandName
         if (isLikelyInvalidBrandName(brandName) && amazonProductData.productName) {
           const derived = deriveBrandFromProductTitle(amazonProductData.productName)

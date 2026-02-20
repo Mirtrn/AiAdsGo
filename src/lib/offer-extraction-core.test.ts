@@ -51,6 +51,33 @@ vi.mock('@/lib/offer-utils', () => ({
   },
 }))
 
+function createAmazonProductMock(overrides: Record<string, any> = {}) {
+  return {
+    productName: 'Sample Product',
+    productDescription: 'Sample description',
+    productPrice: '$19.99',
+    originalPrice: null,
+    discount: null,
+    brandName: 'SampleBrand',
+    features: ['Feature A'],
+    aboutThisItem: ['About item A'],
+    imageUrls: ['https://example.com/image.jpg'],
+    rating: '4.5',
+    reviewCount: '100',
+    salesRank: null,
+    badge: null,
+    availability: 'In Stock',
+    primeEligible: true,
+    reviewHighlights: [],
+    topReviews: [],
+    technicalDetails: {},
+    asin: 'B09RF5MPGK',
+    category: 'Home',
+    relatedAsins: [],
+    ...overrides,
+  }
+}
+
 describe('extractOffer brand fallback', () => {
   it('falls back to domain brand when independent product scraping times out', async () => {
     const { extractOffer } = await import('@/lib/offer-extraction-core')
@@ -87,5 +114,79 @@ describe('extractOffer brand fallback', () => {
 
     expect(vi.mocked(extractProductInfo)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(extractProductInfo).mock.calls[0]?.[2]).toBe('https://proxy-provider.example/api?cc=US')
+  })
+
+  it('retries Amazon product scraping with canonical URL when tracked URL data is insufficient', async () => {
+    const { extractOffer } = await import('@/lib/offer-extraction-core')
+    const { resolveAffiliateLink } = await import('@/lib/url-resolver-enhanced')
+    const { getProxyUrlForCountry } = await import('@/lib/settings')
+    const { detectPageType } = await import('@/lib/offer-utils')
+    const { scrapeAmazonProduct } = await import('@/lib/stealth-scraper')
+
+    vi.mocked(getProxyUrlForCountry).mockResolvedValue('https://proxy-provider.example/api?cc=US')
+    vi.mocked(resolveAffiliateLink).mockResolvedValue({
+      finalUrl: 'https://www.amazon.com/dp/B09RF5MPGK',
+      finalUrlSuffix: 'maas=abc&aa_campaignid=123',
+      brand: null,
+      redirectCount: 2,
+      redirectChain: [
+        'https://yeahpromos.com/index/index/openurlproduct?track=43e8d385119b639d&pid=429324',
+        'https://www.amazon.com/dp/B09RF5MPGK',
+      ],
+      pageTitle: null,
+      statusCode: 200,
+      resolveMethod: 'http',
+      proxyUsed: 'US',
+    })
+
+    vi.mocked(detectPageType).mockImplementation((url: string) => {
+      if (url.includes('amazon.com/dp/')) {
+        return {
+          pageType: 'amazon_product',
+          isAmazonStore: false,
+          isAmazonProductPage: true,
+          isIndependentStore: false,
+        }
+      }
+      return {
+        pageType: 'unknown',
+        isAmazonStore: false,
+        isAmazonProductPage: false,
+        isIndependentStore: false,
+      }
+    })
+
+    vi.mocked(scrapeAmazonProduct)
+      .mockResolvedValueOnce(createAmazonProductMock({
+        productName: null,
+        productDescription: null,
+        brandName: null,
+        features: [],
+        aboutThisItem: [],
+        imageUrls: [],
+      }))
+      .mockResolvedValueOnce(createAmazonProductMock({
+        productName: 'Katchy Indoor Insect Trap',
+        brandName: 'Katchy',
+        features: ['UV light attracts flying insects'],
+        aboutThisItem: ['No zapping, no chemicals'],
+      }))
+
+    const result = await extractOffer({
+      affiliateLink: 'https://yeahpromos.com/index/index/openurlproduct?track=43e8d385119b639d&pid=429324',
+      targetCountry: 'US',
+      userId: 1,
+      skipWarmup: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.data?.brand).toBe('Katchy')
+    expect(result.data?.productName).toBe('Katchy Indoor Insect Trap')
+
+    expect(vi.mocked(scrapeAmazonProduct)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(scrapeAmazonProduct).mock.calls[0]?.[0])
+      .toBe('https://www.amazon.com/dp/B09RF5MPGK?maas=abc&aa_campaignid=123')
+    expect(vi.mocked(scrapeAmazonProduct).mock.calls[1]?.[0])
+      .toBe('https://www.amazon.com/dp/B09RF5MPGK')
   })
 })

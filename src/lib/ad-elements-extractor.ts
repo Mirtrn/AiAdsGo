@@ -20,6 +20,7 @@ import { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword } from './b
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
 import { loadPrompt } from './prompt-loader'
 import { classifyKeywordIntent } from './keyword-intent'
+import { isInvalidKeyword } from './keyword-invalid-filter'
 import type { AmazonProductData, AmazonStoreData } from './stealth-scraper'
 import type {
   StoreProduct,
@@ -31,6 +32,50 @@ import type {
 
 // Re-export types for backward compatibility
 export type { ExtractedAdElements, ProductInfo } from './ad-elements/types'
+
+type ExtractedKeywordRow = {
+  keyword: string
+  source: 'product_title' | 'google_suggest' | 'brand_variant'
+  searchVolume: number
+  priority: 'HIGH' | 'MEDIUM' | 'LOW'
+}
+
+function sanitizeKeywordRows(rows: ExtractedKeywordRow[], sceneLabel: string): ExtractedKeywordRow[] {
+  const seen = new Set<string>()
+  const sanitized: ExtractedKeywordRow[] = []
+  let removedInvalid = 0
+  let removedDuplicate = 0
+
+  for (const row of rows) {
+    const keyword = String(row.keyword || '').trim()
+    if (!keyword || isInvalidKeyword(keyword)) {
+      removedInvalid += 1
+      continue
+    }
+
+    const normalized = normalizeGoogleAdsKeyword(keyword)
+    if (!normalized) {
+      removedInvalid += 1
+      continue
+    }
+
+    if (seen.has(normalized)) {
+      removedDuplicate += 1
+      continue
+    }
+
+    seen.add(normalized)
+    sanitized.push({ ...row, keyword })
+  }
+
+  if (removedInvalid > 0 || removedDuplicate > 0) {
+    console.warn(
+      `  ⚠️ ${sceneLabel}关键词清洗: 移除无效${removedInvalid}个，去重${removedDuplicate}个`
+    )
+  }
+
+  return sanitized
+}
 
 /**
  * 从AI响应中提取JSON（处理markdown代码块等格式）
@@ -693,12 +738,7 @@ async function extractFromSingleProduct(
   console.log(`\n🔍 查询${keywordCandidates.length}个关键字的搜索量...`)
   const minSearchVolume = 500 // 最小搜索量阈值
 
-  let keywordsWithVolume: Array<{
-    keyword: string
-    source: 'product_title' | 'google_suggest' | 'brand_variant'
-    searchVolume: number
-    priority: 'HIGH' | 'MEDIUM' | 'LOW'
-  }> = []
+  let keywordsWithVolume: ExtractedKeywordRow[] = []
 
   try {
     // 🔧 修复(2025-12-26): 支持服务账号模式
@@ -793,6 +833,20 @@ async function extractFromSingleProduct(
       searchVolume: 0,
       priority: 'MEDIUM' as const
     }))
+  }
+
+  keywordsWithVolume = sanitizeKeywordRows(keywordsWithVolume, '单商品')
+  if (keywordsWithVolume.length === 0 && pureBrandKeywords.length > 0) {
+    console.warn('  ⚠️ 单商品关键词清洗后为空，回退为纯品牌词')
+    keywordsWithVolume = pureBrandKeywords
+      .map((keyword) => keyword.trim())
+      .filter(Boolean)
+      .map((keyword) => ({
+        keyword,
+        source: 'brand_variant' as const,
+        searchVolume: 0,
+        priority: 'MEDIUM' as const,
+      }))
   }
 
   // 3 & 4. 🔥 P1优化: 并行生成标题和描述（节省20-30秒）
@@ -913,12 +967,7 @@ async function extractFromStore(
   console.log(`\n🔍 查询${keywordCandidates.length}个关键字的搜索量...`)
   const minSearchVolume = 500
 
-  let keywordsWithVolume: Array<{
-    keyword: string
-    source: 'product_title' | 'google_suggest' | 'brand_variant'
-    searchVolume: number
-    priority: 'HIGH' | 'MEDIUM' | 'LOW'
-  }> = []
+  let keywordsWithVolume: ExtractedKeywordRow[] = []
 
   try {
     // 🔧 修复(2025-12-26): 支持服务账号模式
@@ -999,6 +1048,20 @@ async function extractFromStore(
       searchVolume: 0,
       priority: 'MEDIUM' as const
     }))
+  }
+
+  keywordsWithVolume = sanitizeKeywordRows(keywordsWithVolume, '店铺')
+  if (keywordsWithVolume.length === 0 && pureBrandKeywords.length > 0) {
+    console.warn('  ⚠️ 店铺关键词清洗后为空，回退为纯品牌词')
+    keywordsWithVolume = pureBrandKeywords
+      .map((keyword) => keyword.trim())
+      .filter(Boolean)
+      .map((keyword) => ({
+        keyword,
+        source: 'brand_variant' as const,
+        searchVolume: 0,
+        priority: 'MEDIUM' as const,
+      }))
   }
 
   // 3. 从多个热销商品生成15个广告标题

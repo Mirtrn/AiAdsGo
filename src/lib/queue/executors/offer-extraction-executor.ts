@@ -497,6 +497,7 @@ export async function executeOfferExtraction(
           targetCountry,
           targetLanguage,
           userId: task.userId,
+          fallbackBrand: brandForPersistence || undefined,
           enableReviewAnalysis: true,
           enableCompetitorAnalysis: true,
           enableAdExtraction: true,
