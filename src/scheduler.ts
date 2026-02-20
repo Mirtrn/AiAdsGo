@@ -15,6 +15,7 @@
 import cron from 'node-cron'
 import { getDatabase, getSQLiteDatabase } from './lib/db'
 import { getQueueManagerForTaskType } from './lib/queue/queue-routing'
+import { getOpenclawSettingsMap } from './lib/openclaw/settings'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
 import { resolveBackupDir } from './lib/backup'
@@ -399,28 +400,19 @@ async function openclawAffiliateRevenueSnapshotTask() {
       sync_enabled: string | null
       sync_interval_hours: string | null
       sync_mode: string | null
-      partnerboost_token: string | null
-      yeahpromos_token: string | null
-      yeahpromos_site_id: string | null
     }>(`
       SELECT
         u.id as user_id,
         MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_enabled' THEN ss.value END) as sync_enabled,
         MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_interval_hours' THEN ss.value END) as sync_interval_hours,
-        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_mode' THEN ss.value END) as sync_mode,
-        MAX(CASE WHEN ss.key = 'partnerboost_token' THEN ss.value END) as partnerboost_token,
-        MAX(CASE WHEN ss.key = 'yeahpromos_token' THEN ss.value END) as yeahpromos_token,
-        MAX(CASE WHEN ss.key = 'yeahpromos_site_id' THEN ss.value END) as yeahpromos_site_id
+        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_mode' THEN ss.value END) as sync_mode
       FROM users u
       LEFT JOIN system_settings ss ON ss.user_id = u.id
         AND ss.category = 'openclaw'
         AND ss.key IN (
           'openclaw_affiliate_sync_enabled',
           'openclaw_affiliate_sync_interval_hours',
-          'openclaw_affiliate_sync_mode',
-          'partnerboost_token',
-          'yeahpromos_token',
-          'yeahpromos_site_id'
+          'openclaw_affiliate_sync_mode'
         )
       WHERE u.is_active = ?
         AND u.openclaw_enabled = ?
@@ -450,15 +442,33 @@ async function openclawAffiliateRevenueSnapshotTask() {
         continue
       }
 
-      const hasPartnerBoost = Boolean(String(row.partnerboost_token || '').trim())
-      const hasYeahPromos = Boolean(String(row.yeahpromos_token || '').trim() && String(row.yeahpromos_site_id || '').trim())
+      // 重要：联盟 token 属于敏感配置，数据库中 value 可能为空，仅 encrypted_value 有值。
+      // 必须走 settings 层解密读取，否则会误判“未配置平台”，导致同步任务不入队。
+      const openclawSettings = await getOpenclawSettingsMap(row.user_id)
+      const partnerboostToken = String(openclawSettings.partnerboost_token || '').trim()
+      const yeahpromosToken = String(openclawSettings.yeahpromos_token || '').trim()
+      const yeahpromosSiteId = String(openclawSettings.yeahpromos_site_id || '').trim()
+
+      const hasPartnerBoost = Boolean(partnerboostToken)
+      const hasYeahPromos = Boolean(yeahpromosToken && yeahpromosSiteId)
       if (!hasPartnerBoost && !hasYeahPromos) {
         skippedNoPlatform += 1
         continue
       }
 
-      const syncIntervalHours = Math.min(24, Math.max(1, parsePositiveInt(row.sync_interval_hours, 1)))
-      const syncMode = normalizeAffiliateSyncMode(row.sync_mode)
+      const syncIntervalHours = Math.min(
+        24,
+        Math.max(
+          1,
+          parsePositiveInt(
+            String(openclawSettings.openclaw_affiliate_sync_interval_hours || row.sync_interval_hours || ''),
+            1
+          )
+        )
+      )
+      const syncMode = normalizeAffiliateSyncMode(
+        String(openclawSettings.openclaw_affiliate_sync_mode || row.sync_mode || '')
+      )
 
       const existing = await db.queryOne<{ payload_json: string | null }>(
         'SELECT payload_json FROM openclaw_daily_reports WHERE user_id = ? AND report_date = ? LIMIT 1',
