@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import {
   getKeywordPoolByOfferId,
-  getOrCreateKeywordPool,
   generateOfferKeywordPool,
   deleteKeywordPool,
   getAvailableBuckets,
@@ -12,6 +11,15 @@ import {
   type OfferKeywordPool,
   type BucketType
 } from '@/lib/offer-keyword-pool'
+import { POST as rebuildOfferPost } from '@/app/api/offers/[id]/rebuild/route'
+
+function parseBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
 
 /**
  * GET /api/offers/:id/keyword-pool
@@ -149,7 +157,7 @@ export async function GET(
  * 生成 Offer 的关键词池
  *
  * Request Body:
- * - forceRegenerate: boolean - 是否强制重新生成
+ * - forceRegenerate: boolean - 是否触发重建Offer（替代关键词池重建）
  * - keywords: string[] - 可选，指定关键词列表（否则自动提取）
  */
 export async function POST(
@@ -179,27 +187,31 @@ export async function POST(
 
     // 解析请求体
     const body = await request.json().catch(() => ({}))
-    const { forceRegenerate = false, keywords } = body
+    const forceRegenerate = parseBooleanFlag(body.forceRegenerate)
+    const keywords = Array.isArray(body.keywords) ? body.keywords : undefined
 
     console.log(`📦 POST /api/offers/${offerId}/keyword-pool`)
     console.log(`   forceRegenerate: ${forceRegenerate}`)
     console.log(`   keywords: ${keywords ? `${keywords.length} 个` : '自动提取'}`)
 
+    if (forceRegenerate) {
+      console.log(`🔁 forceRegenerate=true，改为触发 /api/offers/${offerId}/rebuild`)
+      return rebuildOfferPost(request, { params })
+    }
+
     // 检查是否需要生成
-    if (!forceRegenerate) {
-      const existing = await getKeywordPoolByOfferId(offerId)
-      if (existing) {
-        return NextResponse.json({
-          success: true,
-          message: '关键词池已存在，跳过生成。如需重新生成，请设置 forceRegenerate: true',
-          data: {
-            id: existing.id,
-            offerId: existing.offerId,
-            totalKeywords: existing.totalKeywords,
-            isNew: false
-          }
-        })
-      }
+    const existing = await getKeywordPoolByOfferId(offerId)
+    if (existing) {
+      return NextResponse.json({
+        success: true,
+        message: '关键词池已存在，跳过生成。如需重建，请调用 /api/offers/:id/rebuild',
+        data: {
+          id: existing.id,
+          offerId: existing.offerId,
+          totalKeywords: existing.totalKeywords,
+          isNew: false
+        }
+      })
     }
 
     // 生成关键词池
@@ -213,7 +225,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: forceRegenerate ? '关键词池已重新生成' : '关键词池创建成功',
+      message: '关键词池创建成功',
       data: {
         id: pool.id,
         offerId: pool.offerId,

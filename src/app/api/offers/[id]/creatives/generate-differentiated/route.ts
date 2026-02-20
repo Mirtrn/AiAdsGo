@@ -20,6 +20,15 @@ import {
   type OfferKeywordPool,
   type PoolKeywordData
 } from '@/lib/offer-keyword-pool'
+import { POST as rebuildOfferPost } from '@/app/api/offers/[id]/rebuild/route'
+
+function parseBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
 
 /**
  * POST /api/offers/:id/creatives/generate-differentiated
@@ -28,7 +37,7 @@ import {
  * Request Body:
  * - buckets?: BucketType[] - 指定要生成的桶（默认所有可用桶）
  * - maxRetries?: number - 每个创意最大重试次数（默认 2）
- * - forceRegeneratePool?: boolean - 是否强制重新生成关键词池
+ * - forceRegeneratePool?: boolean - 是否触发重建Offer（替代关键词池重建）
  *
  * Response:
  * - 成功生成的创意列表
@@ -73,17 +82,45 @@ export async function POST(
     const {
       buckets: requestedBuckets,
       maxRetries = 2,
-      forceRegeneratePool = false
     } = body
+    const forceRegeneratePool = parseBooleanFlag(body.forceRegeneratePool)
 
     console.log(`\n🎨 POST /api/offers/${offerId}/creatives/generate-differentiated`)
     console.log(`   requestedBuckets: ${requestedBuckets ? requestedBuckets.join(', ') : '自动选择'}`)
     console.log(`   maxRetries: ${maxRetries}`)
     console.log(`   forceRegeneratePool: ${forceRegeneratePool}`)
 
+    if (forceRegeneratePool) {
+      console.log(`🔁 forceRegeneratePool=true，改为触发 /api/offers/${offerId}/rebuild`)
+      const rebuildResponse = await rebuildOfferPost(request, { params })
+      const rebuildPayload = await rebuildResponse.json().catch(() => null)
+
+      if (!rebuildResponse.ok) {
+        return NextResponse.json(
+          rebuildPayload && typeof rebuildPayload === 'object'
+            ? rebuildPayload
+            : { error: '重建Offer失败', message: '触发Offer重建失败' },
+          { status: rebuildResponse.status }
+        )
+      }
+
+      const rebuildTaskId = rebuildPayload && typeof rebuildPayload === 'object'
+        ? (rebuildPayload as { taskId?: string }).taskId
+        : undefined
+
+      return NextResponse.json({
+        success: true,
+        message: '已触发Offer重建。请等待重建完成后，再调用该接口生成差异化创意',
+        data: {
+          offerId,
+          rebuildTaskId: rebuildTaskId || null
+        }
+      }, { status: 202 })
+    }
+
     // 1. 获取或创建关键词池
     console.log('\n📦 Step 1: 获取关键词池')
-    const pool = await getOrCreateKeywordPool(offerId, userIdNum, forceRegeneratePool)
+    const pool = await getOrCreateKeywordPool(offerId, userIdNum, false)
 
     // 2. 确定聚类策略
     const strategy = determineClusteringStrategy(pool.totalKeywords)
