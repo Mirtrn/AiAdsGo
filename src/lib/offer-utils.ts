@@ -315,7 +315,10 @@ export async function generateOfferName(
     `
     SELECT COUNT(*) as count
     FROM offers
-    WHERE user_id = ? AND brand = ? AND target_country = ? AND deleted_at IS NULL
+    WHERE user_id = ?
+      AND LOWER(TRIM(brand)) = LOWER(TRIM(?))
+      AND UPPER(TRIM(target_country)) = UPPER(TRIM(?))
+      AND deleted_at IS NULL
   `,
     [userId, brandName, countryCode]
   )
@@ -333,7 +336,7 @@ export async function generateOfferName(
 
     // 检查是否已存在（包括软删除的，避免历史冲突）
     const existing = await db.queryOne<{ count: number | string }>(
-      `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ?`,
+      `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND LOWER(offer_name) = LOWER(?)`,
       [userId, proposedName]
     )
 
@@ -446,8 +449,8 @@ export async function isOfferNameUnique(offerName: string, userId: number, exclu
   const db = await getDatabase()
 
   const query = excludeOfferId
-    ? `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ? AND id != ?`
-    : `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ?`
+    ? `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND LOWER(offer_name) = LOWER(?) AND id != ?`
+    : `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND LOWER(offer_name) = LOWER(?)`
 
   const params = excludeOfferId ? [userId, offerName, excludeOfferId] : [userId, offerName]
 

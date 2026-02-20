@@ -38,6 +38,7 @@ export const maxDuration = 120
 interface Offer {
   id: number
   user_id: number
+  brand: string | null
   affiliate_link: string | null
   target_country: string
   product_price: string | null
@@ -83,7 +84,7 @@ export async function POST(
 
     // 2. 查询Offer并验证所有权
     const offers = await db.query<Offer>(
-      `SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout, page_type, store_product_links FROM offers WHERE id = ? AND user_id = ? AND ${notDeletedCondition}`,
+      `SELECT id, user_id, brand, affiliate_link, target_country, product_price, commission_payout, page_type, store_product_links FROM offers WHERE id = ? AND user_id = ? AND ${notDeletedCondition}`,
       [offerId, userIdNum]
     )
 
@@ -140,11 +141,12 @@ export async function POST(
         store_product_links,
         product_price,
         commission_payout,
+        brand_name,
         skip_cache,
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ${db.type === 'postgres' ? 'true' : '1'}, ${db.type === 'postgres' ? 'false' : '0'}, ${nowFunc}, ${nowFunc})
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ${db.type === 'postgres' ? 'true' : '1'}, ${db.type === 'postgres' ? 'false' : '0'}, ${nowFunc}, ${nowFunc})
     `, [
       taskId,
       userIdNum,
@@ -154,7 +156,8 @@ export async function POST(
       offer.page_type || null,
       offer.store_product_links || null,
       offer.product_price,
-      offer.commission_payout
+      offer.commission_payout,
+      offer.brand || null
     ])
 
     console.log(`📝 重建Offer任务已创建: taskId=${taskId}, offerId=${offerId}`)
@@ -180,6 +183,7 @@ export async function POST(
       skipWarmup: false,
       productPrice: offer.product_price || undefined,
       commissionPayout: offer.commission_payout || undefined,
+      brandName: offer.brand || undefined,
       pageType: offer.page_type === 'store' || offer.page_type === 'product' ? offer.page_type : undefined,
       storeProductLinks,
     }

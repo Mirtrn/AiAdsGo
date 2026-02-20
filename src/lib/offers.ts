@@ -1427,7 +1427,7 @@ export async function updateOfferScrapeStatus(
     })()
 
     const fallbackBrand = (urlHost && isMarketplaceHost(urlHost)) ? null : deriveBrandFromUrl(scrapedData.url || null)
-    const brandForWrite = (() => {
+    const rawBrandForWrite = (() => {
       // Prefer a deterministic title-derived brand when the extracted label is missing or obviously wrong.
       if (!rawBrand || rawBrand === 'Unknown' || isLikelyInvalidBrandName(rawBrand)) {
         if (titleDerivedBrand && validateBrandName(titleDerivedBrand).valid) return titleDerivedBrand
@@ -1450,6 +1450,9 @@ export async function updateOfferScrapeStatus(
       console.warn(`⚠️ 自动提取的品牌名不可靠或过长，已截断写入 offers.brand: "${truncated}"`)
       return truncated
     })()
+    const brandForWrite = rawBrandForWrite
+      ? normalizeBrandName(rawBrandForWrite).trim()
+      : null
 
     // 🔧 修复：当品牌名更新时，同步更新offer_name
     // 需要先查询当前的offer_name以提取序号

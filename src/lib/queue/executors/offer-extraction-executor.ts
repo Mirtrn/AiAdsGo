@@ -11,7 +11,7 @@ import type { Task } from '../types'
 import { extractOffer } from '@/lib/offer-extraction-core'
 import { getDatabase } from '@/lib/db'
 import { executeAIAnalysis } from '@/lib/ai-analysis-service'
-import { getTargetLanguage } from '@/lib/offer-utils'
+import { getTargetLanguage, normalizeBrandName } from '@/lib/offer-utils'
 import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
 import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
 import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
@@ -99,6 +99,13 @@ function parsePositiveIntEnv(value: string | undefined, fallback: number): numbe
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
   return parsed
+}
+
+function normalizePersistedBrand(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  return normalizeBrandName(trimmed)
 }
 
 async function withTimeout<T>(
@@ -362,6 +369,10 @@ export async function executeOfferExtraction(
     const derivedAverageProductPrice = (!productPrice && pageTypeToPersist === 'store')
       ? computeAveragePriceFromStrings(supplementalPrices)
       : undefined
+    const extractedBrand = normalizePersistedBrand(extractResult.data.brand)
+    const fallbackTaskBrand = normalizePersistedBrand(brandName)
+    const brandForPersistence = extractedBrand || fallbackTaskBrand
+    const brandForCreation = brandForPersistence || '提取中...'
 
     if (taskRow?.offer_id) {
       // 幂等保护：任务重试时复用既有offer_id，避免重复创建Offer
@@ -371,7 +382,7 @@ export async function executeOfferExtraction(
         : '重建任务，更新现有Offer基础数据'
       console.log(`🔄 ${reuseMessage}: taskId=${task.id}, offerId=${taskRow.offer_id}`)
       await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'in_progress', undefined, {
-        brand: (extractResult.data.brand || brandName) || undefined,
+        brand: brandForPersistence,
         url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
@@ -385,7 +396,7 @@ export async function executeOfferExtraction(
       console.log(`📦 批量任务，创建Offer基础记录: ${task.id}`)
       const offer = await createOffer(task.userId, {
         url: extractResult.data.finalUrl || affiliateLink,
-        brand: extractResult.data.brand || brandName || '提取中...',
+        brand: brandForCreation,
         target_country: targetCountry,
         affiliate_link: affiliateLink,
         store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
@@ -411,7 +422,7 @@ export async function executeOfferExtraction(
       console.log(`🆕 普通SSE任务，创建Offer基础记录: ${task.id}`)
       const offer = await createOffer(task.userId, {
         url: extractResult.data.finalUrl || affiliateLink,
-        brand: extractResult.data.brand || brandName || '提取中...',
+        brand: brandForCreation,
         target_country: targetCountry,
         affiliate_link: affiliateLink,
         store_product_links: storeProductLinks && storeProductLinks.length > 0 ? JSON.stringify(storeProductLinks) : undefined,
@@ -561,43 +572,43 @@ export async function executeOfferExtraction(
 
     // ========== 🔥 2025-12-16重构：AI分析完成后更新Offer（增量保存第二阶段）==========
     // Offer已在提取完成后创建，这里只更新AI分析结果
-	    if (createdOfferId) {
-	      try {
-	        const fallbackProductInfo = deriveFallbackProductInfoFromExtractData(extractResult.data)
+    if (createdOfferId) {
+      try {
+        const fallbackProductInfo = deriveFallbackProductInfoFromExtractData(extractResult.data)
 
-	        // 🔥 2026-01-04修复：将AI生成的关键词持久化到offers.ai_keywords
-	        // 关键词池生成依赖 ai_keywords / extracted_keywords；若不保存，独立站等场景可能出现“无可用关键词”
-	        const aiKeywordSeeds: string[] | null =
-	          Array.isArray((aiProductInfo as any)?.keywords) && (aiProductInfo as any).keywords.length > 0
+        // 🔥 2026-01-04修复：将AI生成的关键词持久化到offers.ai_keywords
+        // 关键词池生成依赖 ai_keywords / extracted_keywords；若不保存，独立站等场景可能出现“无可用关键词”
+        const aiKeywordSeeds: string[] | null =
+          Array.isArray((aiProductInfo as any)?.keywords) && (aiProductInfo as any).keywords.length > 0
             ? (aiProductInfo as any).keywords
             : (Array.isArray(aiAnalysisResult?.extractedKeywords) && aiAnalysisResult.extractedKeywords.length > 0
                 ? aiAnalysisResult.extractedKeywords
                 : null)
 
-	        await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
-	          brand: (extractResult.data.brand || brandName) || undefined,
-	          url: extractResult.data.finalUrl || undefined,
-	          // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-	          final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
-	          // 🔥 2025-12-16修复：保存product_name到数据库
-	          product_name: extractResult.data.productName || undefined,
-	          brand_description: aiProductInfo.brandDescription || fallbackProductInfo.brandDescription || undefined,
-	          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
-	            (Array.isArray(aiProductInfo.uniqueSellingPoints)
-	              ? aiProductInfo.uniqueSellingPoints.join('\n')
-	              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
-	          product_highlights: aiProductInfo.productHighlights ?
-	            (Array.isArray(aiProductInfo.productHighlights)
-	              ? aiProductInfo.productHighlights.join('\n')
-	              : String(aiProductInfo.productHighlights)) : undefined,
-	          ...(aiProductInfo.uniqueSellingPoints ? {} : { unique_selling_points: fallbackProductInfo.uniqueSellingPoints }),
-	          ...(aiProductInfo.productHighlights ? {} : { product_highlights: fallbackProductInfo.productHighlights }),
-	          target_audience: aiProductInfo.targetAudience || fallbackProductInfo.targetAudience || undefined,
-	          category: aiProductInfo.category || fallbackProductInfo.category || undefined,
-	          review_analysis: aiAnalysisResult?.reviewAnalysis ?
-	            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
-	          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
-	            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
+        await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
+          brand: brandForPersistence,
+          url: extractResult.data.finalUrl || undefined,
+          // 🔥 2025-12-16修复：保存final_url_suffix到数据库
+          final_url_suffix: extractResult.data.finalUrlSuffix ?? undefined,
+          // 🔥 2025-12-16修复：保存product_name到数据库
+          product_name: extractResult.data.productName || undefined,
+          brand_description: aiProductInfo.brandDescription || fallbackProductInfo.brandDescription || undefined,
+          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
+            (Array.isArray(aiProductInfo.uniqueSellingPoints)
+              ? aiProductInfo.uniqueSellingPoints.join('\n')
+              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
+          product_highlights: aiProductInfo.productHighlights ?
+            (Array.isArray(aiProductInfo.productHighlights)
+              ? aiProductInfo.productHighlights.join('\n')
+              : String(aiProductInfo.productHighlights)) : undefined,
+          ...(aiProductInfo.uniqueSellingPoints ? {} : { unique_selling_points: fallbackProductInfo.uniqueSellingPoints }),
+          ...(aiProductInfo.productHighlights ? {} : { product_highlights: fallbackProductInfo.productHighlights }),
+          target_audience: aiProductInfo.targetAudience || fallbackProductInfo.targetAudience || undefined,
+          category: aiProductInfo.category || fallbackProductInfo.category || undefined,
+          review_analysis: aiAnalysisResult?.reviewAnalysis ?
+            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
+          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
+            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
           extracted_keywords: aiAnalysisResult?.extractedKeywords ?
             JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
           extracted_headlines: mergedExtractedHeadlines ?
