@@ -2226,9 +2226,9 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       last_seen_at = incoming.last_seen_at,
       updated_at = incoming.updated_at
     FROM incoming
-    WHERE p.user_id = incoming.user_id
-      AND p.platform = incoming.platform
-      AND p.mid = incoming.mid
+    WHERE p.user_id = incoming.user_id::integer
+      AND p.platform = incoming.platform::text
+      AND p.mid = incoming.mid::text
   `, values)
 
   await params.db.exec(`
@@ -2257,30 +2257,30 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       updated_at
     )
     SELECT
-      incoming.user_id,
-      incoming.platform,
-      incoming.mid,
-      incoming.asin,
-      incoming.brand,
-      incoming.product_name,
-      incoming.product_url,
-      incoming.promo_link,
-      incoming.short_promo_link,
-      incoming.allowed_countries_json,
-      incoming.price_amount,
-      incoming.price_currency,
-      incoming.commission_rate,
-      incoming.commission_amount,
-      incoming.review_count,
-      incoming.raw_json,
-      incoming.last_synced_at,
-      incoming.last_seen_at,
-      incoming.updated_at
+      incoming.user_id::integer,
+      incoming.platform::text,
+      incoming.mid::text,
+      incoming.asin::text,
+      incoming.brand::text,
+      incoming.product_name::text,
+      incoming.product_url::text,
+      incoming.promo_link::text,
+      incoming.short_promo_link::text,
+      incoming.allowed_countries_json::text,
+      incoming.price_amount::double precision,
+      incoming.price_currency::text,
+      incoming.commission_rate::double precision,
+      incoming.commission_amount::double precision,
+      incoming.review_count::integer,
+      incoming.raw_json::text,
+      incoming.last_synced_at::timestamp,
+      incoming.last_seen_at::timestamp,
+      incoming.updated_at::timestamp
     FROM incoming
     LEFT JOIN affiliate_products p
-      ON p.user_id = incoming.user_id
-      AND p.platform = incoming.platform
-      AND p.mid = incoming.mid
+      ON p.user_id = incoming.user_id::integer
+      AND p.platform = incoming.platform::text
+      AND p.mid = incoming.mid::text
     WHERE p.id IS NULL
     ON CONFLICT (user_id, platform, mid) DO UPDATE SET
       asin = EXCLUDED.asin,
