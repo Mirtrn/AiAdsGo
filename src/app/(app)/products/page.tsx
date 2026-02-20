@@ -314,13 +314,6 @@ function getSyncRunMetricsText(run: SyncRunItem): string {
   return `新增 ${created} · 更新 ${updated} · 失败 ${failed}`
 }
 
-function getSyncRunModeLabel(mode: SyncRunItem['mode']): string {
-  if (mode === 'delta') return '轻量刷新'
-  if (mode === 'platform') return '全量同步'
-  if (mode === 'single') return '单商品同步'
-  return String(mode || '未知模式')
-}
-
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
@@ -468,6 +461,29 @@ export default function ProductsPage() {
     }
   }, [items, latestRuns])
 
+  const syncHistoryRows = useMemo(() => {
+    const rows: Array<{
+      mode: 'delta' | 'platform'
+      label: string
+      runs: SyncRunItem[]
+      emptyText: string
+    }> = [
+      {
+        mode: 'delta',
+        label: '轻量刷新',
+        runs: latestRuns.filter((run) => run.mode === 'delta').slice(0, 4),
+        emptyText: '暂无轻量刷新历史任务',
+      },
+      {
+        mode: 'platform',
+        label: '全量刷新',
+        runs: latestRuns.filter((run) => run.mode === 'platform').slice(0, 4),
+        emptyText: '暂无全量刷新历史任务',
+      },
+    ]
+    return rows
+  }, [latestRuns])
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setSearchQuery(searchText.trim())
@@ -554,7 +570,7 @@ export default function ProductsPage() {
 
   const fetchSyncRuns = async () => {
     try {
-      const response = await fetch('/api/products/sync-runs?limit=8', {
+      const response = await fetch('/api/products/sync-runs?limit=20', {
         credentials: 'include',
         cache: 'no-store',
       })
@@ -1243,33 +1259,37 @@ export default function ProductsPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">最近同步任务</CardTitle>
-              <CardDescription>展示最近 4 条同步执行记录</CardDescription>
+              <CardDescription>按轻量刷新 / 全量刷新分组展示历史任务（各最多 4 条）</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                {latestRuns.slice(0, 4).map((run) => {
-                  const StatusIcon = getSyncRunStatusIcon(run.status)
-                  return (
-                    <div key={run.id} className="rounded-md border px-3 py-2 text-xs">
-                      <div className="mb-1 flex items-center justify-between">
-                        <span className="font-medium">{PLATFORM_SHORT_LABEL[run.platform]} #{run.id}</span>
-                        <Badge variant={getSyncRunBadgeVariant(run.status)}>
-                          <StatusIcon className="mr-1 h-3 w-3" />
-                          {run.status}
-                        </Badge>
+              <div className="space-y-2">
+                {syncHistoryRows.map((row) => (
+                  <div key={row.mode} className="rounded-md border px-3 py-2 text-xs">
+                    <div className="mb-2 font-medium">{row.label}</div>
+                    {row.runs.length === 0 ? (
+                      <div className="text-muted-foreground">{row.emptyText}</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {row.runs.map((run) => {
+                          const StatusIcon = getSyncRunStatusIcon(run.status)
+                          return (
+                            <div key={run.id} className="rounded-md border px-2 py-1">
+                              <div className="mb-1 flex items-center gap-2">
+                                <span className="font-medium">{PLATFORM_SHORT_LABEL[run.platform]} #{run.id}</span>
+                                <Badge variant={getSyncRunBadgeVariant(run.status)}>
+                                  <StatusIcon className="mr-1 h-3 w-3" />
+                                  {run.status}
+                                </Badge>
+                              </div>
+                              <div className="text-muted-foreground">{getSyncRunProgressText(run)}</div>
+                              <div className="text-muted-foreground">{getSyncRunMetricsText(run)}</div>
+                            </div>
+                          )
+                        })}
                       </div>
-                      <div className="text-muted-foreground">
-                        {getSyncRunModeLabel(run.mode)}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {getSyncRunProgressText(run)}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {getSyncRunMetricsText(run)}
-                      </div>
-                    </div>
-                  )
-                })}
+                    )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

@@ -2,7 +2,7 @@
  * 联盟商品同步调度器（PB）
  *
  * 目标：
- * - 轻量刷新（delta）默认每60分钟
+ * - 轻量刷新（delta）默认每6小时
  * - 全量补齐（platform）默认每24小时
  * - 复用现有队列与 run 记录，避免引入额外基础设施
  */
@@ -16,7 +16,7 @@ import {
 } from '../../affiliate-products'
 import { getQueueManagerForTaskType } from '../queue-routing'
 
-const DEFAULT_DELTA_INTERVAL_MINUTES = 60
+const DEFAULT_DELTA_INTERVAL_MINUTES = 6 * 60
 const DEFAULT_FULL_INTERVAL_HOURS = 24
 const MIN_DELTA_INTERVAL_MINUTES = 10
 const MAX_DELTA_INTERVAL_MINUTES = 24 * 60
