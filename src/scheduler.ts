@@ -69,6 +69,36 @@ function parseReportGeneratedAt(payloadJson?: string | null): Date | null {
   }
 }
 
+function formatDateInTimezone(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+function buildAffiliateLookbackDates(days: number, timeZone: string): string[] {
+  const safeDays = Math.min(30, Math.max(1, Math.round(days)))
+  const today = new Date()
+  const dates: string[] = []
+
+  for (let offset = safeDays - 1; offset >= 0; offset -= 1) {
+    const targetDate = new Date(today)
+    targetDate.setDate(targetDate.getDate() - offset)
+    dates.push(formatDateInTimezone(targetDate, timeZone))
+  }
+
+  return dates
+}
+
+function normalizeDateKey(value: unknown): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const matched = raw.match(/^\d{4}-\d{2}-\d{2}/)
+  return matched ? matched[0] : raw
+}
+
 const openclawStrategySchedules = new Map<number, { cron: string; task: cron.ScheduledTask }>()
 
 async function enqueueOpenclawStrategy(userId: number, mode: string) {
@@ -382,17 +412,17 @@ async function openclawDailyReportTask() {
 /**
  * 任务6.1: OpenClaw 联盟成交/佣金快照刷新
  * 频率：每小时执行一次（按用户配置的 interval 过滤）
+ * 范围：默认刷新最近7天（含当天），可通过 OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS 配置
  */
 async function openclawAffiliateRevenueSnapshotTask() {
   log('🧾 开始刷新 OpenClaw 联盟成交/佣金快照...')
 
   const db = await getDatabase()
-  const reportDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
+  const reportTimeZone = 'Asia/Shanghai'
+  const lookbackDays = parsePositiveInt(process.env.OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS, 7)
+  const reportDates = buildAffiliateLookbackDates(lookbackDays, reportTimeZone)
+  const firstReportDate = reportDates[0]
+  const latestReportDate = reportDates[reportDates.length - 1]
 
   try {
     const rows = await db.query<{
@@ -426,9 +456,10 @@ async function openclawAffiliateRevenueSnapshotTask() {
 
     const queue = getQueueManagerForTaskType('openclaw-affiliate-sync')
 
-    let queuedCount = 0
+    let queuedUsers = 0
+    let queuedTasks = 0
     let skippedDisabled = 0
-    let skippedInterval = 0
+    let skippedIntervalDates = 0
     let skippedNoPlatform = 0
     let failedCount = 0
     const nowMs = Date.now()
@@ -470,44 +501,63 @@ async function openclawAffiliateRevenueSnapshotTask() {
         String(openclawSettings.openclaw_affiliate_sync_mode || row.sync_mode || '')
       )
 
-      const existing = await db.queryOne<{ payload_json: string | null }>(
-        'SELECT payload_json FROM openclaw_daily_reports WHERE user_id = ? AND report_date = ? LIMIT 1',
-        [row.user_id, reportDate]
+      const existingRows = await db.query<{ report_date: string; payload_json: string | null }>(
+        `SELECT report_date, payload_json
+         FROM openclaw_daily_reports
+         WHERE user_id = ?
+           AND report_date IN (${reportDates.map(() => '?').join(', ')})`,
+        [row.user_id, ...reportDates]
       )
-      const generatedAt = parseReportGeneratedAt(existing?.payload_json)
-      if (generatedAt) {
-        const hoursSinceLastRefresh = (nowMs - generatedAt.getTime()) / (1000 * 60 * 60)
-        if (hoursSinceLastRefresh < syncIntervalHours) {
-          skippedInterval += 1
-          continue
+      const generatedAtByDate = new Map<string, Date>()
+      for (const reportRow of existingRows || []) {
+        const reportDateKey = normalizeDateKey(reportRow.report_date)
+        const generatedAt = parseReportGeneratedAt(reportRow.payload_json)
+        if (!reportDateKey || !generatedAt) continue
+        generatedAtByDate.set(reportDateKey, generatedAt)
+      }
+
+      let queuedForUser = 0
+      for (const reportDate of reportDates) {
+        const generatedAt = generatedAtByDate.get(reportDate)
+        if (generatedAt) {
+          const hoursSinceLastRefresh = (nowMs - generatedAt.getTime()) / (1000 * 60 * 60)
+          if (hoursSinceLastRefresh < syncIntervalHours) {
+            skippedIntervalDates += 1
+            continue
+          }
+        }
+
+        try {
+          const taskId = await queue.enqueue(
+            'openclaw-affiliate-sync',
+            {
+              userId: row.user_id,
+              date: reportDate,
+              syncMode,
+              trigger: 'cron',
+            },
+            row.user_id,
+            {
+              priority: 'normal',
+              maxRetries: 1,
+            }
+          )
+
+          queuedForUser += 1
+          queuedTasks += 1
+          log(`📥 OpenClaw 联盟佣金快照同步任务已入队 (user=${row.user_id}, task=${taskId}, date=${reportDate}, mode=${syncMode}, interval=${syncIntervalHours}h)`)
+        } catch (error) {
+          failedCount += 1
+          logError(`❌ OpenClaw 联盟佣金快照同步任务入队失败 (user=${row.user_id}, date=${reportDate})`, error)
         }
       }
 
-      try {
-        const taskId = await queue.enqueue(
-          'openclaw-affiliate-sync',
-          {
-            userId: row.user_id,
-            date: reportDate,
-            syncMode,
-            trigger: 'cron',
-          },
-          row.user_id,
-          {
-            priority: 'normal',
-            maxRetries: 1,
-          }
-        )
-
-        queuedCount += 1
-        log(`📥 OpenClaw 联盟佣金快照同步任务已入队 (user=${row.user_id}, task=${taskId}, mode=${syncMode}, interval=${syncIntervalHours}h)`)
-      } catch (error) {
-        failedCount += 1
-        logError(`❌ OpenClaw 联盟佣金快照同步任务入队失败 (user=${row.user_id})`, error)
+      if (queuedForUser > 0) {
+        queuedUsers += 1
       }
     }
 
-    log(`🧾 OpenClaw 联盟佣金快照刷新入队完成 - 入队: ${queuedCount}/${rows.length}, 跳过禁用: ${skippedDisabled}, 跳过未配置平台: ${skippedNoPlatform}, 跳过间隔: ${skippedInterval}, 失败: ${failedCount}`)
+    log(`🧾 OpenClaw 联盟佣金快照刷新入队完成 - 窗口: ${firstReportDate}~${latestReportDate}(${reportDates.length}天), 入队用户: ${queuedUsers}/${rows.length}, 入队任务: ${queuedTasks}, 跳过禁用: ${skippedDisabled}, 跳过未配置平台: ${skippedNoPlatform}, 跳过间隔(按日期): ${skippedIntervalDates}, 失败: ${failedCount}`)
   } catch (error) {
     logError('❌ OpenClaw 联盟佣金快照任务执行失败:', error)
   }
