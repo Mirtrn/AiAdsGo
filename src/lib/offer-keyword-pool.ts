@@ -14,7 +14,7 @@
  * @see docs/Offer 级广告创意优化方案.md
  */
 
-import { getDatabase } from './db'
+import { getDatabase, type DatabaseType } from './db'
 import { generateContent } from './gemini'
 import { repairJsonText } from './ai-json'
 import { loadPrompt } from './prompt-loader'
@@ -35,6 +35,7 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { DEFAULTS } from './keyword-constants'
+import { parseJsonField, toDbJsonArrayField } from './json-field'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
 const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
@@ -2115,66 +2116,12 @@ function applyStoreBucketPostProcessing(buckets: StoreKeywordBuckets): void {
 // 关键词池数据库操作
 // ============================================
 
-/**
- * 🔥 2025-12-16修复：根据数据库类型序列化JSON数据
- *
- * PostgreSQL JSONB列：不需要JSON.stringify，驱动自动处理
- * SQLite TEXT列：需要JSON.stringify，因为是文本存储
- *
- * 之前的BUG：统一使用JSON.stringify导致PostgreSQL双重序列化
- * 例如：存储 "[\"dreame\"]" 而不是 ["dreame"]
- */
-function serializeJsonForDb(data: any, dbType: string): any {
-  if (dbType === 'postgres') {
-    // PostgreSQL JSONB：直接传递JavaScript对象/数组
-    return JSON.stringify(data)  // pg驱动需要字符串，但不会双重序列化
-  }
-  // SQLite TEXT：需要序列化为字符串
-  return JSON.stringify(data)
+function serializeKeywordArrayForDb(data: unknown, dbType: DatabaseType): unknown {
+  return toDbJsonArrayField(data, dbType, [])
 }
 
-/**
- * 🔥 2025-12-16修复：根据数据库类型解析JSON数据
- *
- * 处理多种情况：
- * 1. 正常数组: ["dreame"] → ["dreame"]
- * 2. 字符串化数组: '["dreame"]' → ["dreame"]
- * 3. 双重序列化: '"[\\"dreame\\"]"' → ["dreame"]
- * 4. null/undefined → []
- */
-function parseJsonFromDb(data: any): any {
-  if (data === null || data === undefined) {
-    return []
-  }
-  // 如果已经是数组，直接返回（PostgreSQL JSONB可能直接返回对象）
-  if (Array.isArray(data)) {
-    return data
-  }
-  // 如果是字符串，尝试解析
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data)
-      // 🔥 处理双重序列化：如果解析结果还是字符串，再解析一次
-      if (typeof parsed === 'string') {
-        try {
-          const doubleParsed = JSON.parse(parsed)
-          if (Array.isArray(doubleParsed)) {
-            console.log(`⚠️ 检测到双重序列化数据，已自动修复`)
-            return doubleParsed
-          }
-        } catch {
-          // 不是双重序列化，返回原始解析结果
-        }
-      }
-      if (Array.isArray(parsed)) {
-        return parsed
-      }
-      return []
-    } catch {
-      return []
-    }
-  }
-  return []
+function parseKeywordArrayFromDb(data: unknown): unknown[] {
+  return parseJsonField<unknown[]>(data, [])
 }
 
 /**
@@ -2203,11 +2150,11 @@ export async function saveKeywordPool(
   )
 
   // 🔥 2025-12-16修复：使用统一的JSON序列化函数
-  const brandKwJson = serializeJsonForDb(brandKeywords, db.type)
-  const bucketAJson = serializeJsonForDb(buckets.bucketA.keywords, db.type)
-  const bucketBJson = serializeJsonForDb(buckets.bucketB.keywords, db.type)
-  const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
-  const bucketDJson = serializeJsonForDb(buckets.bucketD.keywords, db.type)
+  const brandKwJson = serializeKeywordArrayForDb(brandKeywords, db.type)
+  const bucketAJson = serializeKeywordArrayForDb(buckets.bucketA.keywords, db.type)
+  const bucketBJson = serializeKeywordArrayForDb(buckets.bucketB.keywords, db.type)
+  const bucketCJson = serializeKeywordArrayForDb(buckets.bucketC.keywords, db.type)
+  const bucketDJson = serializeKeywordArrayForDb(buckets.bucketD.keywords, db.type)
 
   console.log(`📊 保存关键词池 (dbType=${db.type}):`)
   console.log(`   brand_keywords: ${brandKeywords.length}个 → ${typeof brandKwJson}`)
@@ -2317,28 +2264,29 @@ async function saveKeywordPoolWithData(
 ): Promise<OfferKeywordPool> {
   const db = await getDatabase()
 
-  const brandKwJson = serializeJsonForDb(brandKeywords, db.type)
-  const bucketAJson = serializeJsonForDb(buckets.bucketA.keywords, db.type)
-  const bucketBJson = serializeJsonForDb(buckets.bucketB.keywords, db.type)
-  const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
-  const bucketDJson = serializeJsonForDb(buckets.bucketD.keywords, db.type)
+  const brandKwJson = serializeKeywordArrayForDb(brandKeywords, db.type)
+  const bucketAJson = serializeKeywordArrayForDb(buckets.bucketA.keywords, db.type)
+  const bucketBJson = serializeKeywordArrayForDb(buckets.bucketB.keywords, db.type)
+  const bucketCJson = serializeKeywordArrayForDb(buckets.bucketC.keywords, db.type)
+  const bucketDJson = serializeKeywordArrayForDb(buckets.bucketD.keywords, db.type)
+  const emptyArrayJson = serializeKeywordArrayForDb([], db.type)
 
   // 🆕 v4.16: 店铺分桶JSON（优先保存带搜索量的数据）
   const storeBucketAJson = storeBucketData
-    ? serializeJsonForDb(storeBucketData.bucketA, db.type)
-    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketA.keywords, db.type) : '[]')
+    ? serializeKeywordArrayForDb(storeBucketData.bucketA, db.type)
+    : (storeBuckets ? serializeKeywordArrayForDb(storeBuckets.bucketA.keywords, db.type) : emptyArrayJson)
   const storeBucketBJson = storeBucketData
-    ? serializeJsonForDb(storeBucketData.bucketB, db.type)
-    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketB.keywords, db.type) : '[]')
+    ? serializeKeywordArrayForDb(storeBucketData.bucketB, db.type)
+    : (storeBuckets ? serializeKeywordArrayForDb(storeBuckets.bucketB.keywords, db.type) : emptyArrayJson)
   const storeBucketCJson = storeBucketData
-    ? serializeJsonForDb(storeBucketData.bucketC, db.type)
-    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketC.keywords, db.type) : '[]')
+    ? serializeKeywordArrayForDb(storeBucketData.bucketC, db.type)
+    : (storeBuckets ? serializeKeywordArrayForDb(storeBuckets.bucketC.keywords, db.type) : emptyArrayJson)
   const storeBucketDJson = storeBucketData
-    ? serializeJsonForDb(storeBucketData.bucketD, db.type)
-    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketD.keywords, db.type) : '[]')
+    ? serializeKeywordArrayForDb(storeBucketData.bucketD, db.type)
+    : (storeBuckets ? serializeKeywordArrayForDb(storeBuckets.bucketD.keywords, db.type) : emptyArrayJson)
   const storeBucketSJson = storeBucketData
-    ? serializeJsonForDb(storeBucketData.bucketS, db.type)
-    : (storeBuckets ? serializeJsonForDb(storeBuckets.bucketS.keywords, db.type) : '[]')
+    ? serializeKeywordArrayForDb(storeBucketData.bucketS, db.type)
+    : (storeBuckets ? serializeKeywordArrayForDb(storeBuckets.bucketS.keywords, db.type) : emptyArrayJson)
 
   const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length + buckets.bucketD.keywords.length
 
@@ -2516,23 +2464,26 @@ function extractCategorySignalsFromScrapedData(scrapedData: string | null | unde
  * 🆕 解析关键词数组（向后兼容）
  * 处理新格式 PoolKeywordData[] 和旧格式 string[]
  */
-function parseKeywordArray(data: string): PoolKeywordData[] {
-  const parsed = parseJsonFromDb(data)
+function parseKeywordArray(data: unknown): PoolKeywordData[] {
+  const parsed = parseKeywordArrayFromDb(data)
 
   if (!Array.isArray(parsed) || parsed.length === 0) return []
 
   // 新格式：PoolKeywordData[]
-  if (typeof parsed[0] === 'object' && parsed[0].keyword) {
+  if (typeof parsed[0] === 'object' && parsed[0] !== null && 'keyword' in parsed[0]) {
     return parsed as PoolKeywordData[]
   }
 
   // 旧格式：string[] - 转换为 PoolKeywordData[]
-  return parsed.map((kw: string) => ({
-    keyword: kw,
-    searchVolume: 0,
-    source: 'LEGACY',
-    matchType: 'BROAD'
-  }))
+  return parsed
+    .map((kw: unknown) => (typeof kw === 'string' ? kw : ''))
+    .filter((kw) => kw.length > 0)
+    .map((kw) => ({
+      keyword: kw,
+      searchVolume: 0,
+      source: 'LEGACY',
+      matchType: 'BROAD'
+    }))
 }
 
 /**
@@ -2560,17 +2511,17 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
     bucketAKeywords: parseKeywordArray(row.bucket_a_keywords),
     bucketBKeywords: parseKeywordArray(row.bucket_b_keywords),
     bucketCKeywords: parseKeywordArray(row.bucket_c_keywords),
-    bucketDKeywords: parseKeywordArray(row.bucket_d_keywords || '[]'),
+    bucketDKeywords: parseKeywordArray(row.bucket_d_keywords ?? []),
     bucketAIntent: row.bucket_a_intent,
     bucketBIntent: row.bucket_b_intent,
     bucketCIntent: row.bucket_c_intent,
     bucketDIntent: row.bucket_d_intent || '高购买意图',
     // 🆕 v4.16: 店铺分桶字段
-    storeBucketAKeywords: parseKeywordArray(row.store_bucket_a_keywords || '[]'),
-    storeBucketBKeywords: parseKeywordArray(row.store_bucket_b_keywords || '[]'),
-    storeBucketCKeywords: parseKeywordArray(row.store_bucket_c_keywords || '[]'),
-    storeBucketDKeywords: parseKeywordArray(row.store_bucket_d_keywords || '[]'),
-    storeBucketSKeywords: parseKeywordArray(row.store_bucket_s_keywords || '[]'),
+    storeBucketAKeywords: parseKeywordArray(row.store_bucket_a_keywords ?? []),
+    storeBucketBKeywords: parseKeywordArray(row.store_bucket_b_keywords ?? []),
+    storeBucketCKeywords: parseKeywordArray(row.store_bucket_c_keywords ?? []),
+    storeBucketDKeywords: parseKeywordArray(row.store_bucket_d_keywords ?? []),
+    storeBucketSKeywords: parseKeywordArray(row.store_bucket_s_keywords ?? []),
     storeBucketAIntent: row.store_bucket_a_intent || '品牌信任导向',
     storeBucketBIntent: row.store_bucket_b_intent || '场景解决导向',
     storeBucketCIntent: row.store_bucket_c_intent || '精选推荐导向',

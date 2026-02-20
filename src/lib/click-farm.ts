@@ -8,6 +8,7 @@ import { estimateTraffic } from './click-farm/distribution';
 import { normalizeDateOnly, normalizeTimestampToIso } from './db-datetime';
 import { boolParam, datetimeMinusHours } from './db-helpers';
 import { removePendingClickFarmQueueTasksByTaskIds } from './click-farm/queue-cleanup';
+import { parseJsonField, toDbJsonObjectField } from './json-field';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -177,7 +178,7 @@ async function flushPendingStats(taskId: string): Promise<void> {
         snapshot.total,
         snapshot.success,
         snapshot.failed,
-        JSON.stringify(dailyHistory),
+        toDbJsonObjectField(dailyHistory, db.type, []),
         taskId
       ])
     } catch (error) {
@@ -237,9 +238,8 @@ export async function createClickFarmTask(
 
     console.log('[createClickFarmTask] 生成任务ID:', taskId);
 
-    // 🔧 修复(2026-01-05): PostgreSQL JSONB字段需要JSON字符串，pg驱动会正确处理
-    // SQLite TEXT字段也需要JSON字符串，两者统一使用JSON.stringify
-    const hourlyDistributionJson = JSON.stringify(input.hourly_distribution);
+    // 🔧 修复(2026-02-20): PostgreSQL JSONB 传原生数组，避免双重编码
+    const hourlyDistributionJson = toDbJsonObjectField(input.hourly_distribution, db.type, []);
     const refererConfigJson = input.referer_config ? JSON.stringify(input.referer_config) : null;
 
     const result = await db.exec(`
@@ -420,7 +420,7 @@ export async function updateClickFarmTask(
 
   if (updates.hourly_distribution !== undefined) {
     fields.push('hourly_distribution = ?');
-    values.push(JSON.stringify(updates.hourly_distribution));
+    values.push(toDbJsonObjectField(updates.hourly_distribution, db.type, []));
   }
 
   // 🆕 支持更新timezone
@@ -894,32 +894,28 @@ export async function getHourlyDistribution(userId: number): Promise<HourlyDistr
 
   // 聚合所有任务的配置和实际执行分布
   tasks.forEach((task: any) => {
-    try {
-      const distribution = JSON.parse(task.hourly_distribution);
-      distribution.forEach((count: number, hour: number) => {
-        hourlyConfigured[hour] += count;
+    const distribution = parseJsonField<number[]>(task.hourly_distribution, []);
+    if (!Array.isArray(distribution)) {
+      console.warn('[getHourlyDistribution] hourly_distribution 不是数组，已跳过');
+      return;
+    }
+    distribution.forEach((count: number, hour: number) => {
+      hourlyConfigured[hour] += Number(count) || 0;
+    });
+
+    // 🆕 P1-5：从daily_history的hourly_breakdown中提取实际执行数
+    const dailyHistory = parseJsonField<DailyHistoryEntry[]>(task.daily_history, []);
+    if (!Array.isArray(dailyHistory)) return;
+
+    // 找到对应今天的daily_history条目
+    // 这里使用任务的timezone来确定"今天"
+    const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+    const todayEntry = dailyHistory.find((entry: DailyHistoryEntry) => entry.date === todayInTaskTimezone);
+
+    if (todayEntry && Array.isArray(todayEntry.hourly_breakdown)) {
+      todayEntry.hourly_breakdown.forEach((hourData: any, hour: number) => {
+        hourlyActual[hour] += Number(hourData?.actual) || 0;
       });
-
-      // 🆕 P1-5：从daily_history的hourly_breakdown中提取实际执行数
-      if (task.daily_history) {
-        try {
-          const dailyHistory = JSON.parse(task.daily_history);
-          // 找到对应今天的daily_history条目
-          // 这里使用任务的timezone来确定"今天"
-          const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
-          const todayEntry = dailyHistory.find((entry: DailyHistoryEntry) => entry.date === todayInTaskTimezone);
-
-          if (todayEntry && todayEntry.hourly_breakdown) {
-            todayEntry.hourly_breakdown.forEach((hourData: any, hour: number) => {
-              hourlyActual[hour] += hourData.actual || 0;
-            });
-          }
-        } catch (e) {
-          console.warn(`[getHourlyDistribution] 解析daily_history失败:`, e);
-        }
-      }
-    } catch (e) {
-      console.warn(`[getHourlyDistribution] 解析hourly_distribution失败:`, e);
     }
   });
 
@@ -1187,7 +1183,7 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
     SET daily_history = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `, [JSON.stringify(dailyHistory), task.id]);
+  `, [toDbJsonObjectField(dailyHistory, db.type, []), task.id]);
 }
 
 /**

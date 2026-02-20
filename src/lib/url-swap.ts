@@ -12,6 +12,7 @@ import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
 import { boolParam } from './db-helpers'
 import { normalizeAffiliateLinksInput, findInvalidAffiliateLinks } from './url-swap-link-utils'
 import { removePendingUrlSwapQueueTasksByTaskIds } from './url-swap/queue-cleanup'
+import { parseJsonField, toDbJsonObjectField } from './json-field'
 import type {
   UrlSwapTask,
   UrlSwapTaskStatus,
@@ -153,14 +154,14 @@ export async function createUrlSwapTask(
     true,  // enabled
     durationDays,
     swapMode,
-    JSON.stringify(manualAffiliateLinks),
+    toDbJsonObjectField(manualAffiliateLinks, db.type, []),
     manualSuffixCursor,
     googleCustomerId,
     googleCampaignId,
     resolved.finalUrl,
     resolved.finalUrlSuffix,
     0, 0, 0, 0, 0,
-    JSON.stringify([]),  // 空历史
+    toDbJsonObjectField([], db.type, []),  // 空历史
     'enabled',
     now,
     nextSwapAt.toISOString(),
@@ -712,7 +713,7 @@ export async function updateUrlSwapTask(
 
   if (updates.manual_affiliate_links !== undefined) {
     fields.push('manual_affiliate_links = ?')
-    values.push(JSON.stringify(manualAffiliateLinksAfter))
+    values.push(toDbJsonObjectField(manualAffiliateLinksAfter, db.type, []))
   }
 
   // 手动模式：当切换模式或更新列表时，重置游标（从头开始轮询）
@@ -999,7 +1000,7 @@ export async function recordSwapHistory(
     UPDATE url_swap_tasks
     SET swap_history = ?, updated_at = ?
     WHERE id = ?
-  `, [JSON.stringify(existingHistory), new Date().toISOString(), taskId])
+  `, [toDbJsonObjectField(existingHistory, db.type, []), new Date().toISOString(), taskId])
 }
 
 /**
@@ -1284,9 +1285,7 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     failed_swaps: row.failed_swaps || 0,
     url_changed_count: row.url_changed_count || 0,
     consecutive_failures: row.consecutive_failures || 0,
-    swap_history: typeof row.swap_history === 'string'
-      ? JSON.parse(row.swap_history)
-      : row.swap_history || [],
+    swap_history: parseJsonField<SwapHistoryEntry[]>(row.swap_history, []),
     status: row.status,
     error_message: row.error_message,
     error_at: row.error_at,
@@ -1330,19 +1329,9 @@ function normalizeManualAffiliateLinks(input: unknown): string[] {
 }
 
 function parseStringArrayJson(input: unknown): string[] {
-  if (Array.isArray(input)) {
-    return input.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-  }
-
-  if (typeof input !== 'string' || !input.trim()) return []
-
-  try {
-    const parsed = JSON.parse(input)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-  } catch {
-    return []
-  }
+  const parsed = parseJsonField<unknown[]>(input, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
 }
 
 /**

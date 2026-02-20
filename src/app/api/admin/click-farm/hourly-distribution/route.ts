@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
+import { parseJsonField } from '@/lib/json-field';
 
 // 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
 const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
@@ -28,9 +29,10 @@ export async function GET(request: NextRequest) {
 
     const hourlyConfigured = new Array(24).fill(0);
     tasks.forEach((task: any) => {
-      const distribution = JSON.parse(task.hourly_distribution);
+      const distribution = parseJsonField<number[]>(task.hourly_distribution, []);
+      if (!Array.isArray(distribution)) return;
       distribution.forEach((count: number, hour: number) => {
-        hourlyConfigured[hour] += count;
+        hourlyConfigured[hour] += Number(count) || 0;
       });
     });
 

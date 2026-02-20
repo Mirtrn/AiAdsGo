@@ -2,12 +2,13 @@ import { getDatabase } from '@/lib/db'
 import { encrypt, generateRandomKey } from '@/lib/crypto'
 import { hashOpenclawToken } from '@/lib/openclaw/auth'
 import { getInsertedId } from '@/lib/db-helpers'
+import { toDbJsonArrayField } from '@/lib/json-field'
 
 export type OpenclawTokenRecord = {
   id: number
   user_id: number
   name: string | null
-  scopes: string | null
+  scopes: unknown
   status: string
   last_used_at: string | null
   created_at: string
@@ -23,7 +24,7 @@ export async function createOpenclawToken(params: {
   const token = `oc_${generateRandomKey(24)}`
   const tokenHash = hashOpenclawToken(token)
   const encrypted = encrypt(token)
-  const scopesValue = params.scopes ? JSON.stringify(params.scopes) : null
+  const scopesValue = toDbJsonArrayField(params.scopes ?? [], db.type, [])
 
   const result = await db.exec(
     `INSERT INTO openclaw_tokens (user_id, name, token_hash, token_encrypted, scopes, status)

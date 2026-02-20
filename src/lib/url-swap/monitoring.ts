@@ -12,6 +12,7 @@
  */
 
 import { getDatabase } from '@/lib/db'
+import { parseJsonField } from '@/lib/json-field'
 import type { UrlSwapTask, UrlSwapTaskStatus } from '@/lib/url-swap-types'
 import { pauseUrlSwapTargetsByTaskId } from '@/lib/url-swap'
 import { notifySwapError, notifyUrlSwapTaskPaused } from './notifications'
@@ -144,9 +145,7 @@ export async function getUrlSwapHealth(): Promise<UrlSwapHealthStatus> {
     ...row,
     enabled: Boolean(row.enabled),
     is_deleted: Boolean(row.is_deleted),
-    swap_history: typeof row.swap_history === 'string'
-      ? JSON.parse(row.swap_history)
-      : row.swap_history || []
+    swap_history: parseJsonField(row.swap_history, [])
   }))
 
   // 2. 统计基本信息
