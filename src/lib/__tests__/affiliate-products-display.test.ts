@@ -91,4 +91,11 @@ describe('affiliate-products display mapping', () => {
     expect(mapped.commissionAmount).toBe(21.99)
     expect(mapped.commissionCurrency).toBe('EUR')
   })
+
+  it('supports separate display serial while keeping primary key id', () => {
+    const row = buildBaseRow({ id: 658284 })
+    const mapped = __testOnly.mapAffiliateProductRow(row, 21)
+    expect(mapped.id).toBe(658284)
+    expect(mapped.serial).toBe(21)
+  })
 })

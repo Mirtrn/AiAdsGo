@@ -132,6 +132,13 @@ class PostgresAdapter implements DatabaseAdapter {
       // 这会在生产环境设置 TZ=Asia/Shanghai 等情况下导致固定时差偏移（例如 -8h）。
       // 我们将无时区的时间字符串按 UTC 解析，确保数据库中的 UTC 时间语义不被破坏。
       types: {
+        bigint: {
+          to: 20,
+          from: [20],
+          // 保持历史行为：业务层普遍用 number 处理 id，升级 BIGINT 后依旧返回 number。
+          parse: (x: string) => Number(x),
+          serialize: (x: any) => String(x),
+        },
         date: {
           to: 1184,
           from: [1082, 1114, 1184],

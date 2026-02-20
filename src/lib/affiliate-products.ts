@@ -2080,7 +2080,40 @@ function getAffiliateProductsUpsertBatchSize(dbType: 'sqlite' | 'postgres'): num
     : DEFAULT_UPSERT_BATCH_SIZE_SQLITE
 }
 
-async function upsertAffiliateProductsChunk(params: {
+function buildAffiliateProductsUpsertValues(params: {
+  userId: number
+  platform: AffiliatePlatform
+  items: NormalizedAffiliateProduct[]
+  nowIso: string
+}): any[] {
+  const values: any[] = []
+  for (const item of params.items) {
+    values.push(
+      params.userId,
+      params.platform,
+      item.mid,
+      item.asin,
+      item.brand,
+      item.productName,
+      item.productUrl,
+      item.promoLink,
+      item.shortPromoLink,
+      JSON.stringify(item.allowedCountries || []),
+      item.priceAmount,
+      item.priceCurrency,
+      item.commissionRate,
+      item.commissionAmount,
+      item.reviewCount,
+      item.rawJson,
+      params.nowIso,
+      params.nowIso,
+      params.nowIso
+    )
+  }
+  return values
+}
+
+async function upsertAffiliateProductsChunkOnConflict(params: {
   db: DatabaseAdapter
   userId: number
   platform: AffiliatePlatform
@@ -2091,8 +2124,9 @@ async function upsertAffiliateProductsChunk(params: {
 
   const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
+  const values = buildAffiliateProductsUpsertValues(params)
 
-  const sql = `
+  await params.db.exec(`
     INSERT INTO affiliate_products (
       user_id,
       platform,
@@ -2132,34 +2166,154 @@ async function upsertAffiliateProductsChunk(params: {
       last_synced_at = EXCLUDED.last_synced_at,
       last_seen_at = EXCLUDED.last_seen_at,
       updated_at = EXCLUDED.updated_at
+  `, values)
+}
+
+async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
+  db: DatabaseAdapter
+  userId: number
+  platform: AffiliatePlatform
+  items: NormalizedAffiliateProduct[]
+  nowIso: string
+}): Promise<void> {
+  if (params.items.length === 0) return
+
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
+  const incomingColumns = `
+    user_id,
+    platform,
+    mid,
+    asin,
+    brand,
+    product_name,
+    product_url,
+    promo_link,
+    short_promo_link,
+    allowed_countries_json,
+    price_amount,
+    price_currency,
+    commission_rate,
+    commission_amount,
+    review_count,
+    raw_json,
+    last_synced_at,
+    last_seen_at,
+    updated_at
   `
+  const values = buildAffiliateProductsUpsertValues(params)
 
-  const values: any[] = []
-  for (const item of params.items) {
-    values.push(
-      params.userId,
-      params.platform,
-      item.mid,
-      item.asin,
-      item.brand,
-      item.productName,
-      item.productUrl,
-      item.promoLink,
-      item.shortPromoLink,
-      JSON.stringify(item.allowedCountries || []),
-      item.priceAmount,
-      item.priceCurrency,
-      item.commissionRate,
-      item.commissionAmount,
-      item.reviewCount,
-      item.rawJson,
-      params.nowIso,
-      params.nowIso,
-      params.nowIso
+  await params.db.exec(`
+    WITH incoming (${incomingColumns}) AS (
+      VALUES ${placeholders}
     )
-  }
+    UPDATE affiliate_products p
+    SET
+      asin = incoming.asin,
+      brand = incoming.brand,
+      product_name = incoming.product_name,
+      product_url = incoming.product_url,
+      promo_link = incoming.promo_link,
+      short_promo_link = incoming.short_promo_link,
+      allowed_countries_json = incoming.allowed_countries_json,
+      price_amount = incoming.price_amount,
+      price_currency = incoming.price_currency,
+      commission_rate = incoming.commission_rate,
+      commission_amount = incoming.commission_amount,
+      review_count = incoming.review_count,
+      raw_json = incoming.raw_json,
+      last_synced_at = incoming.last_synced_at,
+      last_seen_at = incoming.last_seen_at,
+      updated_at = incoming.updated_at
+    FROM incoming
+    WHERE p.user_id = incoming.user_id
+      AND p.platform = incoming.platform
+      AND p.mid = incoming.mid
+  `, values)
 
-  await params.db.exec(sql, values)
+  await params.db.exec(`
+    WITH incoming (${incomingColumns}) AS (
+      VALUES ${placeholders}
+    )
+    INSERT INTO affiliate_products (
+      user_id,
+      platform,
+      mid,
+      asin,
+      brand,
+      product_name,
+      product_url,
+      promo_link,
+      short_promo_link,
+      allowed_countries_json,
+      price_amount,
+      price_currency,
+      commission_rate,
+      commission_amount,
+      review_count,
+      raw_json,
+      last_synced_at,
+      last_seen_at,
+      updated_at
+    )
+    SELECT
+      incoming.user_id,
+      incoming.platform,
+      incoming.mid,
+      incoming.asin,
+      incoming.brand,
+      incoming.product_name,
+      incoming.product_url,
+      incoming.promo_link,
+      incoming.short_promo_link,
+      incoming.allowed_countries_json,
+      incoming.price_amount,
+      incoming.price_currency,
+      incoming.commission_rate,
+      incoming.commission_amount,
+      incoming.review_count,
+      incoming.raw_json,
+      incoming.last_synced_at,
+      incoming.last_seen_at,
+      incoming.updated_at
+    FROM incoming
+    LEFT JOIN affiliate_products p
+      ON p.user_id = incoming.user_id
+      AND p.platform = incoming.platform
+      AND p.mid = incoming.mid
+    WHERE p.id IS NULL
+    ON CONFLICT (user_id, platform, mid) DO UPDATE SET
+      asin = EXCLUDED.asin,
+      brand = EXCLUDED.brand,
+      product_name = EXCLUDED.product_name,
+      product_url = EXCLUDED.product_url,
+      promo_link = EXCLUDED.promo_link,
+      short_promo_link = EXCLUDED.short_promo_link,
+      allowed_countries_json = EXCLUDED.allowed_countries_json,
+      price_amount = EXCLUDED.price_amount,
+      price_currency = EXCLUDED.price_currency,
+      commission_rate = EXCLUDED.commission_rate,
+      commission_amount = EXCLUDED.commission_amount,
+      review_count = EXCLUDED.review_count,
+      raw_json = EXCLUDED.raw_json,
+      last_synced_at = EXCLUDED.last_synced_at,
+      last_seen_at = EXCLUDED.last_seen_at,
+      updated_at = EXCLUDED.updated_at
+  `, values)
+}
+
+async function upsertAffiliateProductsChunk(params: {
+  db: DatabaseAdapter
+  userId: number
+  platform: AffiliatePlatform
+  items: NormalizedAffiliateProduct[]
+  nowIso: string
+}): Promise<void> {
+  if (params.db.type === 'postgres') {
+    await upsertAffiliateProductsChunkPostgresTwoPhase(params)
+    return
+  }
+  await upsertAffiliateProductsChunkOnConflict(params)
 }
 
 export async function upsertAffiliateProducts(
@@ -2442,7 +2596,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   )
 
   return {
-    items: rows.map((row) => mapAffiliateProductRow(row)),
+    items: rows.map((row, index) => mapAffiliateProductRow(row, offset + index + 1)),
     total: Number(summaryRow?.total || 0),
     productsWithLinkCount: Number(summaryRow?.products_with_link_count || 0),
     page,
@@ -2450,7 +2604,10 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   }
 }
 
-function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: number }): AffiliateProductListItem {
+function mapAffiliateProductRow(
+  row: AffiliateProduct & { related_offer_count?: number },
+  serialNumber?: number
+): AffiliateProductListItem {
   const rawJson = (() => {
     if (!row.raw_json) return null
     try {
@@ -2505,10 +2662,17 @@ function mapAffiliateProductRow(row: AffiliateProduct & { related_offer_count?: 
     promoLink: row.promo_link,
     shortPromoLink: row.short_promo_link,
   })
+  const normalizedId = Number(row.id)
+  if (!Number.isFinite(normalizedId) || normalizedId <= 0) {
+    throw new Error(`[affiliate-products] invalid affiliate_products.id: ${String(row.id)}`)
+  }
+  const resolvedSerial = typeof serialNumber === 'number' && Number.isFinite(serialNumber)
+    ? serialNumber
+    : normalizedId
 
   return {
-    id: row.id,
-    serial: row.id,
+    id: normalizedId,
+    serial: resolvedSerial,
     platform: row.platform,
     mid: row.mid,
     asin: row.asin,

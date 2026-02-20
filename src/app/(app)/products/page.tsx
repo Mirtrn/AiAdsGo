@@ -928,7 +928,7 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[1500px]">
+      <Table className="table-fixed min-w-[1600px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[42px] whitespace-nowrap">
@@ -938,8 +938,9 @@ export default function ProductsPage() {
                 aria-label="全选"
               />
             </TableHead>
-            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[110px] whitespace-nowrap">
-              记录ID
+            <TableHead className="w-[90px] whitespace-nowrap">序号</TableHead>
+            <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
+              主键ID（非连续）
             </SortableTableHead>
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
@@ -1019,7 +1020,12 @@ export default function ProductsPage() {
                   />
                 </TableCell>
                 <TableCell className="font-medium">
-                  <div className={`max-w-[98px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.id)}>
+                  <div className={`max-w-[78px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.serial)}>
+                    {item.serial}
+                  </div>
+                </TableCell>
+                <TableCell className="font-medium">
+                  <div className={`max-w-[138px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.id)}>
                     {item.id}
                   </div>
                 </TableCell>
