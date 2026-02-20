@@ -3265,6 +3265,77 @@ export async function getAffiliateProductSyncRunById(params: {
   }
 }
 
+export async function getLatestFailedAffiliateProductSyncRun(params: {
+  userId: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  excludeRunId?: number
+}): Promise<{
+  id: number
+  user_id: number
+  platform: AffiliatePlatform
+  mode: SyncMode
+  status: string
+  trigger_source: string | null
+  total_items: number
+  created_count: number
+  updated_count: number
+  failed_count: number
+  cursor_page: number
+  processed_batches: number
+  last_heartbeat_at: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+} | null> {
+  const db = await getDatabase()
+  const excludeClause = params.excludeRunId ? 'AND id <> ?' : ''
+  const values = params.excludeRunId
+    ? [params.userId, params.platform, params.mode, params.excludeRunId]
+    : [params.userId, params.platform, params.mode]
+
+  const row = await db.queryOne<any>(
+    `
+      SELECT *
+      FROM affiliate_product_sync_runs
+      WHERE user_id = ?
+        AND platform = ?
+        AND mode = ?
+        AND status = 'failed'
+        AND cursor_page > 0
+        ${excludeClause}
+      ORDER BY COALESCE(completed_at, updated_at, created_at) DESC
+      LIMIT 1
+    `,
+    values
+  )
+
+  if (!row) return null
+
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    platform: row.platform,
+    mode: row.mode,
+    status: String(row.status || ''),
+    trigger_source: row.trigger_source ?? null,
+    total_items: Number(row.total_items || 0),
+    created_count: Number(row.created_count || 0),
+    updated_count: Number(row.updated_count || 0),
+    failed_count: Number(row.failed_count || 0),
+    cursor_page: Number(row.cursor_page || 0),
+    processed_batches: Number(row.processed_batches || 0),
+    last_heartbeat_at: row.last_heartbeat_at ?? null,
+    error_message: row.error_message ?? null,
+    started_at: row.started_at ?? null,
+    completed_at: row.completed_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
 export async function getAffiliateProductSyncRuns(userId: number, limit: number = 20): Promise<Array<{
   id: number
   platform: AffiliatePlatform

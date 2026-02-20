@@ -5,6 +5,7 @@ import {
   type AffiliateProductSyncCheckpoint,
   type AffiliateProductSyncProgress,
   getAffiliateProductSyncRunById,
+  getLatestFailedAffiliateProductSyncRun,
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   type ProductSortField,
@@ -188,33 +189,59 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     throw new Error('任务参数不完整')
   }
 
+  const supportsPlatformResume = data.platform === 'partnerboost' && data.mode === 'platform'
+  const toSafeCount = (value: unknown): number => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 0) return 0
+    return parsed
+  }
+
   const existingRun = await getAffiliateProductSyncRunById({
     runId: data.runId,
     userId: data.userId,
   })
-  const canResumeFromCheckpoint = (
-    data.platform === 'partnerboost'
-    && data.mode === 'platform'
-    && Number(existingRun?.cursor_page || 0) > 0
-  )
-  const resumeFromPage = canResumeFromCheckpoint
-    ? Math.max(1, Number(existingRun?.cursor_page || 1))
+
+  let resumeSourceRun = supportsPlatformResume && Number(existingRun?.cursor_page || 0) > 0
+    ? existingRun
+    : null
+
+  if (supportsPlatformResume && !resumeSourceRun) {
+    const latestFailedRun = await getLatestFailedAffiliateProductSyncRun({
+      userId: data.userId,
+      platform: data.platform,
+      mode: data.mode,
+      excludeRunId: data.runId,
+    })
+    if (latestFailedRun && Number(latestFailedRun.cursor_page || 0) > 0) {
+      resumeSourceRun = latestFailedRun
+      console.log(
+        `[affiliate-product-sync] run ${data.runId} auto resume from failed run ${latestFailedRun.id} page ${latestFailedRun.cursor_page}`
+      )
+    }
+  }
+
+  const resumeFromPage = resumeSourceRun
+    ? Math.max(1, toSafeCount(resumeSourceRun.cursor_page || 1))
     : undefined
+  const baseTotalItems = resumeSourceRun ? toSafeCount(resumeSourceRun.total_items) : 0
+  const baseCreatedCount = resumeSourceRun ? toSafeCount(resumeSourceRun.created_count) : 0
+  const baseUpdatedCount = resumeSourceRun ? toSafeCount(resumeSourceRun.updated_count) : 0
+  const baseProcessedBatches = resumeSourceRun ? toSafeCount(resumeSourceRun.processed_batches) : 0
 
   const startedAt = new Date().toISOString()
   await updateAffiliateProductSyncRun({
     runId: data.runId,
     status: 'running',
-    startedAt: canResumeFromCheckpoint
+    startedAt: resumeSourceRun?.id === data.runId
       ? (existingRun?.started_at || startedAt)
       : startedAt,
     completedAt: null,
-    totalItems: canResumeFromCheckpoint ? Number(existingRun?.total_items || 0) : 0,
-    createdCount: canResumeFromCheckpoint ? Number(existingRun?.created_count || 0) : 0,
-    updatedCount: canResumeFromCheckpoint ? Number(existingRun?.updated_count || 0) : 0,
-    failedCount: canResumeFromCheckpoint ? Number(existingRun?.failed_count || 0) : 0,
-    cursorPage: canResumeFromCheckpoint ? resumeFromPage || 1 : 1,
-    processedBatches: canResumeFromCheckpoint ? Number(existingRun?.processed_batches || 0) : 0,
+    totalItems: baseTotalItems,
+    createdCount: baseCreatedCount,
+    updatedCount: baseUpdatedCount,
+    failedCount: 0,
+    cursorPage: resumeFromPage || 1,
+    processedBatches: baseProcessedBatches,
     lastHeartbeatAt: startedAt,
     errorMessage: null,
   })
@@ -235,9 +262,9 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       onProgress: async (progress: AffiliateProductSyncProgress) => {
         await updateAffiliateProductSyncRun({
           runId: data.runId,
-          totalItems: progress.totalFetched,
-          createdCount: progress.createdCount,
-          updatedCount: progress.updatedCount,
+          totalItems: baseTotalItems + toSafeCount(progress.totalFetched),
+          createdCount: baseCreatedCount + toSafeCount(progress.createdCount),
+          updatedCount: baseUpdatedCount + toSafeCount(progress.updatedCount),
           failedCount: progress.failedCount,
           lastHeartbeatAt: new Date().toISOString(),
         })
@@ -245,12 +272,12 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       onCheckpoint: async (checkpoint: AffiliateProductSyncCheckpoint) => {
         await updateAffiliateProductSyncRun({
           runId: data.runId,
-          totalItems: checkpoint.totalFetched,
-          createdCount: checkpoint.createdCount,
-          updatedCount: checkpoint.updatedCount,
+          totalItems: baseTotalItems + toSafeCount(checkpoint.totalFetched),
+          createdCount: baseCreatedCount + toSafeCount(checkpoint.createdCount),
+          updatedCount: baseUpdatedCount + toSafeCount(checkpoint.updatedCount),
           failedCount: checkpoint.failedCount,
           cursorPage: checkpoint.cursorPage,
-          processedBatches: checkpoint.processedBatches,
+          processedBatches: baseProcessedBatches + toSafeCount(checkpoint.processedBatches),
           lastHeartbeatAt: new Date().toISOString(),
         })
       },
@@ -262,12 +289,16 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       console.warn('[affiliate-product-sync] cache refresh/warm failed:', cacheError?.message || cacheError)
     }
 
+    const finalTotalItems = baseTotalItems + toSafeCount(result.totalFetched)
+    const finalCreatedCount = baseCreatedCount + toSafeCount(result.createdCount)
+    const finalUpdatedCount = baseUpdatedCount + toSafeCount(result.updatedCount)
+
     await updateAffiliateProductSyncRun({
       runId: data.runId,
       status: 'completed',
-      totalItems: result.totalFetched,
-      createdCount: result.createdCount,
-      updatedCount: result.updatedCount,
+      totalItems: finalTotalItems,
+      createdCount: finalCreatedCount,
+      updatedCount: finalUpdatedCount,
       failedCount: 0,
       cursorPage: 0,
       completedAt: new Date().toISOString(),
@@ -278,7 +309,9 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     return {
       success: true,
       runId: data.runId,
-      ...result,
+      totalFetched: finalTotalItems,
+      createdCount: finalCreatedCount,
+      updatedCount: finalUpdatedCount,
     }
   } catch (error: any) {
     await updateAffiliateProductSyncRun({
