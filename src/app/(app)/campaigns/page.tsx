@@ -238,6 +238,21 @@ export default function CampaignsPage() {
     (campaign) => selectedCampaignIds.has(campaign.id) && String(campaign.status || '').toUpperCase() === 'REMOVED'
   ).length
   const activeCampaignCount = campaigns.filter((campaign) => !isCampaignDeleted(campaign)).length
+  const latestCampaignSyncAt = campaigns.reduce<string | null>((latest, campaign) => {
+    const candidate = campaign.lastSyncAt
+    if (!candidate) return latest
+    const candidateTs = Date.parse(candidate)
+    if (Number.isNaN(candidateTs)) return latest
+
+    if (!latest) return candidate
+    const latestTs = Date.parse(latest)
+    if (Number.isNaN(latestTs) || candidateTs > latestTs) return candidate
+
+    return latest
+  }, null)
+  const latestCampaignSyncLabel = latestCampaignSyncAt
+    ? new Date(latestCampaignSyncAt).toLocaleString('zh-CN', { hour12: false })
+    : '未同步'
 
   const resetBatchOfflineOptions = () => {
     setBatchOfflineBlacklistOffer(false)
@@ -1716,6 +1731,9 @@ export default function CampaignsPage() {
                 <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
                   显示历史（含已删除）
                 </label>
+                <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">
+                  数据同步：{latestCampaignSyncLabel}
+                </span>
               </div>
             </div>
           </CardContent>
