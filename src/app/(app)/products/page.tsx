@@ -134,6 +134,7 @@ type SyncRunItem = {
   updated_count: number
   failed_count: number
   error_message: string | null
+  started_at: string | null
   completed_at: string | null
   created_at: string
 }
@@ -312,6 +313,19 @@ function getSyncRunMetricsText(run: SyncRunItem): string {
   }
 
   return `新增 ${created} · 更新 ${updated} · 失败 ${failed}`
+}
+
+function formatSyncRunDateTime(value: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function getSyncRunStartedAtText(run: SyncRunItem): string {
+  if (run.started_at) return formatSyncRunDateTime(run.started_at)
+  if (run.status === 'queued') return '排队中（未开始）'
+  return formatSyncRunDateTime(run.created_at)
 }
 
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
@@ -1283,6 +1297,7 @@ export default function ProductsPage() {
                               </div>
                               <div className="text-muted-foreground">{getSyncRunProgressText(run)}</div>
                               <div className="text-muted-foreground">{getSyncRunMetricsText(run)}</div>
+                              <div className="text-muted-foreground">开始时间 {getSyncRunStartedAtText(run)}</div>
                             </div>
                           )
                         })}
