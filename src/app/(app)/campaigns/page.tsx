@@ -102,6 +102,7 @@ interface PerformanceSummary {
   currencies?: string[]
   hasMixedCurrency?: boolean
   costs?: Array<{ currency: string; amount: number }>
+  latestSyncAt?: string | null
   // 环比增长数据
   changes?: {
     impressions: number | null
@@ -238,7 +239,7 @@ export default function CampaignsPage() {
     (campaign) => selectedCampaignIds.has(campaign.id) && String(campaign.status || '').toUpperCase() === 'REMOVED'
   ).length
   const activeCampaignCount = campaigns.filter((campaign) => !isCampaignDeleted(campaign)).length
-  const latestCampaignSyncAt = campaigns.reduce<string | null>((latest, campaign) => {
+  const latestCampaignSyncFromCampaigns = campaigns.reduce<string | null>((latest, campaign) => {
     const candidate = campaign.lastSyncAt
     if (!candidate) return latest
     const candidateTs = Date.parse(candidate)
@@ -250,9 +251,16 @@ export default function CampaignsPage() {
 
     return latest
   }, null)
-  const latestCampaignSyncLabel = latestCampaignSyncAt
-    ? new Date(latestCampaignSyncAt).toLocaleString('zh-CN', { hour12: false })
-    : '未同步'
+  const latestCampaignSyncAt = summary?.latestSyncAt || latestCampaignSyncFromCampaigns
+  const latestCampaignSyncLabel = (() => {
+    if (!latestCampaignSyncAt) return '未同步'
+    const parsed = Date.parse(latestCampaignSyncAt)
+    if (Number.isNaN(parsed)) return '未同步'
+    return new Date(parsed).toLocaleString('zh-CN', {
+      hour12: false,
+      timeZone: 'Asia/Shanghai',
+    })
+  })()
 
   const resetBatchOfflineOptions = () => {
     setBatchOfflineBlacklistOffer(false)
@@ -1721,19 +1729,26 @@ export default function CampaignsPage() {
                 </SelectContent>
               </Select>
 
-              <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
-                <Checkbox
-                  id="show-deleted-campaigns"
-                  checked={showDeletedCampaigns}
-                  onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
-                  aria-label="显示历史广告系列（含已删除）"
-                />
-                <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
-                  显示历史（含已删除）
-                </label>
-                <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">
-                  数据同步：{latestCampaignSyncLabel}
-                </span>
+              <div className="col-span-2 sm:col-span-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
+                  <Checkbox
+                    id="show-deleted-campaigns"
+                    checked={showDeletedCampaigns}
+                    onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
+                    aria-label="显示历史广告系列（含已删除）"
+                  />
+                  <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
+                    显示历史（含已删除）
+                  </label>
+                </div>
+                <div className="flex items-center px-3 py-2 border border-gray-200 rounded-md bg-gray-50 sm:ml-auto">
+                  <span className="text-xs text-gray-500 whitespace-nowrap mr-2">
+                    数据同步时间（北京时间）
+                  </span>
+                  <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                    {latestCampaignSyncLabel}
+                  </span>
+                </div>
               </div>
             </div>
           </CardContent>

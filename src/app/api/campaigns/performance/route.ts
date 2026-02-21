@@ -298,6 +298,46 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    const latestCampaignSyncFallback = formattedCampaigns.reduce<string | null>((latest, campaign) => {
+      const candidate = campaign.lastSyncAt
+      if (!candidate) return latest
+
+      const candidateTs = Date.parse(candidate)
+      if (Number.isNaN(candidateTs)) return latest
+
+      if (!latest) return candidate
+      const latestTs = Date.parse(latest)
+      if (Number.isNaN(latestTs) || candidateTs > latestTs) return candidate
+
+      return latest
+    }, null)
+
+    const latestSyncFromLogsRow = db.type === 'postgres'
+      ? await db.queryOne<{ latest_sync_at: string | null }>(
+          `
+            SELECT MAX(
+              COALESCE(
+                NULLIF(completed_at, '')::timestamptz,
+                NULLIF(started_at, '')::timestamptz,
+                NULLIF(created_at, '')::timestamptz
+              )
+            )::text AS latest_sync_at
+            FROM sync_logs
+            WHERE user_id = ?
+          `,
+          [userId]
+        )
+      : await db.queryOne<{ latest_sync_at: string | null }>(
+          `
+            SELECT MAX(COALESCE(NULLIF(completed_at, ''), NULLIF(started_at, ''), NULLIF(created_at, ''))) AS latest_sync_at
+            FROM sync_logs
+            WHERE user_id = ?
+          `,
+          [userId]
+        )
+
+    const latestSyncAt = latestSyncFromLogsRow?.latest_sync_at || latestCampaignSyncFallback
+
     const queryTotalsAll = async (params: {
       start: string
       end: string
@@ -428,6 +468,7 @@ export async function GET(request: NextRequest) {
         currencies,
         hasMixedCurrency,
         costs: hasMixedCurrency && !isFilteredByCurrency ? costs : undefined,
+        latestSyncAt,
         changes: {
           impressions: changes.impressions,
           clicks: changes.clicks,
