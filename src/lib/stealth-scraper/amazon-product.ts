@@ -1138,19 +1138,40 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   }
 
+  // Fallback: some Amazon variants omit #productTitle but still provide SEO title metadata.
+  if (!productName) {
+    const rawDocTitle =
+      $('meta[name="title"]').attr('content')?.trim() ||
+      $('title').first().text().trim() ||
+      ''
+
+    if (rawDocTitle) {
+      const normalizedTitle = rawDocTitle
+        .replace(/^Amazon\.[^:]+:\s*/i, '')
+        .replace(/\s*:\s*[^:]+$/, '')
+        .trim()
+
+      if (normalizedTitle.length > 5) {
+        productName = normalizedTitle
+      }
+    }
+  }
+
   // 🎯 优化产品描述提取 - 限定在核心产品区域（包含桌面版和移动版）
   const descriptionSelectors = [
     // === 桌面版选择器 ===
     '#ppd #feature-bullets',
     '#centerCol #feature-bullets',
     '#dp-container #feature-bullets',
+    '#ppd .a-expander-content',
+    '#centerCol .a-expander-content',
+    '#dp-container .a-expander-content',
     '#feature-bullets',
     '#productDescription',
     '[data-feature-name="featurebullets"]',
     // === 移动版选择器 (a-m-us页面) ===
     '#featurebullets_feature_div',
     '[data-hook="product-description"]',
-    '.a-expander-content',
     '#aplus_feature_div',
   ]
   let productDescription: string | null = null
@@ -1162,6 +1183,18 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         productDescription = desc
         break
       }
+    }
+  }
+
+  // Fallback: prefer metadata description instead of unrelated recommendation blocks.
+  if (!productDescription) {
+    const metaDescription =
+      $('meta[name="description"]').attr('content')?.trim() ||
+      $('meta[property="og:description"]').attr('content')?.trim() ||
+      null
+
+    if (metaDescription && metaDescription.length > 20) {
+      productDescription = metaDescription
     }
   }
 
