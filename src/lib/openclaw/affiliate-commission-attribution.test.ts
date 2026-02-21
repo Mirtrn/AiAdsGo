@@ -170,6 +170,6 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM offers'), [9])
-    expect(exec).toHaveBeenCalledTimes(2)
+    expect(exec).toHaveBeenCalledTimes(3)
   })
 })

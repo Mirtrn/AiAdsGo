@@ -46,6 +46,11 @@ type AttributionRow = {
   rawPayload: unknown
 }
 
+type CampaignWeight = {
+  campaignId: number
+  weight: number
+}
+
 function roundTo(value: number, decimals = 4): number {
   const factor = 10 ** decimals
   return Math.round(value * factor) / factor
@@ -197,6 +202,15 @@ function buildWeightedShares(total: number, weights: number[]): number[] {
     shares[shares.length - 1] = roundTo(shares[shares.length - 1] + diff)
   }
   return shares
+}
+
+function aggregateOfferWeight(campaigns: CampaignWeight[]): number {
+  if (!Array.isArray(campaigns) || campaigns.length === 0) return 1
+  const sum = campaigns.reduce(
+    (acc, item) => acc + Math.max(0, Number(item.weight) || 0),
+    0
+  )
+  return sum > 0 ? sum : 1
 }
 
 async function queryProductIdentifierRows(params: {
@@ -373,12 +387,15 @@ async function queryCampaignWeights(params: {
   userId: number
   reportDate: string
   offerIds: number[]
-}): Promise<Map<number, Array<{ campaignId: number; weight: number }>>> {
-  const result = new Map<number, Array<{ campaignId: number; weight: number }>>()
+}): Promise<Map<number, CampaignWeight[]>> {
+  const result = new Map<number, CampaignWeight[]>()
   if (params.offerIds.length === 0) return result
 
   const db = await getDatabase()
   const grouped = new Map<number, CampaignWeightRow[]>()
+  const campaignNotDeletedCondition = db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
 
   for (const offerIdChunk of chunkArray(params.offerIds)) {
     const rows = await db.query<CampaignWeightRow>(
@@ -395,6 +412,7 @@ async function queryCampaignWeights(params: {
          AND cp.date = ?
         WHERE c.user_id = ?
           AND c.offer_id IN (${offerIdChunk.map(() => '?').join(', ')})
+          AND ${campaignNotDeletedCondition}
       `,
       [params.reportDate, params.userId, ...offerIdChunk]
     )
@@ -607,12 +625,14 @@ export async function persistAffiliateCommissionAttributions(params: {
   })
 
   const rowsToInsert: AttributionRow[] = []
+  const inferredOfferLinkKeys = new Set<string>()
   const attributedOfferIds = new Set<number>()
   const attributedCampaignIds = new Set<number>()
   let attributedCommission = 0
 
   for (const entry of normalizedEntries) {
     const matchedProductIds = new Set<number>()
+    const matchedProductIdsFromAsin = new Set<number>()
 
     if (entry.sourceMid) {
       const key = `${entry.platform}|mid|${entry.sourceMid}`
@@ -625,19 +645,37 @@ export async function persistAffiliateCommissionAttributions(params: {
       const key = `${entry.platform}|asin|${entry.sourceAsin}`
       for (const productId of productIdsByPlatformAsin.get(key) || []) {
         matchedProductIds.add(productId)
+        matchedProductIdsFromAsin.add(productId)
       }
     }
 
     const matchedOfferIds = new Set<number>()
+    const explicitMatchedOfferIds = new Set<number>()
     for (const productId of matchedProductIds) {
       for (const offerId of offerLinksByProduct.get(productId) || []) {
         matchedOfferIds.add(offerId)
+        explicitMatchedOfferIds.add(offerId)
       }
     }
 
+    const fallbackMatchedOfferIds = new Set<number>()
     if (entry.sourceAsin) {
       for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
         matchedOfferIds.add(offerId)
+        fallbackMatchedOfferIds.add(offerId)
+      }
+    }
+
+    if (fallbackMatchedOfferIds.size > 0 && matchedProductIdsFromAsin.size > 0) {
+      for (const productId of matchedProductIdsFromAsin) {
+        const currentLinkedOfferIds = offerLinksByProduct.get(productId) || []
+        for (const offerId of fallbackMatchedOfferIds) {
+          if (currentLinkedOfferIds.includes(offerId)) continue
+          inferredOfferLinkKeys.add(`${productId}:${offerId}`)
+          currentLinkedOfferIds.push(offerId)
+          offerLinksByProduct.set(productId, currentLinkedOfferIds)
+          explicitMatchedOfferIds.add(offerId)
+        }
       }
     }
 
@@ -646,9 +684,14 @@ export async function persistAffiliateCommissionAttributions(params: {
       continue
     }
 
+    const offerWeights = offerIds.map((offerId) => {
+      const baseWeight = aggregateOfferWeight(campaignWeightsByOffer.get(offerId) || [])
+      return explicitMatchedOfferIds.has(offerId) ? baseWeight * 2 : baseWeight
+    })
+
     const offerShares = buildWeightedShares(
       entry.commission,
-      offerIds.map(() => 1)
+      offerWeights
     )
 
     offerIds.forEach((offerId, offerIndex) => {
@@ -710,6 +753,21 @@ export async function persistAffiliateCommissionAttributions(params: {
       `DELETE FROM affiliate_commission_attributions WHERE user_id = ? AND report_date = ?`,
       [params.userId, params.reportDate]
     )
+
+    for (const key of inferredOfferLinkKeys) {
+      const [productIdRaw, offerIdRaw] = key.split(':')
+      const productId = Number(productIdRaw)
+      const offerId = Number(offerIdRaw)
+      if (!Number.isFinite(productId) || !Number.isFinite(offerId)) continue
+      await db.exec(
+        `
+          INSERT INTO affiliate_product_offer_links (user_id, product_id, offer_id, created_via)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (user_id, product_id, offer_id) DO NOTHING
+        `,
+        [params.userId, productId, offerId, 'asin_fallback']
+      )
+    }
 
     for (const row of rowsToInsert) {
       await db.exec(
