@@ -74,7 +74,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
 type PlatformSyncStrategy = 'light' | 'full'
 type LandingPageType = 'amazon_product' | 'amazon_store' | 'independent_product' | 'independent_store' | 'unknown'
-type ProductLifecycleStatus = 'active' | 'invalid' | 'unknown'
+type ProductLifecycleStatus = 'active' | 'invalid' | 'sync_missing' | 'unknown'
 type ProductStatusFilter = ProductLifecycleStatus | 'all'
 type SortOrder = 'asc' | 'desc'
 type SortField =
@@ -127,6 +127,7 @@ type ProductListResponse = {
   productsWithLinkCount: number
   activeProductsCount: number
   invalidProductsCount: number
+  syncMissingProductsCount: number
   unknownProductsCount: number
   blacklistedCount: number
   page: number
@@ -191,7 +192,8 @@ const LANDING_PAGE_TYPE_LABEL: Record<LandingPageType, string> = {
 
 const PRODUCT_STATUS_LABEL: Record<ProductLifecycleStatus, string> = {
   active: '有效',
-  invalid: '已失效',
+  invalid: '已失效(平台确认)',
+  sync_missing: '同步未命中',
   unknown: '状态未知',
 }
 
@@ -399,6 +401,7 @@ export default function ProductsPage() {
   const [productsWithLinkCount, setProductsWithLinkCount] = useState(0)
   const [activeProductsCount, setActiveProductsCount] = useState(0)
   const [invalidProductsCount, setInvalidProductsCount] = useState(0)
+  const [syncMissingProductsCount, setSyncMissingProductsCount] = useState(0)
   const [unknownProductsCount, setUnknownProductsCount] = useState(0)
   const [blacklistedCount, setBlacklistedCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -593,6 +596,7 @@ export default function ProductsPage() {
       setProductsWithLinkCount(Number(data.productsWithLinkCount || 0))
       setActiveProductsCount(Number(data.activeProductsCount || 0))
       setInvalidProductsCount(Number(data.invalidProductsCount || 0))
+      setSyncMissingProductsCount(Number(data.syncMissingProductsCount || 0))
       setUnknownProductsCount(Number(data.unknownProductsCount || 0))
       setBlacklistedCount(Number(data.blacklistedCount || 0))
 
@@ -1277,7 +1281,7 @@ export default function ProductsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">所有商品</div>
@@ -1298,13 +1302,23 @@ export default function ProductsPage() {
           </Card>
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">已失效商品</div>
+              <div className="text-xs text-muted-foreground">已失效商品(平台确认)</div>
               <div className="mt-1 flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-amber-600" />
                 <span className="text-xl font-semibold">{invalidProductsCount}</span>
               </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">仅统计平台明确返回下架/无库存</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="px-4 pb-4 pt-4">
+              <div className="text-xs text-muted-foreground">同步未命中</div>
+              <div className="mt-1 flex items-center gap-2">
+                <Clock3 className="h-4 w-4 text-amber-600" />
+                <span className="text-xl font-semibold">{syncMissingProductsCount}</span>
+              </div>
               <div className="mt-1 text-[11px] text-muted-foreground">状态未知 {unknownProductsCount}</div>
-              <div className="text-[11px] text-muted-foreground">失效仅表示同步未命中，不会自动手动下线</div>
+              <div className="text-[11px] text-muted-foreground">不计入“已失效商品”，建议人工复核</div>
             </CardContent>
           </Card>
           <Card>
@@ -1378,7 +1392,7 @@ export default function ProductsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。失效状态不会自动执行手动下线。</span>
+              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。同步未命中不会自动计入失效或执行手动下线。</span>
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-1 items-center gap-2">
@@ -1414,7 +1428,8 @@ export default function ProductsPage() {
                   <SelectContent>
                     <SelectItem value="all">全部状态</SelectItem>
                     <SelectItem value="active">有效</SelectItem>
-                    <SelectItem value="invalid">已失效</SelectItem>
+                    <SelectItem value="invalid">已失效(平台确认)</SelectItem>
+                    <SelectItem value="sync_missing">同步未命中</SelectItem>
                     <SelectItem value="unknown">状态未知</SelectItem>
                   </SelectContent>
                 </Select>

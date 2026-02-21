@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
         total: number
         activeProductsCount: number
         invalidProductsCount: number
+        syncMissingProductsCount: number
         unknownProductsCount: number
         blacklistedCount: number
         productsWithLinkCount: number
@@ -143,6 +144,7 @@ export async function GET(request: NextRequest) {
       productsWithLinkCount: result.productsWithLinkCount,
       activeProductsCount: result.activeProductsCount,
       invalidProductsCount: result.invalidProductsCount,
+      syncMissingProductsCount: result.syncMissingProductsCount,
       unknownProductsCount: result.unknownProductsCount,
       blacklistedCount: result.blacklistedCount,
       page: result.page,

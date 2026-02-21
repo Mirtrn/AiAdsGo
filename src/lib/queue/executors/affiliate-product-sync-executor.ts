@@ -5,7 +5,6 @@ import {
   type AffiliateProductSyncCheckpoint,
   type AffiliateProductSyncProgress,
   getAffiliateProductSyncRunById,
-  getLatestFailedAffiliateProductSyncRun,
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   type ProductSortField,
@@ -38,7 +37,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all'
-  status: 'all' | 'active' | 'invalid' | 'unknown'
+  status: 'all' | 'active' | 'invalid' | 'sync_missing' | 'unknown'
   reviewCountMin: number | null
   reviewCountMax: number | null
   priceAmountMin: number | null
@@ -87,7 +86,7 @@ type CacheWarmParams = {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all' | AffiliatePlatform
-  status: 'all' | 'active' | 'invalid' | 'unknown'
+  status: 'all' | 'active' | 'invalid' | 'sync_missing' | 'unknown'
   reviewCountMin: number | null
   reviewCountMax: number | null
   priceAmountMin: number | null
@@ -125,7 +124,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     ? 'all'
     : (normalizeAffiliatePlatform(payload.platform) || 'all')
   const statusRaw = String(payload.status || '').trim().toLowerCase()
-  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'unknown'
+  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'sync_missing' || statusRaw === 'unknown'
     ? statusRaw
     : 'all'
 
@@ -167,6 +166,7 @@ async function warmProductListCacheByParams(userId: number, params: CacheWarmPar
     productsWithLinkCount: listResult.productsWithLinkCount,
     activeProductsCount: listResult.activeProductsCount,
     invalidProductsCount: listResult.invalidProductsCount,
+    syncMissingProductsCount: listResult.syncMissingProductsCount,
     unknownProductsCount: listResult.unknownProductsCount,
     blacklistedCount: listResult.blacklistedCount,
     page: listResult.page,
@@ -216,21 +216,6 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
   let resumeSourceRun = supportsPlatformResume && Number(existingRun?.cursor_page || 0) > 0
     ? existingRun
     : null
-
-  if (supportsPlatformResume && !resumeSourceRun) {
-    const latestFailedRun = await getLatestFailedAffiliateProductSyncRun({
-      userId: data.userId,
-      platform: data.platform,
-      mode: data.mode,
-      excludeRunId: data.runId,
-    })
-    if (latestFailedRun && Number(latestFailedRun.cursor_page || 0) > 0) {
-      resumeSourceRun = latestFailedRun
-      console.log(
-        `[affiliate-product-sync] run ${data.runId} auto resume from failed run ${latestFailedRun.id} page ${latestFailedRun.cursor_page}`
-      )
-    }
-  }
 
   const resumeFromPage = resumeSourceRun
     ? Math.max(1, toSafeCount(resumeSourceRun.cursor_page || 1))

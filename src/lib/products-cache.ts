@@ -75,7 +75,7 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
   const sortOrder = typeof obj.sortOrder === 'string' ? obj.sortOrder.toLowerCase() : ''
   const platform = typeof obj.platform === 'string' ? obj.platform : ''
   const statusRaw = typeof obj.status === 'string' ? obj.status.toLowerCase() : 'all'
-  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'unknown'
+  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'sync_missing' || statusRaw === 'unknown'
     ? statusRaw
     : 'all'
 

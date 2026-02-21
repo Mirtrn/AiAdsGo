@@ -20,7 +20,7 @@ export type AffiliateLandingPageType =
   | 'independent_store'
   | 'unknown'
 
-export type AffiliateProductLifecycleStatus = 'active' | 'invalid' | 'unknown'
+export type AffiliateProductLifecycleStatus = 'active' | 'invalid' | 'sync_missing' | 'unknown'
 export type AffiliateProductStatusFilter = AffiliateProductLifecycleStatus | 'all'
 
 export type AffiliateProduct = {
@@ -136,6 +136,7 @@ export type ProductListResult = {
   productsWithLinkCount: number
   activeProductsCount: number
   invalidProductsCount: number
+  syncMissingProductsCount: number
   unknownProductsCount: number
   blacklistedCount: number
   page: number
@@ -977,14 +978,14 @@ function normalizePlatformValue(value: unknown): AffiliatePlatform | null {
 
 export function normalizeAffiliateProductStatusFilter(value: unknown): AffiliateProductStatusFilter {
   const raw = String(value || '').trim().toLowerCase()
-  if (raw === 'active' || raw === 'invalid' || raw === 'unknown') {
+  if (raw === 'active' || raw === 'invalid' || raw === 'sync_missing' || raw === 'unknown') {
     return raw
   }
   return 'all'
 }
 
 function resolveAffiliateProductLifecycleStatus(value: unknown): AffiliateProductLifecycleStatus {
-  if (value === 'active' || value === 'invalid' || value === 'unknown') {
+  if (value === 'active' || value === 'invalid' || value === 'sync_missing' || value === 'unknown') {
     return value
   }
   return 'unknown'
@@ -2593,6 +2594,37 @@ function appendNumericRangeWhere(params: {
   }
 }
 
+function buildConfirmedInvalidSql(): string {
+  const rawJsonSql = `LOWER(COALESCE(p.raw_json, ''))`
+
+  return `
+    (
+      ${rawJsonSql} LIKE '%"advert_status":0%'
+      OR ${rawJsonSql} LIKE '%"advert_status":"0"%'
+      OR ${rawJsonSql} LIKE '%"status":"offline"%'
+      OR ${rawJsonSql} LIKE '%"status":"inactive"%'
+      OR ${rawJsonSql} LIKE '%"status":"disabled"%'
+      OR ${rawJsonSql} LIKE '%"status":"removed"%'
+      OR ${rawJsonSql} LIKE '%"status":"invalid"%'
+      OR ${rawJsonSql} LIKE '%"status":"out_of_stock"%'
+      OR ${rawJsonSql} LIKE '%"status":"out-of-stock"%'
+      OR ${rawJsonSql} LIKE '%"status":"sold_out"%'
+      OR ${rawJsonSql} LIKE '%"status":"unavailable"%'
+      OR ${rawJsonSql} LIKE '%"availability":"out_of_stock"%'
+      OR ${rawJsonSql} LIKE '%"availability":"out-of-stock"%'
+      OR ${rawJsonSql} LIKE '%"availability":"sold_out"%'
+      OR ${rawJsonSql} LIKE '%"availability":"unavailable"%'
+      OR ${rawJsonSql} LIKE '%"stock_status":"out_of_stock"%'
+      OR ${rawJsonSql} LIKE '%"stock_status":"out-of-stock"%'
+      OR ${rawJsonSql} LIKE '%"stock_status":"sold_out"%'
+      OR ${rawJsonSql} LIKE '%"stock_status":"unavailable"%'
+      OR ${rawJsonSql} LIKE '%"is_available":false%'
+      OR ${rawJsonSql} LIKE '%"in_stock":false%'
+      OR ${rawJsonSql} LIKE '%"is_oos":true%'
+    )
+  `
+}
+
 export async function listAffiliateProducts(userId: number, options: ProductListOptions = {}): Promise<ProductListResult> {
   const db = await getDatabase()
   const page = Math.max(1, options.page || 1)
@@ -2605,6 +2637,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     ? '(o.is_deleted = false OR o.is_deleted IS NULL)'
     : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
   const statusFilter = normalizeAffiliateProductStatusFilter(options.status)
+  const confirmedInvalidSql = buildConfirmedInvalidSql()
   const fullSyncBaselineCteSql = `
     WITH latest_platform_full_sync AS (
       SELECT ranked.platform, ranked.baseline_started_at
@@ -2626,9 +2659,10 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   `
   const productStatusSql = `
     CASE
+      WHEN ${confirmedInvalidSql} THEN 'invalid'
       WHEN baseline.baseline_started_at IS NULL THEN 'unknown'
       WHEN p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 'active'
-      ELSE 'invalid'
+      ELSE 'sync_missing'
     END
   `
 
@@ -2699,6 +2733,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const summaryRow = await db.queryOne<{
     active_products_count: number
     invalid_products_count: number
+    sync_missing_products_count: number
     unknown_products_count: number
     blacklisted_count: number
     products_with_link_count: number
@@ -2708,6 +2743,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       SELECT
         SUM(CASE WHEN ${productStatusSql} = 'active' THEN 1 ELSE 0 END) AS active_products_count,
         SUM(CASE WHEN ${productStatusSql} = 'invalid' THEN 1 ELSE 0 END) AS invalid_products_count,
+        SUM(CASE WHEN ${productStatusSql} = 'sync_missing' THEN 1 ELSE 0 END) AS sync_missing_products_count,
         SUM(CASE WHEN ${productStatusSql} = 'unknown' THEN 1 ELSE 0 END) AS unknown_products_count,
         SUM(CASE WHEN COALESCE(p.is_blacklisted, FALSE) = TRUE THEN 1 ELSE 0 END) AS blacklisted_count,
         SUM(
@@ -2789,6 +2825,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     productsWithLinkCount: Number(summaryRow?.products_with_link_count || 0),
     activeProductsCount: Number(summaryRow?.active_products_count || 0),
     invalidProductsCount: Number(summaryRow?.invalid_products_count || 0),
+    syncMissingProductsCount: Number(summaryRow?.sync_missing_products_count || 0),
     unknownProductsCount: Number(summaryRow?.unknown_products_count || 0),
     blacklistedCount: Number(summaryRow?.blacklisted_count || 0),
     page,
