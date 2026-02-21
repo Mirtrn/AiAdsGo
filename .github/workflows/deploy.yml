@@ -20,6 +20,8 @@ env:
   GCP_SERVICE_NAME: autobb
   # Artifact Registry完整路径
   GCP_AR_IMAGE: asia-northeast1-docker.pkg.dev/gen-lang-client-0944935873/autobb/autobb
+  # 是否推送到GCP Artifact Registry（默认关闭，避免仓库不存在导致发布失败）
+  ENABLE_GCP_AR_PUSH: ${{ vars.ENABLE_GCP_AR_PUSH || 'false' }}
 
 jobs:
   # ============================================
@@ -108,11 +110,13 @@ jobs:
       # 登录 GCP Artifact Registry
       - name: 认证GCP
         id: auth
+        if: ${{ env.ENABLE_GCP_AR_PUSH == 'true' || vars.ENABLE_CLOUD_RUN_DEPLOY == 'true' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: 配置Docker认证到Artifact Registry
+        if: ${{ env.ENABLE_GCP_AR_PUSH == 'true' }}
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
@@ -121,6 +125,7 @@ jobs:
         id: tags
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
+          ENABLE_AR_PUSH="${{ env.ENABLE_GCP_AR_PUSH }}"
 
           # 标签规则：
           # - main: prod-latest / prod-<sha>
@@ -129,18 +134,30 @@ jobs:
             VERSION=${GITHUB_REF#refs/tags/v}
             GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${VERSION}"
             GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${SHORT_SHA}"
-            AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-${VERSION}"
-            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
+            if [[ "$ENABLE_AR_PUSH" == "true" ]]; then
+              AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-${VERSION}"
+              AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
+            else
+              AR_TAGS=""
+            fi
           else
             GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest"
             GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${SHORT_SHA}"
 
-            AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-latest"
-            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
+            if [[ "$ENABLE_AR_PUSH" == "true" ]]; then
+              AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-latest"
+              AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
+            else
+              AR_TAGS=""
+            fi
           fi
 
           # 合并所有标签
-          ALL_TAGS="${GHCR_TAGS},${AR_TAGS}"
+          if [[ -n "$AR_TAGS" ]]; then
+            ALL_TAGS="${GHCR_TAGS},${AR_TAGS}"
+          else
+            ALL_TAGS="${GHCR_TAGS}"
+          fi
           echo "tags=${ALL_TAGS}" >> $GITHUB_OUTPUT
           echo "ghcr_tags=${GHCR_TAGS}" >> $GITHUB_OUTPUT
           echo "ar_tags=${AR_TAGS}" >> $GITHUB_OUTPUT
@@ -169,13 +186,18 @@ jobs:
 
       - name: 输出镜像信息
         run: |
-          echo "✅ 镜像已推送到两个Registry"
+          echo "✅ 镜像推送完成"
           echo ""
           echo "📦 GHCR:"
           echo "${{ steps.tags.outputs.ghcr_tags }}" | tr ',' '\n' | sed 's/^/   - /'
-          echo ""
-          echo "📦 Artifact Registry:"
-          echo "${{ steps.tags.outputs.ar_tags }}" | tr ',' '\n' | sed 's/^/   - /'
+          if [[ -n "${{ steps.tags.outputs.ar_tags }}" ]]; then
+            echo ""
+            echo "📦 Artifact Registry:"
+            echo "${{ steps.tags.outputs.ar_tags }}" | tr ',' '\n' | sed 's/^/   - /'
+          else
+            echo ""
+            echo "📦 Artifact Registry: skipped (ENABLE_GCP_AR_PUSH != true)"
+          fi
 
   # ============================================
   # Job 3: 部署到Cloud Run
@@ -187,7 +209,7 @@ jobs:
     # 🔧 通过 GitHub Repository Variable 控制是否执行部署
     # 设置方法: Repository Settings → Secrets and variables → Actions → Variables
     # 变量名: ENABLE_CLOUD_RUN_DEPLOY, 值: true (启用) 或 false/空 (禁用)
-    if: ${{ vars.ENABLE_CLOUD_RUN_DEPLOY == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    if: ${{ vars.ENABLE_CLOUD_RUN_DEPLOY == 'true' && vars.ENABLE_GCP_AR_PUSH == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
     permissions:
       contents: read
       id-token: write
