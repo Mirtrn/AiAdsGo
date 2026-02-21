@@ -1090,15 +1090,58 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   }
 
   // Extract prices - 支持桌面版和移动版
-  const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||
-                       $('#priceblock_ourprice').text().trim() ||
-                       $('#price_inside_buybox').text().trim() ||
-                       // === 移动版选择器 (a-m-* 页面) ===
-                       $('#corePrice_feature_div .a-price .a-offscreen').first().text().trim() ||
-                       $('[data-a-color="price"] .a-offscreen').first().text().trim() ||
-                       $('.priceToPay .a-offscreen').first().text().trim() ||
-                       $('#apex_offerDisplay_mobile .a-offscreen').first().text().trim() ||
-                       null
+  // 🔧 修复（2026-02-21）：
+  // 1) 避免误抓分期/月供价格（如 "$37.95/mo"）
+  // 2) 当DOM价格与JSON-LD价格明显冲突时，优先结构化JSON-LD价格
+  const installmentContextPattern = /(\/\s*(mo|month)\b|per\s*month|monthly|installment|affirm|klarna|afterpay|payment plan)/i
+  const installmentContainerSelector = [
+    '[id*="installment" i]',
+    '[class*="installment" i]',
+    '[data-cel-widget*="installment" i]',
+    '#twisterPlusPriceSavingsStylePoi_feature_div',
+    '#installmentCalculator_feature_div',
+  ].join(', ')
+
+  const currentPriceSelectors = [
+    '#corePriceDisplay_desktop_feature_div .priceToPay .a-offscreen',
+    '#corePrice_feature_div .priceToPay .a-offscreen',
+    '#priceblock_dealprice',
+    '#priceblock_ourprice',
+    '#price_inside_buybox',
+    '#corePrice_feature_div .a-price .a-offscreen',
+    '#apex_offerDisplay_mobile .priceToPay .a-offscreen',
+    '#apex_offerDisplay_mobile .a-price .a-offscreen',
+    '[data-a-color="price"] .a-offscreen',
+    '.priceToPay .a-offscreen',
+    '.a-price .a-offscreen',
+  ]
+
+  const priceCandidates: Array<{ selector: string; value: string; isInstallment: boolean }> = []
+  for (const selector of currentPriceSelectors) {
+    let foundNonInstallment = false
+    $(selector).each((_i: number, el: any) => {
+      const value = $(el).text().trim()
+      if (!value) return
+      const contextText = [
+        value,
+        $(el).parent().text(),
+        $(el).closest('[id], [class]').first().text(),
+      ].join(' ').replace(/\s+/g, ' ')
+      const hasInstallmentContainer = $(el).closest(installmentContainerSelector).length > 0
+      const isInstallment = hasInstallmentContainer || installmentContextPattern.test(contextText)
+      priceCandidates.push({ selector, value, isInstallment })
+      if (!isInstallment) {
+        foundNonInstallment = true
+        return false
+      }
+      return
+    })
+    if (foundNonInstallment) break
+  }
+
+  const currentPrice = priceCandidates.find((c) => !c.isInstallment)?.value ||
+    priceCandidates[0]?.value ||
+    null
 
   const originalPrice = $('.a-price[data-a-strike="true"] .a-offscreen').text().trim() ||
                         $('.priceBlockStrikePriceString').text().trim() ||
@@ -1212,10 +1255,32 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   const finalCategory = category || jsonLdData?.category || null
   const finalAsin = asin || jsonLdData?.sku || null
 
-  // 价格备份：如果DOM价格为空但JSON-LD有价格
-  const finalPrice = currentPrice || (jsonLdData?.price
+  const jsonLdPrice = jsonLdData?.price
     ? (jsonLdData.currency ? `${jsonLdData.currency} ${jsonLdData.price}` : jsonLdData.price)
-    : null)
+    : null
+
+  let finalPrice = currentPrice || jsonLdPrice
+  const selectedDomCandidate = priceCandidates.find((c) => c.value === currentPrice) || null
+  const domPriceAmount = parsePrice(currentPrice)
+  const jsonLdPriceAmount = parsePrice(jsonLdPrice)
+
+  if (selectedDomCandidate?.isInstallment && jsonLdPrice) {
+    console.warn(`⚠️ 检测到疑似分期价格候选 (${currentPrice})，回退到JSON-LD价格 (${jsonLdPrice})`)
+    finalPrice = jsonLdPrice
+  } else if (
+    currentPrice &&
+    jsonLdPrice &&
+    domPriceAmount !== null &&
+    jsonLdPriceAmount !== null &&
+    jsonLdPriceAmount > 0
+  ) {
+    const deviationRatio = Math.abs(domPriceAmount - jsonLdPriceAmount) / jsonLdPriceAmount
+    if (deviationRatio > 0.35) {
+      const deviationPercent = Math.round(deviationRatio * 100)
+      console.warn(`⚠️ DOM价格与JSON-LD价格偏差过大 (${deviationPercent}%)，回退到JSON-LD价格。DOM=${currentPrice}, JSON-LD=${jsonLdPrice}`)
+      finalPrice = jsonLdPrice
+    }
+  }
 
   // 记录JSON-LD备份使用情况
   const jsonLdFallbacks: string[] = []
@@ -1225,6 +1290,7 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   if (!reviewCount && jsonLdData?.reviewCount) jsonLdFallbacks.push('reviewCount')
   if (!availability && jsonLdData?.availability) jsonLdFallbacks.push('availability')
   if (!currentPrice && jsonLdData?.price) jsonLdFallbacks.push('price')
+  if (selectedDomCandidate?.isInstallment && jsonLdData?.price) jsonLdFallbacks.push('price-installment-guard')
 
   if (jsonLdFallbacks.length > 0) {
     console.log(`📋 JSON-LD备份字段: ${jsonLdFallbacks.join(', ')}`)

@@ -58,6 +58,91 @@ function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | 
   return null
 }
 
+const PRICE_EVIDENCE_MISMATCH_THRESHOLD = 0.2
+
+export interface CreativePriceEvidenceResolution {
+  currentPrice: string | null
+  originalPrice: string | null
+  discount: string | null
+  priceEvidenceBlocked: boolean
+  priceEvidenceWarning: string | null
+  priceSource: 'offer_product_price' | 'offer_pricing_current' | 'scraped_data' | 'none'
+}
+
+function toNonEmptyPriceText(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null
+  }
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function parsePriceAmount(value: string | null): number | null {
+  if (!value) return null
+  const direct = parsePrice(value)
+  if (direct !== null) return direct
+  const stripped = value.replace(/[A-Za-z]/g, '').trim()
+  if (!stripped) return null
+  return parsePrice(stripped)
+}
+
+export function resolveCreativePriceEvidence(offer: any): CreativePriceEvidenceResolution {
+  const pricingData = safeParseJson(offer?.pricing, null)
+  const scrapedData = safeParseJson(offer?.scraped_data, null)
+
+  const offerProductPrice = toNonEmptyPriceText(offer?.product_price)
+  const offerPricingCurrent = toNonEmptyPriceText(pricingData?.current)
+  const offerPricingOriginal = toNonEmptyPriceText(pricingData?.original)
+
+  const scrapedCurrentPrice = toNonEmptyPriceText(scrapedData?.productPrice)
+  const scrapedOriginalPrice = toNonEmptyPriceText(scrapedData?.originalPrice)
+  const scrapedDiscount = toNonEmptyPriceText(scrapedData?.discount)
+
+  const currentFromOffer = offerProductPrice || offerPricingCurrent
+  const priceSource: CreativePriceEvidenceResolution['priceSource'] = offerProductPrice
+    ? 'offer_product_price'
+    : offerPricingCurrent
+      ? 'offer_pricing_current'
+      : scrapedCurrentPrice
+        ? 'scraped_data'
+        : 'none'
+
+  let currentPrice = currentFromOffer || scrapedCurrentPrice || null
+  let originalPrice = offerPricingOriginal || scrapedOriginalPrice || null
+  let discount = scrapedDiscount || null
+  let priceEvidenceBlocked = false
+  let priceEvidenceWarning: string | null = null
+
+  const offerPriceAmount = parsePriceAmount(currentFromOffer)
+  const scrapedPriceAmount = parsePriceAmount(scrapedCurrentPrice)
+
+  if (
+    offerPriceAmount !== null &&
+    scrapedPriceAmount !== null &&
+    offerPriceAmount > 0
+  ) {
+    const ratio = Math.abs(scrapedPriceAmount - offerPriceAmount) / offerPriceAmount
+    if (ratio > PRICE_EVIDENCE_MISMATCH_THRESHOLD) {
+      const deviationPercent = Math.round(ratio * 100)
+      priceEvidenceBlocked = true
+      priceEvidenceWarning = `[PriceEvidenceGuard] Offer ${offer?.id ?? 'unknown'} detected conflicting prices: authoritative=${currentFromOffer}, scraped=${scrapedCurrentPrice}, deviation=${deviationPercent}%. Blocking price claims in creative output.`
+      currentPrice = null
+      originalPrice = null
+      discount = null
+    }
+  }
+
+  return {
+    currentPrice,
+    originalPrice,
+    discount,
+    priceEvidenceBlocked,
+    priceEvidenceWarning,
+    priceSource,
+  }
+}
+
 interface TitleAboutSignals {
   productTitle: string
   titlePhrases: string[]
@@ -1701,19 +1786,23 @@ This creative focuses on "${intent || intentEn}" user intent.
     return cleaned.length > 90 ? `${cleaned.slice(0, 87).trim()}...` : cleaned
   }
 
-  // 价格信息（优先使用爬虫数据的原始字段）
-  let currentPrice = null
-  let originalPrice = null
-  let discount = null
+  // 价格证据策略：
+  // 1) 优先使用 offer.product_price / offer.pricing.current（权威来源）
+  // 2) scraped_data.productPrice 仅作为兜底
+  // 3) 若权威价与抓取价偏差 >20%，触发熔断：禁止在创意中使用具体价格
+  const resolvedPriceEvidence = resolveCreativePriceEvidence(offer)
+  let currentPrice = resolvedPriceEvidence.currentPrice
+  let originalPrice = resolvedPriceEvidence.originalPrice
+  let discount = resolvedPriceEvidence.discount
+  const priceEvidenceBlocked = resolvedPriceEvidence.priceEvidenceBlocked
+  const priceEvidenceWarning = resolvedPriceEvidence.priceEvidenceWarning
+  const priceSource = resolvedPriceEvidence.priceSource
 
-  // 🔧 修复: 从scraped_data提取价格和折扣（offer.pricing已删除）
-  if (offer.scraped_data) {
-    try {
-      const scrapedData = JSON.parse(offer.scraped_data)
-      currentPrice = scrapedData.productPrice
-      originalPrice = scrapedData.originalPrice
-      discount = scrapedData.discount
-    } catch {}
+  if (priceEvidenceWarning) {
+    console.warn(priceEvidenceWarning)
+    localization_section += '\n**⚠️ PRICE SAFETY RULE**: Conflicting price signals were detected. Do NOT mention any exact price amount in headlines or descriptions.'
+  } else if (currentPrice) {
+    console.log(`[PriceEvidence] Offer ${offer.id}: using price source=${priceSource}, value=${currentPrice}`)
   }
 
   if (currentPrice) {
@@ -2618,6 +2707,9 @@ ${hooksList}
   // ✅ VERIFIED FACTS（仅允许使用这些可验证信息；为空则不要写数字/承诺）
   // 只使用“产品数据”来源，避免把prompt中的示例数字误当作证据
   const verifiedFacts: string[] = []
+  if (priceEvidenceBlocked) {
+    verifiedFacts.push('- PRICE EVIDENCE BLOCKED: Conflicting price signals detected. Do NOT mention any exact price amount.')
+  }
   if (currentPrice) verifiedFacts.push(`- PRICE: ${currentPrice}`)
   if (originalPrice) verifiedFacts.push(`- ORIGINAL PRICE: ${originalPrice}`)
   if (discount) verifiedFacts.push(`- DISCOUNT: ${discount}`)
@@ -2814,7 +2906,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // Build all dynamic guidance sections
   variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
   variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords, featureSource)
-  variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions, hasPromoEvidence)
+  variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions, hasPromoEvidence, priceEvidenceBlocked)
   variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
   variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability, hasUrgencyEvidence)
 
@@ -3207,7 +3299,19 @@ function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, 
 `
 }
 
-function buildHeadlinePromoGuidance(discount: string | null, activePromotions: any[], hasPromoEvidence: boolean): string {
+function buildHeadlinePromoGuidance(
+  discount: string | null,
+  activePromotions: any[],
+  hasPromoEvidence: boolean,
+  priceEvidenceBlocked: boolean = false
+): string {
+  if (priceEvidenceBlocked) {
+    return `- Promo (3): ⚠️ PRICE SAFETY OVERRIDE: Conflicting price signals detected.
+  * Do NOT mention any exact price amount (e.g., "$37.95", "$369.99", "Only $X").
+  * You may use verified promotion wording without explicit price amounts.
+  * Prefer non-numeric value messaging (e.g., "Smart Value", "Quality Choice", "Shop Official Store").`
+  }
+
   // 🔥 修复（2026-02-04）：无证据时禁止要求量化优惠，避免与Evidence-Only冲突
   if (!hasPromoEvidence) {
     return `- Promo (3): If there is NO verified promo/price evidence, do NOT mention discounts, prices, or savings.
