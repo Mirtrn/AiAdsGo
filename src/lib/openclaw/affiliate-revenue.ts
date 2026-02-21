@@ -58,6 +58,42 @@ function parseNumberish(value: unknown, fallback = 0): number {
   return fallback
 }
 
+function isEmptyValue(value: unknown): boolean {
+  return value === null
+    || value === undefined
+    || (typeof value === 'string' && value.trim() === '')
+}
+
+function normalizeLookupKey(value: unknown): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+function getFieldValue(row: any, aliases: string[]): unknown {
+  if (!row || typeof row !== 'object') return undefined
+
+  for (const alias of aliases) {
+    const value = row?.[alias as keyof typeof row]
+    if (!isEmptyValue(value)) return value
+  }
+
+  const normalizedValueMap = new Map<string, unknown>()
+  for (const [key, value] of Object.entries(row)) {
+    if (isEmptyValue(value)) continue
+    const normalizedKey = normalizeLookupKey(key)
+    if (!normalizedKey || normalizedValueMap.has(normalizedKey)) continue
+    normalizedValueMap.set(normalizedKey, value)
+  }
+
+  for (const alias of aliases) {
+    const value = normalizedValueMap.get(normalizeLookupKey(alias))
+    if (!isEmptyValue(value)) return value
+  }
+
+  return undefined
+}
+
 function normalizeYmdDate(value: string): string {
   const trimmed = String(value || '').trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -257,58 +293,89 @@ async function fetchPartnerboostCommission(params: {
 
     const rows = normalizePartnerboostReportRows(payload)
     for (const row of rows) {
-      const commission = parseNumberish(row?.estCommission, 0)
+      const commission = parseNumberish(
+        getFieldValue(row, [
+          'estCommission',
+          'est_commission',
+          'EstCommission',
+          'Est. Commission',
+          'Est Commission',
+          'est commission',
+        ]),
+        0
+      )
       totalCommission += commission
 
       if (commission > 0) {
+        const sourceLink = pickString(
+          getFieldValue(row, [
+            'link',
+            'url',
+            'product_link',
+            'productLink',
+            'landing_page',
+            'landingPage',
+            'final_url',
+            'finalUrl',
+            'Referrer URL',
+            'referrer_url',
+          ])
+        )
+
         entries.push({
           platform: 'partnerboost',
           reportDate: params.reportDate,
           commission,
           currency: 'USD',
           sourceOrderId: pickString(
-            row?.order_id,
-            row?.orderId,
-            row?.orderID,
-            row?.oid,
+            getFieldValue(row, [
+              'order_id',
+              'orderId',
+              'orderID',
+              'oid',
+              'Order ID',
+              'order id',
+            ])
           ),
           sourceMid: pickMid(
-            row?.mid,
-            row?.MID,
-            row?.advert_id,
-            row?.advertId,
-            row?.product_id,
-            row?.productId,
+            getFieldValue(row, [
+              'partnerboost_id',
+              'PartnerBoost ID',
+              'partnerboost id',
+              'partnerboostid',
+              'mcid',
+              'MCID',
+              'mid',
+              'MID',
+              'advert_id',
+              'advertId',
+              'adGroupId',
+              'ad_group_id',
+              'Ad Group Id',
+              'product_mid',
+              'productMid',
+              'product_id',
+              'productId',
+            ])
           ),
           sourceAsin: normalizeAsin(
             pickAsin(
-              row?.asin,
-              row?.ASIN,
-              row?.product_asin,
-              row?.productAsin,
-              row?.product_id,
-              row?.productId,
-              row?.link,
-              row?.url,
-              row?.product_link,
-              row?.productLink,
-              row?.landing_page,
-              row?.landingPage,
-              row?.final_url,
-              row?.finalUrl,
-              row?.sku
+              getFieldValue(row, [
+                'asin',
+                'ASIN',
+                'product_asin',
+                'productAsin',
+                'product_id',
+                'productId',
+                'Product ID',
+                'product id',
+                'sku',
+                'SKU',
+              ]),
+              sourceLink
             )
           ),
-          sourceLink: pickString(
-            row?.link,
-            row?.url,
-            row?.product_link,
-            row?.productLink,
-            row?.landing_page,
-            row?.landingPage,
-            row?.final_url,
-            row?.finalUrl
-          ),
+          sourceLink,
           raw: row,
         })
       }
