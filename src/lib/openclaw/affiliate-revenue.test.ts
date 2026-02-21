@@ -78,8 +78,41 @@ describe('fetchAffiliateCommissionRevenue partnerboost row parsing', () => {
     expect(entry?.commission).toBe(8.94)
     expect(entry?.sourceOrderId).toBe('C1TIP-PJ09161555')
     expect(entry?.sourceAsin).toBe('B0C6DHK68Q')
-    expect(entry?.sourceMid).toBe('a6e3PBLq_xxx')
+    expect(entry?.sourceMid).toBeNull()
+    expect(entry?.sourceLinkId).toBe('a6e3PBLq_xxx')
     expect(entry?.sourceLink).toContain('/dp/B0C6DHK68Q')
+  })
+
+  it('captures sourceLinkId from adGroupId when link is missing', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: { code: 0, msg: 'success' },
+        data: {
+          list: [
+            {
+              asin: 'B0C6DHK68Q',
+              estCommission: 5.11,
+              order_id: 'C1TIP-NOLINK-1',
+              adGroupId: 'pb_adg_001',
+            },
+          ],
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchAffiliateCommissionRevenue({
+      userId: 1,
+      reportDate: '2026-02-19',
+    })
+
+    const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
+    const entry = input?.entries?.[0]
+    expect(entry?.sourceOrderId).toBe('C1TIP-NOLINK-1')
+    expect(entry?.sourceAsin).toBe('B0C6DHK68Q')
+    expect(entry?.sourceLink).toBeNull()
+    expect(entry?.sourceLinkId).toBe('pb_adg_001')
   })
 
   it('parses table-style fields with spaces/dots (Order ID/Product ID/Est. Commission/PartnerBoost ID)', async () => {
@@ -117,6 +150,7 @@ describe('fetchAffiliateCommissionRevenue partnerboost row parsing', () => {
     expect(entry?.sourceOrderId).toBe('C28VV-CPBOTIS5YX')
     expect(entry?.sourceAsin).toBe('B0CCJGKY4M')
     expect(entry?.sourceMid).toBe('1a53b14a65c1ae1c16f7b0d459b10a80')
+    expect(entry?.sourceLinkId).toBeNull()
     expect(entry?.sourceLink).toContain('/dp/B0CCJGKY4M')
   })
 })

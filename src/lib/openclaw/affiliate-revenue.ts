@@ -321,6 +321,15 @@ async function fetchPartnerboostCommission(params: {
             'referrer_url',
           ])
         )
+        const sourceLinkId = pickString(
+          getFieldValue(row, [
+            'aa_adgroupid',
+            'aaAdgroupid',
+            'adGroupId',
+            'ad_group_id',
+            'Ad Group Id',
+          ])
+        )
 
         entries.push({
           platform: 'partnerboost',
@@ -349,9 +358,6 @@ async function fetchPartnerboostCommission(params: {
               'MID',
               'advert_id',
               'advertId',
-              'adGroupId',
-              'ad_group_id',
-              'Ad Group Id',
               'product_mid',
               'productMid',
               'product_id',
@@ -376,6 +382,7 @@ async function fetchPartnerboostCommission(params: {
             )
           ),
           sourceLink,
+          sourceLinkId,
           raw: row,
         })
       }

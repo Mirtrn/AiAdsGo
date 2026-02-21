@@ -12,6 +12,7 @@ export type AffiliateCommissionRawEntry = {
   sourceMid?: string | null
   sourceAsin?: string | null
   sourceLink?: string | null
+  sourceLinkId?: string | null
   raw?: unknown
 }
 
@@ -26,14 +27,6 @@ export type AffiliateCommissionAttributionResult = {
 }
 
 type CampaignWeightRow = {
-  campaign_id: number
-  offer_id: number
-  conversions: number
-  clicks: number
-  cost: number
-}
-
-type GlobalCampaignWeightRow = {
   campaign_id: number
   offer_id: number
   conversions: number
@@ -570,66 +563,6 @@ async function queryCampaignWeights(params: {
   return result
 }
 
-async function queryGlobalCampaignWeights(params: {
-  userId: number
-  reportDate: string
-}): Promise<Array<{ campaignId: number; offerId: number; weight: number }>> {
-  const db = await getDatabase()
-  const campaignNotDeletedCondition = db.type === 'postgres'
-    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
-    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
-
-  const rows = await db.query<GlobalCampaignWeightRow>(
-    `
-      SELECT
-        c.id AS campaign_id,
-        c.offer_id AS offer_id,
-        COALESCE(cp.conversions, 0) AS conversions,
-        COALESCE(cp.clicks, 0) AS clicks,
-        COALESCE(cp.cost, 0) AS cost
-      FROM campaigns c
-      LEFT JOIN campaign_performance cp
-        ON cp.campaign_id = c.id
-       AND cp.date = ?
-      WHERE c.user_id = ?
-        AND ${campaignNotDeletedCondition}
-    `,
-    [params.reportDate, params.userId]
-  )
-
-  if (!rows || rows.length === 0) {
-    return []
-  }
-
-  const normalizedRows = rows
-    .map((row) => ({
-      campaignId: Number(row.campaign_id),
-      offerId: Number(row.offer_id),
-      conversions: Math.max(0, Number(row.conversions) || 0),
-      clicks: Math.max(0, Number(row.clicks) || 0),
-      cost: Math.max(0, Number(row.cost) || 0),
-    }))
-    .filter((row) => Number.isFinite(row.campaignId) && Number.isFinite(row.offerId))
-
-  if (normalizedRows.length === 0) {
-    return []
-  }
-
-  const conversionsSum = normalizedRows.reduce((sum, row) => sum + row.conversions, 0)
-  const clicksSum = normalizedRows.reduce((sum, row) => sum + row.clicks, 0)
-  const costSum = normalizedRows.reduce((sum, row) => sum + row.cost, 0)
-
-  return normalizedRows.map((row) => ({
-    campaignId: row.campaignId,
-    offerId: row.offerId,
-    weight: conversionsSum > 0
-      ? row.conversions
-      : (clicksSum > 0
-        ? row.clicks
-        : (costSum > 0 ? row.cost : 1)),
-  }))
-}
-
 export async function persistAffiliateCommissionAttributions(params: {
   userId: number
   reportDate: string
@@ -645,6 +578,9 @@ export async function persistAffiliateCommissionAttributions(params: {
       if (commission <= 0) return null
 
       const sourceLink = normalizeText(entry.sourceLink)
+      const sourceLinkId = entry.platform === 'partnerboost'
+        ? (normalizeText(entry.sourceLinkId) || extractPartnerboostLinkId(sourceLink))
+        : null
 
       return {
         platform: entry.platform,
@@ -655,9 +591,7 @@ export async function persistAffiliateCommissionAttributions(params: {
         sourceMid: normalizeText(entry.sourceMid),
         sourceAsin: normalizeAsin(entry.sourceAsin),
         sourceLink,
-        sourceLinkId: entry.platform === 'partnerboost'
-          ? extractPartnerboostLinkId(sourceLink)
-          : null,
+        sourceLinkId,
         raw: entry.raw,
       }
     })
@@ -826,11 +760,6 @@ export async function persistAffiliateCommissionAttributions(params: {
 
   const rowsToInsert: AttributionRow[] = []
   const inferredOfferLinkKeys = new Set<string>()
-  const unmatchedCommissionByBucket = new Map<string, {
-    platform: AffiliatePlatform
-    currency: string
-    commission: number
-  }>()
   const attributedOfferIds = new Set<number>()
   const attributedCampaignIds = new Set<number>()
   let attributedCommission = 0
@@ -838,15 +767,31 @@ export async function persistAffiliateCommissionAttributions(params: {
   for (const entry of normalizedEntries) {
     const matchedProductIds = new Set<number>()
     const matchedProductIdsFromAsin = new Set<number>()
+    const matchedProductIdsFromLinkId = new Set<number>()
 
-    if (entry.sourceMid) {
+    if (entry.sourceLinkId) {
+      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
+      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
+        matchedProductIdsFromLinkId.add(productId)
+      }
+    }
+
+    const hasPartnerboostLinkHit = entry.platform === 'partnerboost' && matchedProductIdsFromLinkId.size > 0
+
+    if (hasPartnerboostLinkHit) {
+      for (const productId of matchedProductIdsFromLinkId) {
+        matchedProductIds.add(productId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.sourceMid) {
       const key = `${entry.platform}|mid|${entry.sourceMid}`
       for (const productId of productIdsByPlatformMid.get(key) || []) {
         matchedProductIds.add(productId)
       }
     }
 
-    if (entry.sourceAsin) {
+    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
       const key = `${entry.platform}|asin|${entry.sourceAsin}`
       for (const productId of productIdsByPlatformAsin.get(key) || []) {
         matchedProductIds.add(productId)
@@ -854,7 +799,7 @@ export async function persistAffiliateCommissionAttributions(params: {
       }
     }
 
-    if (entry.sourceLinkId) {
+    if (!hasPartnerboostLinkHit && entry.sourceLinkId) {
       const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
       for (const productId of productIdsByPlatformLinkId.get(key) || []) {
         matchedProductIds.add(productId)
@@ -871,7 +816,8 @@ export async function persistAffiliateCommissionAttributions(params: {
     }
 
     const fallbackMatchedOfferIds = new Set<number>()
-    if (entry.sourceAsin) {
+    const shouldApplyAsinFallback = Boolean(entry.sourceAsin) && !hasPartnerboostLinkHit
+    if (shouldApplyAsinFallback && entry.sourceAsin) {
       for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
         matchedOfferIds.add(offerId)
         fallbackMatchedOfferIds.add(offerId)
@@ -893,14 +839,6 @@ export async function persistAffiliateCommissionAttributions(params: {
 
     const offerIds = Array.from(matchedOfferIds)
     if (offerIds.length === 0) {
-      const key = `${entry.platform}|${entry.currency}`
-      const existing = unmatchedCommissionByBucket.get(key) || {
-        platform: entry.platform,
-        currency: entry.currency,
-        commission: 0,
-      }
-      existing.commission = roundTo(existing.commission + entry.commission)
-      unmatchedCommissionByBucket.set(key, existing)
       continue
     }
 
@@ -966,50 +904,6 @@ export async function persistAffiliateCommissionAttributions(params: {
         attributedCommission = roundTo(attributedCommission + campaignAmount)
       })
     })
-  }
-
-  if (unmatchedCommissionByBucket.size > 0) {
-    const fallbackCampaigns = await queryGlobalCampaignWeights({
-      userId: params.userId,
-      reportDate: params.reportDate,
-    })
-
-    if (fallbackCampaigns.length > 0) {
-      const fallbackWeights = fallbackCampaigns.map((item) => item.weight)
-
-      for (const bucket of unmatchedCommissionByBucket.values()) {
-        const total = roundTo(bucket.commission)
-        if (total <= 0) continue
-
-        const shares = buildWeightedShares(total, fallbackWeights)
-        fallbackCampaigns.forEach((campaign, index) => {
-          const amount = shares[index] || 0
-          if (amount <= 0) return
-
-          attributedOfferIds.add(campaign.offerId)
-          attributedCampaignIds.add(campaign.campaignId)
-
-          rowsToInsert.push({
-            userId: params.userId,
-            reportDate: params.reportDate,
-            platform: bucket.platform,
-            sourceOrderId: null,
-            sourceMid: null,
-            sourceAsin: null,
-            offerId: campaign.offerId,
-            campaignId: campaign.campaignId,
-            commissionAmount: amount,
-            currency: bucket.currency,
-            rawPayload: toDbJsonObjectField(
-              { fallback: 'global_campaign_weight', reason: 'no_offer_match' },
-              db.type,
-              null
-            ),
-          })
-          attributedCommission = roundTo(attributedCommission + amount)
-        })
-      }
-    }
   }
 
   await db.transaction(async () => {

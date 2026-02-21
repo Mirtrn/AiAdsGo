@@ -237,12 +237,27 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
   })
 
-  it('allocates unmatched commission by global campaign weights as fallback', async () => {
+  it('prefers partnerboost link-id match over asin/mid candidates', async () => {
     const today = formatLocalYmd(new Date())
 
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('promo_link LIKE')) {
+        return [
+          {
+            id: 202,
+            promo_link: 'https://www.amazon.com/dp/B0LINKASIN1?aa_adgroupid=pb_link_123',
+            short_promo_link: null,
+          },
+        ]
+      }
       if (sql.includes('FROM affiliate_products')) {
-        return []
+        return [{ id: 101, mid: 'pb-mid-1', asin: 'B0C7GYLKPM' }]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return [
+          { product_id: 101, offer_id: 2001 },
+          { product_id: 202, offer_id: 2002 },
+        ]
       }
       if (sql.includes('FROM offers')) {
         return []
@@ -250,18 +265,18 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
       if (sql.includes('FROM campaigns c')) {
         return [
           {
-            campaign_id: 3101,
-            offer_id: 2101,
-            conversions: 0,
-            clicks: 3,
-            cost: 9,
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 5,
+            cost: 1.5,
           },
           {
-            campaign_id: 3102,
-            offer_id: 2102,
-            conversions: 0,
-            clicks: 1,
-            cost: 3,
+            campaign_id: 3002,
+            offer_id: 2002,
+            conversions: 1,
+            clicks: 5,
+            cost: 1.5,
           },
         ]
       }
@@ -276,8 +291,10 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
           platform: 'partnerboost',
           reportDate: today,
           commission: 10,
-          sourceOrderId: 'order-fallback-1',
-          sourceAsin: 'B0ZZZZZZZZ',
+          sourceOrderId: 'order-priority-1',
+          sourceMid: 'pb-mid-1',
+          sourceAsin: 'B0C7GYLKPM',
+          sourceLinkId: 'pb_link_123',
           raw: { estCommission: 10 },
         },
       ],
@@ -290,14 +307,50 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
       totalCommission: 10,
       attributedCommission: 10,
       unattributedCommission: 0,
-      attributedOffers: 2,
-      attributedCampaigns: 2,
-      writtenRows: 2,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
     })
 
     const insertCalls = exec.mock.calls.filter(([sql]) =>
       typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
     )
-    expect(insertCalls).toHaveLength(2)
+    expect(insertCalls).toHaveLength(1)
+    const insertParams = insertCalls[0]?.[1] as any[]
+    expect(insertParams?.[6]).toBe(2002)
+    expect(insertParams?.[7]).toBe(3002)
+  })
+
+  it('keeps unmatched commission unattributed when no offer match exists', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async () => [])
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 10,
+          sourceOrderId: 'order-unmatched-1',
+          sourceAsin: 'B0ZZZZZZZZ',
+          raw: { estCommission: 10 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 10,
+      attributedCommission: 0,
+      unattributedCommission: 10,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
+    })
   })
 })
