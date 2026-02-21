@@ -188,6 +188,26 @@ function pickString(...values: unknown[]): string | null {
   return null
 }
 
+function isLikelyAsin(value: unknown): boolean {
+  const text = String(value || '').trim()
+  if (!/^[A-Za-z0-9]{10}$/.test(text)) {
+    return false
+  }
+  const normalized = normalizeAsin(text)
+  return Boolean(normalized && normalized.length === 10)
+}
+
+function pickMid(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (value === null || value === undefined) continue
+    const text = String(value).trim()
+    if (!text) continue
+    if (isLikelyAsin(text)) continue
+    return text
+  }
+  return null
+}
+
 type CommissionCollection = {
   totalCommission: number
   records: number
@@ -252,12 +272,13 @@ async function fetchPartnerboostCommission(params: {
             row?.orderID,
             row?.oid,
           ),
-          sourceMid: pickString(
-            row?.product_id,
-            row?.productId,
+          sourceMid: pickMid(
             row?.mid,
+            row?.MID,
             row?.advert_id,
             row?.advertId,
+            row?.product_id,
+            row?.productId,
           ),
           sourceAsin: normalizeAsin(
             pickAsin(
@@ -265,6 +286,8 @@ async function fetchPartnerboostCommission(params: {
               row?.ASIN,
               row?.product_asin,
               row?.productAsin,
+              row?.product_id,
+              row?.productId,
               row?.link,
               row?.url,
               row?.product_link,
