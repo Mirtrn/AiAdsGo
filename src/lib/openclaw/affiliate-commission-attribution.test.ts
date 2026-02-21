@@ -236,4 +236,68 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
       writtenRows: 1,
     })
   })
+
+  it('allocates unmatched commission by global campaign weights as fallback', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_products')) {
+        return []
+      }
+      if (sql.includes('FROM offers')) {
+        return []
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3101,
+            offer_id: 2101,
+            conversions: 0,
+            clicks: 3,
+            cost: 9,
+          },
+          {
+            campaign_id: 3102,
+            offer_id: 2102,
+            conversions: 0,
+            clicks: 1,
+            cost: 3,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 10,
+          sourceOrderId: 'order-fallback-1',
+          sourceAsin: 'B0ZZZZZZZZ',
+          raw: { estCommission: 10 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 10,
+      attributedCommission: 10,
+      unattributedCommission: 0,
+      attributedOffers: 2,
+      attributedCampaigns: 2,
+      writtenRows: 2,
+    })
+
+    const insertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(insertCalls).toHaveLength(2)
+  })
 })
