@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   listAffiliateProducts,
   normalizeAffiliatePlatform,
+  normalizeAffiliateProductStatusFilter,
   type ProductSortField,
   type ProductSortOrder,
 } from '@/lib/affiliate-products'
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
       ? 'asc'
       : 'desc' as ProductSortOrder
     const platform = normalizeAffiliatePlatform(searchParams.get('platform')) || 'all'
+    const status = normalizeAffiliateProductStatusFilter(searchParams.get('status'))
 
     const reviewCountMin = parseNumericFilter(searchParams, 'reviewCountMin')
     const reviewCountMax = parseNumericFilter(searchParams, 'reviewCountMax')
@@ -85,6 +87,7 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      status,
       reviewCountMin,
       reviewCountMax,
       priceAmountMin,
@@ -102,6 +105,11 @@ export async function GET(request: NextRequest) {
         success: true
         items: any[]
         total: number
+        activeProductsCount: number
+        invalidProductsCount: number
+        unknownProductsCount: number
+        blacklistedCount: number
+        productsWithLinkCount: number
         page: number
         pageSize: number
       }>(userId, cacheHash)
@@ -117,6 +125,7 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      status,
       reviewCountMin: reviewCountMin ?? undefined,
       reviewCountMax: reviewCountMax ?? undefined,
       priceAmountMin: priceAmountMin ?? undefined,
@@ -132,6 +141,10 @@ export async function GET(request: NextRequest) {
       items: result.items,
       total: result.total,
       productsWithLinkCount: result.productsWithLinkCount,
+      activeProductsCount: result.activeProductsCount,
+      invalidProductsCount: result.invalidProductsCount,
+      unknownProductsCount: result.unknownProductsCount,
+      blacklistedCount: result.blacklistedCount,
       page: result.page,
       pageSize: result.pageSize,
     }

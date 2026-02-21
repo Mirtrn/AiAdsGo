@@ -20,6 +20,9 @@ export type AffiliateLandingPageType =
   | 'independent_store'
   | 'unknown'
 
+export type AffiliateProductLifecycleStatus = 'active' | 'invalid' | 'unknown'
+export type AffiliateProductStatusFilter = AffiliateProductLifecycleStatus | 'all'
+
 export type AffiliateProduct = {
   id: number
   user_id: number
@@ -50,6 +53,7 @@ export type AffiliateProductListItem = {
   serial: number
   platform: AffiliatePlatform
   mid: string
+  productStatus: AffiliateProductLifecycleStatus
   asin: string | null
   landingPageType: AffiliateLandingPageType
   isDeepLink: boolean | null
@@ -66,6 +70,8 @@ export type AffiliateProductListItem = {
   reviewCount: number | null
   promoLink: string | null
   shortPromoLink: string | null
+  activeOfferCount: number
+  historicalOfferCount: number
   relatedOfferCount: number
   isBlacklisted: boolean
   lastSyncedAt: string | null
@@ -121,12 +127,17 @@ export type ProductListOptions = {
   commissionRateMax?: number
   commissionAmountMin?: number
   commissionAmountMax?: number
+  status?: AffiliateProductStatusFilter
 }
 
 export type ProductListResult = {
   items: AffiliateProductListItem[]
   total: number
   productsWithLinkCount: number
+  activeProductsCount: number
+  invalidProductsCount: number
+  unknownProductsCount: number
+  blacklistedCount: number
   page: number
   pageSize: number
 }
@@ -962,6 +973,21 @@ function normalizePlatformValue(value: unknown): AffiliatePlatform | null {
   if (raw === 'yp' || raw === 'yeahpromos') return 'yeahpromos'
   if (raw === 'pb' || raw === 'partnerboost') return 'partnerboost'
   return null
+}
+
+export function normalizeAffiliateProductStatusFilter(value: unknown): AffiliateProductStatusFilter {
+  const raw = String(value || '').trim().toLowerCase()
+  if (raw === 'active' || raw === 'invalid' || raw === 'unknown') {
+    return raw
+  }
+  return 'all'
+}
+
+function resolveAffiliateProductLifecycleStatus(value: unknown): AffiliateProductLifecycleStatus {
+  if (value === 'active' || value === 'invalid' || value === 'unknown') {
+    return value
+  }
+  return 'unknown'
 }
 
 function normalizeTriStateBool(value: unknown): boolean | null {
@@ -2575,6 +2601,36 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const sortBy = options.sortBy || 'serial'
   const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc'
   const orderBySql = buildAffiliateProductsOrderBy({ sortBy, sortOrder })
+  const offerNotDeletedCondition = db.type === 'postgres'
+    ? '(o.is_deleted = false OR o.is_deleted IS NULL)'
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
+  const statusFilter = normalizeAffiliateProductStatusFilter(options.status)
+  const fullSyncBaselineCteSql = `
+    WITH latest_platform_full_sync AS (
+      SELECT ranked.platform, ranked.baseline_started_at
+      FROM (
+        SELECT
+          r.platform,
+          COALESCE(r.started_at, r.created_at) AS baseline_started_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY r.platform
+            ORDER BY COALESCE(r.completed_at, r.started_at, r.created_at) DESC, r.id DESC
+          ) AS row_num
+        FROM affiliate_product_sync_runs r
+        WHERE r.user_id = ?
+          AND r.mode = 'platform'
+          AND r.status = 'completed'
+      ) ranked
+      WHERE ranked.row_num = 1
+    )
+  `
+  const productStatusSql = `
+    CASE
+      WHEN baseline.baseline_started_at IS NULL THEN 'unknown'
+      WHEN p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 'active'
+      ELSE 'invalid'
+    END
+  `
 
   const whereConditions: string[] = ['p.user_id = ?']
   const whereParams: any[] = [userId]
@@ -2629,12 +2685,31 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     max: options.commissionAmountMax,
   })
 
-  const whereSql = whereConditions.join(' AND ')
+  const baseWhereSql = whereConditions.join(' AND ')
+  const filteredWhereConditions = [...whereConditions]
+  const filteredWhereParams = [...whereParams]
 
-  const summaryRow = await db.queryOne<{ total: number; products_with_link_count: number }>(
+  if (statusFilter !== 'all') {
+    filteredWhereConditions.push(`${productStatusSql} = ?`)
+    filteredWhereParams.push(statusFilter)
+  }
+
+  const filteredWhereSql = filteredWhereConditions.join(' AND ')
+
+  const summaryRow = await db.queryOne<{
+    active_products_count: number
+    invalid_products_count: number
+    unknown_products_count: number
+    blacklisted_count: number
+    products_with_link_count: number
+  }>(
     `
+      ${fullSyncBaselineCteSql}
       SELECT
-        COUNT(*) AS total,
+        SUM(CASE WHEN ${productStatusSql} = 'active' THEN 1 ELSE 0 END) AS active_products_count,
+        SUM(CASE WHEN ${productStatusSql} = 'invalid' THEN 1 ELSE 0 END) AS invalid_products_count,
+        SUM(CASE WHEN ${productStatusSql} = 'unknown' THEN 1 ELSE 0 END) AS unknown_products_count,
+        SUM(CASE WHEN COALESCE(p.is_blacklisted, FALSE) = TRUE THEN 1 ELSE 0 END) AS blacklisted_count,
         SUM(
           CASE
             WHEN COALESCE(NULLIF(TRIM(p.short_promo_link), ''), NULLIF(TRIM(p.promo_link), '')) IS NOT NULL THEN 1
@@ -2642,42 +2717,92 @@ export async function listAffiliateProducts(userId: number, options: ProductList
           END
         ) AS products_with_link_count
       FROM affiliate_products p
-      WHERE ${whereSql}
+      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+      WHERE ${baseWhereSql}
     `,
-    whereParams
+    [userId, ...whereParams]
   )
 
-  const rows = await db.query<(AffiliateProduct & { related_offer_count?: number })>(
+  const filteredTotalRow = await db.queryOne<{ total: number }>(
     `
+      ${fullSyncBaselineCteSql}
+      SELECT COUNT(*) AS total
+      FROM affiliate_products p
+      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+      WHERE ${filteredWhereSql}
+    `,
+    [userId, ...filteredWhereParams]
+  )
+
+  const rows = await db.query<(
+    AffiliateProduct
+    & {
+      related_offer_count?: number
+      active_offer_count?: number
+      historical_offer_count?: number
+      product_status?: AffiliateProductLifecycleStatus
+    }
+  )>(
+    `
+      ${fullSyncBaselineCteSql}
       SELECT
         p.*,
-        COALESCE(link_counts.offer_count, 0) AS related_offer_count
+        ${productStatusSql} AS product_status,
+        COALESCE(link_counts.active_offer_count, 0) AS active_offer_count,
+        COALESCE(link_counts.historical_offer_count, 0) AS historical_offer_count,
+        COALESCE(link_counts.historical_offer_count, 0) AS related_offer_count
       FROM affiliate_products p
+      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
       LEFT JOIN (
-        SELECT product_id, COUNT(*) AS offer_count
-        FROM affiliate_product_offer_links
-        WHERE user_id = ?
-        GROUP BY product_id
+        SELECT
+          link.product_id,
+          COUNT(DISTINCT CASE
+            WHEN c.status = 'ENABLED' AND COALESCE(c.is_deleted, FALSE) = FALSE THEN link.offer_id
+            ELSE NULL
+          END) AS active_offer_count,
+          COUNT(DISTINCT CASE
+            WHEN COALESCE(c.google_campaign_id, '') <> '' THEN link.offer_id
+            ELSE NULL
+          END) AS historical_offer_count
+        FROM affiliate_product_offer_links link
+        INNER JOIN offers o
+          ON o.user_id = link.user_id
+          AND o.id = link.offer_id
+          AND ${offerNotDeletedCondition}
+        LEFT JOIN campaigns c
+          ON c.user_id = link.user_id
+          AND c.offer_id = link.offer_id
+        WHERE link.user_id = ?
+        GROUP BY link.product_id
       ) link_counts ON link_counts.product_id = p.id
-      WHERE ${whereSql}
+      WHERE ${filteredWhereSql}
       ORDER BY ${orderBySql}
       LIMIT ?
       OFFSET ?
     `,
-    [userId, ...whereParams, pageSize, offset]
+    [userId, userId, ...filteredWhereParams, pageSize, offset]
   )
 
   return {
     items: rows.map((row, index) => mapAffiliateProductRow(row, offset + index + 1)),
-    total: Number(summaryRow?.total || 0),
+    total: Number(filteredTotalRow?.total || 0),
     productsWithLinkCount: Number(summaryRow?.products_with_link_count || 0),
+    activeProductsCount: Number(summaryRow?.active_products_count || 0),
+    invalidProductsCount: Number(summaryRow?.invalid_products_count || 0),
+    unknownProductsCount: Number(summaryRow?.unknown_products_count || 0),
+    blacklistedCount: Number(summaryRow?.blacklisted_count || 0),
     page,
     pageSize,
   }
 }
 
 function mapAffiliateProductRow(
-  row: AffiliateProduct & { related_offer_count?: number },
+  row: AffiliateProduct & {
+    related_offer_count?: number
+    active_offer_count?: number
+    historical_offer_count?: number
+    product_status?: AffiliateProductLifecycleStatus
+  },
   serialNumber?: number
 ): AffiliateProductListItem {
   const rawJson = (() => {
@@ -2747,6 +2872,7 @@ function mapAffiliateProductRow(
     serial: resolvedSerial,
     platform: row.platform,
     mid: row.mid,
+    productStatus: resolveAffiliateProductLifecycleStatus(row.product_status),
     asin: row.asin,
     landingPageType,
     isDeepLink,
@@ -2763,6 +2889,8 @@ function mapAffiliateProductRow(
     reviewCount: normalizedReviewCount,
     promoLink: row.short_promo_link || row.promo_link,
     shortPromoLink: row.short_promo_link,
+    activeOfferCount: Number(row.active_offer_count || 0),
+    historicalOfferCount: Number(row.historical_offer_count || 0),
     relatedOfferCount: Number(row.related_offer_count || 0),
     isBlacklisted: toBool(row.is_blacklisted),
     lastSyncedAt: row.last_synced_at,

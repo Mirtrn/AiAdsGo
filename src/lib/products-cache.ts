@@ -34,6 +34,7 @@ export type ProductListCachePayload = {
   sortBy: string
   sortOrder: string
   platform: string
+  status: string
   reviewCountMin: number | null
   reviewCountMax: number | null
   priceAmountMin: number | null
@@ -73,6 +74,10 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
   const sortBy = typeof obj.sortBy === 'string' ? obj.sortBy : ''
   const sortOrder = typeof obj.sortOrder === 'string' ? obj.sortOrder.toLowerCase() : ''
   const platform = typeof obj.platform === 'string' ? obj.platform : ''
+  const statusRaw = typeof obj.status === 'string' ? obj.status.toLowerCase() : 'all'
+  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'unknown'
+    ? statusRaw
+    : 'all'
 
   if (!Number.isFinite(page) || page < 1) {
     return null
@@ -97,6 +102,7 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     sortBy,
     sortOrder,
     platform,
+    status,
     reviewCountMin: parseNumericBound(obj.reviewCountMin),
     reviewCountMax: parseNumericBound(obj.reviewCountMax),
     priceAmountMin: parseNumericBound(obj.priceAmountMin),

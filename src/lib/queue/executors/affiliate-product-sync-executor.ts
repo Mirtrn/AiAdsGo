@@ -38,6 +38,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all'
+  status: 'all' | 'active' | 'invalid' | 'unknown'
   reviewCountMin: number | null
   reviewCountMax: number | null
   priceAmountMin: number | null
@@ -53,6 +54,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   sortBy: 'serial',
   sortOrder: 'desc',
   platform: 'all',
+  status: 'all',
   reviewCountMin: null,
   reviewCountMax: null,
   priceAmountMin: null,
@@ -85,6 +87,7 @@ type CacheWarmParams = {
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all' | AffiliatePlatform
+  status: 'all' | 'active' | 'invalid' | 'unknown'
   reviewCountMin: number | null
   reviewCountMax: number | null
   priceAmountMin: number | null
@@ -121,6 +124,10 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
   const platform = payload.platform === 'all'
     ? 'all'
     : (normalizeAffiliatePlatform(payload.platform) || 'all')
+  const statusRaw = String(payload.status || '').trim().toLowerCase()
+  const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'unknown'
+    ? statusRaw
+    : 'all'
 
   return {
     page,
@@ -129,6 +136,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     sortBy,
     sortOrder,
     platform,
+    status,
     reviewCountMin: normalizeOptionalBound(payload.reviewCountMin),
     reviewCountMax: normalizeOptionalBound(payload.reviewCountMax),
     priceAmountMin: normalizeOptionalBound(payload.priceAmountMin),
@@ -157,6 +165,10 @@ async function warmProductListCacheByParams(userId: number, params: CacheWarmPar
     items: listResult.items,
     total: listResult.total,
     productsWithLinkCount: listResult.productsWithLinkCount,
+    activeProductsCount: listResult.activeProductsCount,
+    invalidProductsCount: listResult.invalidProductsCount,
+    unknownProductsCount: listResult.unknownProductsCount,
+    blacklistedCount: listResult.blacklistedCount,
     page: listResult.page,
     pageSize: listResult.pageSize,
   }

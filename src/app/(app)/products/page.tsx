@@ -74,6 +74,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
 type PlatformSyncStrategy = 'light' | 'full'
 type LandingPageType = 'amazon_product' | 'amazon_store' | 'independent_product' | 'independent_store' | 'unknown'
+type ProductLifecycleStatus = 'active' | 'invalid' | 'unknown'
+type ProductStatusFilter = ProductLifecycleStatus | 'all'
 type SortOrder = 'asc' | 'desc'
 type SortField =
   | 'serial'
@@ -94,6 +96,7 @@ type ProductListItem = {
   serial: number
   platform: ProductPlatform
   mid: string
+  productStatus: ProductLifecycleStatus
   asin: string | null
   landingPageType: LandingPageType
   brand: string | null
@@ -109,6 +112,8 @@ type ProductListItem = {
   reviewCount: number | null
   promoLink: string | null
   shortPromoLink: string | null
+  activeOfferCount: number
+  historicalOfferCount: number
   relatedOfferCount: number
   isBlacklisted: boolean
   lastSyncedAt: string | null
@@ -120,6 +125,10 @@ type ProductListResponse = {
   items: ProductListItem[]
   total: number
   productsWithLinkCount: number
+  activeProductsCount: number
+  invalidProductsCount: number
+  unknownProductsCount: number
+  blacklistedCount: number
   page: number
   pageSize: number
 }
@@ -178,6 +187,12 @@ const LANDING_PAGE_TYPE_LABEL: Record<LandingPageType, string> = {
   independent_product: '独立站商品',
   independent_store: '独立站店铺',
   unknown: '未知',
+}
+
+const PRODUCT_STATUS_LABEL: Record<ProductLifecycleStatus, string> = {
+  active: '有效',
+  invalid: '已失效',
+  unknown: '状态未知',
 }
 
 const EMPTY_NUMERIC_RANGE_FILTERS: NumericRangeFilters = {
@@ -328,6 +343,12 @@ function getSyncRunStartedAtText(run: SyncRunItem): string {
   return formatSyncRunDateTime(run.created_at)
 }
 
+function getProductStatusBadgeVariant(status: ProductLifecycleStatus): 'default' | 'secondary' | 'outline' {
+  if (status === 'active') return 'default'
+  if (status === 'invalid') return 'secondary'
+  return 'outline'
+}
+
 function toBoolValue(value: boolean | 'indeterminate'): boolean {
   return value === true
 }
@@ -376,11 +397,16 @@ export default function ProductsPage() {
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [productsWithLinkCount, setProductsWithLinkCount] = useState(0)
+  const [activeProductsCount, setActiveProductsCount] = useState(0)
+  const [invalidProductsCount, setInvalidProductsCount] = useState(0)
+  const [unknownProductsCount, setUnknownProductsCount] = useState(0)
+  const [blacklistedCount, setBlacklistedCount] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [searchText, setSearchText] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [platformFilter, setPlatformFilter] = useState<'all' | ProductPlatform>('all')
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('all')
   const [numericRangeDrafts, setNumericRangeDrafts] = useState<NumericRangeFilterDrafts>({
     ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS,
   })
@@ -426,6 +452,7 @@ export default function ProductsPage() {
   const canBatchOffline = selectedProducts.length > 0
   const hasFilters = searchQuery.length > 0
     || platformFilter !== 'all'
+    || statusFilter !== 'all'
     || Object.values(numericRangeFilters).some((value) => value !== null)
 
   const numericRangeFilterCards: Array<{
@@ -467,13 +494,11 @@ export default function ProductsPage() {
 
   const stats = useMemo(() => {
     const activeSyncRuns = latestRuns.filter((run) => run.status === 'queued' || run.status === 'running').length
-    const blacklistedCount = items.filter((item) => item.isBlacklisted).length
 
     return {
       activeSyncRuns,
-      blacklistedCount,
     }
-  }, [items, latestRuns])
+  }, [latestRuns])
 
   const syncHistoryRows = useMemo(() => {
     const rows: Array<{
@@ -529,6 +554,7 @@ export default function ProductsPage() {
       params.set('sortOrder', sortOrder)
       if (searchQuery) params.set('search', searchQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
 
       const numericRangeParams: Array<[string, number | null]> = [
         ['reviewCountMin', numericRangeFilters.reviewCountMin],
@@ -565,6 +591,10 @@ export default function ProductsPage() {
       setItems(data.items || [])
       setTotal(data.total || 0)
       setProductsWithLinkCount(Number(data.productsWithLinkCount || 0))
+      setActiveProductsCount(Number(data.activeProductsCount || 0))
+      setInvalidProductsCount(Number(data.invalidProductsCount || 0))
+      setUnknownProductsCount(Number(data.unknownProductsCount || 0))
+      setBlacklistedCount(Number(data.blacklistedCount || 0))
 
       setSelectedProductIds((prev) => {
         if (prev.size === 0) return prev
@@ -600,7 +630,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts()
     fetchSyncRuns()
-  }, [page, pageSize, searchQuery, platformFilter, numericRangeFilters, sortBy, sortOrder])
+  }, [page, pageSize, searchQuery, platformFilter, statusFilter, numericRangeFilters, sortBy, sortOrder])
 
   useEffect(() => {
     fetchSyncRuns()
@@ -782,10 +812,10 @@ export default function ProductsPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || !data?.success) {
-        throw new Error(data?.error || '下线商品失败')
+        throw new Error(data?.error || '手动下线商品失败')
       }
 
-      showSuccess('商品已下线', `已删除 ${data?.deletedOfferCount || 0} 个关联Offer`)
+      showSuccess('商品已手动下线', `已删除 ${data?.deletedOfferCount || 0} 个关联Offer`)
       setSingleOfflineDialogOpen(false)
       setOfflineProduct(null)
       setSelectedProductIds((prev) => {
@@ -795,7 +825,7 @@ export default function ProductsPage() {
       })
       fetchProducts(true)
     } catch (error: any) {
-      showError('下线失败', error?.message || '下线商品失败')
+      showError('手动下线失败', error?.message || '手动下线商品失败')
     } finally {
       setOffliningProductId(null)
     }
@@ -822,16 +852,16 @@ export default function ProductsPage() {
 
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data?.error || '批量下线商品失败')
+        throw new Error(data?.error || '批量手动下线商品失败')
       }
 
       const total = Number(data?.total || 0)
       const successCount = Number(data?.successCount || 0)
       const failureCount = Number(data?.failureCount || 0)
 
-      showSuccess('批量下线完成', `成功 ${successCount} / ${total}`)
+      showSuccess('批量手动下线完成', `成功 ${successCount} / ${total}`)
       if (failureCount > 0) {
-        showError('部分商品下线失败', `${failureCount} 个商品下线失败，请稍后重试`)
+        showError('部分商品手动下线失败', `${failureCount} 个商品手动下线失败，请稍后重试`)
       }
 
       const failedIds = new Set<number>(
@@ -844,7 +874,7 @@ export default function ProductsPage() {
       setBatchOfflineDialogOpen(false)
       fetchProducts(true)
     } catch (error: any) {
-      showError('批量下线失败', error?.message || '批量下线商品失败')
+      showError('批量手动下线失败', error?.message || '批量手动下线商品失败')
     } finally {
       setBatchOfflining(false)
     }
@@ -958,7 +988,7 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[1600px]">
+      <Table className="table-fixed min-w-[1700px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[42px] whitespace-nowrap">
@@ -975,6 +1005,7 @@ export default function ProductsPage() {
             <SortableTableHead field="platform" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[96px] whitespace-nowrap">
               联盟平台
             </SortableTableHead>
+            <TableHead className="w-[108px] whitespace-nowrap">状态</TableHead>
             <TableHead className="w-[120px] whitespace-nowrap">商品页</TableHead>
             <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[122px] whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
@@ -1017,8 +1048,8 @@ export default function ProductsPage() {
             <SortableTableHead field="promoLink" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[102px] whitespace-nowrap">
               推广链接
             </SortableTableHead>
-            <SortableTableHead field="relatedOfferCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[152px] whitespace-nowrap">
-              关联的Offer数量
+            <SortableTableHead field="relatedOfferCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[172px] whitespace-nowrap">
+              Offer数量（投放中/历史）
             </SortableTableHead>
             <TableHead className="w-[118px] whitespace-nowrap">操作</TableHead>
           </TableRow>
@@ -1038,7 +1069,7 @@ export default function ProductsPage() {
               ? formatCurrency(item.commissionRate, displayCurrency)
               : formatPercent(item.commissionRate)
             const reviewCountText = formatReviewCount(item.reviewCount)
-            const relatedOfferCountText = String(item.relatedOfferCount)
+            const relatedOfferCountText = `${Math.max(0, Number(item.activeOfferCount || 0))}/${Math.max(0, Number(item.historicalOfferCount || 0))}`
 
             return (
               <TableRow key={item.id} className={`hover:bg-gray-50/50 ${item.isBlacklisted ? 'bg-gray-100' : ''}`}>
@@ -1062,6 +1093,20 @@ export default function ProductsPage() {
                 <TableCell>
                   <div className={item.isBlacklisted ? 'opacity-50' : ''}>
                     <Badge variant="outline">{PLATFORM_SHORT_LABEL[item.platform]}</Badge>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className={item.isBlacklisted ? 'opacity-50' : ''}>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge variant={getProductStatusBadgeVariant(item.productStatus)}>
+                        {PRODUCT_STATUS_LABEL[item.productStatus]}
+                      </Badge>
+                      {item.productStatus === 'invalid' && !item.isBlacklisted && (
+                        <Badge variant="destructive" className="font-medium">
+                          风险识别
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -1125,7 +1170,9 @@ export default function ProductsPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className={`max-w-[72px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={relatedOfferCountText}>{relatedOfferCountText}</div>
+                  <div className={`max-w-[120px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={relatedOfferCountText}>
+                    {relatedOfferCountText}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
@@ -1152,7 +1199,7 @@ export default function ProductsPage() {
                       variant="ghost"
                       onClick={() => openSingleOfflineDialog(item)}
                       disabled={offliningProductId !== null || item.isBlacklisted}
-                      title={item.isBlacklisted ? '商品已下线' : '下线商品'}
+                      title={item.isBlacklisted ? '商品已手动下线' : '手动下线商品'}
                       className={item.isBlacklisted ? 'text-muted-foreground' : 'text-red-600 hover:text-red-600'}
                     >
                       {offliningProductId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <PowerOff className="h-4 w-4" />}
@@ -1230,13 +1277,13 @@ export default function ProductsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">所有商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <Package className="h-4 w-4 text-blue-600" />
-                <span className="text-xl font-semibold">{total}</span>
+                <span className="text-xl font-semibold">{activeProductsCount}</span>
               </div>
             </CardContent>
           </Card>
@@ -1251,10 +1298,21 @@ export default function ProductsPage() {
           </Card>
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">已下线商品</div>
+              <div className="text-xs text-muted-foreground">已失效商品</div>
+              <div className="mt-1 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <span className="text-xl font-semibold">{invalidProductsCount}</span>
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">状态未知 {unknownProductsCount}</div>
+              <div className="text-[11px] text-muted-foreground">失效仅表示同步未命中，不会自动手动下线</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="px-4 pb-4 pt-4">
+              <div className="text-xs text-muted-foreground">手动下线商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <ShieldOff className="h-4 w-4 text-rose-600" />
-                <span className="text-xl font-semibold">{stats.blacklistedCount}</span>
+                <span className="text-xl font-semibold">{blacklistedCount}</span>
               </div>
             </CardContent>
           </Card>
@@ -1314,13 +1372,13 @@ export default function ProductsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">商品列表</CardTitle>
             <CardDescription>
-              共 {total} 个商品，支持排序、单商品同步、创建 Offer、下线商品和批量操作
+              共 {total} 个商品，支持排序、单商品同步、创建 Offer、手动下线商品和批量操作
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。</span>
+              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。失效状态不会自动执行手动下线。</span>
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-1 items-center gap-2">
@@ -1346,6 +1404,20 @@ export default function ProductsPage() {
                     <SelectItem value="partnerboost">PartnerBoost</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={statusFilter} onValueChange={(value) => {
+                  setStatusFilter(value as ProductStatusFilter)
+                  setPage(1)
+                }}>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="状态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部状态</SelectItem>
+                    <SelectItem value="active">有效</SelectItem>
+                    <SelectItem value="invalid">已失效</SelectItem>
+                    <SelectItem value="unknown">状态未知</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1356,6 +1428,7 @@ export default function ProductsPage() {
                       setSearchText('')
                       setSearchQuery('')
                       setPlatformFilter('all')
+                      setStatusFilter('all')
                       setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })
                       setNumericRangeFilters({ ...EMPTY_NUMERIC_RANGE_FILTERS })
                       setPage(1)
@@ -1374,7 +1447,7 @@ export default function ProductsPage() {
                 {canBatchOffline && (
                   <Button variant="destructive" onClick={openBatchOfflineConfirm}>
                     <PowerOff className="mr-2 h-4 w-4" />
-                    批量下线商品 ({selectedProducts.length})
+                    批量手动下线商品 ({selectedProducts.length})
                   </Button>
                 )}
               </div>
@@ -1488,9 +1561,9 @@ export default function ProductsPage() {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认下线商品</DialogTitle>
+            <DialogTitle>确认手动下线商品</DialogTitle>
             <DialogDescription>
-              确认下线商品 <strong className="text-foreground">{offlineProduct?.mid || '-'}</strong>？
+              确认手动下线商品 <strong className="text-foreground">{offlineProduct?.mid || '-'}</strong>？
               此操作不可撤销，系统会删除该商品所有关联Offer，并自动附带删除对应广告系列。
             </DialogDescription>
           </DialogHeader>
@@ -1511,7 +1584,7 @@ export default function ProductsPage() {
               disabled={!offlineProduct || offliningProductId !== null}
             >
               {offliningProductId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PowerOff className="mr-2 h-4 w-4" />}
-              确认下线
+              确认手动下线
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1520,10 +1593,10 @@ export default function ProductsPage() {
       <Dialog open={batchOfflineDialogOpen} onOpenChange={setBatchOfflineDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认批量下线商品</DialogTitle>
+            <DialogTitle>确认批量手动下线商品</DialogTitle>
             <DialogDescription>
               已选择 <strong className="text-foreground">{selectedProducts.length}</strong> 个商品。
-              确认后将删除这些商品的所有关联Offer，并自动附带删除对应广告系列。
+              确认后将手动下线这些商品并删除所有关联Offer，同时附带删除对应广告系列。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1540,7 +1613,7 @@ export default function ProductsPage() {
               disabled={!canBatchOffline || batchOfflining}
             >
               {batchOfflining ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PowerOff className="mr-2 h-4 w-4" />}
-              确认批量下线
+              确认批量手动下线
             </Button>
           </DialogFooter>
         </DialogContent>
