@@ -69,6 +69,7 @@ describe('feishu chat health lib', () => {
             created_at: '2026-02-10 03:00:00',
           },
         ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { decision: 'allowed', total: 2 },
           { decision: 'blocked', total: 3 },
@@ -118,16 +119,21 @@ describe('feishu chat health lib', () => {
     )
     expect(db.query).toHaveBeenNthCalledWith(
       2,
+      expect.stringContaining('FROM openclaw_command_runs'),
+      [7]
+    )
+    expect(db.query).toHaveBeenNthCalledWith(
+      3,
       expect.stringContaining('GROUP BY decision'),
       [7]
     )
     const rowsSql = String(db.query.mock.calls[0]?.[0] || '')
-    const statsSql = String(db.query.mock.calls[1]?.[0] || '')
+    const statsSql = String(db.query.mock.calls[2]?.[0] || '')
     expect(rowsSql).toContain("reason_code")
     expect(rowsSql).toContain("duplicate_message")
     expect(statsSql).toContain("reason_code")
     expect(statsSql).toContain("duplicate_message")
-    expect(db.query).toHaveBeenCalledTimes(2)
+    expect(db.query).toHaveBeenCalledTimes(3)
 
     vi.useRealTimers()
   })
@@ -157,12 +163,13 @@ describe('feishu chat health lib', () => {
             decision: 'allowed',
             reason_code: 'reply_dispatched',
             reason_message: 'message passed access checks and entered reply pipeline',
-            message_text: 'hello',
-            message_text_length: 5,
+            message_text: '请修复offer 123广告投放',
+            message_text_length: 17,
             metadata_json: null,
             created_at: '2026-02-10 03:00:00',
           },
         ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { decision: 'allowed', total: 1 },
         ])
@@ -183,14 +190,119 @@ describe('feishu chat health lib', () => {
 
     expect(db.query).toHaveBeenNthCalledWith(
       3,
-      expect.stringContaining('FROM openclaw_command_runs'),
-      [7, 'om_missing']
+      expect.stringContaining('GROUP BY decision'),
+      [7]
     )
     expect(db.query).toHaveBeenNthCalledWith(
       4,
       expect.stringContaining('FROM openclaw_command_runs'),
+      [7, 'om_missing']
+    )
+    expect(db.query).toHaveBeenNthCalledWith(
+      5,
+      expect.stringContaining('FROM openclaw_command_runs'),
       [7, 'ou_1']
     )
+
+    vi.useRealTimers()
+  })
+
+  it('shows synthetic chain row when command runs exist before health ingest arrives', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const runRow = {
+      id: 'run-1',
+      parent_request_id: 'om_synthetic_1',
+      channel: 'feishu',
+      sender_id: 'ou_1',
+      status: 'queued',
+      request_path: '/api/offers/123/generate-creatives-queue',
+      request_body_json: '{"bucket":"A"}',
+      response_status: null,
+      response_body: null,
+      created_at: '2026-02-10 03:00:00',
+    }
+
+    const db = {
+      type: 'sqlite',
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([runRow])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([runRow]),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0].id).toBeLessThan(0)
+    expect(result.rows[0].messageId).toBe('om_synthetic_1')
+    expect(result.rows[0].reasonCode).toBe('command_run_created')
+    expect(result.rows[0].executionRunCount).toBe(1)
+    expect(result.rows[0].executionRunId).toBe('run-1')
+    expect(result.rows[0].executionState).toBe('queued')
+    expect(result.stats.total).toBe(1)
+    expect(result.stats.allowed).toBe(1)
+    expect(result.stats.execution.linked).toBe(1)
+    expect(result.stats.execution.inProgress).toBe(1)
+
+    vi.useRealTimers()
+  })
+
+  it('marks conversational allowed rows as not_applicable when no execution is expected', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T03:20:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 2,
+            user_id: 7,
+            account_id: 'user-7',
+            message_id: 'om_non_command',
+            chat_id: 'oc_1',
+            chat_type: 'p2p',
+            message_type: 'text',
+            sender_primary_id: 'ou_1',
+            sender_open_id: 'ou_1',
+            sender_union_id: null,
+            sender_user_id: null,
+            sender_candidates_json: '["ou_1"]',
+            decision: 'allowed',
+            reason_code: 'reply_dispatched',
+            reason_message: 'message passed access checks and entered reply pipeline',
+            message_text: '你现在使用的AI模型是什么？',
+            message_text_length: 14,
+            metadata_json: null,
+            created_at: '2026-02-10 03:00:00',
+          },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { decision: 'allowed', total: 1 },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 1, limit: 100 })
+
+    expect(result.rows[0].executionState).toBe('not_applicable')
+    expect(result.rows[0].executionRunCount).toBe(0)
+    expect(result.rows[0].executionDetail).toContain('无命令执行预期')
+    expect(result.stats.execution.notApplicable).toBe(1)
+    expect(result.stats.execution.missing).toBe(0)
 
     vi.useRealTimers()
   })
@@ -220,12 +332,13 @@ describe('feishu chat health lib', () => {
             decision: 'allowed',
             reason_code: 'reply_dispatched',
             reason_message: 'message passed access checks and entered reply pipeline',
-            message_text: 'do something',
-            message_text_length: 12,
+            message_text: '请修复offer 123广告投放',
+            message_text_length: 17,
             metadata_json: null,
             created_at: '2026-02-10 03:00:00',
           },
         ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { decision: 'allowed', total: 1 },
         ])
@@ -681,6 +794,131 @@ describe('feishu chat health lib', () => {
     vi.useRealTimers()
   })
 
+  it('marks workflow incomplete when publish stays pending beyond stale threshold', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-02-10T05:40:00.000Z'))
+
+    const db = {
+      type: 'sqlite',
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs') && sql.includes('GROUP BY decision')) {
+          return [{ decision: 'allowed', total: 1 }]
+        }
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return [
+            {
+              id: 410,
+              user_id: 7,
+              account_id: 'user-7',
+              message_id: 'om_chain',
+              chat_id: 'oc_1',
+              chat_type: 'p2p',
+              message_type: 'text',
+              sender_primary_id: 'ou_1',
+              sender_open_id: 'ou_1',
+              sender_union_id: null,
+              sender_user_id: null,
+              sender_candidates_json: '["ou_1"]',
+              decision: 'allowed',
+              reason_code: 'reply_dispatched',
+              reason_message: 'message passed access checks and entered reply pipeline',
+              message_text: '生成3个创意后发布广告',
+              message_text_length: 12,
+              metadata_json: null,
+              created_at: '2026-02-10 03:00:00',
+            },
+          ]
+        }
+        if (sql.includes('parent_request_id IN') || (sql.includes('sender_id IN') && sql.includes('ORDER BY created_at ASC'))) {
+          return [
+            {
+              id: 'run-a',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"A"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-a","bucket":"A"}',
+              created_at: '2026-02-10 03:01:00',
+            },
+            {
+              id: 'run-b',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"B"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-b","bucket":"B"}',
+              created_at: '2026-02-10 03:02:00',
+            },
+            {
+              id: 'run-d',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/offers/123/generate-creatives-queue',
+              request_body_json: '{"bucket":"D"}',
+              response_status: 200,
+              response_body: '{"taskId":"task-d","bucket":"D"}',
+              created_at: '2026-02-10 03:03:00',
+            },
+            {
+              id: 'run-publish',
+              parent_request_id: 'om_chain',
+              channel: 'feishu',
+              sender_id: 'ou_1',
+              status: 'completed',
+              request_path: '/api/campaigns/publish',
+              request_body_json: '{"offerId":123,"adCreativeId":999}',
+              response_status: 202,
+              response_body: '{"campaigns":[{"id":701,"creationStatus":"pending"}]}',
+              created_at: '2026-02-10 03:04:00',
+            },
+          ]
+        }
+        if (sql.includes('FROM creative_tasks')) {
+          return [
+            { id: 'task-a', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:01:30', updated_at: '2026-02-10 03:01:30' },
+            { id: 'task-b', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:02:30', updated_at: '2026-02-10 03:02:30' },
+            { id: 'task-d', offer_id: 123, status: 'completed', stage: 'complete', progress: 100, message: 'ok', completed_at: '2026-02-10 03:03:30', updated_at: '2026-02-10 03:03:30' },
+          ]
+        }
+        if (sql.includes('FROM campaigns')) {
+          return [
+            {
+              id: 701,
+              offer_id: 123,
+              ad_creative_id: 999,
+              creation_status: 'pending',
+              creation_error: null,
+              status: 'PAUSED',
+              is_deleted: 0,
+              created_at: '2026-02-10 03:04:30',
+              updated_at: '2026-02-10 03:05:00',
+              published_at: null,
+            },
+          ]
+        }
+        return []
+      }),
+      exec: vi.fn().mockResolvedValue({ changes: 0 }),
+    }
+
+    dbFns.getDatabase.mockResolvedValue(db)
+    const result = await listFeishuChatHealthLogs({ userId: 7, withinHours: 4, limit: 100 })
+
+    expect(result.rows[0].workflowState).toBe('incomplete')
+    expect(result.rows[0].workflowDetail).toContain('发布广告')
+    expect(result.stats.workflow.incomplete).toBe(1)
+    expect(result.stats.workflow.running).toBe(0)
+    vi.useRealTimers()
+  })
+
   it('marks workflow failed when publish command is accepted but campaign creation fails', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-02-10T03:15:00.000Z'))
@@ -830,12 +1068,13 @@ describe('feishu chat health lib', () => {
             decision: 'allowed',
             reason_code: 'reply_dispatched',
             reason_message: 'message passed access checks and entered reply pipeline',
-            message_text: 'do something',
-            message_text_length: 12,
+            message_text: '请修复offer 123广告投放',
+            message_text_length: 17,
             metadata_json: null,
             created_at: '2026-02-10 03:00:00',
           },
         ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           { decision: 'allowed', total: 1 },
         ])

@@ -92,6 +92,15 @@ type OpenclawCommandRunLinkRow = {
   created_at: string | Date
 }
 
+type FeishuSyntheticHealthCandidate = {
+  messageId: string
+  createdAt: string | Date
+  senderId: string | null
+  requestPath: string | null
+  requestBodyJson: string | null
+  runCount: number
+}
+
 type FeishuChatHealthCreatedAtRow = {
   created_at: string | Date
 }
@@ -206,6 +215,7 @@ const FEISHU_HEALTH_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const FEISHU_HEALTH_EXECUTION_MISSING_SECONDS = 180
 const FEISHU_HEALTH_WORKFLOW_INCOMPLETE_SECONDS = 10 * 60
 const FEISHU_HEALTH_WORKFLOW_MAX_WINDOW_SECONDS = 6 * 60 * 60
+const FEISHU_HEALTH_PUBLISH_RUNNING_STALE_SECONDS = 2 * 60 * 60
 const FEISHU_CHAT_HEALTH_NOISE_REASON_CODE = 'duplicate_message'
 // Note: `created_at` in chat health logs is written when the gateway reports the event,
 // which may happen after one or more command runs were already created. Keep a relatively
@@ -271,6 +281,14 @@ function resolveWorkflowMaxWindowSeconds(): number {
     return FEISHU_HEALTH_WORKFLOW_MAX_WINDOW_SECONDS
   }
   return clamp(envValue, 300, 86_400)
+}
+
+function resolvePublishRunningStaleSeconds(): number {
+  const envValue = Number(process.env.OPENCLAW_FEISHU_PUBLISH_RUNNING_STALE_SECONDS)
+  if (!Number.isFinite(envValue)) {
+    return FEISHU_HEALTH_PUBLISH_RUNNING_STALE_SECONDS
+  }
+  return clamp(envValue, 120, 86_400)
 }
 
 function normalizeShortText(value: unknown, maxLength: number): string | null {
@@ -485,6 +503,17 @@ function toMessageExcerpt(messageText: string | null): string {
     : `${messageText.slice(0, FEISHU_HEALTH_MESSAGE_EXCERPT_LIMIT)}…`
 }
 
+function toSyntheticMessageTextFromRun(candidate: FeishuSyntheticHealthCandidate): string {
+  const path = normalizeShortText(candidate.requestPath, 255) || '/api/unknown'
+  const body = safeParseJsonObject(candidate.requestBodyJson)
+  if (body && Object.keys(body).length > 0) {
+    const compact = JSON.stringify(body)
+    const snippet = compact.length > 160 ? `${compact.slice(0, 160)}...` : compact
+    return `命令已开始执行：${path} ${snippet}`
+  }
+  return `命令已开始执行：${path}`
+}
+
 function mapRunStatusToExecutionState(status: string): FeishuChatHealthExecutionState {
   const normalized = String(status || '').trim().toLowerCase()
   if (!normalized) return 'unknown'
@@ -582,6 +611,62 @@ function resolveCreativeWorkflowExpectation(
     requirePublish,
     expectedOffers,
   }
+}
+
+const FEISHU_CHAT_HEALTH_COMMAND_ACTION_HINT_REGEX =
+  /(创建|生成|发布|投放|修复|排查|同步|补拉|归因|重建|重跑|恢复|暂停|下线|上线|执行|抓取|拉取|更新)/i
+const FEISHU_CHAT_HEALTH_COMMAND_OBJECT_HINT_REGEX =
+  /(offer|campaign|ads|asin|mcc|roas|cpc|pb|partnerboost|amazon|佣金|广告|创意|推广|出单|关键词|预算|联盟)/i
+const FEISHU_CHAT_HEALTH_QUESTION_HINT_REGEX = /[?？]|为什么|为何|怎么|如何|吗$/
+
+function shouldExpectExecutionForAllowedMessage(params: {
+  messageText: string | null
+  workflowState: FeishuChatHealthWorkflowState
+  linkedRunCount: number
+}): boolean {
+  if (params.linkedRunCount > 0) {
+    return true
+  }
+
+  if (params.workflowState !== 'not_required') {
+    return true
+  }
+
+  const rawText = normalizeMessageText(params.messageText)
+  if (!rawText) {
+    return false
+  }
+
+  const compact = rawText.replace(/\s+/g, '').toLowerCase()
+  if (!compact) {
+    return false
+  }
+
+  if (/^\/[a-z0-9_-]+$/.test(compact)) {
+    return false
+  }
+
+  if (/^(hi|hello|你好|您好|在吗|谢谢|没有了)$/.test(compact)) {
+    return false
+  }
+
+  if (/(天气|几月几日|星期几|ai模型)/i.test(compact)) {
+    return false
+  }
+
+  const hasActionHint = FEISHU_CHAT_HEALTH_COMMAND_ACTION_HINT_REGEX.test(rawText)
+  const hasObjectHint = FEISHU_CHAT_HEALTH_COMMAND_OBJECT_HINT_REGEX.test(rawText)
+  if (!(hasActionHint && hasObjectHint)) {
+    return false
+  }
+
+  const isQuestionLike = FEISHU_CHAT_HEALTH_QUESTION_HINT_REGEX.test(rawText)
+  const hasImperativeHint = /(请|需要|帮我|执行|立即|开始)/.test(rawText)
+  if (isQuestionLike && !hasImperativeHint) {
+    return false
+  }
+
+  return true
 }
 
 function collectSenderCandidatesFromHealthRow(row: FeishuChatHealthRow): string[] {
@@ -874,6 +959,8 @@ function evaluatePublishStep(params: {
   keyPrefix?: string
   runs: ParsedWorkflowRun[]
   campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
+  nowMs: number
+  runningStaleSeconds: number
 }): FeishuChatHealthWorkflowStep {
   const key = `${params.keyPrefix || ''}publish`
   const label = params.labelPrefix ? `${params.labelPrefix} · 发布广告` : '发布广告'
@@ -894,6 +981,12 @@ function evaluatePublishStep(params: {
   const adCreativeIds = new Set<number>()
   const acceptedRuns = scopedRuns.filter((run) => run.isAccepted)
   const failedRuns = scopedRuns.filter((run) => run.isFailed)
+  const latestAcceptedRunMs = acceptedRuns.length > 0
+    ? Math.max(...acceptedRuns.map((run) => run.createdMs))
+    : null
+  const acceptedRunAgeSeconds = latestAcceptedRunMs && Number.isFinite(latestAcceptedRunMs)
+    ? Math.max(0, Math.floor((params.nowMs - latestAcceptedRunMs) / 1000))
+    : null
   const firstPublishMs = Math.min(...scopedRuns.map((run) => run.createdMs))
   for (const run of scopedRuns) {
     run.publishCampaignIds.forEach((id) => campaignIds.add(id))
@@ -940,6 +1033,28 @@ function evaluatePublishStep(params: {
       return creationStatus === 'pending' || creationStatus === 'draft'
     })
     if (hasPending) {
+      const latestPendingUpdatedMs = campaignRows.reduce((maxMs, campaign) => {
+        const creationStatus = String(campaign.creation_status || '').trim().toLowerCase()
+        if (!(creationStatus === 'pending' || creationStatus === 'draft')) {
+          return maxMs
+        }
+        const updatedMs = Date.parse(toIsoTimestamp(campaign.updated_at || campaign.created_at))
+        if (!Number.isFinite(updatedMs)) {
+          return maxMs
+        }
+        return Math.max(maxMs, updatedMs)
+      }, Number.NEGATIVE_INFINITY)
+      if (Number.isFinite(latestPendingUpdatedMs)) {
+        const pendingAgeSeconds = Math.max(0, Math.floor((params.nowMs - latestPendingUpdatedMs) / 1000))
+        if (pendingAgeSeconds >= params.runningStaleSeconds) {
+          return {
+            key,
+            label,
+            status: 'pending',
+            detail: `Campaign 长时间未同步（>${params.runningStaleSeconds}s）`,
+          }
+        }
+      }
       return {
         key,
         label,
@@ -963,6 +1078,14 @@ function evaluatePublishStep(params: {
   }
 
   if (acceptedRuns.length > 0) {
+    if (acceptedRunAgeSeconds !== null && acceptedRunAgeSeconds >= params.runningStaleSeconds) {
+      return {
+        key,
+        label,
+        status: 'pending',
+        detail: `发布已受理但超时未落地（>${params.runningStaleSeconds}s）`,
+      }
+    }
     return {
       key,
       label,
@@ -993,6 +1116,8 @@ function buildWorkflowAssessmentForMessage(params: {
   creativeTaskById: Map<string, CreativeTaskStatusRow>
   campaignsByOfferId: Map<number, CampaignWorkflowStatusRow[]>
   workflowIncompleteSeconds: number
+  nowMs: number
+  publishRunningStaleSeconds: number
 }): WorkflowAssessment {
   const expectedOffers = clamp(params.context.expectation.expectedOffers || 1, 1, 10)
   const workflowOfferIds = resolveWorkflowOfferIds({
@@ -1042,6 +1167,8 @@ function buildWorkflowAssessmentForMessage(params: {
           keyPrefix,
           runs: params.runs,
           campaignsByOfferId: params.campaignsByOfferId,
+          nowMs: params.nowMs,
+          runningStaleSeconds: params.publishRunningStaleSeconds,
         })
       )
     }
@@ -1351,6 +1478,7 @@ async function buildWorkflowAssessmentsByMessageId(params: {
   }
 
   const workflowIncompleteSeconds = resolveWorkflowIncompleteSeconds()
+  const publishRunningStaleSeconds = resolvePublishRunningStaleSeconds()
   const result = new Map<string, WorkflowAssessment>()
   for (const context of sortedContexts) {
     const parsedRuns = parsedRunsByContextMessageId.get(context.messageId) || []
@@ -1360,6 +1488,8 @@ async function buildWorkflowAssessmentsByMessageId(params: {
       creativeTaskById,
       campaignsByOfferId,
       workflowIncompleteSeconds,
+      nowMs: params.nowMs,
+      publishRunningStaleSeconds,
     })
     result.set(context.messageId, assessment)
   }
@@ -1594,7 +1724,7 @@ export async function listFeishuChatHealthLogs(params: {
   const limit = clamp(params.limit || 200, 20, 500)
   const cutoffExpr = datetimeMinusHours(withinHours, db.type)
 
-  const rows = await db.query<FeishuChatHealthRow>(
+  const dbRows = await db.query<FeishuChatHealthRow>(
     `SELECT
        id,
        user_id,
@@ -1623,6 +1753,95 @@ export async function listFeishuChatHealthLogs(params: {
      LIMIT ?`,
     [params.userId, limit]
   )
+
+  const existingMessageIdSet = new Set(
+    dbRows
+      .map((row) => normalizeShortText(row.message_id, 120))
+      .filter((value): value is string => Boolean(value))
+  )
+
+  const recentCommandRuns = await db.query<OpenclawCommandRunLinkRow>(
+    `SELECT id, parent_request_id, channel, sender_id, status, request_path, request_body_json, response_status, response_body, created_at
+     FROM openclaw_command_runs
+     WHERE user_id = ?
+       AND channel = 'feishu'
+       AND created_at >= ${cutoffExpr}
+     ORDER BY created_at DESC`,
+    [params.userId]
+  )
+
+  const syntheticByMessageId = new Map<string, FeishuSyntheticHealthCandidate>()
+  for (const run of recentCommandRuns) {
+    const messageId = normalizeShortText(run.parent_request_id, 120)
+    if (!messageId || !messageId.toLowerCase().startsWith('om_')) {
+      continue
+    }
+    if (existingMessageIdSet.has(messageId)) {
+      continue
+    }
+
+    const current = syntheticByMessageId.get(messageId)
+    if (!current) {
+      syntheticByMessageId.set(messageId, {
+        messageId,
+        createdAt: run.created_at,
+        senderId: normalizeShortText(run.sender_id, 255),
+        requestPath: normalizeShortText(run.request_path, 255),
+        requestBodyJson: run.request_body_json || null,
+        runCount: 1,
+      })
+      continue
+    }
+
+    current.runCount += 1
+    const currentMs = Date.parse(toIsoTimestamp(current.createdAt))
+    const runMs = Date.parse(toIsoTimestamp(run.created_at))
+    if (Number.isFinite(runMs) && (!Number.isFinite(currentMs) || runMs < currentMs)) {
+      current.createdAt = run.created_at
+      current.requestPath = normalizeShortText(run.request_path, 255) || current.requestPath
+      current.requestBodyJson = run.request_body_json || current.requestBodyJson
+    }
+    if (!current.senderId) {
+      current.senderId = normalizeShortText(run.sender_id, 255)
+    }
+  }
+
+  const syntheticRows: FeishuChatHealthRow[] = Array.from(syntheticByMessageId.values())
+    .sort((a, b) => Date.parse(toIsoTimestamp(b.createdAt)) - Date.parse(toIsoTimestamp(a.createdAt)))
+    .map((candidate, index) => {
+      const sender = normalizeShortText(candidate.senderId, 255)
+      const senderCandidates = sender ? [sender] : []
+      const messageText = toSyntheticMessageTextFromRun(candidate)
+      return {
+        id: -1 * (index + 1),
+        user_id: params.userId,
+        account_id: `user-${params.userId}`,
+        message_id: candidate.messageId,
+        chat_id: null,
+        chat_type: null,
+        message_type: null,
+        sender_primary_id: sender,
+        sender_open_id: sender,
+        sender_union_id: null,
+        sender_user_id: null,
+        sender_candidates_json: senderCandidates.length > 0 ? JSON.stringify(senderCandidates) : null,
+        decision: 'allowed',
+        reason_code: 'command_run_created',
+        reason_message: '命令链路已创建，等待聊天回执落库',
+        message_text: messageText,
+        message_text_length: messageText.length,
+        metadata_json: JSON.stringify({
+          synthetic: true,
+          source: 'command_runs',
+          runCount: candidate.runCount,
+        }),
+        created_at: candidate.createdAt,
+      }
+    })
+
+  const rows = [...dbRows, ...syntheticRows]
+    .sort((a, b) => Date.parse(toIsoTimestamp(b.created_at)) - Date.parse(toIsoTimestamp(a.created_at)))
+    .slice(0, limit)
 
   const statsRows = await db.query<FeishuChatHealthStatsRow>(
     `SELECT decision, COUNT(*) AS total
@@ -1856,14 +2075,33 @@ export async function listFeishuChatHealthLogs(params: {
       } else {
         const linkedRuns = runsByMessageId.get(messageId) || []
         executionRunCount = linkedRuns.length
+        const workflowAssessment = workflowByMessageId.get(messageId)
+        if (workflowAssessment) {
+          workflowState = workflowAssessment.state
+          workflowProgress = workflowAssessment.progress
+          workflowDetail = workflowAssessment.detail
+          workflowOfferId = workflowAssessment.offerId
+          workflowSteps = workflowAssessment.steps
+        }
+
+        const shouldExpectExecution = shouldExpectExecutionForAllowedMessage({
+          messageText,
+          workflowState,
+          linkedRunCount: linkedRuns.length,
+        })
 
         if (linkedRuns.length === 0) {
-          if (ageSeconds >= executionMissingSeconds) {
-            executionState = 'missing'
-            executionDetail = `放行后超过 ${executionMissingSeconds}s 仍无命令执行记录`
+          if (!shouldExpectExecution) {
+            executionState = 'not_applicable'
+            executionDetail = '放行消息无命令执行预期'
           } else {
-            executionState = 'waiting'
-            executionDetail = '放行后等待命令链路落库中'
+            if (ageSeconds >= executionMissingSeconds) {
+              executionState = 'missing'
+              executionDetail = `放行后超过 ${executionMissingSeconds}s 仍无命令执行记录`
+            } else {
+              executionState = 'waiting'
+              executionDetail = '放行后等待命令链路落库中'
+            }
           }
         } else {
           const latestRun = linkedRuns[0]
@@ -1874,15 +2112,6 @@ export async function listFeishuChatHealthLogs(params: {
           const linkMode = linkModeByMessageId.get(messageId)
           const modeHint = linkMode === 'sender_time' ? '（按 sender/time 推断）' : ''
           executionDetail = `已关联 ${executionRunCount} 条命令记录${modeHint}，最新状态 ${executionRunStatus || 'unknown'}`
-        }
-
-        const workflowAssessment = workflowByMessageId.get(messageId)
-        if (workflowAssessment) {
-          workflowState = workflowAssessment.state
-          workflowProgress = workflowAssessment.progress
-          workflowDetail = workflowAssessment.detail
-          workflowOfferId = workflowAssessment.offerId
-          workflowSteps = workflowAssessment.steps
         }
       }
     }
@@ -1943,6 +2172,10 @@ export async function listFeishuChatHealthLogs(params: {
     { total: 0, allowed: 0, blocked: 0, error: 0 }
   )
 
+  const syntheticRowsInWindow = rows.filter((row) => row.reason_code === 'command_run_created').length
+  if (syntheticRowsInWindow > 0) {
+    stats.allowed += syntheticRowsInWindow
+  }
   stats.total = stats.allowed + stats.blocked + stats.error
 
   const executionStats = mapped.reduce(
