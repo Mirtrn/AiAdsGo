@@ -106,4 +106,70 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(exec).not.toHaveBeenCalled()
     expect(query).not.toHaveBeenCalled()
   })
+
+  it('falls back to active offer ASIN matching when product-offer links are missing', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_products')) {
+        return [{ id: 101, mid: 'pb-mid-1', asin: 'B0C7GYLKPM' }]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return []
+      }
+      if (sql.includes('FROM offers')) {
+        return [
+          {
+            id: 2001,
+            url: 'https://www.amazon.com/dp/B0C7GYLKPM',
+            final_url: null,
+            affiliate_link: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 10,
+            cost: 2,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 12.34,
+          sourceMid: 'pb-mid-1',
+          sourceAsin: 'B0C7GYLKPM',
+          sourceOrderId: 'order-1',
+          raw: { estCommission: 12.34 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 12.34,
+      attributedCommission: 12.34,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM offers'), [9])
+    expect(exec).toHaveBeenCalledTimes(2)
+  })
 })

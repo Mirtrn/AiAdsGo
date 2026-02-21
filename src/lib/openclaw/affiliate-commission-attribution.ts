@@ -65,6 +65,38 @@ function normalizeAsin(value: unknown): string | null {
   return normalized.length > 10 ? normalized.slice(0, 10) : normalized
 }
 
+function extractAsinFromUrlLike(value: unknown): string | null {
+  const raw = normalizeText(value)
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded && decoded !== raw) candidates.push(decoded)
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  const patterns = [
+    /\/dp\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /\/gp\/product\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /[?&#]asin=([A-Za-z0-9]{10})(?=[&#]|$)/i,
+  ]
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const matched = candidate.match(pattern)
+      if (!matched?.[1]) continue
+      const asin = normalizeAsin(matched[1])
+      if (asin) return asin
+    }
+  }
+
+  return null
+}
+
 const IN_CLAUSE_CHUNK_SIZE = 300
 
 function chunkArray<T>(items: T[], chunkSize = IN_CLAUSE_CHUNK_SIZE): T[][] {
@@ -271,6 +303,70 @@ async function queryOfferLinksByProductIds(userId: number, productIds: number[])
   }
 
   return linksByProduct
+}
+
+async function queryActiveOfferIdsByAsins(params: {
+  userId: number
+  asins: string[]
+}): Promise<Map<string, number[]>> {
+  const linksByAsin = new Map<string, number[]>()
+  const requestedAsins = Array.from(
+    new Set(
+      params.asins
+        .map((asin) => normalizeAsin(asin))
+        .filter((asin): asin is string => Boolean(asin))
+    )
+  )
+
+  if (requestedAsins.length === 0) {
+    return linksByAsin
+  }
+
+  const requestedAsinSet = new Set(requestedAsins)
+  const db = await getDatabase()
+  const offerNotDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const rows = await db.query<{
+    id: number
+    url: string | null
+    final_url: string | null
+    affiliate_link: string | null
+  }>(
+    `
+      SELECT id, url, final_url, affiliate_link
+      FROM offers
+      WHERE user_id = ?
+        AND ${offerNotDeletedCondition}
+    `,
+    [params.userId]
+  )
+
+  for (const row of rows) {
+    const offerId = Number(row.id)
+    if (!Number.isFinite(offerId)) continue
+
+    const asinCandidates = new Set<string>()
+    const urlAsin = extractAsinFromUrlLike(row.url)
+    const finalUrlAsin = extractAsinFromUrlLike(row.final_url)
+    const affiliateLinkAsin = extractAsinFromUrlLike(row.affiliate_link)
+
+    if (urlAsin) asinCandidates.add(urlAsin)
+    if (finalUrlAsin) asinCandidates.add(finalUrlAsin)
+    if (affiliateLinkAsin) asinCandidates.add(affiliateLinkAsin)
+
+    for (const asin of asinCandidates) {
+      if (!requestedAsinSet.has(asin)) continue
+      const existing = linksByAsin.get(asin) || []
+      if (!existing.includes(offerId)) {
+        existing.push(offerId)
+        linksByAsin.set(asin, existing)
+      }
+    }
+  }
+
+  return linksByAsin
 }
 
 async function queryCampaignWeights(params: {
@@ -492,6 +588,18 @@ export async function persistAffiliateCommissionAttributions(params: {
     }
   }
 
+  const fallbackOfferIdsByAsin = await queryActiveOfferIdsByAsins({
+    userId: params.userId,
+    asins: normalizedEntries
+      .map((entry) => entry.sourceAsin)
+      .filter((asin): asin is string => Boolean(asin)),
+  })
+  for (const offerIds of fallbackOfferIdsByAsin.values()) {
+    for (const offerId of offerIds) {
+      allOfferIds.add(offerId)
+    }
+  }
+
   const campaignWeightsByOffer = await queryCampaignWeights({
     userId: params.userId,
     reportDate: params.reportDate,
@@ -523,6 +631,12 @@ export async function persistAffiliateCommissionAttributions(params: {
     const matchedOfferIds = new Set<number>()
     for (const productId of matchedProductIds) {
       for (const offerId of offerLinksByProduct.get(productId) || []) {
+        matchedOfferIds.add(offerId)
+      }
+    }
+
+    if (entry.sourceAsin) {
+      for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
         matchedOfferIds.add(offerId)
       }
     }
