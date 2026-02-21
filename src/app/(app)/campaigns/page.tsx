@@ -98,6 +98,8 @@ interface PerformanceSummary {
   totalConversions: number
   totalCommission?: number
   totalCostUsd: number
+  totalRoas?: number | null
+  totalRoasInfinite?: boolean
   currency?: string
   currencies?: string[]
   hasMixedCurrency?: boolean
@@ -109,6 +111,8 @@ interface PerformanceSummary {
     clicks: number | null
     conversions: number | null
     cost: number | null
+    roas?: number | null
+    roasInfinite?: boolean
   }
 }
 
@@ -233,6 +237,25 @@ export default function CampaignsPage() {
     formatCurrency(value, currencyCode)
   const trendsCurrencyValue = trendsCurrency || trendsCurrencies[0] || defaultCurrency
   const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
+  const formatSummaryRoas = (value: PerformanceSummary | null): string => {
+    if (!value) return '--'
+    if (value.currency === 'MIXED') return '--'
+    if (value.totalRoasInfinite) return '∞'
+    if (value.totalRoas === null || value.totalRoas === undefined) return '--'
+    const normalized = Number(value.totalRoas)
+    if (!Number.isFinite(normalized)) return '--'
+    return `${normalized.toFixed(2)}x`
+  }
+  const formatSummaryRoasChange = (value: PerformanceSummary | null): string => {
+    if (!value) return '--'
+    if (value.currency === 'MIXED') return '--'
+    if (value.changes?.roasInfinite) return '∞'
+    const roasChange = value.changes?.roas
+    if (roasChange === null || roasChange === undefined) return '--'
+    const normalized = Number(roasChange)
+    if (!Number.isFinite(normalized)) return '--'
+    return `${Math.abs(normalized).toFixed(1)}%`
+  }
   const visibleCampaignCount = campaigns.filter((campaign) => showDeletedCampaigns || !isCampaignDeleted(campaign)).length
   const hasBatchOfflineSelection = selectedCampaignIds.size > 0
   const selectedRemovedCampaignCount = campaigns.filter(
@@ -1428,7 +1451,7 @@ export default function CampaignsPage() {
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         {/* Summary Statistics with comparison */}
         {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
@@ -1513,6 +1536,33 @@ export default function CampaignsPage() {
                   </div>
                   <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
                     <Coins className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">ROAS</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {formatSummaryRoas(summary)}
+                    </p>
+                    {summary.currency === 'MIXED' ? (
+                      <p className="text-xs mt-1 text-gray-500">-- 环比</p>
+                    ) : summary.changes?.roasInfinite ? (
+                      <p className="text-xs mt-1 text-green-600">↑ ∞ 环比</p>
+                    ) : summary.changes?.roas !== null && summary.changes?.roas !== undefined ? (
+                      <p className={`text-xs mt-1 ${Number(summary.changes.roas) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {Number(summary.changes.roas) >= 0 ? '↑' : '↓'} {formatSummaryRoasChange(summary)} 环比
+                      </p>
+                    ) : (
+                      <p className="text-xs mt-1 text-gray-500">-- 环比</p>
+                    )}
+                  </div>
+                  <div className="h-12 w-12 bg-indigo-100 rounded-full flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-indigo-600" />
                   </div>
                 </div>
               </CardContent>

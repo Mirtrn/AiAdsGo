@@ -15,6 +15,8 @@ interface KPIData {
     cost: number
     conversions: number
     commission: number
+    roas: number | null
+    roasInfinite: boolean
     ctr: number
     cpc: number
     conversionRate: number
@@ -28,6 +30,8 @@ interface KPIData {
     cost: number
     conversions: number
     commission: number
+    roas: number | null
+    roasInfinite: boolean
   }
   changes: {
     impressions: number
@@ -35,10 +39,32 @@ interface KPIData {
     cost: number
     conversions: number
     commission: number
+    roas: number | null
+    roasInfinite: boolean
   }
   period: {
     current: { start: string; end: string }
     previous: { start: string; end: string }
+  }
+}
+
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function calculateRoas(commission: number, cost: number): { value: number | null; infinite: boolean } {
+  const normalizedCommission = Number(commission) || 0
+  const normalizedCost = Number(cost) || 0
+  if (normalizedCost <= 0) {
+    if (normalizedCommission > 0) {
+      return { value: null, infinite: true }
+    }
+    return { value: 0, infinite: false }
+  }
+
+  return {
+    value: roundTo2(normalizedCommission / normalizedCost),
+    infinite: false,
   }
 }
 
@@ -190,6 +216,8 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         cost: totalCost,
         conversions: totalCommission,
         commission: totalCommission,
+        roas: null as number | null,
+        roasInfinite: false,
         ctr: 0,
         cpc: 0,
         conversionRate: 0,
@@ -210,6 +238,18 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         cost: Number(previousData?.cost) || 0,
         conversions: previousCommission,
         commission: previousCommission,
+        roas: null as number | null,
+        roasInfinite: false,
+      }
+
+      const roasAvailable = !isMultiCurrency
+      if (roasAvailable) {
+        const currentRoas = calculateRoas(current.commission, current.cost)
+        const previousRoas = calculateRoas(previous.commission, previous.cost)
+        current.roas = currentRoas.value
+        current.roasInfinite = currentRoas.infinite
+        previous.roas = previousRoas.value
+        previous.roasInfinite = previousRoas.infinite
       }
 
       if (current.impressions > 0) {
@@ -234,6 +274,21 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         cost: Number(calculateChange(current.cost, previous.cost)) || 0,
         conversions: commissionChange,
         commission: commissionChange,
+        roas: null as number | null,
+        roasInfinite: false,
+      }
+
+      if (roasAvailable) {
+        if (current.roasInfinite) {
+          changes.roasInfinite = true
+        } else if (
+          !previous.roasInfinite
+          && typeof previous.roas === 'number'
+          && previous.roas > 0
+          && typeof current.roas === 'number'
+        ) {
+          changes.roas = roundTo2(((current.roas - previous.roas) / previous.roas) * 100)
+        }
       }
 
       const response: KPIData = {

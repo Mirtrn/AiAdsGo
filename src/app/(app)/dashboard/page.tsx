@@ -15,6 +15,7 @@ import {
   Eye,
   MousePointerClick,
   DollarSign,
+  Coins,
   TrendingUp,
   TrendingDown,
   Plus,
@@ -33,6 +34,9 @@ interface KPIData {
     impressions: number
     clicks: number
     cost: number
+    commission: number
+    roas: number | null
+    roasInfinite: boolean
     ctr: number
     cpc: number
     currency?: string // 🔧 新增(2025-12-30): 货币代码
@@ -42,6 +46,9 @@ interface KPIData {
     impressions: number
     clicks: number
     cost: number
+    commission: number
+    roas: number | null
+    roasInfinite: boolean
   }
 }
 
@@ -137,10 +144,6 @@ export default function DashboardPage() {
   }, [days])
 
   const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
-  const formatPercent = (num: number | null | undefined) => {
-    const value = Number(num ?? 0)
-    return isNaN(value) ? '0.00%' : `${value.toFixed(2)}%`
-  }
 
   /**
    * 🔧 修复(2025-12-29): 安全地格式化数值，处理可能为字符串或null的情况
@@ -168,14 +171,32 @@ export default function DashboardPage() {
     return formatCurrency(current.cost, current.currency || 'USD')
   }
 
+  const formatRoasDisplay = (kpiData: KPIData | null): string => {
+    if (!kpiData) return '--'
+    if (kpiData.current.currency === 'MIXED') return '--'
+    if (kpiData.current.roasInfinite) return '∞'
+    if (kpiData.current.roas === null || kpiData.current.roas === undefined) return '--'
+    return `${safeToFixed(kpiData.current.roas, 2)}x`
+  }
+
+  const formatRoasChangeText = (kpiData: KPIData | null): string => {
+    if (!kpiData) return '--'
+    if (kpiData.current.currency === 'MIXED') return '--'
+    if (kpiData.changes.roasInfinite) return '∞'
+    if (kpiData.changes.roas === null || kpiData.changes.roas === undefined) return '--'
+    const value = Number(kpiData.changes.roas)
+    if (!Number.isFinite(value)) return '--'
+    return `${value >= 0 ? '+' : ''}${safeToFixed(value, 1)}%`
+  }
+
   // 加载骨架屏
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
         <div className="max-w-6xl mx-auto space-y-6">
           <Skeleton className="h-10 w-48" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-32" />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-32" />)}
           </div>
           <Skeleton className="h-48" />
         </div>
@@ -224,8 +245,8 @@ export default function DashboardPage() {
         </div>
 
 
-        {/* 核心KPI - 3个最重要的指标 */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        {/* 核心KPI - 5个关键指标 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
           {/* 展示量 */}
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
@@ -301,14 +322,88 @@ export default function DashboardPage() {
                 </div>
               </div>
               {kpiData && (
-                <div className="flex items-center gap-2 mt-3">
-                  <span className="text-sm text-gray-500">
-                    点击率(CTR) {formatPercent(kpiData.current.ctr)}
+                <div className="flex items-center gap-1 mt-3">
+                  {kpiData.changes.cost >= 0 ? (
+                    <TrendingUp className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-green-500" />
+                  )}
+                  <span className={`text-sm font-medium ${kpiData.changes.cost >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {kpiData.changes.cost >= 0 ? '+' : ''}{safeToFixed(kpiData.changes.cost, 1)}%
                   </span>
-                  <span className="text-gray-300">·</span>
-                  <span className="text-sm text-gray-500">
-                    每次点击费用(CPC) {formatCurrency(kpiData.current.cpc, kpiData.current.currency || 'USD')}
+                  <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 佣金 */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">总佣金</p>
+                  <p className="text-2xl font-bold">
+                    {kpiData ? formatCurrency(kpiData.current.commission, kpiData.current.currency || 'USD') : '-'}
+                  </p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-xl">
+                  <Coins className="w-6 h-6 text-amber-600" />
+                </div>
+              </div>
+              {kpiData && (
+                <div className="flex items-center gap-1 mt-3">
+                  {kpiData.changes.commission >= 0 ? (
+                    <TrendingUp className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-red-500" />
+                  )}
+                  <span className={`text-sm font-medium ${kpiData.changes.commission >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {kpiData.changes.commission >= 0 ? '+' : ''}{safeToFixed(kpiData.changes.commission, 1)}%
                   </span>
+                  <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ROAS */}
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">ROAS</p>
+                  <p className="text-2xl font-bold">
+                    {formatRoasDisplay(kpiData)}
+                  </p>
+                </div>
+                <div className="p-3 bg-indigo-50 rounded-xl">
+                  <TrendingUp className="w-6 h-6 text-indigo-600" />
+                </div>
+              </div>
+              {kpiData && (
+                <div className="flex items-center gap-1 mt-3">
+                  {kpiData.changes.roasInfinite ? (
+                    <TrendingUp className="w-4 h-4 text-green-500" />
+                  ) : typeof kpiData.changes.roas === 'number' ? (
+                    kpiData.changes.roas >= 0 ? (
+                      <TrendingUp className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <TrendingDown className="w-4 h-4 text-red-500" />
+                    )
+                  ) : (
+                    <span className="w-4 h-4" />
+                  )}
+                  <span className={`text-sm font-medium ${
+                    kpiData.changes.roasInfinite
+                      ? 'text-green-600'
+                      : typeof kpiData.changes.roas === 'number'
+                        ? (kpiData.changes.roas >= 0 ? 'text-green-600' : 'text-red-600')
+                        : 'text-gray-500'
+                  }`}>
+                    {formatRoasChangeText(kpiData)}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>
               )}
             </CardContent>

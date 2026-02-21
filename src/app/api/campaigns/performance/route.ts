@@ -24,6 +24,22 @@ function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+function calculateRoas(commission: number, cost: number): { value: number | null; infinite: boolean } {
+  const normalizedCommission = Number(commission) || 0
+  const normalizedCost = Number(cost) || 0
+  if (normalizedCost <= 0) {
+    if (normalizedCommission > 0) {
+      return { value: null, infinite: true }
+    }
+    return { value: 0, infinite: false }
+  }
+
+  return {
+    value: roundTo2(normalizedCommission / normalizedCost),
+    infinite: false,
+  }
+}
+
 type Agg = {
   impressions: number
   clicks: number
@@ -393,7 +409,9 @@ export async function GET(request: NextRequest) {
     const queryCommissionTotals = async (params: {
       start: string
       end: string
+      currency?: string
     }): Promise<number> => {
+      const hasCurrencyFilter = Boolean(params.currency)
       const row = await db.queryOne<{ total_commission: number }>(
         `
           SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
@@ -401,8 +419,11 @@ export async function GET(request: NextRequest) {
           WHERE user_id = ?
             AND report_date >= ?
             AND report_date <= ?
+            ${hasCurrencyFilter ? 'AND COALESCE(currency, \'USD\') = ?' : ''}
         `,
-        [userId, params.start, params.end]
+        hasCurrencyFilter
+          ? [userId, params.start, params.end, String(params.currency)]
+          : [userId, params.start, params.end]
       )
 
       return Number(row?.total_commission) || 0
@@ -435,10 +456,12 @@ export async function GET(request: NextRequest) {
     const currentCommissionTotal = await queryCommissionTotals({
       start: startDateStr,
       end: endDate,
+      currency: reportingCurrency || undefined,
     })
     const prevCommissionTotal = await queryCommissionTotals({
       start: prevStartDateStr,
       end: prevEndDateStr,
+      currency: reportingCurrency || undefined,
     })
 
     const calcChange = (current: number, previous: number): number | null => {
@@ -450,7 +473,35 @@ export async function GET(request: NextRequest) {
       impressions: calcChange(currentTotals.impressions, prevTotals.impressions),
       clicks: calcChange(currentTotals.clicks, prevTotals.clicks),
       conversions: calcChange(currentCommissionTotal, prevCommissionTotal),
-      cost: isFilteredByCurrency ? calcChange(currentTotals.cost, prevTotals.cost) : null
+      cost: isFilteredByCurrency ? calcChange(currentTotals.cost, prevTotals.cost) : null,
+      roas: null as number | null,
+      roasInfinite: false,
+    }
+
+    const roasAvailable = isFilteredByCurrency || !hasMixedCurrency
+    let totalRoas: number | null = null
+    let totalRoasInfinite = false
+    let prevRoas: number | null = null
+    let prevRoasInfinite = false
+
+    if (roasAvailable) {
+      const currentRoas = calculateRoas(currentCommissionTotal, currentTotals.cost)
+      const previousRoas = calculateRoas(prevCommissionTotal, prevTotals.cost)
+      totalRoas = currentRoas.value
+      totalRoasInfinite = currentRoas.infinite
+      prevRoas = previousRoas.value
+      prevRoasInfinite = previousRoas.infinite
+
+      if (totalRoasInfinite) {
+        changes.roasInfinite = true
+      } else if (
+        !prevRoasInfinite
+        && typeof prevRoas === 'number'
+        && prevRoas > 0
+        && typeof totalRoas === 'number'
+      ) {
+        changes.roas = roundTo2(((totalRoas - prevRoas) / prevRoas) * 100)
+      }
     }
 
     return NextResponse.json({
@@ -464,6 +515,8 @@ export async function GET(request: NextRequest) {
         totalConversions: roundTo2(currentCommissionTotal),
         totalCommission: roundTo2(currentCommissionTotal),
         totalCostUsd: currentTotals.cost,
+        totalRoas: roasAvailable ? totalRoas : null,
+        totalRoasInfinite: roasAvailable ? totalRoasInfinite : false,
         currency: hasMixedCurrency && !isFilteredByCurrency ? 'MIXED' : (reportingCurrency || currencies[0] || 'USD'),
         currencies,
         hasMixedCurrency,
