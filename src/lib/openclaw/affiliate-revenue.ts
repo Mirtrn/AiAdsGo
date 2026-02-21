@@ -137,6 +137,48 @@ function normalizeAsin(value: unknown): string | null {
   return cleaned.length > 10 ? cleaned.slice(0, 10) : cleaned
 }
 
+function extractAsinFromUrlLike(value: unknown): string | null {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded && decoded !== raw) candidates.push(decoded)
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  const patterns = [
+    /\/dp\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /\/gp\/product\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /[?&#]asin=([A-Za-z0-9]{10})(?=[&#]|$)/i,
+  ]
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const matched = candidate.match(pattern)
+      if (!matched?.[1]) continue
+      const asin = normalizeAsin(matched[1])
+      if (asin) return asin
+    }
+  }
+
+  return null
+}
+
+function pickAsin(...values: unknown[]): string | null {
+  for (const value of values) {
+    const asinFromUrl = extractAsinFromUrlLike(value)
+    if (asinFromUrl) return asinFromUrl
+    const asin = normalizeAsin(value)
+    if (asin && asin.length === 10) return asin
+  }
+  return null
+}
+
 function pickString(...values: unknown[]): string | null {
   for (const value of values) {
     if (value === null || value === undefined) continue
@@ -218,11 +260,21 @@ async function fetchPartnerboostCommission(params: {
             row?.advertId,
           ),
           sourceAsin: normalizeAsin(
-            row?.asin
-            ?? row?.ASIN
-            ?? row?.sku
-            ?? row?.product_asin
-            ?? row?.productAsin
+            pickAsin(
+              row?.asin,
+              row?.ASIN,
+              row?.product_asin,
+              row?.productAsin,
+              row?.link,
+              row?.url,
+              row?.product_link,
+              row?.productLink,
+              row?.landing_page,
+              row?.landingPage,
+              row?.final_url,
+              row?.finalUrl,
+              row?.sku
+            )
           ),
           raw: row,
         })
@@ -316,9 +368,15 @@ async function fetchYeahPromosCommission(params: {
             row?.mid,
           ),
           sourceAsin: normalizeAsin(
-            row?.sku
-            ?? row?.asin
-            ?? row?.ASIN
+            pickAsin(
+              row?.asin,
+              row?.ASIN,
+              row?.sku,
+              row?.link,
+              row?.url,
+              row?.product_link,
+              row?.productLink
+            )
           ),
           raw: row,
         })
