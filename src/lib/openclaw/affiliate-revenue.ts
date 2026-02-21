@@ -276,6 +276,16 @@ async function fetchPartnerboostCommission(params: {
               row?.sku
             )
           ),
+          sourceLink: pickString(
+            row?.link,
+            row?.url,
+            row?.product_link,
+            row?.productLink,
+            row?.landing_page,
+            row?.landingPage,
+            row?.final_url,
+            row?.finalUrl
+          ),
           raw: row,
         })
       }
@@ -377,6 +387,12 @@ async function fetchYeahPromosCommission(params: {
               row?.product_link,
               row?.productLink
             )
+          ),
+          sourceLink: pickString(
+            row?.link,
+            row?.url,
+            row?.product_link,
+            row?.productLink
           ),
           raw: row,
         })

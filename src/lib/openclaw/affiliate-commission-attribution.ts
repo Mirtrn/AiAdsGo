@@ -11,6 +11,7 @@ export type AffiliateCommissionRawEntry = {
   sourceOrderId?: string | null
   sourceMid?: string | null
   sourceAsin?: string | null
+  sourceLink?: string | null
   raw?: unknown
 }
 
@@ -96,6 +97,43 @@ function extractAsinFromUrlLike(value: unknown): string | null {
       if (!matched?.[1]) continue
       const asin = normalizeAsin(matched[1])
       if (asin) return asin
+    }
+  }
+
+  return null
+}
+
+function extractPartnerboostLinkId(value: unknown): string | null {
+  const raw = normalizeText(value)
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded && decoded !== raw) candidates.push(decoded)
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate)
+      const key = Array.from(url.searchParams.keys())
+        .find((item) => item.toLowerCase() === 'aa_adgroupid')
+      if (key) {
+        const value = normalizeText(url.searchParams.get(key))
+        if (value) return value
+      }
+    } catch {
+      // ignore invalid urls
+    }
+
+    const matched = candidate.match(/[?&#]aa_adgroupid=([^&#]+)/i)
+    if (matched?.[1]) {
+      const value = normalizeText(matched[1])
+      if (value) return value
     }
   }
 
@@ -287,6 +325,72 @@ async function queryProductIdentifierRows(params: {
   return rows
 }
 
+async function queryPartnerboostProductIdsByLinkIds(params: {
+  userId: number
+  linkIds: string[]
+}): Promise<Map<string, number[]>> {
+  const result = new Map<string, number[]>()
+  const linkIds = Array.from(
+    new Set(
+      params.linkIds
+        .map((item) => normalizeText(item))
+        .filter((item): item is string => Boolean(item))
+    )
+  )
+  if (linkIds.length === 0) return result
+
+  const linkIdSet = new Set(linkIds)
+  const db = await getDatabase()
+  const rowSeen = new Set<number>()
+
+  for (const linkIdChunk of chunkArray(linkIds, 80)) {
+    const conditions = linkIdChunk.map(() => '(promo_link LIKE ? OR short_promo_link LIKE ?)')
+    const queryParams: Array<number | string> = [params.userId]
+    for (const linkId of linkIdChunk) {
+      const pattern = `%aa_adgroupid=${linkId}%`
+      queryParams.push(pattern, pattern)
+    }
+
+    const rows = await db.query<{
+      id: number
+      promo_link: string | null
+      short_promo_link: string | null
+    }>(
+      `
+        SELECT id, promo_link, short_promo_link
+        FROM affiliate_products
+        WHERE user_id = ?
+          AND platform = 'partnerboost'
+          AND (${conditions.join(' OR ')})
+      `,
+      queryParams
+    )
+
+    for (const row of rows) {
+      const productId = Number(row.id)
+      if (!Number.isFinite(productId) || rowSeen.has(productId)) continue
+      rowSeen.add(productId)
+
+      const candidateLinkIds = new Set<string>()
+      const promoLinkId = extractPartnerboostLinkId(row.promo_link)
+      const shortLinkId = extractPartnerboostLinkId(row.short_promo_link)
+      if (promoLinkId) candidateLinkIds.add(promoLinkId)
+      if (shortLinkId) candidateLinkIds.add(shortLinkId)
+
+      for (const linkId of candidateLinkIds) {
+        if (!linkIdSet.has(linkId)) continue
+        const existing = result.get(linkId) || []
+        if (!existing.includes(productId)) {
+          existing.push(productId)
+          result.set(linkId, existing)
+        }
+      }
+    }
+  }
+
+  return result
+}
+
 async function queryOfferLinksByProductIds(userId: number, productIds: number[]): Promise<Map<number, number[]>> {
   const linksByProduct = new Map<number, number[]>()
   if (productIds.length === 0) return linksByProduct
@@ -472,6 +576,8 @@ export async function persistAffiliateCommissionAttributions(params: {
       const commission = roundTo(Number(entry.commission) || 0)
       if (commission <= 0) return null
 
+      const sourceLink = normalizeText(entry.sourceLink)
+
       return {
         platform: entry.platform,
         reportDate: normalizeText(entry.reportDate) || params.reportDate,
@@ -480,6 +586,10 @@ export async function persistAffiliateCommissionAttributions(params: {
         sourceOrderId: normalizeText(entry.sourceOrderId),
         sourceMid: normalizeText(entry.sourceMid),
         sourceAsin: normalizeAsin(entry.sourceAsin),
+        sourceLink,
+        sourceLinkId: entry.platform === 'partnerboost'
+          ? extractPartnerboostLinkId(sourceLink)
+          : null,
         raw: entry.raw,
       }
     })
@@ -533,6 +643,7 @@ export async function persistAffiliateCommissionAttributions(params: {
 
   const midsByPlatform = new Map<AffiliatePlatform, string[]>()
   const asinsByPlatform = new Map<AffiliatePlatform, string[]>()
+  const linkIdsByPlatform = new Map<AffiliatePlatform, string[]>()
 
   for (const entry of normalizedEntries) {
     if (entry.sourceMid) {
@@ -550,10 +661,19 @@ export async function persistAffiliateCommissionAttributions(params: {
         asinsByPlatform.set(entry.platform, list)
       }
     }
+
+    if (entry.sourceLinkId) {
+      const list = linkIdsByPlatform.get(entry.platform) || []
+      if (!list.includes(entry.sourceLinkId)) {
+        list.push(entry.sourceLinkId)
+        linkIdsByPlatform.set(entry.platform, list)
+      }
+    }
   }
 
   const productIdsByPlatformMid = new Map<string, number[]>()
   const productIdsByPlatformAsin = new Map<string, number[]>()
+  const productIdsByPlatformLinkId = new Map<string, number[]>()
   const allProductIds = new Set<number>()
 
   for (const platform of ['partnerboost', 'yeahpromos'] as AffiliatePlatform[]) {
@@ -591,6 +711,18 @@ export async function persistAffiliateCommissionAttributions(params: {
           productIdsByPlatformAsin.set(key, existing)
         }
       }
+    }
+  }
+
+  const partnerboostLinkIdMap = await queryPartnerboostProductIdsByLinkIds({
+    userId: params.userId,
+    linkIds: linkIdsByPlatform.get('partnerboost') || [],
+  })
+  for (const [linkId, productIds] of partnerboostLinkIdMap.entries()) {
+    const key = `partnerboost|linkid|${linkId}`
+    productIdsByPlatformLinkId.set(key, productIds)
+    for (const productId of productIds) {
+      allProductIds.add(productId)
     }
   }
 
@@ -646,6 +778,13 @@ export async function persistAffiliateCommissionAttributions(params: {
       for (const productId of productIdsByPlatformAsin.get(key) || []) {
         matchedProductIds.add(productId)
         matchedProductIdsFromAsin.add(productId)
+      }
+    }
+
+    if (entry.sourceLinkId) {
+      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
+      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
+        matchedProductIds.add(productId)
       }
     }
 

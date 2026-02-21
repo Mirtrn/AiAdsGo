@@ -172,4 +172,68 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM offers'), [9])
     expect(exec).toHaveBeenCalledTimes(3)
   })
+
+  it('matches partnerboost entries via aa_adgroupid link id when asin is missing', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_products') && sql.includes('mid IN')) {
+        return []
+      }
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('promo_link LIKE')) {
+        return [
+          {
+            id: 501,
+            promo_link: 'https://www.amazon.com/dp/B0C7GYLKPM?aa_adgroupid=pb_link_123',
+            short_promo_link: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return [{ product_id: 501, offer_id: 2001 }]
+      }
+      if (sql.includes('FROM offers')) {
+        return []
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 10,
+            cost: 2,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 9.87,
+          sourceOrderId: 'order-link-1',
+          sourceLink: 'https://www.amazon.com/dp/B0C7GYLKPM?aa_adgroupid=pb_link_123',
+          raw: { estCommission: 9.87 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 9.87,
+      attributedCommission: 9.87,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+  })
 })
