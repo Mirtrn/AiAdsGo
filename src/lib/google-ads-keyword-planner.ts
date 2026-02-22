@@ -231,7 +231,7 @@ export async function getKeywordIdeas(params: {
   } finally {
     // 记录API使用（仅在有userId时追踪）
     if (params.userId) {
-      trackApiUsage({
+      await trackApiUsage({
         userId: params.userId,
         operationType: ApiOperationType.GET_KEYWORD_IDEAS,
         endpoint: 'getKeywordIdeas',
@@ -354,7 +354,7 @@ export async function getKeywordMetrics(params: {
   } finally {
     // 记录API使用（仅在有userId时追踪）
     if (params.userId) {
-      trackApiUsage({
+      await trackApiUsage({
         userId: params.userId,
         operationType: ApiOperationType.GET_KEYWORD_IDEAS,
         endpoint: 'getKeywordMetrics',

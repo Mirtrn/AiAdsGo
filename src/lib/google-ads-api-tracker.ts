@@ -3,12 +3,48 @@
  * 用于记录和监控API配额使用情况
  *
  * 根据 https://developers.google.com/google-ads/api/docs/best-practices/quotas
- * - 每天基础配额：15,000次操作
+ * - Explorer Access: 2,880 次操作/天
+ * - Basic Access: 15,000 次操作/天
  * - Mutate操作权重更高
  * - Report/Search操作权重较低
  */
 
 import { getDatabase } from './db'
+
+const DEFAULT_EXPLORER_DAILY_QUOTA_LIMIT = 2880
+
+function parsePositiveInt(value: unknown): number | null {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.floor(n)
+}
+
+async function resolveDailyQuotaLimit(userId: number): Promise<number> {
+  const envLimit = parsePositiveInt(process.env.GOOGLE_ADS_DAILY_QUOTA_LIMIT)
+  if (envLimit) return envLimit
+
+  try {
+    const db = getDatabase()
+    const row = await db.queryOne(`
+      SELECT value
+      FROM system_settings
+      WHERE category = 'google_ads'
+        AND key IN ('daily_quota_limit', 'quota_limit')
+        AND (user_id = ? OR user_id IS NULL)
+      ORDER BY
+        CASE WHEN user_id = ? THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT 1
+    `, [userId, userId]) as { value?: unknown } | undefined
+
+    const settingsLimit = parsePositiveInt(row?.value)
+    if (settingsLimit) return settingsLimit
+  } catch {
+    // system_settings 在少数极简部署中可能不存在，不影响主流程
+  }
+
+  return DEFAULT_EXPLORER_DAILY_QUOTA_LIMIT
+}
 
 /**
  * API操作类型
@@ -148,7 +184,7 @@ export async function getDailyUsageStats(userId: number, date?: string): Promise
   })
 
   const totalRequests = Number(summary?.total_requests) || 0
-  const quotaLimit = 15000 // 每天基础配额
+  const quotaLimit = await resolveDailyQuotaLimit(userId)
   const quotaUsagePercent = (totalRequests / quotaLimit) * 100
   const quotaRemaining = Math.max(0, quotaLimit - totalRequests)
 

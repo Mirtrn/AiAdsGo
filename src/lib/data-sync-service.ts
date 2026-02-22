@@ -10,6 +10,7 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { normalizeBrandKey, refreshBrandCoreKeywordCache } from './brand-core-keywords'
 import { isInvalidKeyword } from './keyword-invalid-filter'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 /**
  * 同步状态
@@ -780,7 +781,13 @@ export class DataSyncService {
             userId,
           })
 
-          const results = await (customer as any).query(query)
+          const results = await this.executeOAuthGaqlWithTracking<any[]>({
+            userId,
+            customerId,
+            operationType: ApiOperationType.REPORT,
+            endpoint: '/api/google-ads/query',
+            fn: () => (customer as any).query(query),
+          })
           if (i > 0) {
             console.log(`✅ 账号 ${customerId} 使用备用 login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询效果成功`)
           }
@@ -930,8 +937,20 @@ export class DataSyncService {
             })
 
             results = await runQueryWithSchemaFallback(
-              async () => await (customer as any).query(queryWithMatchType),
-              async () => await (customer as any).query(queryFallback)
+              async () => await this.executeOAuthGaqlWithTracking<any[]>({
+                userId,
+                customerId,
+                operationType: ApiOperationType.REPORT,
+                endpoint: '/api/google-ads/query',
+                fn: () => (customer as any).query(queryWithMatchType),
+              }),
+              async () => await this.executeOAuthGaqlWithTracking<any[]>({
+                userId,
+                customerId,
+                operationType: ApiOperationType.REPORT,
+                endpoint: '/api/google-ads/query',
+                fn: () => (customer as any).query(queryFallback),
+              })
             )
 
             if (i > 0) {
@@ -1050,7 +1069,13 @@ export class DataSyncService {
               userId,
             })
 
-            results = await (customer as any).query(query)
+            results = await this.executeOAuthGaqlWithTracking<any[]>({
+              userId,
+              customerId,
+              operationType: ApiOperationType.REPORT,
+              endpoint: '/api/google-ads/query',
+              fn: () => (customer as any).query(query),
+            })
 
             if (i > 0) {
               console.log(`✅ 账号 ${customerId} 使用备用 login_customer_id=${this.describeLoginCustomerId(loginCustomerId)} 查询关键词成功`)
@@ -1103,6 +1128,41 @@ export class DataSyncService {
 
   private describeLoginCustomerId(value: string | undefined): string {
     return value || 'null(omit)'
+  }
+
+  private async executeOAuthGaqlWithTracking<T>(params: {
+    userId: number
+    customerId: string
+    operationType: ApiOperationType
+    endpoint: string
+    fn: () => Promise<T>
+  }): Promise<T> {
+    const startTime = Date.now()
+    try {
+      const result = await params.fn()
+      await trackApiUsage({
+        userId: params.userId,
+        operationType: params.operationType,
+        endpoint: params.endpoint,
+        customerId: params.customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: true,
+      })
+      return result
+    } catch (error: any) {
+      await trackApiUsage({
+        userId: params.userId,
+        operationType: params.operationType,
+        endpoint: params.endpoint,
+        customerId: params.customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: false,
+        errorMessage: this.buildSyncErrorMessage(error),
+      }).catch(() => {})
+      throw error
+    }
   }
 
   private safeStringify(value: unknown): string | null {

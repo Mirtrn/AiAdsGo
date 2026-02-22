@@ -783,6 +783,7 @@ async function syncAccountsFromAPI(
     const mccApiStartTime = Date.now()
     let mccApiSuccess = false
     let mccApiErrorMessage: string | undefined
+    let mccApiRequestCount = 0
 
     try {
       const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
@@ -806,14 +807,19 @@ async function syncAccountsFromAPI(
         }
       }
 
-      const childAccounts = extractSearchResults(isServiceAccount
-        ? await executeGAQLQueryPython({
+      let childAccountsRaw: any
+      if (isServiceAccount) {
+        childAccountsRaw = await executeGAQLQueryPython({
           userId,
           serviceAccountId: serviceAccountConfig?.id?.toString?.(),
           customerId: managerId,
           query: childAccountsQuery,
         })
-        : await customerForQuery.query(childAccountsQuery))
+      } else {
+        mccApiRequestCount += 1
+        childAccountsRaw = await customerForQuery.query(childAccountsQuery)
+      }
+      const childAccounts = extractSearchResults(childAccountsRaw)
       mccApiSuccess = true
 
       for (const child of childAccounts) {
@@ -907,9 +913,12 @@ async function syncAccountsFromAPI(
               })
               childBudgetInfo = result.results || []
             } else {
-              childBudgetInfo = childCustomer
-                ? extractSearchResults(await childCustomer.query(childBudgetQuery))
-                : []
+              if (childCustomer) {
+                mccApiRequestCount += 1
+                childBudgetInfo = extractSearchResults(await childCustomer.query(childBudgetQuery))
+              } else {
+                childBudgetInfo = []
+              }
             }
 
             if (childBudgetInfo && childBudgetInfo.length > 0) {
@@ -976,12 +985,12 @@ async function syncAccountsFromAPI(
       console.warn(`   ⚠️ 查询MCC ${managerId} 子账户失败: ${childError.message}`)
     } finally {
       // 记录MCC子账户查询API使用
-      trackApiUsage({
+      await trackApiUsage({
         userId,
         operationType: ApiOperationType.SEARCH,
         endpoint: 'getMccChildAccounts',
         customerId: managerId,
-        requestCount: 1,
+        requestCount: Math.max(1, mccApiRequestCount),
         responseTimeMs: Date.now() - mccApiStartTime,
         isSuccess: mccApiSuccess,
         errorMessage: mccApiErrorMessage
@@ -996,6 +1005,7 @@ async function syncAccountsFromAPI(
     const apiStartTime = Date.now()
     let apiSuccess = false
     let apiErrorMessage: string | undefined
+    let apiRequestCount = 0
 
     try {
       const basicAccountInfoQuery = `
@@ -1063,6 +1073,7 @@ async function syncAccountsFromAPI(
               'oauth'
             )
 
+            apiRequestCount += 1
             const searchResult = await candidateCustomer.query(basicAccountInfoQuery)
             const results = extractSearchResults(searchResult)
             if (!results || results.length === 0) {
@@ -1159,6 +1170,7 @@ async function syncAccountsFromAPI(
               query: basicAccountInfoQuery
             })
           } else {
+            apiRequestCount += 1
             searchResult = await customer.query(basicAccountInfoQuery)
           }
 
@@ -1183,6 +1195,7 @@ async function syncAccountsFromAPI(
                 query: statusQuery
               })
             } else {
+              apiRequestCount += 1
               statusResult = await customer.query(statusQuery)
             }
             const statusInfo = extractSearchResults(statusResult)
@@ -1230,7 +1243,10 @@ async function syncAccountsFromAPI(
           const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
           const budgetResult = isServiceAccount
             ? await executeGAQLQueryPython({ userId, serviceAccountId: serviceAccountConfig.id.toString(), customerId, query: budgetQuery })
-            : await customer.query(budgetQuery)
+            : await (async () => {
+              apiRequestCount += 1
+              return await customer.query(budgetQuery)
+            })()
           const budgetInfo = extractSearchResults(budgetResult)
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
@@ -1342,12 +1358,12 @@ async function syncAccountsFromAPI(
       recordAccount(fallbackData, dbId, last_sync_at)
     } finally {
       // 记录账户查询API使用
-      trackApiUsage({
+      await trackApiUsage({
         userId,
         operationType: ApiOperationType.SEARCH,
         endpoint: 'getAccountInfo',
         customerId,
-        requestCount: 1,
+        requestCount: Math.max(1, apiRequestCount),
         responseTimeMs: Date.now() - apiStartTime,
         isSuccess: apiSuccess,
         errorMessage: apiErrorMessage

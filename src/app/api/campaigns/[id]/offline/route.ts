@@ -9,6 +9,7 @@ import { pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
 import { removePendingClickFarmQueueTasksByTaskIds } from '@/lib/click-farm/queue-cleanup'
 import { removePendingUrlSwapQueueTasksByTaskIds } from '@/lib/url-swap/queue-cleanup'
 import { applyCampaignTransition } from '@/lib/campaign-state-machine'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 type OfflineBody = {
   blacklistOffer?: boolean
@@ -441,7 +442,31 @@ export async function POST(
                             authType,
                           })
                           const resourceName = `customers/${customerIdValue}/campaigns/${id}`
-                          await customer.campaigns.remove([resourceName])
+                          const startTime = Date.now()
+                          try {
+                            await customer.campaigns.remove([resourceName])
+                            await trackApiUsage({
+                              userId,
+                              operationType: ApiOperationType.MUTATE,
+                              endpoint: '/api/google-ads/campaign/remove',
+                              customerId: customerIdValue,
+                              requestCount: 1,
+                              responseTimeMs: Date.now() - startTime,
+                              isSuccess: true,
+                            })
+                          } catch (error: any) {
+                            await trackApiUsage({
+                              userId,
+                              operationType: ApiOperationType.MUTATE,
+                              endpoint: '/api/google-ads/campaign/remove',
+                              customerId: customerIdValue,
+                              requestCount: 1,
+                              responseTimeMs: Date.now() - startTime,
+                              isSuccess: false,
+                              errorMessage: error?.message || String(error),
+                            }).catch(() => {})
+                            throw error
+                          }
                         }
                         googleAdsSummary.removed += 1
                       } else {

@@ -4,6 +4,7 @@ import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 // Google Ads CampaignStatus 枚举值映射
 // https://developers.google.com/google-ads/api/reference/rpc/latest/CampaignStatusEnum.CampaignStatus
@@ -241,6 +242,40 @@ export async function GET(
     const gaqlCampaignById = new Map<number, any>()
     const adGroupCpcMicrosByCampaignId = new Map<number, number>()
     const targetSpendCeilingMicrosByCampaignId = new Map<number, number>()
+
+    const executeOAuthGaqlWithTracking = async (
+      customer: any,
+      customerId: string,
+      queryText: string
+    ): Promise<any[]> => {
+      const startTime = Date.now()
+      try {
+        const results = await customer.query(queryText)
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: true,
+        })
+        return results
+      } catch (error: any) {
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: false,
+          errorMessage: error?.message || String(error),
+        }).catch(() => {})
+        throw error
+      }
+    }
+
     for (const [googleAdsAccountId, account] of campaignsByAccountId.entries()) {
       const uniqueIds = Array.from(new Set(account.campaignIds))
       if (uniqueIds.length === 0) continue
@@ -362,7 +397,11 @@ export async function GET(
 
         // AdGroup CPC best-effort
         try {
-          const fetchedAdGroups = await customer.query(adGroupCpcQuery)
+          const fetchedAdGroups = await executeOAuthGaqlWithTracking(
+            customer,
+            account.customerId,
+            adGroupCpcQuery
+          )
           const adGroupRows = extractSearchResults(fetchedAdGroups)
           for (const row of adGroupRows) {
             const campaignId = Number(row?.campaign?.id)
@@ -378,7 +417,11 @@ export async function GET(
 
         // Campaign info best-effort（失败不阻断，改为使用DB兜底）
         try {
-          const fetched = await customer.query(query)
+          const fetched = await executeOAuthGaqlWithTracking(
+            customer,
+            account.customerId,
+            query
+          )
           const rows = extractSearchResults(fetched)
           for (const r of rows) {
             const cid = Number(r?.campaign?.id)
@@ -398,7 +441,11 @@ export async function GET(
         // target_spend ceiling best-effort（我们发布时使用 TARGET_SPEND，即 Maximize Clicks）
         // 避免依赖 bidding_strategy_type 判断，直接查询 ceiling
         try {
-          const fetchedTargetSpend = await customer.query(targetSpendQuery(uniqueIds))
+          const fetchedTargetSpend = await executeOAuthGaqlWithTracking(
+            customer,
+            account.customerId,
+            targetSpendQuery(uniqueIds)
+          )
           const tsRows = extractSearchResults(fetchedTargetSpend)
           for (const row of tsRows) {
             const cid = Number(row?.campaign?.id)

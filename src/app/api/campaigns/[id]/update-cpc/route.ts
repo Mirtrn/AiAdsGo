@@ -5,6 +5,7 @@ import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 import { normalizeGoogleAdsApiUpdateOperations } from '@/lib/google-ads-mutate-helpers'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 function toBiddingStrategyType(value: unknown): string {
   if (value === undefined || value === null) return 'UNKNOWN'
@@ -82,15 +83,45 @@ async function mutateResources(
   } else {
     // OAuth 模式：使用 google-ads-api 的 update 方法
     const updateOperations = normalizeGoogleAdsApiUpdateOperations(operations)
-    switch (mutateType) {
-      case 'ad_group':
-        await customer.adGroups.update(updateOperations)
-        break
-      case 'campaign':
-        await customer.campaigns.update(updateOperations)
-        break
-      default:
-        throw new Error(`不支持的 mutate 类型: ${mutateType}`)
+    const startTime = Date.now()
+    const endpoint = mutateType === 'ad_group'
+      ? '/api/google-ads/adgroup/update'
+      : '/api/google-ads/campaign/update'
+    const operationType = updateOperations.length > 1 ? ApiOperationType.MUTATE_BATCH : ApiOperationType.MUTATE
+
+    try {
+      switch (mutateType) {
+        case 'ad_group':
+          await customer.adGroups.update(updateOperations)
+          break
+        case 'campaign':
+          await customer.campaigns.update(updateOperations)
+          break
+        default:
+          throw new Error(`不支持的 mutate 类型: ${mutateType}`)
+      }
+
+      await trackApiUsage({
+        userId,
+        operationType,
+        endpoint,
+        customerId,
+        requestCount: Math.max(1, updateOperations.length),
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: true,
+      })
+    } catch (error: any) {
+      await trackApiUsage({
+        userId,
+        operationType,
+        endpoint,
+        customerId,
+        requestCount: Math.max(1, updateOperations.length),
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: false,
+        errorMessage: error?.message || String(error),
+      }).catch(() => {})
+      throw error
     }
   }
 }
@@ -118,6 +149,35 @@ export async function PUT(
     const campaignIdNum = Number(campaignId)
     if (!Number.isFinite(campaignIdNum)) {
       return NextResponse.json({ error: '无效的campaignId' }, { status: 400 })
+    }
+
+    const executeOAuthGaqlWithTracking = async (customer: any, customerId: string, queryText: string): Promise<any[]> => {
+      const startTime = Date.now()
+      try {
+        const rows = await customer.query(queryText)
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: true,
+        })
+        return rows
+      } catch (error: any) {
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: false,
+          errorMessage: error?.message || String(error),
+        }).catch(() => {})
+        throw error
+      }
     }
 
     const body = await request.json()
@@ -386,7 +446,7 @@ export async function PUT(
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
       ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId, customerId: adsAccountRow.customer_id, query: campaignQuery, requestId })
-      : await customer.query(campaignQuery)
+      : await executeOAuthGaqlWithTracking(customer, adsAccountRow.customer_id, campaignQuery)
 
     if (campaignResults.length === 0) {
       return NextResponse.json(
@@ -435,7 +495,7 @@ export async function PUT(
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
         ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId, customerId: adsAccountRow.customer_id, query: adGroupQuery, requestId })
-        : await customer.query(adGroupQuery)
+        : await executeOAuthGaqlWithTracking(customer, adsAccountRow.customer_id, adGroupQuery)
 
       if (adGroups.length === 0) {
         return NextResponse.json(

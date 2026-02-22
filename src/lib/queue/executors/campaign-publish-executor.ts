@@ -1221,7 +1221,7 @@ export async function executeCampaignPublish(
     // 记录API使用
     if (userId) {
       try {
-        trackApiUsage({
+        await trackApiUsage({
           userId: userId,
           operationType: ApiOperationType.MUTATE_BATCH,
           endpoint: 'publishCampaign',

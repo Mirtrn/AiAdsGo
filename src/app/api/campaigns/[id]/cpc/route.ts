@@ -6,6 +6,7 @@ import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getRedisClient } from '@/lib/redis-client'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 function extractSearchResults(result: any): any[] {
   if (Array.isArray(result)) return result
@@ -70,6 +71,35 @@ export async function GET(
 
     const numericUserId = Number(userId)
     if (!Number.isFinite(numericUserId)) return NextResponse.json({ error: '未授权' }, { status: 401 })
+
+    const executeOAuthGaqlWithTracking = async (customer: any, customerId: string, queryText: string): Promise<any[]> => {
+      const startTime = Date.now()
+      try {
+        const rows = await customer.query(queryText)
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: true,
+        })
+        return rows
+      } catch (error: any) {
+        await trackApiUsage({
+          userId: numericUserId,
+          operationType: ApiOperationType.REPORT,
+          endpoint: '/api/google-ads/query',
+          customerId,
+          requestCount: 1,
+          responseTimeMs: Date.now() - startTime,
+          isSuccess: false,
+          errorMessage: error?.message || String(error),
+        }).catch(() => {})
+        throw error
+      }
+    }
 
     const campaignIdNum = Number(params.id)
     if (!Number.isFinite(campaignIdNum)) {
@@ -239,7 +269,7 @@ export async function GET(
           accountId: undefined,
           userId: numericUserId,
         })
-        campaignRows = await customer.query(campaignQuery)
+        campaignRows = await executeOAuthGaqlWithTracking(customer, linked.customer_id, campaignQuery)
       }
 
       campaign = campaignRows?.[0]?.campaign || null
@@ -298,7 +328,7 @@ export async function GET(
             accountId: undefined,
             userId: numericUserId,
           })
-          adGroupRows = await customer.query(adGroupQuery)
+          adGroupRows = await executeOAuthGaqlWithTracking(customer, linked.customer_id, adGroupQuery)
         }
       } catch {
         // ignore

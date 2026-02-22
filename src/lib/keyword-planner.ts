@@ -762,7 +762,7 @@ export async function getKeywordSearchVolumes(
         } finally {
           // 记录API使用（仅在有userId时追踪）
           if (userId) {
-            trackApiUsage({
+            await trackApiUsage({
               userId,
               operationType: ApiOperationType.GET_KEYWORD_IDEAS, // Historical metrics use same quota
               endpoint: 'generateKeywordHistoricalMetrics',

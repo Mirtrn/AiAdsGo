@@ -13,6 +13,7 @@ import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { getCustomerWithCredentials } from './google-ads-api'
 import { getServiceAccountConfig } from './google-ads-service-account'
 import { executeGAQLQueryPython } from './python-ads-client'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 interface SyncResult {
   success: boolean
@@ -75,9 +76,37 @@ export async function syncCreativePerformance(
         AND ad_group_ad.status = 'ENABLED'
     `
 
+    const numericUserId = parseInt(userId, 10)
     const results = useServiceAccount
-      ? await executeGAQLQueryPython({ userId: parseInt(userId), serviceAccountId, customerId: customerID, query })
-      : await customer.query(query)
+      ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId, customerId: customerID, query })
+      : await (async () => {
+        const startTime = Date.now()
+        try {
+          const data = await customer.query(query)
+          await trackApiUsage({
+            userId: numericUserId,
+            operationType: ApiOperationType.REPORT,
+            endpoint: '/api/google-ads/query',
+            customerId: customerID,
+            requestCount: 1,
+            responseTimeMs: Date.now() - startTime,
+            isSuccess: true,
+          })
+          return data
+        } catch (error: any) {
+          await trackApiUsage({
+            userId: numericUserId,
+            operationType: ApiOperationType.REPORT,
+            endpoint: '/api/google-ads/query',
+            customerId: customerID,
+            requestCount: 1,
+            responseTimeMs: Date.now() - startTime,
+            isSuccess: false,
+            errorMessage: error?.message || String(error),
+          }).catch(() => {})
+          throw error
+        }
+      })()
 
     if (results.length === 0) {
       console.warn(`No performance data found for campaign ${creative.google_campaign_id}`)

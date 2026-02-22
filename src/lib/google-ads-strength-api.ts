@@ -15,6 +15,7 @@ import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import type { AdStrengthRating } from './ad-strength-evaluator'
 import { executeGAQLQueryPython } from './python-ads-client'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 /**
  * 获取Google Ads客户端（支持服务账号和OAuth两种模式）
@@ -136,6 +137,41 @@ export interface AssetPerformanceData {
   ctr: number
 }
 
+async function executeOAuthQueryWithTracking(params: {
+  userId: number
+  customerId: string
+  customer: any
+  query: string
+  operationType?: ApiOperationType
+}): Promise<any[]> {
+  const startTime = Date.now()
+  try {
+    const results = await params.customer.query(params.query)
+    await trackApiUsage({
+      userId: params.userId,
+      operationType: params.operationType || ApiOperationType.REPORT,
+      endpoint: '/api/google-ads/query',
+      customerId: params.customerId,
+      requestCount: 1,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: true,
+    })
+    return results
+  } catch (error: any) {
+    await trackApiUsage({
+      userId: params.userId,
+      operationType: params.operationType || ApiOperationType.REPORT,
+      endpoint: '/api/google-ads/query',
+      customerId: params.customerId,
+      requestCount: 1,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: false,
+      errorMessage: error?.message || String(error),
+    }).catch(() => {})
+    throw error
+  }
+}
+
 /**
  * 1. 获取已发布广告的Ad Strength评级
  *
@@ -167,7 +203,13 @@ export async function getAdStrength(
 
     const results = useServiceAccount
       ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
-      : await customer.query(query)
+      : await executeOAuthQueryWithTracking({
+        userId,
+        customerId,
+        customer,
+        query,
+        operationType: ApiOperationType.REPORT,
+      })
 
     if (results.length === 0) {
       console.log('⚠️ 未找到已发布的响应式搜索广告')
@@ -231,7 +273,13 @@ export async function getAdStrengthRecommendations(
 
     const results = useServiceAccount
       ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
-      : await customer.query(query)
+      : await executeOAuthQueryWithTracking({
+        userId,
+        customerId,
+        customer,
+        query,
+        operationType: ApiOperationType.REPORT,
+      })
 
     const recommendations: AdStrengthRecommendation[] = results.map((rec: any) => {
       const recData = rec.recommendation.responsive_search_ad_improve_ad_strength_recommendation
@@ -295,7 +343,13 @@ export async function getAssetPerformance(
 
     const results = useServiceAccount
       ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
-      : await customer.query(query)
+      : await executeOAuthQueryWithTracking({
+        userId,
+        customerId,
+        customer,
+        query,
+        operationType: ApiOperationType.REPORT,
+      })
 
     const assetPerformance: AssetPerformanceData[] = results.map((row: any) => ({
       assetId: row.asset.id.toString(),
