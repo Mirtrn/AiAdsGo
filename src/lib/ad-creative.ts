@@ -104,19 +104,24 @@ export interface GenerateAdCreativeInput {
 // 资产标注接口（用于Ad Strength评估）
 export interface HeadlineAsset {
   text: string
-  type?: 'brand' | 'product' | 'promo' | 'cta' | 'urgency'  // 资产类型
+  type?: 'brand' | 'product' | 'promo' | 'cta' | 'urgency' | 'feature' | 'social_proof' | 'question' | 'emotional'  // 资产类型
   length?: number                                           // 字符长度
   keywords?: string[]                                       // 包含的关键词
   hasNumber?: boolean                                       // 是否包含数字
   hasUrgency?: boolean                                      // 是否体现紧迫感
+  // 非破坏式扩展：仅用于意图分析与建议，不影响既有评分与发布逻辑
+  intentTag?: 'brand' | 'scenario' | 'solution' | 'transactional' | 'other'
 }
 
 export interface DescriptionAsset {
   text: string
-  type?: 'value' | 'cta'  // 价值主张 或 行动召唤
+  type?: 'value' | 'cta' | 'feature-benefit-cta' | 'problem-solution-proof' | 'offer-urgency-trust' | 'usp-differentiation'  // 价值主张 或 行动召唤
   length?: number
   hasCTA?: boolean        // 是否包含CTA
   keywords?: string[]
+  // 非破坏式扩展：仅用于意图分析与建议，不影响既有评分与发布逻辑
+  intentTag?: 'brand' | 'scenario' | 'solution' | 'transactional' | 'other'
+  structureTag?: 'pain_solution_cta' | 'benefit_cta' | 'trust_cta' | 'value_cta' | 'other'
 }
 
 export interface QualityMetrics {

@@ -22,7 +22,7 @@ import {
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { containsPureBrand, filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch, isBrandConcatenation } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
-import { normalizeLanguageCode } from './language-country-codes'
+import { LANGUAGE_CODE_MAP, normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
 import { parsePrice } from './pricing-utils'
 import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
@@ -321,6 +321,18 @@ function extractTitleAndAboutSignals(
   }
 }
 
+type SupportedSoftCopyLanguage = 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'zh' | 'ja' | 'ko' | 'ru' | 'ar'
+
+interface CopyPatternSet {
+  transactional: RegExp
+  trust: RegExp
+  scenario: RegExp
+  solution: RegExp
+  pain: RegExp
+  cta: RegExp
+  ctaPhrases: string[]
+}
+
 const EN_CTA_REGEX = /shop now|buy now|learn more|get|order|sign up|try|start/i
 const EN_CTA_PHRASES = [
   'Shop Now',
@@ -333,6 +345,263 @@ const EN_CTA_PHRASES = [
   'Sign Up'
 ]
 
+const FR_CTA_REGEX = /acheter maintenant|acheter|commander|en savoir plus|inscrivez-vous|essayer|commencer|obtenir|découvrir|magasiner/i
+const FR_CTA_PHRASES = [
+  'Acheter maintenant',
+  'Commander',
+  'En savoir plus',
+  'Découvrir',
+  'Obtenir'
+]
+
+const DE_CTA_REGEX = /jetzt kaufen|kaufen|bestellen|mehr erfahren|anmelden|testen|starten|entdecken|sparen|sichern|holen/i
+const DE_CTA_PHRASES = [
+  'Jetzt kaufen',
+  'Bestellen',
+  'Mehr erfahren',
+  'Entdecken',
+  'Sichern'
+]
+
+const ES_CTA_REGEX = /comprar ahora|comprar|pedir|más información|mas informacion|registrarse|probar|empezar|descubrir|ahorrar|obtener|solicitar/i
+const ES_CTA_PHRASES = [
+  'Comprar ahora',
+  'Pedir',
+  'Más información',
+  'Descubrir',
+  'Obtener'
+]
+
+const IT_CTA_REGEX = /acquista ora|acquista|compra|ordina|scopri di più|scopri di piu|iscriviti|prova|inizia|scopri|risparmia|ottieni|richiedi/i
+const IT_CTA_PHRASES = [
+  'Acquista ora',
+  'Ordina',
+  'Scopri di più',
+  'Scopri',
+  'Ottieni'
+]
+
+const PT_CTA_REGEX = /comprar agora|comprar|pedir|saiba mais|inscreva-se|experimentar|começar|comecar|descobrir|economizar|obter/i
+const PT_CTA_PHRASES = [
+  'Comprar agora',
+  'Pedir',
+  'Saiba mais',
+  'Descobrir',
+  'Obter'
+]
+
+const ZH_CTA_REGEX = /立即购买|马上购买|立刻购买|立即下单|马上下单|了解更多|获取|立即开始|注册|立即查看|马上行动/i
+const ZH_CTA_PHRASES = [
+  '立即购买',
+  '了解更多',
+  '立即下单',
+  '马上行动',
+  '立即查看'
+]
+
+const JA_CTA_REGEX = /今すぐ購入|購入する|ご注文|詳しく見る|詳細を見る|今すぐ開始|登録|今すぐチェック/i
+const JA_CTA_PHRASES = [
+  '今すぐ購入',
+  '詳しく見る',
+  'ご注文はこちら',
+  '今すぐ開始',
+  '今すぐチェック'
+]
+
+const KO_CTA_REGEX = /지금 구매|구매하기|주문하기|자세히 보기|더 알아보기|지금 시작|지금 신청|지금 확인/i
+const KO_CTA_PHRASES = [
+  '지금 구매',
+  '자세히 보기',
+  '지금 주문',
+  '지금 시작',
+  '지금 확인'
+]
+
+const RU_CTA_REGEX = /купить сейчас|купить|заказать|узнать больше|подробнее|начать|получить|смотреть/i
+const RU_CTA_PHRASES = [
+  'Купить сейчас',
+  'Узнать больше',
+  'Заказать',
+  'Начать',
+  'Получить'
+]
+
+const AR_CTA_REGEX = /اشتري الآن|اشتر الآن|اطلب الآن|اعرف المزيد|اكتشف المزيد|ابدأ الآن|سجل الآن|احصل الآن/i
+const AR_CTA_PHRASES = [
+  'اشتري الآن',
+  'اعرف المزيد',
+  'اطلب الآن',
+  'ابدأ الآن',
+  'احصل الآن'
+]
+
+const EN_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /\b(buy|shop|order|save|deal|offer|discount|price|quote|get)\b/i,
+  trust: /\b(official|authentic|trusted|certified|warranty|support|guarantee)\b/i,
+  scenario: /\b(for|when|during|project|repair|install|build|fix|home|garden|yard|fence|deck|job)\b/i,
+  solution: /\b(solution|solve|built|designed|helps|easy|durable|powerful|reliable|heavy[-\s]?duty|lightweight)\b/i,
+  pain: /\b(problem|struggle|frustrat|tired|hard|issue|worry|difficult|stuck|slow)\b/i,
+  cta: EN_CTA_REGEX,
+  ctaPhrases: EN_CTA_PHRASES
+}
+
+const FR_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(acheter|commander|prix|devis|offre|promo|promotion|remise|économiser|obtenir|magasiner)/i,
+  trust: /(officiel|authentique|fiable|certifi|garantie|assistance|support|confiance)/i,
+  scenario: /(pour|quand|pendant|projet|réparation|installer|installation|construire|bricolage|maison|jardin|terrasse|clôture|chantier)/i,
+  solution: /(solution|résout|résoudre|conçu|aide|facile|durable|puissant|fiable|robuste|léger)/i,
+  pain: /(problème|difficile|galère|frustr|fatigu|lent|bloqué|inquiét|souci)/i,
+  cta: FR_CTA_REGEX,
+  ctaPhrases: FR_CTA_PHRASES
+}
+
+const DE_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(kaufen|bestellen|preis|angebot|rabatt|sparen|holen|deal)/i,
+  trust: /(offiziell|authentisch|vertrau|zertifiz|garantie|support|zuverlässig|zuverlaessig)/i,
+  scenario: /(für|fuer|wenn|während|waehrend|projekt|reparatur|installation|bauen|haus|garten|zaun|terrasse|job)/i,
+  solution: /(lösung|loesung|löst|loest|entwickelt|hilft|einfach|robust|leistungsstark|zuverlässig|zuverlaessig|langlebig|leicht)/i,
+  pain: /(problem|schwierig|frust|müde|muede|langsam|steck|sorge|hürde|huerde)/i,
+  cta: DE_CTA_REGEX,
+  ctaPhrases: DE_CTA_PHRASES
+}
+
+const ES_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(comprar|pedido|pedir|precio|oferta|descuento|ahorrar|obtener)/i,
+  trust: /(oficial|auténtico|autentico|confiable|certific|garantía|garantia|soporte|confianza)/i,
+  scenario: /(para|cuando|durante|proyecto|reparaci|instal|constru|hogar|jardín|jardin|patio|valla|trabajo)/i,
+  solution: /(solución|solucion|resuelve|diseñado|disenado|ayuda|fácil|facil|duradero|potente|fiable|ligero|robusto)/i,
+  pain: /(problema|difícil|dificil|frustr|cansad|lento|atasc|preocup|complic)/i,
+  cta: ES_CTA_REGEX,
+  ctaPhrases: ES_CTA_PHRASES
+}
+
+const IT_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(acquista|compra|ordina|prezzo|offerta|sconto|risparmia|ottieni)/i,
+  trust: /(ufficiale|autentico|affidabile|certificat|garanzia|supporto|fiducia)/i,
+  scenario: /(per|quando|durante|progetto|ripar|install|costru|casa|giardino|cortile|recinzione|lavoro)/i,
+  solution: /(soluzione|risolve|progett|aiuta|facile|duraturo|potente|affidabile|leggero|robusto)/i,
+  pain: /(problema|difficile|frustr|stanco|lento|blocc|preoccup|fatica)/i,
+  cta: IT_CTA_REGEX,
+  ctaPhrases: IT_CTA_PHRASES
+}
+
+const PT_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(comprar|pedir|preço|preco|oferta|desconto|economizar|obter)/i,
+  trust: /(oficial|autêntico|autentico|confiável|confiavel|certific|garantia|suporte|confiança|confianca)/i,
+  scenario: /(para|quando|durante|projeto|reparo|instala|constru|casa|jardim|quintal|cerca|trabalho)/i,
+  solution: /(solução|solucao|resolve|projetado|ajuda|fácil|facil|durável|duravel|potente|confiável|confiavel|leve|robusto)/i,
+  pain: /(problema|difícil|dificil|frustr|cansad|lento|pres|preocup|trav)/i,
+  cta: PT_CTA_REGEX,
+  ctaPhrases: PT_CTA_PHRASES
+}
+
+const ZH_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(购买|下单|报价|优惠|折扣|省钱|价格|立减|获取)/i,
+  trust: /(官方|正品|认证|质保|售后|支持|可靠|保障)/i,
+  scenario: /(适用于|用于|家庭|花园|庭院|维修|安装|施工|项目|围栏|露台)/i,
+  solution: /(解决|帮助|轻松|耐用|强劲|高效|可靠|省力|便捷|稳固)/i,
+  pain: /(问题|困扰|费力|麻烦|卡住|慢|担心|难|痛点)/i,
+  cta: ZH_CTA_REGEX,
+  ctaPhrases: ZH_CTA_PHRASES
+}
+
+const JA_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(購入|注文|価格|割引|お得|セール|今すぐ|入手)/i,
+  trust: /(公式|正規|認証|保証|サポート|信頼|安心)/i,
+  scenario: /(家庭|庭|ガーデン|修理|設置|施工|プロジェクト|フェンス|デッキ|作業)/i,
+  solution: /(解決|サポート|簡単|耐久|強力|高性能|信頼性|軽量|効率)/i,
+  pain: /(問題|悩み|大変|難しい|不安|遅い|困る|手間)/i,
+  cta: JA_CTA_REGEX,
+  ctaPhrases: JA_CTA_PHRASES
+}
+
+const KO_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(구매|주문|가격|할인|혜택|특가|지금|받기)/i,
+  trust: /(공식|정품|인증|보증|지원|신뢰|안심)/i,
+  scenario: /(가정|정원|마당|수리|설치|시공|프로젝트|울타리|데크|작업)/i,
+  solution: /(해결|도움|간편|내구성|강력|효율|신뢰성|경량|튼튼)/i,
+  pain: /(문제|고민|어려움|불편|느림|막힘|걱정|번거로움)/i,
+  cta: KO_CTA_REGEX,
+  ctaPhrases: KO_CTA_PHRASES
+}
+
+const RU_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(купить|заказать|цена|скидк|выгод|предлож|акция|получить)/i,
+  trust: /(официальн|подлинн|сертифиц|гарант|поддержк|надежн|довер)/i,
+  scenario: /(дом|сад|двор|ремонт|установк|проект|работ|забор|террас)/i,
+  solution: /(решен|помога|легко|прочн|мощн|надежн|эффектив|удобн|долговеч)/i,
+  pain: /(проблем|сложно|трудно|медлен|застр|беспоко|неудоб)/i,
+  cta: RU_CTA_REGEX,
+  ctaPhrases: RU_CTA_PHRASES
+}
+
+const AR_COPY_PATTERNS: CopyPatternSet = {
+  transactional: /(شراء|اطلب|سعر|خصم|عرض|وفر|احصل|الآن)/i,
+  trust: /(رسمي|أصلي|موثوق|معتمد|ضمان|دعم|ثقة)/i,
+  scenario: /(منزل|حديقة|فناء|إصلاح|تركيب|مشروع|سياج|سطح|عمل)/i,
+  solution: /(حل|يساعد|سهل|متين|قوي|فعال|موثوق|خفيف|عملي)/i,
+  pain: /(مشكلة|صعب|معاناة|بطيء|عالق|قلق|متعب)/i,
+  cta: AR_CTA_REGEX,
+  ctaPhrases: AR_CTA_PHRASES
+}
+
+const SUPPORTED_SOFT_COPY_LANGUAGES = new Set<SupportedSoftCopyLanguage>([
+  'en', 'fr', 'de', 'es', 'it', 'pt', 'zh', 'ja', 'ko', 'ru', 'ar'
+])
+
+function resolveSoftCopyLanguage(languageCode: string): SupportedSoftCopyLanguage | null {
+  const raw = String(languageCode || '').trim()
+  if (!raw) return null
+  const lowerRaw = raw.toLowerCase()
+  const mapped = LANGUAGE_CODE_MAP[lowerRaw]
+  const normalized = mapped || lowerRaw
+
+  const localeBase = normalized.split(/[-_]/)[0]
+  if (SUPPORTED_SOFT_COPY_LANGUAGES.has(localeBase as SupportedSoftCopyLanguage)) {
+    return localeBase as SupportedSoftCopyLanguage
+  }
+
+  let candidate = normalized
+  if (candidate === 'de-ch') candidate = 'de'
+
+  if (SUPPORTED_SOFT_COPY_LANGUAGES.has(candidate as SupportedSoftCopyLanguage)) {
+    return candidate as SupportedSoftCopyLanguage
+  }
+
+  if (!mapped) {
+    return null
+  }
+
+  const fallbackNormalized = normalizeLanguageCode(raw)
+  const fallbackCandidate = fallbackNormalized === 'de-ch' ? 'de' : fallbackNormalized
+  return SUPPORTED_SOFT_COPY_LANGUAGES.has(fallbackCandidate as SupportedSoftCopyLanguage)
+    ? fallbackCandidate as SupportedSoftCopyLanguage
+    : null
+}
+
+function getCopyPatterns(languageCode: string): CopyPatternSet {
+  const softLanguage = resolveSoftCopyLanguage(languageCode)
+  if (softLanguage === 'fr') return FR_COPY_PATTERNS
+  if (softLanguage === 'de') return DE_COPY_PATTERNS
+  if (softLanguage === 'es') return ES_COPY_PATTERNS
+  if (softLanguage === 'it') return IT_COPY_PATTERNS
+  if (softLanguage === 'pt') return PT_COPY_PATTERNS
+  if (softLanguage === 'zh') return ZH_COPY_PATTERNS
+  if (softLanguage === 'ja') return JA_COPY_PATTERNS
+  if (softLanguage === 'ko') return KO_COPY_PATTERNS
+  if (softLanguage === 'ru') return RU_COPY_PATTERNS
+  if (softLanguage === 'ar') return AR_COPY_PATTERNS
+  return EN_COPY_PATTERNS
+}
+
+function getCtaRegexForLanguage(languageCode: string): RegExp {
+  return getCopyPatterns(languageCode).cta
+}
+
+function getCtaPhrasesForLanguage(languageCode: string): string[] {
+  return getCopyPatterns(languageCode).ctaPhrases
+}
+
 function headlineContainsKeyword(headline: string, keywords: string[]): boolean {
   const headlineText = headline.toLowerCase()
   return keywords.some(kw => {
@@ -343,15 +612,22 @@ function headlineContainsKeyword(headline: string, keywords: string[]): boolean 
   })
 }
 
-function enforceEnglishCtas(descriptions: string[], minCount: number, maxLength: number): { updated: string[]; fixed: number } {
+function enforceLanguageCtas(
+  descriptions: string[],
+  minCount: number,
+  maxLength: number,
+  languageCode: string
+): { updated: string[]; fixed: number } {
   const updated = [...descriptions]
-  let ctaCount = updated.filter(d => EN_CTA_REGEX.test(d)).length
+  const ctaRegex = getCtaRegexForLanguage(languageCode)
+  const ctaPhrases = getCtaPhrasesForLanguage(languageCode)
+  let ctaCount = updated.filter(d => ctaRegex.test(d)).length
   let fixed = 0
 
   for (let i = 0; i < updated.length && ctaCount < minCount; i += 1) {
-    if (EN_CTA_REGEX.test(updated[i])) continue
+    if (ctaRegex.test(updated[i])) continue
     const base = updated[i].trim().replace(/[.!?]+$/, '')
-    const suffix = EN_CTA_PHRASES[fixed % EN_CTA_PHRASES.length]
+    const suffix = ctaPhrases[fixed % ctaPhrases.length]
     const candidate = `${base}. ${suffix}`.trim()
     if (candidate.length <= maxLength) {
       updated[i] = candidate
@@ -422,6 +698,716 @@ function enforceKeywordEmbedding(
   }
 
   return { updated, fixed }
+}
+
+type NormalizedCreativeBucket = 'A' | 'B' | 'D' | null
+type CopyIntentTag = 'brand' | 'scenario' | 'solution' | 'transactional' | 'other'
+type DescriptionStructureTag = 'pain_solution_cta' | 'benefit_cta' | 'trust_cta' | 'value_cta' | 'other'
+
+function normalizeCreativeBucketType(bucket?: string | null): NormalizedCreativeBucket {
+  const upper = String(bucket || '').toUpperCase()
+  if (upper === 'A') return 'A'
+  if (upper === 'B' || upper === 'C') return 'B'
+  if (upper === 'D' || upper === 'S') return 'D'
+  return null
+}
+
+function normalizeLocalizationPayload(localization: any):
+  | { currency?: string; culturalNotes?: string[]; localKeywords?: string[] }
+  | undefined {
+  if (!localization || typeof localization !== 'object') return undefined
+
+  if ('currency' in localization || 'culturalNotes' in localization || 'localKeywords' in localization) {
+    return {
+      currency: typeof localization.currency === 'string' ? localization.currency : undefined,
+      culturalNotes: Array.isArray(localization.culturalNotes)
+        ? localization.culturalNotes.map((v: any) => String(v || '').trim()).filter((v: string) => v.length > 0).slice(0, 8)
+        : undefined,
+      localKeywords: Array.isArray(localization.localKeywords)
+        ? localization.localKeywords.map((v: any) => String(v || '').trim()).filter((v: string) => v.length > 0).slice(0, 12)
+        : undefined
+    }
+  }
+
+  const pricingCurrency = typeof localization.pricing?.currency === 'string' ? localization.pricing.currency : undefined
+  const contentNotes: string[] = Array.isArray(localization.content?.culturalNotes)
+    ? localization.content.culturalNotes.map((v: any) => String(v || '').trim()).filter((v: string) => v.length > 0)
+    : []
+  const keywordNotes: string[] = Array.isArray(localization.keywords)
+    ? localization.keywords
+        .map((k: any) => (typeof k?.culturalNotes === 'string' ? k.culturalNotes : ''))
+        .filter((v: string) => v.length > 0)
+    : []
+  const localKeywordCandidates: string[] = Array.isArray(localization.keywords)
+    ? localization.keywords
+        .map((k: any) => (typeof k?.localized === 'string' ? k.localized : ''))
+        .filter((v: string) => v.length > 0)
+    : []
+
+  const mergedNotes: string[] = [...new Set([...contentNotes, ...keywordNotes])].slice(0, 8)
+  const mergedLocalKeywords: string[] = [...new Set(localKeywordCandidates)].slice(0, 12)
+
+  if (!pricingCurrency && mergedNotes.length === 0 && mergedLocalKeywords.length === 0) {
+    return undefined
+  }
+
+  return {
+    currency: pricingCurrency,
+    culturalNotes: mergedNotes.length > 0 ? mergedNotes : undefined,
+    localKeywords: mergedLocalKeywords.length > 0 ? mergedLocalKeywords : undefined
+  }
+}
+
+function detectKeywordIntentsForPrompt(
+  keywords: string[],
+  languageCode: string
+): {
+  transactional: string[]
+  scenario: string[]
+  solution: string[]
+  other: string[]
+} {
+  const result = {
+    transactional: [] as string[],
+    scenario: [] as string[],
+    solution: [] as string[],
+    other: [] as string[],
+  }
+  const patterns = getCopyPatterns(languageCode)
+
+  const seen = new Set<string>()
+  for (const kwRaw of keywords) {
+    const kw = String(kwRaw || '').trim()
+    if (!kw) continue
+    const normalized = kw.toLowerCase()
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+
+    const classified = classifyKeywordIntent(kw, { language: languageCode })
+    if (classified.intent === 'TRANSACTIONAL') {
+      result.transactional.push(kw)
+      continue
+    }
+    if (patterns.scenario.test(kw) || classified.intent === 'COMMERCIAL') {
+      result.scenario.push(kw)
+      continue
+    }
+    if (patterns.solution.test(kw)) {
+      result.solution.push(kw)
+      continue
+    }
+    result.other.push(kw)
+  }
+
+  return {
+    transactional: result.transactional.slice(0, 6),
+    scenario: result.scenario.slice(0, 6),
+    solution: result.solution.slice(0, 6),
+    other: result.other.slice(0, 6)
+  }
+}
+
+function buildTypeIntentGuidanceSection(
+  bucket: NormalizedCreativeBucket,
+  keywords: string[],
+  languageCode: string
+): string {
+  const intents = detectKeywordIntentsForPrompt(keywords, languageCode)
+  const transactionalLine = intents.transactional.length > 0 ? intents.transactional.join(', ') : 'N/A'
+  const scenarioLine = intents.scenario.length > 0 ? intents.scenario.join(', ') : 'N/A'
+  const solutionLine = intents.solution.length > 0 ? intents.solution.join(', ') : 'N/A'
+
+  const baseRules = `
+## 🎯 TYPE-SPECIFIC INTENT USAGE (NON-DESTRUCTIVE)
+- Use ONLY provided keywords. Do NOT invent or replace keyword list items.
+- Keep existing A/B/D type semantics. This section guides copy usage only.
+- If one intent group has no keyword candidates, reuse existing keywords naturally without forcing.`
+
+  if (bucket === 'A') {
+    return `${baseRules}
+- Bucket A focus: brand/trust first, transactional second.
+- Prefer trust-oriented expressions in 1-2 descriptions; keep a light CTA.
+- Transactional keyword candidates: ${transactionalLine}
+- Scenario keyword candidates (optional): ${scenarioLine}`
+  }
+
+  if (bucket === 'B') {
+    return `${baseRules}
+- Bucket B focus: scenario + solution.
+- Ensure at least 2 descriptions follow pain -> solution -> CTA.
+- Scenario keyword candidates: ${scenarioLine}
+- Solution keyword candidates: ${solutionLine}
+- Transactional keywords can appear, but should not dominate.`
+  }
+
+  if (bucket === 'D') {
+    return `${baseRules}
+- Bucket D focus: transactional/value action.
+- Ensure at least 1 description emphasizes value/action CTA with compliant evidence.
+- Transactional keyword candidates: ${transactionalLine}
+- Scenario keyword candidates (supportive): ${scenarioLine}`
+  }
+
+  return `${baseRules}
+- Bucket not specified. Keep balanced copy intent usage with current keywords.
+- Transactional keyword candidates: ${transactionalLine}
+- Scenario keyword candidates: ${scenarioLine}
+- Solution keyword candidates: ${solutionLine}`
+}
+
+function classifyCopyIntentFromText(text: string, languageCode: string, keywords: string[] = []): CopyIntentTag {
+  const normalized = String(text || '').toLowerCase()
+  if (!normalized) return 'other'
+  const patterns = getCopyPatterns(languageCode)
+
+  if (patterns.trust.test(normalized)) return 'brand'
+  if (patterns.transactional.test(normalized)) return 'transactional'
+  if (patterns.scenario.test(normalized)) return 'scenario'
+  if (patterns.solution.test(normalized)) return 'solution'
+
+  for (const keyword of keywords) {
+    const kw = String(keyword || '').trim()
+    if (!kw) continue
+    if (!normalized.includes(kw.toLowerCase())) continue
+    const intent = classifyKeywordIntent(kw, { language: languageCode }).intent
+    if (intent === 'TRANSACTIONAL') return 'transactional'
+    if (intent === 'COMMERCIAL') return 'scenario'
+  }
+
+  return 'other'
+}
+
+function classifyDescriptionStructure(text: string, intentTag: CopyIntentTag, languageCode: string): DescriptionStructureTag {
+  const normalized = String(text || '').toLowerCase()
+  if (!normalized) return 'other'
+  const patterns = getCopyPatterns(languageCode)
+  const hasPain = patterns.pain.test(normalized)
+  const hasSolution = patterns.solution.test(normalized)
+  const hasTrust = patterns.trust.test(normalized)
+  const hasValue = patterns.transactional.test(normalized)
+  const hasCta = patterns.cta.test(normalized)
+
+  if (hasPain && hasSolution && hasCta) return 'pain_solution_cta'
+  if (hasTrust && hasCta) return 'trust_cta'
+  if ((intentTag === 'transactional' || hasValue) && hasCta) return 'value_cta'
+  if (hasCta) return 'benefit_cta'
+  return 'other'
+}
+
+function fitLocalizedDescription(base: string, cta: string, maxLength: number): string {
+  const cleanBase = String(base || '').replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, '')
+  if (!cleanBase) return cta
+  let candidate = `${cleanBase}. ${cta}`.trim()
+  if (candidate.length <= maxLength) return candidate
+
+  const budget = Math.max(8, maxLength - cta.length - 2)
+  const trimmedBase = truncateSnippetByWords(cleanBase, budget).replace(/[.!?]+$/, '')
+  candidate = `${trimmedBase}. ${cta}`.trim()
+  if (candidate.length <= maxLength) return candidate
+  return candidate.substring(0, maxLength).trim()
+}
+
+function fitLocalizedHeadline(base: string, maxLength: number): string {
+  const cleaned = String(base || '').replace(/\s+/g, ' ').trim()
+  if (cleaned.length <= maxLength) return cleaned
+  return truncateSnippetByWords(cleaned, maxLength)
+}
+
+interface SoftCopyTemplates {
+  a: {
+    trustDescription: { base: string; cta: string }
+    brandHeadline: string
+  }
+  b: {
+    painSolution1: { base: string; cta: string }
+    painSolution2: { base: string; cta: string }
+    scenarioHeadline: string
+  }
+  d: {
+    valueDescription: { base: string; cta: string }
+    transactionalHeadline: string
+  }
+}
+
+function getSoftCopyTemplates(
+  language: SupportedSoftCopyLanguage,
+  preferredKeyword: string,
+  brandSeed: string
+): SoftCopyTemplates {
+  if (language === 'fr') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} avec support officiel et qualité fiable`,
+          cta: 'En savoir plus'
+        },
+        brandHeadline: `Support officiel ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `Besoin d'une solution fiable pour vos projets ? ${preferredKeyword} vous aide à finir plus vite`,
+          cta: 'En savoir plus'
+        },
+        painSolution2: {
+          base: `Réparez en confiance avec ${preferredKeyword} conçu pour les travaux quotidiens`,
+          cta: 'Acheter maintenant'
+        },
+        scenarioHeadline: 'Besoin de meilleurs résultats ?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} offre un excellent rapport qualité-prix et une performance fiable`,
+          cta: 'Acheter maintenant'
+        },
+        transactionalHeadline: `Achetez ${preferredKeyword} aujourd'hui`
+      }
+    }
+  }
+
+  if (language === 'de') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} mit offiziellem Support und zuverlässiger Qualität`,
+          cta: 'Mehr erfahren'
+        },
+        brandHeadline: `Offizieller ${brandSeed} Support`
+      },
+      b: {
+        painSolution1: {
+          base: `Brauchen Sie eine zuverlässige Lösung für echte Projekte? ${preferredKeyword} hilft schneller fertig zu werden`,
+          cta: 'Mehr erfahren'
+        },
+        painSolution2: {
+          base: `Reparieren Sie sicher mit ${preferredKeyword} für tägliche Aufgaben`,
+          cta: 'Jetzt kaufen'
+        },
+        scenarioHeadline: 'Bessere Projektergebnisse?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} bietet starken Alltagswert und zuverlässige Leistung`,
+          cta: 'Jetzt kaufen'
+        },
+        transactionalHeadline: `Kaufen Sie ${preferredKeyword} heute`
+      }
+    }
+  }
+
+  if (language === 'es') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} con soporte oficial y calidad confiable`,
+          cta: 'Más información'
+        },
+        brandHeadline: `Soporte oficial ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `¿Necesitas una solución fiable para tus proyectos? ${preferredKeyword} te ayuda a terminar antes`,
+          cta: 'Más información'
+        },
+        painSolution2: {
+          base: `Repara con confianza con ${preferredKeyword} para trabajos diarios`,
+          cta: 'Comprar ahora'
+        },
+        scenarioHeadline: '¿Mejores resultados hoy?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} ofrece valor diario y rendimiento confiable`,
+          cta: 'Comprar ahora'
+        },
+        transactionalHeadline: `Compra ${preferredKeyword} hoy`
+      }
+    }
+  }
+
+  if (language === 'it') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} con supporto ufficiale e qualità affidabile`,
+          cta: 'Scopri di più'
+        },
+        brandHeadline: `Supporto ufficiale ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `Ti serve una soluzione affidabile per i progetti? ${preferredKeyword} ti aiuta a finire prima`,
+          cta: 'Scopri di più'
+        },
+        painSolution2: {
+          base: `Ripara con fiducia con ${preferredKeyword} per lavori quotidiani`,
+          cta: 'Acquista ora'
+        },
+        scenarioHeadline: 'Vuoi risultati migliori?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} offre valore quotidiano e prestazioni affidabili`,
+          cta: 'Acquista ora'
+        },
+        transactionalHeadline: `Acquista ${preferredKeyword} oggi`
+      }
+    }
+  }
+
+  if (language === 'pt') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} com suporte oficial e qualidade confiável`,
+          cta: 'Saiba mais'
+        },
+        brandHeadline: `Suporte oficial ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `Precisa de solução confiável para projetos reais? ${preferredKeyword} ajuda a terminar mais rápido`,
+          cta: 'Saiba mais'
+        },
+        painSolution2: {
+          base: `Faça reparos com confiança usando ${preferredKeyword} para tarefas diárias`,
+          cta: 'Comprar agora'
+        },
+        scenarioHeadline: 'Quer melhores resultados?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} oferece valor diário e desempenho confiável`,
+          cta: 'Comprar agora'
+        },
+        transactionalHeadline: `Compre ${preferredKeyword} hoje`
+      }
+    }
+  }
+
+  if (language === 'zh') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} 官方支持，品质可靠`,
+          cta: '了解更多'
+        },
+        brandHeadline: `${brandSeed} 官方支持`
+      },
+      b: {
+        painSolution1: {
+          base: `项目维修总费力？${preferredKeyword} 帮你更快完工`,
+          cta: '了解更多'
+        },
+        painSolution2: {
+          base: `日常施工更省心，${preferredKeyword} 稳定耐用`,
+          cta: '立即购买'
+        },
+        scenarioHeadline: '想让项目更省力？'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} 兼顾价值与性能，日常使用更放心`,
+          cta: '立即购买'
+        },
+        transactionalHeadline: `今日选购 ${preferredKeyword}`
+      }
+    }
+  }
+
+  if (language === 'ja') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} は公式サポート付きで安心品質`,
+          cta: '詳しく見る'
+        },
+        brandHeadline: `公式 ${brandSeed} サポート`
+      },
+      b: {
+        painSolution1: {
+          base: `作業が進まない？${preferredKeyword} で早く仕上げる`,
+          cta: '詳しく見る'
+        },
+        painSolution2: {
+          base: `${preferredKeyword} で日常の修理をもっと確実に`,
+          cta: '今すぐ購入'
+        },
+        scenarioHeadline: '作業効率を上げたい？'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} は毎日の作業で価値と性能を両立`,
+          cta: '今すぐ購入'
+        },
+        transactionalHeadline: `${preferredKeyword} を今日購入`
+      }
+    }
+  }
+
+  if (language === 'ko') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} 공식 지원으로 믿을 수 있는 품질`,
+          cta: '자세히 보기'
+        },
+        brandHeadline: `${brandSeed} 공식 지원`
+      },
+      b: {
+        painSolution1: {
+          base: `작업이 자꾸 지연되나요? ${preferredKeyword} 로 더 빨리 마무리`,
+          cta: '자세히 보기'
+        },
+        painSolution2: {
+          base: `${preferredKeyword} 로 일상 수리를 더 안정적으로`,
+          cta: '지금 구매'
+        },
+        scenarioHeadline: '작업 결과를 높이고 싶나요?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} 는 일상 작업에서 가치와 성능을 제공합니다`,
+          cta: '지금 구매'
+        },
+        transactionalHeadline: `오늘 ${preferredKeyword} 구매`
+      }
+    }
+  }
+
+  if (language === 'ru') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} с официальной поддержкой и надежным качеством`,
+          cta: 'Узнать больше'
+        },
+        brandHeadline: `Официальная поддержка ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `Сложно завершить проект вовремя? ${preferredKeyword} помогает быстрее`,
+          cta: 'Узнать больше'
+        },
+        painSolution2: {
+          base: `${preferredKeyword} делает ежедневный ремонт проще и надежнее`,
+          cta: 'Купить сейчас'
+        },
+        scenarioHeadline: 'Нужен лучший результат проекта?'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} дает отличную ценность и надежную работу каждый день`,
+          cta: 'Купить сейчас'
+        },
+        transactionalHeadline: `Купите ${preferredKeyword} сегодня`
+      }
+    }
+  }
+
+  if (language === 'ar') {
+    return {
+      a: {
+        trustDescription: {
+          base: `${preferredKeyword} مع دعم رسمي وجودة موثوقة`,
+          cta: 'اعرف المزيد'
+        },
+        brandHeadline: `دعم رسمي ${brandSeed}`
+      },
+      b: {
+        painSolution1: {
+          base: `هل تتأخر مشاريعك؟ ${preferredKeyword} يساعدك على الإنجاز أسرع`,
+          cta: 'اعرف المزيد'
+        },
+        painSolution2: {
+          base: `${preferredKeyword} يجعل إصلاحاتك اليومية أسهل وأكثر ثباتًا`,
+          cta: 'اشتري الآن'
+        },
+        scenarioHeadline: 'تريد نتائج أفضل للمشروع؟'
+      },
+      d: {
+        valueDescription: {
+          base: `${preferredKeyword} يمنحك قيمة يومية وأداءً موثوقًا`,
+          cta: 'اشتري الآن'
+        },
+        transactionalHeadline: `اشتر ${preferredKeyword} اليوم`
+      }
+    }
+  }
+
+  return {
+    a: {
+      trustDescription: {
+        base: `${preferredKeyword} with official support and trusted quality`,
+        cta: 'Learn More'
+      },
+      brandHeadline: `Official ${brandSeed} Support`
+    },
+    b: {
+      painSolution1: {
+        base: `Need a reliable fix for real projects? ${preferredKeyword} helps you finish faster`,
+        cta: 'Learn More'
+      },
+      painSolution2: {
+        base: `Tackle repairs with confidence using ${preferredKeyword} built for daily jobs`,
+        cta: 'Shop Now'
+      },
+      scenarioHeadline: 'Need Better Project Results?'
+    },
+    d: {
+      valueDescription: {
+        base: `${preferredKeyword} delivers everyday value with trusted performance`,
+        cta: 'Shop Now'
+      },
+      transactionalHeadline: `Buy ${preferredKeyword} Today`
+    }
+  }
+}
+
+function getDefaultProductNoun(language: SupportedSoftCopyLanguage): string {
+  if (language === 'fr') return 'ce produit'
+  if (language === 'de') return 'dieses Produkt'
+  if (language === 'es') return 'este producto'
+  if (language === 'it') return 'questo prodotto'
+  if (language === 'pt') return 'este produto'
+  if (language === 'zh') return '这款产品'
+  if (language === 'ja') return 'この製品'
+  if (language === 'ko') return '이 제품'
+  if (language === 'ru') return 'этот продукт'
+  if (language === 'ar') return 'هذا المنتج'
+  return 'our product'
+}
+
+export function softlyReinforceTypeCopy(
+  result: GeneratedAdCreativeData,
+  bucket: NormalizedCreativeBucket,
+  languageCode: string,
+  brandName: string
+): { headlineFixes: number; descriptionFixes: number } {
+  const softLanguage = resolveSoftCopyLanguage(languageCode)
+  if (!bucket || !softLanguage) return { headlineFixes: 0, descriptionFixes: 0 }
+
+  const headlines = [...(result.headlines || [])]
+  const descriptions = [...(result.descriptions || [])]
+  const keywords = [...(result.keywords || [])]
+
+  if (headlines.length === 0 || descriptions.length === 0) return { headlineFixes: 0, descriptionFixes: 0 }
+
+  let headlineFixes = 0
+  let descriptionFixes = 0
+  const patterns = getCopyPatterns(softLanguage)
+  const preferredKeyword = keywords.find((kw) => kw.length <= 24) || brandName || getDefaultProductNoun(softLanguage)
+  const brandSeed = String(brandName || preferredKeyword).trim() || preferredKeyword
+  const templates = getSoftCopyTemplates(softLanguage, preferredKeyword, brandSeed)
+
+  const headlineTags = headlines.map((h) => classifyCopyIntentFromText(h, languageCode, keywords))
+  const descriptionTags = descriptions.map((d) => classifyCopyIntentFromText(d, languageCode, keywords))
+  const descriptionStructures = descriptions.map((d, idx) => classifyDescriptionStructure(d, descriptionTags[idx], languageCode))
+
+  const replaceHeadline = (index: number, text: string) => {
+    if (index < 0 || index >= headlines.length) return
+    const fitted = fitLocalizedHeadline(text, 30)
+    if (!fitted || fitted === headlines[index]) return
+    headlines[index] = fitted
+    headlineFixes += 1
+  }
+  const replaceDescription = (index: number, base: string, cta: string) => {
+    if (index < 0 || index >= descriptions.length) return
+    const fitted = fitLocalizedDescription(base, cta, 90)
+    if (!fitted || fitted === descriptions[index]) return
+    descriptions[index] = fitted
+    descriptionFixes += 1
+  }
+
+  if (bucket === 'A') {
+    const trustDescCount = descriptions.filter((d) => patterns.trust.test(d)).length
+    if (trustDescCount < 1) {
+      replaceDescription(
+        descriptions.length - 1,
+        templates.a.trustDescription.base,
+        templates.a.trustDescription.cta
+      )
+    }
+    const brandHeadlineCount = headlineTags.filter((tag) => tag === 'brand').length
+    if (brandHeadlineCount < 2 && headlines.length > 1) {
+      replaceHeadline(headlines.length - 1, templates.a.brandHeadline)
+    }
+  } else if (bucket === 'B') {
+    const painSolutionCount = descriptionStructures.filter((tag) => tag === 'pain_solution_cta').length
+    if (painSolutionCount < 2) {
+      replaceDescription(
+        Math.max(0, descriptions.length - 2),
+        templates.b.painSolution1.base,
+        templates.b.painSolution1.cta
+      )
+      replaceDescription(
+        descriptions.length - 1,
+        templates.b.painSolution2.base,
+        templates.b.painSolution2.cta
+      )
+    }
+    const scenarioHeadlineCount = headlineTags.filter((tag) => tag === 'scenario').length
+    if (scenarioHeadlineCount < 2 && headlines.length > 1) {
+      replaceHeadline(headlines.length - 1, templates.b.scenarioHeadline)
+    }
+  } else if (bucket === 'D') {
+    const transactionalDescCount = descriptionTags.filter((tag) => tag === 'transactional').length
+    if (transactionalDescCount < 1) {
+      replaceDescription(
+        descriptions.length - 1,
+        templates.d.valueDescription.base,
+        templates.d.valueDescription.cta
+      )
+    }
+    const transactionalHeadlineCount = headlineTags.filter((tag) => tag === 'transactional').length
+    if (transactionalHeadlineCount < 2 && headlines.length > 1) {
+      replaceHeadline(headlines.length - 1, templates.d.transactionalHeadline)
+    }
+  }
+
+  result.headlines = headlines
+  result.descriptions = descriptions
+  return { headlineFixes, descriptionFixes }
+}
+
+function annotateCopyIntentMetadata(
+  result: GeneratedAdCreativeData,
+  languageCode: string,
+  keywords: string[]
+): void {
+  const headlines = result.headlines || []
+  const descriptions = result.descriptions || []
+  const ctaRegex = getCtaRegexForLanguage(languageCode)
+
+  const headlineMetadata: HeadlineAsset[] = (result.headlinesWithMetadata && result.headlinesWithMetadata.length > 0)
+    ? result.headlinesWithMetadata.map((h, idx) => ({
+        ...h,
+        text: headlines[idx] ?? h.text
+      }))
+    : headlines.map((text) => ({ text, length: text.length }))
+
+  const descriptionMetadata: DescriptionAsset[] = (result.descriptionsWithMetadata && result.descriptionsWithMetadata.length > 0)
+    ? result.descriptionsWithMetadata.map((d, idx) => ({
+        ...d,
+        text: descriptions[idx] ?? d.text
+      }))
+    : descriptions.map((text) => ({ text, length: text.length, hasCTA: ctaRegex.test(text) }))
+
+  result.headlinesWithMetadata = headlineMetadata.map((headline) => ({
+    ...headline,
+    length: Math.min(30, headline.text.length),
+    intentTag: classifyCopyIntentFromText(headline.text, languageCode, keywords),
+  }))
+
+  result.descriptionsWithMetadata = descriptionMetadata.map((description) => {
+    const intentTag = classifyCopyIntentFromText(description.text, languageCode, keywords)
+    return {
+      ...description,
+      length: Math.min(90, description.text.length),
+      hasCTA: description.hasCTA ?? ctaRegex.test(description.text),
+      intentTag,
+      structureTag: classifyDescriptionStructure(description.text, intentTag, languageCode)
+    }
+  })
 }
 
 /**
@@ -1516,7 +2502,9 @@ async function buildAdCreativePrompt(
     // 🆕 KISS-3类型优化：Headline #2 主关键词（非品牌）
     primary_keyword: '',
     // 🆕 证据约束：仅允许使用此处可验证事实（避免“编造数字/承诺”）
-    verified_facts_section: ''
+    verified_facts_section: '',
+    // 🆕 非破坏式意图增强：只指导文案，不改变关键词列表
+    type_intent_guidance_section: ''
   }
 
   // Build conditional sections as complete strings
@@ -3000,6 +3988,14 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   } else {
     variables.ai_keywords_section = ''
   }
+
+  // 🆕 非破坏式A/B/D意图引导（仅作用于标题/描述表达）
+  const normalizedPromptBucket = normalizeCreativeBucketType(extractedElements?.bucketInfo?.bucket)
+  variables.type_intent_guidance_section = buildTypeIntentGuidanceSection(
+    normalizedPromptBucket,
+    keywordsForPrompt,
+    normalizeLanguageCode(targetLanguage || 'English')
+  )
 
   // 🎯 新增：AI竞争优势section
   let ai_competitive_section = ''
@@ -4516,8 +5512,9 @@ export async function generateAdCreative(
       console.log(`✨ 读取到 ${enhancedData.descriptions?.length || 0} 个增强描述`)
     }
     if ((offer as any).localization_adapt) {
-      enhancedData.localization = JSON.parse((offer as any).localization_adapt)
-      console.log(`✨ 读取到本地化适配数据`)
+      const rawLocalization = JSON.parse((offer as any).localization_adapt)
+      enhancedData.localization = normalizeLocalizationPayload(rawLocalization)
+      console.log(`✨ 读取到本地化适配数据${enhancedData.localization ? '（已标准化）' : '（结构不兼容，跳过）'}`)
     }
     if ((offer as any).brand_analysis) {
       enhancedData.brandAnalysis = JSON.parse((offer as any).brand_analysis)
@@ -5042,10 +6039,11 @@ export async function generateAdCreative(
   keywordsWithVolume = finalizedKeywords.keywordsWithVolume
   result.keywords = finalizedKeywords.keywords
 
-  // ✅ 基础约束修复：CTA 与关键词嵌入率（English）
+  // ✅ 基础约束修复：CTA（多语言软补强）与关键词嵌入率（English）
   const resolvedLanguage = normalizeLanguageCode(targetLanguage)
-  if (resolvedLanguage === 'en') {
-    const ctaFix = enforceEnglishCtas(result.descriptions, 2, 90)
+  const resolvedSoftLanguage = resolveSoftCopyLanguage(targetLanguage || resolvedLanguage)
+  if (resolvedSoftLanguage) {
+    const ctaFix = enforceLanguageCtas(result.descriptions, 2, 90, resolvedSoftLanguage)
     if (ctaFix.fixed > 0) {
       console.log(`🔧 CTA补强: 修复 ${ctaFix.fixed} 条描述`)
       result.descriptions = ctaFix.updated
@@ -5057,7 +6055,9 @@ export async function generateAdCreative(
         }))
       }
     }
+  }
 
+  if (resolvedSoftLanguage === 'en') {
     const embedFix = enforceKeywordEmbedding(result.headlines, result.keywords, 8, 30, [0])
     if (embedFix.fixed > 0) {
       console.log(`🔧 关键词嵌入率补强: 修复 ${embedFix.fixed} 个标题`)
@@ -5071,6 +6071,16 @@ export async function generateAdCreative(
       }
     }
   }
+
+  // 🆕 非破坏式A/B/D文案补强：仅调整标题/描述表达，不修改关键词策略
+  const normalizedBucket = normalizeCreativeBucketType(options?.bucket || null)
+  const softFix = softlyReinforceTypeCopy(result, normalizedBucket, targetLanguage || resolvedLanguage, brandName)
+  if (softFix.headlineFixes > 0 || softFix.descriptionFixes > 0) {
+    console.log(`🔧 类型化文案补强: headlines ${softFix.headlineFixes} 条, descriptions ${softFix.descriptionFixes} 条`)
+  }
+
+  // 🆕 添加只读意图元数据（向后兼容，不影响关键词和发布）
+  annotateCopyIntentMetadata(result, resolvedLanguage, result.keywords || [])
 
   // 修正 sitelinks URL 为真实的 offer URL
   // 需求优化：所有sitelinks统一使用offer的主URL，避免虚构的子路径

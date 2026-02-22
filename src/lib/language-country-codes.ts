@@ -34,6 +34,9 @@ export const LANGUAGE_CODE_MAP: Record<string, string> = {
   // 法语
   'french': 'fr',
   'fr': 'fr',
+  'fr-ca': 'fr',
+  'canadian french': 'fr',
+  'french (canada)': 'fr',
   '法语': 'fr',
 
   // 德语

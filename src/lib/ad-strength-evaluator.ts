@@ -123,6 +123,13 @@ export interface AdStrengthEvaluation {
     }>
   }
 
+  // 非阻断指标：类型-意图对齐与文案意图覆盖（不影响总分）
+  copyIntentMetrics?: {
+    expectedBucket: 'A' | 'B' | 'D' | 'UNSPECIFIED'
+    typeIntentAlignmentScore: number // 0-100
+    copyIntentCoverage: number // 0-100
+  }
+
   // 改进建议
   suggestions: string[]
 }
@@ -279,6 +286,8 @@ export async function evaluateAdStrength(
     }>
     // [NEW] 产品类别（用于品牌-内容一致性检查）
     category?: string
+    // [NEW] 创意类型（A/B/D，兼容C/S映射）
+    bucketType?: 'A' | 'B' | 'C' | 'D' | 'S'
   }
 ): Promise<AdStrengthEvaluation> {
 
@@ -353,8 +362,21 @@ export async function evaluateAdStrength(
   // 确定评级
   const rating = scoreToRating(overallScore)
 
+  // 非阻断文案意图评估
+  const copyIntentMetrics = calculateCopyIntentMetrics(headlines, descriptions, options?.bucketType)
+
   // 生成改进建议
-  const suggestions = generateSuggestions(diversity, relevance, completeness, quality, compliance, brandSearchVolume, competitivePositioning, rating)
+  const suggestions = generateSuggestions(
+    diversity,
+    relevance,
+    completeness,
+    quality,
+    compliance,
+    brandSearchVolume,
+    competitivePositioning,
+    rating,
+    copyIntentMetrics
+  )
 
   return {
     overallScore: Math.round(overallScore),
@@ -368,6 +390,7 @@ export async function evaluateAdStrength(
       brandSearchVolume,
       competitivePositioning
     },
+    copyIntentMetrics,
     suggestions
   }
 }
@@ -1564,6 +1587,84 @@ function calculateCompliance(headlines: HeadlineAsset[], descriptions: Descripti
   }
 }
 
+type CopyIntentTag = 'brand' | 'scenario' | 'solution' | 'transactional' | 'other'
+
+const COPY_INTENT_TRUST_PATTERN = /\b(official|authentic|trusted|certified|warranty|support|guarantee)\b/i
+const COPY_INTENT_TRANSACTIONAL_PATTERN = /\b(buy|shop|order|price|deal|discount|offer|save|get|quote)\b/i
+const COPY_INTENT_SCENARIO_PATTERN = /\b(for|when|during|project|repair|install|build|fix|home|garden|yard|fence|deck|job)\b/i
+const COPY_INTENT_SOLUTION_PATTERN = /\b(solution|solve|built|designed|helps|easy|durable|reliable|heavy[-\s]?duty|powerful|lightweight)\b/i
+
+function normalizeBucketTypeForCopyMetrics(bucketType?: 'A' | 'B' | 'C' | 'D' | 'S'): 'A' | 'B' | 'D' | 'UNSPECIFIED' {
+  if (bucketType === 'A') return 'A'
+  if (bucketType === 'B' || bucketType === 'C') return 'B'
+  if (bucketType === 'D' || bucketType === 'S') return 'D'
+  return 'UNSPECIFIED'
+}
+
+function classifyCopyIntentTag(text: string): CopyIntentTag {
+  const normalized = String(text || '').toLowerCase()
+  if (!normalized) return 'other'
+  if (COPY_INTENT_TRUST_PATTERN.test(normalized)) return 'brand'
+  if (COPY_INTENT_TRANSACTIONAL_PATTERN.test(normalized)) return 'transactional'
+  if (COPY_INTENT_SCENARIO_PATTERN.test(normalized)) return 'scenario'
+  if (COPY_INTENT_SOLUTION_PATTERN.test(normalized)) return 'solution'
+  return 'other'
+}
+
+function calculateCopyIntentMetrics(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  bucketType?: 'A' | 'B' | 'C' | 'D' | 'S'
+): {
+  expectedBucket: 'A' | 'B' | 'D' | 'UNSPECIFIED'
+  typeIntentAlignmentScore: number
+  copyIntentCoverage: number
+} {
+  const expectedBucket = normalizeBucketTypeForCopyMetrics(bucketType)
+  const texts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)]
+  const tags = texts.map(classifyCopyIntentTag)
+  const count = (tag: CopyIntentTag) => tags.filter(t => t === tag).length
+  const total = Math.max(1, tags.length)
+
+  const brandCount = count('brand')
+  const scenarioCount = count('scenario')
+  const solutionCount = count('solution')
+  const transactionalCount = count('transactional')
+
+  const coverageKinds = [
+    brandCount > 0,
+    scenarioCount > 0,
+    solutionCount > 0,
+    transactionalCount > 0
+  ].filter(Boolean).length
+  const copyIntentCoverage = Math.round((coverageKinds / 4) * 100)
+
+  let alignmentRaw = 60 // bucket未指定时的基准
+  if (expectedBucket === 'A') {
+    const trustSignal = Math.min(1, brandCount / 2)
+    const transactionalSignal = Math.min(1, transactionalCount / 2)
+    alignmentRaw = (trustSignal * 75 + transactionalSignal * 25) * 100 / 100
+  } else if (expectedBucket === 'B') {
+    const scenarioSignal = Math.min(1, scenarioCount / 2)
+    const solutionSignal = Math.min(1, solutionCount / 2)
+    alignmentRaw = (scenarioSignal * 55 + solutionSignal * 45) * 100 / 100
+  } else if (expectedBucket === 'D') {
+    const transactionalSignal = Math.min(1, transactionalCount / 2)
+    const valueSignal = Math.min(1, (transactionalCount + solutionCount) / 3)
+    alignmentRaw = (transactionalSignal * 70 + valueSignal * 30) * 100 / 100
+  } else {
+    alignmentRaw = Math.min(100, 40 + copyIntentCoverage * 0.6)
+  }
+
+  const typeIntentAlignmentScore = Math.round(Math.max(0, Math.min(100, alignmentRaw)))
+
+  return {
+    expectedBucket,
+    typeIntentAlignmentScore,
+    copyIntentCoverage
+  }
+}
+
 /**
  * 将分数转换为评级
  */
@@ -1586,7 +1687,12 @@ function generateSuggestions(
   compliance: any,
   brandSearchVolume: any,
   competitivePositioning: any,
-  rating: AdStrengthRating
+  rating: AdStrengthRating,
+  copyIntentMetrics?: {
+    expectedBucket: 'A' | 'B' | 'D' | 'UNSPECIFIED'
+    typeIntentAlignmentScore: number
+    copyIntentCoverage: number
+  }
 ): string[] {
   const suggestions: string[] = []
 
@@ -1668,6 +1774,25 @@ function generateSuggestions(
   }
   if (competitivePositioning.details.valueEmphasis < 1) {
     suggestions.push('🎯 强调性价比：使用"Rapporto Qualità-Prezzo"等表述增强价值感知')
+  }
+
+  // 非阻断：类型化文案意图建议
+  if (copyIntentMetrics) {
+    if (copyIntentMetrics.copyIntentCoverage < 50) {
+      suggestions.push(`🧭 提升文案意图覆盖：当前${copyIntentMetrics.copyIntentCoverage}%（建议覆盖场景/解法/转化等不同表达）`)
+    }
+
+    if (copyIntentMetrics.typeIntentAlignmentScore < 60) {
+      if (copyIntentMetrics.expectedBucket === 'A') {
+        suggestions.push('🧭 A类型对齐不足：增加官方/可信/保障表达，减少过强场景或促销导向')
+      } else if (copyIntentMetrics.expectedBucket === 'B') {
+        suggestions.push('🧭 B类型对齐不足：增加“痛点→解法”表达，避免文案过度促销化')
+      } else if (copyIntentMetrics.expectedBucket === 'D') {
+        suggestions.push('🧭 D类型对齐不足：增强价值与行动号召表达（在证据允许范围内）')
+      } else {
+        suggestions.push('🧭 文案意图对齐偏弱：建议按创意类型强化主导表达（A信任/B场景解法/D转化价值）')
+      }
+    }
   }
 
   return suggestions
