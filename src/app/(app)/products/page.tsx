@@ -71,7 +71,6 @@ import {
   AlertCircle,
   Info,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
@@ -176,6 +175,8 @@ type NumericRangeFilters = {
 
 type NumericRangeFilterDrafts = Record<keyof NumericRangeFilters, string>
 
+const PARTNERBOOST_MERCHANT_PAGE_URL = 'https://app.partnerboost.com/partner/amazon-offers'
+
 const PLATFORM_LABEL: Record<ProductPlatform, string> = {
   yeahpromos: 'YeahPromos',
   partnerboost: 'PartnerBoost',
@@ -188,32 +189,26 @@ const PLATFORM_SHORT_LABEL: Record<ProductPlatform, string> = {
 
 const LANDING_PAGE_TYPE_META: Record<LandingPageType, {
   label: string
-  icon: LucideIcon
   badgeClassName: string
 }> = {
   amazon_product: {
-    label: '亚马逊商品',
-    icon: Package,
+    label: 'Amazon商品',
     badgeClassName: 'border-amber-300 bg-amber-50 text-amber-700',
   },
   amazon_store: {
-    label: '亚马逊店铺',
-    icon: Building2,
+    label: 'Amazon店铺',
     badgeClassName: 'border-amber-300 bg-amber-50 text-amber-700',
   },
   independent_product: {
     label: '独立站商品',
-    icon: Package,
     badgeClassName: 'border-sky-300 bg-sky-50 text-sky-700',
   },
   independent_store: {
     label: '独立站店铺',
-    icon: Building2,
     badgeClassName: 'border-sky-300 bg-sky-50 text-sky-700',
   },
   unknown: {
-    label: '未知',
-    icon: HelpCircle,
+    label: '其他',
     badgeClassName: 'text-muted-foreground',
   },
 }
@@ -302,16 +297,14 @@ function safeOpenExternal(url?: string | null): void {
 }
 
 function resolveMidTargetUrl(product: ProductListItem): string | null {
-  const productUrl = String(product.productUrl || '').trim()
-  if (productUrl) return productUrl
+  if (product.platform !== 'partnerboost') return null
 
-  const shortPromoLink = String(product.shortPromoLink || '').trim()
-  if (shortPromoLink) return shortPromoLink
+  const asin = String(product.asin || '').trim()
+  if (!asin) return null
 
-  const promoLink = String(product.promoLink || '').trim()
-  if (promoLink) return promoLink
-
-  return null
+  const url = new URL(PARTNERBOOST_MERCHANT_PAGE_URL)
+  url.searchParams.set('sku', asin)
+  return url.toString()
 }
 
 function getSyncRunBadgeVariant(status: SyncRunItem['status']): 'default' | 'destructive' | 'outline' {
@@ -1069,7 +1062,7 @@ export default function ProductsPage() {
                 </TooltipProvider>
               </span>
             </SortableTableHead>
-            <TableHead className="w-[88px] whitespace-nowrap">落地页类型</TableHead>
+            <TableHead className="w-[146px] whitespace-nowrap">落地页类型</TableHead>
             <SortableTableHead field="reviewCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[114px] whitespace-nowrap">
               商品评论数
             </SortableTableHead>
@@ -1102,7 +1095,6 @@ export default function ProductsPage() {
             const merchantIdText = item.merchantId || '-'
             const asinText = item.asin || '-'
             const landingPageTypeMeta = LANDING_PAGE_TYPE_META[item.landingPageType] || LANDING_PAGE_TYPE_META.unknown
-            const LandingPageIcon = landingPageTypeMeta.icon
             const brandText = item.brand || '-'
             const allowedCountriesText = item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'
             const displayCurrency = resolveDisplayCurrency(item)
@@ -1183,11 +1175,11 @@ export default function ProductsPage() {
                   <div className={item.isBlacklisted ? 'opacity-50' : ''}>
                     <Badge
                       variant="outline"
-                      className={`h-6 w-6 justify-center p-0 ${landingPageTypeMeta.badgeClassName}`}
+                      className={`inline-flex max-w-[132px] items-center whitespace-nowrap px-2 py-1 text-xs ${landingPageTypeMeta.badgeClassName}`}
                       title={landingPageTypeMeta.label}
                       aria-label={landingPageTypeMeta.label}
                     >
-                      <LandingPageIcon className="h-3.5 w-3.5" />
+                      <span className="truncate">{landingPageTypeMeta.label}</span>
                     </Badge>
                   </div>
                 </TableCell>
