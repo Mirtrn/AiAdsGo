@@ -19,7 +19,25 @@ vi.mock('@/lib/openclaw/affiliate-commission-attribution', () => ({
 
 import { fetchAffiliateCommissionRevenue } from './affiliate-revenue'
 
-describe('fetchAffiliateCommissionRevenue partnerboost row parsing', () => {
+function makeOkJsonResponse(payload: any): any {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  }
+}
+
+function makeErrorResponse(status: number, text: string): any {
+  return {
+    ok: false,
+    status,
+    json: async () => ({}),
+    text: async () => text,
+  }
+}
+
+describe('fetchAffiliateCommissionRevenue partnerboost commission sync', () => {
   beforeEach(() => {
     vi.resetAllMocks()
 
@@ -43,105 +61,145 @@ describe('fetchAffiliateCommissionRevenue partnerboost row parsing', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it('parses documented amazon report fields (estCommission/order_id/adGroupId/link)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: { code: 0, msg: 'success' },
-        data: {
-          list: [
-            {
-              asin: 'B0C6DHK68Q',
-              estCommission: 8.94,
-              order_id: 'C1TIP-PJ09161555',
-              adGroupId: 'a6e3PBLq_xxx',
-              link: 'https://www.amazon.com/dp/B0C6DHK68Q?aa_adgroupid=a6e3PBLq_xxx',
-              uid: 'sherry',
-            },
-          ],
-        },
-      }),
-    })
+  it('uses transaction sale_comm as primary commission and enriches via report by order_id', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            list: [
+              {
+                order_id: 'C28VW-7C7IDG8UPD',
+                adGroupId: 'a6e3PBLq_xxx',
+                link: 'https://www.amazon.com/dp/B0CCY6VG8Z?aa_adgroupid=a6e3PBLq_xxx',
+                estCommission: 0,
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            total_page: 1,
+            list: [
+              {
+                order_id: 'C28VW-7C7IDG8UPD',
+                sale_comm: '3.99',
+                prod_id: 'B0CCY6VG8Z',
+                partnerboost_id: '8aed2d6efd41e6b9d26b0b0fd20c9591',
+                status: 'Pending',
+              },
+            ],
+          },
+        })
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     const revenue = await fetchAffiliateCommissionRevenue({
       userId: 1,
-      reportDate: '2026-02-19',
+      reportDate: '2026-02-20',
     })
 
-    expect(revenue.totalCommission).toBe(8.94)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/datafeed/get_amazon_report')
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api.php?mod=medium&op=transaction')
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain('begin_date=2026-02-20')
+
+    expect(revenue.totalCommission).toBe(3.99)
     expect(hoisted.persistAffiliateCommissionAttributionsMock).toHaveBeenCalledTimes(1)
     const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
     const entry = input?.entries?.[0]
-    expect(entry?.commission).toBe(8.94)
-    expect(entry?.sourceOrderId).toBe('C1TIP-PJ09161555')
-    expect(entry?.sourceAsin).toBe('B0C6DHK68Q')
-    expect(entry?.sourceMid).toBeNull()
+    expect(entry?.commission).toBe(3.99)
+    expect(entry?.sourceOrderId).toBe('C28VW-7C7IDG8UPD')
+    expect(entry?.sourceAsin).toBe('B0CCY6VG8Z')
     expect(entry?.sourceLinkId).toBe('a6e3PBLq_xxx')
-    expect(entry?.sourceLink).toContain('/dp/B0C6DHK68Q')
+    expect(entry?.sourceLink).toContain('/dp/B0CCY6VG8Z')
   })
 
-  it('captures sourceLinkId from adGroupId when link is missing', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: { code: 0, msg: 'success' },
-        data: {
-          list: [
-            {
-              asin: 'B0C6DHK68Q',
-              estCommission: 5.11,
-              order_id: 'C1TIP-NOLINK-1',
-              adGroupId: 'pb_adg_001',
-            },
-          ],
-        },
-      }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    await fetchAffiliateCommissionRevenue({
-      userId: 1,
-      reportDate: '2026-02-19',
-    })
-
-    const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
-    const entry = input?.entries?.[0]
-    expect(entry?.sourceOrderId).toBe('C1TIP-NOLINK-1')
-    expect(entry?.sourceAsin).toBe('B0C6DHK68Q')
-    expect(entry?.sourceLink).toBeNull()
-    expect(entry?.sourceLinkId).toBe('pb_adg_001')
-  })
-
-  it('parses table-style fields with spaces/dots (Order ID/Product ID/Est. Commission/PartnerBoost ID)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: { code: 0, msg: 'success' },
-        data: {
-          list: [
-            {
-              'MID': '136628',
-              'MCID': 'dreo1',
-              'Order ID': 'C28VV-CPBOTIS5YX',
-              'Product ID': 'B0CCJGKY4M',
-              'Est. Commission': '$8.94',
-              'PartnerBoost ID': '1a53b14a65c1ae1c16f7b0d459b10a80',
-              'Referrer URL': 'https://www.amazon.com/dp/B0CCJGKY4M',
-            },
-          ],
-        },
-      }),
-    })
+  it('uses single report adGroup as fallback when transaction row has no match and no linkId', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            list: [
+              {
+                order_id: 'REPORT-ONLY-1',
+                adGroupId: 'pb_adg_single',
+                link: 'https://www.amazon.com/dp/B0CCY6VG8Z?aa_adgroupid=pb_adg_single',
+                estCommission: 0,
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            total_page: 1,
+            list: [
+              {
+                order_id: 'TX-ORDER-1',
+                sale_comm: '3.99',
+                prod_id: 'B0CCY6VG8Z',
+              },
+            ],
+          },
+        })
+      )
     vi.stubGlobal('fetch', fetchMock)
 
     const revenue = await fetchAffiliateCommissionRevenue({
       userId: 1,
-      reportDate: '2026-02-19',
+      reportDate: '2026-02-20',
     })
 
+    expect(revenue.totalCommission).toBe(3.99)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
+    const entry = input?.entries?.[0]
+    expect(entry?.sourceOrderId).toBe('TX-ORDER-1')
+    expect(entry?.sourceAsin).toBe('B0CCY6VG8Z')
+    expect(entry?.sourceLink).toContain('aa_adgroupid=pb_adg_single')
+    expect(entry?.sourceLinkId).toBe('pb_adg_single')
+  })
+
+  it('falls back to report-only commission when transaction API request fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            list: [
+              {
+                'Order ID': 'C28VV-CPBOTIS5YX',
+                'Product ID': 'B0CCJGKY4M',
+                'Est. Commission': '$8.94',
+                adGroupId: 'pb_adg_002',
+                'Referrer URL': 'https://www.amazon.com/dp/B0CCJGKY4M?aa_adgroupid=pb_adg_002',
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(makeErrorResponse(500, 'upstream error'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const revenue = await fetchAffiliateCommissionRevenue({
+      userId: 1,
+      reportDate: '2026-02-20',
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalled()
     expect(revenue.totalCommission).toBe(8.94)
     expect(hoisted.persistAffiliateCommissionAttributionsMock).toHaveBeenCalledTimes(1)
     const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
@@ -149,8 +207,7 @@ describe('fetchAffiliateCommissionRevenue partnerboost row parsing', () => {
     expect(entry?.commission).toBe(8.94)
     expect(entry?.sourceOrderId).toBe('C28VV-CPBOTIS5YX')
     expect(entry?.sourceAsin).toBe('B0CCJGKY4M')
-    expect(entry?.sourceMid).toBe('1a53b14a65c1ae1c16f7b0d459b10a80')
-    expect(entry?.sourceLinkId).toBeNull()
+    expect(entry?.sourceLinkId).toBe('pb_adg_002')
     expect(entry?.sourceLink).toContain('/dp/B0CCJGKY4M')
   })
 })

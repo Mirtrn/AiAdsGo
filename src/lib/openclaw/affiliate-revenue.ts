@@ -40,9 +40,30 @@ const PARTNERBOOST_PAGE_SIZE = 100
 const PARTNERBOOST_MAX_PAGES = 20
 const YEAHPROMOS_DEFAULT_LIMIT = 1000
 const YEAHPROMOS_MAX_PAGES = 5
+const PARTNERBOOST_COMMISSION_ALIASES = [
+  'estCommission',
+  'est_commission',
+  'EstCommission',
+  'Est. Commission',
+  'Est Commission',
+  'est commission',
+  // Fallback aliases observed in some affiliate feeds
+  'commission',
+  'commission_amount',
+  'commissionAmount',
+  'sale_comm',
+  'saleComm',
+  'earnings',
+  'earning',
+]
 
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
+}
+
+function normalizeCurrency(value: unknown): string {
+  const normalized = String(value || '').trim().toUpperCase()
+  return normalized || 'USD'
 }
 
 function parseNumberish(value: unknown, fallback = 0): number {
@@ -127,6 +148,21 @@ function normalizePartnerboostReportRows(payload: any): any[] {
   if (Array.isArray(data?.list)) return data.list
   if (Array.isArray(payload?.list)) return payload.list
   return []
+}
+
+function normalizePartnerboostTransactionRows(payload: any): { rows: any[]; totalPages: number | null } {
+  const data = payload?.data
+  const rows = Array.isArray(data?.list)
+    ? data.list
+    : (Array.isArray(payload?.list) ? payload.list : [])
+
+  const totalPagesRaw = data?.total_page ?? data?.totalPage ?? payload?.total_page ?? payload?.totalPage
+  const totalPages = Number(totalPagesRaw)
+
+  return {
+    rows,
+    totalPages: Number.isFinite(totalPages) && totalPages > 0 ? Math.floor(totalPages) : null,
+  }
 }
 
 function normalizeYeahPromosCode(payload: any): number | null {
@@ -244,6 +280,68 @@ function pickMid(...values: unknown[]): string | null {
   return null
 }
 
+function parsePartnerboostCommissionValue(row: any): number {
+  const direct = parseNumberish(getFieldValue(row, PARTNERBOOST_COMMISSION_ALIASES), 0)
+  if (direct > 0) return direct
+  if (!row || typeof row !== 'object') return direct
+
+  let bestScore = -1
+  let bestValue = 0
+
+  for (const [key, value] of Object.entries(row)) {
+    if (isEmptyValue(value)) continue
+    const normalizedKey = normalizeLookupKey(key)
+    if (!normalizedKey) continue
+    if (normalizedKey.includes('rate') || normalizedKey.includes('ratio') || normalizedKey.includes('percent') || normalizedKey.includes('pct')) {
+      continue
+    }
+
+    let score = -1
+    if (normalizedKey.includes('est') && normalizedKey.includes('commission')) {
+      score = 4
+    } else if (normalizedKey.includes('commission')) {
+      score = 3
+    } else if (normalizedKey.includes('salecomm')) {
+      score = 2
+    } else if (normalizedKey.includes('earning')) {
+      score = 1
+    }
+
+    if (score < 0) continue
+
+    const parsed = parseNumberish(value, 0)
+    if (parsed <= 0) continue
+
+    if (score > bestScore || (score === bestScore && parsed > bestValue)) {
+      bestScore = score
+      bestValue = parsed
+    }
+  }
+
+  return bestValue > 0 ? bestValue : direct
+}
+
+function pickPartnerboostCommissionSignals(row: any): Record<string, unknown> {
+  if (!row || typeof row !== 'object') return {}
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    const normalizedKey = normalizeLookupKey(key)
+    if (!normalizedKey) continue
+    if (
+      normalizedKey.includes('commission')
+      || normalizedKey.includes('earning')
+      || normalizedKey.includes('salecomm')
+      || normalizedKey.includes('saleamount')
+      || normalizedKey.includes('unitprice')
+      || normalizedKey.includes('status')
+      || normalizedKey.includes('orderid')
+    ) {
+      result[key] = value
+    }
+  }
+  return result
+}
+
 type CommissionCollection = {
   totalCommission: number
   records: number
@@ -258,19 +356,17 @@ async function fetchPartnerboostCommission(params: {
   const startDate = toPartnerboostDate(params.reportDate)
   const endDate = toPartnerboostDate(params.reportDate)
 
-  let page = 1
-  let totalCommission = 0
-  let records = 0
-  const entries: AffiliateCommissionRawEntry[] = []
+  const reportRows: any[] = []
+  let reportPage = 1
 
-  while (page <= PARTNERBOOST_MAX_PAGES) {
+  while (reportPage <= PARTNERBOOST_MAX_PAGES) {
     const response = await fetch(`${params.baseUrl}/api/datafeed/get_amazon_report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token: params.token,
         page_size: PARTNERBOOST_PAGE_SIZE,
-        page,
+        page: reportPage,
         start_date: startDate,
         end_date: endDate,
         marketplace: '',
@@ -292,110 +388,378 @@ async function fetchPartnerboostCommission(params: {
     }
 
     const rows = normalizePartnerboostReportRows(payload)
-    for (const row of rows) {
-      const commission = parseNumberish(
-        getFieldValue(row, [
-          'estCommission',
-          'est_commission',
-          'EstCommission',
-          'Est. Commission',
-          'Est Commission',
-          'est commission',
-        ]),
-        0
+    if (process.env.OPENCLAW_AFFILIATE_SYNC_DEBUG === 'true' && rows.length > 0) {
+      const firstRow = rows[0] || {}
+      const keys = Object.keys(firstRow).slice(0, 50)
+      const commissionSignals = pickPartnerboostCommissionSignals(firstRow)
+      const parsedCommission = parsePartnerboostCommissionValue(firstRow)
+      console.log(
+        `[affiliate-revenue][debug] PartnerBoost amazon_report date=${params.reportDate} page=${reportPage} rows=${rows.length} parsedCommission(firstRow)=${parsedCommission} keys=${keys.join(',')} signals=${JSON.stringify(commissionSignals)}`
       )
-      totalCommission += commission
-
-      if (commission > 0) {
-        const sourceLink = pickString(
-          getFieldValue(row, [
-            'link',
-            'url',
-            'product_link',
-            'productLink',
-            'landing_page',
-            'landingPage',
-            'final_url',
-            'finalUrl',
-            'Referrer URL',
-            'referrer_url',
-          ])
-        )
-        const sourceLinkId = pickString(
-          getFieldValue(row, [
-            'aa_adgroupid',
-            'aaAdgroupid',
-            'adGroupId',
-            'ad_group_id',
-            'Ad Group Id',
-          ])
-        )
-
-        entries.push({
-          platform: 'partnerboost',
-          reportDate: params.reportDate,
-          commission,
-          currency: 'USD',
-          sourceOrderId: pickString(
-            getFieldValue(row, [
-              'order_id',
-              'orderId',
-              'orderID',
-              'oid',
-              'Order ID',
-              'order id',
-            ])
-          ),
-          sourceMid: pickMid(
-            getFieldValue(row, [
-              'partnerboost_id',
-              'PartnerBoost ID',
-              'partnerboost id',
-              'partnerboostid',
-              'mcid',
-              'MCID',
-              'mid',
-              'MID',
-              'advert_id',
-              'advertId',
-              'product_mid',
-              'productMid',
-              'product_id',
-              'productId',
-            ])
-          ),
-          sourceAsin: normalizeAsin(
-            pickAsin(
-              getFieldValue(row, [
-                'asin',
-                'ASIN',
-                'product_asin',
-                'productAsin',
-                'product_id',
-                'productId',
-                'Product ID',
-                'product id',
-                'sku',
-                'SKU',
-              ]),
-              sourceLink
-            )
-          ),
-          sourceLink,
-          sourceLinkId,
-          raw: row,
-        })
-      }
     }
 
-    records += rows.length
+    reportRows.push(...rows)
 
     const hasMore = payload?.data?.has_more === true || payload?.data?.hasMore === true
     if (rows.length < PARTNERBOOST_PAGE_SIZE && !hasMore) {
       break
     }
 
-    page += 1
+    reportPage += 1
+  }
+
+  const reportRowsByOrderId = new Map<string, any>()
+  const reportRowsWithAdGroup: Array<{ sourceLink: string | null; sourceLinkId: string }> = []
+
+  for (const row of reportRows) {
+    const orderId = pickString(
+      getFieldValue(row, [
+        'order_id',
+        'orderId',
+        'orderID',
+        'oid',
+        'Order ID',
+        'order id',
+      ])
+    )
+    if (orderId && !reportRowsByOrderId.has(orderId)) {
+      reportRowsByOrderId.set(orderId, row)
+    }
+
+    const sourceLinkId = pickString(
+      getFieldValue(row, [
+        'aa_adgroupid',
+        'aaAdgroupid',
+        'adGroupId',
+        'ad_group_id',
+        'Ad Group Id',
+        'click_ref',
+        'clickRef',
+        'Click Ref',
+      ])
+    )
+    if (!sourceLinkId) continue
+
+    const sourceLink = pickString(
+      getFieldValue(row, [
+        'link',
+        'url',
+        'product_link',
+        'productLink',
+        'landing_page',
+        'landingPage',
+        'final_url',
+        'finalUrl',
+        'Referrer URL',
+        'referrer_url',
+      ])
+    )
+    reportRowsWithAdGroup.push({ sourceLink, sourceLinkId })
+  }
+
+  const uniqueReportAdGroupIds = Array.from(
+    new Set(reportRowsWithAdGroup.map((item) => item.sourceLinkId))
+  )
+  const singleAdGroupFallback = uniqueReportAdGroupIds.length === 1
+    ? reportRowsWithAdGroup.find((item) => item.sourceLinkId === uniqueReportAdGroupIds[0]) || null
+    : null
+
+  const transactionRows: any[] = []
+  let transactionError: Error | null = null
+  let txPage = 1
+  let txTotalPages: number | null = null
+
+  try {
+    while (txPage <= PARTNERBOOST_MAX_PAGES) {
+      const transactionUrl = new URL('/api.php?mod=medium&op=transaction', params.baseUrl)
+      const body = new URLSearchParams({
+        token: params.token,
+        begin_date: params.reportDate,
+        end_date: params.reportDate,
+        status: 'All',
+        page: String(txPage),
+        limit: String(PARTNERBOOST_PAGE_SIZE),
+      })
+
+      const response = await fetch(transactionUrl.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`PartnerBoost transaction API ${response.status}: ${text}`)
+      }
+
+      const payload = await response.json() as any
+      const statusCode = Number(payload?.status?.code)
+      if (!Number.isFinite(statusCode) || statusCode !== 0) {
+        throw new Error(`PartnerBoost transaction error: ${payload?.status?.msg || statusCode}`)
+      }
+
+      const normalized = normalizePartnerboostTransactionRows(payload)
+      const rows = normalized.rows
+      if (process.env.OPENCLAW_AFFILIATE_SYNC_DEBUG === 'true' && rows.length > 0) {
+        const firstRow = rows[0] || {}
+        const keys = Object.keys(firstRow).slice(0, 50)
+        const commissionSignals = pickPartnerboostCommissionSignals(firstRow)
+        const parsedCommission = parsePartnerboostCommissionValue(firstRow)
+        console.log(
+          `[affiliate-revenue][debug] PartnerBoost medium.transaction date=${params.reportDate} page=${txPage} rows=${rows.length} parsedCommission(firstRow)=${parsedCommission} keys=${keys.join(',')} signals=${JSON.stringify(commissionSignals)}`
+        )
+      }
+
+      transactionRows.push(...rows)
+
+      txTotalPages = normalized.totalPages ?? txTotalPages
+      if (rows.length === 0) {
+        break
+      }
+      if (txTotalPages !== null && txPage >= txTotalPages) {
+        break
+      }
+      if (rows.length < PARTNERBOOST_PAGE_SIZE && txTotalPages === null) {
+        break
+      }
+
+      txPage += 1
+    }
+  } catch (error: any) {
+    transactionError = error instanceof Error ? error : new Error(String(error))
+    console.warn(
+      `[affiliate-revenue] PartnerBoost transaction API failed on ${params.reportDate}; fallback to amazon_report commission. reason=${transactionError.message}`
+    )
+  }
+
+  const entries: AffiliateCommissionRawEntry[] = []
+  let totalCommission = 0
+  let records = 0
+
+  const appendPartnerboostEntry = (paramsForEntry: {
+    row: any
+    commission: number
+    matchedReportRow?: any | null
+    sourceLinkFallback?: string | null
+    sourceLinkIdFallback?: string | null
+  }) => {
+    const row = paramsForEntry.row
+    const matchedReportRow = paramsForEntry.matchedReportRow || null
+    const sourceLink = pickString(
+      getFieldValue(row, [
+        'link',
+        'url',
+        'product_link',
+        'productLink',
+        'landing_page',
+        'landingPage',
+        'final_url',
+        'finalUrl',
+        'Referrer URL',
+        'referrer_url',
+      ]),
+      getFieldValue(matchedReportRow, [
+        'link',
+        'url',
+        'product_link',
+        'productLink',
+        'landing_page',
+        'landingPage',
+        'final_url',
+        'finalUrl',
+        'Referrer URL',
+        'referrer_url',
+      ]),
+      paramsForEntry.sourceLinkFallback,
+    )
+
+    const sourceLinkId = pickString(
+      getFieldValue(row, [
+        'aa_adgroupid',
+        'aaAdgroupid',
+        'adGroupId',
+        'ad_group_id',
+        'Ad Group Id',
+        'click_ref',
+        'clickRef',
+        'Click Ref',
+      ]),
+      getFieldValue(matchedReportRow, [
+        'aa_adgroupid',
+        'aaAdgroupid',
+        'adGroupId',
+        'ad_group_id',
+        'Ad Group Id',
+      ]),
+      paramsForEntry.sourceLinkIdFallback,
+    )
+
+    const sourceOrderId = pickString(
+      getFieldValue(row, [
+        'order_id',
+        'orderId',
+        'orderID',
+        'oid',
+        'Order ID',
+        'order id',
+      ]),
+      getFieldValue(matchedReportRow, [
+        'order_id',
+        'orderId',
+        'orderID',
+        'oid',
+        'Order ID',
+        'order id',
+      ])
+    )
+
+    entries.push({
+      platform: 'partnerboost',
+      reportDate: params.reportDate,
+      commission: paramsForEntry.commission,
+      currency: normalizeCurrency(
+        getFieldValue(row, ['payment_currency', 'paymentCurrency', 'currency'])
+      ),
+      sourceOrderId,
+      sourceMid: pickMid(
+        sourceLinkId,
+        getFieldValue(row, [
+          'partnerboost_id',
+          'PartnerBoost ID',
+          'partnerboost id',
+          'partnerboostid',
+          'mcid',
+          'MCID',
+          'mid',
+          'MID',
+          'advert_id',
+          'advertId',
+          'product_mid',
+          'productMid',
+          'product_id',
+          'productId',
+          'brand_id',
+          'brandId',
+        ]),
+        getFieldValue(matchedReportRow, [
+          'partnerboost_id',
+          'PartnerBoost ID',
+          'partnerboost id',
+          'partnerboostid',
+          'mcid',
+          'MCID',
+          'mid',
+          'MID',
+          'advert_id',
+          'advertId',
+          'product_mid',
+          'productMid',
+          'product_id',
+          'productId',
+          'brand_id',
+          'brandId',
+        ])
+      ),
+      sourceAsin: normalizeAsin(
+        pickAsin(
+          getFieldValue(row, [
+            'asin',
+            'ASIN',
+            'product_asin',
+            'productAsin',
+            'product_id',
+            'productId',
+            'Product ID',
+            'product id',
+            'prod_id',
+            'prodId',
+            'sku',
+            'SKU',
+          ]),
+          getFieldValue(matchedReportRow, [
+            'asin',
+            'ASIN',
+            'product_asin',
+            'productAsin',
+            'product_id',
+            'productId',
+            'Product ID',
+            'product id',
+            'prod_id',
+            'prodId',
+            'sku',
+            'SKU',
+          ]),
+          sourceLink
+        )
+      ),
+      sourceLink,
+      sourceLinkId,
+      raw: row,
+    })
+  }
+
+  if (transactionRows.length > 0) {
+    records = transactionRows.length
+    for (const row of transactionRows) {
+      const commission = parsePartnerboostCommissionValue(row)
+      totalCommission += commission
+
+      if (commission <= 0) continue
+
+      const orderId = pickString(
+        getFieldValue(row, [
+          'order_id',
+          'orderId',
+          'orderID',
+          'oid',
+          'Order ID',
+          'order id',
+        ])
+      )
+      const matchedReportRow = orderId ? (reportRowsByOrderId.get(orderId) || null) : null
+
+      appendPartnerboostEntry({
+        row,
+        commission,
+        matchedReportRow,
+        sourceLinkFallback: matchedReportRow ? null : singleAdGroupFallback?.sourceLink || null,
+        sourceLinkIdFallback: matchedReportRow ? null : singleAdGroupFallback?.sourceLinkId || null,
+      })
+    }
+  }
+
+  const useReportAsPrimary = transactionRows.length === 0
+  if (useReportAsPrimary) {
+    records = reportRows.length
+    for (const row of reportRows) {
+      const commission = parsePartnerboostCommissionValue(row)
+      totalCommission += commission
+      if (commission <= 0) {
+        continue
+      }
+      appendPartnerboostEntry({
+        row,
+        commission,
+        matchedReportRow: null,
+      })
+    }
+  }
+
+  if (transactionRows.length > 0 && transactionRows.every((row) => parsePartnerboostCommissionValue(row) <= 0)) {
+    const firstRowKeys = Object.keys(transactionRows[0] || {}).slice(0, 30)
+    console.warn(
+      `[affiliate-revenue] PartnerBoost transaction returned ${transactionRows.length} rows on ${params.reportDate}, but commission resolved to 0. keys=${firstRowKeys.join(',')}`
+    )
+  } else if (transactionRows.length === 0 && reportRows.length > 0 && reportRows.every((row) => parsePartnerboostCommissionValue(row) <= 0)) {
+    const firstRowKeys = Object.keys(reportRows[0] || {}).slice(0, 30)
+    console.warn(
+      `[affiliate-revenue] PartnerBoost amazon_report returned ${reportRows.length} rows on ${params.reportDate}, but commission resolved to 0. keys=${firstRowKeys.join(',')}`
+    )
+  }
+
+  if (transactionError && transactionRows.length === 0 && reportRows.length === 0) {
+    throw transactionError
   }
 
   return {
