@@ -53,6 +53,7 @@ export type AffiliateProductListItem = {
   serial: number
   platform: AffiliatePlatform
   mid: string
+  merchantId: string | null
   productStatus: AffiliateProductLifecycleStatus
   asin: string | null
   landingPageType: AffiliateLandingPageType
@@ -116,6 +117,7 @@ export type ProductListOptions = {
   page?: number
   pageSize?: number
   search?: string
+  mid?: string
   platform?: AffiliatePlatform | 'all'
   sortBy?: ProductSortField
   sortOrder?: ProductSortOrder
@@ -2687,6 +2689,29 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     whereParams.push(like, like, like, like)
   }
 
+  const mid = (options.mid || '').trim().toLowerCase()
+  if (mid) {
+    const like = `%${mid}%`
+    whereConditions.push(`(
+      (
+        p.platform <> 'partnerboost'
+        AND LOWER(COALESCE(p.mid, '')) LIKE ?
+      )
+      OR (
+        p.platform = 'partnerboost'
+        AND (
+          LOWER(COALESCE(p.raw_json, '')) LIKE ?
+          OR LOWER(COALESCE(p.raw_json, '')) LIKE ?
+        )
+      )
+    )`)
+    whereParams.push(
+      like,
+      `%\"brand_id\":\"%${mid}%\"%`,
+      `%\"brand_id\":%${mid}%`
+    )
+  }
+
   appendNumericRangeWhere({
     whereConditions,
     whereParams,
@@ -2904,11 +2929,27 @@ function mapAffiliateProductRow(
     ? serialNumber
     : normalizedId
 
+  const merchantId = (() => {
+    if (row.platform === 'partnerboost') {
+      const partnerboostMerchantId = String(
+        rawJson?.brand_id
+        ?? rawJson?.brandId
+        ?? rawJson?.bid
+        ?? ''
+      ).trim()
+      return partnerboostMerchantId || null
+    }
+
+    const defaultMerchantId = String(row.mid || '').trim()
+    return defaultMerchantId || null
+  })()
+
   return {
     id: normalizedId,
     serial: resolvedSerial,
     platform: row.platform,
     mid: row.mid,
+    merchantId,
     productStatus: resolveAffiliateProductLifecycleStatus(row.product_status),
     asin: row.asin,
     landingPageType,

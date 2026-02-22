@@ -66,9 +66,12 @@ import {
   PowerOff,
   RefreshCw,
   Search,
+  Building2,
+  HelpCircle,
   AlertCircle,
   Info,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ProductPlatform = 'yeahpromos' | 'partnerboost'
@@ -96,6 +99,7 @@ type ProductListItem = {
   serial: number
   platform: ProductPlatform
   mid: string
+  merchantId: string | null
   productStatus: ProductLifecycleStatus
   asin: string | null
   landingPageType: LandingPageType
@@ -182,12 +186,36 @@ const PLATFORM_SHORT_LABEL: Record<ProductPlatform, string> = {
   partnerboost: 'PB',
 }
 
-const LANDING_PAGE_TYPE_LABEL: Record<LandingPageType, string> = {
-  amazon_product: '亚马逊商品',
-  amazon_store: '亚马逊店铺',
-  independent_product: '独立站商品',
-  independent_store: '独立站店铺',
-  unknown: '未知',
+const LANDING_PAGE_TYPE_META: Record<LandingPageType, {
+  label: string
+  icon: LucideIcon
+  badgeClassName: string
+}> = {
+  amazon_product: {
+    label: '亚马逊商品',
+    icon: Package,
+    badgeClassName: 'border-amber-300 bg-amber-50 text-amber-700',
+  },
+  amazon_store: {
+    label: '亚马逊店铺',
+    icon: Building2,
+    badgeClassName: 'border-amber-300 bg-amber-50 text-amber-700',
+  },
+  independent_product: {
+    label: '独立站商品',
+    icon: Package,
+    badgeClassName: 'border-sky-300 bg-sky-50 text-sky-700',
+  },
+  independent_store: {
+    label: '独立站店铺',
+    icon: Building2,
+    badgeClassName: 'border-sky-300 bg-sky-50 text-sky-700',
+  },
+  unknown: {
+    label: '未知',
+    icon: HelpCircle,
+    badgeClassName: 'text-muted-foreground',
+  },
 }
 
 const PRODUCT_STATUS_LABEL: Record<ProductLifecycleStatus, string> = {
@@ -408,6 +436,8 @@ export default function ProductsPage() {
   const [pageSize, setPageSize] = useState(20)
   const [searchText, setSearchText] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [midText, setMidText] = useState('')
+  const [midQuery, setMidQuery] = useState('')
   const [platformFilter, setPlatformFilter] = useState<'all' | ProductPlatform>('all')
   const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('all')
   const [numericRangeDrafts, setNumericRangeDrafts] = useState<NumericRangeFilterDrafts>({
@@ -454,6 +484,7 @@ export default function ProductsPage() {
   const canBatchCreate = creatableSelectedProducts.length > 0
   const canBatchOffline = selectedProducts.length > 0
   const hasFilters = searchQuery.length > 0
+    || midQuery.length > 0
     || platformFilter !== 'all'
     || statusFilter !== 'all'
     || Object.values(numericRangeFilters).some((value) => value !== null)
@@ -536,6 +567,14 @@ export default function ProductsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setMidQuery(midText.trim())
+      setPage(1)
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [midText])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
       const nextFilters = buildNumericRangeFiltersFromDraft(numericRangeDrafts)
       if (isNumericRangeFiltersEqual(nextFilters, numericRangeFilters)) {
         return
@@ -556,6 +595,7 @@ export default function ProductsPage() {
       params.set('sortBy', sortBy)
       params.set('sortOrder', sortOrder)
       if (searchQuery) params.set('search', searchQuery)
+      if (midQuery) params.set('mid', midQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
 
@@ -634,7 +674,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts()
     fetchSyncRuns()
-  }, [page, pageSize, searchQuery, platformFilter, statusFilter, numericRangeFilters, sortBy, sortOrder])
+  }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, sortBy, sortOrder])
 
   useEffect(() => {
     fetchSyncRuns()
@@ -992,7 +1032,7 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[1700px]">
+      <Table className="table-fixed min-w-[1880px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[42px] whitespace-nowrap">
@@ -1002,7 +1042,7 @@ export default function ProductsPage() {
                 aria-label="全选"
               />
             </TableHead>
-            <TableHead className="w-[90px] whitespace-nowrap">序号</TableHead>
+            <TableHead className="w-[68px] whitespace-nowrap">序号</TableHead>
             <SortableTableHead field="serial" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[150px] whitespace-nowrap">
               主键ID（非连续）
             </SortableTableHead>
@@ -1010,7 +1050,8 @@ export default function ProductsPage() {
               联盟平台
             </SortableTableHead>
             <TableHead className="w-[108px] whitespace-nowrap">状态</TableHead>
-            <TableHead className="w-[120px] whitespace-nowrap">商品页</TableHead>
+            <TableHead className="w-[140px] whitespace-nowrap">MID</TableHead>
+            <TableHead className="w-[136px] whitespace-nowrap">品牌名</TableHead>
             <SortableTableHead field="asin" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[122px] whitespace-nowrap">
               <span className="inline-flex items-center gap-1">
                 ASIN
@@ -1033,7 +1074,7 @@ export default function ProductsPage() {
                 </TooltipProvider>
               </span>
             </SortableTableHead>
-            <TableHead className="w-[118px] whitespace-nowrap">落地页类型</TableHead>
+            <TableHead className="w-[88px] whitespace-nowrap">落地页类型</TableHead>
             <SortableTableHead field="reviewCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[114px] whitespace-nowrap">
               商品评论数
             </SortableTableHead>
@@ -1063,8 +1104,11 @@ export default function ProductsPage() {
             const selected = selectedProductIds.has(item.id)
             const promoLink = item.shortPromoLink || item.promoLink
             const midTargetUrl = resolveMidTargetUrl(item)
+            const merchantIdText = item.merchantId || '-'
             const asinText = item.asin || '-'
-            const landingPageTypeText = LANDING_PAGE_TYPE_LABEL[item.landingPageType] || LANDING_PAGE_TYPE_LABEL.unknown
+            const landingPageTypeMeta = LANDING_PAGE_TYPE_META[item.landingPageType] || LANDING_PAGE_TYPE_META.unknown
+            const LandingPageIcon = landingPageTypeMeta.icon
+            const brandText = item.brand || '-'
             const allowedCountriesText = item.allowedCountries.length > 0 ? item.allowedCountries.join(', ') : '-'
             const displayCurrency = resolveDisplayCurrency(item)
             const priceText = formatCurrency(item.priceAmount, item.priceCurrency || displayCurrency)
@@ -1085,7 +1129,7 @@ export default function ProductsPage() {
                   />
                 </TableCell>
                 <TableCell className="font-medium">
-                  <div className={`max-w-[78px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.serial)}>
+                  <div className={`max-w-[54px] truncate ${item.isBlacklisted ? 'opacity-50' : ''}`} title={String(item.serial)}>
                     {item.serial}
                   </div>
                 </TableCell>
@@ -1115,19 +1159,26 @@ export default function ProductsPage() {
                 </TableCell>
                 <TableCell>
                   <div className={`${item.isBlacklisted ? 'opacity-50' : ''}`}>
-                    {midTargetUrl ? (
+                    {midTargetUrl && merchantIdText !== '-' ? (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline"
+                        className="inline-flex max-w-[132px] items-center gap-1 truncate font-medium text-blue-600 hover:underline"
                         onClick={() => safeOpenExternal(midTargetUrl)}
-                        title={`打开联盟平台商品页：${item.mid}`}
+                        title={`MID(商家ID): ${merchantIdText}${item.mid ? ` | 商品ID: ${item.mid}` : ''}`}
                       >
-                        <span>打开页面</span>
+                        <span className="truncate">{merchantIdText}</span>
                         <ExternalLink className="h-3.5 w-3.5" />
                       </button>
                     ) : (
-                      '-'
+                      <div className="max-w-[132px] truncate whitespace-nowrap" title={merchantIdText}>
+                        {merchantIdText}
+                      </div>
                     )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className={`max-w-[130px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={brandText}>
+                    {brandText}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -1135,7 +1186,14 @@ export default function ProductsPage() {
                 </TableCell>
                 <TableCell>
                   <div className={item.isBlacklisted ? 'opacity-50' : ''}>
-                    <Badge variant="outline">{landingPageTypeText}</Badge>
+                    <Badge
+                      variant="outline"
+                      className={`h-6 w-6 justify-center p-0 ${landingPageTypeMeta.badgeClassName}`}
+                      title={landingPageTypeMeta.label}
+                      aria-label={landingPageTypeMeta.label}
+                    >
+                      <LandingPageIcon className="h-3.5 w-3.5" />
+                    </Badge>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -1392,7 +1450,7 @@ export default function ProductsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>同一 ASIN 可能对应多个 MID（不同链接/佣金/策略），列表按推广条目展示。同步未命中不会自动计入失效或执行手动下线。</span>
+              <span>同一 ASIN 可能对应多个推广条目（不同链接/佣金/策略），列表按推广条目展示。同步未命中不会自动计入失效或执行手动下线。</span>
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-1 items-center gap-2">
@@ -1405,6 +1463,12 @@ export default function ProductsPage() {
                     className="pl-9"
                   />
                 </div>
+                <Input
+                  value={midText}
+                  onChange={(event) => setMidText(event.target.value)}
+                  placeholder="MID筛选（商家ID）"
+                  className="w-[180px]"
+                />
                 <Select value={platformFilter} onValueChange={(value) => {
                   setPlatformFilter(value as typeof platformFilter)
                   setPage(1)
@@ -1442,6 +1506,8 @@ export default function ProductsPage() {
                     onClick={() => {
                       setSearchText('')
                       setSearchQuery('')
+                      setMidText('')
+                      setMidQuery('')
                       setPlatformFilter('all')
                       setStatusFilter('all')
                       setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })

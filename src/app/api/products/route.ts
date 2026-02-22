@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, Number(searchParams.get('page') || 1))
     const pageSize = Math.min(100, Math.max(10, Number(searchParams.get('pageSize') || 20)))
     const search = (searchParams.get('search') || '').trim()
+    const mid = (searchParams.get('mid') || '').trim()
     const sortByRaw = (searchParams.get('sortBy') || 'serial') as ProductSortField
     const sortBy = ALLOWED_SORT_FIELDS.has(sortByRaw) ? sortByRaw : 'serial'
     const sortOrder = (searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc'
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
       page,
       pageSize,
       search,
+      mid,
       sortBy,
       sortOrder,
       platform,
@@ -123,6 +125,7 @@ export async function GET(request: NextRequest) {
       page,
       pageSize,
       search,
+      mid,
       sortBy,
       sortOrder,
       platform,
