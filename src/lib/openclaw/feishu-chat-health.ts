@@ -1325,21 +1325,45 @@ async function buildWorkflowAssessmentsByMessageId(params: {
     .sort((a, b) => a.createdMs - b.createdMs)
   for (let i = 0; i < sortedContexts.length; i += 1) {
     const context = sortedContexts[i]
+    let previousBoundaryMs: number | null = null
     let nextBoundaryMs: number | null = null
     for (const boundary of sortedAllowedBoundaries) {
-      if (boundary.createdMs <= context.createdMs) continue
       if (hasSharedSender(context.senderCandidates, boundary.senderCandidates)) {
+        if (boundary.createdMs < context.createdMs) {
+          previousBoundaryMs = boundary.createdMs
+          continue
+        }
+        if (boundary.createdMs === context.createdMs) {
+          // Ignore self-boundary.
+          continue
+        }
         nextBoundaryMs = boundary.createdMs
         break
       }
     }
+
+    const earliestLinkedRunMs = context.linkedRuns.reduce((minMs, run) => {
+      const runMs = Date.parse(toIsoTimestamp(run.created_at))
+      if (!Number.isFinite(runMs)) {
+        return minMs
+      }
+      return Math.min(minMs, runMs)
+    }, Number.POSITIVE_INFINITY)
+    const linkAnchorMs = Number.isFinite(earliestLinkedRunMs)
+      ? Math.min(context.createdMs, earliestLinkedRunMs)
+      : context.createdMs
 
     const hardWindowEnd = context.createdMs + maxWindowMs
     const dynamicWindow = resolveDynamicLinkWindowSeconds({
       messageText: null,
       expectation: context.expectation,
     })
-    context.windowStartMs = context.createdMs - dynamicWindow.beforeSeconds * 1000
+    context.windowStartMs = linkAnchorMs - dynamicWindow.beforeSeconds * 1000
+    if (previousBoundaryMs !== null) {
+      // Keep recovery within this message segment and avoid stealing runs from
+      // the previous allowed message of the same sender.
+      context.windowStartMs = Math.max(context.windowStartMs, previousBoundaryMs + 1)
+    }
     context.windowEndMs = nextBoundaryMs
       ? Math.min(hardWindowEnd, nextBoundaryMs - 1)
       : hardWindowEnd
