@@ -249,6 +249,53 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
+  it('treats decimal commission_rate as ratio and converts to percent', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$22.99',
+        commission_payout: '5.17%',
+        commission_rate: 0.225,
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$22.99',
+      commission_payout: '22.5%',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
+  it('treats decimal commission_payout as ratio when no explicit rate is provided', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$22.99',
+        commission_payout: 0.1875,
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$22.99',
+      commission_payout: '18.75%',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
   it('requires status when patching risk alert', () => {
     expect(() =>
       normalizeOpenclawCommandPayload({

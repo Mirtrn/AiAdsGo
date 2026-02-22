@@ -1002,6 +1002,114 @@ async function hydrateOfferExtractCommissionByHistory(params: {
   return { body: params.body, hydrated: false }
 }
 
+function isLikelyYeahPromosLink(value: string | null): boolean {
+  if (!value) return false
+  try {
+    return new URL(value).hostname.toLowerCase().includes('yeahpromos.com')
+  } catch {
+    return value.toLowerCase().includes('yeahpromos.com')
+  }
+}
+
+function hasExactTwoDecimalPercent(value: string): boolean {
+  return /^\d+\.\d{2}%$/.test(value)
+}
+
+function isNearQuarterIncrement(value: number, tolerance = 0.05): boolean {
+  return Math.abs(value * 4 - Math.round(value * 4)) <= tolerance
+}
+
+async function hydrateOfferExtractCommissionByHeuristic(params: {
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method !== 'POST') {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  const productPriceText = toTrimmedString(payload.product_price ?? payload.productPrice)
+  if (!affiliateLink || !commissionText || !productPriceText) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isLikelyYeahPromosLink(affiliateLink)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!hasExactTwoDecimalPercent(commissionText)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const incomingCommission = parseCommissionPayoutValue(commissionText, {
+    targetCountry,
+  })
+  if (!incomingCommission || incomingCommission.mode !== 'percent') {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (incomingCommission.displayRate <= 0 || incomingCommission.displayRate >= 10) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (isNearQuarterIncrement(incomingCommission.displayRate)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const incomingProductPrice = parseMoneyValue(productPriceText, {
+    targetCountry,
+  })
+  if (!incomingProductPrice || incomingProductPrice.amount <= 0) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const candidateRateRaw = (incomingCommission.displayRate / incomingProductPrice.amount) * 100
+  if (!isNearQuarterIncrement(candidateRateRaw)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const candidateRate = roundTo2(Math.round(candidateRateRaw * 4) / 4)
+  if (candidateRate < 10 || candidateRate > 80) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if ((candidateRate - incomingCommission.displayRate) < 4) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const correctedCommission = `${formatCompactNumber(candidateRate)}%`
+  const hydratedBody: Record<string, unknown> = {
+    ...payload,
+    commission_payout: correctedCommission,
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'commissionPayout')) {
+    hydratedBody.commissionPayout = correctedCommission
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      `[OpenClawCommand] 启发式修正佣金比例(疑似佣金金额误写为百分比): offer.extract ${incomingCommission.displayRate}% -> ${correctedCommission} (affiliateLink=${affiliateLink})`
+    )
+  }
+
+  return {
+    body: hydratedBody,
+    hydrated: true,
+  }
+}
+
 function extractOfferIdFromClickFarmBody(body: unknown): number | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return null
@@ -1404,6 +1512,13 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     })
     requestBody = offerExtractByHistoryHydrated.body
 
+    const offerExtractByHeuristicHydrated = await hydrateOfferExtractCommissionByHeuristic({
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractByHeuristicHydrated.body
+
     const publishHydrated = await hydrateCampaignPublishRequestBody({
       db,
       userId: data.userId,
@@ -1415,7 +1530,12 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
 
     if (
-      (offerExtractBySourceHydrated.hydrated || offerExtractByHistoryHydrated.hydrated || publishHydrated.hydrated)
+      (
+        offerExtractBySourceHydrated.hydrated
+        || offerExtractByHistoryHydrated.hydrated
+        || offerExtractByHeuristicHydrated.hydrated
+        || publishHydrated.hydrated
+      )
       && requestBodyForAudit !== run.request_body_json
     ) {
       await db.exec(

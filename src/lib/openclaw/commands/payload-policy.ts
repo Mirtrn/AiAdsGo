@@ -101,11 +101,45 @@ function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, k
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
 
-function readPreferredOfferExtractCommissionRate(sourceBody: PlainObject): unknown {
-  const value = sourceBody.commission_rate ?? sourceBody.commissionRate
+function formatCompactRatePercent(value: number): string {
+  const rounded = Math.round(value * 10000) / 10000
+  if (Number.isInteger(rounded)) return String(rounded)
+  return rounded.toFixed(4).replace(/\.?0+$/, '')
+}
+
+function parseCommissionRateAsPercentValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
-  if (typeof value === 'string' && value.trim().length === 0) return undefined
-  return value
+  const raw = String(value).trim()
+  if (!raw) return undefined
+
+  const withoutPercent = raw.endsWith('%') ? raw.slice(0, -1).trim() : raw
+  if (!withoutPercent) return undefined
+
+  const parsed = Number(withoutPercent)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+
+  // OpenClaw occasionally emits decimal ratios (0.225) for commission_rate.
+  // Convert ratio -> percent so downstream normalization remains consistent.
+  const normalizedPercent = parsed <= 1 ? parsed * 100 : parsed
+  return formatCompactRatePercent(normalizedPercent)
+}
+
+function coerceOfferExtractCommissionPayoutRatio(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  const raw = String(value).trim()
+  if (!raw) return undefined
+  if (raw.includes('%')) return undefined
+  if (/[A-Za-z¥€£$₹₩฿₫₱₽₺]/.test(raw)) return undefined
+
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) return undefined
+
+  return formatCompactRatePercent(parsed * 100)
+}
+
+function readPreferredOfferExtractCommissionRate(sourceBody: PlainObject): string | undefined {
+  const value = sourceBody.commission_rate ?? sourceBody.commissionRate
+  return parseCommissionRateAsPercentValue(value)
 }
 
 const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
@@ -208,12 +242,27 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       // 如果同时提供 commission_rate 与 commission_payout，优先使用佣金率字段，
       // 避免模型把佣金金额误写到 commission_payout 并补成百分号。
       const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
-      const normalizedSourceBody = preferredCommissionRate === undefined
-        ? sourceBody
-        : {
-          ...sourceBody,
-          commission_payout: preferredCommissionRate,
+      const commissionPayoutRatio = coerceOfferExtractCommissionPayoutRatio(
+        sourceBody.commission_payout ?? sourceBody.commissionPayout
+      )
+
+      const normalizedSourceBody = (() => {
+        if (preferredCommissionRate !== undefined) {
+          return {
+            ...sourceBody,
+            commission_payout: preferredCommissionRate,
+          }
         }
+
+        if (commissionPayoutRatio !== undefined) {
+          return {
+            ...sourceBody,
+            commission_payout: commissionPayoutRatio,
+          }
+        }
+
+        return sourceBody
+      })()
 
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
@@ -257,12 +306,27 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
     },
     normalize: ({ sourceBody, normalizedBody }) => {
       const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
-      const normalizedSourceBody = preferredCommissionRate === undefined
-        ? sourceBody
-        : {
-          ...sourceBody,
-          commission_payout: preferredCommissionRate,
+      const commissionPayoutRatio = coerceOfferExtractCommissionPayoutRatio(
+        sourceBody.commission_payout ?? sourceBody.commissionPayout
+      )
+
+      const normalizedSourceBody = (() => {
+        if (preferredCommissionRate !== undefined) {
+          return {
+            ...sourceBody,
+            commission_payout: preferredCommissionRate,
+          }
         }
+
+        if (commissionPayoutRatio !== undefined) {
+          return {
+            ...sourceBody,
+            commission_payout: commissionPayoutRatio,
+          }
+        }
+
+        return sourceBody
+      })()
 
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
