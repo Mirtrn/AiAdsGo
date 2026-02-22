@@ -225,6 +225,30 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
+  it('prefers commission_rate over commission_payout when both are provided', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$129.99',
+        commission_payout: '16.57%',
+        commission_rate: '12.75',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$129.99',
+      commission_payout: '12.75%',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
   it('requires status when patching risk alert', () => {
     expect(() =>
       normalizeOpenclawCommandPayload({

@@ -245,6 +245,83 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
+  it('auto-corrects offer.extract commission from affiliate_products when no historical offer exists', async () => {
+    const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=d75ea6f3305ebf16&pid=727678'
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM affiliate_products')) {
+          return [
+            {
+              id: 9001,
+              platform: 'yeahpromos',
+              promo_link: affiliateLink,
+              short_promo_link: null,
+              commission_rate: 12.75,
+            },
+          ]
+        }
+        if (sql.includes('FROM offers')) {
+          return []
+        }
+        return []
+      }),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-offer-fix-source-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            request_method: 'POST',
+            request_path: '/api/offers/extract',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              affiliate_link: affiliateLink,
+              target_country: 'US',
+              product_price: '$129.99',
+              commission_payout: '16.57%',
+              page_type: 'product',
+              skipCache: true,
+              skipWarmup: false,
+            }),
+            risk_level: 'medium',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, taskId: 'task-offer-source-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const result = await executeOpenclawCommandTask(createTask('run-offer-fix-source-1'))
+    expect(result.success).toBe(true)
+
+    expect(mocks.fetchAutoadsAsUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/api/offers/extract',
+        method: 'POST',
+        body: expect.objectContaining({
+          commission_payout: '12.75%',
+        }),
+      })
+    )
+  })
+
   it('hydrates campaign.publish payload with fallback keywords before forwarding', async () => {
     const db = {
       type: 'postgres',

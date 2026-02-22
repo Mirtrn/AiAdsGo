@@ -101,6 +101,13 @@ function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, k
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
 
+function readPreferredOfferExtractCommissionRate(sourceBody: PlainObject): unknown {
+  const value = sourceBody.commission_rate ?? sourceBody.commissionRate
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string' && value.trim().length === 0) return undefined
+  return value
+}
+
 const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
   {
     method: 'POST',
@@ -188,6 +195,8 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       targetCountry: 'target_country',
       productPrice: 'product_price',
       commissionPayout: 'commission_payout',
+      commission_rate: 'commission_payout',
+      commissionRate: 'commission_payout',
       brandName: 'brand_name',
       brand: 'brand_name',
       pageType: 'page_type',
@@ -196,9 +205,23 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalized = normalizeOfferExtractRequestBody(sourceBody, {
+      // 如果同时提供 commission_rate 与 commission_payout，优先使用佣金率字段，
+      // 避免模型把佣金金额误写到 commission_payout 并补成百分号。
+      const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
+      const normalizedSourceBody = preferredCommissionRate === undefined
+        ? sourceBody
+        : {
+          ...sourceBody,
+          commission_payout: preferredCommissionRate,
+        }
+
+      const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
       })
+      if (normalized) {
+        delete normalized.commission_rate
+        delete normalized.commissionRate
+      }
       return normalized || normalizedBody
     },
   },
@@ -223,6 +246,8 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       targetCountry: 'target_country',
       productPrice: 'product_price',
       commissionPayout: 'commission_payout',
+      commission_rate: 'commission_payout',
+      commissionRate: 'commission_payout',
       brandName: 'brand_name',
       brand: 'brand_name',
       pageType: 'page_type',
@@ -231,9 +256,21 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalized = normalizeOfferExtractRequestBody(sourceBody, {
+      const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
+      const normalizedSourceBody = preferredCommissionRate === undefined
+        ? sourceBody
+        : {
+          ...sourceBody,
+          commission_payout: preferredCommissionRate,
+        }
+
+      const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
       })
+      if (normalized) {
+        delete normalized.commission_rate
+        delete normalized.commissionRate
+      }
       return normalized || normalizedBody
     },
   },

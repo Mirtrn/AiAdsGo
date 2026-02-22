@@ -95,6 +95,84 @@ function isOfferExtractPath(path: string): boolean {
   return path === '/api/offers/extract' || path === '/api/offers/extract/stream'
 }
 
+type OfferExtractCommissionSourceMatchType = 'exact_link' | 'yeahpromos_pid' | 'partnerboost_link_id'
+
+function normalizeUrlForComparison(value: unknown): string | null {
+  const raw = toTrimmedString(value)
+  if (!raw) return null
+
+  try {
+    const parsed = new URL(raw)
+    const protocol = parsed.protocol.toLowerCase()
+    const hostname = parsed.hostname.toLowerCase()
+    const pathname = (parsed.pathname || '/').replace(/\/+$/, '') || '/'
+    const sortedQuery = Array
+      .from(parsed.searchParams.entries())
+      .map(([key, item]) => [String(key).trim().toLowerCase(), String(item).trim()] as const)
+      .filter(([key, item]) => key.length > 0 && item.length > 0)
+      .sort((a, b) => {
+        if (a[0] !== b[0]) return a[0].localeCompare(b[0])
+        return a[1].localeCompare(b[1])
+      })
+      .map(([key, item]) => `${key}=${item}`)
+      .join('&')
+
+    return `${protocol}//${hostname}${pathname}${sortedQuery ? `?${sortedQuery}` : ''}`
+  } catch {
+    return raw.toLowerCase()
+  }
+}
+
+function extractCaseInsensitiveQueryParam(rawValue: unknown, keyName: string): string | null {
+  const value = toTrimmedString(rawValue)
+  const normalizedKeyName = toTrimmedString(keyName)?.toLowerCase()
+  if (!value || !normalizedKeyName) return null
+
+  const candidates = [value]
+  if (/%[0-9A-Fa-f]{2}/.test(value)) {
+    try {
+      const decoded = decodeURIComponent(value)
+      if (decoded && decoded !== value) {
+        candidates.push(decoded)
+      }
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate)
+      const key = Array.from(parsed.searchParams.keys())
+        .find((item) => item.toLowerCase() === normalizedKeyName)
+      if (key) {
+        const matched = toTrimmedString(parsed.searchParams.get(key))
+        if (matched) return matched
+      }
+    } catch {
+      // ignore invalid url
+    }
+
+    const escapedKey = normalizedKeyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`[?&#]${escapedKey}=([^&#]+)`, 'i')
+    const matched = candidate.match(regex)
+    if (matched?.[1]) {
+      const normalized = toTrimmedString(matched[1])
+      if (normalized) return normalized
+    }
+  }
+
+  return null
+}
+
+function extractYeahPromosPidFromLink(value: unknown): string | null {
+  return extractCaseInsensitiveQueryParam(value, 'pid')
+}
+
+function extractPartnerboostLinkIdFromLink(value: unknown): string | null {
+  return extractCaseInsensitiveQueryParam(value, 'aa_adgroupid')
+}
+
 const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
 const MAX_INT32 = 2147483647
 
@@ -577,6 +655,228 @@ async function hydrateCampaignPublishRequestBody(params: {
   if (process.env.NODE_ENV !== 'test') {
     console.log(
       `[OpenClawCommand] 补齐campaign.publish默认参数: offerId=${offerId || '-'}, adCreativeId=${adCreativeId || '-'}, currency=${normalizeCurrencyCode(accountCurrency) || 'USD'}, keywords=${resolvedKeywordConfig.keywords.length}, negativeKeywords=${resolvedKeywordConfig.negativeKeywords.length}`
+    )
+  }
+
+  return {
+    body: hydratedBody,
+    hydrated: true,
+  }
+}
+
+async function queryOfferExtractCommissionSourceMatch(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  affiliateLink: string
+}): Promise<{
+  productId: number
+  commissionRate: number
+  matchedBy: OfferExtractCommissionSourceMatchType
+} | null> {
+  const affiliateLink = toTrimmedString(params.affiliateLink)
+  if (!affiliateLink) return null
+
+  const normalizedAffiliateLink = normalizeUrlForComparison(affiliateLink)
+  const yesPromosPid = extractYeahPromosPidFromLink(affiliateLink)
+  const partnerboostLinkId = extractPartnerboostLinkIdFromLink(affiliateLink)
+  const matchClauses: string[] = []
+  const matchParams: Array<number | string> = [params.userId]
+
+  // 先用完整链接精确匹配（保留大小写不敏感匹配，兼容历史数据格式差异）。
+  matchClauses.push('LOWER(TRIM(promo_link)) = LOWER(TRIM(?))')
+  matchParams.push(affiliateLink)
+  matchClauses.push('LOWER(TRIM(short_promo_link)) = LOWER(TRIM(?))')
+  matchParams.push(affiliateLink)
+
+  if (yesPromosPid) {
+    const pattern = `%pid=${yesPromosPid}%`
+    matchClauses.push("(platform = 'yeahpromos' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
+    matchParams.push(pattern, pattern)
+  }
+
+  if (partnerboostLinkId) {
+    const pattern = `%aa_adgroupid=${partnerboostLinkId}%`
+    matchClauses.push("(platform = 'partnerboost' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
+    matchParams.push(pattern, pattern)
+  }
+
+  if (matchClauses.length === 0) return null
+
+  const notBlacklistedCondition = params.db.type === 'postgres'
+    ? '(is_blacklisted = false OR is_blacklisted IS NULL)'
+    : '(is_blacklisted = 0 OR is_blacklisted IS NULL)'
+
+  let rows: Array<{
+    id: number
+    platform: string | null
+    promo_link: string | null
+    short_promo_link: string | null
+    commission_rate: number | string | null
+  }> = []
+  try {
+    rows = await params.db.query<{
+      id: number
+      platform: string | null
+      promo_link: string | null
+      short_promo_link: string | null
+      commission_rate: number | string | null
+    }>(
+      `
+        SELECT id, platform, promo_link, short_promo_link, commission_rate
+        FROM affiliate_products
+        WHERE user_id = ?
+          AND commission_rate IS NOT NULL
+          AND commission_rate > 0
+          AND ${notBlacklistedCondition}
+          AND (${matchClauses.join(' OR ')})
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 30
+      `,
+      matchParams
+    )
+  } catch (error: any) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] 查询 affiliate_products 佣金来源失败，跳过来源纠偏: ${error?.message || error}`
+      )
+    }
+    return null
+  }
+
+  if (!rows || rows.length === 0) {
+    return null
+  }
+
+  let bestMatch: {
+    score: number
+    productId: number
+    commissionRate: number
+    matchedBy: OfferExtractCommissionSourceMatchType
+  } | null = null
+
+  for (const row of rows) {
+    const productId = Number(row.id)
+    const rawRate = Number(row.commission_rate)
+    if (!Number.isFinite(productId) || !Number.isFinite(rawRate) || rawRate <= 0) {
+      continue
+    }
+
+    const promoLink = toTrimmedString(row.promo_link)
+    const shortPromoLink = toTrimmedString(row.short_promo_link)
+    const rowLinks = [promoLink, shortPromoLink].filter((item): item is string => Boolean(item))
+    let matchedBy: OfferExtractCommissionSourceMatchType | null = null
+    let score = 0
+
+    if (normalizedAffiliateLink) {
+      const hasExactMatch = rowLinks.some((candidate) => normalizeUrlForComparison(candidate) === normalizedAffiliateLink)
+      if (hasExactMatch) {
+        matchedBy = 'exact_link'
+        score = 300
+      }
+    }
+
+    if (yesPromosPid && score < 200) {
+      const hasPidMatch = rowLinks.some((candidate) => extractYeahPromosPidFromLink(candidate) === yesPromosPid)
+      if (hasPidMatch) {
+        matchedBy = 'yeahpromos_pid'
+        score = 200
+      }
+    }
+
+    if (partnerboostLinkId && score < 200) {
+      const hasPartnerboostLinkIdMatch = rowLinks.some(
+        (candidate) => extractPartnerboostLinkIdFromLink(candidate) === partnerboostLinkId
+      )
+      if (hasPartnerboostLinkIdMatch) {
+        matchedBy = 'partnerboost_link_id'
+        score = 200
+      }
+    }
+
+    if (!matchedBy || score <= 0) {
+      continue
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = {
+        score,
+        productId,
+        commissionRate: roundTo2(rawRate),
+        matchedBy,
+      }
+    }
+  }
+
+  if (!bestMatch) {
+    return null
+  }
+
+  return {
+    productId: bestMatch.productId,
+    commissionRate: bestMatch.commissionRate,
+    matchedBy: bestMatch.matchedBy,
+  }
+}
+
+async function hydrateOfferExtractCommissionBySource(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method !== 'POST') {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  if (!affiliateLink || !commissionText) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const incomingCommission = parseCommissionPayoutValue(commissionText, {
+    targetCountry,
+  })
+  if (!incomingCommission || incomingCommission.mode !== 'percent') {
+    return { body: params.body, hydrated: false }
+  }
+
+  const sourceMatch = await queryOfferExtractCommissionSourceMatch({
+    db: params.db,
+    userId: params.userId,
+    affiliateLink,
+  })
+  if (!sourceMatch) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (Math.abs(sourceMatch.commissionRate - incomingCommission.displayRate) <= 0.05) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const correctedCommission = `${formatCompactNumber(sourceMatch.commissionRate)}%`
+  const hydratedBody: Record<string, unknown> = {
+    ...payload,
+    commission_payout: correctedCommission,
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'commissionPayout')) {
+    hydratedBody.commissionPayout = correctedCommission
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      `[OpenClawCommand] 来源纠偏佣金比例: offer.extract ${incomingCommission.displayRate}% -> ${correctedCommission} (productId=${sourceMatch.productId}, matchedBy=${sourceMatch.matchedBy})`
     )
   }
 
@@ -1086,14 +1386,23 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
-    const offerExtractHydrated = await hydrateOfferExtractCommissionByHistory({
+    const offerExtractBySourceHydrated = await hydrateOfferExtractCommissionBySource({
       db,
       userId: data.userId,
       method: run.request_method,
       path: run.request_path,
       body: requestBody,
     })
-    requestBody = offerExtractHydrated.body
+    requestBody = offerExtractBySourceHydrated.body
+
+    const offerExtractByHistoryHydrated = await hydrateOfferExtractCommissionByHistory({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractByHistoryHydrated.body
 
     const publishHydrated = await hydrateCampaignPublishRequestBody({
       db,
@@ -1105,7 +1414,10 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     requestBody = publishHydrated.body
     requestBodyForAudit = requestBody === undefined ? null : JSON.stringify(requestBody)
 
-    if ((offerExtractHydrated.hydrated || publishHydrated.hydrated) && requestBodyForAudit !== run.request_body_json) {
+    if (
+      (offerExtractBySourceHydrated.hydrated || offerExtractByHistoryHydrated.hydrated || publishHydrated.hydrated)
+      && requestBodyForAudit !== run.request_body_json
+    ) {
       await db.exec(
         `UPDATE openclaw_command_runs
          SET request_body_json = ?,
