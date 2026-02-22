@@ -97,31 +97,47 @@ export async function checkCreativePublishTimeouts(
 
   const candidates = await db.query<CandidateRow>(
     `
+    WITH latest_completed AS (
+      SELECT
+        ct.offer_id,
+        o.user_id,
+        ct.completed_at AS latest_completed_at,
+        ct.id AS latest_task_id,
+        ROW_NUMBER() OVER (
+          PARTITION BY ct.offer_id, o.user_id
+          ORDER BY ct.completed_at DESC, ct.created_at DESC, ct.id DESC
+        ) AS row_num
+      FROM creative_tasks ct
+      INNER JOIN offers o ON o.id = ct.offer_id
+      WHERE ct.status = 'completed'
+        AND ct.completed_at IS NOT NULL
+        AND ct.completed_at >= ${lookbackExpr}
+        AND ct.completed_at <= ${staleBeforeExpr}
+        AND (o.is_deleted = ? OR o.is_deleted IS NULL)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM campaigns c
+          WHERE c.offer_id = ct.offer_id
+            AND c.user_id = o.user_id
+            AND (c.is_deleted = ? OR c.is_deleted IS NULL)
+        )
+    )
     SELECT
-      ct.offer_id,
-      o.user_id,
-      MAX(ct.completed_at) AS latest_completed_at,
-      MAX(ct.id) AS latest_task_id,
-      MAX(ac.id) AS latest_creative_id
-    FROM creative_tasks ct
-    INNER JOIN offers o ON o.id = ct.offer_id
-    LEFT JOIN ad_creatives ac
-      ON ac.offer_id = ct.offer_id
-      AND ac.user_id = o.user_id
-    WHERE ct.status = 'completed'
-      AND ct.completed_at IS NOT NULL
-      AND ct.completed_at >= ${lookbackExpr}
-      AND ct.completed_at <= ${staleBeforeExpr}
-      AND (o.is_deleted = ? OR o.is_deleted IS NULL)
-      AND NOT EXISTS (
-        SELECT 1
-        FROM campaigns c
-        WHERE c.offer_id = ct.offer_id
-          AND c.user_id = o.user_id
-          AND (c.is_deleted = ? OR c.is_deleted IS NULL)
-      )
-    GROUP BY ct.offer_id, o.user_id
-    ORDER BY MAX(ct.completed_at) ASC
+      lc.offer_id,
+      lc.user_id,
+      lc.latest_completed_at,
+      lc.latest_task_id,
+      (
+        SELECT ac.id
+        FROM ad_creatives ac
+        WHERE ac.offer_id = lc.offer_id
+          AND ac.user_id = lc.user_id
+        ORDER BY ac.created_at DESC, ac.id DESC
+        LIMIT 1
+      ) AS latest_creative_id
+    FROM latest_completed lc
+    WHERE lc.row_num = 1
+    ORDER BY lc.latest_completed_at ASC
     LIMIT ?
     `,
     [isDeletedFalse, isDeletedFalse, limit]
@@ -206,4 +222,3 @@ export async function checkCreativePublishTimeouts(
     stalledOfferIds,
   }
 }
-
