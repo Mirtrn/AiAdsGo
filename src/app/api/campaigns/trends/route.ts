@@ -7,6 +7,15 @@ function normalizeCurrency(value: unknown): string {
   return normalized || 'USD'
 }
 
+function formatLocalYmd(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -54,11 +63,11 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     const endDate = new Date()
-    const startDate = new Date()
+    const startDate = new Date(endDate)
     startDate.setDate(startDate.getDate() - daysBack + 1)
 
-    const startDateStr = startDate.toISOString().split('T')[0]
-    const endDateStr = endDate.toISOString().split('T')[0]
+    const startDateStr = formatLocalYmd(startDate)
+    const endDateStr = formatLocalYmd(endDate)
 
     const currencyRows = await db.query<any>(
       `

@@ -324,6 +324,18 @@ export default function CampaignsPage() {
   }, [trendsCurrency])
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      fetchCampaigns()
+      fetchTrends()
+    }, 60_000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [timeRange, trendsCurrency])
+
+  useEffect(() => {
     let result = campaigns
 
     if (!showDeletedCampaigns) {
