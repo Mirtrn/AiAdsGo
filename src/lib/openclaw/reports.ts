@@ -11,6 +11,7 @@ type DailyReportPayload = {
   generatedAt: string
   summary?: any
   kpis?: any
+  dailySnapshot?: DailyPerformanceSnapshot
   trends?: any
   roi?: any
   campaigns?: any
@@ -20,6 +21,13 @@ type DailyReportPayload = {
   strategyActions?: any[]
   strategyRun?: any
   errors?: Array<{ source: string; message: string }>
+}
+
+type DailyPerformanceSnapshot = {
+  impressions: number
+  clicks: number
+  cost: number
+  conversions: number
 }
 
 type StrategyKnowledgeSummary = {
@@ -96,6 +104,19 @@ function toNumber(value: unknown, fallback = 0): number {
 
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
+}
+
+function normalizeCurrencyCode(value: unknown, fallback = 'USD'): string {
+  const normalized = String(value || '').trim().toUpperCase()
+  if (!normalized) return fallback
+  if (normalized === 'MIXED' || /^[A-Z]{3}$/.test(normalized)) {
+    return normalized
+  }
+  return fallback
+}
+
+function formatMoney(value: unknown, currency: string): string {
+  return `${roundTo2(toNumber(value, 0))} ${normalizeCurrencyCode(currency)}`
 }
 
 function asObject(value: unknown): Record<string, any> | undefined {
@@ -388,6 +409,30 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
   })
 
   const db = await getDatabase()
+  const dailySnapshotRow = await db.queryOne<{
+    impressions: number | null
+    clicks: number | null
+    cost: number | null
+    conversions: number | null
+  }>(
+    `SELECT
+       COALESCE(SUM(impressions), 0) as impressions,
+       COALESCE(SUM(clicks), 0) as clicks,
+       COALESCE(SUM(cost), 0) as cost,
+       COALESCE(SUM(conversions), 0) as conversions
+     FROM campaign_performance
+     WHERE user_id = ?
+       AND date = ?`,
+    [userId, reportDate]
+  )
+
+  const dailySnapshot: DailyPerformanceSnapshot = {
+    impressions: toNumber(dailySnapshotRow?.impressions, 0),
+    clicks: toNumber(dailySnapshotRow?.clicks, 0),
+    cost: roundTo2(toNumber(dailySnapshotRow?.cost, 0)),
+    conversions: roundTo2(toNumber(dailySnapshotRow?.conversions, 0)),
+  }
+
   const actions = await db.query<any>(
     `SELECT id, channel, sender_id, action, target_type, target_id, status, error_message, created_at
      FROM openclaw_action_logs
@@ -422,6 +467,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     generatedAt: new Date().toISOString(),
     summary,
     kpis,
+    dailySnapshot,
     trends,
     roi: normalizedRoi,
     campaigns,
@@ -534,6 +580,9 @@ export async function refreshOpenclawDailyReportSnapshot(params: {
 function formatReportMessage(report: DailyReportPayload): string {
   const summary = report.summary?.kpis
   const kpis = report.kpis?.data
+  const dailySnapshot = asObject(report.dailySnapshot)
+  const roiRoot = asObject(report.roi)
+  const budgetRoot = asObject(report.budget)
   const roi = report.roi?.data?.overall
   const totalCost = roi ? Number(roi.totalCost) || 0 : 0
   const totalRevenueRaw = roi?.totalRevenue
@@ -549,8 +598,38 @@ function formatReportMessage(report: DailyReportPayload): string {
       : (totalCost > 0 ? (totalRevenue || 0) / totalCost : 0))
     : null
   const affiliateBreakdown = Array.isArray(roi?.affiliateBreakdown)
-    ? roi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number }>
+    ? roi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number; currency?: string }>
     : []
+  const affiliateRecordCount = Math.max(
+    affiliateBreakdown.reduce((sum, item) => sum + (Number(item.records) || 0), 0),
+    toNumber(roi?.affiliateAttribution?.writtenRows, 0)
+  )
+  const roiCurrency = normalizeCurrencyCode(roiRoot?.currency, 'USD')
+  const budgetCurrency = normalizeCurrencyCode(budgetRoot?.currency, roiCurrency)
+  const affiliateCurrencies = affiliateBreakdown
+    .map((item) => normalizeCurrencyCode(item.currency, ''))
+    .filter(Boolean)
+  const affiliateCurrency = affiliateCurrencies.length > 0
+    ? (new Set(affiliateCurrencies).size === 1 ? affiliateCurrencies[0] : 'MIXED')
+    : roiCurrency
+  const profitCurrency = revenueAvailable && affiliateCurrency === roiCurrency
+    ? roiCurrency
+    : 'MIXED'
+  const dailyImpressions = Math.round(
+    toNumber(dailySnapshot?.impressions, toNumber(kpis?.current?.impressions, 0))
+  )
+  const dailyClicks = Math.round(
+    toNumber(dailySnapshot?.clicks, toNumber(kpis?.current?.clicks, toNumber(summary?.totalClicks, 0)))
+  )
+  const dailyConversions = roundTo2(
+    toNumber(dailySnapshot?.conversions, toNumber(roi?.conversions, 0))
+  )
+  const dailyCost = roi
+    ? roundTo2(totalCost)
+    : roundTo2(
+      toNumber(dailySnapshot?.cost, toNumber(kpis?.current?.cost, toNumber(summary?.totalCost, 0)))
+    )
+  const dailyCostCurrency = roi ? roiCurrency : budgetCurrency
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
 
   const lines: string[] = []
@@ -559,26 +638,29 @@ function formatReportMessage(report: DailyReportPayload): string {
   lines.push(`📊 OpenClaw 每日报表（${report.date}）`)
   if (summary) {
     lines.push(`- 规模概览：Offer ${summary.totalOffers ?? 0} 个｜Campaign ${summary.totalCampaigns ?? 0} 个`)
-    lines.push(`- 投放消耗：点击 ${summary.totalClicks ?? 0} 次｜花费 ${summary.totalCost ?? 0}`)
   }
-  if (kpis?.current) {
-    lines.push(`- 当日表现：曝光 ${kpis.current.impressions ?? 0}｜转化/佣金笔数 ${kpis.current.conversions ?? 0}`)
-  }
+  lines.push(`- 投放消耗：点击 ${dailyClicks} 次｜花费 ${formatMoney(dailyCost, dailyCostCurrency)}`)
+  lines.push(`- 当日表现：曝光 ${dailyImpressions}｜转化（Google Ads）${dailyConversions}｜联盟佣金记录 ${affiliateRecordCount}`)
 
   if (roi) {
     if (revenueAvailable) {
-      lines.push(`- 佣金收入：${roundTo2(totalRevenue || 0)}｜花费：${totalCost}｜利润：${roi.totalProfit ?? 0}`)
+      lines.push(
+        `- 佣金收入：${formatMoney(totalRevenue || 0, affiliateCurrency)}｜花费：${formatMoney(totalCost, roiCurrency)}｜利润：${formatMoney(roi.totalProfit, profitCurrency)}`
+      )
       lines.push(`- ROAS：${(roas || 0).toFixed(2)}x｜ROI：${roi.roi ?? 0}%`)
       lines.push('- 收入来源：联盟佣金（PartnerBoost / YeahPromos）')
 
       if (affiliateBreakdown.length > 0) {
         const detail = affiliateBreakdown
-          .map((item) => `${item.platform || '未知平台'}：${roundTo2(Number(item.totalCommission) || 0)}（记录 ${Number(item.records) || 0}）`)
+          .map((item) => {
+            const itemCurrency = normalizeCurrencyCode(item.currency, affiliateCurrency)
+            return `${item.platform || '未知平台'}：${formatMoney(item.totalCommission, itemCurrency)}（记录 ${Number(item.records) || 0}）`
+          })
           .join(' | ')
         lines.push(`- 联盟拆分：${detail}`)
       }
     } else {
-      lines.push(`- 花费：${totalCost}`)
+      lines.push(`- 花费：${formatMoney(totalCost, roiCurrency)}`)
       lines.push('- 佣金收入：暂不可用（等待联盟平台返回）')
       lines.push('- ROAS：暂不可用｜ROI：暂不可用')
       lines.push('- 收入来源：严格联盟模式（不回退 AutoAds）')
@@ -587,7 +669,14 @@ function formatReportMessage(report: DailyReportPayload): string {
 
   if (report.budget?.data?.overall) {
     const overall = report.budget.data.overall
-    lines.push(`- 预算概览：预算 ${overall.totalBudget ?? 0}｜已花费 ${overall.totalSpent ?? 0}｜剩余 ${overall.remaining ?? 0}`)
+    const budgetTotal = roundTo2(toNumber(overall.totalBudget, 0))
+    const budgetSpent = roundTo2(toNumber(overall.totalSpent, 0))
+    const budgetRemaining = roundTo2(
+      toNumber(overall.remaining, budgetTotal - budgetSpent)
+    )
+    lines.push(
+      `- 预算概览：预算 ${formatMoney(budgetTotal, budgetCurrency)}｜已花费 ${formatMoney(budgetSpent, budgetCurrency)}｜剩余 ${formatMoney(budgetRemaining, budgetCurrency)}`
+    )
   }
 
   if (strategySummary.runsTotal > 0) {

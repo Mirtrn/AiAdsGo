@@ -3,6 +3,10 @@ import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { toNumber } from '@/lib/utils'
 
+function roundTo2(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100
+}
+
 /**
  * GET /api/analytics/budget
  * 获取预算使用分析数据
@@ -105,12 +109,14 @@ export async function GET(request: NextRequest) {
         ${campaignId ? 'AND c.id = ?' : ''}
     `, [...params, userId, reportingCurrency, ...(campaignId ? [campaignId] : [])]) as any
 
-    const totalBudget = toNumber(overallBudget.total_budget)
-    const totalSpent = toNumber(overallBudget.total_spent)
+    const totalBudgetRaw = toNumber(overallBudget.total_budget)
+    const totalSpentRaw = toNumber(overallBudget.total_spent)
+    const totalBudget = roundTo2(totalBudgetRaw)
+    const totalSpent = roundTo2(totalSpentRaw)
     const activeCampaigns = toNumber(overallBudget.active_campaigns)
-    const remaining = totalBudget - totalSpent
-    const utilizationRate = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0
-    const dailyAvgSpend = totalSpent / daysDiff
+    const remaining = roundTo2(totalBudget - totalSpent)
+    const utilizationRate = totalBudgetRaw > 0 ? (totalSpentRaw / totalBudgetRaw) * 100 : 0
+    const dailyAvgSpend = totalSpentRaw / daysDiff
     const projectedTotalSpend = dailyAvgSpend * 30 // 预测30天花费
 
     // 2. 按Campaign的预算使用
@@ -137,16 +143,18 @@ export async function GET(request: NextRequest) {
     `, [...params, userId, reportingCurrency, ...(campaignId ? [campaignId] : [])]) as any[]
 
     const campaignBudgetData = campaignBudgets.map((row) => {
-      const budget = toNumber(row.budget_amount)
-      const spent = toNumber(row.spent)
+      const budgetRaw = toNumber(row.budget_amount)
+      const spentRaw = toNumber(row.spent)
+      const budget = roundTo2(budgetRaw)
+      const spent = roundTo2(spentRaw)
       const conversions = toNumber(row.conversions)
       const activeDays = toNumber(row.active_days)
 
-      const remaining = budget - spent
-      const utilizationRate = budget > 0 ? (spent / budget) * 100 : 0
-      const dailyAvg = activeDays > 0 ? spent / activeDays : 0
+      const remaining = roundTo2(budget - spent)
+      const utilizationRate = budgetRaw > 0 ? (spentRaw / budgetRaw) * 100 : 0
+      const dailyAvg = activeDays > 0 ? spentRaw / activeDays : 0
       const daysRemaining = budget > 0 && dailyAvg > 0 ? remaining / dailyAvg : 0
-      const isOverBudget = spent > budget
+      const isOverBudget = spentRaw > budgetRaw
       const isNearBudget = utilizationRate >= 80 && utilizationRate < 100
 
       return {
@@ -154,11 +162,11 @@ export async function GET(request: NextRequest) {
         campaignName: row.campaign_name,
         offerBrand: row.offer_brand,
         budgetType: row.budget_type,
-        budget: parseFloat(budget.toFixed(2)),
-        spent: parseFloat(spent.toFixed(2)),
-        remaining: parseFloat(remaining.toFixed(2)),
-        utilizationRate: parseFloat(utilizationRate.toFixed(2)),
-        dailyAvgSpend: parseFloat(dailyAvg.toFixed(2)),
+        budget,
+        spent,
+        remaining,
+        utilizationRate: roundTo2(utilizationRate),
+        dailyAvgSpend: roundTo2(dailyAvg),
         daysRemaining: parseFloat(daysRemaining.toFixed(1)),
         conversions,
         isOverBudget,
@@ -224,9 +232,9 @@ export async function GET(request: NextRequest) {
         offerId: row.id,
         brand: row.brand,
         productName: row.product_name,
-        allocatedBudget: parseFloat(allocatedBudget.toFixed(2)),
-        spent: parseFloat(spent.toFixed(2)),
-        utilizationRate: parseFloat(utilizationRate.toFixed(2)),
+        allocatedBudget: roundTo2(allocatedBudget),
+        spent: roundTo2(spent),
+        utilizationRate: roundTo2(utilizationRate),
         campaignCount,
         conversions,
       }
@@ -317,12 +325,12 @@ export async function GET(request: NextRequest) {
       hasMixedCurrency,
       data: {
         overall: {
-          totalBudget: parseFloat(totalBudget.toFixed(2)),
-          totalSpent: parseFloat(totalSpent.toFixed(2)),
-          remaining: parseFloat(remaining.toFixed(2)),
-          utilizationRate: parseFloat(utilizationRate.toFixed(2)),
-          dailyAvgSpend: parseFloat(dailyAvgSpend.toFixed(2)),
-          projectedTotalSpend: parseFloat(projectedTotalSpend.toFixed(2)),
+          totalBudget,
+          totalSpent,
+          remaining,
+          utilizationRate: roundTo2(utilizationRate),
+          dailyAvgSpend: roundTo2(dailyAvgSpend),
+          projectedTotalSpend: roundTo2(projectedTotalSpend),
           activeCampaigns,
         },
         byCampaign: campaignBudgetData,

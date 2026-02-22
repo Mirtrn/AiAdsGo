@@ -132,4 +132,83 @@ describe('sendDailyReportToFeishu', () => {
     expect(hoisted.writeDailyReportToDocMock).toHaveBeenCalledTimes(1)
     expect(hoisted.execMock).toHaveBeenCalledTimes(2)
   })
+
+  it('formats daily report message with aligned daily metrics and clear conversion labels', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-22',
+            generatedAt: '2026-02-22T09:00:00.000Z',
+            summary: {
+              kpis: {
+                totalOffers: 13,
+                totalCampaigns: 15,
+                totalClicks: 185,
+                totalCost: 132.706319,
+              },
+            },
+            kpis: {
+              data: {
+                current: {
+                  impressions: 1707,
+                  clicks: 185,
+                  cost: 132.706319,
+                  conversions: 38.52,
+                },
+              },
+            },
+            dailySnapshot: {
+              impressions: 1707,
+              clicks: 185,
+              cost: 41.21,
+              conversions: 38.52,
+            },
+            roi: {
+              data: {
+                overall: {
+                  totalCost: 41.21,
+                  totalRevenue: 0,
+                  totalProfit: -41.21,
+                  roi: -100,
+                  roas: 0,
+                  conversions: 38.52,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [
+                    { platform: 'partnerboost', totalCommission: 0, records: 0 },
+                    { platform: 'yeahpromos', totalCommission: 0, records: 0 },
+                  ],
+                  affiliateAttribution: {
+                    writtenRows: 0,
+                  },
+                },
+              },
+            },
+            budget: {
+              data: {
+                overall: {
+                  totalBudget: 123.33,
+                  totalSpent: 41.21,
+                  remaining: 82.12,
+                },
+              },
+            },
+          }),
+        }
+      }
+      return undefined
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-22',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(message).toContain('- 投放消耗：点击 185 次｜花费 41.21 USD')
+    expect(message).toContain('- 当日表现：曝光 1707｜转化（Google Ads）38.52｜联盟佣金记录 0')
+    expect(message).toContain('- 预算概览：预算 123.33 USD｜已花费 41.21 USD｜剩余 82.12 USD')
+    expect(message).not.toContain('转化/佣金笔数')
+  })
 })
