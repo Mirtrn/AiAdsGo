@@ -36,6 +36,7 @@ description: 通过 AutoAds OpenClaw API 执行广告运营动作（严格按 We
 4. 需要追踪时，直连 `/api/openclaw/commands/runs` 并带 `channel/senderId`。
 5. 写动作后先跟踪 `runId` 到 `completed/failed`。若 `runs.items[].responsePreview.taskId` 存在，该值才是业务 taskId，可用于业务状态接口。
 6. 若拿不到业务 taskId，再用业务读接口核验实体状态（如 Offer 是否出现、创意列表是否新增），不要用 OpenClaw `taskId` 轮询业务任务接口。
+7. 对 Offer/Creative 长耗时任务：优先使用 stream 接口；无法 stream 时，状态轮询必须带 `waitForUpdate=1`、`lastUpdatedAt=<上次updatedAt>`、`timeoutMs=30000`，并将轮询间隔严格控制在 2-8 秒（先参考 `recommendedPollIntervalMs` 再钳制）。
 
 ## 请求模板
 

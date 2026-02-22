@@ -44,6 +44,9 @@ type NormalizedProxyTarget = {
 type OpenclawPollingRouteKind = 'offer-extract-status' | 'creative-task-status'
 
 const OPENCLAW_TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'canceled', 'cancelled', 'expired'])
+const OPENCLAW_POLLING_INTERVAL_MIN_MS = 2000
+const OPENCLAW_POLLING_INTERVAL_MAX_MS = 8000
+const OPENCLAW_POLLING_TIMEOUT_MS = 30000
 
 function parsePositiveIntEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value || '').trim(), 10)
@@ -242,6 +245,18 @@ function toOptionalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function clampPollingIntervalMs(value: number | null): number {
+  if (value === null) return OPENCLAW_POLLING_INTERVAL_MIN_MS
+  const normalized = Math.round(value)
+  if (normalized < OPENCLAW_POLLING_INTERVAL_MIN_MS) {
+    return OPENCLAW_POLLING_INTERVAL_MIN_MS
+  }
+  if (normalized > OPENCLAW_POLLING_INTERVAL_MAX_MS) {
+    return OPENCLAW_POLLING_INTERVAL_MAX_MS
+  }
+  return normalized
+}
+
 function summarizeOfferExtractResult(result: unknown): Record<string, any> | null {
   const parsed = parseNestedJsonValue(result)
   if (!isPlainObject(parsed)) return null
@@ -388,12 +403,22 @@ function compactPollingStatusResponse(params: {
 
   const normalizedStatus = String(parsed.status || '').trim().toLowerCase()
   const terminal = OPENCLAW_TERMINAL_TASK_STATUSES.has(normalizedStatus)
-  const recommendedPollIntervalMs = toOptionalNumber(parsed.recommendedPollIntervalMs)
+  const recommendedPollIntervalMs = clampPollingIntervalMs(toOptionalNumber(parsed.recommendedPollIntervalMs))
+  const updatedAt = toNonEmptyString(parsed.updatedAt)
   compacted.polling = {
     terminal,
     shouldStop: terminal,
     status: normalizedStatus || null,
-    nextPollInMs: terminal ? 0 : (recommendedPollIntervalMs ?? null),
+    nextPollInMs: terminal ? 0 : recommendedPollIntervalMs,
+    nextRequest: terminal || !updatedAt ? null : {
+      method: 'GET',
+      path: params.path,
+      query: {
+        waitForUpdate: '1',
+        lastUpdatedAt: updatedAt,
+        timeoutMs: String(OPENCLAW_POLLING_TIMEOUT_MS),
+      },
+    },
   }
 
   return {

@@ -221,6 +221,7 @@ describe('openclaw proxy write bridge', () => {
       shouldStop: true,
       status: 'completed',
       nextPollInMs: 0,
+      nextRequest: null,
     })
     expect(payload.result.productDescription).toBeUndefined()
     expect(JSON.stringify(payload).length).toBeLessThan(3000)
@@ -256,7 +257,7 @@ describe('openclaw proxy write bridge', () => {
           error: null,
           createdAt: '2026-02-18T08:01:00.000Z',
           updatedAt: '2026-02-18T08:01:10.000Z',
-          recommendedPollIntervalMs: 2500,
+          recommendedPollIntervalMs: 500,
           streamSupported: true,
           streamUrl: '/api/creative-tasks/creative-task-1/stream',
         }),
@@ -294,7 +295,16 @@ describe('openclaw proxy write bridge', () => {
       terminal: false,
       shouldStop: false,
       status: 'running',
-      nextPollInMs: 2500,
+      nextPollInMs: 2000,
+      nextRequest: {
+        method: 'GET',
+        path: '/api/creative-tasks/creative-task-1',
+        query: {
+          waitForUpdate: '1',
+          lastUpdatedAt: '2026-02-18T08:01:10.000Z',
+          timeoutMs: '30000',
+        },
+      },
     })
     expect(JSON.stringify(payload).length).toBeLessThan(2500)
   })

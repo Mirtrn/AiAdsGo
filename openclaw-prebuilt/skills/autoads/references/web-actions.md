@@ -16,12 +16,12 @@ Last verified: 2026-02-15 (from current Web pages + API routes in repo).
 
 ### `offer.extract.status`
 - Method/Path: `GET /api/offers/extract/status/:taskId`
-- Query/body: none.
+- Query: `waitForUpdate`（可选，建议 `1`）、`lastUpdatedAt`（可选，配合 `waitForUpdate`）、`timeoutMs`（可选，建议 `30000`，服务端会限制在 1000..30000）。
 - 仅当你拿到真实 `offer_tasks.id` 时可调用；不要使用 OpenClaw `commands/execute` 返回的 `taskId`。
 
 ### `creative.task.get`
 - Method/Path: `GET /api/creative-tasks/:taskId`
-- Query/body: none.
+- Query: `waitForUpdate`（可选，建议 `1`）、`lastUpdatedAt`（可选，配合 `waitForUpdate`）、`timeoutMs`（可选，建议 `30000`，服务端会限制在 1000..30000）。
 - 仅当你拿到真实 `creative_tasks.id` 时可调用；不要使用 OpenClaw `commands/execute` 返回的 `taskId`。
 
 ### `creative.task.stream`

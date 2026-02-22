@@ -126,7 +126,7 @@ ${OVERLAY_HEADING}
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。
-- 长耗时任务（Offer 提取、创意生成）优先使用 stream 接口持续订阅；无法使用 stream 时才用状态轮询，并按接口返回建议间隔自适应轮询（建议 2-8 秒，禁止固定高频轮询）。
+- 长耗时任务（Offer 提取、创意生成）优先使用 stream 接口持续订阅；无法使用 stream 时必须使用状态长轮询参数（waitForUpdate=1 + lastUpdatedAt + timeoutMs），并将轮询间隔严格限制在 2-8 秒（遵循 recommendedPollIntervalMs，低于 2 秒按 2 秒、高于 8 秒按 8 秒），禁止固定高频轮询或分钟级稀疏轮询。
 - 同一条用户消息若包含多个 Offer/ASIN/推广链接，必须对每个 Offer 执行完整闭环（提取 -> A/B/D -> 选优 -> 发布 -> 补点击）；禁止仅完成部分后直接结案。
 ${AGENTS_MANAGED_END}`
 }
@@ -170,7 +170,7 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。
-- 长耗时任务优先使用 stream 接口；无法使用 stream 时采用状态接口自适应轮询（遵循推荐间隔，避免固定高频）。
+- 长耗时任务优先使用 stream 接口；无法使用 stream 时必须用状态长轮询（waitForUpdate=1 + lastUpdatedAt + timeoutMs）并将间隔控制在 2-8 秒（遵循 recommendedPollIntervalMs 后再钳制），禁止固定高频或分钟级稀疏轮询。
 - 同一条消息若包含多个 Offer/ASIN/推广链接，必须逐个 Offer 完成“提取 -> A/B/D -> 选优 -> 发布 -> 补点击”后，才能给出“已完成”结论。
 - 如果返回“canonical web flow”或下线路由错误，立即改用正统接口，不允许继续猜测 API 路径。
 - 不泄露 Token/密钥，不越权，不绕过审批。
