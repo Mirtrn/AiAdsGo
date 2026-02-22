@@ -467,7 +467,6 @@ export default function ProductsPage() {
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
   const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
   const [pendingCreateOfferProduct, setPendingCreateOfferProduct] = useState<ProductListItem | null>(null)
-  const [runPollingTick, setRunPollingTick] = useState(0)
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -677,15 +676,11 @@ export default function ProductsPage() {
   }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, sortBy, sortOrder])
 
   useEffect(() => {
-    fetchSyncRuns()
-  }, [runPollingTick])
-
-  useEffect(() => {
     const hasActiveRuns = latestRuns.some((run) => run.status === 'queued' || run.status === 'running')
     if (!hasActiveRuns) return
 
     const timer = window.setInterval(() => {
-      setRunPollingTick((prev) => prev + 1)
+      fetchSyncRuns()
       fetchProducts(true)
     }, 8000)
 

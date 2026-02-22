@@ -2,7 +2,8 @@ import crypto from 'crypto'
 import { REDIS_PREFIX_CONFIG } from '@/lib/config'
 import { getRedisClient } from '@/lib/redis'
 
-const LIST_TTL_SECONDS = 120
+const LIST_TTL_SECONDS = 300
+const SUMMARY_TTL_SECONDS = 30
 const LIST_INDEX_TTL_SECONDS = 24 * 60 * 60
 const LAST_QUERY_TTL_SECONDS = 24 * 60 * 60
 const MAX_INVALIDATE_SCAN_ROUNDS = 20
@@ -19,6 +20,18 @@ function getListIndexKey(userId: number): string {
   return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:list:index`
 }
 
+function getSummaryKey(userId: number, hash: string): string {
+  return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:summary:${hash}`
+}
+
+function getSummaryPattern(userId: number): string {
+  return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:summary:*`
+}
+
+function getSummaryIndexKey(userId: number): string {
+  return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:summary:index`
+}
+
 function getLatestQueryKey(userId: number): string {
   return `${REDIS_PREFIX_CONFIG.cache}products:user:${userId}:latest-query`
 }
@@ -31,6 +44,7 @@ export type ProductListCachePayload = {
   page: number
   pageSize: number
   search: string
+  mid?: string
   sortBy: string
   sortOrder: string
   platform: string
@@ -46,6 +60,25 @@ export type ProductListCachePayload = {
 }
 
 export function buildProductListCacheHash(payload: ProductListCachePayload): string {
+  return crypto.createHash('md5').update(JSON.stringify(payload)).digest('hex')
+}
+
+export type ProductSummaryCachePayload = {
+  search: string
+  mid: string
+  platform: string
+  status: string
+  reviewCountMin: number | null
+  reviewCountMax: number | null
+  priceAmountMin: number | null
+  priceAmountMax: number | null
+  commissionRateMin: number | null
+  commissionRateMax: number | null
+  commissionAmountMin: number | null
+  commissionAmountMax: number | null
+}
+
+export function buildProductSummaryCacheHash(payload: ProductSummaryCachePayload): string {
   return crypto.createHash('md5').update(JSON.stringify(payload)).digest('hex')
 }
 
@@ -71,6 +104,7 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
   const page = Number(obj.page)
   const pageSize = Number(obj.pageSize)
   const search = typeof obj.search === 'string' ? obj.search : ''
+  const mid = typeof obj.mid === 'string' ? obj.mid : ''
   const sortBy = typeof obj.sortBy === 'string' ? obj.sortBy : ''
   const sortOrder = typeof obj.sortOrder === 'string' ? obj.sortOrder.toLowerCase() : ''
   const platform = typeof obj.platform === 'string' ? obj.platform : ''
@@ -99,6 +133,7 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     page,
     pageSize,
     search,
+    mid,
     sortBy,
     sortOrder,
     platform,
@@ -143,6 +178,35 @@ export async function setCachedProductList(userId: number, hash: string, value: 
   }
 }
 
+export async function getCachedProductSummary<T>(userId: number, hash: string): Promise<T | null> {
+  try {
+    const redis = getRedisClient()
+    const raw = await redis.get(getSummaryKey(userId, hash))
+    if (!raw) return null
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+export async function setCachedProductSummary(userId: number, hash: string, value: unknown): Promise<void> {
+  try {
+    const redis = getRedisClient()
+    const summaryKey = getSummaryKey(userId, hash)
+    const summaryIndexKey = getSummaryIndexKey(userId)
+    const payload = JSON.stringify(value)
+
+    await redis
+      .multi()
+      .setex(summaryKey, SUMMARY_TTL_SECONDS, payload)
+      .sadd(summaryIndexKey, summaryKey)
+      .expire(summaryIndexKey, LIST_INDEX_TTL_SECONDS)
+      .exec()
+  } catch {
+    // ignore cache write failure
+  }
+}
+
 export async function setLatestProductListQuery(userId: number, payload: ProductListCachePayload): Promise<void> {
   try {
     const normalized = normalizeProductListCachePayload(payload)
@@ -178,28 +242,32 @@ export async function getLatestProductListQuery(userId: number): Promise<Product
 export async function invalidateProductListCache(userId: number): Promise<void> {
   try {
     const redis = getRedisClient()
-    const indexKey = getListIndexKey(userId)
+    const targets = [
+      { indexKey: getListIndexKey(userId), pattern: getListPattern(userId) },
+      { indexKey: getSummaryIndexKey(userId), pattern: getSummaryPattern(userId) },
+    ]
 
-    const indexedKeys = await redis.smembers(indexKey)
-    if (indexedKeys.length > 0) {
-      await redis.del(...indexedKeys)
-    }
-    await redis.del(indexKey)
-
-    // 兼容历史缓存键：使用有上限的scan兜底清理，避免全库scan阻塞接口响应
-    const pattern = getListPattern(userId)
-    let cursor = '0'
-    let rounds = 0
-
-    do {
-      const result = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
-      cursor = String(result?.[0] ?? '0')
-      const keys = Array.isArray(result?.[1]) ? result[1] : []
-      if (keys.length > 0) {
-        await redis.del(...keys)
+    for (const target of targets) {
+      const indexedKeys = await redis.smembers(target.indexKey)
+      if (indexedKeys.length > 0) {
+        await redis.del(...indexedKeys)
       }
-      rounds += 1
-    } while (cursor !== '0' && rounds < MAX_INVALIDATE_SCAN_ROUNDS)
+      await redis.del(target.indexKey)
+
+      // 兼容历史缓存键：使用有上限的scan兜底清理，避免全库scan阻塞接口响应
+      let cursor = '0'
+      let rounds = 0
+
+      do {
+        const result = await redis.scan(cursor, 'MATCH', target.pattern, 'COUNT', 100)
+        cursor = String(result?.[0] ?? '0')
+        const keys = Array.isArray(result?.[1]) ? result[1] : []
+        if (keys.length > 0) {
+          await redis.del(...keys)
+        }
+        rounds += 1
+      } while (cursor !== '0' && rounds < MAX_INVALIDATE_SCAN_ROUNDS)
+    }
   } catch {
     // ignore cache invalidation failure
   }

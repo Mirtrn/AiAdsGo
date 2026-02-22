@@ -3,6 +3,12 @@ import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
+import {
+  buildProductSummaryCacheHash,
+  getCachedProductSummary,
+  setCachedProductSummary,
+  type ProductSummaryCachePayload,
+} from '@/lib/products-cache'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single' | 'delta'
@@ -2627,6 +2633,66 @@ function buildConfirmedInvalidSql(): string {
   `
 }
 
+const CONFIRMED_INVALID_MARKERS: string[] = [
+  '"advert_status":0',
+  '"advert_status":"0"',
+  '"status":"offline"',
+  '"status":"inactive"',
+  '"status":"disabled"',
+  '"status":"removed"',
+  '"status":"invalid"',
+  '"status":"out_of_stock"',
+  '"status":"out-of-stock"',
+  '"status":"sold_out"',
+  '"status":"unavailable"',
+  '"availability":"out_of_stock"',
+  '"availability":"out-of-stock"',
+  '"availability":"sold_out"',
+  '"availability":"unavailable"',
+  '"stock_status":"out_of_stock"',
+  '"stock_status":"out-of-stock"',
+  '"stock_status":"sold_out"',
+  '"stock_status":"unavailable"',
+  '"is_available":false',
+  '"in_stock":false',
+  '"is_oos":true',
+]
+
+function isConfirmedInvalidFromRawJson(rawJson: string | null): boolean {
+  if (!rawJson) return false
+  const normalized = rawJson.toLowerCase().replace(/\s+/g, '')
+  if (!normalized) return false
+  return CONFIRMED_INVALID_MARKERS.some((marker) => normalized.includes(marker))
+}
+
+function parseDateToTimestamp(input: string | null): number | null {
+  if (!input) return null
+  const timestamp = Date.parse(input)
+  if (!Number.isFinite(timestamp)) return null
+  return timestamp
+}
+
+function resolveLifecycleStatusFromRowForList(
+  row: Pick<AffiliateProduct, 'platform' | 'raw_json' | 'last_seen_at'>
+  & { baseline_started_at?: string | null }
+): AffiliateProductLifecycleStatus {
+  if (row.platform === 'yeahpromos' && isConfirmedInvalidFromRawJson(row.raw_json)) {
+    return 'invalid'
+  }
+
+  const baselineTimestamp = parseDateToTimestamp(row.baseline_started_at || null)
+  if (baselineTimestamp === null) {
+    return 'unknown'
+  }
+
+  const lastSeenTimestamp = parseDateToTimestamp(row.last_seen_at || null)
+  if (lastSeenTimestamp !== null && lastSeenTimestamp >= baselineTimestamp) {
+    return 'active'
+  }
+
+  return 'sync_missing'
+}
+
 export async function listAffiliateProducts(userId: number, options: ProductListOptions = {}): Promise<ProductListResult> {
   const db = await getDatabase()
   const page = Math.max(1, options.page || 1)
@@ -2640,6 +2706,13 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
   const statusFilter = normalizeAffiliateProductStatusFilter(options.status)
   const confirmedInvalidSql = buildConfirmedInvalidSql()
+  // 失效判定依赖 raw_json 大文本扫描，当前仅在 YeahPromos 生效，避免 PartnerBoost 超大数据集触发超时。
+  const confirmedInvalidStatusSql = `
+    (
+      p.platform = 'yeahpromos'
+      AND ${confirmedInvalidSql}
+    )
+  `
   const fullSyncBaselineCteSql = `
     WITH latest_platform_full_sync AS (
       SELECT ranked.platform, ranked.baseline_started_at
@@ -2661,7 +2734,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   `
   const productStatusSql = `
     CASE
-      WHEN ${confirmedInvalidSql} THEN 'invalid'
+      WHEN ${confirmedInvalidStatusSql} THEN 'invalid'
       WHEN baseline.baseline_started_at IS NULL THEN 'unknown'
       WHEN p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 'active'
       ELSE 'sync_missing'
@@ -2754,61 +2827,26 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   }
 
   const filteredWhereSql = filteredWhereConditions.join(' AND ')
+  const productStatusSelectSql = statusFilter === 'all'
+    ? 'NULL AS product_status'
+    : `${productStatusSql} AS product_status`
 
-  const summaryRow = await db.queryOne<{
-    active_products_count: number
-    invalid_products_count: number
-    sync_missing_products_count: number
-    unknown_products_count: number
-    blacklisted_count: number
-    products_with_link_count: number
-  }>(
-    `
-      ${fullSyncBaselineCteSql}
-      SELECT
-        SUM(CASE WHEN ${productStatusSql} = 'active' THEN 1 ELSE 0 END) AS active_products_count,
-        SUM(CASE WHEN ${productStatusSql} = 'invalid' THEN 1 ELSE 0 END) AS invalid_products_count,
-        SUM(CASE WHEN ${productStatusSql} = 'sync_missing' THEN 1 ELSE 0 END) AS sync_missing_products_count,
-        SUM(CASE WHEN ${productStatusSql} = 'unknown' THEN 1 ELSE 0 END) AS unknown_products_count,
-        SUM(CASE WHEN COALESCE(p.is_blacklisted, FALSE) = TRUE THEN 1 ELSE 0 END) AS blacklisted_count,
-        SUM(
-          CASE
-            WHEN COALESCE(NULLIF(TRIM(p.short_promo_link), ''), NULLIF(TRIM(p.promo_link), '')) IS NOT NULL THEN 1
-            ELSE 0
-          END
-        ) AS products_with_link_count
-      FROM affiliate_products p
-      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
-      WHERE ${baseWhereSql}
-    `,
-    [userId, ...whereParams]
-  )
-
-  const filteredTotalRow = await db.queryOne<{ total: number }>(
-    `
-      ${fullSyncBaselineCteSql}
-      SELECT COUNT(*) AS total
-      FROM affiliate_products p
-      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
-      WHERE ${filteredWhereSql}
-    `,
-    [userId, ...filteredWhereParams]
-  )
-
-  const rows = await db.query<(
+  const rowsPromise = db.query<(
     AffiliateProduct
     & {
       related_offer_count?: number
       active_offer_count?: number
       historical_offer_count?: number
       product_status?: AffiliateProductLifecycleStatus
+      baseline_started_at?: string | null
     }
   )>(
     `
       ${fullSyncBaselineCteSql}
       SELECT
         p.*,
-        ${productStatusSql} AS product_status,
+        ${productStatusSelectSql},
+        baseline.baseline_started_at AS baseline_started_at,
         COALESCE(link_counts.active_offer_count, 0) AS active_offer_count,
         COALESCE(link_counts.historical_offer_count, 0) AS historical_offer_count,
         COALESCE(link_counts.historical_offer_count, 0) AS related_offer_count
@@ -2843,16 +2881,163 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     `,
     [userId, userId, ...filteredWhereParams, pageSize, offset]
   )
+  const summaryCachePayload: ProductSummaryCachePayload = {
+    search,
+    mid,
+    platform: platform || 'all',
+    status: statusFilter,
+    reviewCountMin: options.reviewCountMin ?? null,
+    reviewCountMax: options.reviewCountMax ?? null,
+    priceAmountMin: options.priceAmountMin ?? null,
+    priceAmountMax: options.priceAmountMax ?? null,
+    commissionRateMin: options.commissionRateMin ?? null,
+    commissionRateMax: options.commissionRateMax ?? null,
+    commissionAmountMin: options.commissionAmountMin ?? null,
+    commissionAmountMax: options.commissionAmountMax ?? null,
+  }
+  const summaryCacheHash = buildProductSummaryCacheHash(summaryCachePayload)
+  const cachedSummary = await getCachedProductSummary<{
+    total: number
+    productsWithLinkCount: number
+    activeProductsCount: number
+    invalidProductsCount: number
+    syncMissingProductsCount: number
+    unknownProductsCount: number
+    blacklistedCount: number
+  }>(userId, summaryCacheHash)
+
+  let total = 0
+  let productsWithLinkCount = 0
+  let activeProductsCount = 0
+  let invalidProductsCount = 0
+  let syncMissingProductsCount = 0
+  let unknownProductsCount = 0
+  let blacklistedCount = 0
+
+  if (cachedSummary) {
+    total = Number(cachedSummary.total || 0)
+    productsWithLinkCount = Number(cachedSummary.productsWithLinkCount || 0)
+    activeProductsCount = Number(cachedSummary.activeProductsCount || 0)
+    invalidProductsCount = Number(cachedSummary.invalidProductsCount || 0)
+    syncMissingProductsCount = Number(cachedSummary.syncMissingProductsCount || 0)
+    unknownProductsCount = Number(cachedSummary.unknownProductsCount || 0)
+    blacklistedCount = Number(cachedSummary.blacklistedCount || 0)
+  } else {
+    const summaryRow = await db.queryOne<{
+      total_count: number
+      active_products_count: number
+      sync_missing_products_count: number
+      unknown_products_count: number
+      blacklisted_count: number
+      products_with_link_count: number
+      yeahpromos_count: number
+    }>(
+      `
+        ${fullSyncBaselineCteSql}
+        SELECT
+          COUNT(*) AS total_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS active_products_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS sync_missing_products_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS unknown_products_count,
+          SUM(CASE WHEN COALESCE(p.is_blacklisted, FALSE) = TRUE THEN 1 ELSE 0 END) AS blacklisted_count,
+          SUM(
+            CASE
+              WHEN COALESCE(NULLIF(TRIM(p.short_promo_link), ''), NULLIF(TRIM(p.promo_link), '')) IS NOT NULL THEN 1
+              ELSE 0
+            END
+          ) AS products_with_link_count,
+          SUM(CASE WHEN p.platform = 'yeahpromos' THEN 1 ELSE 0 END) AS yeahpromos_count
+        FROM affiliate_products p
+        LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+        WHERE ${baseWhereSql}
+      `,
+      [userId, ...whereParams]
+    )
+
+    let invalidActiveOverlapCount = 0
+    let invalidSyncMissingOverlapCount = 0
+    let invalidUnknownOverlapCount = 0
+    const hasYeahpromosCandidates = Number(summaryRow?.yeahpromos_count || 0) > 0
+
+    if (hasYeahpromosCandidates) {
+      const invalidSummaryRow = await db.queryOne<{
+        invalid_products_count: number
+        invalid_active_overlap_count: number
+        invalid_sync_missing_overlap_count: number
+        invalid_unknown_overlap_count: number
+      }>(
+        `
+          ${fullSyncBaselineCteSql}
+          SELECT
+            COUNT(*) AS invalid_products_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS invalid_unknown_overlap_count
+          FROM affiliate_products p
+          LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+          WHERE ${baseWhereSql}
+            AND p.platform = 'yeahpromos'
+            AND ${confirmedInvalidSql}
+        `,
+        [userId, ...whereParams]
+      )
+
+      invalidProductsCount = Number(invalidSummaryRow?.invalid_products_count || 0)
+      invalidActiveOverlapCount = Number(invalidSummaryRow?.invalid_active_overlap_count || 0)
+      invalidSyncMissingOverlapCount = Number(invalidSummaryRow?.invalid_sync_missing_overlap_count || 0)
+      invalidUnknownOverlapCount = Number(invalidSummaryRow?.invalid_unknown_overlap_count || 0)
+    }
+
+    const baseActiveProductsCount = Number(summaryRow?.active_products_count || 0)
+    const baseSyncMissingProductsCount = Number(summaryRow?.sync_missing_products_count || 0)
+    const baseUnknownProductsCount = Number(summaryRow?.unknown_products_count || 0)
+
+    activeProductsCount = Math.max(0, baseActiveProductsCount - invalidActiveOverlapCount)
+    syncMissingProductsCount = Math.max(0, baseSyncMissingProductsCount - invalidSyncMissingOverlapCount)
+    unknownProductsCount = Math.max(0, baseUnknownProductsCount - invalidUnknownOverlapCount)
+
+    total = (() => {
+      if (statusFilter === 'all') return Number(summaryRow?.total_count || 0)
+      if (statusFilter === 'invalid') return invalidProductsCount
+      if (statusFilter === 'active') return activeProductsCount
+      if (statusFilter === 'sync_missing') return syncMissingProductsCount
+      return unknownProductsCount
+    })()
+    productsWithLinkCount = Number(summaryRow?.products_with_link_count || 0)
+    blacklistedCount = Number(summaryRow?.blacklisted_count || 0)
+
+    await setCachedProductSummary(userId, summaryCacheHash, {
+      total,
+      productsWithLinkCount,
+      activeProductsCount,
+      invalidProductsCount,
+      syncMissingProductsCount,
+      unknownProductsCount,
+      blacklistedCount,
+    })
+  }
+
+  const rows = await rowsPromise
+
+  const items = rows.map((row, index) => {
+    const rowForMapping = statusFilter === 'all'
+      ? {
+          ...row,
+          product_status: resolveLifecycleStatusFromRowForList(row),
+        }
+      : row
+    return mapAffiliateProductRow(rowForMapping, offset + index + 1)
+  })
 
   return {
-    items: rows.map((row, index) => mapAffiliateProductRow(row, offset + index + 1)),
-    total: Number(filteredTotalRow?.total || 0),
-    productsWithLinkCount: Number(summaryRow?.products_with_link_count || 0),
-    activeProductsCount: Number(summaryRow?.active_products_count || 0),
-    invalidProductsCount: Number(summaryRow?.invalid_products_count || 0),
-    syncMissingProductsCount: Number(summaryRow?.sync_missing_products_count || 0),
-    unknownProductsCount: Number(summaryRow?.unknown_products_count || 0),
-    blacklistedCount: Number(summaryRow?.blacklisted_count || 0),
+    items,
+    total,
+    productsWithLinkCount,
+    activeProductsCount,
+    invalidProductsCount,
+    syncMissingProductsCount,
+    unknownProductsCount,
+    blacklistedCount,
     page,
     pageSize,
   }

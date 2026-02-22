@@ -34,6 +34,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   page: number
   pageSize: number
   search: string
+  mid: string
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all'
@@ -50,6 +51,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   page: 1,
   pageSize: 20,
   search: '',
+  mid: '',
   sortBy: 'serial',
   sortOrder: 'desc',
   platform: 'all',
@@ -83,6 +85,7 @@ type CacheWarmParams = {
   page: number
   pageSize: number
   search: string
+  mid: string
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all' | AffiliatePlatform
@@ -112,6 +115,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
   const page = Math.max(1, Number(payload.page || 1))
   const pageSize = Math.min(100, Math.max(10, Number(payload.pageSize || 20)))
   const search = String(payload.search || '').trim()
+  const mid = String(payload.mid || '').trim()
 
   const sortByRaw = String(payload.sortBy || 'serial') as ProductSortField
   const sortBy = ALLOWED_SORT_FIELDS.has(sortByRaw) ? sortByRaw : 'serial'
@@ -132,6 +136,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     page,
     pageSize,
     search,
+    mid,
     sortBy,
     sortOrder,
     platform,
@@ -150,6 +155,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
 async function warmProductListCacheByParams(userId: number, params: CacheWarmParams): Promise<void> {
   const listResult = await listAffiliateProducts(userId, {
     ...params,
+    mid: params.mid,
     reviewCountMin: params.reviewCountMin ?? undefined,
     reviewCountMax: params.reviewCountMax ?? undefined,
     priceAmountMin: params.priceAmountMin ?? undefined,
