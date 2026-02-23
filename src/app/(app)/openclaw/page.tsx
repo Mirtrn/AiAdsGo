@@ -114,37 +114,6 @@ type WorkspaceBootstrapResponse = {
   error?: string
 }
 
-type AsinInputRecord = {
-  id: number
-  source: string
-  filename: string | null
-  file_type: string | null
-  status: string
-  total_items: number
-  parsed_items: number
-  error_message: string | null
-  created_at: string
-}
-
-type AsinItemRecord = {
-  id: number
-  input_id: number | null
-  asin: string | null
-  country_code: string | null
-  status: string
-  priority: number | null
-  offer_id: number | null
-  error_message: string | null
-  created_at: string
-}
-
-type AsinDataResponse = {
-  success: boolean
-  inputs: AsinInputRecord[]
-  items: AsinItemRecord[]
-  stats: Record<string, number>
-}
-
 type FeishuReceiveIdType = 'open_id' | 'union_id' | 'chat_id'
 
 type FeishuVerifySessionState = {
@@ -797,11 +766,7 @@ export default function OpenClawPage() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
   const [workspaceBootstrapping, setWorkspaceBootstrapping] = useState(false)
   const workspaceAutoBootstrapTriedRef = useRef(false)
-  const [asinData, setAsinData] = useState<AsinDataResponse | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [asinUploading, setAsinUploading] = useState(false)
-  const [asinSource, setAsinSource] = useState('manual')
-  const [asinDefaultCountry, setAsinDefaultCountry] = useState('US')
   const [strategyRunning, setStrategyRunning] = useState(false)
   const [strategyPreset, setStrategyPreset] = useState('balanced')
   const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
@@ -892,12 +857,11 @@ export default function OpenClawPage() {
           reportQuery.set('refresh', '1')
         }
 
-        const [settingsRes, tokensRes, reportRes, strategyRes, asinRes] = await Promise.all([
+        const [settingsRes, tokensRes, reportRes, strategyRes] = await Promise.all([
           fetch('/api/openclaw/settings', { credentials: 'include' }),
           fetch('/api/openclaw/tokens', { credentials: 'include' }),
           fetch(`/api/openclaw/reports/daily?${reportQuery.toString()}`, { credentials: 'include' }),
           fetch('/api/openclaw/strategy/status', { credentials: 'include' }),
-          fetch('/api/openclaw/asin-items', { credentials: 'include' }),
         ])
 
         if (settingsRes.status === 403) {
@@ -914,7 +878,6 @@ export default function OpenClawPage() {
         const tokensJson = tokensRes.ok ? await tokensRes.json() : { tokens: [] }
         const reportJson = reportRes.ok ? await reportRes.json() : { report: null }
         const strategyJson = strategyRes.ok ? await strategyRes.json() : null
-        const asinJson = asinRes.ok ? await asinRes.json() : null
 
         if (!active) return
 
@@ -922,7 +885,6 @@ export default function OpenClawPage() {
         setTokens(tokensJson.tokens || [])
         setReport(reportJson.report || null)
         setStrategyStatus(strategyJson || null)
-        setAsinData(asinJson || null)
 
         const userMap: Record<string, string> = {}
         settingsJson.user.forEach(item => {
@@ -1650,35 +1612,6 @@ export default function OpenClawPage() {
       toast.error(error?.message || '策略执行失败')
     } finally {
       setStrategyRunning(false)
-    }
-  }
-
-  const handleAsinUpload = async (file: File | null) => {
-    if (!file) return
-    setAsinUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('source', asinSource)
-      formData.append('defaultCountry', asinDefaultCountry)
-
-      const response = await fetch('/api/openclaw/asin-import', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({}))
-        throw new Error(errorJson.error || 'ASIN导入失败')
-      }
-
-      toast.success('ASIN导入完成')
-      setRefreshKey(prev => prev + 1)
-    } catch (error: any) {
-      toast.error(error?.message || 'ASIN导入失败')
-    } finally {
-      setAsinUploading(false)
     }
   }
 
@@ -3322,83 +3255,6 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>ASIN 导入</CardTitle>
-              <CardDescription>支持 CSV / JSON / XLSX 文件，优先使用你上传的ASIN</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">来源</label>
-                  <Select value={asinSource} onValueChange={setAsinSource}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="manual" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="manual">手动上传</SelectItem>
-                      <SelectItem value="feishu">飞书附件</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <InputWithLabel
-                  label="默认国家"
-                  value={asinDefaultCountry}
-                  onChange={setAsinDefaultCountry}
-                  placeholder="US"
-                />
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium">上传文件</label>
-                  <Input
-                    type="file"
-                    accept=".csv,.json,.xlsx,.xls"
-                    onChange={(e) => handleAsinUpload(e.target.files?.[0] || null)}
-                    disabled={asinUploading}
-                  />
-                  <p className="text-xs text-slate-500">支持列：asin/country_code/priority。导入后可在下方预览。</p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:auto-rows-fr md:grid-cols-4">
-                <KpiCard title="输入批次" value={asinData?.stats?.inputs || 0} />
-                <KpiCard title="总条目" value={asinData?.stats?.items || 0} />
-                <KpiCard title="待处理" value={asinData?.stats?.pending || 0} />
-                <KpiCard title="失败" value={asinData?.stats?.error || 0} />
-              </div>
-
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>ASIN</TableHead>
-                    <TableHead>国家</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>优先级</TableHead>
-                    <TableHead>创建时间</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(asinData?.items || []).slice(0, 30).map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.id}</TableCell>
-                      <TableCell>{item.asin || '-'}</TableCell>
-                      <TableCell>{item.country_code || '-'}</TableCell>
-                      <TableCell>
-                        <Badge variant={item.status === 'error' ? 'destructive' : 'secondary'}>{item.status}</Badge>
-                      </TableCell>
-                      <TableCell>{item.priority ?? '-'}</TableCell>
-                      <TableCell>{item.created_at}</TableCell>
-                    </TableRow>
-                  ))}
-                  {(asinData?.items || []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500">暂无ASIN数据</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="report" className="space-y-6">
