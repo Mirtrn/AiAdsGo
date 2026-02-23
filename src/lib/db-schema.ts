@@ -131,6 +131,9 @@ export const TABLES: TableDef[] = [
       { name: 'final_url_suffix', type: 'TEXT' },
       { name: 'product_price', type: 'TEXT' },
       { name: 'commission_payout', type: 'TEXT' },
+      { name: 'commission_type', type: 'TEXT' },  // percent | amount
+      { name: 'commission_value', type: 'TEXT' },  // numeric string
+      { name: 'commission_currency', type: 'TEXT' },  // amount模式货币代码
       { name: 'scrape_status', type: 'TEXT', notNull: true, default: 'pending' },
       { name: 'scrape_error', type: 'TEXT' },
       { name: 'scraped_at', type: 'TIMESTAMP' },

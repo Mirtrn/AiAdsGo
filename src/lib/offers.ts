@@ -4,7 +4,7 @@ import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSO
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from './offer-category'
 import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
 import {
-  normalizeOfferCommissionPayoutInput,
+  normalizeOfferCommissionInput,
   normalizeOfferProductPriceInput,
 } from './offer-monetization'
 import {
@@ -37,6 +37,9 @@ export interface Offer {
   // 需求28：产品价格和佣金比例
   product_price: string | null
   commission_payout: string | null
+  commission_type: 'percent' | 'amount' | null
+  commission_value: string | null
+  commission_currency: string | null
   scrape_status: string
   scrape_error: string | null
   scraped_at: string | null
@@ -99,6 +102,9 @@ export interface OfferListRow {
   final_url_suffix: string | null
   product_price: string | null
   commission_payout: string | null
+  commission_type: 'percent' | 'amount' | null
+  commission_value: string | null
+  commission_currency: string | null
   scrape_status: string
   scrape_error: string | null
   scraped_at: string | null
@@ -132,6 +138,9 @@ export interface CreateOfferInput {
   // 需求28：产品价格和佣金比例（可选）
   product_price?: string
   commission_payout?: string
+  commission_type?: 'percent' | 'amount'
+  commission_value?: string | number
+  commission_currency?: string
   // 🔥 2025-12-16修复：添加product_name字段
   product_name?: string
   // AI分析结果字段（JSON字符串格式）
@@ -158,6 +167,9 @@ export interface UpdateOfferInput {
   target_audience?: string
   product_price?: string
   commission_payout?: string
+  commission_type?: 'percent' | 'amount' | null
+  commission_value?: string | number | null
+  commission_currency?: string | null
   // Final URL字段：存储解析后的最终落地页URL
   final_url?: string
   final_url_suffix?: string
@@ -213,7 +225,13 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
   }
 
   const normalizedProductPrice = normalizeOfferProductPriceInput(input.product_price, input.target_country)
-  const normalizedCommissionPayout = normalizeOfferCommissionPayoutInput(input.commission_payout, input.target_country)
+  const normalizedCommission = normalizeOfferCommissionInput({
+    targetCountry: input.target_country,
+    commissionType: input.commission_type,
+    commissionValue: input.commission_value,
+    commissionCurrency: input.commission_currency,
+    commissionPayout: input.commission_payout,
+  })
 
   // ========== 自动生成pricing、promotions、scraped_data JSON ==========
   // 1. 如果有product_price，自动解析并生成pricing JSON
@@ -242,7 +260,10 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     offerName,  // 自动生成
     targetLanguage,  // 自动生成
     normalizedProductPrice || null,  // 需求28
-    normalizedCommissionPayout || null,  // 需求28
+    normalizedCommission.commissionPayout || null,  // 需求28（兼容字段）
+    normalizedCommission.commissionType || null,
+    normalizedCommission.commissionValue || null,
+    normalizedCommission.commissionCurrency || null,
     // 🔥 2025-12-16修复：添加product_name字段
     input.product_name || null,
     // 自动生成的JSON字段
@@ -278,13 +299,13 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
       brand_description, unique_selling_points, product_highlights,
       target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
-      product_price, commission_payout, product_name,
+      product_price, commission_payout, commission_type, commission_value, commission_currency, product_name,
       pricing, promotions, scraped_data,
       review_analysis, competitor_analysis,
       extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
       extracted_at,
       page_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, params)
 
   // 🔧 修复(2025-12-30): PostgreSQL 使用 RETURNING id，SQLite 使用 lastInsertRowid
@@ -421,6 +442,9 @@ export async function listOffers(
     'final_url_suffix',
     'product_price',
     'commission_payout',
+    'commission_type',
+    'commission_value',
+    'commission_currency',
     'scrape_status',
     'scrape_error',
     'scraped_at',
@@ -597,8 +621,18 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   const normalizedProductPrice = input.product_price !== undefined
     ? normalizeOfferProductPriceInput(input.product_price, nextTargetCountry)
     : undefined
-  const normalizedCommissionPayout = input.commission_payout !== undefined
-    ? normalizeOfferCommissionPayoutInput(input.commission_payout, nextTargetCountry)
+  const shouldNormalizeCommission = input.commission_payout !== undefined
+    || input.commission_type !== undefined
+    || input.commission_value !== undefined
+    || input.commission_currency !== undefined
+  const normalizedCommission = shouldNormalizeCommission
+    ? normalizeOfferCommissionInput({
+      targetCountry: nextTargetCountry,
+      commissionType: input.commission_type,
+      commissionValue: input.commission_value,
+      commissionCurrency: input.commission_currency,
+      commissionPayout: input.commission_payout,
+    })
     : undefined
 
   // 构建UPDATE语句
@@ -674,9 +708,15 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
     updates.push('product_price = ?')
     params.push(normalizedProductPrice || null)
   }
-  if (input.commission_payout !== undefined) {
+  if (shouldNormalizeCommission) {
     updates.push('commission_payout = ?')
-    params.push(normalizedCommissionPayout || null)
+    params.push(normalizedCommission?.commissionPayout || null)
+    updates.push('commission_type = ?')
+    params.push(normalizedCommission?.commissionType || null)
+    updates.push('commission_value = ?')
+    params.push(normalizedCommission?.commissionValue || null)
+    updates.push('commission_currency = ?')
+    params.push(normalizedCommission?.commissionCurrency || null)
   }
   // AI分析结果字段
   if (input.competitor_analysis !== undefined) {

@@ -309,11 +309,211 @@ export function normalizeOfferCommissionPayoutInput(
     return raw
   }
 
-  if (options?.numericMode === 'percent') {
-    return `${formatCompactNumber(parsedAmount)}%`
+  if (options?.numericMode === 'amount') {
+    return `${getCurrencySymbolByCountry(targetCountry)}${formatCompactNumber(parsedAmount)}`
   }
 
-  return `${getCurrencySymbolByCountry(targetCountry)}${formatCompactNumber(parsedAmount)}`
+  return `${formatCompactNumber(parsedAmount)}%`
+}
+
+export type CommissionType = 'percent' | 'amount'
+
+export type NormalizeOfferCommissionInputParams = {
+  targetCountry?: string | null
+  commissionType?: string | null
+  commissionValue?: string | number | null
+  commissionCurrency?: string | null
+  commissionPayout?: string | null
+}
+
+export type NormalizedOfferCommission = {
+  commissionType: CommissionType | null
+  commissionValue: string | null
+  commissionCurrency: string | null
+  commissionPayout: string | null
+}
+
+function normalizeStructuredCommissionType(value: unknown): CommissionType | null {
+  if (value === undefined || value === null) return null
+  const normalized = String(value).trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'percent' || normalized === 'amount') {
+    return normalized
+  }
+  return null
+}
+
+function parseStructuredCommission(
+  input: NormalizeOfferCommissionInputParams
+): NormalizedOfferCommission | null {
+  const commissionType = normalizeStructuredCommissionType(input.commissionType)
+  const hasCommissionTypeField = input.commissionType !== undefined && input.commissionType !== null && String(input.commissionType).trim() !== ''
+  const hasCommissionValueField = input.commissionValue !== undefined && input.commissionValue !== null && String(input.commissionValue).trim() !== ''
+  const hasCommissionCurrencyField = input.commissionCurrency !== undefined && input.commissionCurrency !== null && String(input.commissionCurrency).trim() !== ''
+
+  if (!hasCommissionTypeField && !hasCommissionValueField && !hasCommissionCurrencyField) {
+    return null
+  }
+
+  if (!hasCommissionTypeField || !hasCommissionValueField) {
+    throw new Error('commission_type 与 commission_value 必须同时提供')
+  }
+
+  if (!commissionType) {
+    throw new Error('commission_type 仅支持 percent 或 amount')
+  }
+
+  const targetCountry = input.targetCountry
+  const valueRaw = normalizeSpacing(String(input.commissionValue || ''))
+
+  if (!valueRaw) {
+    throw new Error('commission_value 不能为空')
+  }
+
+  if (commissionType === 'percent') {
+    if (hasCommissionCurrencyField) {
+      throw new Error('commission_type=percent 时不应提供 commission_currency')
+    }
+
+    const normalizedPayout = normalizeOfferCommissionPayoutInput(valueRaw, targetCountry, {
+      numericMode: 'percent',
+    })
+    const percentValue = parseNumberish(String(normalizedPayout || ''))
+    if (percentValue === null || percentValue <= 0) {
+      throw new Error('commission_value 百分比格式非法')
+    }
+
+    return {
+      commissionType: 'percent',
+      commissionValue: formatCompactNumber(percentValue),
+      commissionCurrency: null,
+      commissionPayout: `${formatCompactNumber(percentValue)}%`,
+    }
+  }
+
+  if (valueRaw.includes('%')) {
+    throw new Error('commission_type=amount 时，commission_value 不应包含 %')
+  }
+
+  const currencyFromInput = hasCommissionCurrencyField
+    ? normalizeCurrencyCode(String(input.commissionCurrency))
+    : null
+
+  if (currencyFromInput && !CURRENCY_SYMBOL_MAP[currencyFromInput]) {
+    throw new Error('commission_currency 必须是受支持的货币代码（如 USD / EUR / GBP）')
+  }
+
+  const parsedMoney = parseMoneyValue(valueRaw, {
+    targetCountry,
+    defaultCurrency: currencyFromInput || getCurrencyCodeByCountry(targetCountry),
+  })
+
+  if (!parsedMoney || parsedMoney.amount <= 0) {
+    throw new Error('commission_value 金额格式非法')
+  }
+
+  if (currencyFromInput && parsedMoney.explicitCurrency && parsedMoney.currency !== currencyFromInput) {
+    throw new Error('commission_value 与 commission_currency 货币不一致')
+  }
+
+  const normalizedCurrency = currencyFromInput || parsedMoney.currency
+  const normalizedAmount = formatCompactNumber(parsedMoney.amount)
+
+  return {
+    commissionType: 'amount',
+    commissionValue: normalizedAmount,
+    commissionCurrency: normalizedCurrency,
+    commissionPayout: `${getCurrencySymbolByCode(normalizedCurrency)}${normalizedAmount}`,
+  }
+}
+
+function parseLegacyCommission(
+  commissionPayout: string | null | undefined,
+  targetCountry?: string | null
+): NormalizedOfferCommission | null {
+  const raw = normalizeSpacing(String(commissionPayout || ''))
+  if (!raw) return null
+
+  if (hasExplicitCurrencyMarker(raw)) {
+    const parsedMoney = parseMoneyValue(raw, {
+      targetCountry,
+      defaultCurrency: getCurrencyCodeByCountry(targetCountry),
+    })
+    if (!parsedMoney || parsedMoney.amount <= 0) {
+      throw new Error('commission_payout 金额格式非法')
+    }
+    const normalizedAmount = formatCompactNumber(parsedMoney.amount)
+    return {
+      commissionType: 'amount',
+      commissionValue: normalizedAmount,
+      commissionCurrency: parsedMoney.currency,
+      commissionPayout: `${getCurrencySymbolByCode(parsedMoney.currency)}${normalizedAmount}`,
+    }
+  }
+
+  const normalizedPercent = normalizeOfferCommissionPayoutInput(raw, targetCountry, {
+    numericMode: 'percent',
+  })
+  const percentValue = parseNumberish(String(normalizedPercent || ''))
+  if (percentValue === null || percentValue <= 0) {
+    throw new Error('commission_payout 百分比格式非法')
+  }
+
+  return {
+    commissionType: 'percent',
+    commissionValue: formatCompactNumber(percentValue),
+    commissionCurrency: null,
+    commissionPayout: `${formatCompactNumber(percentValue)}%`,
+  }
+}
+
+function areCommissionSemanticallyEqual(
+  structured: NormalizedOfferCommission,
+  legacy: NormalizedOfferCommission
+): boolean {
+  if (structured.commissionType !== legacy.commissionType) {
+    return false
+  }
+
+  const structuredValue = parseNumberish(String(structured.commissionValue || ''))
+  const legacyValue = parseNumberish(String(legacy.commissionValue || ''))
+  if (structuredValue === null || legacyValue === null) {
+    return false
+  }
+
+  if (structured.commissionType === 'percent') {
+    return Math.abs(structuredValue - legacyValue) <= 0.05
+  }
+
+  return structured.commissionCurrency === legacy.commissionCurrency
+    && Math.abs(structuredValue - legacyValue) <= 0.01
+}
+
+export function normalizeOfferCommissionInput(
+  params: NormalizeOfferCommissionInputParams
+): NormalizedOfferCommission {
+  const structured = parseStructuredCommission(params)
+  const legacy = parseLegacyCommission(params.commissionPayout, params.targetCountry)
+
+  if (!structured && !legacy) {
+    return {
+      commissionType: null,
+      commissionValue: null,
+      commissionCurrency: null,
+      commissionPayout: null,
+    }
+  }
+
+  if (structured && legacy && !areCommissionSemanticallyEqual(structured, legacy)) {
+    throw new Error('commission_type/commission_value 与 commission_payout 语义冲突')
+  }
+
+  return structured || legacy || {
+    commissionType: null,
+    commissionValue: null,
+    commissionCurrency: null,
+    commissionPayout: null,
+  }
 }
 
 export type ParsedCommissionPayout =
@@ -346,6 +546,16 @@ export function parseCommissionPayoutValue(
       mode: 'percent',
       rate: parsedAmount / 100,
       displayRate: parsedAmount,
+    }
+  }
+
+  if (!hasExplicitCurrencyMarker(raw)) {
+    const parsedPercent = parseNumberish(raw)
+    if (parsedPercent === null || parsedPercent <= 0) return null
+    return {
+      mode: 'percent',
+      rate: parsedPercent / 100,
+      displayRate: parsedPercent,
     }
   }
 

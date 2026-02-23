@@ -97,7 +97,9 @@ export default function CreateOfferModalV2({
   const [storeProductLinks, setStoreProductLinks] = useState<string[]>([''])
   const [targetCountry, setTargetCountry] = useState('US')
   const [productPrice, setProductPrice] = useState('')
-  const [commissionPayout, setCommissionPayout] = useState('')
+  const [commissionType, setCommissionType] = useState<'percent' | 'amount'>('percent')
+  const [commissionValue, setCommissionValue] = useState('')
+  const [commissionCurrency, setCommissionCurrency] = useState('')
 
   // 步骤2：自动提取的数据
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null)
@@ -256,7 +258,9 @@ export default function CreateOfferModalV2({
       affiliateLink,
       targetCountry,
       productPrice,
-      commissionPayout,
+      commissionValue ? commissionType : undefined,
+      commissionValue || undefined,
+      commissionType === 'amount' && commissionValue ? (commissionCurrency || undefined) : undefined,
       brandName,
       linkType,
       normalizedLinks
@@ -310,7 +314,9 @@ export default function CreateOfferModalV2({
     setStoreProductLinks([''])
     setTargetCountry('US')
     setProductPrice('')
-    setCommissionPayout('')
+    setCommissionType('percent')
+    setCommissionValue('')
+    setCommissionCurrency('')
     setBrandName('')
     setExtractedData(null)
     setCurrentStep('input')
@@ -512,7 +518,7 @@ export default function CreateOfferModalV2({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <Label htmlFor="productPrice">
                       {linkType === 'store' ? '平均产品价格' : '产品价格'}
@@ -527,18 +533,46 @@ export default function CreateOfferModalV2({
                     />
                   </div>
 
-                  <div>
-                    <Label htmlFor="commissionPayout">
-                      {linkType === 'store' ? '平均佣金比例' : '佣金比例'}
-                    </Label>
-                    <Input
-                      id="commissionPayout"
-                      type="text"
-                      value={commissionPayout}
-                      onChange={(e) => setCommissionPayout(e.target.value)}
-                      placeholder="10%"
-                      className="mt-1"
-                    />
+                  <div className="space-y-2">
+                    <Label>{linkType === 'store' ? '平均佣金设置' : '佣金设置'}</Label>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <Select
+                        value={commissionType}
+                        onValueChange={(value) => {
+                          if (value === 'percent' || value === 'amount') {
+                            setCommissionType(value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="佣金类型" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="percent">佣金比例 (%)</SelectItem>
+                          <SelectItem value="amount">绝对佣金</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Input
+                        id="commissionValue"
+                        type="text"
+                        value={commissionValue}
+                        onChange={(e) => setCommissionValue(e.target.value)}
+                        placeholder={commissionType === 'percent' ? '如 7.5（按%）' : '如 22.5'}
+                      />
+
+                      <Input
+                        id="commissionCurrency"
+                        type="text"
+                        value={commissionCurrency}
+                        onChange={(e) => setCommissionCurrency(e.target.value.toUpperCase())}
+                        placeholder={commissionType === 'amount' ? '币种，如 USD（可选）' : 'percent模式无需币种'}
+                        disabled={commissionType !== 'amount'}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      裸数字默认按佣金比例处理；仅当选择“绝对佣金”时按金额处理。
+                    </p>
                   </div>
                 </div>
               </div>

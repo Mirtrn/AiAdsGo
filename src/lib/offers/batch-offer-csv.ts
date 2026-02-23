@@ -98,6 +98,32 @@ export function canonicalizeOfferBatchCsvHeader(value: unknown) {
   )) {
     return 'commission_payout'
   }
+  if (has(t =>
+    t === 'commissiontype' ||
+    t.includes('commissiontype') ||
+    t.includes('commissionmode') ||
+    t.includes('佣金类型') ||
+    t.includes('佣金模式')
+  )) {
+    return 'commission_type'
+  }
+  if (has(t =>
+    t === 'commissionvalue' ||
+    t.includes('commissionvalue') ||
+    t.includes('佣金值') ||
+    t.includes('佣金数值') ||
+    t.includes('佣金金额')
+  )) {
+    return 'commission_value'
+  }
+  if (has(t =>
+    t === 'commissioncurrency' ||
+    t.includes('commissioncurrency') ||
+    t.includes('佣金币种') ||
+    t.includes('佣金货币')
+  )) {
+    return 'commission_currency'
+  }
   return raw.toLowerCase()
 }
 

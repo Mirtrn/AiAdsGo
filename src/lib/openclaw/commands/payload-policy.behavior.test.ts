@@ -173,6 +173,8 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$399',
       commission_payout: '74.81%',
+      commission_type: 'percent',
+      commission_value: '74.81',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
@@ -196,6 +198,9 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$399',
       commission_payout: '$74.81',
+      commission_type: 'amount',
+      commission_value: '74.81',
+      commission_currency: 'USD',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
@@ -219,13 +224,63 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$349.99',
       commission_payout: '30%',
+      commission_type: 'percent',
+      commission_value: '30',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
     })
   })
 
-  it('prefers commission_rate over commission_payout when both are provided', () => {
+  it('rejects offer extract payload when commission_rate and commission_payout are inconsistent', () => {
+    expect(() =>
+      normalizeOpenclawCommandPayload({
+        method: 'POST',
+        path: '/api/offers/extract',
+        body: {
+          affiliate_link: 'https://example.com/aff',
+          target_country: 'US',
+          product_price: '$129.99',
+          commission_payout: '16.57%',
+          commission_rate: '12.75',
+        },
+      })
+    ).toThrow('inconsistent commission_rate and commission_payout')
+  })
+
+  it('rejects offer extract stream payload when commission_rate and commission_payout are inconsistent', () => {
+    expect(() =>
+      normalizeOpenclawCommandPayload({
+        method: 'POST',
+        path: '/api/offers/extract/stream',
+        body: {
+          affiliate_link: 'https://example.com/aff',
+          target_country: 'US',
+          product_price: '$299.99',
+          commission_payout: '22.5%',
+          commission_rate: '7.5',
+        },
+      })
+    ).toThrow('inconsistent commission_rate and commission_payout')
+  })
+
+  it('rejects commission_rate with amount-style commission_payout', () => {
+    expect(() =>
+      normalizeOpenclawCommandPayload({
+        method: 'POST',
+        path: '/api/offers/extract',
+        body: {
+          affiliate_link: 'https://example.com/aff',
+          target_country: 'US',
+          product_price: '$299.99',
+          commission_rate: '7.5',
+          commission_payout: '$22.50',
+        },
+      })
+    ).toThrow('commission_rate(比例) 与 commission_payout(金额)语义冲突')
+  })
+
+  it('accepts consistent commission_rate and commission_payout', () => {
     const { body } = normalizeOpenclawCommandPayload({
       method: 'POST',
       path: '/api/offers/extract',
@@ -233,7 +288,7 @@ describe('openclaw command payload policy behavior', () => {
         affiliate_link: 'https://example.com/aff',
         target_country: 'US',
         product_price: '$129.99',
-        commission_payout: '16.57%',
+        commission_payout: '12.75%',
         commission_rate: '12.75',
       },
     })
@@ -243,6 +298,8 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$129.99',
       commission_payout: '12.75%',
+      commission_type: 'percent',
+      commission_value: '12.75',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
@@ -257,7 +314,6 @@ describe('openclaw command payload policy behavior', () => {
         affiliate_link: 'https://example.com/aff',
         target_country: 'US',
         product_price: '$22.99',
-        commission_payout: '5.17%',
         commission_rate: 0.225,
       },
     })
@@ -267,6 +323,8 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$22.99',
       commission_payout: '22.5%',
+      commission_type: 'percent',
+      commission_value: '22.5',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
@@ -290,6 +348,8 @@ describe('openclaw command payload policy behavior', () => {
       target_country: 'US',
       product_price: '$22.99',
       commission_payout: '18.75%',
+      commission_type: 'percent',
+      commission_value: '18.75',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,

@@ -11,7 +11,8 @@
  * 请求体：
  * - affiliate_link: 推广链接
  * - target_country: 目标国家
- * - commission_payout: 佣金（支持比例如 30% 或绝对值如 $15）
+ * - commission_type + commission_value (+ commission_currency): 结构化佣金（推荐）
+ * - commission_payout: 佣金（兼容旧字段）
  *
  * SSE消息格式：
  * - { type: 'progress', data: { stage, status, message, timestamp, duration, details } }
@@ -25,6 +26,7 @@ import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
 import { parseJsonField } from '@/lib/json-field'
+import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 900 // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -65,6 +67,9 @@ export async function POST(req: NextRequest) {
       target_country,
       product_price,
       commission_payout,
+      commission_type,
+      commission_value,
+      commission_currency,
       brand_name,
       page_type,
       store_product_links,
@@ -132,6 +137,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let normalizedCommission: ReturnType<typeof normalizeOfferCommissionInput>
+    try {
+      normalizedCommission = normalizeOfferCommissionInput({
+        targetCountry: target_country,
+        commissionPayout: commission_payout,
+        commissionType: commission_type,
+        commissionValue: commission_value,
+        commissionCurrency: commission_currency,
+      })
+    } catch (error: any) {
+      return new Response(
+        JSON.stringify({ error: error?.message || '佣金参数格式错误' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
     await db.exec(
@@ -148,7 +169,7 @@ export async function POST(req: NextRequest) {
         pageType,
         normalizedStoreProductLinks.length > 0 ? JSON.stringify(normalizedStoreProductLinks) : null,
         product_price || null,
-        commission_payout || null,
+        normalizedCommission.commissionPayout || null,
         (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : null
       ]
     )
@@ -161,7 +182,10 @@ export async function POST(req: NextRequest) {
       skipWarmup: skipWarmup || false,
       // 🔧 修复（2025-12-31）：添加产品价格和佣金比例
       productPrice: product_price || undefined,
-      commissionPayout: commission_payout || undefined,
+      commissionPayout: normalizedCommission.commissionPayout || undefined,
+      commissionType: normalizedCommission.commissionType || undefined,
+      commissionValue: normalizedCommission.commissionValue || undefined,
+      commissionCurrency: normalizedCommission.commissionCurrency || undefined,
       brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
       pageType,
       storeProductLinks: normalizedStoreProductLinks.length > 0 ? normalizedStoreProductLinks : undefined,

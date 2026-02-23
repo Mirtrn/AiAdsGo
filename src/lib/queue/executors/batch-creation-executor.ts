@@ -30,6 +30,9 @@ export interface BatchCreationTaskData {
     brand_name?: string
     product_price?: string
     commission_payout?: string
+    commission_type?: 'percent' | 'amount'
+    commission_value?: string
+    commission_currency?: string
     page_type?: 'store' | 'product'
     store_product_links?: string[]
   }>
@@ -142,6 +145,9 @@ export async function executeBatchCreation(
         // 🔥 修复（2025-12-08）：传递产品价格和佣金比例，用于创建Offer记录
         productPrice: row.product_price,
         commissionPayout: row.commission_payout,
+        commissionType: row.commission_type,
+        commissionValue: row.commission_value,
+        commissionCurrency: row.commission_currency,
         brandName: row.brand_name,
         pageType: row.page_type,
         storeProductLinks: row.store_product_links,

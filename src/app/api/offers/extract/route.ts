@@ -13,7 +13,8 @@
  * - affiliate_link: 联盟链接（必填）
  * - target_country: 推广国家（必填）
  * - product_price: 产品价格（选填）
- * - commission_payout: 佣金（选填，支持比例如 30% 或绝对值如 $15）
+ * - commission_type + commission_value (+ commission_currency): 结构化佣金（推荐）
+ * - commission_payout: 佣金（兼容旧字段）
  * - skipCache: 跳过缓存（选填）
  * - skipWarmup: 跳过预热（选填）
  *
@@ -27,6 +28,7 @@ import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
+import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 
 export const maxDuration = 120
 
@@ -58,6 +60,9 @@ export async function POST(req: NextRequest) {
       target_country,
       product_price,
       commission_payout,
+      commission_type,
+      commission_value,
+      commission_currency,
       brand_name,
       page_type,
       store_product_links,
@@ -125,6 +130,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let normalizedCommission: ReturnType<typeof normalizeOfferCommissionInput>
+    try {
+      normalizedCommission = normalizeOfferCommissionInput({
+        targetCountry: target_country,
+        commissionPayout: commission_payout,
+        commissionType: commission_type,
+        commissionValue: commission_value,
+        commissionCurrency: commission_currency,
+      })
+    } catch (error: any) {
+      return NextResponse.json(
+        { error: 'Invalid request', message: error?.message || '佣金参数格式错误' },
+        { status: 400 }
+      )
+    }
+
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
 
@@ -154,7 +175,7 @@ export async function POST(req: NextRequest) {
       pageType,
       normalizedStoreProductLinks.length > 0 ? JSON.stringify(normalizedStoreProductLinks) : null,
       product_price || null,
-      commission_payout || null,
+      normalizedCommission.commissionPayout || null,
       (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : null,
       skipCache ?? false,
       skipWarmup ?? false
@@ -170,7 +191,10 @@ export async function POST(req: NextRequest) {
       skipCache: skipCache ?? false,
       skipWarmup: skipWarmup ?? false,
       productPrice: product_price || undefined,
-      commissionPayout: commission_payout || undefined,
+      commissionPayout: normalizedCommission.commissionPayout || undefined,
+      commissionType: normalizedCommission.commissionType || undefined,
+      commissionValue: normalizedCommission.commissionValue || undefined,
+      commissionCurrency: normalizedCommission.commissionCurrency || undefined,
       brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
       pageType,
       storeProductLinks: normalizedStoreProductLinks.length > 0 ? normalizedStoreProductLinks : undefined,

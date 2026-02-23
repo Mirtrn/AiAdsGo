@@ -1,4 +1,5 @@
 import {
+  normalizeOfferCommissionInput,
   normalizeOfferCommissionPayoutInput,
   normalizeOfferProductPriceInput,
 } from '@/lib/offer-monetization'
@@ -395,6 +396,9 @@ const OFFER_EXTRACT_ALIAS_MAP: Readonly<Record<string, string>> = {
   targetCountry: 'target_country',
   productPrice: 'product_price',
   commissionPayout: 'commission_payout',
+  commissionType: 'commission_type',
+  commissionValue: 'commission_value',
+  commissionCurrency: 'commission_currency',
   brandName: 'brand_name',
   brand: 'brand_name',
   pageType: 'page_type',
@@ -452,10 +456,34 @@ export function normalizeOfferExtractRequestBody(
         String(normalized.commission_payout),
         String(normalized.target_country || 'US'),
         {
-          numericMode: options?.numericCommissionMode || 'amount',
+          numericMode: options?.numericCommissionMode || 'percent',
         }
       )
       normalized.commission_payout = normalizedCommission ?? null
+    }
+
+    try {
+      const normalizedCommission = normalizeOfferCommissionInput({
+        targetCountry: String(normalized.target_country || 'US'),
+        commissionType: normalized.commission_type,
+        commissionValue: normalized.commission_value,
+        commissionCurrency: normalized.commission_currency,
+        commissionPayout: normalized.commission_payout,
+      })
+
+      if (normalizedCommission.commissionType !== null) normalized.commission_type = normalizedCommission.commissionType
+      else delete normalized.commission_type
+
+      if (normalizedCommission.commissionValue !== null) normalized.commission_value = normalizedCommission.commissionValue
+      else delete normalized.commission_value
+
+      if (normalizedCommission.commissionCurrency !== null) normalized.commission_currency = normalizedCommission.commissionCurrency
+      else delete normalized.commission_currency
+
+      if (normalizedCommission.commissionPayout !== null) normalized.commission_payout = normalizedCommission.commissionPayout
+      else delete normalized.commission_payout
+    } catch {
+      // 保持兼容：标准化器不抛错，API层可按需做严格校验
     }
   }
 

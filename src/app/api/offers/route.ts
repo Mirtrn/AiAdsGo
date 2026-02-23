@@ -160,6 +160,9 @@ async function get(request: NextRequest) {
           // 需求28：产品价格和佣金比例
           productPrice: offer.product_price,
           commissionPayout: offer.commission_payout,
+          commissionType: offer.commission_type,
+          commissionValue: offer.commission_value,
+          commissionCurrency: offer.commission_currency,
           // P1-11: 关联的Google Ads账号
           linkedAccounts: offer.linked_accounts || [],
           // 🔥 黑名单标记

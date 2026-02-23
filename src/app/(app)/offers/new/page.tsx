@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getLanguageNameForCountry, getCountryOptionsForUI } from '@/lib/language-country-codes'
 
@@ -23,7 +23,9 @@ export default function NewOfferPage() {
   const [targetAudience, setTargetAudience] = useState('')
   // 需求28：产品价格和佣金比例（可选）
   const [productPrice, setProductPrice] = useState('')
-  const [commissionPayout, setCommissionPayout] = useState('')
+  const [commissionType, setCommissionType] = useState<'percent' | 'amount'>('percent')
+  const [commissionValue, setCommissionValue] = useState('')
+  const [commissionCurrency, setCommissionCurrency] = useState('')
 
   // ========== 需求1和需求5: 实时预览自动生成的字段 ==========
   // 国家到语言的映射（使用全局统一映射，支持80+国家）
@@ -89,7 +91,9 @@ export default function NewOfferPage() {
             : undefined,
           // 需求28：产品价格和佣金比例（可选）
           product_price: productPrice || undefined,
-          commission_payout: commissionPayout || undefined,
+          commission_type: commissionValue ? commissionType : undefined,
+          commission_value: commissionValue || undefined,
+          commission_currency: commissionType === 'amount' ? (commissionCurrency || undefined) : undefined,
         }),
       })
 
@@ -151,7 +155,9 @@ export default function NewOfferPage() {
         product_highlights: productHighlights || undefined,
         target_audience: targetAudience || undefined,
         product_price: productPrice || undefined,
-        commission_payout: commissionPayout || undefined,
+        commission_type: commissionValue ? commissionType : undefined,
+        commission_value: commissionValue || undefined,
+        commission_currency: commissionType === 'amount' ? (commissionCurrency || undefined) : undefined,
       }
 
       try {
@@ -400,7 +406,7 @@ export default function NewOfferPage() {
                   </span>
                 </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label htmlFor="productPrice" className="block text-sm font-medium text-gray-700">
                       {linkType === 'store' ? '平均产品价格' : '产品价格'} (Product Price)
@@ -418,25 +424,45 @@ export default function NewOfferPage() {
                     </p>
                   </div>
 
-                  <div>
-                    <label htmlFor="commissionPayout" className="block text-sm font-medium text-gray-700">
-                      {linkType === 'store' ? '平均佣金比例' : '佣金比例'} (Commission Payout)
+                  <div className="space-y-2">
+                    <label htmlFor="commissionType" className="block text-sm font-medium text-gray-700">
+                      {linkType === 'store' ? '平均佣金设置' : '佣金设置'}
                     </label>
-                    <input
-                      type="text"
-                      id="commissionPayout"
-                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      placeholder="6.75%"
-                      value={commissionPayout}
-                      onChange={(e) => setCommissionPayout(e.target.value)}
-                    />
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <select
+                        id="commissionType"
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        value={commissionType}
+                        onChange={(e) => setCommissionType(e.target.value as 'percent' | 'amount')}
+                      >
+                        <option value="percent">佣金比例 (%)</option>
+                        <option value="amount">绝对佣金</option>
+                      </select>
+                      <input
+                        type="text"
+                        id="commissionValue"
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder={commissionType === 'percent' ? '如 7.5（按%）' : '如 22.5'}
+                        value={commissionValue}
+                        onChange={(e) => setCommissionValue(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        id="commissionCurrency"
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                        placeholder={commissionType === 'amount' ? '币种，如 USD（可选）' : 'percent模式无需币种'}
+                        value={commissionCurrency}
+                        onChange={(e) => setCommissionCurrency(e.target.value.toUpperCase())}
+                        disabled={commissionType !== 'amount'}
+                      />
+                    </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      联盟佣金比例，包含%符号
+                      裸数字默认按佣金比例处理；仅在“绝对佣金”模式下按金额处理
                     </p>
                   </div>
                 </div>
 
-                {productPrice && commissionPayout && (
+                {productPrice && commissionValue && (
                   <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
                     <p className="text-sm text-blue-800">
                       <strong>💡 建议最大CPC</strong>: 在"一键上广告"流程中，系统将根据
@@ -444,7 +470,7 @@ export default function NewOfferPage() {
                       公式计算建议的最大CPC出价
                     </p>
                     <p className="mt-1 text-xs text-blue-600">
-                      示例：$699.00 × 6.75% ÷ 50 = $0.94（假设50个点击出一单）
+                      示例：$699.00 × 7.5% ÷ 50 = $1.05（假设50个点击出一单）
                     </p>
                   </div>
                 )}

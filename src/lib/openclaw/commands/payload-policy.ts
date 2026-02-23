@@ -124,22 +124,85 @@ function parseCommissionRateAsPercentValue(value: unknown): string | undefined {
   return formatCompactRatePercent(normalizedPercent)
 }
 
-function coerceOfferExtractCommissionPayoutRatio(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined
-  const raw = String(value).trim()
-  if (!raw) return undefined
-  if (raw.includes('%')) return undefined
-  if (/[A-Za-z¥€£$₹₩฿₫₱₽₺]/.test(raw)) return undefined
-
-  const parsed = Number(raw)
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) return undefined
-
-  return formatCompactRatePercent(parsed * 100)
+function hasExplicitCommissionValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  return String(value).trim().length > 0
 }
 
-function readPreferredOfferExtractCommissionRate(sourceBody: PlainObject): string | undefined {
-  const value = sourceBody.commission_rate ?? sourceBody.commissionRate
+function isMonetaryCommissionText(value: unknown): boolean {
+  if (!hasExplicitCommissionValue(value)) return false
+  const raw = String(value).trim()
+  return /[¥€£$₹₩฿₫₱₽₺$]|[A-Za-z]{2,}/.test(raw)
+}
+
+function parseCommissionPayoutAsPercentValue(value: unknown): string | undefined {
+  if (!hasExplicitCommissionValue(value)) return undefined
+  if (isMonetaryCommissionText(value)) return undefined
   return parseCommissionRateAsPercentValue(value)
+}
+
+function isCommissionPercentMismatch(a: string, b: string, tolerance = 0.05): boolean {
+  const aValue = Number(a)
+  const bValue = Number(b)
+  if (!Number.isFinite(aValue) || !Number.isFinite(bValue)) return true
+  return Math.abs(aValue - bValue) > tolerance
+}
+
+function normalizeOfferExtractCommissionInputStrict(params: {
+  sourceBody: PlainObject
+  method: string
+  path: string
+}): PlainObject {
+  const { sourceBody, method, path } = params
+  const commissionRateRaw = sourceBody.commission_rate ?? sourceBody.commissionRate
+  const commissionPayoutRaw = sourceBody.commission_payout ?? sourceBody.commissionPayout
+  const commissionRatePercent = parseCommissionRateAsPercentValue(commissionRateRaw)
+  const commissionPayoutPercent = parseCommissionPayoutAsPercentValue(commissionPayoutRaw)
+  const commissionPayoutIsAmount = isMonetaryCommissionText(commissionPayoutRaw)
+
+  if (commissionRatePercent !== undefined) {
+    if (hasExplicitCommissionValue(commissionPayoutRaw)) {
+      if (commissionPayoutIsAmount) {
+        throw new Error(
+          `Invalid payload: ${method} ${path} commission_rate(比例) 与 commission_payout(金额)语义冲突，请统一为比例值`
+        )
+      }
+      if (commissionPayoutPercent === undefined) {
+        throw new Error(
+          `Invalid payload: ${method} ${path} commission_payout 必须是百分比（如 7.5%）`
+        )
+      }
+      if (isCommissionPercentMismatch(commissionRatePercent, commissionPayoutPercent)) {
+        throw new Error(
+          `Invalid payload: inconsistent commission_rate and commission_payout for ${method} ${path}`
+        )
+      }
+    }
+
+    return {
+      ...sourceBody,
+      commission_rate: commissionRatePercent,
+      commission_payout: commissionRatePercent,
+    }
+  }
+
+  if (hasExplicitCommissionValue(commissionPayoutRaw)) {
+    if (commissionPayoutIsAmount) {
+      return sourceBody
+    }
+    if (commissionPayoutPercent === undefined) {
+      throw new Error(
+        `Invalid payload: ${method} ${path} commission_payout 格式非法（比例请使用 7.5%）`
+      )
+    }
+    return {
+      ...sourceBody,
+      commission_rate: commissionPayoutPercent,
+      commission_payout: commissionPayoutPercent,
+    }
+  }
+
+  return sourceBody
 }
 
 const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
@@ -215,7 +278,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'affiliate_link',
       'target_country',
       'product_price',
+      'commission_rate',
       'commission_payout',
+      'commission_type',
+      'commission_value',
+      'commission_currency',
       'brand_name',
       'page_type',
       'store_product_links',
@@ -228,9 +295,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       url: 'affiliate_link',
       targetCountry: 'target_country',
       productPrice: 'product_price',
+      commissionRate: 'commission_rate',
       commissionPayout: 'commission_payout',
-      commission_rate: 'commission_payout',
-      commissionRate: 'commission_payout',
+      commissionType: 'commission_type',
+      commissionValue: 'commission_value',
+      commissionCurrency: 'commission_currency',
       brandName: 'brand_name',
       brand: 'brand_name',
       pageType: 'page_type',
@@ -239,31 +308,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      // 如果同时提供 commission_rate 与 commission_payout，优先使用佣金率字段，
-      // 避免模型把佣金金额误写到 commission_payout 并补成百分号。
-      const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
-      const commissionPayoutRatio = coerceOfferExtractCommissionPayoutRatio(
-        sourceBody.commission_payout ?? sourceBody.commissionPayout
-      )
-
-      const normalizedSourceBody = (() => {
-        if (preferredCommissionRate !== undefined) {
-          return {
-            ...sourceBody,
-            commission_payout: preferredCommissionRate,
-          }
-        }
-
-        if (commissionPayoutRatio !== undefined) {
-          return {
-            ...sourceBody,
-            commission_payout: commissionPayoutRatio,
-          }
-        }
-
-        return sourceBody
-      })()
-
+      const normalizedSourceBody = normalizeOfferExtractCommissionInputStrict({
+        sourceBody,
+        method: 'POST',
+        path: '/api/offers/extract',
+      })
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
       })
@@ -281,7 +330,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'affiliate_link',
       'target_country',
       'product_price',
+      'commission_rate',
       'commission_payout',
+      'commission_type',
+      'commission_value',
+      'commission_currency',
       'brand_name',
       'page_type',
       'store_product_links',
@@ -294,9 +347,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       url: 'affiliate_link',
       targetCountry: 'target_country',
       productPrice: 'product_price',
+      commissionRate: 'commission_rate',
       commissionPayout: 'commission_payout',
-      commission_rate: 'commission_payout',
-      commissionRate: 'commission_payout',
+      commissionType: 'commission_type',
+      commissionValue: 'commission_value',
+      commissionCurrency: 'commission_currency',
       brandName: 'brand_name',
       brand: 'brand_name',
       pageType: 'page_type',
@@ -305,29 +360,11 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const preferredCommissionRate = readPreferredOfferExtractCommissionRate(sourceBody)
-      const commissionPayoutRatio = coerceOfferExtractCommissionPayoutRatio(
-        sourceBody.commission_payout ?? sourceBody.commissionPayout
-      )
-
-      const normalizedSourceBody = (() => {
-        if (preferredCommissionRate !== undefined) {
-          return {
-            ...sourceBody,
-            commission_payout: preferredCommissionRate,
-          }
-        }
-
-        if (commissionPayoutRatio !== undefined) {
-          return {
-            ...sourceBody,
-            commission_payout: commissionPayoutRatio,
-          }
-        }
-
-        return sourceBody
-      })()
-
+      const normalizedSourceBody = normalizeOfferExtractCommissionInputStrict({
+        sourceBody,
+        method: 'POST',
+        path: '/api/offers/extract/stream',
+      })
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
         numericCommissionMode: 'percent',
       })
@@ -355,6 +392,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'store_product_links',
       'product_price',
       'commission_payout',
+      'commission_type',
+      'commission_value',
+      'commission_currency',
       'is_active',
     ],
     requireAtLeastOneOf: [
@@ -371,6 +411,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       'store_product_links',
       'product_price',
       'commission_payout',
+      'commission_type',
+      'commission_value',
+      'commission_currency',
       'is_active',
     ],
     aliasMap: {
@@ -384,6 +427,9 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       storeProductLinks: 'store_product_links',
       productPrice: 'product_price',
       commissionPayout: 'commission_payout',
+      commissionType: 'commission_type',
+      commissionValue: 'commission_value',
+      commissionCurrency: 'commission_currency',
       isActive: 'is_active',
     },
   },

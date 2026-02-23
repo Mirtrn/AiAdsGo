@@ -4,6 +4,7 @@ import { invalidateOfferCache } from '@/lib/api-cache'
 import { z } from 'zod'
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from '@/lib/offer-category'
 import { filterNavigationLabels } from '@/lib/scrape-text-filters'
+import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 
 function safeParseJson<T>(input: unknown): T | null {
   if (typeof input !== 'string' || !input.trim()) return null
@@ -323,6 +324,9 @@ export async function GET(
         // 🔧 修复(2025-12-11): 添加产品价格和佣金比例字段（需求28：计算建议CPC）
         productPrice: offer.product_price,
         commissionPayout: offer.commission_payout,
+        commissionType: offer.commission_type,
+        commissionValue: offer.commission_value,
+        commissionCurrency: offer.commission_currency,
         scrapeStatus: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
@@ -364,6 +368,9 @@ const updateOfferSchema = z.object({
   store_product_links: z.array(z.string().url('无效的URL格式')).max(3).optional(),
   product_price: z.string().optional(),
   commission_payout: z.string().optional(),
+  commission_type: z.enum(['percent', 'amount']).optional(),
+  commission_value: z.union([z.string(), z.number()]).optional(),
+  commission_currency: z.string().optional(),
   is_active: z.boolean().optional(),
 })
 
@@ -408,6 +415,45 @@ export async function PUT(
       storeProductLinks = Array.from(new Set(storeProductLinks)).slice(0, 3)
     }
 
+    const hasCommissionInput = validationResult.data.commission_payout !== undefined
+      || validationResult.data.commission_type !== undefined
+      || validationResult.data.commission_value !== undefined
+      || validationResult.data.commission_currency !== undefined
+
+    let normalizedCommission: ReturnType<typeof normalizeOfferCommissionInput> | null = null
+    if (hasCommissionInput) {
+      let commissionTargetCountry = validationResult.data.target_country
+      if (!commissionTargetCountry) {
+        const existingOffer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
+        if (!existingOffer) {
+          return NextResponse.json(
+            {
+              error: 'Offer不存在或无权访问',
+            },
+            { status: 404 }
+          )
+        }
+        commissionTargetCountry = existingOffer.target_country
+      }
+
+      try {
+        normalizedCommission = normalizeOfferCommissionInput({
+          targetCountry: commissionTargetCountry,
+          commissionPayout: validationResult.data.commission_payout,
+          commissionType: validationResult.data.commission_type,
+          commissionValue: validationResult.data.commission_value,
+          commissionCurrency: validationResult.data.commission_currency,
+        })
+      } catch (error: any) {
+        return NextResponse.json(
+          {
+            error: error?.message || '佣金参数格式错误',
+          },
+          { status: 400 }
+        )
+      }
+    }
+
     const offer = await updateOffer(parseInt(id, 10), parseInt(userId, 10), {
       url: validationResult.data.url,
       brand: validationResult.data.brand,
@@ -422,7 +468,10 @@ export async function PUT(
       product_highlights: validationResult.data.product_highlights,
       target_audience: validationResult.data.target_audience,
       product_price: validationResult.data.product_price,
-      commission_payout: validationResult.data.commission_payout,
+      commission_payout: hasCommissionInput ? (normalizedCommission?.commissionPayout || undefined) : undefined,
+      commission_type: hasCommissionInput ? (normalizedCommission?.commissionType || undefined) : undefined,
+      commission_value: hasCommissionInput ? (normalizedCommission?.commissionValue || undefined) : undefined,
+      commission_currency: hasCommissionInput ? (normalizedCommission?.commissionCurrency || undefined) : undefined,
       page_type: pageType,
       is_active: validationResult.data.is_active,
     })
@@ -449,6 +498,11 @@ export async function PUT(
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
+        productPrice: offer.product_price,
+        commissionPayout: offer.commission_payout,
+        commissionType: offer.commission_type,
+        commissionValue: offer.commission_value,
+        commissionCurrency: offer.commission_currency,
         pageType: offer.page_type,
         storeProductLinks: offer.store_product_links,
         scrapeStatus: offer.scrape_status,

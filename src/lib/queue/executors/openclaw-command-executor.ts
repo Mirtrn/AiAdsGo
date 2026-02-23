@@ -169,6 +169,10 @@ function extractYeahPromosPidFromLink(value: unknown): string | null {
   return extractCaseInsensitiveQueryParam(value, 'pid')
 }
 
+function extractYeahPromosTrackFromLink(value: unknown): string | null {
+  return extractCaseInsensitiveQueryParam(value, 'track')
+}
+
 function extractPartnerboostLinkIdFromLink(value: unknown): string | null {
   return extractCaseInsensitiveQueryParam(value, 'aa_adgroupid')
 }
@@ -1011,12 +1015,217 @@ function isLikelyYeahPromosLink(value: string | null): boolean {
   }
 }
 
-function hasExactTwoDecimalPercent(value: string): boolean {
-  return /^\d+\.\d{2}%$/.test(value)
+function getPercentFractionDigits(value: string): number {
+  const normalized = value.trim()
+  const matched = normalized.match(/^\d+(?:\.(\d+))?%$/)
+  if (!matched) return -1
+  return matched[1]?.length || 0
 }
 
 function isNearQuarterIncrement(value: number, tolerance = 0.05): boolean {
   return Math.abs(value * 4 - Math.round(value * 4)) <= tolerance
+}
+
+function isRateClose(a: number, b: number, tolerance = 0.05): boolean {
+  return Math.abs(a - b) <= tolerance
+}
+
+type OfferExtractAmountDerivedRateCandidate = {
+  affiliateLink: string
+  trackToken: string | null
+  incomingCommissionRate: number
+  incomingIsQuarter: boolean
+  incomingFractionDigits: number
+  productPriceAmount: number
+  candidateRate: number
+}
+
+function deriveOfferExtractAmountDerivedRateCandidate(payload: Record<string, unknown>): OfferExtractAmountDerivedRateCandidate | null {
+  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  const productPriceText = toTrimmedString(payload.product_price ?? payload.productPrice)
+  if (!affiliateLink || !commissionText || !productPriceText) {
+    return null
+  }
+
+  if (!isLikelyYeahPromosLink(affiliateLink)) {
+    return null
+  }
+
+  const incomingFractionDigits = getPercentFractionDigits(commissionText)
+  if (incomingFractionDigits <= 0) {
+    return null
+  }
+
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const incomingCommission = parseCommissionPayoutValue(commissionText, {
+    targetCountry,
+  })
+  if (!incomingCommission || incomingCommission.mode !== 'percent') {
+    return null
+  }
+
+  const incomingProductPrice = parseMoneyValue(productPriceText, {
+    targetCountry,
+  })
+  if (!incomingProductPrice || incomingProductPrice.amount <= 0) {
+    return null
+  }
+
+  const candidateRateRaw = (incomingCommission.displayRate / incomingProductPrice.amount) * 100
+  if (!isNearQuarterIncrement(candidateRateRaw)) {
+    return null
+  }
+
+  const candidateRate = roundTo2(Math.round(candidateRateRaw * 4) / 4)
+  if (candidateRate < 4 || candidateRate > 80) {
+    return null
+  }
+
+  if (Math.abs(candidateRate - incomingCommission.displayRate) < 4) {
+    return null
+  }
+
+  return {
+    affiliateLink,
+    trackToken: extractYeahPromosTrackFromLink(affiliateLink),
+    incomingCommissionRate: incomingCommission.displayRate,
+    incomingIsQuarter: isNearQuarterIncrement(incomingCommission.displayRate),
+    incomingFractionDigits,
+    productPriceAmount: incomingProductPrice.amount,
+    candidateRate,
+  }
+}
+
+function buildOfferExtractCommissionHydratedBody(
+  payload: Record<string, unknown>,
+  correctedCommission: string
+): Record<string, unknown> {
+  const hydratedBody: Record<string, unknown> = {
+    ...payload,
+    commission_payout: correctedCommission,
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'commissionPayout')) {
+    hydratedBody.commissionPayout = correctedCommission
+  }
+  return hydratedBody
+}
+
+async function hydrateOfferExtractCommissionBySiblingConsensus(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  runId: string
+  parentRequestId: string | null
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method !== 'POST' || !isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!params.parentRequestId) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const currentCandidate = deriveOfferExtractAmountDerivedRateCandidate(payload)
+  if (!currentCandidate) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (isRateClose(currentCandidate.candidateRate, currentCandidate.incomingCommissionRate)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  let siblingRows: Array<{
+    id: string
+    request_body_json: string | null
+  }> = []
+  try {
+    siblingRows = await params.db.query<{
+      id: string
+      request_body_json: string | null
+    }>(
+      `
+        SELECT id, request_body_json
+        FROM openclaw_command_runs
+        WHERE user_id = ?
+          AND parent_request_id = ?
+          AND request_method = 'POST'
+          AND request_path IN ('/api/offers/extract', '/api/offers/extract/stream')
+          AND id <> ?
+        ORDER BY created_at DESC
+        LIMIT 20
+      `,
+      [params.userId, params.parentRequestId, params.runId]
+    )
+  } catch (error: any) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] 查询兄弟请求佣金候选失败，跳过一致性纠偏: ${error?.message || error}`
+      )
+    }
+    return { body: params.body, hydrated: false }
+  }
+
+  if (!siblingRows || siblingRows.length === 0) {
+    return { body: params.body, hydrated: false }
+  }
+
+  let hasMatchingSibling = false
+  let hasHighConfidenceAnchor = !currentCandidate.incomingIsQuarter
+
+  for (const sibling of siblingRows) {
+    const siblingBody = parseJsonAny(sibling.request_body_json || null)
+    if (!isPlainObject(siblingBody)) continue
+
+    const siblingCandidate = deriveOfferExtractAmountDerivedRateCandidate(siblingBody)
+    if (!siblingCandidate) continue
+
+    if (
+      currentCandidate.trackToken
+      && siblingCandidate.trackToken
+      && siblingCandidate.trackToken !== currentCandidate.trackToken
+    ) {
+      continue
+    }
+
+    if (!isRateClose(siblingCandidate.candidateRate, currentCandidate.candidateRate)) {
+      continue
+    }
+
+    hasMatchingSibling = true
+    if (!siblingCandidate.incomingIsQuarter) {
+      hasHighConfidenceAnchor = true
+    }
+
+    if (hasMatchingSibling && hasHighConfidenceAnchor) {
+      break
+    }
+  }
+
+  if (!hasMatchingSibling || !hasHighConfidenceAnchor) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const correctedCommission = `${formatCompactNumber(currentCandidate.candidateRate)}%`
+  const hydratedBody = buildOfferExtractCommissionHydratedBody(payload, correctedCommission)
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      `[OpenClawCommand] 兄弟请求一致性修正佣金比例: offer.extract ${currentCandidate.incomingCommissionRate}% -> ${correctedCommission} (parentRequestId=${params.parentRequestId})`
+    )
+  }
+
+  return {
+    body: hydratedBody,
+    hydrated: true,
+  }
 }
 
 async function hydrateOfferExtractCommissionByHeuristic(params: {
@@ -1037,70 +1246,39 @@ async function hydrateOfferExtractCommissionByHeuristic(params: {
   }
 
   const payload = params.body as Record<string, unknown>
-  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
-  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
-  const productPriceText = toTrimmedString(payload.product_price ?? payload.productPrice)
-  if (!affiliateLink || !commissionText || !productPriceText) {
+  const candidate = deriveOfferExtractAmountDerivedRateCandidate(payload)
+  if (!candidate) {
     return { body: params.body, hydrated: false }
   }
 
-  if (!isLikelyYeahPromosLink(affiliateLink)) {
+  // 对“原值本身就是标准比例（25%, 22.5%, 7.5%）”保持保守，仅当明显是金额误写才触发。
+  if (candidate.incomingIsQuarter) {
     return { body: params.body, hydrated: false }
   }
 
-  if (!hasExactTwoDecimalPercent(commissionText)) {
+  const isClassicAmountDerivedCase =
+    candidate.incomingCommissionRate > 0
+    && candidate.incomingCommissionRate < 10
+    && candidate.candidateRate >= 10
+    && candidate.candidateRate <= 80
+
+  const isLowRateAmountDerivedCase =
+    candidate.incomingCommissionRate > 10
+    && candidate.candidateRate >= 4
+    && candidate.candidateRate < 10
+    && candidate.productPriceAmount >= 100
+    && candidate.incomingFractionDigits >= 2
+
+  if (!isClassicAmountDerivedCase && !isLowRateAmountDerivedCase) {
     return { body: params.body, hydrated: false }
   }
 
-  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
-  const incomingCommission = parseCommissionPayoutValue(commissionText, {
-    targetCountry,
-  })
-  if (!incomingCommission || incomingCommission.mode !== 'percent') {
-    return { body: params.body, hydrated: false }
-  }
-
-  if (incomingCommission.displayRate <= 0 || incomingCommission.displayRate >= 10) {
-    return { body: params.body, hydrated: false }
-  }
-
-  if (isNearQuarterIncrement(incomingCommission.displayRate)) {
-    return { body: params.body, hydrated: false }
-  }
-
-  const incomingProductPrice = parseMoneyValue(productPriceText, {
-    targetCountry,
-  })
-  if (!incomingProductPrice || incomingProductPrice.amount <= 0) {
-    return { body: params.body, hydrated: false }
-  }
-
-  const candidateRateRaw = (incomingCommission.displayRate / incomingProductPrice.amount) * 100
-  if (!isNearQuarterIncrement(candidateRateRaw)) {
-    return { body: params.body, hydrated: false }
-  }
-
-  const candidateRate = roundTo2(Math.round(candidateRateRaw * 4) / 4)
-  if (candidateRate < 10 || candidateRate > 80) {
-    return { body: params.body, hydrated: false }
-  }
-
-  if ((candidateRate - incomingCommission.displayRate) < 4) {
-    return { body: params.body, hydrated: false }
-  }
-
-  const correctedCommission = `${formatCompactNumber(candidateRate)}%`
-  const hydratedBody: Record<string, unknown> = {
-    ...payload,
-    commission_payout: correctedCommission,
-  }
-  if (Object.prototype.hasOwnProperty.call(payload, 'commissionPayout')) {
-    hydratedBody.commissionPayout = correctedCommission
-  }
+  const correctedCommission = `${formatCompactNumber(candidate.candidateRate)}%`
+  const hydratedBody = buildOfferExtractCommissionHydratedBody(payload, correctedCommission)
 
   if (process.env.NODE_ENV !== 'test') {
     console.warn(
-      `[OpenClawCommand] 启发式修正佣金比例(疑似佣金金额误写为百分比): offer.extract ${incomingCommission.displayRate}% -> ${correctedCommission} (affiliateLink=${affiliateLink})`
+      `[OpenClawCommand] 启发式修正佣金比例(疑似佣金金额误写为百分比): offer.extract ${candidate.incomingCommissionRate}% -> ${correctedCommission} (affiliateLink=${candidate.affiliateLink})`
     )
   }
 
@@ -1416,6 +1594,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     user_id: number
     channel: string | null
     sender_id: string | null
+    parent_request_id: string | null
     request_method: string
     request_path: string
     request_query_json: string | null
@@ -1429,6 +1608,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
        user_id,
        channel,
        sender_id,
+       parent_request_id,
        request_method,
        request_path,
        request_query_json,
@@ -1512,6 +1692,17 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     })
     requestBody = offerExtractByHistoryHydrated.body
 
+    const offerExtractBySiblingConsensusHydrated = await hydrateOfferExtractCommissionBySiblingConsensus({
+      db,
+      userId: data.userId,
+      runId: run.id,
+      parentRequestId: toTrimmedString(run.parent_request_id),
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractBySiblingConsensusHydrated.body
+
     const offerExtractByHeuristicHydrated = await hydrateOfferExtractCommissionByHeuristic({
       method: run.request_method,
       path: run.request_path,
@@ -1533,6 +1724,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       (
         offerExtractBySourceHydrated.hydrated
         || offerExtractByHistoryHydrated.hydrated
+        || offerExtractBySiblingConsensusHydrated.hydrated
         || offerExtractByHeuristicHydrated.hydrated
         || publishHydrated.hydrated
       )

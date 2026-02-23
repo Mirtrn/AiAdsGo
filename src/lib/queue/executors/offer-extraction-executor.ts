@@ -260,6 +260,9 @@ export interface OfferExtractionTaskData {
   // 🔥 新增：产品价格和佣金比例（用于批量上传创建Offer）
   productPrice?: string
   commissionPayout?: string
+  commissionType?: 'percent' | 'amount'
+  commissionValue?: string
+  commissionCurrency?: string
   // 🔥 新增：用户手动输入的品牌名（独立站Google搜索补充用）
   brandName?: string
   // 🔥 链接类型与店铺补充单品链接
@@ -280,6 +283,9 @@ export async function executeOfferExtraction(
     skipWarmup = false,
     productPrice,
     commissionPayout,
+    commissionType,
+    commissionValue,
+    commissionCurrency,
     brandName,
     pageType,
     storeProductLinks
@@ -409,6 +415,9 @@ export async function executeOfferExtraction(
         product_name: extractResult.data.productName || undefined,
         product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
+        commission_type: commissionType || undefined,
+        commission_value: commissionValue || undefined,
+        commission_currency: commissionCurrency || undefined,
         page_type: pageTypeToPersist,
       })
       createdOfferId = offer.id
@@ -435,6 +444,9 @@ export async function executeOfferExtraction(
         product_name: extractResult.data.productName || undefined,
         product_price: productPrice || derivedAverageProductPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
+        commission_type: commissionType || undefined,
+        commission_value: commissionValue || undefined,
+        commission_currency: commissionCurrency || undefined,
         page_type: pageTypeToPersist,
       })
       createdOfferId = offer.id

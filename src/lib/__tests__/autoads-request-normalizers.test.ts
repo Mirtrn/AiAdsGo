@@ -158,7 +158,9 @@ describe('autoads request normalizers', () => {
     ) || {}
 
     expect(normalized.product_price).toBe('$349.99')
-    expect(normalized.commission_payout).toBe('$105')
+    expect(normalized.commission_payout).toBe('105%')
+    expect(normalized.commission_type).toBe('percent')
+    expect(normalized.commission_value).toBe('105')
   })
 
   it('supports percent mode for bare numeric commission in offer normalization', () => {
@@ -194,5 +196,25 @@ describe('autoads request normalizers', () => {
 
     expect(normalized.product_price).toBe('$349.99')
     expect(normalized.commission_payout).toBe('30%')
+  })
+
+  it('normalizes structured commission fields and supports camelCase aliases', () => {
+    const normalized = normalizeOfferExtractRequestBody(
+      {
+        affiliateLink: 'https://aff.example.com/track',
+        targetCountry: 'US',
+        commissionType: 'amount',
+        commissionValue: '22.5',
+        commissionCurrency: 'usd',
+      },
+      {
+        normalizeMonetization: true,
+      }
+    ) || {}
+
+    expect(normalized.commission_type).toBe('amount')
+    expect(normalized.commission_value).toBe('22.5')
+    expect(normalized.commission_currency).toBe('USD')
+    expect(normalized.commission_payout).toBe('$22.5')
   })
 })

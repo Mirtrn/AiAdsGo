@@ -16,7 +16,8 @@
  * - 可选列：链接类型/page_type（store/product）
  * - 可选列：品牌名/brand_name（或brand）
  * - 可选列：产品价格/product_price（店铺类型可填平均产品价格）
- * - 可选列：佣金比例/commission_payout（店铺类型可填平均佣金比例）
+ * - 可选列：佣金比例/commission_payout（兼容旧列）
+ * - 可选列：commission_type + commission_value（推荐），可附带 commission_currency
  * - 店铺类型可选列：单品推广链接 product_link_1~3（最多3个）
  * - 编码：UTF-8
  * - 最大有效行数：500行
@@ -29,6 +30,7 @@ import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { BatchCreationTaskData } from '@/lib/queue/executors/batch-creation-executor'
 import { canonicalizeOfferBatchCsvHeader, decodeCsvTextSmart, normalizeCsvHeaderCell } from '@/lib/offers/batch-offer-csv'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 import Papa from 'papaparse'
 
 export const maxDuration = 60
@@ -125,6 +127,9 @@ export async function POST(req: NextRequest) {
     const brandNameIdx = headers.indexOf('brand_name')
     const productPriceIdx = headers.indexOf('product_price')
     const commissionPayoutIdx = headers.indexOf('commission_payout')
+    const commissionTypeIdx = headers.indexOf('commission_type')
+    const commissionValueIdx = headers.indexOf('commission_value')
+    const commissionCurrencyIdx = headers.indexOf('commission_currency')
     const pageTypeIdx = headers.indexOf('page_type')
     const productLink1Idx = headers.indexOf('product_link_1')
     const productLink2Idx = headers.indexOf('product_link_2')
@@ -137,11 +142,15 @@ export async function POST(req: NextRequest) {
       brand_name?: string
       product_price?: string
       commission_payout?: string
+      commission_type?: 'percent' | 'amount'
+      commission_value?: string
+      commission_currency?: string
       page_type?: 'store' | 'product'
       store_product_links?: string[]
     }> = []
 
     let skippedCount = 0
+    const commissionValidationErrors: Array<{ row: number; message: string }> = []
 
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].map(v => v.trim())
@@ -195,8 +204,44 @@ export async function POST(req: NextRequest) {
       if (productPriceIdx !== -1 && values[productPriceIdx]) {
         row.product_price = values[productPriceIdx]
       }
-      if (commissionPayoutIdx !== -1 && values[commissionPayoutIdx]) {
-        row.commission_payout = values[commissionPayoutIdx]
+
+      const rawCommissionPayout = commissionPayoutIdx !== -1 ? values[commissionPayoutIdx] : undefined
+      const rawCommissionType = commissionTypeIdx !== -1 ? values[commissionTypeIdx] : undefined
+      const rawCommissionValue = commissionValueIdx !== -1 ? values[commissionValueIdx] : undefined
+      const rawCommissionCurrency = commissionCurrencyIdx !== -1 ? values[commissionCurrencyIdx] : undefined
+
+      const hasCommissionInput = [rawCommissionPayout, rawCommissionType, rawCommissionValue, rawCommissionCurrency]
+        .some((value) => value !== undefined && String(value).trim() !== '')
+
+      if (hasCommissionInput) {
+        try {
+          const normalizedCommission = normalizeOfferCommissionInput({
+            targetCountry,
+            commissionPayout: rawCommissionPayout,
+            commissionType: rawCommissionType,
+            commissionValue: rawCommissionValue,
+            commissionCurrency: rawCommissionCurrency,
+          })
+
+          if (normalizedCommission.commissionPayout) {
+            row.commission_payout = normalizedCommission.commissionPayout
+          }
+          if (normalizedCommission.commissionType) {
+            row.commission_type = normalizedCommission.commissionType
+          }
+          if (normalizedCommission.commissionValue) {
+            row.commission_value = normalizedCommission.commissionValue
+          }
+          if (normalizedCommission.commissionCurrency) {
+            row.commission_currency = normalizedCommission.commissionCurrency
+          }
+        } catch (error: any) {
+          commissionValidationErrors.push({
+            row: i + 1,
+            message: error?.message || '佣金字段格式错误',
+          })
+          continue
+        }
       }
 
       const productLinkCandidates = [
@@ -242,6 +287,18 @@ export async function POST(req: NextRequest) {
       }
 
       rows.push(row)
+    }
+
+    if (commissionValidationErrors.length > 0) {
+      const preview = commissionValidationErrors.slice(0, 10)
+      return NextResponse.json(
+        {
+          error: 'Invalid CSV',
+          message: `发现 ${commissionValidationErrors.length} 行佣金参数冲突或格式错误，请修正后重试`,
+          commissionErrors: preview,
+        },
+        { status: 400 }
+      )
     }
 
     if (rows.length === 0) {
