@@ -288,11 +288,11 @@ import psycopg2
 import json
 
 conn = psycopg2.connect(
-    host="<REDACTED_HOST>",
-    port=32243,
-    database="autoads",
-    user="postgres",
-    password="<REDACTED_DB_PASSWORD>"
+    host="<db_host>",
+    port=<db_port>,
+    database="<db_name>",
+    user="<db_user>",
+    password="<db_password>"
 )
 
 cursor = conn.cursor()
@@ -379,4 +379,3 @@ print("✅ Offer 173 的创意已配置否定词匹配类型")
 - [ ] Google Ads 验证：检查实际关键词设置
 - [ ] 流量验证：监控 "reolink doorbell" 搜索的展现和点击
 - [ ] 其他创意修复：Creative 82-84 同步应用
-

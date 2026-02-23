@@ -6,7 +6,7 @@
 
 ```env
 # Redis配置（已在.env中配置）
-REDIS_URL=redis://default:<REDACTED_REDIS_PASSWORD>@<REDACTED_HOST>:32284
+REDIS_URL=redis://<username>:<password>@<host>:<port>
 
 # 8C16G 推荐配置（单容器 + supervisord）
 NODE_MAX_OLD_SPACE_SIZE_WEB=5120      # Web 进程 Node 堆上限(MB)

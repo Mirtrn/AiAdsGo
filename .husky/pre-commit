@@ -19,33 +19,31 @@ if [ -n "$SENSITIVE_FILES" ]; then
   exit 1
 fi
 
-# 2. 检查代码中的硬编码密钥和密码
-echo "🔑 Scanning for hardcoded secrets..."
+# 2. 检查新增内容中的硬编码密钥和凭据
+echo "🔑 Scanning added lines for hardcoded secrets..."
 
-# 检查常见的API密钥模式
-API_KEY_PATTERN='(AIza[0-9A-Za-z-_]{35}|ya29\.[0-9A-Za-z-_]+|sk-[a-zA-Z0-9]{48}|xox[baprs]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24})'
+# 只扫描新增行，避免在“删除旧密钥”时被误拦截
+ADDED_LINES=$(git diff --cached --unified=0 --no-color | grep -E '^\+' | grep -vE '^\+\+\+' || true)
 
-# 检查硬编码密码模式
-PASSWORD_PATTERN='(password|passwd|pwd)["\s]*[:=]["\s]*["\047][^"\047]{8,}["\047]'
+API_KEY_PATTERN='(AIza[0-9A-Za-z_-]{35}|ya29\.[0-9A-Za-z._-]+|sk-[A-Za-z0-9]{20,}|xox[baprs]-[0-9]{10,}-[0-9]{10,}-[0-9A-Za-z]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,})'
+PASSWORD_ASSIGN_PATTERN="(password|passwd|pwd)[^[:alnum:]]{0,4}[:=][[:space:]]*['\"][^'\"<]{6,}['\"]"
+PRIVATE_KEY_PATTERN='-----BEGIN (RSA|OPENSSH|DSA|EC|PGP|PRIVATE) KEY-----'
+CONNECTION_CRED_PATTERN='((postgres|postgresql|mysql|redis|mongodb):\/\/[A-Za-z0-9._%+-]{2,}:[A-Za-z0-9._%+-]{4,}@)'
+SENSITIVE_HOST_PATTERN='dbprovider\.sg-members-1\.clawcloudrun\.com'
 
-# 检查私钥模式
-PRIVATE_KEY_PATTERN='-----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----'
-
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|jsx|tsx|py|go|java|sh)$' || true)
-
-if [ -n "$STAGED_FILES" ]; then
-  if git diff --cached $STAGED_FILES | grep -E "$API_KEY_PATTERN|$PASSWORD_PATTERN|$PRIVATE_KEY_PATTERN" > /dev/null; then
-    echo "❌ ERROR: Potential secrets detected in staged files!"
+if [ -n "$ADDED_LINES" ]; then
+  if echo "$ADDED_LINES" | grep -E "$API_KEY_PATTERN|$PASSWORD_ASSIGN_PATTERN|$PRIVATE_KEY_PATTERN|$CONNECTION_CRED_PATTERN|$SENSITIVE_HOST_PATTERN" > /dev/null; then
+    echo "❌ ERROR: Potential secrets detected in staged additions!"
     echo ""
-    echo "Found patterns that match:"
-    echo "- API keys (AIza..., ya29..., sk-...)"
-    echo "- Hardcoded passwords (password=\"...\")"
-    echo "- Private keys (-----BEGIN ... PRIVATE KEY-----)"
+    echo "Matched patterns include:"
+    echo "- API keys / access tokens"
+    echo "- Hardcoded password assignments"
+    echo "- Private key blocks"
+    echo "- Connection URLs with embedded credentials"
+    echo "- Known sensitive production hostnames"
     echo ""
-    echo "Please review your code and:"
-    echo "1. Remove any hardcoded secrets"
-    echo "2. Use environment variables instead"
-    echo "3. Store secrets in Secret Manager or 1Password"
+    echo "Please remove or mask sensitive values, then commit again."
+    echo "If this is a false positive, adjust the content to placeholders."
     echo ""
     echo "To bypass this check (NOT RECOMMENDED):"
     echo "git commit --no-verify"

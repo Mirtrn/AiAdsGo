@@ -5,7 +5,12 @@
 
 import postgres from 'postgres'
 
-const DATABASE_URL = 'postgresql://<db_user>:<db_password>@<db_host>:<db_port>/<db_name>'
+const DATABASE_URL = process.env.DATABASE_URL
+
+if (!DATABASE_URL) {
+  console.error('❌ DATABASE_URL 环境变量未设置')
+  process.exit(1)
+}
 
 async function main() {
   const sql = postgres(DATABASE_URL)

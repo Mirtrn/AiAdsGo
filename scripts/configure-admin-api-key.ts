@@ -5,7 +5,12 @@
 import { getDatabase } from '../src/lib/db'
 
 const ADMIN_USERNAME = 'autoads'
-const NEW_API_KEY = '<REDACTED_API_KEY>'
+const NEW_API_KEY = process.env.GEMINI_RELAY_API_KEY || process.env.NEW_API_KEY
+
+if (!NEW_API_KEY) {
+  console.error('❌ GEMINI_RELAY_API_KEY (或 NEW_API_KEY) 环境变量未设置')
+  process.exit(1)
+}
 
 async function configureAdminApiKey() {
   const db = getDatabase()

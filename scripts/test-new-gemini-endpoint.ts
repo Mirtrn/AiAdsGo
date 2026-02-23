@@ -2,8 +2,8 @@
  * 测试新的 Gemini API 中转端点可用性
  *
  * 测试目标：
- * - API_URL: https://aicode.cat
- * - API_KEY: <REDACTED_API_KEY>
+ * - API_URL: 从 TEST_GEMINI_API_URL 读取（默认 https://aicode.cat）
+ * - API_KEY: 从 TEST_GEMINI_API_KEY（或 GEMINI_RELAY_API_KEY）读取
  *
  * 测试模型：
  * 1. gemini-3-flash-preview
@@ -13,10 +13,18 @@
 
 import axios, { AxiosInstance } from 'axios'
 
+const TEST_API_URL = process.env.TEST_GEMINI_API_URL || 'https://aicode.cat'
+const TEST_API_KEY = process.env.TEST_GEMINI_API_KEY || process.env.GEMINI_RELAY_API_KEY || ''
+
+if (!TEST_API_KEY) {
+  console.error('❌ 缺少 TEST_GEMINI_API_KEY（或 GEMINI_RELAY_API_KEY）环境变量')
+  process.exit(1)
+}
+
 // 测试配置
 const TEST_CONFIG = {
-  apiUrl: 'https://aicode.cat',
-  apiKey: '<REDACTED_API_KEY>',
+  apiUrl: TEST_API_URL,
+  apiKey: TEST_API_KEY,
   models: [
     'gemini-3-flash-preview',
     'gemini-2.5-pro',

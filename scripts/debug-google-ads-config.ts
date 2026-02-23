@@ -6,8 +6,12 @@
 import postgres from 'postgres';
 
 async function main() {
-  // 生产环境数据库连接
-  const connectionString = 'postgresql://<db_user>:<db_password>@<db_host>:<db_port>/<db_name>';
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error('❌ DATABASE_URL 环境变量未设置');
+    process.exit(1);
+  }
+
   const sql = postgres(connectionString, {
     max: 1,
     idle_timeout: 20,

@@ -14,10 +14,15 @@ import postgres from 'postgres'
 import Redis from 'ioredis'
 
 const DATABASE_URL = process.env.DATABASE_URL
-const REDIS_URL = process.env.REDIS_URL || 'redis://default:<REDACTED_REDIS_PASSWORD>@<REDACTED_HOST>:32284'
+const REDIS_URL = process.env.REDIS_URL
 
 if (!DATABASE_URL) {
   console.error('❌ DATABASE_URL 环境变量未设置')
+  process.exit(1)
+}
+
+if (!REDIS_URL) {
+  console.error('❌ REDIS_URL 环境变量未设置')
   process.exit(1)
 }
 

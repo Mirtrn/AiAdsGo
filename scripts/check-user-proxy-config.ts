@@ -3,14 +3,16 @@
  */
 import pkg from 'pg'
 const { Client } = pkg
+const DATABASE_URL = process.env.DATABASE_URL
+
+if (!DATABASE_URL) {
+  console.error('❌ DATABASE_URL 环境变量未设置')
+  process.exit(1)
+}
 
 async function checkUserProxyConfig() {
   const client = new Client({
-    host: '<REDACTED_HOST>',
-    port: 32243,
-    user: 'postgres',
-    password: '<REDACTED_DB_PASSWORD>',
-    database: 'autoads',
+    connectionString: DATABASE_URL,
   })
 
   try {

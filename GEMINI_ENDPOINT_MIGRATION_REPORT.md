@@ -49,7 +49,7 @@
 ✅ **通过** (scripts/test-business-api.ts)
 
 **测试用户**: autoads (User ID: 1)
-**测试API Key**: <REDACTED_API_KEY>
+**测试API Key**: `<REDACTED_API_KEY>`
 
 - **测试 1**: gemini-2.5-flash 简单文本生成
   - 状态: ✅ 成功
