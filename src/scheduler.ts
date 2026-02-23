@@ -342,10 +342,14 @@ async function suspendInactiveOrExpiredUserTasksTask() {
 
 /**
  * 任务6: OpenClaw 每日报表推送（飞书）
- * 频率：每天上午9点（Asia/Shanghai）
+ * 频率：每天上午9点（Asia/Shanghai，推送前一自然日数据）
  */
 async function openclawDailyReportTask() {
-  log('📨 开始推送 OpenClaw 每日报表...')
+  const reportTimeZone = process.env.TZ || 'Asia/Shanghai'
+  const reportDate = buildAffiliateLookbackDates(2, reportTimeZone)[0]
+    || formatDateInTimezone(new Date(), reportTimeZone)
+
+  log(`📨 开始推送 OpenClaw 每日报表 (reportDate=${reportDate}, timezone=${reportTimeZone})...`)
 
   const db = await getDatabase()
 
@@ -388,6 +392,7 @@ async function openclawDailyReportTask() {
           {
             userId: row.user_id,
             target: row.target || undefined,
+            date: reportDate,
             trigger: 'cron',
           },
           row.user_id,
