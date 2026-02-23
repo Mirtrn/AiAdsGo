@@ -1803,7 +1803,7 @@ export default function ProductsPage() {
       </Dialog>
 
       <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
-        <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] xl:max-w-[1280px]">
+        <DialogContent className="w-[92vw] !max-w-[960px]">
           <DialogHeader>
             <DialogTitle>批量创建Offer</DialogTitle>
             <DialogDescription>
@@ -1812,14 +1812,14 @@ export default function ProductsPage() {
           </DialogHeader>
 
           <div className="max-h-[60vh] overflow-auto rounded-md border">
-            <Table className="min-w-[880px]">
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[110px] whitespace-nowrap">链接类型</TableHead>
-                  <TableHead className="min-w-[360px] whitespace-nowrap">推广链接</TableHead>
-                  <TableHead className="w-[160px] whitespace-nowrap">推广国家</TableHead>
-                  <TableHead className="w-[130px] whitespace-nowrap">商品价格</TableHead>
-                  <TableHead className="w-[130px] whitespace-nowrap">佣金比例</TableHead>
+                  <TableHead className="w-[84px] whitespace-nowrap">链接类型</TableHead>
+                  <TableHead className="min-w-[260px] whitespace-nowrap">推广链接</TableHead>
+                  <TableHead className="w-[116px] whitespace-nowrap">推广国家</TableHead>
+                  <TableHead className="w-[108px] whitespace-nowrap">商品价格</TableHead>
+                  <TableHead className="w-[108px] whitespace-nowrap">佣金比例</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1833,7 +1833,7 @@ export default function ProductsPage() {
                   return (
                     <TableRow key={row.productId}>
                       <TableCell>{row.linkType}</TableCell>
-                      <TableCell className="max-w-[320px] truncate" title={row.promoLink || '-'}>
+                      <TableCell className="max-w-[240px] truncate" title={row.promoLink || '-'}>
                         {row.promoLink || '-'}
                       </TableCell>
                       <TableCell>
@@ -1841,7 +1841,7 @@ export default function ProductsPage() {
                           value={value}
                           onValueChange={(country) => updateBatchRowCountry(row.productId, country)}
                         >
-                          <SelectTrigger className="w-[120px]">
+                          <SelectTrigger className="w-[104px]">
                             <SelectValue placeholder="国家" />
                           </SelectTrigger>
                           <SelectContent>
