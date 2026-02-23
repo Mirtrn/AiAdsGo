@@ -1090,6 +1090,7 @@ export function normalizeAffiliatePlatform(value: unknown): AffiliatePlatform | 
 function chooseOfferUrl(product: AffiliateProduct): string | null {
   const candidateUrls = [
     normalizeUrl(product.product_url),
+    normalizeUrl(product.short_promo_link),
     normalizeUrl(product.promo_link),
     product.asin ? `https://www.amazon.com/dp/${product.asin}` : null,
   ]
@@ -1107,6 +1108,218 @@ function chooseOfferUrl(product: AffiliateProduct): string | null {
   }
 
   return null
+}
+
+async function fetchPartnerboostShortPromoLinkByAsin(params: {
+  userId: number
+  asin: string
+  targetCountry: string
+}): Promise<string | null> {
+  const shortLinks = await fetchPartnerboostShortPromoLinksByAsins({
+    userId: params.userId,
+    asins: [params.asin],
+    targetCountry: params.targetCountry,
+  })
+  const targetAsin = normalizeAsin(params.asin)
+  if (!targetAsin) return null
+  return shortLinks.get(targetAsin) || null
+}
+
+async function fetchPartnerboostShortPromoLinksByAsins(params: {
+  userId: number
+  asins: string[]
+  targetCountry: string
+}): Promise<Map<string, string>> {
+  const shortLinkByAsin = new Map<string, string>()
+  const normalizedAsins = Array.from(new Set(
+    (params.asins || [])
+      .map((asin) => normalizeAsin(asin))
+      .filter((asin): asin is string => Boolean(asin))
+  ))
+  if (normalizedAsins.length === 0) return shortLinkByAsin
+
+  const check = await checkAffiliatePlatformConfig(params.userId, 'partnerboost')
+  if (!check.configured) return shortLinkByAsin
+
+  const token = (check.values.partnerboost_token || '').trim()
+  if (!token) return shortLinkByAsin
+
+  const baseUrl = (check.values.partnerboost_base_url || DEFAULT_PB_BASE_URL).replace(/\/+$/, '')
+  const linkCountryCode = resolvePartnerboostCountryCode(check.values.partnerboost_link_country_code, params.targetCountry)
+  const uid = check.values.partnerboost_link_uid || ''
+  const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
+  const rateLimitRetryOptions: PartnerboostRequestRateLimitOptions = {
+    maxRetries: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_max_retries || String(DEFAULT_PB_RATE_LIMIT_MAX_RETRIES),
+      DEFAULT_PB_RATE_LIMIT_MAX_RETRIES,
+      0,
+      10
+    ),
+    baseDelayMs: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_base_delay_ms || String(DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS),
+      DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS,
+      100,
+      60000
+    ),
+    maxDelayMs: parseIntegerInRange(
+      check.values.partnerboost_rate_limit_max_delay_ms || String(DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS),
+      DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS,
+      500,
+      120000
+    ),
+  }
+
+  for (let index = 0; index < normalizedAsins.length; index += MAX_PB_ASINS_PER_REQUEST) {
+    const batchAsins = normalizedAsins.slice(index, index + MAX_PB_ASINS_PER_REQUEST)
+    const payload = await fetchPartnerboostJsonWithRateLimitRetry<PartnerboostAsinLinkResponse>(
+      `${baseUrl}/api/datafeed/get_amazon_link_by_asin`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          asins: batchAsins.join(','),
+          country_code: linkCountryCode,
+          uid,
+          return_partnerboost_link: returnPartnerboostLink,
+        }),
+      },
+      'PartnerBoost ASIN推广链接拉取失败',
+      rateLimitRetryOptions
+    )
+
+    const statusCode = normalizePartnerboostStatusCode(payload.status?.code)
+    if (statusCode === null) {
+      throw new Error(`PartnerBoost ASIN推广链接拉取失败: Invalid status code ${String(payload.status?.code)}`)
+    }
+    if (statusCode !== 0) {
+      throw new Error(`PartnerBoost ASIN推广链接拉取失败: ${payload.status?.msg || statusCode}`)
+    }
+
+    for (const item of payload.data || []) {
+      const asinKey = normalizeAsin(item.asin)
+      const shortLink = normalizeUrl(item.partnerboost_link)
+      if (!asinKey || !shortLink) continue
+      shortLinkByAsin.set(asinKey, shortLink)
+    }
+  }
+
+  return shortLinkByAsin
+}
+
+async function resolveOfferAffiliateLinkForProduct(params: {
+  db: DatabaseAdapter
+  userId: number
+  product: AffiliateProduct
+  targetCountry: string
+}): Promise<string | null> {
+  const existingShort = normalizeUrl(params.product.short_promo_link)
+  if (existingShort) return existingShort
+
+  const existingPromo = normalizeUrl(params.product.promo_link)
+  if (params.product.platform !== 'partnerboost') {
+    return existingPromo
+  }
+
+  const asin = normalizeAsin(params.product.asin)
+  if (!asin) {
+    return existingPromo
+  }
+
+  try {
+    const fetchedShort = await fetchPartnerboostShortPromoLinkByAsin({
+      userId: params.userId,
+      asin,
+      targetCountry: params.targetCountry,
+    })
+    if (!fetchedShort) {
+      return existingPromo
+    }
+
+    await params.db.exec(
+      `
+        UPDATE affiliate_products
+        SET short_promo_link = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+      `,
+      [fetchedShort, new Date().toISOString(), params.product.id, params.userId]
+    )
+
+    return fetchedShort
+  } catch (error: any) {
+    console.warn(
+      `[affiliate-products] fallback to promo_link when fetching short link failed (productId=${params.product.id}, asin=${asin}): ${error?.message || error}`
+    )
+    return existingPromo
+  }
+}
+
+async function hydratePartnerboostShortLinksForRows(params: {
+  db: DatabaseAdapter
+  userId: number
+  rows: Array<AffiliateProduct>
+}): Promise<void> {
+  const candidates = params.rows.filter((row) => {
+    if (row.platform !== 'partnerboost') return false
+    if (normalizeUrl(row.short_promo_link)) return false
+    return Boolean(normalizeAsin(row.asin))
+  })
+  if (candidates.length === 0) return
+
+  const countryAsinsMap = new Map<string, Set<string>>()
+  for (const row of candidates) {
+    const asin = normalizeAsin(row.asin)
+    if (!asin) continue
+    const preferredCountry = parseAllowedCountries(row.allowed_countries_json)[0] || DEFAULT_PB_COUNTRY_CODE
+    const country = resolvePartnerboostCountryCode(preferredCountry, DEFAULT_PB_COUNTRY_CODE)
+    if (!countryAsinsMap.has(country)) {
+      countryAsinsMap.set(country, new Set<string>())
+    }
+    countryAsinsMap.get(country)!.add(asin)
+  }
+
+  const shortByAsin = new Map<string, string>()
+  for (const [country, asinSet] of countryAsinsMap.entries()) {
+    const fetched = await fetchPartnerboostShortPromoLinksByAsins({
+      userId: params.userId,
+      asins: Array.from(asinSet),
+      targetCountry: country,
+    })
+
+    for (const [asin, shortLink] of fetched.entries()) {
+      if (!shortByAsin.has(asin)) {
+        shortByAsin.set(asin, shortLink)
+      }
+    }
+  }
+  if (shortByAsin.size === 0) return
+
+  const updates: Array<{ id: number; shortLink: string }> = []
+  for (const row of candidates) {
+    const asin = normalizeAsin(row.asin)
+    if (!asin) continue
+    const shortLink = shortByAsin.get(asin)
+    if (!shortLink) continue
+    row.short_promo_link = shortLink
+    updates.push({
+      id: Number(row.id),
+      shortLink,
+    })
+  }
+  if (updates.length === 0) return
+
+  const nowIso = new Date().toISOString()
+  for (const update of updates) {
+    if (!Number.isFinite(update.id) || update.id <= 0) continue
+    await params.db.exec(
+      `
+        UPDATE affiliate_products
+        SET short_promo_link = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+      `,
+      [update.shortLink, nowIso, update.id, params.userId]
+    )
+  }
 }
 
 function formatPriceForOffer(product: AffiliateProduct): string | undefined {
@@ -3072,6 +3285,11 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   }
 
   const rows = await rowsPromise
+  await hydratePartnerboostShortLinksForRows({
+    db,
+    userId,
+    rows,
+  })
 
   const items = rows.map((row, index) => {
     const rowForMapping = statusFilter === 'all'
@@ -3442,12 +3660,18 @@ export async function createOfferFromAffiliateProduct(params: {
   const allowedCountries = parseAllowedCountries(product.allowed_countries_json)
   const targetCountry = (params.targetCountry || allowedCountries[0] || 'US').toUpperCase()
   const brand = (product.brand || product.product_name || product.mid || 'Unknown').trim()
+  const affiliateLink = await resolveOfferAffiliateLinkForProduct({
+    db,
+    userId: params.userId,
+    product,
+    targetCountry,
+  })
 
   const offer = await createOffer(params.userId, {
     url: offerUrl,
     brand,
     target_country: targetCountry,
-    affiliate_link: product.promo_link || undefined,
+    affiliate_link: affiliateLink || undefined,
     product_price: formatPriceForOffer(product),
     commission_payout: formatCommissionForOffer(product),
     page_type: 'product',
@@ -3464,7 +3688,7 @@ export async function createOfferFromAffiliateProduct(params: {
     const extractionTaskId = await createOfferExtractionTaskForExistingOffer({
       userId: params.userId,
       offerId: offer.id,
-      affiliateLink: product.promo_link || offer.affiliate_link || offer.url,
+      affiliateLink: affiliateLink || offer.affiliate_link || offer.url,
       targetCountry: offer.target_country,
       productPrice: offer.product_price,
       commissionPayout: offer.commission_payout,

@@ -1142,7 +1142,7 @@ export default function ProductsPage() {
         <TableBody>
           {items.map((item) => {
             const selected = selectedProductIds.has(item.id)
-            const promoLink = item.shortPromoLink || item.promoLink
+            const promoLink = item.shortPromoLink
             const midTargetUrl = resolveMidTargetUrl(item)
             const merchantIdText = item.merchantId || '-'
             const asinText = item.asin || '-'
