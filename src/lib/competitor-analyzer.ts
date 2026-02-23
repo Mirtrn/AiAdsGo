@@ -169,6 +169,7 @@ function extractCoreProductType(productNameLower: string): string[] {
     'auricolari', 'cuffie', 'altoparlante',
 
     // 智能设备
+    'video conferencing camera', 'conference camera', 'conference webcam', 'webcam', 'ptz camera',
     'security camera', 'smart camera', 'doorbell', 'smart lock', 'smart display',
     'videocamera', 'telecamera', 'citofono', 'serratura intelligente',
 
