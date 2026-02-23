@@ -34,6 +34,14 @@ describe('affiliate-products order by', () => {
     expect(orderBy).not.toContain('IS NULL')
   })
 
+  it('supports createdAt sorting', () => {
+    const orderBy = buildAffiliateProductsOrderBy({ sortBy: 'createdAt', sortOrder: 'desc' })
+
+    expect(orderBy).toContain('p.created_at DESC')
+    expect(orderBy).toContain('p.id DESC')
+    expect(orderBy).not.toContain('IS NULL')
+  })
+
   it('normalizes numeric range when min is greater than max', () => {
     expect(__testOnly.normalizeNumericRangeBounds({ min: 10, max: 5 })).toEqual({ min: 5, max: 10 })
   })

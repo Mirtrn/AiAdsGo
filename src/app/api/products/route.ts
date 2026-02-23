@@ -19,6 +19,7 @@ const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
   'platform',
   'mid',
   'asin',
+  'createdAt',
   'allowedCountries',
   'priceAmount',
   'commissionRate',
@@ -39,6 +40,17 @@ function parseNumericFilter(searchParams: URLSearchParams, key: string): number 
   }
 
   return parsed
+}
+
+function parseDateFilter(searchParams: URLSearchParams, key: string): string | null {
+  const raw = (searchParams.get(key) || '').trim()
+  if (!raw) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+
+  const parsed = new Date(`${raw}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+  if (parsed.toISOString().slice(0, 10) !== raw) return null
+  return raw
 }
 
 export async function GET(request: NextRequest) {
@@ -78,6 +90,8 @@ export async function GET(request: NextRequest) {
     const commissionRateMax = parseNumericFilter(searchParams, 'commissionRateMax')
     const commissionAmountMin = parseNumericFilter(searchParams, 'commissionAmountMin')
     const commissionAmountMax = parseNumericFilter(searchParams, 'commissionAmountMax')
+    const createdAtFrom = parseDateFilter(searchParams, 'createdAtFrom')
+    const createdAtTo = parseDateFilter(searchParams, 'createdAtTo')
 
     const noCache = (searchParams.get('noCache') || '').toLowerCase() === 'true'
 
@@ -98,6 +112,8 @@ export async function GET(request: NextRequest) {
       commissionRateMax,
       commissionAmountMin,
       commissionAmountMax,
+      createdAtFrom,
+      createdAtTo,
     }
     const cacheHash = buildProductListCacheHash(cachePayload)
     await setLatestProductListQuery(userId, cachePayload)
@@ -138,6 +154,8 @@ export async function GET(request: NextRequest) {
       commissionRateMax: commissionRateMax ?? undefined,
       commissionAmountMin: commissionAmountMin ?? undefined,
       commissionAmountMax: commissionAmountMax ?? undefined,
+      createdAtFrom: createdAtFrom ?? undefined,
+      createdAtTo: createdAtTo ?? undefined,
     })
 
     const responsePayload = {

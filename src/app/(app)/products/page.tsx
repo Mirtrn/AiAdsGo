@@ -84,6 +84,7 @@ type SortField =
   | 'platform'
   | 'mid'
   | 'asin'
+  | 'createdAt'
   | 'allowedCountries'
   | 'priceAmount'
   | 'commissionRate'
@@ -120,6 +121,7 @@ type ProductListItem = {
   relatedOfferCount: number
   isBlacklisted: boolean
   lastSyncedAt: string | null
+  createdAt: string
   updatedAt: string
 }
 
@@ -360,6 +362,33 @@ function formatSyncRunDateTime(value: string | null): string {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
+function formatProductAddedDate(value: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleDateString('zh-CN')
+  }
+  return String(value).slice(0, 10)
+}
+
+function formatDateInputValue(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function resolveRecentDateRange(days: number): { from: string; to: string } {
+  const normalizedDays = Math.max(1, Math.floor(days))
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - (normalizedDays - 1))
+  return {
+    from: formatDateInputValue(start),
+    to: formatDateInputValue(end),
+  }
+}
+
 function getSyncRunStartedAtText(run: SyncRunItem): string {
   if (run.started_at) return formatSyncRunDateTime(run.started_at)
   if (run.status === 'queued') return '排队中（未开始）'
@@ -439,6 +468,8 @@ export default function ProductsPage() {
   const [numericRangeFilters, setNumericRangeFilters] = useState<NumericRangeFilters>({
     ...EMPTY_NUMERIC_RANGE_FILTERS,
   })
+  const [createdAtFrom, setCreatedAtFrom] = useState('')
+  const [createdAtTo, setCreatedAtTo] = useState('')
   const [sortBy, setSortBy] = useState<SortField>('serial')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set())
@@ -479,6 +510,8 @@ export default function ProductsPage() {
     || midQuery.length > 0
     || platformFilter !== 'all'
     || statusFilter !== 'all'
+    || createdAtFrom.length > 0
+    || createdAtTo.length > 0
     || Object.values(numericRangeFilters).some((value) => value !== null)
 
   const numericRangeFilterCards: Array<{
@@ -516,6 +549,13 @@ export default function ProductsPage() {
       minPlaceholder: '最小金额',
       maxPlaceholder: '最大金额',
     },
+  ]
+
+  const createdDateQuickFilters: Array<{ key: string; label: string; days: number }> = [
+    { key: 'today', label: '今天', days: 1 },
+    { key: '7d', label: '过去7天（含当天）', days: 7 },
+    { key: '30d', label: '过去30天（含当天）', days: 30 },
+    { key: '90d', label: '过去90天（含当天）', days: 90 },
   ]
 
   const stats = useMemo(() => {
@@ -590,6 +630,8 @@ export default function ProductsPage() {
       if (midQuery) params.set('mid', midQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (createdAtFrom) params.set('createdAtFrom', createdAtFrom)
+      if (createdAtTo) params.set('createdAtTo', createdAtTo)
 
       const numericRangeParams: Array<[string, number | null]> = [
         ['reviewCountMin', numericRangeFilters.reviewCountMin],
@@ -666,7 +708,7 @@ export default function ProductsPage() {
   useEffect(() => {
     fetchProducts()
     fetchSyncRuns()
-  }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, sortBy, sortOrder])
+  }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, createdAtFrom, createdAtTo, sortBy, sortOrder])
 
   useEffect(() => {
     const hasActiveRuns = latestRuns.some((run) => run.status === 'queued' || run.status === 'running')
@@ -695,6 +737,13 @@ export default function ProductsPage() {
       ...prev,
       [key]: value,
     }))
+  }
+
+  const applyCreatedDateQuickFilter = (days: number) => {
+    const range = resolveRecentDateRange(days)
+    setCreatedAtFrom(range.from)
+    setCreatedAtTo(range.to)
+    setPage(1)
   }
 
   const handleSelectAll = (checked: boolean) => {
@@ -1020,7 +1069,7 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[1880px]">
+      <Table className="table-fixed min-w-[2000px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[42px] whitespace-nowrap">
@@ -1084,6 +1133,9 @@ export default function ProductsPage() {
             <SortableTableHead field="relatedOfferCount" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[172px] whitespace-nowrap">
               Offer数量（投放中/历史）
             </SortableTableHead>
+            <SortableTableHead field="createdAt" currentSortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className="w-[118px] whitespace-nowrap">
+              添加日期
+            </SortableTableHead>
             <TableHead className="w-[118px] whitespace-nowrap">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -1105,6 +1157,8 @@ export default function ProductsPage() {
               : formatPercent(item.commissionRate)
             const reviewCountText = formatReviewCount(item.reviewCount)
             const relatedOfferCountText = `${Math.max(0, Number(item.activeOfferCount || 0))}/${Math.max(0, Number(item.historicalOfferCount || 0))}`
+            const createdAtDateText = formatProductAddedDate(item.createdAt)
+            const createdAtDateTimeText = formatSyncRunDateTime(item.createdAt)
 
             return (
               <TableRow key={item.id} className={`hover:bg-gray-50/50 ${item.isBlacklisted ? 'bg-gray-100' : ''}`}>
@@ -1221,6 +1275,11 @@ export default function ProductsPage() {
                 <TableCell>
                   <div className={`max-w-[120px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={relatedOfferCountText}>
                     {relatedOfferCountText}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className={`max-w-[108px] truncate whitespace-nowrap ${item.isBlacklisted ? 'opacity-50' : ''}`} title={createdAtDateTimeText}>
+                    {createdAtDateText}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -1497,6 +1556,8 @@ export default function ProductsPage() {
                       setMidQuery('')
                       setPlatformFilter('all')
                       setStatusFilter('all')
+                      setCreatedAtFrom('')
+                      setCreatedAtTo('')
                       setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })
                       setNumericRangeFilters({ ...EMPTY_NUMERIC_RANGE_FILTERS })
                       setPage(1)
@@ -1518,6 +1579,60 @@ export default function ProductsPage() {
                     批量手动下线商品 ({selectedProducts.length})
                   </Button>
                 )}
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">添加日期</span>
+                {createdDateQuickFilters.map((filter) => {
+                  const range = resolveRecentDateRange(filter.days)
+                  const isActive = createdAtFrom === range.from && createdAtTo === range.to
+                  return (
+                    <Button
+                      key={filter.key}
+                      size="sm"
+                      variant={isActive ? 'secondary' : 'outline'}
+                      onClick={() => applyCreatedDateQuickFilter(filter.days)}
+                    >
+                      {filter.label}
+                    </Button>
+                  )
+                })}
+                {(createdAtFrom || createdAtTo) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setCreatedAtFrom('')
+                      setCreatedAtTo('')
+                      setPage(1)
+                    }}
+                  >
+                    清空日期
+                  </Button>
+                )}
+              </div>
+              <div className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                <Input
+                  type="date"
+                  value={createdAtFrom}
+                  onChange={(event) => {
+                    setCreatedAtFrom(event.target.value)
+                    setPage(1)
+                  }}
+                  aria-label="添加日期开始"
+                />
+                <span className="text-xs text-muted-foreground">至</span>
+                <Input
+                  type="date"
+                  value={createdAtTo}
+                  onChange={(event) => {
+                    setCreatedAtTo(event.target.value)
+                    setPage(1)
+                  }}
+                  aria-label="添加日期结束"
+                />
               </div>
             </div>
 
@@ -1688,7 +1803,7 @@ export default function ProductsPage() {
       </Dialog>
 
       <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] xl:max-w-[1280px]">
           <DialogHeader>
             <DialogTitle>批量创建Offer</DialogTitle>
             <DialogDescription>
@@ -1697,14 +1812,14 @@ export default function ProductsPage() {
           </DialogHeader>
 
           <div className="max-h-[60vh] overflow-auto rounded-md border">
-            <Table>
+            <Table className="min-w-[880px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>链接类型</TableHead>
-                  <TableHead>推广链接</TableHead>
-                  <TableHead>推广国家</TableHead>
-                  <TableHead>商品价格</TableHead>
-                  <TableHead>佣金比例</TableHead>
+                  <TableHead className="w-[110px] whitespace-nowrap">链接类型</TableHead>
+                  <TableHead className="min-w-[360px] whitespace-nowrap">推广链接</TableHead>
+                  <TableHead className="w-[160px] whitespace-nowrap">推广国家</TableHead>
+                  <TableHead className="w-[130px] whitespace-nowrap">商品价格</TableHead>
+                  <TableHead className="w-[130px] whitespace-nowrap">佣金比例</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

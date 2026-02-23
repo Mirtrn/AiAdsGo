@@ -82,6 +82,7 @@ export type AffiliateProductListItem = {
   relatedOfferCount: number
   isBlacklisted: boolean
   lastSyncedAt: string | null
+  createdAt: string
   updatedAt: string
 }
 
@@ -108,6 +109,7 @@ export type ProductSortField =
   | 'platform'
   | 'mid'
   | 'asin'
+  | 'createdAt'
   | 'allowedCountries'
   | 'priceAmount'
   | 'commissionRate'
@@ -135,6 +137,8 @@ export type ProductListOptions = {
   commissionRateMax?: number
   commissionAmountMin?: number
   commissionAmountMax?: number
+  createdAtFrom?: string
+  createdAtTo?: string
   status?: AffiliateProductStatusFilter
 }
 
@@ -2532,6 +2536,7 @@ const SORT_FIELD_SQL: Record<ProductSortField, string> = {
   platform: 'p.platform',
   mid: 'p.mid',
   asin: 'p.asin',
+  createdAt: 'p.created_at',
   allowedCountries: 'p.allowed_countries_json',
   priceAmount: 'p.price_amount',
   commissionRate: 'p.commission_rate',
@@ -2599,6 +2604,40 @@ function appendNumericRangeWhere(params: {
   if (max !== null) {
     params.whereConditions.push(`${params.columnSql} <= ?`)
     params.whereParams.push(max)
+  }
+}
+
+function normalizeDateRangeBounds(params: {
+  from?: string | null
+  to?: string | null
+}): { from: string | null; to: string | null } {
+  const from = normalizeYmdDate(params.from)
+  const to = normalizeYmdDate(params.to)
+
+  if (from && to && from > to) {
+    return { from: to, to: from }
+  }
+
+  return { from, to }
+}
+
+function appendDateRangeWhere(params: {
+  whereConditions: string[]
+  whereParams: any[]
+  columnSql: string
+  from?: string | null
+  to?: string | null
+}): void {
+  const { from, to } = normalizeDateRangeBounds({ from: params.from, to: params.to })
+
+  if (from) {
+    params.whereConditions.push(`DATE(${params.columnSql}) >= ?`)
+    params.whereParams.push(from)
+  }
+
+  if (to) {
+    params.whereConditions.push(`DATE(${params.columnSql}) <= ?`)
+    params.whereParams.push(to)
   }
 }
 
@@ -2817,6 +2856,19 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     max: options.commissionAmountMax,
   })
 
+  const createdAtRange = normalizeDateRangeBounds({
+    from: options.createdAtFrom,
+    to: options.createdAtTo,
+  })
+
+  appendDateRangeWhere({
+    whereConditions,
+    whereParams,
+    columnSql: 'p.created_at',
+    from: createdAtRange.from,
+    to: createdAtRange.to,
+  })
+
   const baseWhereSql = whereConditions.join(' AND ')
   const filteredWhereConditions = [...whereConditions]
   const filteredWhereParams = [...whereParams]
@@ -2894,6 +2946,8 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     commissionRateMax: options.commissionRateMax ?? null,
     commissionAmountMin: options.commissionAmountMin ?? null,
     commissionAmountMax: options.commissionAmountMax ?? null,
+    createdAtFrom: createdAtRange.from,
+    createdAtTo: createdAtRange.to,
   }
   const summaryCacheHash = buildProductSummaryCacheHash(summaryCachePayload)
   const cachedSummary = await getCachedProductSummary<{
@@ -3157,6 +3211,7 @@ function mapAffiliateProductRow(
     relatedOfferCount: Number(row.related_offer_count || 0),
     isBlacklisted: toBool(row.is_blacklisted),
     lastSyncedAt: row.last_synced_at,
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
 }

@@ -57,6 +57,8 @@ export type ProductListCachePayload = {
   commissionRateMax: number | null
   commissionAmountMin: number | null
   commissionAmountMax: number | null
+  createdAtFrom: string | null
+  createdAtTo: string | null
 }
 
 export function buildProductListCacheHash(payload: ProductListCachePayload): string {
@@ -76,6 +78,8 @@ export type ProductSummaryCachePayload = {
   commissionRateMax: number | null
   commissionAmountMin: number | null
   commissionAmountMax: number | null
+  createdAtFrom: string | null
+  createdAtTo: string | null
 }
 
 export function buildProductSummaryCacheHash(payload: ProductSummaryCachePayload): string {
@@ -93,6 +97,27 @@ function parseNumericBound(value: unknown): number | null {
   }
 
   return parsed
+}
+
+function parseDateBound(value: unknown): string | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null
+
+  const parsed = new Date(`${text}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+  if (parsed.toISOString().slice(0, 10) !== text) return null
+  return text
+}
+
+function normalizeDateBounds(params: {
+  from: string | null
+  to: string | null
+}): { from: string | null; to: string | null } {
+  if (params.from && params.to && params.from > params.to) {
+    return { from: params.to, to: params.from }
+  }
+  return params
 }
 
 function normalizeProductListCachePayload(input: unknown): ProductListCachePayload | null {
@@ -129,6 +154,11 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     return null
   }
 
+  const { from: createdAtFrom, to: createdAtTo } = normalizeDateBounds({
+    from: parseDateBound(obj.createdAtFrom),
+    to: parseDateBound(obj.createdAtTo),
+  })
+
   return {
     page,
     pageSize,
@@ -146,6 +176,8 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     commissionRateMax: parseNumericBound(obj.commissionRateMax),
     commissionAmountMin: parseNumericBound(obj.commissionAmountMin),
     commissionAmountMax: parseNumericBound(obj.commissionAmountMax),
+    createdAtFrom,
+    createdAtTo,
   }
 }
 

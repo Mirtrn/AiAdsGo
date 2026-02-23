@@ -47,6 +47,8 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   commissionRateMax: number | null
   commissionAmountMin: number | null
   commissionAmountMax: number | null
+  createdAtFrom: string | null
+  createdAtTo: string | null
 } = {
   page: 1,
   pageSize: 20,
@@ -64,6 +66,8 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   commissionRateMax: null,
   commissionAmountMin: null,
   commissionAmountMax: null,
+  createdAtFrom: null,
+  createdAtTo: null,
 }
 
 const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
@@ -71,6 +75,7 @@ const ALLOWED_SORT_FIELDS: Set<ProductSortField> = new Set([
   'platform',
   'mid',
   'asin',
+  'createdAt',
   'allowedCountries',
   'priceAmount',
   'commissionRate',
@@ -98,6 +103,8 @@ type CacheWarmParams = {
   commissionRateMax: number | null
   commissionAmountMin: number | null
   commissionAmountMax: number | null
+  createdAtFrom: string | null
+  createdAtTo: string | null
 }
 
 function normalizeOptionalBound(value: unknown): number | null {
@@ -109,6 +116,13 @@ function normalizeOptionalBound(value: unknown): number | null {
     return null
   }
   return parsed
+}
+
+function normalizeOptionalDate(value: unknown): string | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null
+  return text
 }
 
 function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams {
@@ -131,6 +145,11 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
   const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'sync_missing' || statusRaw === 'unknown'
     ? statusRaw
     : 'all'
+  const createdAtFrom = normalizeOptionalDate(payload.createdAtFrom)
+  const createdAtTo = normalizeOptionalDate(payload.createdAtTo)
+  const normalizedDateRange = createdAtFrom && createdAtTo && createdAtFrom > createdAtTo
+    ? { createdAtFrom: createdAtTo, createdAtTo: createdAtFrom }
+    : { createdAtFrom, createdAtTo }
 
   return {
     page,
@@ -149,6 +168,8 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     commissionRateMax: normalizeOptionalBound(payload.commissionRateMax),
     commissionAmountMin: normalizeOptionalBound(payload.commissionAmountMin),
     commissionAmountMax: normalizeOptionalBound(payload.commissionAmountMax),
+    createdAtFrom: normalizedDateRange.createdAtFrom,
+    createdAtTo: normalizedDateRange.createdAtTo,
   }
 }
 
@@ -164,6 +185,8 @@ async function warmProductListCacheByParams(userId: number, params: CacheWarmPar
     commissionRateMax: params.commissionRateMax ?? undefined,
     commissionAmountMin: params.commissionAmountMin ?? undefined,
     commissionAmountMax: params.commissionAmountMax ?? undefined,
+    createdAtFrom: params.createdAtFrom ?? undefined,
+    createdAtTo: params.createdAtTo ?? undefined,
   })
   const responsePayload = {
     success: true as const,
