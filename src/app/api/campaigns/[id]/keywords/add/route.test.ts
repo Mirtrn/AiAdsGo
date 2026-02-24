@@ -12,6 +12,10 @@ const dbFns = vi.hoisted(() => ({
   exec: vi.fn(),
 }))
 
+const dbState = vi.hoisted(() => ({
+  type: 'sqlite' as 'sqlite' | 'postgres',
+}))
+
 const adsFns = vi.hoisted(() => ({
   createGoogleAdsKeywordsBatch: vi.fn(),
 }))
@@ -27,7 +31,7 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/lib/db', () => ({
   getDatabase: vi.fn(async () => ({
-    type: 'sqlite',
+    type: dbState.type,
     queryOne: dbFns.queryOne,
     query: dbFns.query,
     exec: dbFns.exec,
@@ -46,6 +50,7 @@ vi.mock('@/lib/google-ads-oauth', () => ({
 describe('POST /api/campaigns/:id/keywords/add', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dbState.type = 'sqlite'
 
     authFns.verifyAuth.mockResolvedValue({
       authenticated: true,
@@ -146,5 +151,32 @@ describe('POST /api/campaigns/:id/keywords/add', () => {
     expect(payload.addedCount).toBe(1)
     expect(payload.duplicateKeywords).toContain('Dreo')
     expect(adsFns.createGoogleAdsKeywordsBatch).toHaveBeenCalledTimes(3)
+  })
+
+  it('writes boolean flags for postgres keyword inserts', async () => {
+    dbState.type = 'postgres'
+    adsFns.createGoogleAdsKeywordsBatch.mockResolvedValue([
+      { keywordId: '3001', resourceName: 'p', keywordText: 'Dreo official' },
+    ])
+
+    const req = new NextRequest('http://localhost/api/campaigns/12/keywords/add', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        keywords: ['Dreo official'],
+      }),
+    })
+
+    const res = await POST(req, { params: { id: '12' } })
+    expect(res.status).toBe(200)
+
+    const insertCall = dbFns.exec.mock.calls.find(
+      (call: any[]) => String(call?.[0] || '').includes('INSERT INTO keywords')
+    )
+    expect(insertCall).toBeTruthy()
+
+    const insertParams = insertCall?.[1] as any[]
+    expect(insertParams[6]).toBe(false)
+    expect(insertParams[7]).toBe(false)
   })
 })

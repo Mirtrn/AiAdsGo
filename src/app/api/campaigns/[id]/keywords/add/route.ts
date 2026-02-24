@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import { getInsertedId } from '@/lib/db-helpers'
+import { boolParam, getInsertedId } from '@/lib/db-helpers'
 import { createGoogleAdsKeywordsBatch } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
@@ -456,7 +456,7 @@ export async function POST(
               last_sync_at,
               created_at,
               updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'openclaw_strategy', 'synced', NULL, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'openclaw_strategy', 'synced', NULL, ?, ?, ?)
           `,
           [
             userId,
@@ -465,6 +465,8 @@ export async function POST(
             created.keywordText,
             matchType,
             status,
+            boolParam(false, db.type),
+            boolParam(false, db.type),
             now,
             now,
             now,
