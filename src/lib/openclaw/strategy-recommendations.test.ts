@@ -240,6 +240,36 @@ describe('openclaw strategy recommendations rules', () => {
     expect(expandRec?.summary).toContain('当前关键词 12 个')
   })
 
+  it('filters expansion keywords that conflict with campaign negative keywords', () => {
+    const drafts = __testUtils.buildRecommendationDrafts({
+      campaigns: [makeCampaign({
+        id: 113,
+        brand: 'Renpho',
+        category: 'digital body scales',
+        product_name: 'Body Scale',
+        created_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        campaign_config: JSON.stringify({
+          negativeKeywords: ['digital', 'review', 'discount', 'comparison'],
+        }),
+      })],
+      perf7dByCampaign: new Map([[113, { impressions: 95, clicks: 8, cost: 6 }]]),
+      perfTotalByCampaign: new Map([[113, { impressions: 95, clicks: 8, cost: 6 }]]),
+      commissionByCampaign: new Map(),
+      keywordsByCampaign: new Map([[113, new Set(['renpho'])]]),
+      keywordIdeasByOffer: new Map(),
+      creativeById: new Map(),
+    })
+
+    const expandRec = drafts.find((item) => item.recommendationType === 'expand_keywords')
+    expect(expandRec).toBeTruthy()
+    const planTexts = (expandRec?.data.keywordPlan || []).map((item) => item.text.toLowerCase())
+    expect(planTexts.every((text) => !text.includes('digital'))).toBe(true)
+    expect(planTexts.every((text) => !text.includes('review'))).toBe(true)
+    expect(planTexts.every((text) => !text.includes('discount'))).toBe(true)
+    expect(planTexts.every((text) => !text.includes('comparison'))).toBe(true)
+  })
+
   it('generates negative keyword recommendations from hard-negative search terms', () => {
     const drafts = __testUtils.buildRecommendationDrafts({
       campaigns: [makeCampaign({

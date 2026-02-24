@@ -6,7 +6,10 @@ import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/open
 import { getCommissionPerConversion } from '@/lib/offer-monetization'
 import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
-import { extractCampaignConfigKeywords } from '@/lib/campaign-config-keywords'
+import {
+  extractCampaignConfigKeywords,
+  extractCampaignConfigNegativeKeywords,
+} from '@/lib/campaign-config-keywords'
 
 export type StrategyRecommendationType =
   | 'adjust_cpc'
@@ -561,6 +564,50 @@ function normalizeKeywordKey(text: string): string {
   return sanitizeKeyword(String(text || '')).toLowerCase()
 }
 
+function tokenizeKeywordText(text: string): string[] {
+  return normalizeKeywordKey(text).match(/[\p{L}\p{N}]+/gu) || []
+}
+
+function containsTokenSequence(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0 || haystack.length < needle.length) return false
+  const limit = haystack.length - needle.length
+  for (let start = 0; start <= limit; start += 1) {
+    let matched = true
+    for (let offset = 0; offset < needle.length; offset += 1) {
+      if (haystack[start + offset] !== needle[offset]) {
+        matched = false
+        break
+      }
+    }
+    if (matched) return true
+  }
+  return false
+}
+
+function isKeywordConflictingWithNegativeTerms(keyword: string, negativeTerms: Set<string>): boolean {
+  const normalizedKeyword = normalizeKeywordKey(keyword)
+  if (!normalizedKeyword || negativeTerms.size === 0) return false
+
+  const keywordTokens = tokenizeKeywordText(normalizedKeyword)
+  for (const rawNegative of negativeTerms) {
+    const normalizedNegative = normalizeKeywordKey(rawNegative)
+    if (!normalizedNegative) continue
+    if (normalizedNegative === normalizedKeyword) {
+      return true
+    }
+    const negativeTokens = tokenizeKeywordText(normalizedNegative)
+    if (!negativeTokens.length || !keywordTokens.length) continue
+    if (
+      containsTokenSequence(keywordTokens, negativeTokens)
+      || containsTokenSequence(negativeTokens, keywordTokens)
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function extractCampaignConfigKeywordSet(campaignConfig: unknown): Set<string> {
   const keywordSet = new Set<string>()
   for (const item of extractCampaignConfigKeywords(campaignConfig)) {
@@ -638,12 +685,18 @@ function buildKeywordExpansionPlan(params: {
   category: string | null
   productName: string | null
   existing: Set<string>
+  negativeTerms?: Set<string>
   offerKeywordIdeas?: StrategyKeywordSuggestion[]
 }): StrategyKeywordSuggestion[] {
   const brand = sanitizeKeyword(String(params.brand || ''))
   const category = sanitizeKeyword(String(params.category || ''))
   const productName = sanitizeKeyword(String(params.productName || ''))
   const existing = new Set<string>(Array.from(params.existing))
+  const negativeTerms = new Set(
+    Array.from(params.negativeTerms || [])
+      .map((item) => normalizeKeywordKey(item))
+      .filter(Boolean)
+  )
 
   const externalSuggestions = dedupeKeywordSuggestions({
     values: Array.isArray(params.offerKeywordIdeas) ? params.offerKeywordIdeas : [],
@@ -743,7 +796,10 @@ function buildKeywordExpansionPlan(params: {
     )
   )
 
-  return [...externalSuggestions, ...localSuggestions].slice(0, desiredAdditionCount)
+  const filteredSuggestions = [...externalSuggestions, ...localSuggestions]
+    .filter((item) => !isKeywordConflictingWithNegativeTerms(item.text, negativeTerms))
+
+  return filteredSuggestions.slice(0, desiredAdditionCount)
 }
 
 function buildExpandKeywordsSnapshotHash(params: {
@@ -1203,6 +1259,12 @@ function buildRecommendationDrafts(params: {
         .map((item) => normalizeKeywordKey(item.text))
         .filter(Boolean)
     )
+    const campaignConfigNegativeKeywords = extractCampaignConfigNegativeKeywords(campaign.campaign_config)
+    for (const item of campaignConfigNegativeKeywords) {
+      const normalized = normalizeKeywordKey(item)
+      if (!normalized) continue
+      negativeKeywordSet.add(normalized)
+    }
     const searchTermRows = params.searchTermsByCampaign?.get(campaignId) || []
     const searchTermPerfByText = new Map<string, SearchTermAgg>()
     for (const row of searchTermRows) {
@@ -1619,6 +1681,7 @@ function buildRecommendationDrafts(params: {
           category: campaign.category,
           productName: campaign.product_name,
           existing: keywordSet,
+          negativeTerms: negativeKeywordSet,
           offerKeywordIdeas,
         })
 
