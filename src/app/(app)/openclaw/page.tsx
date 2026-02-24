@@ -4245,11 +4245,12 @@ export default function OpenClawPage() {
                         />
                       </TableHead>
                       <TableHead className="w-[52px] text-xs font-semibold text-slate-600">#</TableHead>
-                      <TableHead className="min-w-[260px] text-xs font-semibold text-slate-600">建议</TableHead>
+                      <TableHead className="min-w-[200px] text-xs font-semibold text-slate-600">类型 / ID</TableHead>
+                      <TableHead className="min-w-[240px] text-xs font-semibold text-slate-600">建议</TableHead>
                       <TableHead className="min-w-[260px] text-xs font-semibold text-slate-600">Campaign</TableHead>
                       <TableHead className="min-w-[240px] text-xs font-semibold text-slate-600">成本/盈亏平衡</TableHead>
                       <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">优先级分</TableHead>
-                      <TableHead className="min-w-[190px] text-xs font-semibold text-slate-600">状态</TableHead>
+                      <TableHead className="min-w-[140px] text-xs font-semibold text-slate-600">状态</TableHead>
                       <TableHead className="min-w-[340px] text-right text-xs font-semibold text-slate-600">操作</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -4322,12 +4323,12 @@ export default function OpenClawPage() {
                           </TableCell>
                           <TableCell className="pt-3 text-sm font-medium text-slate-500">{index + 1}</TableCell>
                           <TableCell className="space-y-2 pt-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${recommendationTypeTone}`}>
-                                {recommendationTypeLabel}
-                              </span>
-                              <span className="text-xs text-slate-400">ID: {item.id}</span>
-                            </div>
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${recommendationTypeTone}`}>
+                              {recommendationTypeLabel}
+                            </span>
+                            <div className="text-xs text-slate-400">ID: {item.id}</div>
+                          </TableCell>
+                          <TableCell className="space-y-2 pt-3">
                             <div className="text-sm font-medium leading-5 text-slate-900">{item.title}</div>
                             <div className="text-xs leading-5 text-slate-600">{analysisNote}</div>
                             {item.data?.commissionLagProtected && (
@@ -4407,7 +4408,7 @@ export default function OpenClawPage() {
                               <div className="text-xs text-slate-500">{impactEstimationSourceText}</div>
                             )}
                           </TableCell>
-                          <TableCell className="space-y-1 pt-3">
+                          <TableCell className="w-[140px] max-w-[140px] space-y-1 pt-3">
                             <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
                             {item.status === 'stale' && (
                               <div className="text-xs text-amber-600">建议内容已变化，请重新分析后再执行</div>
@@ -4470,7 +4471,7 @@ export default function OpenClawPage() {
                     })}
                     {strategyRecommendationsDisplay.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-10 text-center text-slate-500">
+                        <TableCell colSpan={9} className="py-10 text-center text-slate-500">
                           {strategyRecommendationsLoading ? '策略建议生成中...' : '暂无策略建议'}
                         </TableCell>
                       </TableRow>
