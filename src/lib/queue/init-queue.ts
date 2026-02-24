@@ -92,7 +92,7 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     const urlSwapScheduler = getUrlSwapScheduler()
     urlSwapScheduler.start()
 
-    // 🔄 启动内置的联盟商品同步调度器（PB：60分钟轻量 + 24小时全量）
+    // 🔄 启动内置的联盟商品同步调度器（PB：轻量+全量，YP：轻量+全量）
     const affiliateProductSyncScheduler = getAffiliateProductSyncScheduler()
     affiliateProductSyncScheduler.start()
 

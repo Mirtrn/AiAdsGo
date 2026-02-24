@@ -3,6 +3,7 @@ import {
   listAffiliateProducts,
   normalizeAffiliatePlatform,
   normalizeAffiliateProductStatusFilter,
+  type PlatformProductStats,
   type ProductSortField,
   type ProductSortOrder,
 } from '@/lib/affiliate-products'
@@ -129,6 +130,10 @@ export async function GET(request: NextRequest) {
         unknownProductsCount: number
         blacklistedCount: number
         productsWithLinkCount: number
+        platformStats: {
+          yeahpromos: PlatformProductStats
+          partnerboost: PlatformProductStats
+        }
         page: number
         pageSize: number
       }>(userId, cacheHash)
@@ -168,6 +173,7 @@ export async function GET(request: NextRequest) {
       syncMissingProductsCount: result.syncMissingProductsCount,
       unknownProductsCount: result.unknownProductsCount,
       blacklistedCount: result.blacklistedCount,
+      platformStats: result.platformStats,
       page: result.page,
       pageSize: result.pageSize,
     }

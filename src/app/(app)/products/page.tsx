@@ -135,9 +135,32 @@ type ProductListResponse = {
   syncMissingProductsCount: number
   unknownProductsCount: number
   blacklistedCount: number
+  platformStats?: Record<ProductPlatform, {
+    total: number
+    visibleCount: number
+    productsWithLinkCount: number
+    activeProductsCount: number
+    invalidProductsCount: number
+    syncMissingProductsCount: number
+    unknownProductsCount: number
+    blacklistedCount: number
+  }>
   page: number
   pageSize: number
 }
+
+type PlatformStatsItem = {
+  total: number
+  visibleCount: number
+  productsWithLinkCount: number
+  activeProductsCount: number
+  invalidProductsCount: number
+  syncMissingProductsCount: number
+  unknownProductsCount: number
+  blacklistedCount: number
+}
+
+type PlatformStatsMap = Record<ProductPlatform, PlatformStatsItem>
 
 type SyncRunItem = {
   id: number
@@ -187,6 +210,11 @@ const PLATFORM_LABEL: Record<ProductPlatform, string> = {
 const PLATFORM_SHORT_LABEL: Record<ProductPlatform, string> = {
   yeahpromos: 'YP',
   partnerboost: 'PB',
+}
+
+const PLATFORM_CARD_ACCENT_CLASS: Record<ProductPlatform, string> = {
+  yeahpromos: 'text-indigo-600',
+  partnerboost: 'text-emerald-600',
 }
 
 const LANDING_PAGE_TYPE_META: Record<LandingPageType, {
@@ -242,6 +270,59 @@ const EMPTY_NUMERIC_RANGE_FILTER_DRAFTS: NumericRangeFilterDrafts = {
   commissionRateMax: '',
   commissionAmountMin: '',
   commissionAmountMax: '',
+}
+
+function createEmptyPlatformStatsItem(): PlatformStatsItem {
+  return {
+    total: 0,
+    visibleCount: 0,
+    productsWithLinkCount: 0,
+    activeProductsCount: 0,
+    invalidProductsCount: 0,
+    syncMissingProductsCount: 0,
+    unknownProductsCount: 0,
+    blacklistedCount: 0,
+  }
+}
+
+function createEmptyPlatformStatsMap(): PlatformStatsMap {
+  return {
+    yeahpromos: createEmptyPlatformStatsItem(),
+    partnerboost: createEmptyPlatformStatsItem(),
+  }
+}
+
+function toSafeCount(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return 0
+  return parsed
+}
+
+function normalizePlatformStatsMap(value: unknown): PlatformStatsMap {
+  const fallback = createEmptyPlatformStatsMap()
+  if (!value || typeof value !== 'object') return fallback
+
+  const readPlatformStats = (platform: ProductPlatform): PlatformStatsItem => {
+    const raw = (value as Record<string, unknown>)[platform]
+    if (!raw || typeof raw !== 'object') return createEmptyPlatformStatsItem()
+    const record = raw as Record<string, unknown>
+
+    return {
+      total: toSafeCount(record.total),
+      visibleCount: toSafeCount(record.visibleCount),
+      productsWithLinkCount: toSafeCount(record.productsWithLinkCount),
+      activeProductsCount: toSafeCount(record.activeProductsCount),
+      invalidProductsCount: toSafeCount(record.invalidProductsCount),
+      syncMissingProductsCount: toSafeCount(record.syncMissingProductsCount),
+      unknownProductsCount: toSafeCount(record.unknownProductsCount),
+      blacklistedCount: toSafeCount(record.blacklistedCount),
+    }
+  }
+
+  return {
+    yeahpromos: readPlatformStats('yeahpromos'),
+    partnerboost: readPlatformStats('partnerboost'),
+  }
 }
 
 function formatCurrency(amount: number | null, currency: string | null): string {
@@ -454,6 +535,7 @@ export default function ProductsPage() {
   const [syncMissingProductsCount, setSyncMissingProductsCount] = useState(0)
   const [unknownProductsCount, setUnknownProductsCount] = useState(0)
   const [blacklistedCount, setBlacklistedCount] = useState(0)
+  const [platformStats, setPlatformStats] = useState<PlatformStatsMap>(() => createEmptyPlatformStatsMap())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [searchText, setSearchText] = useState('')
@@ -560,30 +642,53 @@ export default function ProductsPage() {
 
   const stats = useMemo(() => {
     const activeSyncRuns = latestRuns.filter((run) => run.status === 'queued' || run.status === 'running').length
+    const activeSyncRunsByPlatform: Record<ProductPlatform, number> = {
+      yeahpromos: latestRuns.filter((run) => run.platform === 'yeahpromos' && (run.status === 'queued' || run.status === 'running')).length,
+      partnerboost: latestRuns.filter((run) => run.platform === 'partnerboost' && (run.status === 'queued' || run.status === 'running')).length,
+    }
 
     return {
       activeSyncRuns,
+      activeSyncRunsByPlatform,
     }
   }, [latestRuns])
 
   const syncHistoryRows = useMemo(() => {
     const rows: Array<{
-      mode: 'delta' | 'platform'
+      key: string
       label: string
       runs: SyncRunItem[]
       emptyText: string
     }> = [
       {
-        mode: 'delta',
-        label: '轻量刷新',
-        runs: latestRuns.filter((run) => run.mode === 'delta').slice(0, 4),
-        emptyText: '暂无轻量刷新历史任务',
+        key: 'pb-delta',
+        label: 'PB 轻量刷新',
+        runs: latestRuns.filter((run) => run.platform === 'partnerboost' && run.mode === 'delta').slice(0, 4),
+        emptyText: '暂无 PB 轻量刷新历史任务',
       },
       {
-        mode: 'platform',
-        label: '全量刷新',
-        runs: latestRuns.filter((run) => run.mode === 'platform').slice(0, 4),
-        emptyText: '暂无全量刷新历史任务',
+        key: 'pb-platform',
+        label: 'PB 全量刷新',
+        runs: latestRuns.filter((run) => run.platform === 'partnerboost' && run.mode === 'platform').slice(0, 4),
+        emptyText: '暂无 PB 全量刷新历史任务',
+      },
+      {
+        key: 'yp-delta',
+        label: 'YP 轻量刷新',
+        runs: latestRuns.filter((run) => run.platform === 'yeahpromos' && run.mode === 'delta').slice(0, 4),
+        emptyText: '暂无 YP 轻量刷新历史任务',
+      },
+      {
+        key: 'yp-platform',
+        label: 'YP 全量刷新',
+        runs: latestRuns.filter((run) => run.platform === 'yeahpromos' && run.mode === 'platform').slice(0, 4),
+        emptyText: '暂无 YP 全量刷新历史任务',
+      },
+      {
+        key: 'single',
+        label: '单商品同步',
+        runs: latestRuns.filter((run) => run.mode === 'single').slice(0, 4),
+        emptyText: '暂无单商品同步历史任务',
       },
     ]
     return rows
@@ -673,6 +778,7 @@ export default function ProductsPage() {
       setSyncMissingProductsCount(Number(data.syncMissingProductsCount || 0))
       setUnknownProductsCount(Number(data.unknownProductsCount || 0))
       setBlacklistedCount(Number(data.blacklistedCount || 0))
+      setPlatformStats(normalizePlatformStatsMap(data.platformStats))
 
       setSelectedProductIds((prev) => {
         if (prev.size === 0) return prev
@@ -768,7 +874,7 @@ export default function ProductsPage() {
 
   const handlePlatformSync = async (platform: ProductPlatform, strategy?: PlatformSyncStrategy) => {
     if (syncingPlatform) return
-    const resolvedStrategy: PlatformSyncStrategy = strategy || (platform === 'partnerboost' ? 'light' : 'full')
+    const resolvedStrategy: PlatformSyncStrategy = strategy || 'light'
     setSyncingPlatform({ platform, strategy: resolvedStrategy })
     try {
       const response = await fetch(`/api/products/sync/${platform}`, {
@@ -1353,11 +1459,19 @@ export default function ProductsPage() {
               </Button>
               <Button
                 variant="outline"
+                onClick={() => handlePlatformSync('yeahpromos', 'light')}
+                disabled={syncingPlatform !== null}
+              >
+                {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'light' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                同步 YP(轻量)
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => handlePlatformSync('yeahpromos', 'full')}
                 disabled={syncingPlatform !== null}
               >
-                {syncingPlatform?.platform === 'yeahpromos' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步 YP
+                {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'full' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                同步YP（全量）
               </Button>
               <Button
                 variant="outline"
@@ -1388,10 +1502,10 @@ export default function ProductsPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">所有商品</div>
+              <div className="text-xs text-muted-foreground">当前筛选商品</div>
               <div className="mt-1 flex items-center gap-2">
                 <Package className="h-4 w-4 text-blue-600" />
-                <span className="text-xl font-semibold">{activeProductsCount}</span>
+                <span className="text-xl font-semibold">{total}</span>
               </div>
             </CardContent>
           </Card>
@@ -1441,20 +1555,59 @@ export default function ProductsPage() {
                 <Clock3 className="h-4 w-4 text-amber-600" />
                 <span className="text-xl font-semibold">{stats.activeSyncRuns}</span>
               </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                YP {stats.activeSyncRunsByPlatform.yeahpromos} · PB {stats.activeSyncRunsByPlatform.partnerboost}
+              </div>
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">平台统计（当前筛选）</CardTitle>
+            <CardDescription>同时查看 YP / PB 的商品规模与同步健康度</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(['yeahpromos', 'partnerboost'] as const).map((platform) => {
+                const statsItem = platformStats[platform]
+                return (
+                  <div key={platform} className="rounded-md border px-4 py-3 text-xs">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className={`font-semibold ${PLATFORM_CARD_ACCENT_CLASS[platform]}`}>{PLATFORM_LABEL[platform]}</span>
+                      <Badge variant="outline">{PLATFORM_SHORT_LABEL[platform]}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-1 text-muted-foreground">
+                      <span>可见商品</span>
+                      <span className="text-right text-foreground">{statsItem.visibleCount}</span>
+                      <span>平台总商品</span>
+                      <span className="text-right text-foreground">{statsItem.total}</span>
+                      <span>有推广链接</span>
+                      <span className="text-right text-foreground">{statsItem.productsWithLinkCount}</span>
+                      <span>有效商品</span>
+                      <span className="text-right text-foreground">{statsItem.activeProductsCount}</span>
+                      <span>同步未命中</span>
+                      <span className="text-right text-foreground">{statsItem.syncMissingProductsCount}</span>
+                      <span>已失效</span>
+                      <span className="text-right text-foreground">{statsItem.invalidProductsCount}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
 
         {latestRuns.length > 0 && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">最近同步任务</CardTitle>
-              <CardDescription>按轻量刷新 / 全量刷新分组展示历史任务（各最多 4 条）</CardDescription>
+              <CardDescription>按平台与模式分组展示历史任务（各最多 4 条）</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {syncHistoryRows.map((row) => (
-                  <div key={row.mode} className="rounded-md border px-3 py-2 text-xs">
+                  <div key={row.key} className="rounded-md border px-3 py-2 text-xs">
                     <div className="mb-2 font-medium">{row.label}</div>
                     {row.runs.length === 0 ? (
                       <div className="text-muted-foreground">{row.emptyText}</div>
@@ -1667,12 +1820,37 @@ export default function ProductsPage() {
               hasFilters ? (
                 <NoResultsState description="当前筛选条件下暂无商品，试试清除筛选后再查看。" />
               ) : (
-                <NoDataState
-                  title="暂无商品数据"
-                  description="请先执行联盟平台同步，系统会自动拉取可推广商品。"
-                  actionLabel="立即同步PB商品"
-                  onAction={() => handlePlatformSync('partnerboost', 'light')}
-                />
+                platformFilter === 'all' ? (
+                  <div className="space-y-3">
+                    <NoDataState
+                      title="暂无商品数据"
+                      description="请先执行联盟平台同步，系统会自动拉取可推广商品。"
+                      actionLabel="同步 PB(轻量)"
+                      onAction={() => handlePlatformSync('partnerboost', 'light')}
+                    />
+                    <div className="flex justify-center">
+                      <Button
+                        variant="outline"
+                        onClick={() => handlePlatformSync('yeahpromos', 'light')}
+                        disabled={syncingPlatform !== null}
+                      >
+                        {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'light' ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                        )}
+                        同步 YP(轻量)
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <NoDataState
+                    title="暂无商品数据"
+                    description="请先执行联盟平台同步，系统会自动拉取可推广商品。"
+                    actionLabel={`立即同步${platformFilter === 'yeahpromos' ? 'YP' : 'PB'}商品`}
+                    onAction={() => handlePlatformSync(platformFilter, 'light')}
+                  />
+                )
               )
             ) : (
               renderProductTable()

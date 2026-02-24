@@ -1,9 +1,11 @@
 /**
- * 联盟商品同步调度器（PB）
+ * 联盟商品同步调度器（PB + YP）
  *
  * 目标：
- * - 轻量刷新（delta）默认每6小时
- * - 全量补齐（platform）默认每24小时
+ * - PB 轻量刷新（delta）默认每6小时
+ * - PB 全量补齐（platform）默认每24小时
+ * - YP 轻量刷新（delta）默认每6小时
+ * - YP 全量补齐（platform）默认每24小时
  * - 复用现有队列与 run 记录，避免引入额外基础设施
  */
 
@@ -27,6 +29,10 @@ const PB_DELTA_INTERVAL_KEY = 'affiliate_pb_delta_interval_minutes'
 const PB_FULL_INTERVAL_KEY = 'affiliate_pb_full_interval_hours'
 const PB_LAST_DELTA_SYNC_KEY = 'affiliate_pb_last_delta_sync_at'
 const PB_LAST_FULL_SYNC_KEY = 'affiliate_pb_last_full_sync_at'
+const YP_DELTA_INTERVAL_KEY = 'affiliate_yp_delta_interval_minutes'
+const YP_FULL_INTERVAL_KEY = 'affiliate_yp_full_interval_hours'
+const YP_LAST_DELTA_SYNC_KEY = 'affiliate_yp_last_delta_sync_at'
+const YP_LAST_FULL_SYNC_KEY = 'affiliate_yp_last_full_sync_at'
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000
 const DEFAULT_STARTUP_DELAY_MS = 45 * 1000
@@ -213,71 +219,74 @@ export class AffiliateProductSyncScheduler {
       return false
     }
 
-    const configCheck = await checkAffiliatePlatformConfig(userId, 'partnerboost')
-    if (!configCheck.configured) {
-      return false
-    }
-
-    const scheduleConfig = await this.loadUserScheduleConfig(userId)
-    const latestCompleted = await this.loadLatestCompletedRunTimes(userId)
-    const lastDeltaAt = scheduleConfig.lastDeltaAt || latestCompleted.lastDeltaAt
-    const lastFullAt = scheduleConfig.lastFullAt || latestCompleted.lastFullAt
+    const nowIso = now.toISOString()
     const nowMs = now.getTime()
 
-    const shouldRunFull = isDue(
-      lastFullAt,
-      scheduleConfig.fullIntervalHours * 60 * 60 * 1000,
-      nowMs
-    )
-    const shouldRunDelta = !shouldRunFull && isDue(
-      lastDeltaAt,
-      scheduleConfig.deltaIntervalMinutes * 60 * 1000,
-      nowMs
-    )
+    const pbConfigCheck = await checkAffiliatePlatformConfig(userId, 'partnerboost')
+    if (pbConfigCheck.configured) {
+      const scheduleConfig = await this.loadUserScheduleConfig(userId)
+      const latestCompleted = await this.loadLatestCompletedRunTimes(userId)
+      const lastDeltaAt = scheduleConfig.lastDeltaAt || latestCompleted.lastDeltaAt
+      const lastFullAt = scheduleConfig.lastFullAt || latestCompleted.lastFullAt
 
-    if (!shouldRunFull && !shouldRunDelta) {
-      return false
-    }
+      const shouldRunFull = isDue(
+        lastFullAt,
+        scheduleConfig.fullIntervalHours * 60 * 60 * 1000,
+        nowMs
+      )
+      const shouldRunDelta = !shouldRunFull && isDue(
+        lastDeltaAt,
+        scheduleConfig.deltaIntervalMinutes * 60 * 1000,
+        nowMs
+      )
 
-    const mode: SyncMode = shouldRunFull ? 'platform' : 'delta'
-    const runId = await createAffiliateProductSyncRun({
-      userId,
-      platform: 'partnerboost',
-      mode,
-      triggerSource: 'schedule',
-      status: 'queued',
-    })
-
-    try {
-      const queue = getQueueManagerForTaskType('affiliate-product-sync')
-      await queue.enqueue(
-        'affiliate-product-sync',
-        {
+      if (shouldRunFull || shouldRunDelta) {
+        const mode: SyncMode = shouldRunFull ? 'platform' : 'delta'
+        await this.enqueueSyncTask({
           userId,
           platform: 'partnerboost',
           mode,
-          runId,
-          trigger: 'schedule',
-        },
-        userId,
-        {
-          priority: 'normal',
-          maxRetries: 1,
-        }
-      )
-    } catch (error: any) {
-      await updateAffiliateProductSyncRun({
-        runId,
-        status: 'failed',
-        failedCount: 1,
-        completedAt: now.toISOString(),
-        errorMessage: error?.message || '调度入队失败',
-      })
-      throw error
+          nowIso,
+        })
+        const recordKey = shouldRunFull ? PB_LAST_FULL_SYNC_KEY : PB_LAST_DELTA_SYNC_KEY
+        await this.upsertUserSystemSetting(userId, recordKey, nowIso)
+        return true
+      }
     }
 
-    const recordKey = shouldRunFull ? PB_LAST_FULL_SYNC_KEY : PB_LAST_DELTA_SYNC_KEY
-    await this.upsertUserSystemSetting(userId, recordKey, now.toISOString())
+    const ypConfigCheck = await checkAffiliatePlatformConfig(userId, 'yeahpromos')
+    if (!ypConfigCheck.configured) {
+      return false
+    }
+
+    const ypScheduleConfig = await this.loadYeahpromosScheduleConfig(userId)
+    const latestYpCompleted = await this.loadLatestCompletedRunTimesByPlatform(userId, 'yeahpromos')
+    const ypLastDeltaAt = ypScheduleConfig.lastDeltaAt || latestYpCompleted.lastDeltaAt
+    const ypLastFullAt = ypScheduleConfig.lastFullAt || latestYpCompleted.lastFullAt
+
+    const shouldRunYpFull = isDue(
+      ypLastFullAt,
+      ypScheduleConfig.fullIntervalHours * 60 * 60 * 1000,
+      nowMs
+    )
+    const shouldRunYpDelta = !shouldRunYpFull && isDue(
+      ypLastDeltaAt,
+      ypScheduleConfig.deltaIntervalMinutes * 60 * 1000,
+      nowMs
+    )
+    if (!shouldRunYpFull && !shouldRunYpDelta) {
+      return false
+    }
+
+    const ypMode: SyncMode = shouldRunYpFull ? 'platform' : 'delta'
+    await this.enqueueSyncTask({
+      userId,
+      platform: 'yeahpromos',
+      mode: ypMode,
+      nowIso,
+    })
+    const ypRecordKey = shouldRunYpFull ? YP_LAST_FULL_SYNC_KEY : YP_LAST_DELTA_SYNC_KEY
+    await this.upsertUserSystemSetting(userId, ypRecordKey, nowIso)
     return true
   }
 
@@ -288,13 +297,55 @@ export class AffiliateProductSyncScheduler {
         SELECT id
         FROM affiliate_product_sync_runs
         WHERE user_id = ?
-          AND platform = 'partnerboost'
           AND status IN ('queued', 'running')
         LIMIT 1
       `,
       [userId]
     )
     return Boolean(row?.id)
+  }
+
+  private async enqueueSyncTask(params: {
+    userId: number
+    platform: 'partnerboost' | 'yeahpromos'
+    mode: SyncMode
+    nowIso: string
+  }): Promise<void> {
+    const runId = await createAffiliateProductSyncRun({
+      userId: params.userId,
+      platform: params.platform,
+      mode: params.mode,
+      triggerSource: 'schedule',
+      status: 'queued',
+    })
+
+    try {
+      const queue = getQueueManagerForTaskType('affiliate-product-sync')
+      await queue.enqueue(
+        'affiliate-product-sync',
+        {
+          userId: params.userId,
+          platform: params.platform,
+          mode: params.mode,
+          runId,
+          trigger: 'schedule',
+        },
+        params.userId,
+        {
+          priority: 'normal',
+          maxRetries: 1,
+        }
+      )
+    } catch (error: any) {
+      await updateAffiliateProductSyncRun({
+        runId,
+        status: 'failed',
+        failedCount: 1,
+        completedAt: params.nowIso,
+        errorMessage: error?.message || '调度入队失败',
+      })
+      throw error
+    }
   }
 
   private async loadUserScheduleConfig(userId: number): Promise<UserScheduleConfig> {
@@ -339,6 +390,48 @@ export class AffiliateProductSyncScheduler {
     }
   }
 
+  private async loadYeahpromosScheduleConfig(userId: number): Promise<UserScheduleConfig> {
+    const db = await getDatabase()
+    const rows = await db.query<{ key: string; value: string | null }>(
+      `
+        SELECT key, value
+        FROM system_settings
+        WHERE user_id = ?
+          AND category = 'system'
+          AND key IN (?, ?, ?, ?)
+      `,
+      [
+        userId,
+        YP_DELTA_INTERVAL_KEY,
+        YP_FULL_INTERVAL_KEY,
+        YP_LAST_DELTA_SYNC_KEY,
+        YP_LAST_FULL_SYNC_KEY,
+      ]
+    )
+
+    const valueMap = new Map<string, string | null>()
+    for (const row of rows) {
+      valueMap.set(row.key, row.value)
+    }
+
+    return {
+      deltaIntervalMinutes: parseIntegerInRange(
+        valueMap.get(YP_DELTA_INTERVAL_KEY) || String(DEFAULT_DELTA_INTERVAL_MINUTES),
+        DEFAULT_DELTA_INTERVAL_MINUTES,
+        MIN_DELTA_INTERVAL_MINUTES,
+        MAX_DELTA_INTERVAL_MINUTES
+      ),
+      fullIntervalHours: parseIntegerInRange(
+        valueMap.get(YP_FULL_INTERVAL_KEY) || String(DEFAULT_FULL_INTERVAL_HOURS),
+        DEFAULT_FULL_INTERVAL_HOURS,
+        MIN_FULL_INTERVAL_HOURS,
+        MAX_FULL_INTERVAL_HOURS
+      ),
+      lastDeltaAt: parseTimeValue(valueMap.get(YP_LAST_DELTA_SYNC_KEY)),
+      lastFullAt: parseTimeValue(valueMap.get(YP_LAST_FULL_SYNC_KEY)),
+    }
+  }
+
   private async loadLatestCompletedRunTimes(userId: number): Promise<{
     lastDeltaAt: Date | null
     lastFullAt: Date | null
@@ -355,6 +448,40 @@ export class AffiliateProductSyncScheduler {
         GROUP BY mode
       `,
       [userId]
+    )
+
+    let lastDeltaAt: Date | null = null
+    let lastFullAt: Date | null = null
+    for (const row of rows) {
+      if (row.mode === 'delta') {
+        lastDeltaAt = parseTimeValue(row.last_at)
+      } else if (row.mode === 'platform') {
+        lastFullAt = parseTimeValue(row.last_at)
+      }
+    }
+
+    return { lastDeltaAt, lastFullAt }
+  }
+
+  private async loadLatestCompletedRunTimesByPlatform(
+    userId: number,
+    platform: 'partnerboost' | 'yeahpromos'
+  ): Promise<{
+    lastDeltaAt: Date | null
+    lastFullAt: Date | null
+  }> {
+    const db = await getDatabase()
+    const rows = await db.query<{ mode: string; last_at: string | null }>(
+      `
+        SELECT mode, MAX(COALESCE(completed_at, updated_at, created_at)) AS last_at
+        FROM affiliate_product_sync_runs
+        WHERE user_id = ?
+          AND platform = ?
+          AND status = 'completed'
+          AND mode IN ('delta', 'platform')
+        GROUP BY mode
+      `,
+      [userId, platform]
     )
 
     let lastDeltaAt: Date | null = null
@@ -401,7 +528,11 @@ export class AffiliateProductSyncScheduler {
 
     const description = key === PB_LAST_FULL_SYNC_KEY
       ? 'PB全量同步最近入队时间'
-      : 'PB轻量刷新最近入队时间'
+      : key === PB_LAST_DELTA_SYNC_KEY
+        ? 'PB轻量刷新最近入队时间'
+        : key === YP_LAST_FULL_SYNC_KEY
+          ? 'YP全量同步最近入队时间'
+          : 'YP轻量刷新最近入队时间'
 
     await db.exec(
       `

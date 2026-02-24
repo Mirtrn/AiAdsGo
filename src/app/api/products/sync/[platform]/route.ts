@@ -24,18 +24,10 @@ function resolveSyncMode(params: {
     params.platform === 'partnerboost' ? 'light' : 'full'
   )
 
-  if (params.platform === 'partnerboost') {
-    return {
-      mode: strategy === 'full' ? 'platform' : 'delta',
-      strategy,
-    }
+  return {
+    mode: strategy === 'full' ? 'platform' : 'delta',
+    strategy,
   }
-
-  if (strategy === 'light') {
-    throw new Error('当前平台暂不支持轻量刷新，请使用全量同步')
-  }
-
-  return { mode: 'platform', strategy: 'full' }
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<RouteParams> }) {
@@ -116,10 +108,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
         },
         { status: 400 }
       )
-    }
-
-    if (String(error?.message || '').includes('暂不支持轻量刷新')) {
-      return NextResponse.json({ error: error?.message || '参数错误' }, { status: 400 })
     }
 
     console.error('[POST /api/products/sync/:platform] failed:', error)

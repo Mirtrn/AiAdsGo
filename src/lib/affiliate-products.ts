@@ -142,6 +142,17 @@ export type ProductListOptions = {
   status?: AffiliateProductStatusFilter
 }
 
+export type PlatformProductStats = {
+  total: number
+  visibleCount: number
+  productsWithLinkCount: number
+  activeProductsCount: number
+  invalidProductsCount: number
+  syncMissingProductsCount: number
+  unknownProductsCount: number
+  blacklistedCount: number
+}
+
 export type ProductListResult = {
   items: AffiliateProductListItem[]
   total: number
@@ -151,6 +162,7 @@ export type ProductListResult = {
   syncMissingProductsCount: number
   unknownProductsCount: number
   blacklistedCount: number
+  platformStats: Record<AffiliatePlatform, PlatformProductStats>
   page: number
   pageSize: number
 }
@@ -238,6 +250,7 @@ const MAX_YP_REQUEST_DELAY_MS = 5000
 const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 3
 const DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS = 600
 const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 10000
+const DEFAULT_YP_DELTA_MAX_PAGES = 20
 const MAX_YP_SYNC_MAX_PAGES = 1000
 const MAX_YP_EMPTY_PAGE_STREAK = 3
 
@@ -2374,6 +2387,33 @@ async function fetchPartnerboostDeltaProducts(params: {
   return normalizedItems
 }
 
+async function getYeahPromosDeltaSyncSettings(userId: number): Promise<{
+  maxPages: number
+}> {
+  const maxPagesSetting = await getUserOnlySetting('system', 'affiliate_yp_delta_max_pages', userId)
+  const maxPages = parseIntegerInRange(
+    maxPagesSetting?.value || String(DEFAULT_YP_DELTA_MAX_PAGES),
+    DEFAULT_YP_DELTA_MAX_PAGES,
+    1,
+    MAX_YP_SYNC_MAX_PAGES
+  )
+
+  return { maxPages }
+}
+
+async function fetchYeahPromosDeltaProducts(params: {
+  userId: number
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
+}): Promise<NormalizedAffiliateProduct[]> {
+  const settings = await getYeahPromosDeltaSyncSettings(params.userId)
+
+  return await fetchYeahPromosPromotableProducts({
+    userId: params.userId,
+    maxPages: settings.maxPages,
+    onFetchProgress: params.onFetchProgress,
+  })
+}
+
 function getAffiliateProductsUpsertBatchSize(dbType: 'sqlite' | 'postgres'): number {
   return dbType === 'postgres'
     ? DEFAULT_UPSERT_BATCH_SIZE_POSTGRES
@@ -2957,6 +2997,47 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     ? '(o.is_deleted = false OR o.is_deleted IS NULL)'
     : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
   const statusFilter = normalizeAffiliateProductStatusFilter(options.status)
+  type PlatformStatsAccumulator = Omit<PlatformProductStats, 'visibleCount'>
+  const toSafeCount = (value: unknown): number => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 0) return 0
+    return parsed
+  }
+  const createPlatformStatsAccumulator = (): Record<AffiliatePlatform, PlatformStatsAccumulator> => ({
+    yeahpromos: {
+      total: 0,
+      productsWithLinkCount: 0,
+      activeProductsCount: 0,
+      invalidProductsCount: 0,
+      syncMissingProductsCount: 0,
+      unknownProductsCount: 0,
+      blacklistedCount: 0,
+    },
+    partnerboost: {
+      total: 0,
+      productsWithLinkCount: 0,
+      activeProductsCount: 0,
+      invalidProductsCount: 0,
+      syncMissingProductsCount: 0,
+      unknownProductsCount: 0,
+      blacklistedCount: 0,
+    },
+  })
+  const resolveVisibleCount = (stats: PlatformStatsAccumulator): number => {
+    if (statusFilter === 'all') return stats.total
+    if (statusFilter === 'invalid') return stats.invalidProductsCount
+    if (statusFilter === 'active') return stats.activeProductsCount
+    if (statusFilter === 'sync_missing') return stats.syncMissingProductsCount
+    return stats.unknownProductsCount
+  }
+  const toPlatformStats = (stats: PlatformStatsAccumulator): PlatformProductStats => ({
+    ...stats,
+    visibleCount: resolveVisibleCount(stats),
+  })
+  const finalizePlatformStats = (accumulator: Record<AffiliatePlatform, PlatformStatsAccumulator>): Record<AffiliatePlatform, PlatformProductStats> => ({
+    yeahpromos: toPlatformStats(accumulator.yeahpromos),
+    partnerboost: toPlatformStats(accumulator.partnerboost),
+  })
   const confirmedInvalidSql = buildConfirmedInvalidSql()
   // 失效判定依赖 raw_json 大文本扫描，当前仅在 YeahPromos 生效，避免 PartnerBoost 超大数据集触发超时。
   const confirmedInvalidStatusSql = `
@@ -3171,6 +3252,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     syncMissingProductsCount: number
     unknownProductsCount: number
     blacklistedCount: number
+    platformStats?: Partial<Record<AffiliatePlatform, Partial<PlatformProductStats>>>
   }>(userId, summaryCacheHash)
 
   let total = 0
@@ -3180,8 +3262,16 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   let syncMissingProductsCount = 0
   let unknownProductsCount = 0
   let blacklistedCount = 0
+  const platformStatsAccumulator = createPlatformStatsAccumulator()
+  let platformStats = finalizePlatformStats(platformStatsAccumulator)
 
-  if (cachedSummary) {
+  const cachedPlatformStats = cachedSummary?.platformStats
+  const hasCachedPlatformStats = Boolean(
+    cachedPlatformStats
+    && typeof cachedPlatformStats === 'object'
+  )
+
+  if (cachedSummary && hasCachedPlatformStats) {
     total = Number(cachedSummary.total || 0)
     productsWithLinkCount = Number(cachedSummary.productsWithLinkCount || 0)
     activeProductsCount = Number(cachedSummary.activeProductsCount || 0)
@@ -3189,6 +3279,22 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     syncMissingProductsCount = Number(cachedSummary.syncMissingProductsCount || 0)
     unknownProductsCount = Number(cachedSummary.unknownProductsCount || 0)
     blacklistedCount = Number(cachedSummary.blacklistedCount || 0)
+
+    for (const platformKey of ['yeahpromos', 'partnerboost'] as const) {
+      const platformCached = cachedPlatformStats?.[platformKey]
+      if (!platformCached || typeof platformCached !== 'object') continue
+      platformStatsAccumulator[platformKey] = {
+        total: toSafeCount(platformCached.total),
+        productsWithLinkCount: toSafeCount(platformCached.productsWithLinkCount),
+        activeProductsCount: toSafeCount(platformCached.activeProductsCount),
+        invalidProductsCount: toSafeCount(platformCached.invalidProductsCount),
+        syncMissingProductsCount: toSafeCount(platformCached.syncMissingProductsCount),
+        unknownProductsCount: toSafeCount(platformCached.unknownProductsCount),
+        blacklistedCount: toSafeCount(platformCached.blacklistedCount),
+      }
+    }
+
+    platformStats = finalizePlatformStats(platformStatsAccumulator)
   } else {
     const summaryRow = await db.queryOne<{
       total_count: number
@@ -3221,10 +3327,56 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       [userId, ...whereParams]
     )
 
+    const platformSummaryRows = await db.query<{
+      platform: string
+      total_count: number
+      active_products_count: number
+      sync_missing_products_count: number
+      unknown_products_count: number
+      blacklisted_count: number
+      products_with_link_count: number
+    }>(
+      `
+        ${fullSyncBaselineCteSql}
+        SELECT
+          p.platform AS platform,
+          COUNT(*) AS total_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS active_products_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS sync_missing_products_count,
+          SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS unknown_products_count,
+          SUM(CASE WHEN COALESCE(p.is_blacklisted, FALSE) = TRUE THEN 1 ELSE 0 END) AS blacklisted_count,
+          SUM(
+            CASE
+              WHEN COALESCE(NULLIF(TRIM(p.short_promo_link), ''), NULLIF(TRIM(p.promo_link), '')) IS NOT NULL THEN 1
+              ELSE 0
+            END
+          ) AS products_with_link_count
+        FROM affiliate_products p
+        LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+        WHERE ${baseWhereSql}
+        GROUP BY p.platform
+      `,
+      [userId, ...whereParams]
+    )
+
+    for (const row of platformSummaryRows) {
+      const platformKey = normalizeAffiliatePlatform(row.platform)
+      if (!platformKey) continue
+      platformStatsAccumulator[platformKey] = {
+        total: toSafeCount(row.total_count),
+        productsWithLinkCount: toSafeCount(row.products_with_link_count),
+        activeProductsCount: toSafeCount(row.active_products_count),
+        invalidProductsCount: 0,
+        syncMissingProductsCount: toSafeCount(row.sync_missing_products_count),
+        unknownProductsCount: toSafeCount(row.unknown_products_count),
+        blacklistedCount: toSafeCount(row.blacklisted_count),
+      }
+    }
+
     let invalidActiveOverlapCount = 0
     let invalidSyncMissingOverlapCount = 0
     let invalidUnknownOverlapCount = 0
-    const hasYeahpromosCandidates = Number(summaryRow?.yeahpromos_count || 0) > 0
+    const hasYeahpromosCandidates = platformStatsAccumulator.yeahpromos.total > 0
 
     if (hasYeahpromosCandidates) {
       const invalidSummaryRow = await db.queryOne<{
@@ -3253,6 +3405,20 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       invalidActiveOverlapCount = Number(invalidSummaryRow?.invalid_active_overlap_count || 0)
       invalidSyncMissingOverlapCount = Number(invalidSummaryRow?.invalid_sync_missing_overlap_count || 0)
       invalidUnknownOverlapCount = Number(invalidSummaryRow?.invalid_unknown_overlap_count || 0)
+
+      platformStatsAccumulator.yeahpromos.invalidProductsCount = invalidProductsCount
+      platformStatsAccumulator.yeahpromos.activeProductsCount = Math.max(
+        0,
+        platformStatsAccumulator.yeahpromos.activeProductsCount - invalidActiveOverlapCount
+      )
+      platformStatsAccumulator.yeahpromos.syncMissingProductsCount = Math.max(
+        0,
+        platformStatsAccumulator.yeahpromos.syncMissingProductsCount - invalidSyncMissingOverlapCount
+      )
+      platformStatsAccumulator.yeahpromos.unknownProductsCount = Math.max(
+        0,
+        platformStatsAccumulator.yeahpromos.unknownProductsCount - invalidUnknownOverlapCount
+      )
     }
 
     const baseActiveProductsCount = Number(summaryRow?.active_products_count || 0)
@@ -3272,6 +3438,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     })()
     productsWithLinkCount = Number(summaryRow?.products_with_link_count || 0)
     blacklistedCount = Number(summaryRow?.blacklisted_count || 0)
+    platformStats = finalizePlatformStats(platformStatsAccumulator)
 
     await setCachedProductSummary(userId, summaryCacheHash, {
       total,
@@ -3281,6 +3448,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       syncMissingProductsCount,
       unknownProductsCount,
       blacklistedCount,
+      platformStats,
     })
   }
 
@@ -3310,6 +3478,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     syncMissingProductsCount,
     unknownProductsCount,
     blacklistedCount,
+    platformStats,
     page,
     pageSize,
   }
@@ -4204,14 +4373,15 @@ export async function syncAffiliateProducts(params: {
   }
 
   if (params.mode === 'delta') {
-    if (params.platform !== 'partnerboost') {
-      throw new Error('当前平台暂不支持轻量刷新')
-    }
-
-    normalizedItems = await fetchPartnerboostDeltaProducts({
-      userId: params.userId,
-      onFetchProgress: emitFetchProgress,
-    })
+    normalizedItems = params.platform === 'partnerboost'
+      ? await fetchPartnerboostDeltaProducts({
+          userId: params.userId,
+          onFetchProgress: emitFetchProgress,
+        })
+      : await fetchYeahPromosDeltaProducts({
+          userId: params.userId,
+          onFetchProgress: emitFetchProgress,
+        })
   } else if (params.mode === 'single') {
     if (!params.productId) {
       throw new Error('缺少商品ID')
@@ -4239,7 +4409,6 @@ export async function syncAffiliateProducts(params: {
     } else {
       const fetched = await fetchYeahPromosPromotableProducts({
         userId: params.userId,
-        maxPages: 20,
         onFetchProgress: emitFetchProgress,
       })
       normalizedItems = fetched.filter((item) => item.mid === existing.mid)
