@@ -170,6 +170,58 @@ describe('fetchAffiliateCommissionRevenue partnerboost commission sync', () => {
     expect(entry?.sourceLinkId).toBe('pb_adg_single')
   })
 
+  it('keeps transaction product mid and backfills asin from single report fallback row', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            list: [
+              {
+                order_id: 'REPORT-ONLY-2',
+                adGroupId: 'pb_adg_single',
+                'Product ID': 'B0CCY6VG8Z',
+                link: 'https://www.amazon.com/dp/B0CCY6VG8Z?aa_adgroupid=pb_adg_single',
+                estCommission: 0,
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        makeOkJsonResponse({
+          status: { code: 0, msg: 'success' },
+          data: {
+            total_page: 1,
+            list: [
+              {
+                order_id: 'TX-ORDER-2',
+                sale_comm: '6.99',
+                partnerboost_id: 'pb_mid_real_123',
+              },
+            ],
+          },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const revenue = await fetchAffiliateCommissionRevenue({
+      userId: 1,
+      reportDate: '2026-02-22',
+    })
+
+    expect(revenue.totalCommission).toBe(6.99)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
+    const entry = input?.entries?.[0]
+    expect(entry?.sourceOrderId).toBe('TX-ORDER-2')
+    expect(entry?.sourceLinkId).toBe('pb_adg_single')
+    expect(entry?.sourceLink).toContain('aa_adgroupid=pb_adg_single')
+    expect(entry?.sourceAsin).toBe('B0CCY6VG8Z')
+    expect(entry?.sourceMid).toBe('pb_mid_real_123')
+  })
+
   it('falls back to report-only commission when transaction API request fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 

@@ -38,9 +38,46 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     } as any)
   })
 
-  it('returns existing summary for historical date when lock is enabled', async () => {
+  it('returns existing summary for historical date when lock is enabled and fully attributed', async () => {
     queryOne.mockResolvedValueOnce({
       written_rows: 2,
+      attributed_commission: 7.5,
+      attributed_offers: 1,
+      attributed_campaigns: 1,
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 7,
+      reportDate: '2000-01-01',
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: '2000-01-01',
+          commission: 7.5,
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: true,
+    })
+
+    expect(result).toEqual({
+      reportDate: '2000-01-01',
+      totalCommission: 7.5,
+      attributedCommission: 7.5,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 2,
+    })
+
+    expect(queryOne).toHaveBeenCalledTimes(1)
+    expect(exec).not.toHaveBeenCalled()
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('bypasses historical lock when existing attribution is partial and fetched total is higher', async () => {
+    queryOne.mockResolvedValueOnce({
+      written_rows: 1,
       attributed_commission: 7.5,
       attributed_offers: 1,
       attributed_campaigns: 1,
@@ -56,18 +93,18 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
           commission: 10,
         },
       ],
-      replaceExisting: true,
+      replaceExisting: false,
       lockHistorical: true,
     })
 
     expect(result).toEqual({
       reportDate: '2000-01-01',
       totalCommission: 10,
-      attributedCommission: 7.5,
-      unattributedCommission: 2.5,
-      attributedOffers: 1,
-      attributedCampaigns: 1,
-      writtenRows: 2,
+      attributedCommission: 0,
+      unattributedCommission: 10,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
     })
 
     expect(queryOne).toHaveBeenCalledTimes(1)
@@ -177,10 +214,10 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     const today = formatLocalYmd(new Date())
 
     query.mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM affiliate_products') && sql.includes('mid IN')) {
+      if (sql.includes('FROM affiliate_products') && sql.includes('LOWER(COALESCE(mid')) {
         return []
       }
-      if (sql.includes("platform = 'partnerboost'") && sql.includes('promo_link LIKE')) {
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('LOWER(COALESCE(promo_link')) {
         return [
           {
             id: 501,
@@ -237,11 +274,76 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
   })
 
+  it('falls back to offer links by aa_adgroupid when affiliate_products lookup misses', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('LOWER(COALESCE(promo_link')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_products')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return []
+      }
+      if (sql.includes('FROM offers')) {
+        return [
+          {
+            id: 2001,
+            url: null,
+            final_url: null,
+            affiliate_link: 'https://www.amazon.com/dp/B0C7GYLKPM?aa_adgroupid=pb_link_123',
+          },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 10,
+            cost: 2,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 9.87,
+          sourceOrderId: 'order-link-fallback-1',
+          sourceLinkId: 'pb_link_123',
+          raw: { estCommission: 9.87 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 9.87,
+      attributedCommission: 9.87,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+  })
+
   it('prefers partnerboost link-id match over asin/mid candidates', async () => {
     const today = formatLocalYmd(new Date())
 
     query.mockImplementation(async (sql: string) => {
-      if (sql.includes("platform = 'partnerboost'") && sql.includes('promo_link LIKE')) {
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('LOWER(COALESCE(promo_link')) {
         return [
           {
             id: 202,

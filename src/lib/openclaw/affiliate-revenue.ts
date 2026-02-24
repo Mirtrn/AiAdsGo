@@ -57,6 +57,73 @@ const PARTNERBOOST_COMMISSION_ALIASES = [
   'earning',
 ]
 
+const PARTNERBOOST_ORDER_ID_ALIASES = [
+  'order_id',
+  'orderId',
+  'orderID',
+  'oid',
+  'Order ID',
+  'order id',
+]
+
+const PARTNERBOOST_LINK_ID_ALIASES = [
+  'aa_adgroupid',
+  'aaAdgroupid',
+  'adGroupId',
+  'ad_group_id',
+  'Ad Group Id',
+  'click_ref',
+  'clickRef',
+  'Click Ref',
+]
+
+const PARTNERBOOST_LINK_ALIASES = [
+  'link',
+  'url',
+  'product_link',
+  'productLink',
+  'landing_page',
+  'landingPage',
+  'final_url',
+  'finalUrl',
+  'Referrer URL',
+  'referrer_url',
+]
+
+const PARTNERBOOST_SOURCE_MID_ALIASES = [
+  'partnerboost_id',
+  'PartnerBoost ID',
+  'partnerboost id',
+  'partnerboostid',
+  'mcid',
+  'MCID',
+  'mid',
+  'MID',
+  'advert_id',
+  'advertId',
+  'product_mid',
+  'productMid',
+  'product_id',
+  'productId',
+  'brand_id',
+  'brandId',
+]
+
+const PARTNERBOOST_SOURCE_ASIN_ALIASES = [
+  'asin',
+  'ASIN',
+  'product_asin',
+  'productAsin',
+  'product_id',
+  'productId',
+  'Product ID',
+  'product id',
+  'prod_id',
+  'prodId',
+  'sku',
+  'SKU',
+]
+
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -409,52 +476,23 @@ async function fetchPartnerboostCommission(params: {
   }
 
   const reportRowsByOrderId = new Map<string, any>()
-  const reportRowsWithAdGroup: Array<{ sourceLink: string | null; sourceLinkId: string }> = []
+  const reportRowsWithAdGroup: Array<{
+    sourceLink: string | null
+    sourceLinkId: string
+    reportRow: any
+  }> = []
 
   for (const row of reportRows) {
-    const orderId = pickString(
-      getFieldValue(row, [
-        'order_id',
-        'orderId',
-        'orderID',
-        'oid',
-        'Order ID',
-        'order id',
-      ])
-    )
+    const orderId = pickString(getFieldValue(row, PARTNERBOOST_ORDER_ID_ALIASES))
     if (orderId && !reportRowsByOrderId.has(orderId)) {
       reportRowsByOrderId.set(orderId, row)
     }
 
-    const sourceLinkId = pickString(
-      getFieldValue(row, [
-        'aa_adgroupid',
-        'aaAdgroupid',
-        'adGroupId',
-        'ad_group_id',
-        'Ad Group Id',
-        'click_ref',
-        'clickRef',
-        'Click Ref',
-      ])
-    )
+    const sourceLinkId = pickString(getFieldValue(row, PARTNERBOOST_LINK_ID_ALIASES))
     if (!sourceLinkId) continue
 
-    const sourceLink = pickString(
-      getFieldValue(row, [
-        'link',
-        'url',
-        'product_link',
-        'productLink',
-        'landing_page',
-        'landingPage',
-        'final_url',
-        'finalUrl',
-        'Referrer URL',
-        'referrer_url',
-      ])
-    )
-    reportRowsWithAdGroup.push({ sourceLink, sourceLinkId })
+    const sourceLink = pickString(getFieldValue(row, PARTNERBOOST_LINK_ALIASES))
+    reportRowsWithAdGroup.push({ sourceLink, sourceLinkId, reportRow: row })
   }
 
   const uniqueReportAdGroupIds = Array.from(
@@ -540,77 +578,31 @@ async function fetchPartnerboostCommission(params: {
     row: any
     commission: number
     matchedReportRow?: any | null
+    fallbackReportRow?: any | null
     sourceLinkFallback?: string | null
     sourceLinkIdFallback?: string | null
   }) => {
     const row = paramsForEntry.row
     const matchedReportRow = paramsForEntry.matchedReportRow || null
+    const fallbackReportRow = paramsForEntry.fallbackReportRow || null
     const sourceLink = pickString(
-      getFieldValue(row, [
-        'link',
-        'url',
-        'product_link',
-        'productLink',
-        'landing_page',
-        'landingPage',
-        'final_url',
-        'finalUrl',
-        'Referrer URL',
-        'referrer_url',
-      ]),
-      getFieldValue(matchedReportRow, [
-        'link',
-        'url',
-        'product_link',
-        'productLink',
-        'landing_page',
-        'landingPage',
-        'final_url',
-        'finalUrl',
-        'Referrer URL',
-        'referrer_url',
-      ]),
+      getFieldValue(row, PARTNERBOOST_LINK_ALIASES),
+      getFieldValue(matchedReportRow, PARTNERBOOST_LINK_ALIASES),
+      getFieldValue(fallbackReportRow, PARTNERBOOST_LINK_ALIASES),
       paramsForEntry.sourceLinkFallback,
     )
 
     const sourceLinkId = pickString(
-      getFieldValue(row, [
-        'aa_adgroupid',
-        'aaAdgroupid',
-        'adGroupId',
-        'ad_group_id',
-        'Ad Group Id',
-        'click_ref',
-        'clickRef',
-        'Click Ref',
-      ]),
-      getFieldValue(matchedReportRow, [
-        'aa_adgroupid',
-        'aaAdgroupid',
-        'adGroupId',
-        'ad_group_id',
-        'Ad Group Id',
-      ]),
+      getFieldValue(row, PARTNERBOOST_LINK_ID_ALIASES),
+      getFieldValue(matchedReportRow, PARTNERBOOST_LINK_ID_ALIASES),
+      getFieldValue(fallbackReportRow, PARTNERBOOST_LINK_ID_ALIASES),
       paramsForEntry.sourceLinkIdFallback,
     )
 
     const sourceOrderId = pickString(
-      getFieldValue(row, [
-        'order_id',
-        'orderId',
-        'orderID',
-        'oid',
-        'Order ID',
-        'order id',
-      ]),
-      getFieldValue(matchedReportRow, [
-        'order_id',
-        'orderId',
-        'orderID',
-        'oid',
-        'Order ID',
-        'order id',
-      ])
+      getFieldValue(row, PARTNERBOOST_ORDER_ID_ALIASES),
+      getFieldValue(matchedReportRow, PARTNERBOOST_ORDER_ID_ALIASES),
+      getFieldValue(fallbackReportRow, PARTNERBOOST_ORDER_ID_ALIASES),
     )
 
     entries.push({
@@ -622,74 +614,16 @@ async function fetchPartnerboostCommission(params: {
       ),
       sourceOrderId,
       sourceMid: pickMid(
-        sourceLinkId,
-        getFieldValue(row, [
-          'partnerboost_id',
-          'PartnerBoost ID',
-          'partnerboost id',
-          'partnerboostid',
-          'mcid',
-          'MCID',
-          'mid',
-          'MID',
-          'advert_id',
-          'advertId',
-          'product_mid',
-          'productMid',
-          'product_id',
-          'productId',
-          'brand_id',
-          'brandId',
-        ]),
-        getFieldValue(matchedReportRow, [
-          'partnerboost_id',
-          'PartnerBoost ID',
-          'partnerboost id',
-          'partnerboostid',
-          'mcid',
-          'MCID',
-          'mid',
-          'MID',
-          'advert_id',
-          'advertId',
-          'product_mid',
-          'productMid',
-          'product_id',
-          'productId',
-          'brand_id',
-          'brandId',
-        ])
+        getFieldValue(row, PARTNERBOOST_SOURCE_MID_ALIASES),
+        getFieldValue(matchedReportRow, PARTNERBOOST_SOURCE_MID_ALIASES),
+        getFieldValue(fallbackReportRow, PARTNERBOOST_SOURCE_MID_ALIASES),
+        sourceLinkId
       ),
       sourceAsin: normalizeAsin(
         pickAsin(
-          getFieldValue(row, [
-            'asin',
-            'ASIN',
-            'product_asin',
-            'productAsin',
-            'product_id',
-            'productId',
-            'Product ID',
-            'product id',
-            'prod_id',
-            'prodId',
-            'sku',
-            'SKU',
-          ]),
-          getFieldValue(matchedReportRow, [
-            'asin',
-            'ASIN',
-            'product_asin',
-            'productAsin',
-            'product_id',
-            'productId',
-            'Product ID',
-            'product id',
-            'prod_id',
-            'prodId',
-            'sku',
-            'SKU',
-          ]),
+          getFieldValue(row, PARTNERBOOST_SOURCE_ASIN_ALIASES),
+          getFieldValue(matchedReportRow, PARTNERBOOST_SOURCE_ASIN_ALIASES),
+          getFieldValue(fallbackReportRow, PARTNERBOOST_SOURCE_ASIN_ALIASES),
           sourceLink
         )
       ),
@@ -707,22 +641,14 @@ async function fetchPartnerboostCommission(params: {
 
       if (commission <= 0) continue
 
-      const orderId = pickString(
-        getFieldValue(row, [
-          'order_id',
-          'orderId',
-          'orderID',
-          'oid',
-          'Order ID',
-          'order id',
-        ])
-      )
+      const orderId = pickString(getFieldValue(row, PARTNERBOOST_ORDER_ID_ALIASES))
       const matchedReportRow = orderId ? (reportRowsByOrderId.get(orderId) || null) : null
 
       appendPartnerboostEntry({
         row,
         commission,
         matchedReportRow,
+        fallbackReportRow: matchedReportRow ? null : singleAdGroupFallback?.reportRow || null,
         sourceLinkFallback: matchedReportRow ? null : singleAdGroupFallback?.sourceLink || null,
         sourceLinkIdFallback: matchedReportRow ? null : singleAdGroupFallback?.sourceLinkId || null,
       })

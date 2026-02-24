@@ -58,6 +58,8 @@ function roundTo(value: number, decimals = 4): number {
   return Math.round(value * factor) / factor
 }
 
+const ATTRIBUTION_EPSILON = 0.0001
+
 function normalizeText(value: unknown): string | null {
   if (value === null || value === undefined) return null
   const trimmed = String(value).trim()
@@ -70,6 +72,12 @@ function normalizeAsin(value: unknown): string | null {
   const normalized = text.toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (!normalized) return null
   return normalized.length > 10 ? normalized.slice(0, 10) : normalized
+}
+
+function normalizeMidForPlatform(platform: AffiliatePlatform, value: unknown): string | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  return platform === 'partnerboost' ? text.toLowerCase() : text
 }
 
 function extractAsinFromUrlLike(value: unknown): string | null {
@@ -260,7 +268,13 @@ async function queryProductIdentifierRows(params: {
 }): Promise<Array<{ id: number; mid: string | null; asin: string | null }>> {
   const db = await getDatabase()
 
-  const mids = Array.from(new Set(params.mids.filter(Boolean)))
+  const mids = Array.from(
+    new Set(
+      params.mids
+        .map((mid) => normalizeMidForPlatform(params.platform, mid))
+        .filter((mid): mid is string => Boolean(mid))
+    )
+  )
   const asins = Array.from(new Set(params.asins.filter(Boolean)))
 
   if (mids.length === 0 && asins.length === 0) {
@@ -290,7 +304,11 @@ async function queryProductIdentifierRows(params: {
       const queryParams: Array<number | string> = [params.userId, params.platform]
 
       if (midChunk.length > 0) {
-        conditions.push(`mid IN (${midChunk.map(() => '?').join(', ')})`)
+        if (params.platform === 'partnerboost') {
+          conditions.push(`LOWER(COALESCE(mid, '')) IN (${midChunk.map(() => '?').join(', ')})`)
+        } else {
+          conditions.push(`mid IN (${midChunk.map(() => '?').join(', ')})`)
+        }
         queryParams.push(...midChunk)
       }
 
@@ -340,16 +358,23 @@ async function queryPartnerboostProductIdsByLinkIds(params: {
   )
   if (linkIds.length === 0) return result
 
-  const linkIdSet = new Set(linkIds)
+  const normalizedLinkIds = linkIds.map((item) => item.toLowerCase())
+  const linkIdSet = new Set(normalizedLinkIds)
   const db = await getDatabase()
   const rowSeen = new Set<number>()
 
-  for (const linkIdChunk of chunkArray(linkIds, 80)) {
-    const conditions = linkIdChunk.map(() => '(promo_link LIKE ? OR short_promo_link LIKE ?)')
+  for (const linkIdChunk of chunkArray(normalizedLinkIds, 80)) {
+    const conditions = linkIdChunk.map(
+      () => `(
+        LOWER(COALESCE(promo_link, '')) LIKE ? OR LOWER(COALESCE(short_promo_link, '')) LIKE ?
+        OR LOWER(COALESCE(promo_link, '')) LIKE ? OR LOWER(COALESCE(short_promo_link, '')) LIKE ?
+      )`
+    )
     const queryParams: Array<number | string> = [params.userId]
     for (const linkId of linkIdChunk) {
-      const pattern = `%aa_adgroupid=${linkId}%`
-      queryParams.push(pattern, pattern)
+      const rawPattern = `%aa_adgroupid=${linkId}%`
+      const encodedPattern = `%aa_adgroupid%3d${linkId}%`
+      queryParams.push(rawPattern, rawPattern, encodedPattern, encodedPattern)
     }
 
     const rows = await db.query<{
@@ -379,11 +404,12 @@ async function queryPartnerboostProductIdsByLinkIds(params: {
       if (shortLinkId) candidateLinkIds.add(shortLinkId)
 
       for (const linkId of candidateLinkIds) {
-        if (!linkIdSet.has(linkId)) continue
-        const existing = result.get(linkId) || []
+        const normalizedLinkId = linkId.toLowerCase()
+        if (!linkIdSet.has(normalizedLinkId)) continue
+        const existing = result.get(normalizedLinkId) || []
         if (!existing.includes(productId)) {
           existing.push(productId)
-          result.set(linkId, existing)
+          result.set(normalizedLinkId, existing)
         }
       }
     }
@@ -488,6 +514,70 @@ async function queryActiveOfferIdsByAsins(params: {
   return linksByAsin
 }
 
+async function queryActiveOfferIdsByPartnerboostLinkIds(params: {
+  userId: number
+  linkIds: string[]
+}): Promise<Map<string, number[]>> {
+  const linksByLinkId = new Map<string, number[]>()
+  const requestedLinkIds = Array.from(
+    new Set(
+      params.linkIds
+        .map((item) => normalizeText(item)?.toLowerCase())
+        .filter((item): item is string => Boolean(item))
+    )
+  )
+
+  if (requestedLinkIds.length === 0) {
+    return linksByLinkId
+  }
+
+  const requestedLinkIdSet = new Set(requestedLinkIds)
+  const db = await getDatabase()
+  const offerNotDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const rows = await db.query<{
+    id: number
+    url: string | null
+    final_url: string | null
+    affiliate_link: string | null
+  }>(
+    `
+      SELECT id, url, final_url, affiliate_link
+      FROM offers
+      WHERE user_id = ?
+        AND ${offerNotDeletedCondition}
+    `,
+    [params.userId]
+  )
+
+  for (const row of rows) {
+    const offerId = Number(row.id)
+    if (!Number.isFinite(offerId)) continue
+
+    const linkIdCandidates = new Set<string>()
+    const urlLinkId = extractPartnerboostLinkId(row.url)?.toLowerCase()
+    const finalUrlLinkId = extractPartnerboostLinkId(row.final_url)?.toLowerCase()
+    const affiliateLinkId = extractPartnerboostLinkId(row.affiliate_link)?.toLowerCase()
+
+    if (urlLinkId) linkIdCandidates.add(urlLinkId)
+    if (finalUrlLinkId) linkIdCandidates.add(finalUrlLinkId)
+    if (affiliateLinkId) linkIdCandidates.add(affiliateLinkId)
+
+    for (const linkId of linkIdCandidates) {
+      if (!requestedLinkIdSet.has(linkId)) continue
+      const existing = linksByLinkId.get(linkId) || []
+      if (!existing.includes(offerId)) {
+        existing.push(offerId)
+        linksByLinkId.set(linkId, existing)
+      }
+    }
+  }
+
+  return linksByLinkId
+}
+
 async function queryCampaignWeights(params: {
   userId: number
   reportDate: string
@@ -579,7 +669,7 @@ export async function persistAffiliateCommissionAttributions(params: {
 
       const sourceLink = normalizeText(entry.sourceLink)
       const sourceLinkId = entry.platform === 'partnerboost'
-        ? (normalizeText(entry.sourceLinkId) || extractPartnerboostLinkId(sourceLink))
+        ? (normalizeText(entry.sourceLinkId)?.toLowerCase() || extractPartnerboostLinkId(sourceLink)?.toLowerCase() || null)
         : null
 
       return {
@@ -588,7 +678,7 @@ export async function persistAffiliateCommissionAttributions(params: {
         commission,
         currency: normalizeText(entry.currency)?.toUpperCase() || 'USD',
         sourceOrderId: normalizeText(entry.sourceOrderId),
-        sourceMid: normalizeText(entry.sourceMid),
+        sourceMid: normalizeMidForPlatform(entry.platform, entry.sourceMid),
         sourceAsin: normalizeAsin(entry.sourceAsin),
         sourceLink,
         sourceLinkId,
@@ -610,7 +700,14 @@ export async function persistAffiliateCommissionAttributions(params: {
     })
 
     if (existingSummary) {
-      return existingSummary
+      // Historical lock should prevent accidental overwrite, but when existing rows are only
+      // partially attributed and today's fetched total is higher, we should allow recompute.
+      const shouldKeepExisting =
+        totalCommission <= 0
+        || existingSummary.attributedCommission + ATTRIBUTION_EPSILON >= totalCommission
+      if (shouldKeepExisting) {
+        return existingSummary
+      }
     }
   }
 
@@ -694,7 +791,7 @@ export async function persistAffiliateCommissionAttributions(params: {
       if (!Number.isFinite(productId)) continue
       allProductIds.add(productId)
 
-      const mid = normalizeText(row.mid)
+      const mid = normalizeMidForPlatform(platform, row.mid)
       if (mid) {
         const key = `${platform}|mid|${mid}`
         const existing = productIdsByPlatformMid.get(key) || []
@@ -746,7 +843,19 @@ export async function persistAffiliateCommissionAttributions(params: {
       .map((entry) => entry.sourceAsin)
       .filter((asin): asin is string => Boolean(asin)),
   })
+  const fallbackOfferIdsByPartnerboostLinkId = await queryActiveOfferIdsByPartnerboostLinkIds({
+    userId: params.userId,
+    linkIds: normalizedEntries
+      .filter((entry) => entry.platform === 'partnerboost')
+      .map((entry) => entry.sourceLinkId)
+      .filter((linkId): linkId is string => Boolean(linkId)),
+  })
   for (const offerIds of fallbackOfferIdsByAsin.values()) {
+    for (const offerId of offerIds) {
+      allOfferIds.add(offerId)
+    }
+  }
+  for (const offerIds of fallbackOfferIdsByPartnerboostLinkId.values()) {
     for (const offerId of offerIds) {
       allOfferIds.add(offerId)
     }
@@ -821,6 +930,17 @@ export async function persistAffiliateCommissionAttributions(params: {
       for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
         matchedOfferIds.add(offerId)
         fallbackMatchedOfferIds.add(offerId)
+      }
+    }
+
+    const shouldApplyLinkIdFallback =
+      !hasPartnerboostLinkHit
+      && entry.platform === 'partnerboost'
+      && Boolean(entry.sourceLinkId)
+    if (shouldApplyLinkIdFallback && entry.sourceLinkId) {
+      for (const offerId of fallbackOfferIdsByPartnerboostLinkId.get(entry.sourceLinkId) || []) {
+        matchedOfferIds.add(offerId)
+        explicitMatchedOfferIds.add(offerId)
       }
     }
 
