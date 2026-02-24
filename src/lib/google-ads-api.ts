@@ -616,6 +616,44 @@ function escapeGaqlStringLiteral(value: string): string {
   return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
+function normalizeCampaignDateValue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  if (!normalized) return undefined
+
+  const ymd = normalized.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (ymd) return ymd[1]
+
+  const compact = normalized.match(/^(\d{4})(\d{2})(\d{2})/)
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`
+
+  return normalized
+}
+
+// 兼容 Google Ads API v23：Campaign.start_date/end_date 已迁移为 *_date_time
+function normalizeCampaignDateFields(rows: any[]): any[] {
+  return rows.map((row: any) => {
+    const campaign = row?.campaign
+    if (!campaign || typeof campaign !== 'object') {
+      return row
+    }
+
+    const startDate = normalizeCampaignDateValue(campaign.start_date_time)
+      ?? normalizeCampaignDateValue(campaign.start_date)
+    const endDate = normalizeCampaignDateValue(campaign.end_date_time)
+      ?? normalizeCampaignDateValue(campaign.end_date)
+
+    return {
+      ...row,
+      campaign: {
+        ...campaign,
+        ...(startDate ? { start_date: startDate } : {}),
+        ...(endDate ? { end_date: endDate } : {}),
+      },
+    }
+  })
+}
+
 async function findExistingCampaignByName(params: {
   customerId: string
   refreshToken: string
@@ -1318,27 +1356,28 @@ export async function getGoogleAdsCampaign(params: {
     }
   }
 
-  const query = `
-    SELECT
-      campaign.id,
-      campaign.name,
-      campaign.status,
-      campaign.advertising_channel_type,
-      campaign.start_date,
-      campaign.end_date,
-      campaign_budget.amount_micros,
-      metrics.cost_micros,
-      metrics.impressions,
-      metrics.clicks,
-      metrics.conversions
-    FROM campaign
-    WHERE campaign.id = ${params.campaignId}
-  `
-
   const authType = params.authType || 'oauth'
   let results: any[]
 
   if (authType === 'service_account') {
+    // Google Ads API v23 起：Campaign.start_date/end_date => start_date_time/end_date_time
+    const query = `
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.status,
+        campaign.advertising_channel_type,
+        campaign.start_date_time,
+        campaign.end_date_time,
+        campaign_budget.amount_micros,
+        metrics.cost_micros,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.conversions
+      FROM campaign
+      WHERE campaign.id = ${params.campaignId}
+    `
+
     const { executeGAQLQueryPython } = await import('./python-ads-client')
     const result = await executeGAQLQueryPython({
       userId: params.userId,
@@ -1346,8 +1385,25 @@ export async function getGoogleAdsCampaign(params: {
       customerId: params.customerId,
       query,
     })
-    results = result.results || []
+    results = normalizeCampaignDateFields(result.results || [])
   } else {
+    const query = `
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.status,
+        campaign.advertising_channel_type,
+        campaign.start_date,
+        campaign.end_date,
+        campaign_budget.amount_micros,
+        metrics.cost_micros,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.conversions
+      FROM campaign
+      WHERE campaign.id = ${params.campaignId}
+    `
+
     const customer = await getCustomerWithCredentials(params)
     results = await trackOAuthApiCall(
       params.userId,
@@ -1408,8 +1464,8 @@ export async function listGoogleAdsCampaigns(params: {
         campaign.name,
         campaign.status,
         campaign.advertising_channel_type,
-        campaign.start_date,
-        campaign.end_date,
+        campaign.start_date_time,
+        campaign.end_date_time,
         campaign_budget.amount_micros
       FROM campaign
       WHERE campaign.status != 'REMOVED'
@@ -1423,7 +1479,7 @@ export async function listGoogleAdsCampaigns(params: {
       query
     })
 
-    const results = response.results || []
+    const results = normalizeCampaignDateFields(response.results || [])
 
     // 缓存结果（30分钟TTL）
     gadsApiCache.set(cacheKey, results)

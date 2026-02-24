@@ -877,11 +877,30 @@ async def create_campaign(request: CreateCampaignRequest):
             client.enums.PositiveGeoTargetTypeEnum.PRESENCE
         )
 
-        # 🔧 修复(2025-12-27): 添加日期设置
+        # 🔧 修复(2026-02-24): 兼容 Google Ads API v23 日期字段变更
+        # v23 将 Campaign.start_date/end_date 替换为 start_date_time/end_date_time
+        def normalize_campaign_date(value: str) -> str:
+            raw = value.strip().replace('/', '-')
+            m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', raw)
+            if m:
+                return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+            m = re.match(r'^(\d{4})(\d{2})(\d{2})$', raw)
+            if m:
+                return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+            return raw
+
         if request.start_date:
-            campaign.start_date = request.start_date.replace('-', '')
+            normalized_start_date = normalize_campaign_date(request.start_date)
+            if hasattr(campaign, "start_date_time"):
+                campaign.start_date_time = f"{normalized_start_date} 00:00:00"
+            else:
+                campaign.start_date = normalized_start_date.replace('-', '')
         if request.end_date:
-            campaign.end_date = request.end_date.replace('-', '')
+            normalized_end_date = normalize_campaign_date(request.end_date)
+            if hasattr(campaign, "end_date_time"):
+                campaign.end_date_time = f"{normalized_end_date} 23:59:59"
+            else:
+                campaign.end_date = normalized_end_date.replace('-', '')
 
         # 🔧 修复(2026-02-12): 统一清理 Final URL Suffix，避免 SYMBOLS policy（如全角分号）
         campaign.final_url_suffix = sanitize_final_url_suffix(request.final_url_suffix)
