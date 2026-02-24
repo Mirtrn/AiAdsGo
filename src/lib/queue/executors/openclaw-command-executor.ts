@@ -95,7 +95,11 @@ function isOfferExtractPath(path: string): boolean {
   return path === '/api/offers/extract' || path === '/api/offers/extract/stream'
 }
 
-type OfferExtractCommissionSourceMatchType = 'exact_link' | 'yeahpromos_pid' | 'partnerboost_link_id'
+type OfferExtractCommissionSourceMatchType =
+  | 'exact_link'
+  | 'yeahpromos_pid'
+  | 'yeahpromos_track'
+  | 'partnerboost_link_id'
 
 function normalizeUrlForComparison(value: unknown): string | null {
   const raw = toTrimmedString(value)
@@ -682,6 +686,7 @@ async function queryOfferExtractCommissionSourceMatch(params: {
 
   const normalizedAffiliateLink = normalizeUrlForComparison(affiliateLink)
   const yesPromosPid = extractYeahPromosPidFromLink(affiliateLink)
+  const yesPromosTrack = extractYeahPromosTrackFromLink(affiliateLink)
   const partnerboostLinkId = extractPartnerboostLinkIdFromLink(affiliateLink)
   const matchClauses: string[] = []
   const matchParams: Array<number | string> = [params.userId]
@@ -694,6 +699,12 @@ async function queryOfferExtractCommissionSourceMatch(params: {
 
   if (yesPromosPid) {
     const pattern = `%pid=${yesPromosPid}%`
+    matchClauses.push("(platform = 'yeahpromos' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
+    matchParams.push(pattern, pattern)
+  }
+
+  if (yesPromosTrack) {
+    const pattern = `%track=${yesPromosTrack}%`
     matchClauses.push("(platform = 'yeahpromos' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
     matchParams.push(pattern, pattern)
   }
@@ -751,6 +762,13 @@ async function queryOfferExtractCommissionSourceMatch(params: {
     return null
   }
 
+  const candidates: Array<{
+    score: number
+    productId: number
+    commissionRate: number
+    matchedBy: OfferExtractCommissionSourceMatchType
+  }> = []
+
   let bestMatch: {
     score: number
     productId: number
@@ -765,6 +783,7 @@ async function queryOfferExtractCommissionSourceMatch(params: {
       continue
     }
 
+    const rowPlatform = (toTrimmedString(row.platform) || '').toLowerCase()
     const promoLink = toTrimmedString(row.promo_link)
     const shortPromoLink = toTrimmedString(row.short_promo_link)
     const rowLinks = [promoLink, shortPromoLink].filter((item): item is string => Boolean(item))
@@ -779,11 +798,19 @@ async function queryOfferExtractCommissionSourceMatch(params: {
       }
     }
 
-    if (yesPromosPid && score < 200) {
+    if (yesPromosPid && rowPlatform === 'yeahpromos' && score < 200) {
       const hasPidMatch = rowLinks.some((candidate) => extractYeahPromosPidFromLink(candidate) === yesPromosPid)
       if (hasPidMatch) {
         matchedBy = 'yeahpromos_pid'
         score = 200
+      }
+    }
+
+    if (yesPromosTrack && rowPlatform === 'yeahpromos' && score < 180) {
+      const hasTrackMatch = rowLinks.some((candidate) => extractYeahPromosTrackFromLink(candidate) === yesPromosTrack)
+      if (hasTrackMatch) {
+        matchedBy = 'yeahpromos_track'
+        score = 180
       }
     }
 
@@ -801,18 +828,38 @@ async function queryOfferExtractCommissionSourceMatch(params: {
       continue
     }
 
+    const candidate = {
+      score,
+      productId,
+      commissionRate: roundTo2(rawRate),
+      matchedBy,
+    }
+    candidates.push(candidate)
+
     if (!bestMatch || score > bestMatch.score) {
-      bestMatch = {
-        score,
-        productId,
-        commissionRate: roundTo2(rawRate),
-        matchedBy,
-      }
+      bestMatch = candidate
     }
   }
 
   if (!bestMatch) {
     return null
+  }
+
+  if (bestMatch.matchedBy === 'yeahpromos_track') {
+    const sameScoreTrackCandidates = candidates.filter(
+      (item) => item.matchedBy === 'yeahpromos_track' && item.score === bestMatch.score
+    )
+    const hasDivergentRate = sameScoreTrackCandidates.some(
+      (item) => Math.abs(item.commissionRate - bestMatch.commissionRate) > 0.05
+    )
+    if (hasDivergentRate) {
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn(
+          `[OpenClawCommand] 来源纠偏跳过：yeahpromos track=${yesPromosTrack || '-'} 存在多个佣金候选(${sameScoreTrackCandidates.map((item) => item.commissionRate).join(', ')})`
+        )
+      }
+      return null
+    }
   }
 
   return {
