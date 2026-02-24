@@ -1199,6 +1199,57 @@ export async function updateGoogleAdsCampaignStatus(params: {
 }
 
 /**
+ * 更新 Google Ads 关键词状态（Ad Group Criterion）
+ */
+export async function updateGoogleAdsKeywordStatus(params: {
+  customerId: string
+  refreshToken: string
+  adGroupId: string
+  keywordId: string
+  status: 'ENABLED' | 'PAUSED'
+  accountId?: number
+  userId: number
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
+}): Promise<void> {
+  const authType = params.authType || 'oauth'
+  if (authType === 'service_account') {
+    throw new Error('服务账号模式暂不支持关键词状态更新，请先使用OAuth账号执行')
+  }
+
+  const customer = await getCustomerWithCredentials({
+    customerId: params.customerId,
+    refreshToken: params.refreshToken,
+    accountId: params.accountId,
+    userId: params.userId,
+    loginCustomerId: params.loginCustomerId,
+    authType,
+    serviceAccountId: params.serviceAccountId,
+  })
+
+  const resourceName = `customers/${params.customerId}/adGroupCriteria/${params.adGroupId}~${params.keywordId}`
+
+  await trackOAuthApiCall(
+    params.userId,
+    params.customerId,
+    ApiOperationType.MUTATE,
+    '/api/google-ads/keyword/update-status',
+    () => withRetry(
+      () => customer.adGroupCriteria.update([{
+        resource_name: resourceName,
+        status: enums.AdGroupCriterionStatus[params.status],
+      }]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Update Keyword Status: ${params.keywordId} -> ${params.status}`,
+      }
+    )
+  )
+}
+
+/**
  * 删除Google Ads广告系列
  */
 export async function removeGoogleAdsCampaign(params: {

@@ -7,6 +7,14 @@ const dbFns = vi.hoisted(() => ({
   exec: vi.fn(),
 }))
 
+const authFns = vi.hoisted(() => ({
+  verifyAuth: vi.fn(),
+}))
+
+vi.mock('@/lib/auth', () => ({
+  verifyAuth: authFns.verifyAuth,
+}))
+
 vi.mock('@/lib/db', () => ({
   getDatabase: vi.fn(async () => ({
     type: 'postgres',
@@ -41,6 +49,12 @@ vi.mock('@/lib/google-ads-mutate-helpers', () => ({
 describe('PUT /api/campaigns/:id/update-cpc', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    authFns.verifyAuth.mockResolvedValue({
+      authenticated: true,
+      user: {
+        userId: 1,
+      },
+    })
     dbFns.exec.mockResolvedValue({ changes: 1 })
   })
 
@@ -65,7 +79,6 @@ describe('PUT /api/campaigns/:id/update-cpc', () => {
       method: 'PUT',
       headers: {
         'content-type': 'application/json',
-        'x-user-id': '1',
       },
       body: JSON.stringify({
         newCpc: 0.2,
@@ -82,4 +95,3 @@ describe('PUT /api/campaigns/:id/update-cpc', () => {
     expect(data.expectedPath).toBe('/api/campaigns/23578044853/update-cpc')
   })
 })
-

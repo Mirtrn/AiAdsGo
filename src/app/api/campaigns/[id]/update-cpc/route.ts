@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyAuth } from '@/lib/auth'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
@@ -140,12 +141,14 @@ export async function PUT(
     const { id: campaignId } = params
     const requestId = request.headers.get('x-request-id') || undefined
 
-    // 从中间件注入的请求头中获取用户ID
-    const userId = request.headers.get('x-user-id')
-    if (!userId) {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
-    const numericUserId = parseInt(userId, 10)
+    const numericUserId = Number(authResult.user.userId)
+    if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
     const campaignIdNum = Number(campaignId)
     if (!Number.isFinite(campaignIdNum)) {
       return NextResponse.json({ error: '无效的campaignId' }, { status: 400 })

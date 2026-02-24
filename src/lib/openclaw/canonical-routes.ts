@@ -177,6 +177,7 @@ const WRITE_ROUTE_DEFINITIONS: CanonicalRouteDefinition[] = [
   { method: 'PUT', pattern: '/api/campaigns/:id/toggle-status', feature: 'campaign-management' },
   { method: 'POST', pattern: '/api/campaigns/:id/offline', feature: 'campaign-management' },
   { method: 'PUT', pattern: '/api/campaigns/:id/update-cpc', feature: 'campaign-management' },
+  { method: 'PUT', pattern: '/api/campaigns/:id/update-budget', feature: 'campaign-management' },
   { method: 'POST', pattern: '/api/campaigns/:id/sync', feature: 'campaign-management' },
   { method: 'POST', pattern: '/api/campaigns/circuit-break', feature: 'campaign-management' },
 

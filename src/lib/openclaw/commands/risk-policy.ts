@@ -122,6 +122,7 @@ const ROUTE_RISK_POLICIES: RouteRiskPolicy[] = [
   { method: 'PUT', path: '/api/campaigns/:id/toggle-status', riskLevel: 'high' },
   { method: 'POST', path: '/api/campaigns/:id/offline', riskLevel: 'high' },
   { method: 'PUT', path: '/api/campaigns/:id/update-cpc', riskLevel: 'high' },
+  { method: 'PUT', path: '/api/campaigns/:id/update-budget', riskLevel: 'high' },
   { method: 'POST', path: '/api/campaigns/:id/sync', riskLevel: 'high' },
   { method: 'POST', path: '/api/campaigns/circuit-break', riskLevel: 'high' },
   { method: 'POST', path: '/api/url-swap/tasks', riskLevel: 'medium' },

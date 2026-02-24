@@ -8,11 +8,22 @@ import { generateNamingScheme } from '@/lib/naming-convention'
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import {
+  executeStrategyRecommendation,
+  markStrategyRecommendationReviewQueued,
+  reviewStrategyRecommendationEffect,
+  type StrategyRecommendationQueueTaskData,
+} from '@/lib/openclaw/strategy-recommendations'
+import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 
 export type OpenclawStrategyTaskData = {
   userId: number
   mode?: string
   trigger?: string
+  kind?: StrategyRecommendationQueueTaskData['kind']
+  recommendationId?: string
+  confirm?: boolean
+  scheduledAt?: string
 }
 
 type AsinItemRow = {
@@ -1529,9 +1540,86 @@ async function enforceDailySpendCircuitBreak(params: {
   }
 }
 
+function isStrategyRecommendationTaskData(data: OpenclawStrategyTaskData | undefined): data is StrategyRecommendationQueueTaskData {
+  const kind = String(data?.kind || '').trim()
+  const recommendationId = String(data?.recommendationId || '').trim()
+  if (!recommendationId) return false
+  return kind === 'execute_recommendation' || kind === 'review_recommendation'
+}
+
+async function executeStrategyRecommendationTask(
+  task: Task<OpenclawStrategyTaskData & StrategyRecommendationQueueTaskData>
+): Promise<{ success: boolean; skipped?: boolean }> {
+  const recommendationId = String(task.data?.recommendationId || '').trim()
+  const kind = String(task.data?.kind || '').trim() as StrategyRecommendationQueueTaskData['kind']
+  const userId = Number(task.data?.userId || task.userId)
+
+  if (!recommendationId || !kind) {
+    throw new Error('策略建议队列任务缺少必要参数')
+  }
+
+  if (kind === 'review_recommendation') {
+    await reviewStrategyRecommendationEffect({
+      userId,
+      recommendationId,
+      force: false,
+    })
+    return { success: true }
+  }
+
+  const executed = await executeStrategyRecommendation({
+    userId,
+    recommendationId,
+    confirm: task.data?.confirm === true,
+    queueTaskId: task.id,
+  })
+
+  const reviewWindowDays = Math.max(1, Math.floor(Number(executed.data?.impactWindowDays || 3)))
+  const scheduledAt = new Date(Date.now() + reviewWindowDays * 24 * 60 * 60 * 1000).toISOString()
+  try {
+    const queue = getQueueManagerForTaskType('openclaw-strategy')
+    const reviewTaskId = await queue.enqueue(
+      'openclaw-strategy',
+      {
+        userId,
+        mode: 'manual',
+        trigger: 'strategy_recommendation_review',
+        kind: 'review_recommendation',
+        recommendationId,
+        scheduledAt,
+      } satisfies StrategyRecommendationQueueTaskData,
+      userId,
+      {
+        priority: 'low',
+        maxRetries: 0,
+        parentRequestId: task.parentRequestId,
+      }
+    )
+
+    await markStrategyRecommendationReviewQueued({
+      userId,
+      recommendationId,
+      taskId: reviewTaskId,
+      scheduledAt,
+    })
+  } catch (error: any) {
+    console.warn(
+      `[OpenClawStrategy] post-review queue schedule failed: recommendationId=${recommendationId}, error=${error?.message || error}`
+    )
+  }
+
+  return { success: true }
+}
+
 export async function executeOpenclawStrategy(
   task: Task<OpenclawStrategyTaskData>
 ): Promise<{ success: boolean; runId?: string; skipped?: boolean }> {
+  if (isStrategyRecommendationTaskData(task.data)) {
+    return executeStrategyRecommendationTask(
+      task as Task<OpenclawStrategyTaskData & StrategyRecommendationQueueTaskData>
+    )
+  }
+
   const userId = task.data?.userId || task.userId
   const db = await getDatabase()
   const userAccess = await db.queryOne<{ openclaw_enabled: boolean | number }>(

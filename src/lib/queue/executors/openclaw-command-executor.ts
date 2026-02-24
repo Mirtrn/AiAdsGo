@@ -1406,6 +1406,11 @@ function extractUpdateCpcCampaignId(path: string): string | null {
   return match?.[1] || null
 }
 
+function extractUpdateBudgetCampaignId(path: string): string | null {
+  const match = String(path || '').match(/^\/api\/campaigns\/(\d+)\/update-budget$/)
+  return match?.[1] || null
+}
+
 function extractLocalCampaignRoutePath(path: string): { campaignId: string; suffix: '' | '/toggle-status' | '/offline' | '/sync' } | null {
   const match = String(path || '').match(/^\/api\/campaigns\/(\d+)(?:\/(toggle-status|offline|sync))?$/)
   if (!match) return null
@@ -1558,6 +1563,84 @@ async function assertUpdateCpcRouteIdSemantic(params: {
       localCampaignId,
       googleCampaignId: expectedGoogleCampaignId,
       expectedPath: `/api/campaigns/${expectedGoogleCampaignId}/update-cpc`,
+    })
+  }
+}
+
+async function assertUpdateBudgetRouteIdSemantic(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  method: string
+  path: string
+}): Promise<void> {
+  if (params.method.toUpperCase() !== 'PUT') return
+
+  const pathCampaignId = extractUpdateBudgetCampaignId(params.path)
+  if (!pathCampaignId) return
+
+  const linkedByGoogleCampaignId = await params.db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM campaigns
+      WHERE user_id = ?
+        AND status != 'REMOVED'
+        AND google_campaign_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [params.userId, pathCampaignId]
+  )
+
+  if (linkedByGoogleCampaignId?.id) return
+
+  const localCampaignId = Number(pathCampaignId)
+  if (!Number.isFinite(localCampaignId)) return
+
+  const localCampaign = await params.db.queryOne<{
+    id: number
+    campaign_id: string | null
+    google_campaign_id: string | null
+    status: string | null
+    is_deleted: any
+  }>(
+    `
+      SELECT id, campaign_id, google_campaign_id, status, is_deleted
+      FROM campaigns
+      WHERE user_id = ?
+        AND id = ?
+      LIMIT 1
+    `,
+    [params.userId, localCampaignId]
+  )
+
+  if (!localCampaign) return
+
+  const isRemoved = String(localCampaign.status || '').toUpperCase() === 'REMOVED'
+    || localCampaign.is_deleted === true
+    || localCampaign.is_deleted === 1
+  if (isRemoved) {
+    throw new OpenclawCommandValidationError(400, {
+      error: '该广告系列已下线/删除，无法调整预算',
+    })
+  }
+
+  const expectedGoogleCampaignId =
+    normalizeGoogleCampaignId(localCampaign.google_campaign_id)
+    || normalizeGoogleCampaignId(localCampaign.campaign_id)
+
+  if (!expectedGoogleCampaignId) {
+    throw new OpenclawCommandValidationError(400, {
+      error: '该广告系列尚未发布到Google Ads，无法调整预算',
+    })
+  }
+
+  if (expectedGoogleCampaignId !== pathCampaignId) {
+    throw new OpenclawCommandValidationError(422, {
+      error: `路由参数语义错误：update-budget 的 :id 必须是 googleCampaignId，收到本地 campaign.id=${localCampaignId}`,
+      action: 'USE_GOOGLE_CAMPAIGN_ID',
+      localCampaignId,
+      googleCampaignId: expectedGoogleCampaignId,
+      expectedPath: `/api/campaigns/${expectedGoogleCampaignId}/update-budget`,
     })
   }
 }
@@ -1789,6 +1872,12 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       path: run.request_path,
     })
     await assertUpdateCpcRouteIdSemantic({
+      db,
+      userId: data.userId,
+      method: run.request_method,
+      path: run.request_path,
+    })
+    await assertUpdateBudgetRouteIdSemantic({
       db,
       userId: data.userId,
       method: run.request_method,

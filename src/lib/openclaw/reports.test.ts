@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
+  queryMock: vi.fn(),
   queryOneMock: vi.fn(),
   execMock: vi.fn(),
   invokeOpenclawToolMock: vi.fn(),
@@ -12,6 +13,7 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({
   getDatabase: async () => ({
     type: 'sqlite',
+    query: hoisted.queryMock,
     queryOne: hoisted.queryOneMock,
     exec: hoisted.execMock,
   }),
@@ -39,6 +41,7 @@ describe('sendDailyReportToFeishu', () => {
   }
 
   beforeEach(() => {
+    hoisted.queryMock.mockReset()
     hoisted.queryOneMock.mockReset()
     hoisted.execMock.mockReset()
     hoisted.invokeOpenclawToolMock.mockReset()
@@ -46,6 +49,7 @@ describe('sendDailyReportToFeishu', () => {
     hoisted.writeDailyReportToBitableMock.mockReset()
     hoisted.writeDailyReportToDocMock.mockReset()
 
+    hoisted.queryMock.mockResolvedValue([])
     hoisted.execMock.mockResolvedValue({ changes: 1 })
     hoisted.invokeOpenclawToolMock.mockResolvedValue({ ok: true })
     hoisted.resolveUserFeishuAccountIdMock.mockResolvedValue(null)
@@ -71,7 +75,8 @@ describe('sendDailyReportToFeishu', () => {
       deliveryTaskId: 'delivery-1',
     })
 
-    expect(hoisted.execMock).not.toHaveBeenCalled()
+    expect(hoisted.execMock).toHaveBeenCalledTimes(1)
+    expect(String(hoisted.execMock.mock.calls[0]?.[0] || '')).toContain('SET payload_json')
     expect(hoisted.invokeOpenclawToolMock).not.toHaveBeenCalled()
     expect(hoisted.writeDailyReportToBitableMock).not.toHaveBeenCalled()
     expect(hoisted.writeDailyReportToDocMock).not.toHaveBeenCalled()
@@ -130,7 +135,7 @@ describe('sendDailyReportToFeishu', () => {
     expect(hoisted.invokeOpenclawToolMock).toHaveBeenCalledTimes(1)
     expect(hoisted.writeDailyReportToBitableMock).toHaveBeenCalledTimes(1)
     expect(hoisted.writeDailyReportToDocMock).toHaveBeenCalledTimes(1)
-    expect(hoisted.execMock).toHaveBeenCalledTimes(2)
+    expect(hoisted.execMock).toHaveBeenCalledTimes(3)
   })
 
   it('formats daily report message with aligned daily metrics and clear conversion labels', async () => {
@@ -211,4 +216,126 @@ describe('sendDailyReportToFeishu', () => {
     expect(message).toContain('- 预算概览：预算 123.33 USD｜已花费 41.21 USD｜剩余 82.12 USD')
     expect(message).not.toContain('转化/佣金笔数')
   })
+
+  it('includes top strategy recommendations in daily report message', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-22',
+            generatedAt: '2026-02-22T09:00:00.000Z',
+            summary: { kpis: { totalOffers: 3, totalCampaigns: 8 } },
+            dailySnapshot: { impressions: 1000, clicks: 88, cost: 21, conversions: 0 },
+            roi: {
+              data: {
+                overall: {
+                  totalCost: 21,
+                  totalRevenue: 0,
+                  totalProfit: -21,
+                  roi: -100,
+                  roas: 0,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [],
+                  affiliateAttribution: { writtenRows: 0 },
+                },
+              },
+            },
+            strategyRecommendations: [
+              {
+                id: 'r1',
+                recommendationType: 'offline_campaign',
+                priorityScore: 95.2,
+                status: 'pending',
+                summary: '建议下线该 Campaign，停止低价值占用并回收预算。',
+                campaignId: 11,
+                data: { campaignName: 'Dovoh_3679', impactConfidenceReason: '样本：曝光 1000 / 点击 88 / 花费 21.00 / ROAS 0.00' },
+              },
+              {
+                id: 'r2',
+                recommendationType: 'adjust_cpc',
+                priorityScore: 83.5,
+                status: 'approved',
+                summary: '建议CPC = 商品价格 × 佣金比例 ÷ 50 = 0.80。',
+                campaignId: 12,
+                data: { campaignName: 'Renpho_3709' },
+              },
+              {
+                id: 'r3',
+                recommendationType: 'adjust_budget',
+                priorityScore: 99.9,
+                status: 'dismissed',
+                summary: '该条应被过滤，不应出现在TOP建议里。',
+                campaignId: 13,
+                data: { campaignName: 'Filtered_Out' },
+              },
+            ],
+          }),
+        }
+      }
+      return undefined
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-22',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(message).toContain('建议状态：总 3｜待审批 1｜已审批 1｜已执行 0｜执行失败 0｜待重审 0｜已忽略 1')
+    expect(message).toContain('优化建议TOP2（按优先级分排序）')
+    expect(message).toContain('[下线Campaign] Dovoh_3679｜优先级分 95.2')
+    expect(message).toContain('[CPC调整] Renpho_3709｜优先级分 83.5')
+    expect(message).not.toContain('Filtered_Out')
+  })
+
+  it('formats budget adjustment recommendation label in daily report message', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-22',
+            generatedAt: '2026-02-22T09:00:00.000Z',
+            summary: { kpis: { totalOffers: 1, totalCampaigns: 1 } },
+            dailySnapshot: { impressions: 500, clicks: 60, cost: 18, conversions: 0 },
+            roi: {
+              data: {
+                overall: {
+                  totalCost: 18,
+                  totalRevenue: 20,
+                  totalProfit: 2,
+                  roi: 11.1,
+                  roas: 1.11,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [],
+                  affiliateAttribution: { writtenRows: 0 },
+                },
+              },
+            },
+            strategyRecommendations: [
+              {
+                id: 'rb1',
+                recommendationType: 'adjust_budget',
+                priorityScore: 88.4,
+                summary: '当前预算 10.00，建议提升到 15.00（DAILY）。',
+                campaignId: 66,
+                data: { campaignName: 'Idoo_3702' },
+              },
+            ],
+          }),
+        }
+      }
+      return undefined
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-22',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(message).toContain('[预算调整] Idoo_3702｜优先级分 88.4')
+  })
+
 })

@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TrendChartDynamic } from '@/components/charts/dynamic'
@@ -54,7 +55,134 @@ type DailyReport = {
   actions?: any[]
   strategyActions?: any[]
   strategyRun?: any
+  strategyRecommendations?: OpenclawStrategyRecommendation[]
   errors?: Array<{ source: string; message: string }>
+}
+
+type OpenclawStrategyRecommendation = {
+  id: string
+  reportDate?: string
+  campaignId: number
+  recommendationType:
+    | 'adjust_cpc'
+    | 'adjust_budget'
+    | 'offline_campaign'
+    | 'expand_keywords'
+    | 'add_negative_keywords'
+    | 'optimize_match_type'
+  title: string
+  summary?: string | null
+  reason?: string | null
+  priorityScore: number
+  status: 'pending' | 'approved' | 'executed' | 'failed' | 'dismissed' | 'stale'
+  approvedAt?: string | null
+  executedAt?: string | null
+  executionResult?: {
+    queued?: boolean
+    queueTaskId?: string | null
+    queueTaskStatus?: 'pending' | 'running' | 'completed' | 'failed' | string
+    queuedAt?: string | null
+    queueUpdatedAt?: string | null
+    queueRetryCount?: number
+    queueTaskError?: string | null
+    queueTaskCreatedAt?: string | null
+    queueTaskStartedAt?: string | null
+    error?: string | null
+    postReviewTaskId?: string | null
+    postReviewScheduledAt?: string | null
+    postReview?: {
+      status?: 'pending_window' | 'effective' | 'mixed' | 'ineffective' | 'no_data'
+      reviewedAt?: string
+    }
+  } | null
+  data?: {
+    campaignName?: string
+    runDays?: number
+    impressions?: number
+    clicks?: number
+    cost?: number
+    ctrPct?: number
+    cpc?: number
+    roas?: number | null
+    currentCpc?: number | null
+    recommendedCpc?: number | null
+    currentBudget?: number | null
+    recommendedBudget?: number | null
+    budgetType?: 'DAILY' | 'TOTAL'
+    breakEvenConversionRatePct?: number | null
+    breakEvenConversionRateByRecommendedCpcPct?: number | null
+    commissionPerConversion?: number | null
+    commissionLagProtected?: boolean
+    estimatedCostSaving?: number
+    estimatedRevenueUplift?: number
+    estimatedNetImpact?: number
+    impactWindowDays?: number
+    impactConfidence?: 'low' | 'medium' | 'high'
+    impactConfidenceReason?: string
+    impactEstimationSource?: 'observed_roas' | 'fallback_lag_protected' | 'fallback_default'
+    postReviewStatus?: 'pending_window' | 'effective' | 'mixed' | 'ineffective' | 'no_data'
+    postReviewSummary?: {
+      reviewedAt?: string
+      reviewWindowDays?: number
+      after?: {
+        observedDays?: number
+      }
+    }
+    keywordCoverageCount?: number
+    creativeQuality?: {
+      headlineCount: number
+      descriptionCount: number
+      keywordCount: number
+      level: 'high' | 'medium' | 'low'
+    }
+    analysisNote?: string
+    keywordPlan?: Array<{ text: string; matchType: 'BROAD' | 'PHRASE' | 'EXACT' }>
+    negativeKeywordPlan?: Array<{ text: string; matchType: 'BROAD' | 'PHRASE' | 'EXACT'; reason?: string }>
+    matchTypePlan?: Array<{
+      text: string
+      currentMatchType: 'BROAD' | 'PHRASE' | 'EXACT'
+      recommendedMatchType: 'BROAD' | 'PHRASE' | 'EXACT'
+      clicks?: number
+      conversions?: number
+      cost?: number
+    }>
+    matchTypeReplaceMode?: 'none' | 'pause_existing'
+  }
+}
+
+type StrategyRecommendationsResponse = {
+  success: boolean
+  reportDate?: string | null
+  serverDate?: string | null
+  historicalReadOnly?: boolean
+  code?: string
+  recommendations?: OpenclawStrategyRecommendation[]
+  trigger?: 'manual'
+  reportSent?: boolean
+  reportSendError?: string | null
+  reportDeliveryTaskId?: string | null
+  reportDeliveryMode?: 'queued' | string
+  error?: string
+}
+
+type StrategyRecommendationStatusFilter =
+  | 'actionable'
+  | 'all'
+  | 'queued'
+  | 'pending'
+  | 'approved'
+  | 'executed'
+  | 'failed'
+  | 'dismissed'
+  | 'stale'
+
+type StrategyBatchAction = 'approve' | 'execute' | 'dismiss'
+type StrategyBatchScope = 'filtered' | 'display'
+
+type StrategyBatchFailure = {
+  id: string
+  action: StrategyBatchAction
+  message: string
 }
 
 type StrategyStatusResponse = {
@@ -640,6 +768,81 @@ const formatCountdown = (ms?: number | null) => {
   return `${minutes}分${String(seconds).padStart(2, '0')}秒`
 }
 
+const formatNumber = (value: unknown, digits = 2): string => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '--'
+  return parsed.toFixed(digits)
+}
+
+const resolveImpactConfidenceText = (value?: string | null): string => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'high') return '高'
+  if (normalized === 'medium') return '中'
+  return '低'
+}
+
+const resolveImpactEstimationSourceText = (value?: string | null): string => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'observed_roas') return '估算口径：实测ROAS'
+  if (normalized === 'fallback_lag_protected') return '估算口径：滞后保护回退'
+  if (normalized === 'fallback_default') return '估算口径：默认回退'
+  return ''
+}
+
+const resolveStrategyRecommendationTypeLabel = (type: OpenclawStrategyRecommendation['recommendationType']) => {
+  if (type === 'adjust_cpc') return 'CPC调整'
+  if (type === 'adjust_budget') return '预算调整'
+  if (type === 'offline_campaign') return '下线Campaign'
+  if (type === 'expand_keywords') return '扩量关键词'
+  if (type === 'add_negative_keywords') return '新增否词'
+  if (type === 'optimize_match_type') return '匹配类型优化'
+  return type
+}
+
+const resolveStrategyRecommendationStatusBadge = (status: OpenclawStrategyRecommendation['status']) => {
+  if (status === 'executed') return { label: '已执行', variant: 'default' as const }
+  if (status === 'approved') return { label: '已审批', variant: 'secondary' as const }
+  if (status === 'failed') return { label: '执行失败', variant: 'destructive' as const }
+  if (status === 'stale') return { label: '待重审', variant: 'secondary' as const }
+  if (status === 'dismissed') return { label: '已忽略', variant: 'outline' as const }
+  return { label: '待审批', variant: 'outline' as const }
+}
+
+const isStrategyRecommendationQueued = (item: OpenclawStrategyRecommendation): boolean => {
+  if (item.status !== 'approved') return false
+  const queueStatus = String(item.executionResult?.queueTaskStatus || '').toLowerCase()
+  if (queueStatus === 'pending' || queueStatus === 'running') return true
+  return item.executionResult?.queued === true
+}
+
+const resolvePostReviewStatusText = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'effective') return '复盘：有效'
+  if (normalized === 'mixed') return '复盘：部分有效'
+  if (normalized === 'ineffective') return '复盘：无效'
+  if (normalized === 'no_data') return '复盘：样本不足'
+  if (normalized === 'pending_window') return '复盘：观察中'
+  return ''
+}
+
+const resolveStrategyRecommendationTypeRank = (type: OpenclawStrategyRecommendation['recommendationType']): number => {
+  if (type === 'offline_campaign') return 4
+  if (type === 'adjust_budget') return 3
+  if (type === 'add_negative_keywords') return 2.8
+  if (type === 'optimize_match_type') return 2.6
+  if (type === 'adjust_cpc') return 2
+  return 1
+}
+
+const resolveStrategyRecommendationStatusRank = (status: OpenclawStrategyRecommendation['status']): number => {
+  if (status === 'approved') return 5
+  if (status === 'stale') return 4.5
+  if (status === 'pending') return 4
+  if (status === 'failed') return 3
+  if (status === 'dismissed') return 2
+  return 1
+}
+
 const renderTriState = (value?: boolean | null) => {
   if (value === true) return '是'
   if (value === false) return '否'
@@ -767,7 +970,26 @@ export default function OpenClawPage() {
   const [workspaceBootstrapping, setWorkspaceBootstrapping] = useState(false)
   const workspaceAutoBootstrapTriedRef = useRef(false)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [strategyRunning, setStrategyRunning] = useState(false)
+  const [strategyRecommendations, setStrategyRecommendations] = useState<OpenclawStrategyRecommendation[]>([])
+  const [strategyRecommendationsLoaded, setStrategyRecommendationsLoaded] = useState(false)
+  const [strategyRecommendationsLoading, setStrategyRecommendationsLoading] = useState(false)
+  const [strategyManualTriggering, setStrategyManualTriggering] = useState(false)
+  const [strategyAnalyzeSendFeishu, setStrategyAnalyzeSendFeishu] = useState(true)
+  const [strategyRecommendationsReportDate, setStrategyRecommendationsReportDate] = useState<string>(parseLocalDate())
+  const [strategyServerDate, setStrategyServerDate] = useState<string>(parseLocalDate())
+  const [strategyRecommendationsDisplayMode, setStrategyRecommendationsDisplayMode] = useState<'final' | 'all'>('final')
+  const [strategyRecommendationStatusFilter, setStrategyRecommendationStatusFilter] = useState<StrategyRecommendationStatusFilter>('actionable')
+  const [strategyBatchScope, setStrategyBatchScope] = useState<StrategyBatchScope>('filtered')
+  const [selectedStrategyRecommendationIds, setSelectedStrategyRecommendationIds] = useState<string[]>([])
+  const [strategyBatchApproving, setStrategyBatchApproving] = useState(false)
+  const [strategyBatchExecuting, setStrategyBatchExecuting] = useState(false)
+  const [strategyBatchDismissing, setStrategyBatchDismissing] = useState(false)
+  const [strategyBatchLastAction, setStrategyBatchLastAction] = useState<StrategyBatchAction | null>(null)
+  const [strategyBatchFailures, setStrategyBatchFailures] = useState<StrategyBatchFailure[]>([])
+  const [strategyRecommendationApprovingId, setStrategyRecommendationApprovingId] = useState<string | null>(null)
+  const [strategyRecommendationExecutingId, setStrategyRecommendationExecutingId] = useState<string | null>(null)
+  const [strategyRecommendationDismissingId, setStrategyRecommendationDismissingId] = useState<string | null>(null)
+  const [strategyRecommendationDetailItem, setStrategyRecommendationDetailItem] = useState<OpenclawStrategyRecommendation | null>(null)
   const [strategyPreset, setStrategyPreset] = useState('balanced')
   const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
   const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
@@ -835,6 +1057,60 @@ export default function OpenClawPage() {
     }
   }, [settings?.isAdmin])
 
+  const loadStrategyRecommendations = useCallback(async (options?: {
+    refresh?: boolean
+    silent?: boolean
+    date?: string
+    syncReportDate?: boolean
+    isActive?: () => boolean
+  }) => {
+    if (!options?.silent) {
+      setStrategyRecommendationsLoading(true)
+    }
+
+    try {
+      const strategyDate = String(options?.date || reportDate || parseLocalDate()).trim() || parseLocalDate()
+      const query = new URLSearchParams({
+        date: strategyDate,
+        limit: '200',
+      })
+      if (options?.refresh) {
+        query.set('refresh', '1')
+      }
+      const response = await fetch(`/api/openclaw/strategy/recommendations?${query.toString()}`, {
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => null) as StrategyRecommendationsResponse | null
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '加载策略建议失败')
+      }
+      if (options?.isActive && !options.isActive()) return
+      setStrategyRecommendations(Array.isArray(payload.recommendations) ? payload.recommendations : [])
+      const serverDate = String(payload.serverDate || '').trim()
+      if (serverDate) {
+        setStrategyServerDate(serverDate)
+      }
+      const normalizedReportDate = String(payload.reportDate || strategyDate).trim() || strategyDate
+      setStrategyRecommendationsReportDate(normalizedReportDate)
+      if ((options?.syncReportDate ?? true) && normalizedReportDate !== reportDate) {
+        setReportDate(normalizedReportDate)
+      }
+      setStrategyRecommendationsLoaded(true)
+    } catch (error: any) {
+      if (options?.isActive && !options.isActive()) return
+      if (!options?.silent) {
+        toast.error(error?.message || '加载策略建议失败')
+      }
+      setStrategyRecommendations([])
+      setStrategyRecommendationsLoaded(true)
+    } finally {
+      if (options?.isActive && !options.isActive()) return
+      if (!options?.silent) {
+        setStrategyRecommendationsLoading(false)
+      }
+    }
+  }, [reportDate])
+
   useEffect(() => {
     if (settings?.isAdmin !== true) {
       setFeishuHealthData(null)
@@ -857,11 +1133,18 @@ export default function OpenClawPage() {
           reportQuery.set('refresh', '1')
         }
 
-        const [settingsRes, tokensRes, reportRes, strategyRes] = await Promise.all([
+        const strategyDate = String(reportDate || parseLocalDate()).trim() || parseLocalDate()
+        const strategyQuery = new URLSearchParams({
+          date: strategyDate,
+          limit: '200',
+        })
+
+        const [settingsRes, tokensRes, reportRes, strategyRes, strategyRecommendationsRes] = await Promise.all([
           fetch('/api/openclaw/settings', { credentials: 'include' }),
           fetch('/api/openclaw/tokens', { credentials: 'include' }),
           fetch(`/api/openclaw/reports/daily?${reportQuery.toString()}`, { credentials: 'include' }),
           fetch('/api/openclaw/strategy/status', { credentials: 'include' }),
+          fetch(`/api/openclaw/strategy/recommendations?${strategyQuery.toString()}`, { credentials: 'include' }),
         ])
 
         if (settingsRes.status === 403) {
@@ -878,13 +1161,28 @@ export default function OpenClawPage() {
         const tokensJson = tokensRes.ok ? await tokensRes.json() : { tokens: [] }
         const reportJson = reportRes.ok ? await reportRes.json() : { report: null }
         const strategyJson = strategyRes.ok ? await strategyRes.json() : null
+        const strategyRecommendationsJson = strategyRecommendationsRes.ok
+          ? await strategyRecommendationsRes.json() as StrategyRecommendationsResponse
+          : { success: false, recommendations: [] } as StrategyRecommendationsResponse
 
         if (!active) return
 
         setSettings(settingsJson)
         setTokens(tokensJson.tokens || [])
         setReport(reportJson.report || null)
+        const normalizedReportDate = String(reportJson?.report?.date || '').trim()
+        if (normalizedReportDate && normalizedReportDate !== reportDate) {
+          setReportDate(normalizedReportDate)
+        }
         setStrategyStatus(strategyJson || null)
+        setStrategyRecommendations(Array.isArray(strategyRecommendationsJson.recommendations) ? strategyRecommendationsJson.recommendations : [])
+        setStrategyServerDate(
+          String(strategyRecommendationsJson?.serverDate || '').trim() || parseLocalDate()
+        )
+        setStrategyRecommendationsReportDate(
+          String(strategyRecommendationsJson?.reportDate || strategyDate).trim() || strategyDate
+        )
+        setStrategyRecommendationsLoaded(Boolean(strategyRecommendationsJson?.success))
 
         const userMap: Record<string, string> = {}
         settingsJson.user.forEach(item => {
@@ -1593,27 +1891,178 @@ export default function OpenClawPage() {
     setAiJsonError(null)
   }
 
-  const handleRunStrategy = async () => {
-    setStrategyRunning(true)
+  const handleTriggerStrategyRecommendations = async () => {
+    const targetDate = String(reportDate || strategyRecommendationsReportDate || parseLocalDate()).trim() || parseLocalDate()
+    const currentServerDate = String(strategyServerDate || parseLocalDate()).trim() || parseLocalDate()
+    const isHistoricalTriggerDate = targetDate < currentServerDate
+    if (isHistoricalTriggerDate) {
+      toast.error(`历史日期 ${targetDate} 仅支持查看，请切换到 ${currentServerDate} 后重新分析`)
+      return
+    }
+
+    const hasReviewState = strategyRecommendations.some(
+      (item) => item.status === 'approved' || item.status === 'failed' || item.status === 'stale'
+    )
+    if (hasReviewState) {
+      const confirmMessage = strategyAnalyzeSendFeishu
+        ? '重新分析会重新计算建议，并可能将历史审批结果标记为待重审，同时发送 Feishu 报告。是否继续？'
+        : '重新分析会重新计算建议，并可能将历史审批结果标记为待重审。是否继续？'
+      const confirmed = window.confirm(confirmMessage)
+      if (!confirmed) return
+    }
+    setStrategyManualTriggering(true)
+    setStrategyRecommendationsLoading(true)
+    setStrategyBatchLastAction(null)
+    setStrategyBatchFailures([])
     try {
-      const response = await fetch('/api/openclaw/strategy/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ mode: 'manual' }),
-      })
-      if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({}))
-        throw new Error(errorJson.error || '策略执行失败')
+      if (!strategyAnalyzeSendFeishu) {
+        await loadStrategyRecommendations({
+          refresh: true,
+          date: targetDate,
+          syncReportDate: true,
+        })
+        setSelectedStrategyRecommendationIds([])
+        toast.success('分析完成，优化建议已更新')
+      } else {
+        const response = await fetch('/api/openclaw/strategy/recommendations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ date: targetDate, limit: 200 }),
+        })
+        const payload = await response.json().catch(() => null) as StrategyRecommendationsResponse | null
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error || '手动触发分析失败')
+        }
+        setStrategyRecommendations(Array.isArray(payload.recommendations) ? payload.recommendations : [])
+        const serverDate = String(payload.serverDate || '').trim()
+        if (serverDate) {
+          setStrategyServerDate(serverDate)
+        }
+        const normalizedReportDate = String(payload.reportDate || targetDate).trim() || targetDate
+        setStrategyRecommendationsReportDate(normalizedReportDate)
+        if (normalizedReportDate !== reportDate) {
+          setReportDate(normalizedReportDate)
+        }
+        setStrategyRecommendationsLoaded(true)
+        setSelectedStrategyRecommendationIds([])
+        if (payload.reportSent === false) {
+          toast.warning(payload.reportSendError || '分析完成，但Feishu报告发送任务入队失败')
+        } else {
+          toast.success('分析完成，优化建议已更新，Feishu报告已入队发送')
+        }
       }
-      toast.success('策略已触发，任务正在后台运行')
-      setRefreshKey(prev => prev + 1)
     } catch (error: any) {
-      toast.error(error?.message || '策略执行失败')
+      setStrategyRecommendationsLoaded(true)
+      toast.error(error?.message || '手动触发分析失败')
     } finally {
-      setStrategyRunning(false)
+      setStrategyManualTriggering(false)
+      setStrategyRecommendationsLoading(false)
     }
   }
+
+  const handleApproveStrategyRecommendation = async (recommendationId: string) => {
+    if (!recommendationId) return
+    setStrategyRecommendationApprovingId(recommendationId)
+    try {
+      await requestStrategyRecommendationAction(recommendationId, 'approve')
+      toast.success('建议已审批')
+      await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
+    } catch (error: any) {
+      toast.error(error?.message || '审批建议失败')
+    } finally {
+      setStrategyRecommendationApprovingId(null)
+    }
+  }
+
+  const handleExecuteStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
+    if (!recommendation?.id) return
+    if (strategyHistoricalReadOnly) {
+      toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
+      return
+    }
+    if (recommendation.status !== 'approved') {
+      toast.error('请先审批该建议后再执行')
+      return
+    }
+
+    const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
+    const typeLabel = resolveStrategyRecommendationTypeLabel(recommendation.recommendationType)
+    const firstConfirm = window.confirm(`确认执行「${typeLabel}」？\n目标：${campaignName}`)
+    if (!firstConfirm) return
+    const secondConfirm = window.confirm('请再次确认：执行后将直接写入 AutoAds / Google Ads。')
+    if (!secondConfirm) return
+
+    setStrategyRecommendationExecutingId(recommendation.id)
+    try {
+      const payload = await requestStrategyRecommendationAction(recommendation.id, 'execute', { confirm: true })
+      if (payload?.deduplicated) {
+        toast.success('建议已在执行队列中')
+      } else {
+        toast.success('建议已加入执行队列')
+      }
+      await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
+      setRefreshKey(prev => prev + 1)
+    } catch (error: any) {
+      toast.error(error?.message || '执行建议失败')
+      await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
+    } finally {
+      setStrategyRecommendationExecutingId(null)
+    }
+  }
+
+  const handleDismissStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
+    if (!recommendation?.id) return
+    if (recommendation.status === 'executed') {
+      toast.error('已执行建议不支持忽略')
+      return
+    }
+    const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
+    const confirmed = window.confirm(`确认忽略该建议？\n目标：${campaignName}`)
+    if (!confirmed) return
+
+    setStrategyRecommendationDismissingId(recommendation.id)
+    try {
+      await requestStrategyRecommendationAction(recommendation.id, 'dismiss')
+      toast.success('建议已忽略')
+      await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
+    } catch (error: any) {
+      toast.error(error?.message || '忽略建议失败')
+    } finally {
+      setStrategyRecommendationDismissingId(null)
+    }
+  }
+
+  const strategyRecommendationActionBusy =
+    strategyRecommendationApprovingId !== null
+    || strategyRecommendationExecutingId !== null
+    || strategyRecommendationDismissingId !== null
+    || strategyBatchApproving
+    || strategyBatchExecuting
+    || strategyBatchDismissing
+
+  const requestStrategyRecommendationAction = useCallback(async (
+    recommendationId: string,
+    action: 'approve' | 'execute' | 'dismiss',
+    body?: Record<string, unknown>
+  ) => {
+    const response = await fetch(`/api/openclaw/strategy/recommendations/${recommendationId}/${action}`, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      credentials: 'include',
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.success) {
+      const fallbackMessage = action === 'approve'
+        ? '审批建议失败'
+        : action === 'execute'
+          ? '执行建议失败'
+          : '忽略建议失败'
+      throw new Error(payload?.error || fallbackMessage)
+    }
+    return payload
+  }, [])
 
   const reportSummary = report?.summary?.kpis || {}
   const reportKpis = report?.kpis?.data || {}
@@ -1674,6 +2123,313 @@ export default function OpenClawPage() {
       return null
     }
   })()
+  const strategyDisplayDate = String(strategyRecommendationsReportDate || reportDate || parseLocalDate()).trim() || parseLocalDate()
+  const strategyServerDateDisplay = String(strategyServerDate || parseLocalDate()).trim() || parseLocalDate()
+  const strategyDateNormalized = Boolean(strategyDisplayDate && reportDate && strategyDisplayDate !== reportDate)
+  const strategyHistoricalReadOnly = Boolean(
+    strategyDisplayDate
+    && strategyServerDateDisplay
+    && strategyDisplayDate < strategyServerDateDisplay
+  )
+  const strategyRecommendationsView = useMemo(() => {
+    const fromState = Array.isArray(strategyRecommendations) ? strategyRecommendations : []
+    const fromReport = Array.isArray(report?.strategyRecommendations)
+      ? report.strategyRecommendations as OpenclawStrategyRecommendation[]
+      : []
+    const source = strategyRecommendationsLoaded
+      ? fromState
+      : (fromState.length > 0 ? fromState : fromReport)
+    return [...source].sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
+  }, [strategyRecommendations, strategyRecommendationsLoaded, report?.strategyRecommendations])
+  const strategyRecommendationsFiltered = useMemo(() => {
+    if (strategyRecommendationStatusFilter === 'actionable') {
+      return strategyRecommendationsView.filter(
+        (item) => item.status === 'pending' || item.status === 'approved' || item.status === 'stale'
+      )
+    }
+    if (strategyRecommendationStatusFilter === 'all') {
+      return strategyRecommendationsView
+    }
+    if (strategyRecommendationStatusFilter === 'queued') {
+      return strategyRecommendationsView.filter((item) => isStrategyRecommendationQueued(item))
+    }
+    return strategyRecommendationsView.filter((item) => item.status === strategyRecommendationStatusFilter)
+  }, [strategyRecommendationStatusFilter, strategyRecommendationsView])
+  const strategyRecommendationsDisplay = useMemo(() => {
+    if (strategyRecommendationsDisplayMode === 'all') {
+      return strategyRecommendationsFiltered
+    }
+
+    const bestByCampaign = new Map<number, OpenclawStrategyRecommendation>()
+    for (const item of strategyRecommendationsFiltered) {
+      const existing = bestByCampaign.get(item.campaignId)
+      if (!existing) {
+        bestByCampaign.set(item.campaignId, item)
+        continue
+      }
+
+      const priorityDiff = (Number(item.priorityScore) || 0) - (Number(existing.priorityScore) || 0)
+      if (priorityDiff > 0) {
+        bestByCampaign.set(item.campaignId, item)
+        continue
+      }
+      if (priorityDiff < 0) {
+        continue
+      }
+
+      const typeDiff =
+        resolveStrategyRecommendationTypeRank(item.recommendationType)
+        - resolveStrategyRecommendationTypeRank(existing.recommendationType)
+      if (typeDiff > 0) {
+        bestByCampaign.set(item.campaignId, item)
+        continue
+      }
+      if (typeDiff < 0) {
+        continue
+      }
+
+      const statusDiff =
+        resolveStrategyRecommendationStatusRank(item.status)
+        - resolveStrategyRecommendationStatusRank(existing.status)
+      if (statusDiff > 0) {
+        bestByCampaign.set(item.campaignId, item)
+      }
+    }
+
+    return Array.from(bestByCampaign.values())
+      .sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
+  }, [strategyRecommendationsDisplayMode, strategyRecommendationsFiltered])
+  const strategyBatchActionPool = useMemo(
+    () => (strategyBatchScope === 'filtered' ? strategyRecommendationsFiltered : strategyRecommendationsDisplay),
+    [strategyBatchScope, strategyRecommendationsDisplay, strategyRecommendationsFiltered]
+  )
+  const selectedStrategyRecommendationSet = useMemo(
+    () => new Set(selectedStrategyRecommendationIds),
+    [selectedStrategyRecommendationIds]
+  )
+  const selectableStrategyRecommendations = useMemo(
+    () => strategyBatchActionPool.filter((item) => item.status !== 'executed'),
+    [strategyBatchActionPool]
+  )
+  const selectedSelectableCount = selectableStrategyRecommendations.filter((item) => selectedStrategyRecommendationSet.has(item.id)).length
+  const selectedVisibleCount = strategyRecommendationsDisplay.filter(
+    (item) => selectedStrategyRecommendationSet.has(item.id) && item.status !== 'executed'
+  ).length
+  const selectedHiddenCount = Math.max(0, selectedSelectableCount - selectedVisibleCount)
+  const selectedApprovableCount = strategyBatchActionPool.filter(
+    (item) => selectedStrategyRecommendationSet.has(item.id)
+      && (item.status === 'pending' || item.status === 'failed' || item.status === 'dismissed' || item.status === 'stale')
+  ).length
+  const selectedExecutableCount = strategyBatchActionPool.filter(
+    (item) => selectedStrategyRecommendationSet.has(item.id)
+      && item.status === 'approved'
+      && !isStrategyRecommendationQueued(item)
+  ).length
+  const selectedDismissibleCount = strategyBatchActionPool.filter(
+    (item) => selectedStrategyRecommendationSet.has(item.id)
+      && (item.status === 'pending' || item.status === 'approved' || item.status === 'failed' || item.status === 'stale')
+  ).length
+  const strategyRecommendationsAllSelected = selectableStrategyRecommendations.length > 0
+    && selectedSelectableCount === selectableStrategyRecommendations.length
+  const strategyRecommendationsPartiallySelected = selectedSelectableCount > 0
+    && selectedSelectableCount < selectableStrategyRecommendations.length
+
+  useEffect(() => {
+    const selectableIdSet = new Set(selectableStrategyRecommendations.map((item) => item.id))
+    setSelectedStrategyRecommendationIds((prev) => prev.filter((id) => selectableIdSet.has(id)))
+  }, [selectableStrategyRecommendations])
+
+  const hasQueuedStrategyRecommendations = useMemo(
+    () => strategyRecommendations.some((item) => isStrategyRecommendationQueued(item)),
+    [strategyRecommendations]
+  )
+  const unknownQueueTaskCount = useMemo(
+    () => strategyRecommendations.filter((item) => {
+      if (item.status !== 'approved') return false
+      return String(item.executionResult?.queueTaskStatus || '').trim().toLowerCase() === 'unknown'
+    }).length,
+    [strategyRecommendations]
+  )
+
+  useEffect(() => {
+    if (!strategyRecommendationsLoaded || !hasQueuedStrategyRecommendations) {
+      return
+    }
+    let active = true
+    const timer = window.setInterval(() => {
+      void loadStrategyRecommendations({
+        refresh: false,
+        silent: true,
+        date: strategyRecommendationsReportDate || reportDate,
+        syncReportDate: false,
+        isActive: () => active,
+      })
+    }, 15000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [
+    hasQueuedStrategyRecommendations,
+    loadStrategyRecommendations,
+    reportDate,
+    strategyRecommendationsLoaded,
+    strategyRecommendationsReportDate,
+  ])
+
+  const toggleStrategyRecommendationSelected = (recommendationId: string, checked: boolean) => {
+    setSelectedStrategyRecommendationIds((prev) => {
+      if (checked) {
+        if (prev.includes(recommendationId)) return prev
+        return [...prev, recommendationId]
+      }
+      return prev.filter((id) => id !== recommendationId)
+    })
+  }
+
+  const handleSelectAllStrategyRecommendations = (checked: boolean) => {
+    if (!checked) {
+      setSelectedStrategyRecommendationIds([])
+      return
+    }
+    setSelectedStrategyRecommendationIds(selectableStrategyRecommendations.map((item) => item.id))
+  }
+
+  const isStrategyRecommendationBatchEligible = (
+    action: StrategyBatchAction,
+    item: OpenclawStrategyRecommendation
+  ): boolean => {
+    if (action === 'approve') {
+      return item.status === 'pending'
+        || item.status === 'failed'
+        || item.status === 'dismissed'
+        || item.status === 'stale'
+    }
+    if (action === 'execute') {
+      return item.status === 'approved' && !isStrategyRecommendationQueued(item)
+    }
+    return item.status === 'pending'
+      || item.status === 'approved'
+      || item.status === 'failed'
+      || item.status === 'stale'
+  }
+
+  const runStrategyRecommendationBatchAction = async (
+    action: StrategyBatchAction,
+    options?: { targetIds?: string[] }
+  ) => {
+    const scopeLabel = Array.isArray(options?.targetIds) && options.targetIds.length > 0
+      ? '失败项'
+      : (strategyBatchScope === 'filtered' ? '当前筛选全部' : '当前展示')
+    const targetIds = Array.isArray(options?.targetIds) && options.targetIds.length > 0
+      ? options.targetIds
+      : selectedStrategyRecommendationIds
+    const selectedIdSet = new Set(targetIds)
+    const selectedRows = strategyBatchActionPool.filter(
+      (item) => selectedIdSet.has(item.id) && isStrategyRecommendationBatchEligible(action, item)
+    )
+    if (selectedRows.length === 0) {
+      if (action === 'execute') {
+        toast.error('所选建议中暂无可执行项，请先审批已选建议')
+      } else if (action === 'approve') {
+        toast.error('所选建议中暂无可审批项')
+      } else {
+        toast.error('所选建议中暂无可忽略项')
+      }
+      return
+    }
+
+    if (action === 'execute') {
+      if (strategyHistoricalReadOnly) {
+        toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
+        return
+      }
+      const firstConfirm = window.confirm(`确认批量执行 ${selectedRows.length} 条建议？\n范围：${scopeLabel}`)
+      if (!firstConfirm) return
+      const secondConfirm = window.confirm('请再次确认：批量执行后将直接写入 AutoAds / Google Ads。')
+      if (!secondConfirm) return
+    } else if (action === 'dismiss') {
+      const confirmed = window.confirm(`确认批量忽略 ${selectedRows.length} 条建议？\n范围：${scopeLabel}`)
+      if (!confirmed) return
+    }
+
+    if (action === 'approve') setStrategyBatchApproving(true)
+    if (action === 'execute') setStrategyBatchExecuting(true)
+    if (action === 'dismiss') setStrategyBatchDismissing(true)
+
+    let successCount = 0
+    const successIds: string[] = []
+    const failed: StrategyBatchFailure[] = []
+    try {
+      for (const item of selectedRows) {
+        try {
+          await requestStrategyRecommendationAction(
+            item.id,
+            action,
+            action === 'execute' ? { confirm: true } : undefined
+          )
+          successCount += 1
+          successIds.push(item.id)
+        } catch (error: any) {
+          failed.push({
+            id: item.id,
+            action,
+            message: error?.message || `${item.id} ${action} 失败`,
+          })
+        }
+      }
+
+      await loadStrategyRecommendations({
+        refresh: false,
+        silent: true,
+        date: strategyRecommendationsReportDate || reportDate,
+        syncReportDate: false,
+      })
+      if (action === 'execute' && successCount > 0) {
+        setRefreshKey((prev) => prev + 1)
+      }
+      setSelectedStrategyRecommendationIds((prev) => {
+        const successSet = new Set(successIds)
+        return prev.filter((id) => !successSet.has(id))
+      })
+      setStrategyBatchLastAction(action)
+      setStrategyBatchFailures(failed)
+
+      if (failed.length === 0) {
+        if (action === 'approve') toast.success(`批量审批完成，共 ${successCount} 条`)
+        if (action === 'execute') toast.success(`批量执行已入队，共 ${successCount} 条`)
+        if (action === 'dismiss') toast.success(`批量忽略完成，共 ${successCount} 条`)
+      } else {
+        const label = action === 'approve' ? '审批' : action === 'execute' ? '执行' : '忽略'
+        toast.warning(`批量${label}完成：成功 ${successCount}，失败 ${failed.length}（失败项已保留，可一键重试）`)
+      }
+    } finally {
+      if (action === 'approve') setStrategyBatchApproving(false)
+      if (action === 'execute') setStrategyBatchExecuting(false)
+      if (action === 'dismiss') setStrategyBatchDismissing(false)
+    }
+  }
+
+  const handleBatchApproveStrategyRecommendations = async () => {
+    await runStrategyRecommendationBatchAction('approve')
+  }
+
+  const handleBatchExecuteStrategyRecommendations = async () => {
+    await runStrategyRecommendationBatchAction('execute')
+  }
+
+  const handleBatchDismissStrategyRecommendations = async () => {
+    await runStrategyRecommendationBatchAction('dismiss')
+  }
+
+  const handleRetryFailedStrategyRecommendations = async () => {
+    if (!strategyBatchLastAction || strategyBatchFailures.length === 0) {
+      return
+    }
+    const retryIds = Array.from(new Set(strategyBatchFailures.map((item) => item.id)))
+    setSelectedStrategyRecommendationIds(retryIds)
+    await runStrategyRecommendationBatchAction(strategyBatchLastAction, { targetIds: retryIds })
+  }
   const gatewayHealth = gatewayStatus?.health || null
   const gatewaySkillsReport = gatewayStatus?.skills || null
   const gatewaySkillsList = useMemo<any[]>(
@@ -3247,18 +4003,516 @@ export default function OpenClawPage() {
                 <Button variant="outline" size="sm" onClick={applyStrategyExample}>
                   快速示例
                 </Button>
+                <Button
+                  onClick={() => saveSettings({ scope: 'user', keys: strategySaveKeys, successMessage: '策略配置已保存' })}
+                  disabled={savingUser}
+                >
+                  {savingUser ? '保存中...' : strategyDirty ? '保存策略配置 *' : '保存策略配置'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle>优化建议（按优先级分排序）</CardTitle>
+                <CardDescription>每日自动生成，先审批再执行，执行结果直接落地 AutoAds</CardDescription>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span>分析后发送 Feishu</span>
+                  <Switch
+                    checked={strategyAnalyzeSendFeishu}
+                    onCheckedChange={(checked) => setStrategyAnalyzeSendFeishu(Boolean(checked))}
+                    disabled={strategyManualTriggering || strategyRecommendationsLoading || strategyRecommendationActionBusy}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleTriggerStrategyRecommendations}
+                  disabled={
+                    strategyManualTriggering
+                    || strategyRecommendationsLoading
+                    || strategyRecommendationActionBusy
+                  }
+                >
+                  {strategyManualTriggering ? '分析中...' : '重新分析'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <div className="mb-1 font-medium text-slate-700">
+                  策略建议日期：{strategyDisplayDate}
+                  {strategyDateNormalized ? `（服务端已从 ${reportDate} 归一）` : ''}
+                  {`｜服务端当前日期：${strategyServerDateDisplay}`}
+                </div>
+                下线建议默认执行：删除 Google Ads Campaign + 暂停补点击任务 + 暂停换链接任务。
+                重新分析会重算建议；开启“分析后发送 Feishu”时，会同时入队发送最新报告。
+                佣金口径说明：仅按 Offer/Campaign 级联盟佣金统计，不做关键词级佣金归因。
+                优先级口径说明：优先级分用于排序；净影响为估算值，已展示低/中/高置信度。
+                刷新建议会重新计算规则，历史审批建议可能被标记为“待重审”。
+                {strategyHistoricalReadOnly && (
+                  <div className="mt-1 text-amber-700">历史日期仅支持查看，不支持重新分析与执行。</div>
+                )}
+                {hasQueuedStrategyRecommendations && (
+                  <div className="mt-1 text-amber-700">检测到执行队列任务，建议列表每15秒自动刷新一次。</div>
+                )}
+                {unknownQueueTaskCount > 0 && (
+                  <div className="mt-1 text-amber-700">
+                    {unknownQueueTaskCount} 条建议的队列状态未知（任务可能已过期），可重新执行。
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-3 rounded-md border bg-white px-3 py-2 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" onClick={handleRunStrategy} disabled={strategyRunning}>
-                    {strategyRunning ? '执行中...' : '立即执行'}
+                  <Button
+                    size="sm"
+                    variant={strategyRecommendationsDisplayMode === 'final' ? 'default' : 'outline'}
+                    onClick={() => setStrategyRecommendationsDisplayMode('final')}
+                    disabled={strategyRecommendationActionBusy}
+                  >
+                    每Campaign优先级最高
                   </Button>
                   <Button
-                    onClick={() => saveSettings({ scope: 'user', keys: strategySaveKeys, successMessage: '策略配置已保存' })}
-                    disabled={savingUser}
+                    size="sm"
+                    variant={strategyRecommendationsDisplayMode === 'all' ? 'default' : 'outline'}
+                    onClick={() => setStrategyRecommendationsDisplayMode('all')}
+                    disabled={strategyRecommendationActionBusy}
                   >
-                    {savingUser ? '保存中...' : strategyDirty ? '保存策略配置 *' : '保存策略配置'}
+                    显示全部
+                  </Button>
+                  <span className="text-xs text-slate-500">
+                    当前 {strategyRecommendationsDisplayMode === 'final' ? '每个Campaign仅显示优先级最高建议' : '显示全部建议'}
+                  </span>
+                  <Select
+                    value={strategyRecommendationStatusFilter}
+                    onValueChange={(value) => setStrategyRecommendationStatusFilter(value as StrategyRecommendationStatusFilter)}
+                  >
+                    <SelectTrigger className="h-8 w-[130px]">
+                      <SelectValue placeholder="状态筛选" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="actionable">待处理（待审批+已审批+待重审）</SelectItem>
+                      <SelectItem value="all">全部状态</SelectItem>
+                      <SelectItem value="queued">排队执行中</SelectItem>
+                      <SelectItem value="pending">待审批</SelectItem>
+                      <SelectItem value="approved">已审批</SelectItem>
+                      <SelectItem value="stale">待重审</SelectItem>
+                      <SelectItem value="failed">执行失败</SelectItem>
+                      <SelectItem value="executed">已执行</SelectItem>
+                      <SelectItem value="dismissed">已忽略</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={strategyBatchScope}
+                    onValueChange={(value) => setStrategyBatchScope(value as StrategyBatchScope)}
+                  >
+                    <SelectTrigger className="h-8 w-[190px]">
+                      <SelectValue placeholder="批量作用范围" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="filtered">批量范围：当前筛选全部</SelectItem>
+                      <SelectItem value="display">批量范围：当前展示</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-slate-500">
+                    展示 {strategyRecommendationsDisplay.length} / {strategyRecommendationsView.length} 条
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">
+                    已选 {selectedSelectableCount} 条
+                    {selectedHiddenCount > 0 ? `（含当前未展示 ${selectedHiddenCount} 条）` : ''}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    可审批 {selectedApprovableCount} / 可执行 {selectedExecutableCount} / 可忽略 {selectedDismissibleCount}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBatchApproveStrategyRecommendations}
+                    disabled={strategyRecommendationActionBusy || selectedApprovableCount === 0}
+                  >
+                    {strategyBatchApproving ? '批量审批中...' : '批量审批'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleBatchExecuteStrategyRecommendations}
+                    disabled={strategyRecommendationActionBusy || selectedExecutableCount === 0 || strategyHistoricalReadOnly}
+                  >
+                    {strategyBatchExecuting ? '批量执行中...' : '批量执行'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleBatchDismissStrategyRecommendations}
+                    disabled={strategyRecommendationActionBusy || selectedDismissibleCount === 0}
+                  >
+                    {strategyBatchDismissing ? '批量忽略中...' : '批量忽略'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRetryFailedStrategyRecommendations}
+                    disabled={strategyRecommendationActionBusy || strategyBatchFailures.length === 0}
+                  >
+                    重试失败项{strategyBatchFailures.length > 0 ? ` (${strategyBatchFailures.length})` : ''}
                   </Button>
                 </div>
+                {strategyBatchFailures.length > 0 && (
+                  <div className="text-xs text-red-600">
+                    最近失败（Top3）：
+                    {strategyBatchFailures.slice(0, 3).map((item, idx) => (
+                      <span key={`${item.id}:${idx}`} className="ml-1">
+                        [{item.id}] {item.message}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[42px]">
+                      <Checkbox
+                        checked={
+                          strategyRecommendationsAllSelected
+                            ? true
+                            : strategyRecommendationsPartiallySelected
+                              ? 'indeterminate'
+                              : false
+                        }
+                        onCheckedChange={(checked) => handleSelectAllStrategyRecommendations(Boolean(checked))}
+                        aria-label="全选策略建议"
+                        disabled={strategyRecommendationActionBusy || selectableStrategyRecommendations.length === 0}
+                      />
+                    </TableHead>
+                    <TableHead>#</TableHead>
+                    <TableHead>建议</TableHead>
+                    <TableHead>Campaign</TableHead>
+                    <TableHead>成本/盈亏平衡</TableHead>
+                    <TableHead>优先级分</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {strategyRecommendationsDisplay.map((item, index) => {
+                    const statusBadge = resolveStrategyRecommendationStatusBadge(item.status)
+                    const isApproving = strategyRecommendationApprovingId === item.id
+                    const isExecuting = strategyRecommendationExecutingId === item.id
+                    const isDismissing = strategyRecommendationDismissingId === item.id
+                    const isSelectable = item.status !== 'executed'
+                    const isChecked = selectedStrategyRecommendationSet.has(item.id)
+                    const analysisNote = item.data?.analysisNote || item.reason || item.summary || '-'
+                    const isQueued = isStrategyRecommendationQueued(item)
+                    const postReviewText = resolvePostReviewStatusText(
+                      item.data?.postReviewStatus || item.executionResult?.postReview?.status || null
+                    )
+                    const costText = `花费 ${formatNumber(item.data?.cost, 2)} / 点击 ${formatNumber(item.data?.clicks, 0)} / CTR ${formatNumber(item.data?.ctrPct, 2)}%`
+                    const roasText = item.data?.roas !== null && item.data?.roas !== undefined
+                      ? `ROAS ${formatNumber(item.data?.roas, 2)}`
+                      : 'ROAS --'
+                    const breakEvenText = item.data?.breakEvenConversionRatePct !== null && item.data?.breakEvenConversionRatePct !== undefined
+                      ? `盈亏平衡转化率 ${formatNumber(item.data?.breakEvenConversionRatePct, 2)}%`
+                      : '盈亏平衡转化率 --'
+                    const impactWindowDays = Number(item.data?.impactWindowDays || 0)
+                    const estimatedCostSaving = Number(item.data?.estimatedCostSaving || 0)
+                    const estimatedRevenueUplift = Number(item.data?.estimatedRevenueUplift || 0)
+                    const estimatedNetImpact = Number(item.data?.estimatedNetImpact || (estimatedCostSaving + estimatedRevenueUplift))
+                    const hasImpact = Number.isFinite(estimatedNetImpact) && impactWindowDays > 0
+                    const impactConfidenceText = resolveImpactConfidenceText(item.data?.impactConfidence)
+                    const impactEstimationSourceText = resolveImpactEstimationSourceText(item.data?.impactEstimationSource)
+                    const cpcAdjustText = item.recommendationType === 'adjust_cpc'
+                      ? `CPC ${formatNumber(item.data?.currentCpc, 2)} → ${formatNumber(item.data?.recommendedCpc, 2)}`
+                      : ''
+                    const budgetAdjustText = item.recommendationType === 'adjust_budget'
+                      ? `预算 ${formatNumber(item.data?.currentBudget, 2)} → ${formatNumber(item.data?.recommendedBudget, 2)} (${item.data?.budgetType || 'DAILY'})`
+                      : ''
+                    const keywordPlan = Array.isArray(item.data?.keywordPlan) ? item.data.keywordPlan : []
+                    const negativeKeywordPlan = Array.isArray(item.data?.negativeKeywordPlan) ? item.data.negativeKeywordPlan : []
+                    const matchTypePlan = Array.isArray(item.data?.matchTypePlan) ? item.data.matchTypePlan : []
+                    const keywordPlanText = item.recommendationType === 'expand_keywords'
+                      ? `新增词 ${keywordPlan.length} 个（自动匹配类型）`
+                      : ''
+                    const negativeKeywordPlanText = item.recommendationType === 'add_negative_keywords'
+                      ? `否词 ${negativeKeywordPlan.length} 个（建议默认EXACT）`
+                      : ''
+                    const matchTypePlanText = item.recommendationType === 'optimize_match_type'
+                      ? `匹配类型优化 ${matchTypePlan.length} 个（新增并暂停旧匹配类型）`
+                      : ''
+                    const hasRecommendationDetail = keywordPlan.length > 0 || negativeKeywordPlan.length > 0 || matchTypePlan.length > 0
+                    const creativeQualityText = item.data?.creativeQuality
+                      ? `创意 H${item.data.creativeQuality.headlineCount}/D${item.data.creativeQuality.descriptionCount}/K${item.data.creativeQuality.keywordCount} · ${item.data.creativeQuality.level.toUpperCase()}`
+                      : ''
+                    const queueRetryCount = Number(item.executionResult?.queueRetryCount)
+                    const hasQueueRetryCount = Number.isFinite(queueRetryCount) && queueRetryCount >= 0
+
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          {isSelectable ? (
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={(checked) => toggleStrategyRecommendationSelected(item.id, Boolean(checked))}
+                              aria-label={`选择建议 ${item.id}`}
+                              disabled={strategyRecommendationActionBusy}
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-500">{index + 1}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{resolveStrategyRecommendationTypeLabel(item.recommendationType)}</div>
+                          <div className="text-xs text-slate-500">{item.title}</div>
+                          <div className="mt-1 text-xs text-slate-600">{analysisNote}</div>
+                          {item.data?.commissionLagProtected && (
+                            <div className="mt-1 text-xs text-amber-600">佣金滞后保护：投放≤3天无佣金按正常处理</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{item.data?.campaignName || `Campaign #${item.campaignId}`}</div>
+                          <div className="text-xs text-slate-500">运行 {item.data?.runDays ?? '--'} 天</div>
+                          {creativeQualityText && (
+                            <div className="text-xs text-slate-500">{creativeQualityText}</div>
+                          )}
+                          {item.recommendationType === 'expand_keywords' && (
+                            <div className="text-xs text-slate-500">现有关键词 {item.data?.keywordCoverageCount ?? 0} 个</div>
+                          )}
+                          {item.recommendationType === 'add_negative_keywords' && (
+                            <div className="text-xs text-slate-500">建议否词 {negativeKeywordPlan.length} 个</div>
+                          )}
+                          {item.recommendationType === 'optimize_match_type' && (
+                            <div className="text-xs text-slate-500">建议优化 {matchTypePlan.length} 个</div>
+                          )}
+                          {isQueued && (
+                            <div className="text-xs text-amber-600">执行队列中（Task: {item.executionResult?.queueTaskId || '-'})</div>
+                          )}
+                          {isQueued && (
+                            <div className="text-xs text-slate-500">
+                              队列状态 {String(item.executionResult?.queueTaskStatus || 'pending')}
+                              {item.executionResult?.queuedAt ? ` · 入队 ${formatTimestamp(item.executionResult.queuedAt)}` : ''}
+                              {item.executionResult?.queueTaskCreatedAt ? ` · 创建 ${formatTimestamp(item.executionResult.queueTaskCreatedAt)}` : ''}
+                              {item.executionResult?.queueTaskStartedAt ? ` · 开始 ${formatTimestamp(item.executionResult.queueTaskStartedAt)}` : ''}
+                              {hasQueueRetryCount ? ` · 重试 ${queueRetryCount}` : ''}
+                            </div>
+                          )}
+                          {item.executionResult?.queueTaskError && (
+                            <div className="text-xs text-red-600" title={String(item.executionResult.queueTaskError)}>
+                              队列错误：{String(item.executionResult.queueTaskError)}
+                            </div>
+                          )}
+                          {item.executionResult?.postReviewTaskId && (
+                            <div className="text-xs text-slate-500">
+                              复盘任务 {String(item.executionResult.postReviewTaskId)}
+                              {item.executionResult?.postReviewScheduledAt
+                                ? ` · 计划 ${formatTimestamp(item.executionResult.postReviewScheduledAt)}`
+                                : ''}
+                            </div>
+                          )}
+                          {postReviewText && (
+                            <div className="text-xs text-slate-500">{postReviewText}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div>{costText}</div>
+                          <div>{roasText}</div>
+                          <div>{breakEvenText}</div>
+                          {cpcAdjustText && <div>{cpcAdjustText}</div>}
+                          {budgetAdjustText && <div>{budgetAdjustText}</div>}
+                          {keywordPlanText && <div>{keywordPlanText}</div>}
+                          {negativeKeywordPlanText && <div>{negativeKeywordPlanText}</div>}
+                          {matchTypePlanText && <div>{matchTypePlanText}</div>}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{formatNumber(item.priorityScore, 1)}</div>
+                          {hasImpact ? (
+                            <div className="text-xs text-slate-500">
+                              净影响(估) {formatNumber(estimatedNetImpact, 2)} / {impactWindowDays}天 · 置信度 {impactConfidenceText}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500">净影响 --</div>
+                          )}
+                          <div className="text-xs text-slate-500">
+                            节省 {formatNumber(estimatedCostSaving, 2)} / 增益 {formatNumber(estimatedRevenueUplift, 2)}
+                          </div>
+                          {item.data?.impactConfidenceReason && (
+                            <div className="text-xs text-slate-500">{item.data.impactConfidenceReason}</div>
+                          )}
+                          {impactEstimationSourceText && (
+                            <div className="text-xs text-slate-500">{impactEstimationSourceText}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                          {item.status === 'stale' && (
+                            <div className="mt-1 text-xs text-amber-600">建议内容已变化，请重新审批后再执行</div>
+                          )}
+                          {isQueued && (
+                            <div className="mt-1 text-xs text-amber-600">排队执行中</div>
+                          )}
+                          {item.status === 'failed' && item.executionResult?.error && (
+                            <div className="mt-1 text-xs text-red-600" title={String(item.executionResult.error)}>
+                              失败原因：{String(item.executionResult.error)}
+                            </div>
+                          )}
+                          {item.executedAt && (
+                            <div className="mt-1 text-xs text-slate-500">{formatTimestamp(item.executedAt)}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!hasRecommendationDetail}
+                              onClick={() => setStrategyRecommendationDetailItem(item)}
+                            >
+                              明细
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={
+                                strategyRecommendationActionBusy
+                                || isApproving
+                                || isExecuting
+                                || isDismissing
+                                || item.status === 'approved'
+                                || item.status === 'executed'
+                              }
+                              onClick={() => handleApproveStrategyRecommendation(item.id)}
+                            >
+                              {isApproving ? '审批中...' : '审批'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={
+                                strategyRecommendationActionBusy
+                                || isApproving
+                                || isExecuting
+                                || isDismissing
+                                || strategyHistoricalReadOnly
+                                || item.status !== 'approved'
+                                || isQueued
+                              }
+                              onClick={() => handleExecuteStrategyRecommendation(item)}
+                            >
+                              {isExecuting ? '执行中...' : '执行'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={
+                                strategyRecommendationActionBusy
+                                || isApproving
+                                || isExecuting
+                                || isDismissing
+                                || item.status === 'executed'
+                                || item.status === 'dismissed'
+                              }
+                              onClick={() => handleDismissStrategyRecommendation(item)}
+                            >
+                              {isDismissing ? '忽略中...' : '忽略'}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                  {strategyRecommendationsDisplay.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-slate-500">
+                        {strategyRecommendationsLoading ? '策略建议生成中...' : '暂无策略建议'}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              <Dialog
+                open={Boolean(strategyRecommendationDetailItem)}
+                onOpenChange={(open) => {
+                  if (!open) setStrategyRecommendationDetailItem(null)
+                }}
+              >
+                <DialogContent className="max-w-3xl">
+                  <DialogHeader>
+                    <DialogTitle>建议执行明细</DialogTitle>
+                    <DialogDescription>
+                      {strategyRecommendationDetailItem
+                        ? `${resolveStrategyRecommendationTypeLabel(strategyRecommendationDetailItem.recommendationType)} · ${strategyRecommendationDetailItem.data?.campaignName || `Campaign #${strategyRecommendationDetailItem.campaignId}`}`
+                        : ''}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {strategyRecommendationDetailItem && (
+                    <div className="max-h-[65vh] space-y-4 overflow-y-auto text-sm">
+                      {Array.isArray(strategyRecommendationDetailItem.data?.keywordPlan) && strategyRecommendationDetailItem.data.keywordPlan.length > 0 && (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm font-medium">
+                            扩量关键词（{strategyRecommendationDetailItem.data.keywordPlan.length}）
+                          </div>
+                          <div className="space-y-1 text-xs text-slate-600">
+                            {strategyRecommendationDetailItem.data.keywordPlan.slice(0, 30).map((kw, idx) => (
+                              <div key={`kw:${kw.text}:${idx}`}>
+                                {idx + 1}. {kw.text} [{kw.matchType}]
+                              </div>
+                            ))}
+                            {strategyRecommendationDetailItem.data.keywordPlan.length > 30 && (
+                              <div>其余 {strategyRecommendationDetailItem.data.keywordPlan.length - 30} 条已省略</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {Array.isArray(strategyRecommendationDetailItem.data?.negativeKeywordPlan) && strategyRecommendationDetailItem.data.negativeKeywordPlan.length > 0 && (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm font-medium">
+                            否词建议（{strategyRecommendationDetailItem.data.negativeKeywordPlan.length}）
+                          </div>
+                          <div className="space-y-1 text-xs text-slate-600">
+                            {strategyRecommendationDetailItem.data.negativeKeywordPlan.slice(0, 30).map((kw, idx) => (
+                              <div key={`neg:${kw.text}:${idx}`}>
+                                {idx + 1}. {kw.text} [{kw.matchType}]
+                                {kw.reason ? ` · ${kw.reason}` : ''}
+                              </div>
+                            ))}
+                            {strategyRecommendationDetailItem.data.negativeKeywordPlan.length > 30 && (
+                              <div>其余 {strategyRecommendationDetailItem.data.negativeKeywordPlan.length - 30} 条已省略</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {Array.isArray(strategyRecommendationDetailItem.data?.matchTypePlan) && strategyRecommendationDetailItem.data.matchTypePlan.length > 0 && (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm font-medium">
+                            匹配类型优化（{strategyRecommendationDetailItem.data.matchTypePlan.length}）
+                          </div>
+                          <div className="space-y-1 text-xs text-slate-600">
+                            {strategyRecommendationDetailItem.data.matchTypePlan.slice(0, 30).map((kw, idx) => (
+                              <div key={`mt:${kw.text}:${idx}`}>
+                                {idx + 1}. {kw.text} [{kw.currentMatchType} → {kw.recommendedMatchType}]
+                                {Number.isFinite(Number(kw.clicks)) ? ` · 点击 ${formatNumber(kw.clicks, 0)}` : ''}
+                                {Number.isFinite(Number(kw.conversions)) ? ` · 转化 ${formatNumber(kw.conversions, 2)}` : ''}
+                                {Number.isFinite(Number(kw.cost)) ? ` · 花费 ${formatNumber(kw.cost, 2)}` : ''}
+                              </div>
+                            ))}
+                            {strategyRecommendationDetailItem.data.matchTypePlan.length > 30 && (
+                              <div>其余 {strategyRecommendationDetailItem.data.matchTypePlan.length - 30} 条已省略</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {(!Array.isArray(strategyRecommendationDetailItem.data?.keywordPlan) || strategyRecommendationDetailItem.data.keywordPlan.length === 0)
+                        && (!Array.isArray(strategyRecommendationDetailItem.data?.negativeKeywordPlan) || strategyRecommendationDetailItem.data.negativeKeywordPlan.length === 0)
+                        && (!Array.isArray(strategyRecommendationDetailItem.data?.matchTypePlan) || strategyRecommendationDetailItem.data.matchTypePlan.length === 0) && (
+                          <div className="text-xs text-slate-500">该建议暂无可展示的执行明细。</div>
+                        )}
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
             </CardContent>
           </Card>
 
@@ -3331,8 +4585,8 @@ export default function OpenClawPage() {
               <CardTitle>ROI / ROAS 分析</CardTitle>
               <CardDescription>
                 {usingAffiliateCommissionRevenue
-                  ? '收益口径：联盟平台佣金（PartnerBoost / YeahPromos）'
-                  : '收益口径：联盟平台佣金（严格模式，当前不可用）'}
+                  ? '收益口径：联盟平台佣金（PartnerBoost / YeahPromos，Campaign/Offer级）'
+                  : '收益口径：联盟平台佣金（Campaign/Offer级，严格模式当前不可用）'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

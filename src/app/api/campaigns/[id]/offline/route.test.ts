@@ -83,6 +83,8 @@ const { invalidateOfferCache } = await import('@/lib/api-cache')
 const { removePendingClickFarmQueueTasksByTaskIds } = await import('@/lib/click-farm/queue-cleanup')
 const { removePendingUrlSwapQueueTasksByTaskIds } = await import('@/lib/url-swap/queue-cleanup')
 const { applyCampaignTransition } = await import('@/lib/campaign-state-machine')
+const { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } = await import('@/lib/google-ads-api')
+const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
 
 describe('POST /api/campaigns/:id/offline', () => {
   beforeEach(() => {
@@ -174,5 +176,98 @@ describe('POST /api/campaigns/:id/offline', () => {
     expect(data.success).toBe(true)
     expect(data.data.urlSwapPaused).toBe(1)
     expect(vi.mocked(removePendingUrlSwapQueueTasksByTaskIds)).toHaveBeenCalledWith(['us-task-1', 'us-task-2'], 1)
+  })
+
+  it('waitRemote=true executes google ads update synchronously and returns completed summary', async () => {
+    dbFns.queryOne.mockResolvedValue({
+      id: 123,
+      campaign_id: '999000111',
+      google_campaign_id: '999000111',
+      google_ads_account_id: 88,
+      status: 'ENABLED',
+      is_deleted: false,
+      offer_id: 777,
+      offer_brand: 'BrandX',
+      offer_target_country: 'US',
+      offer_is_deleted: false,
+      customer_id: '1234567890',
+      parent_mcc_id: null,
+      ads_account_active: true,
+      ads_account_deleted: false,
+      ads_account_status: 'ENABLED',
+    })
+    vi.mocked(getGoogleAdsCredentialsFromDB).mockResolvedValue({
+      useServiceAccount: false,
+      login_customer_id: null,
+    } as any)
+    vi.mocked(getGoogleAdsCredentials).mockResolvedValue({
+      refresh_token: 'rtok',
+    } as any)
+    vi.mocked(updateGoogleAdsCampaignStatus).mockResolvedValue(undefined)
+
+    const req = new NextRequest('http://localhost/api/campaigns/123/offline', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        waitRemote: true,
+      }),
+    })
+
+    const res = await POST(req, { params: { id: '123' } })
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.googleAds.queued).toBe(false)
+    expect(data.googleAds.planned).toBe(1)
+    expect(data.googleAds.paused).toBe(1)
+    expect(data.googleAds.failed).toBe(0)
+    expect(vi.mocked(updateGoogleAdsCampaignStatus)).toHaveBeenCalled()
+  })
+
+  it('waitRemote=true reports google ads failures in response summary', async () => {
+    dbFns.queryOne.mockResolvedValue({
+      id: 123,
+      campaign_id: '999000111',
+      google_campaign_id: '999000111',
+      google_ads_account_id: 88,
+      status: 'ENABLED',
+      is_deleted: false,
+      offer_id: 777,
+      offer_brand: 'BrandX',
+      offer_target_country: 'US',
+      offer_is_deleted: false,
+      customer_id: '1234567890',
+      parent_mcc_id: null,
+      ads_account_active: true,
+      ads_account_deleted: false,
+      ads_account_status: 'ENABLED',
+    })
+    vi.mocked(getGoogleAdsCredentialsFromDB).mockResolvedValue({
+      useServiceAccount: false,
+      login_customer_id: null,
+    } as any)
+    vi.mocked(getGoogleAdsCredentials).mockResolvedValue({
+      refresh_token: 'rtok',
+    } as any)
+    vi.mocked(updateGoogleAdsCampaignStatus).mockRejectedValue(new Error('quota limited'))
+
+    const req = new NextRequest('http://localhost/api/campaigns/123/offline', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        waitRemote: true,
+      }),
+    })
+
+    const res = await POST(req, { params: { id: '123' } })
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.googleAds.queued).toBe(false)
+    expect(data.googleAds.failed).toBe(1)
+    expect(Array.isArray(data.googleAds.errors)).toBe(true)
+    expect(String(data.googleAds.errors?.[0] || '')).toContain('quota limited')
   })
 })

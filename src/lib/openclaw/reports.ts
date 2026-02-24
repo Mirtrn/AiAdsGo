@@ -4,6 +4,8 @@ import { fetchAffiliateCommissionRevenue, type AffiliateCommissionRevenue } from
 import { invokeOpenclawTool } from '@/lib/openclaw/gateway'
 import { resolveUserFeishuAccountId } from '@/lib/openclaw/feishu-accounts'
 import { writeDailyReportToBitable, writeDailyReportToDoc } from '@/lib/openclaw/feishu-docs'
+import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
+import { getStrategyRecommendations, type StrategyRecommendation } from '@/lib/openclaw/strategy-recommendations'
 import { toDbJsonObjectField } from '@/lib/json-field'
 
 type DailyReportPayload = {
@@ -20,6 +22,7 @@ type DailyReportPayload = {
   actions?: any[]
   strategyActions?: any[]
   strategyRun?: any
+  strategyRecommendations?: StrategyRecommendation[]
   errors?: Array<{ source: string; message: string }>
 }
 
@@ -60,7 +63,6 @@ type StrategyKnowledgeSummary = {
   topPublishFailureReasons: string[]
 }
 
-const DEFAULT_TIMEZONE = process.env.TZ || 'Asia/Shanghai'
 const reportInflight = new Map<string, Promise<DailyReportPayload>>()
 const reportDeliveryInflight = new Map<string, Promise<void>>()
 
@@ -76,12 +78,7 @@ type SendDailyReportToFeishuParams = {
 }
 
 function formatLocalDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: DEFAULT_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
+  return formatOpenclawLocalDate(date)
 }
 
 function parseMaybeJson<T>(value: unknown, fallback: T): T {
@@ -209,11 +206,6 @@ const REPORT_TREND_DAYS = 30
 
 function isIsoDateString(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
-}
-
-function normalizeReportDate(value?: string): string {
-  const normalized = String(value || '').trim()
-  return isIsoDateString(normalized) ? normalized : formatLocalDate(new Date())
 }
 
 function shiftYmdDate(ymd: string, days: number): string {
@@ -504,7 +496,7 @@ async function enrichReportCommissionSections(params: {
   trends: unknown
   roi: unknown
 }): Promise<{ trends: any; roi: any }> {
-  const reportDate = normalizeReportDate(params.reportDate)
+  const reportDate = normalizeOpenclawReportDate(params.reportDate)
   const trendStartDate = shiftYmdDate(reportDate, -(REPORT_TREND_DAYS - 1))
   const trendDates = buildYmdDateRange(trendStartDate, reportDate)
 
@@ -983,7 +975,7 @@ async function fetchWithGuard<T>(source: string, fn: () => Promise<T>, errors: D
 }
 
 export async function buildOpenclawDailyReport(userId: number, dateStr?: string): Promise<DailyReportPayload> {
-  const reportDate = normalizeReportDate(dateStr || formatLocalDate(new Date()))
+  const reportDate = normalizeOpenclawReportDate(dateStr || formatLocalDate(new Date()))
   const errors: DailyReportPayload['errors'] = []
 
   const [summary, kpis, trends, roi, campaigns, budget, performance, affiliateRevenue] = await Promise.all([
@@ -1103,6 +1095,17 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     [userId, reportDate]
   )
 
+  const strategyRecommendations = await fetchWithGuard(
+    'openclaw.strategy.recommendations',
+    () => getStrategyRecommendations({
+      userId,
+      reportDate,
+      forceRefresh: false,
+      limit: 100,
+    }),
+    errors
+  )
+
   const enrichedSections = await fetchWithGuard(
     'openclaw.report.commission',
     () => enrichReportCommissionSections({
@@ -1129,8 +1132,35 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     actions,
     strategyActions,
     strategyRun,
+    strategyRecommendations: strategyRecommendations || [],
     errors: errors && errors.length > 0 ? errors : undefined,
   }
+}
+
+function formatRecommendationTypeLabel(type: string): string {
+  switch (type) {
+    case 'adjust_cpc':
+      return 'CPC调整'
+    case 'adjust_budget':
+      return '预算调整'
+    case 'offline_campaign':
+      return '下线Campaign'
+    case 'expand_keywords':
+      return '扩量关键词'
+    case 'add_negative_keywords':
+      return '新增否词'
+    case 'optimize_match_type':
+      return '匹配类型优化'
+    default:
+      return type || '策略建议'
+  }
+}
+
+function formatImpactConfidenceLabel(value: unknown): string {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'high') return '高'
+  if (normalized === 'medium') return '中'
+  return '低'
 }
 
 export async function getOrCreateDailyReport(
@@ -1138,7 +1168,7 @@ export async function getOrCreateDailyReport(
   dateStr?: string,
   options?: DailyReportLoadOptions
 ): Promise<DailyReportPayload> {
-  const reportDate = normalizeReportDate(dateStr || formatLocalDate(new Date()))
+  const reportDate = normalizeOpenclawReportDate(dateStr || formatLocalDate(new Date()))
   const forceRefresh = options?.forceRefresh === true
   const inflightKey = `${userId}:${reportDate}:${forceRefresh ? 'refresh' : 'cache'}`
 
@@ -1159,7 +1189,7 @@ export async function getOrCreateDailyReport(
       if (existing?.payload_json) {
         try {
           const parsed = JSON.parse(existing.payload_json) as DailyReportPayload
-          const effectiveReportDate = normalizeReportDate(parsed.date || reportDate)
+          const effectiveReportDate = normalizeOpenclawReportDate(parsed.date || reportDate)
           const enriched = await enrichReportCommissionSections({
             db,
             userId,
@@ -1313,6 +1343,31 @@ function formatReportMessage(report: DailyReportPayload): string {
 
   const lines: string[] = []
   const strategySummary = buildStrategyKnowledgeSummary(report)
+  const strategyRecommendations = Array.isArray(report.strategyRecommendations)
+    ? report.strategyRecommendations
+    : []
+  const recommendationStatusSummary = strategyRecommendations.reduce(
+    (acc, item) => {
+      acc.total += 1
+      const status = String(item?.status || '').trim().toLowerCase()
+      if (status === 'approved') acc.approved += 1
+      else if (status === 'executed') acc.executed += 1
+      else if (status === 'failed') acc.failed += 1
+      else if (status === 'stale') acc.stale += 1
+      else if (status === 'dismissed') acc.dismissed += 1
+      else acc.pending += 1
+      return acc
+    },
+    {
+      total: 0,
+      pending: 0,
+      approved: 0,
+      executed: 0,
+      failed: 0,
+      stale: 0,
+      dismissed: 0,
+    }
+  )
 
   lines.push(`📊 OpenClaw 每日报表（${report.date}）`)
   if (summary) {
@@ -1327,7 +1382,7 @@ function formatReportMessage(report: DailyReportPayload): string {
         `- 佣金收入：${formatMoney(totalRevenue || 0, affiliateCurrency)}｜花费：${formatMoney(totalCost, roiCurrency)}｜利润：${formatMoney(roi.totalProfit, profitCurrency)}`
       )
       lines.push(`- ROAS：${(roas || 0).toFixed(2)}x｜ROI：${roi.roi ?? 0}%`)
-      lines.push('- 收入来源：联盟佣金（PartnerBoost / YeahPromos）')
+      lines.push('- 收入口径：联盟佣金（PartnerBoost / YeahPromos，Campaign/Offer级）')
 
       if (affiliateBreakdown.length > 0) {
         const detail = affiliateBreakdown
@@ -1342,7 +1397,7 @@ function formatReportMessage(report: DailyReportPayload): string {
       lines.push(`- 花费：${formatMoney(totalCost, roiCurrency)}`)
       lines.push('- 佣金收入：暂不可用（等待联盟平台返回）')
       lines.push('- ROAS：暂不可用｜ROI：暂不可用')
-      lines.push('- 收入来源：严格联盟模式（不回退 AutoAds）')
+      lines.push('- 收入口径：联盟佣金（Campaign/Offer级，严格模式不回退 AutoAds）')
     }
   }
 
@@ -1388,6 +1443,58 @@ function formatReportMessage(report: DailyReportPayload): string {
     }
   }
 
+  if (recommendationStatusSummary.total > 0) {
+    lines.push(
+      `- 建议状态：总 ${recommendationStatusSummary.total}｜待审批 ${recommendationStatusSummary.pending}｜已审批 ${recommendationStatusSummary.approved}｜已执行 ${recommendationStatusSummary.executed}｜执行失败 ${recommendationStatusSummary.failed}｜待重审 ${recommendationStatusSummary.stale}｜已忽略 ${recommendationStatusSummary.dismissed}`
+    )
+  }
+
+  const pendingOrApprovedRecommendations = strategyRecommendations.filter((item) => {
+    const normalizedStatus = String(item?.status || '').trim().toLowerCase()
+    if (!normalizedStatus) return true
+    return normalizedStatus === 'pending' || normalizedStatus === 'approved'
+  })
+
+  if (pendingOrApprovedRecommendations.length > 0) {
+    const topRecommendations = [...pendingOrApprovedRecommendations]
+      .sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
+      .slice(0, 5)
+    lines.push(`- 优化建议TOP${topRecommendations.length}（按优先级分排序）：`)
+    topRecommendations.forEach((item, index) => {
+      const valueScore = Number(item.priorityScore) || 0
+      const campaignName = item.data?.campaignName || item.data?.campaignId || item.campaignId
+      const summary = item.summary || item.reason || item.title
+      const netImpact = roundTo2(toNumber(item.data?.estimatedNetImpact, 0))
+      const impactWindowDays = Math.max(1, Math.floor(toNumber(item.data?.impactWindowDays, 7)))
+      const impactConfidenceLabel = formatImpactConfidenceLabel(item.data?.impactConfidence)
+      const impactConfidenceReason = String(item.data?.impactConfidenceReason || '').trim()
+      const postReviewStatus = String(item.data?.postReviewStatus || '').trim()
+      const postReviewText = postReviewStatus
+        ? `｜复盘 ${postReviewStatus}`
+        : ''
+      const confidenceReasonText = impactConfidenceReason ? `｜${impactConfidenceReason}` : ''
+      lines.push(
+        `  ${index + 1}. [${formatRecommendationTypeLabel(item.recommendationType)}] ${campaignName}｜优先级分 ${valueScore.toFixed(1)}｜净影响(估) ${netImpact.toFixed(2)}（${impactWindowDays}天）｜置信度 ${impactConfidenceLabel}${confidenceReasonText}${postReviewText}｜${summary}`
+      )
+    })
+  }
+
+  const staleRecommendations = strategyRecommendations.filter((item) => {
+    const normalizedStatus = String(item?.status || '').trim().toLowerCase()
+    return normalizedStatus === 'stale'
+  })
+  if (staleRecommendations.length > 0) {
+    const topStale = [...staleRecommendations]
+      .sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
+      .slice(0, 3)
+      .map((item) => item.data?.campaignName || `Campaign #${item.campaignId}`)
+      .join('、')
+    lines.push(`- 待重审建议：${staleRecommendations.length} 条（不纳入可执行TOP）`)
+    if (topStale) {
+      lines.push(`- 待重审示例：${topStale}`)
+    }
+  }
+
   if (appUrl) {
     lines.push(`🔗 详情链接：${appUrl}/openclaw`)
   }
@@ -1396,7 +1503,7 @@ function formatReportMessage(report: DailyReportPayload): string {
 }
 
 export async function sendDailyReportToFeishu(params: SendDailyReportToFeishuParams): Promise<void> {
-  const reportDate = params.date || formatLocalDate(new Date())
+  const reportDate = normalizeOpenclawReportDate(params.date || formatLocalDate(new Date()))
   const inflightKey = params.deliveryTaskId
     ? `daily-report-delivery:${params.userId}:${reportDate}:${params.target || 'no-target'}:${params.deliveryTaskId}`
     : undefined

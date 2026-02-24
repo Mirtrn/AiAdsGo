@@ -504,6 +504,16 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
     },
   },
   {
+    method: 'PUT',
+    path: '/api/campaigns/:id/update-budget',
+    canonicalKeys: ['budgetAmount', 'budgetType'],
+    requiredKeys: ['budgetAmount'],
+    aliasMap: {
+      budget_amount: 'budgetAmount',
+      budget_type: 'budgetType',
+    },
+  },
+  {
     method: 'POST',
     path: '/api/campaigns/:id/offline',
     canonicalKeys: [

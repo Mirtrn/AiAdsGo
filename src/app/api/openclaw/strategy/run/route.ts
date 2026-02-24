@@ -1,34 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
-import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
+import { NextRequest } from 'next/server'
+import { POST as postStrategyRecommendations } from '@/app/api/openclaw/strategy/recommendations/route'
 
 export const dynamic = 'force-dynamic'
 
+// 兼容旧入口：统一复用 recommendations 的手动分析实现，避免逻辑分叉。
 export async function POST(request: NextRequest) {
-  const auth = await resolveOpenclawRequestUser(request)
-  if (!auth) {
-    return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
-  }
-
-  const body = await request.json().catch(() => ({})) as { mode?: string }
-  const mode = typeof body?.mode === 'string' && body.mode.trim() ? body.mode.trim() : 'manual'
-  const parentRequestId = request.headers.get('x-request-id') || undefined
-
-  const queue = getQueueManagerForTaskType('openclaw-strategy')
-  const taskId = await queue.enqueue(
-    'openclaw-strategy',
-    {
-      userId: auth.userId,
-      mode,
-      trigger: 'manual',
-    },
-    auth.userId,
-    {
-      priority: 'normal',
-      maxRetries: 0,
-      parentRequestId,
-    }
+  const response = await postStrategyRecommendations(request)
+  response.headers.set('X-OpenClaw-Deprecated', 'true')
+  response.headers.set(
+    'X-OpenClaw-Deprecated-Message',
+    '/api/openclaw/strategy/run is deprecated; use /api/openclaw/strategy/recommendations'
   )
-
-  return NextResponse.json({ success: true, taskId })
+  return response
 }
