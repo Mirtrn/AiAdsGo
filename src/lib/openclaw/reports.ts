@@ -11,6 +11,12 @@ import { createRiskAlert } from '@/lib/risk-alerts'
 
 type DailyReportPayload = {
   date: string
+  dateRange?: {
+    startDate: string
+    endDate: string
+    days: number
+    isRange: boolean
+  }
   generatedAt: string
   summary?: any
   kpis?: any
@@ -23,6 +29,17 @@ type DailyReportPayload = {
   actions?: any[]
   strategyActions?: any[]
   strategyRun?: any
+  strategyRunRange?: {
+    startDate: string
+    endDate: string
+    runsTotal: number
+    runsSuccess: number
+    runsFailed: number
+    runsSkipped: number
+    latestRunDate: string | null
+    latestMode: string | null
+    latestStatus: string | null
+  }
   strategyRecommendations?: StrategyRecommendation[]
   errors?: Array<{ source: string; message: string }>
 }
@@ -69,6 +86,10 @@ const reportDeliveryInflight = new Map<string, Promise<void>>()
 
 type DailyReportLoadOptions = {
   forceRefresh?: boolean
+}
+
+type DailyReportBuildOptions = {
+  startDate?: string
 }
 
 type SendDailyReportToFeishuParams = {
@@ -132,9 +153,33 @@ type CampaignPerformanceByDateRow = {
   conversions: number | null
 }
 
+type ReportRangeKpiRow = {
+  total_offers: number | null
+  total_campaigns: number | null
+  impressions: number | null
+  clicks: number | null
+  cost: number | null
+  conversions: number | null
+}
+
 type CommissionByDateRow = {
   report_date: string
   commission: number | null
+}
+
+type PlatformCommissionSummaryRow = {
+  platform: string
+  currency: string | null
+  total_commission: number | null
+  records: number | null
+}
+
+type AttributionSummaryRangeRow = {
+  total_commission: number | null
+  attributed_commission: number | null
+  written_rows: number | null
+  attributed_offers: number | null
+  attributed_campaigns: number | null
 }
 
 type OfferRevenueRow = {
@@ -277,6 +322,33 @@ function buildYmdDateRange(startYmd: string, endYmd: string): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1)
   }
   return range
+}
+
+function resolveNormalizedDateRange(startDate: string, endDate: string): {
+  startDate: string
+  endDate: string
+} {
+  const normalizedEndDate = normalizeOpenclawReportDate(endDate)
+  const normalizedStartCandidate = normalizeOpenclawReportDate(startDate)
+  const normalizedStartDate = normalizedStartCandidate <= normalizedEndDate
+    ? normalizedStartCandidate
+    : normalizedEndDate
+  return {
+    startDate: normalizedStartDate,
+    endDate: normalizedEndDate,
+  }
+}
+
+function calculateInclusiveDateSpan(startDate: string, endDate: string): number {
+  if (!isIsoDateString(startDate) || !isIsoDateString(endDate) || startDate > endDate) {
+    return 1
+  }
+  const startMs = Date.parse(`${startDate}T00:00:00.000Z`)
+  const endMs = Date.parse(`${endDate}T00:00:00.000Z`)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return 1
+  }
+  return Math.floor((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1
 }
 
 function calculateRoiPercent(revenue: number, cost: number): number | null {
@@ -480,6 +552,270 @@ async function queryCommissionByDateRange(params: {
   return map
 }
 
+async function queryRangeKpiSnapshot(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<{
+  totalOffers: number
+  totalCampaigns: number
+  impressions: number
+  clicks: number
+  cost: number
+  conversions: number
+}> {
+  const campaignNotDeletedCondition = params.db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
+
+  const row = await params.db.queryOne<ReportRangeKpiRow>(
+    `
+      SELECT
+        COUNT(DISTINCT CASE WHEN cp.campaign_id IS NOT NULL AND c.offer_id IS NOT NULL THEN c.offer_id END) AS total_offers,
+        COUNT(DISTINCT CASE WHEN cp.campaign_id IS NOT NULL THEN c.id END) AS total_campaigns,
+        COALESCE(SUM(cp.impressions), 0) AS impressions,
+        COALESCE(SUM(cp.clicks), 0) AS clicks,
+        COALESCE(SUM(cp.cost), 0) AS cost,
+        COALESCE(SUM(cp.conversions), 0) AS conversions
+      FROM campaigns c
+      LEFT JOIN campaign_performance cp
+        ON cp.user_id = c.user_id
+       AND cp.campaign_id = c.id
+       AND cp.date >= ?
+       AND cp.date <= ?
+      WHERE c.user_id = ?
+        AND ${campaignNotDeletedCondition}
+    `,
+    [params.startDate, params.endDate, params.userId]
+  )
+
+  return {
+    totalOffers: Math.max(0, Math.round(toNumber(row?.total_offers, 0))),
+    totalCampaigns: Math.max(0, Math.round(toNumber(row?.total_campaigns, 0))),
+    impressions: Math.max(0, Math.round(toNumber(row?.impressions, 0))),
+    clicks: Math.max(0, Math.round(toNumber(row?.clicks, 0))),
+    cost: roundTo2(toNumber(row?.cost, 0)),
+    conversions: roundTo2(toNumber(row?.conversions, 0)),
+  }
+}
+
+function normalizeAffiliatePlatform(value: unknown): 'partnerboost' | 'yeahpromos' | null {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'partnerboost') return 'partnerboost'
+  if (normalized === 'yeahpromos') return 'yeahpromos'
+  return null
+}
+
+async function buildAffiliateRevenueSummaryByDateRange(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<AffiliateCommissionRevenue> {
+  const [platformRows, attributionRow] = await Promise.all([
+    params.db.query<PlatformCommissionSummaryRow>(
+      `
+        SELECT
+          platform,
+          currency,
+          COALESCE(SUM(commission_amount), 0) AS total_commission,
+          COUNT(*) AS records
+        FROM affiliate_commission_attributions
+        WHERE user_id = ?
+          AND report_date >= ?
+          AND report_date <= ?
+        GROUP BY platform, currency
+        ORDER BY total_commission DESC
+      `,
+      [params.userId, params.startDate, params.endDate]
+    ),
+    params.db.queryOne<AttributionSummaryRangeRow>(
+      `
+        SELECT
+          COALESCE(SUM(commission_amount), 0) AS total_commission,
+          COALESCE(SUM(
+            CASE
+              WHEN offer_id IS NOT NULL OR campaign_id IS NOT NULL THEN commission_amount
+              ELSE 0
+            END
+          ), 0) AS attributed_commission,
+          COUNT(*) AS written_rows,
+          COUNT(DISTINCT CASE WHEN offer_id IS NOT NULL THEN offer_id END) AS attributed_offers,
+          COUNT(DISTINCT CASE WHEN campaign_id IS NOT NULL THEN campaign_id END) AS attributed_campaigns
+        FROM affiliate_commission_attributions
+        WHERE user_id = ?
+          AND report_date >= ?
+          AND report_date <= ?
+      `,
+      [params.userId, params.startDate, params.endDate]
+    ),
+  ])
+
+  const breakdown: AffiliateCommissionRevenue['breakdown'] = []
+  const configuredPlatforms: Array<'partnerboost' | 'yeahpromos'> = []
+  const queriedPlatforms: Array<'partnerboost' | 'yeahpromos'> = []
+  const configuredSet = new Set<'partnerboost' | 'yeahpromos'>()
+  const queriedSet = new Set<'partnerboost' | 'yeahpromos'>()
+
+  for (const row of platformRows) {
+    const platform = normalizeAffiliatePlatform(row.platform)
+    if (!platform) continue
+    const totalCommission = roundTo2(toNumber(row.total_commission, 0))
+    const records = Math.max(0, Math.round(toNumber(row.records, 0)))
+    if (totalCommission <= 0 && records <= 0) continue
+
+    breakdown.push({
+      platform,
+      totalCommission,
+      records,
+      currency: normalizeCurrencyCode(row.currency, 'USD'),
+    })
+
+    if (!configuredSet.has(platform)) {
+      configuredSet.add(platform)
+      configuredPlatforms.push(platform)
+    }
+    if (!queriedSet.has(platform)) {
+      queriedSet.add(platform)
+      queriedPlatforms.push(platform)
+    }
+  }
+
+  const totalCommission = roundTo2(toNumber(attributionRow?.total_commission, 0))
+  const attributedCommission = roundTo2(toNumber(attributionRow?.attributed_commission, 0))
+  const unattributedCommission = roundTo2(Math.max(0, totalCommission - attributedCommission))
+
+  return {
+    reportDate: params.endDate,
+    configuredPlatforms,
+    queriedPlatforms,
+    totalCommission,
+    breakdown,
+    errors: [],
+    attribution: {
+      attributedCommission,
+      unattributedCommission,
+      attributedOffers: Math.max(0, Math.round(toNumber(attributionRow?.attributed_offers, 0))),
+      attributedCampaigns: Math.max(0, Math.round(toNumber(attributionRow?.attributed_campaigns, 0))),
+      writtenRows: Math.max(0, Math.round(toNumber(attributionRow?.written_rows, 0))),
+    },
+  }
+}
+
+async function queryOfferRevenueByDateRange(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<OfferRevenueRow[]> {
+  return params.db.query<OfferRevenueRow>(
+    `
+      SELECT
+        offer_id,
+        COALESCE(SUM(commission_amount), 0) AS revenue,
+        COUNT(DISTINCT campaign_id) AS attributed_campaign_count
+      FROM affiliate_commission_attributions
+      WHERE user_id = ?
+        AND report_date >= ?
+        AND report_date <= ?
+        AND offer_id IS NOT NULL
+      GROUP BY offer_id
+      ORDER BY revenue DESC
+    `,
+    [params.userId, params.startDate, params.endDate]
+  )
+}
+
+async function queryOfferPerformanceByDateRange(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<OfferPerformanceRow[]> {
+  const campaignNotDeletedCondition = params.db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
+
+  return params.db.query<OfferPerformanceRow>(
+    `
+      SELECT
+        c.offer_id AS offer_id,
+        COALESCE(SUM(cp.cost), 0) AS cost,
+        COALESCE(SUM(cp.clicks), 0) AS clicks,
+        COUNT(DISTINCT c.id) AS campaign_count
+      FROM campaigns c
+      LEFT JOIN campaign_performance cp
+        ON cp.user_id = c.user_id
+       AND cp.campaign_id = c.id
+       AND cp.date >= ?
+       AND cp.date <= ?
+      WHERE c.user_id = ?
+        AND c.offer_id IS NOT NULL
+        AND ${campaignNotDeletedCondition}
+      GROUP BY c.offer_id
+    `,
+    [params.startDate, params.endDate, params.userId]
+  )
+}
+
+async function queryCampaignRevenueByDateRange(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<CampaignRevenueRow[]> {
+  return params.db.query<CampaignRevenueRow>(
+    `
+      SELECT
+        campaign_id,
+        offer_id,
+        COALESCE(SUM(commission_amount), 0) AS revenue
+      FROM affiliate_commission_attributions
+      WHERE user_id = ?
+        AND report_date >= ?
+        AND report_date <= ?
+        AND campaign_id IS NOT NULL
+      GROUP BY campaign_id, offer_id
+      ORDER BY revenue DESC
+    `,
+    [params.userId, params.startDate, params.endDate]
+  )
+}
+
+async function queryCampaignPerformanceByDateRangeForBreakdown(params: {
+  db: DatabaseAdapter
+  userId: number
+  startDate: string
+  endDate: string
+}): Promise<CampaignPerformanceRow[]> {
+  const campaignNotDeletedCondition = params.db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
+
+  return params.db.query<CampaignPerformanceRow>(
+    `
+      SELECT
+        c.id AS campaign_id,
+        c.campaign_name AS campaign_name,
+        c.status AS status,
+        c.offer_id AS offer_id,
+        COALESCE(SUM(cp.cost), 0) AS cost,
+        COALESCE(SUM(cp.clicks), 0) AS clicks
+      FROM campaigns c
+      LEFT JOIN campaign_performance cp
+        ON cp.user_id = c.user_id
+       AND cp.campaign_id = c.id
+       AND cp.date >= ?
+       AND cp.date <= ?
+      WHERE c.user_id = ?
+        AND ${campaignNotDeletedCondition}
+      GROUP BY c.id, c.campaign_name, c.status, c.offer_id
+    `,
+    [params.startDate, params.endDate, params.userId]
+  )
+}
+
 async function queryOfferRevenueByReportDate(params: {
   db: DatabaseAdapter
   userId: number
@@ -660,12 +996,19 @@ async function enrichReportCommissionSections(params: {
   db: DatabaseAdapter
   userId: number
   reportDate: string
+  startDate?: string
   trends: unknown
   roi: unknown
 }): Promise<{ trends: any; roi: any }> {
   const reportDate = normalizeOpenclawReportDate(params.reportDate)
-  const trendStartDate = shiftYmdDate(reportDate, -(REPORT_TREND_DAYS - 1))
-  const trendDates = buildYmdDateRange(trendStartDate, reportDate)
+  const hasRangeStartDate = isIsoDateString(String(params.startDate || '').trim())
+  const normalizedRange = hasRangeStartDate
+    ? resolveNormalizedDateRange(String(params.startDate || reportDate), reportDate)
+    : { startDate: shiftYmdDate(reportDate, -(REPORT_TREND_DAYS - 1)), endDate: reportDate }
+  const trendStartDate = normalizedRange.startDate
+  const trendEndDate = normalizedRange.endDate
+  const trendDates = buildYmdDateRange(trendStartDate, trendEndDate)
+  const isDateRangeMode = trendStartDate < trendEndDate
 
   const roiRoot = asObject(params.roi) ? { ...(params.roi as Record<string, any>) } : {}
   const roiData = asObject(roiRoot.data) ? { ...(roiRoot.data as Record<string, any>) } : {}
@@ -691,45 +1034,74 @@ async function enrichReportCommissionSections(params: {
       db: params.db,
       userId: params.userId,
       startDate: trendStartDate,
-      endDate: reportDate,
+      endDate: trendEndDate,
     }),
     queryCommissionByDateRange({
       db: params.db,
       userId: params.userId,
       startDate: trendStartDate,
-      endDate: reportDate,
+      endDate: trendEndDate,
     }),
-    queryOfferRevenueByReportDate({
-      db: params.db,
-      userId: params.userId,
-      reportDate,
-    }),
-    queryOfferPerformanceByReportDate({
-      db: params.db,
-      userId: params.userId,
-      reportDate,
-    }),
-    queryCampaignRevenueByReportDate({
-      db: params.db,
-      userId: params.userId,
-      reportDate,
-    }),
-    queryCampaignPerformanceByReportDate({
-      db: params.db,
-      userId: params.userId,
-      reportDate,
-    }),
+    isDateRangeMode
+      ? queryOfferRevenueByDateRange({
+        db: params.db,
+        userId: params.userId,
+        startDate: trendStartDate,
+        endDate: trendEndDate,
+      })
+      : queryOfferRevenueByReportDate({
+        db: params.db,
+        userId: params.userId,
+        reportDate,
+      }),
+    isDateRangeMode
+      ? queryOfferPerformanceByDateRange({
+        db: params.db,
+        userId: params.userId,
+        startDate: trendStartDate,
+        endDate: trendEndDate,
+      })
+      : queryOfferPerformanceByReportDate({
+        db: params.db,
+        userId: params.userId,
+        reportDate,
+      }),
+    isDateRangeMode
+      ? queryCampaignRevenueByDateRange({
+        db: params.db,
+        userId: params.userId,
+        startDate: trendStartDate,
+        endDate: trendEndDate,
+      })
+      : queryCampaignRevenueByReportDate({
+        db: params.db,
+        userId: params.userId,
+        reportDate,
+      }),
+    isDateRangeMode
+      ? queryCampaignPerformanceByDateRangeForBreakdown({
+        db: params.db,
+        userId: params.userId,
+        startDate: trendStartDate,
+        endDate: trendEndDate,
+      })
+      : queryCampaignPerformanceByReportDate({
+        db: params.db,
+        userId: params.userId,
+        reportDate,
+      }),
   ])
 
-  const attributedCommissionForReportDate = roundTo2(
-    commissionByDate.get(reportDate) || 0
+  const attributedCommissionForRange = roundTo2(
+    trendDates.reduce((sum, date) => sum + roundTo2(commissionByDate.get(date) || 0), 0)
   )
   const revenueValue = revenueAvailable ? roundTo2(totalRevenue || 0) : 0
   const unattributedRevenue = revenueAvailable
-    ? roundTo2(Math.max(0, revenueValue - attributedCommissionForReportDate))
+    ? roundTo2(Math.max(0, revenueValue - attributedCommissionForRange))
     : 0
   if (unattributedRevenue > COMMISSION_EPSILON) {
-    commissionByDate.set(reportDate, roundTo2(attributedCommissionForReportDate + unattributedRevenue))
+    const endDateCommission = roundTo2(commissionByDate.get(trendEndDate) || 0)
+    commissionByDate.set(trendEndDate, roundTo2(endDateCommission + unattributedRevenue))
   }
 
   const trendRows = trendDates.map((date) => {
@@ -907,13 +1279,16 @@ async function enrichReportCommissionSections(params: {
   roiData.byOffer = offerRows
   roiData.byCampaign = campaignRows
   roiData.breakdownSource = 'affiliate_commission_attributions'
-  roiData.attributedRevenue = roundTo2(attributedCommissionForReportDate)
+  roiData.attributedRevenue = roundTo2(attributedCommissionForRange)
   roiData.unattributedRevenue = roundTo2(unattributedRevenue)
   roiData.hasUnattributedRevenue = unattributedRevenue > COMMISSION_EPSILON
   roiData.reportDate = reportDate
+  roiData.startDate = trendStartDate
+  roiData.endDate = trendEndDate
+  roiData.isRange = isDateRangeMode
   roiData.overall = {
     ...roiOverall,
-    attributedRevenue: roundTo2(attributedCommissionForReportDate),
+    attributedRevenue: roundTo2(attributedCommissionForRange),
     unattributedRevenue: roundTo2(unattributedRevenue),
   }
 
@@ -990,6 +1365,89 @@ function mergeRoiWithAffiliateRevenue(params: {
   }
 }
 
+function mergeSummaryAndKpisWithRangeSnapshot(params: {
+  summary: unknown
+  kpis: unknown
+  startDate: string
+  endDate: string
+  snapshot: {
+    totalOffers: number
+    totalCampaigns: number
+    impressions: number
+    clicks: number
+    cost: number
+    conversions: number
+  }
+}): { summary: any; kpis: any } {
+  const days = calculateInclusiveDateSpan(params.startDate, params.endDate)
+
+  const summaryRoot = asObject(params.summary) ? { ...(params.summary as Record<string, any>) } : {}
+  const summaryKpis = asObject(summaryRoot.kpis) ? { ...(summaryRoot.kpis as Record<string, any>) } : {}
+  summaryRoot.kpis = {
+    ...summaryKpis,
+    totalOffers: params.snapshot.totalOffers,
+    totalCampaigns: params.snapshot.totalCampaigns,
+    totalImpressions: params.snapshot.impressions,
+    totalClicks: params.snapshot.clicks,
+    totalCost: params.snapshot.cost,
+    totalConversions: params.snapshot.conversions,
+    dateRange: {
+      startDate: params.startDate,
+      endDate: params.endDate,
+      days,
+      isRange: params.startDate < params.endDate,
+    },
+  }
+
+  const kpisRoot = asObject(params.kpis) ? { ...(params.kpis as Record<string, any>) } : {}
+  const kpisData = asObject(kpisRoot.data) ? { ...(kpisRoot.data as Record<string, any>) } : {}
+  const kpisCurrent = asObject(kpisData.current) ? { ...(kpisData.current as Record<string, any>) } : {}
+  kpisData.current = {
+    ...kpisCurrent,
+    impressions: params.snapshot.impressions,
+    clicks: params.snapshot.clicks,
+    cost: params.snapshot.cost,
+    conversions: params.snapshot.conversions,
+  }
+  kpisData.dateRange = {
+    startDate: params.startDate,
+    endDate: params.endDate,
+    days,
+    isRange: params.startDate < params.endDate,
+  }
+  kpisRoot.data = kpisData
+
+  return {
+    summary: summaryRoot,
+    kpis: kpisRoot,
+  }
+}
+
+function buildStrategyRunRangeSummary(params: {
+  runs: any[]
+  startDate: string
+  endDate: string
+}): DailyReportPayload['strategyRunRange'] {
+  const runs = Array.isArray(params.runs) ? params.runs : []
+  const latest = runs[0]
+  const runsTotal = runs.length
+  const runsSuccess = runs.filter((item) => String(item?.status || '').toLowerCase() === 'completed').length
+  const runsFailed = runs.filter((item) => String(item?.status || '').toLowerCase() === 'failed').length
+  const runsSkipped = runs.filter((item) => String(item?.status || '').toLowerCase() === 'skipped').length
+
+  return {
+    startDate: params.startDate,
+    endDate: params.endDate,
+    runsTotal,
+    runsSuccess,
+    runsFailed,
+    runsSkipped,
+    latestRunDate: String(latest?.run_date || '').trim() || null,
+    latestMode: String(latest?.mode || '').trim() || null,
+    latestStatus: String(latest?.status || '').trim() || null,
+  }
+}
+
 function getTopReasons(messages: unknown[], limit = 3): string[] {
   const counts = new Map<string, number>()
   for (const item of messages) {
@@ -1048,6 +1506,29 @@ function buildStrategyKnowledgeSummary(report: DailyReportPayload): StrategyKnow
   const strategyActions = Array.isArray(report.strategyActions) ? report.strategyActions : []
   const strategyStats = parseMaybeJson<Record<string, any>>(report.strategyRun?.stats_json, {})
   const runStatus = String(report.strategyRun?.status || '').toLowerCase()
+  const strategyRunRange = asObject(report.strategyRunRange)
+  const rangeRunsTotalRaw = toNumber(strategyRunRange?.runsTotal, NaN)
+  const rangeRunsSuccessRaw = toNumber(strategyRunRange?.runsSuccess, NaN)
+  const rangeRunsFailedRaw = toNumber(strategyRunRange?.runsFailed, NaN)
+  const rangeRunsSkippedRaw = toNumber(strategyRunRange?.runsSkipped, NaN)
+  const hasRangeRunSummary = Number.isFinite(rangeRunsTotalRaw)
+  const resolvedRunsTotal = hasRangeRunSummary
+    ? Math.max(0, Math.round(rangeRunsTotalRaw))
+    : (report.strategyRun ? 1 : 0)
+  const resolvedRunsSuccess = hasRangeRunSummary
+    ? Math.max(0, Math.round(Number.isFinite(rangeRunsSuccessRaw) ? rangeRunsSuccessRaw : 0))
+    : (runStatus === 'completed' ? 1 : 0)
+  const resolvedRunsFailed = hasRangeRunSummary
+    ? Math.max(0, Math.round(Number.isFinite(rangeRunsFailedRaw) ? rangeRunsFailedRaw : 0))
+    : (runStatus === 'failed' ? 1 : 0)
+  const resolvedRunsSkipped = hasRangeRunSummary
+    ? Math.max(0, Math.round(Number.isFinite(rangeRunsSkippedRaw) ? rangeRunsSkippedRaw : 0))
+    : (runStatus === 'skipped' ? 1 : 0)
+  const resolvedMode = String(
+    strategyRunRange?.latestMode
+    || report.strategyRun?.mode
+    || 'auto'
+  )
 
   const actionSuccess = strategyActions.filter(action => action?.status === 'success').length
   const actionFailed = strategyActions.filter(action => action?.status === 'failed').length
@@ -1097,11 +1578,11 @@ function buildStrategyKnowledgeSummary(report: DailyReportPayload): StrategyKnow
     toNumber(circuitBreak.attempted, 0) > 0
 
   return {
-    runsTotal: report.strategyRun ? 1 : 0,
-    runsSuccess: runStatus === 'completed' ? 1 : 0,
-    runsFailed: runStatus === 'failed' ? 1 : 0,
-    runsSkipped: runStatus === 'skipped' ? 1 : 0,
-    mode: String(report.strategyRun?.mode || 'auto'),
+    runsTotal: resolvedRunsTotal,
+    runsSuccess: resolvedRunsSuccess,
+    runsFailed: resolvedRunsFailed,
+    runsSkipped: resolvedRunsSkipped,
+    mode: resolvedMode,
     reason,
     adjustment: String(strategyStats?.adaptiveInsight?.adjustment || 'unknown'),
     guardLevel: String(failureGuard.guardLevel || 'none'),
@@ -1141,9 +1622,21 @@ async function fetchWithGuard<T>(source: string, fn: () => Promise<T>, errors: D
   }
 }
 
-export async function buildOpenclawDailyReport(userId: number, dateStr?: string): Promise<DailyReportPayload> {
+export async function buildOpenclawDailyReport(
+  userId: number,
+  dateStr?: string,
+  options?: DailyReportBuildOptions
+): Promise<DailyReportPayload> {
   const reportDate = normalizeOpenclawReportDate(dateStr || formatLocalDate(new Date()))
+  const requestedStartDate = normalizeOpenclawReportDate(options?.startDate || reportDate)
+  const { startDate: reportStartDate, endDate: reportEndDate } = resolveNormalizedDateRange(
+    requestedStartDate,
+    reportDate
+  )
+  const reportRangeDays = calculateInclusiveDateSpan(reportStartDate, reportEndDate)
+  const isDateRangeMode = reportStartDate < reportEndDate
   const errors: DailyReportPayload['errors'] = []
+  const db = await getDatabase()
 
   const [summary, kpis, trends, roi, campaigns, budget, performance, affiliateRevenue] = await Promise.all([
     fetchWithGuard('dashboard.summary', () => fetchAutoadsJson({
@@ -1164,7 +1657,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     fetchWithGuard('analytics.roi', () => fetchAutoadsJson({
       userId,
       path: '/api/analytics/roi',
-      query: { start_date: reportDate, end_date: reportDate },
+      query: { start_date: reportStartDate, end_date: reportEndDate },
     }), errors),
     fetchWithGuard('dashboard.campaigns', () => fetchAutoadsJson({
       userId,
@@ -1174,22 +1667,60 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     fetchWithGuard('analytics.budget', () => fetchAutoadsJson({
       userId,
       path: '/api/analytics/budget',
-      query: { start_date: reportDate, end_date: reportDate },
+      query: { start_date: reportStartDate, end_date: reportEndDate },
     }), errors),
     fetchWithGuard('campaigns.performance', () => fetchAutoadsJson({
       userId,
       path: '/api/campaigns/performance',
-      query: { daysBack: 7 },
+      query: { daysBack: Math.max(7, reportRangeDays) },
     }), errors),
-    fetchWithGuard('affiliate.commission', () => fetchAffiliateCommissionRevenue({
-      userId,
-      reportDate,
-    }), errors),
+    isDateRangeMode
+      ? fetchWithGuard(
+        'affiliate.commission.range',
+        () => buildAffiliateRevenueSummaryByDateRange({
+          db,
+          userId,
+          startDate: reportStartDate,
+          endDate: reportEndDate,
+        }),
+        errors
+      )
+      : fetchWithGuard('affiliate.commission', () => fetchAffiliateCommissionRevenue({
+        userId,
+        reportDate,
+      }), errors),
   ])
+
+  let normalizedSummary: any = summary
+  let normalizedKpis: any = kpis
+
+  if (isDateRangeMode) {
+    const rangeKpiSnapshot = await fetchWithGuard(
+      'openclaw.report.kpis.range',
+      () => queryRangeKpiSnapshot({
+        db,
+        userId,
+        startDate: reportStartDate,
+        endDate: reportEndDate,
+      }),
+      errors
+    )
+    if (rangeKpiSnapshot) {
+      const merged = mergeSummaryAndKpisWithRangeSnapshot({
+        summary: summary || {},
+        kpis: kpis || {},
+        startDate: reportStartDate,
+        endDate: reportEndDate,
+        snapshot: rangeKpiSnapshot,
+      })
+      normalizedSummary = merged.summary
+      normalizedKpis = merged.kpis
+    }
+  }
 
   let normalizedRoi = mergeRoiWithAffiliateRevenue({
     roi,
-    summary,
+    summary: normalizedSummary,
     affiliateRevenue: affiliateRevenue || {
       reportDate,
       configuredPlatforms: [],
@@ -1208,7 +1739,6 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     errors,
   })
 
-  const db = await getDatabase()
   const roiRootForReconciliation = asObject(normalizedRoi)
   const roiDataForReconciliation = asObject(roiRootForReconciliation?.data)
   const roiOverallForReconciliation = asObject(roiDataForReconciliation?.overall)
@@ -1299,8 +1829,9 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
        COALESCE(SUM(conversions), 0) as conversions
      FROM campaign_performance
      WHERE user_id = ?
-       AND date = ?`,
-    [userId, reportDate]
+       AND date >= ?
+       AND date <= ?`,
+    [userId, reportStartDate, reportEndDate]
   )
 
   const dailySnapshot: DailyPerformanceSnapshot = {
@@ -1314,30 +1845,44 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     `SELECT id, channel, sender_id, action, target_type, target_id, status, error_message, created_at
      FROM openclaw_action_logs
      WHERE user_id = ?
-       AND DATE(created_at) = ?
+       AND DATE(created_at) >= ?
+       AND DATE(created_at) <= ?
      ORDER BY created_at DESC
      LIMIT 200`,
-    [userId, reportDate]
+    [userId, reportStartDate, reportEndDate]
   )
 
   const strategyActions = await db.query<any>(
     `SELECT id, action_type, target_type, target_id, status, error_message, created_at
      FROM openclaw_strategy_actions
      WHERE user_id = ?
-       AND DATE(created_at) = ?
+       AND DATE(created_at) >= ?
+       AND DATE(created_at) <= ?
      ORDER BY created_at DESC
      LIMIT 200`,
-    [userId, reportDate]
+    [userId, reportStartDate, reportEndDate]
   )
 
-  const strategyRun = await db.queryOne<any>(
+  const strategyRunsInRange = await db.query<any>(
     `SELECT id, mode, status, run_date, stats_json, error_message, started_at, completed_at, created_at
      FROM openclaw_strategy_runs
-     WHERE user_id = ? AND run_date = ?
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [userId, reportDate]
+     WHERE user_id = ?
+       AND run_date >= ?
+       AND run_date <= ?
+     ORDER BY run_date DESC, created_at DESC
+     LIMIT 200`,
+    [userId, reportStartDate, reportEndDate]
   )
+  const strategyRun = Array.isArray(strategyRunsInRange) && strategyRunsInRange.length > 0
+    ? strategyRunsInRange[0]
+    : null
+  const strategyRunRangeSummary = isDateRangeMode
+    ? buildStrategyRunRangeSummary({
+      runs: strategyRunsInRange,
+      startDate: reportStartDate,
+      endDate: reportEndDate,
+    })
+    : undefined
 
   const strategyRecommendations = await fetchWithGuard(
     'openclaw.strategy.recommendations',
@@ -1356,6 +1901,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
       db,
       userId,
       reportDate,
+      startDate: isDateRangeMode ? reportStartDate : undefined,
       trends,
       roi: normalizedRoi,
     }),
@@ -1364,9 +1910,15 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
 
   return {
     date: reportDate,
+    dateRange: {
+      startDate: reportStartDate,
+      endDate: reportEndDate,
+      days: reportRangeDays,
+      isRange: isDateRangeMode,
+    },
     generatedAt: new Date().toISOString(),
-    summary,
-    kpis,
+    summary: normalizedSummary,
+    kpis: normalizedKpis,
     dailySnapshot,
     trends: enrichedSections?.trends || trends,
     roi: enrichedSections?.roi || normalizedRoi,
@@ -1376,6 +1928,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     actions,
     strategyActions,
     strategyRun,
+    strategyRunRange: strategyRunRangeSummary,
     strategyRecommendations: strategyRecommendations || [],
     errors: errors && errors.length > 0 ? errors : undefined,
   }

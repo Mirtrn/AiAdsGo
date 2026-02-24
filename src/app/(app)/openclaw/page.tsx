@@ -44,6 +44,12 @@ type TokenRecord = {
 
 type DailyReport = {
   date: string
+  dateRange?: {
+    startDate?: string
+    endDate?: string
+    days?: number
+    isRange?: boolean
+  }
   generatedAt: string
   summary?: any
   kpis?: any
@@ -417,6 +423,12 @@ type OpenclawCommandRunsResponse = {
 const HIGH_RISK_COMMAND_LOOKBACK_DAYS = 7
 const HIGH_RISK_COMMAND_PAGE_LIMIT = 10
 const AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS = 7
+const REPORT_TREND_RANGE_OPTIONS = [
+  { days: 7, label: '过去7天（含今天）' },
+  { days: 14, label: '过去14天（含今天）' },
+  { days: 30, label: '过去30天（含今天）' },
+] as const
+const DEFAULT_REPORT_TREND_RANGE_DAYS = 30
 
 const AI_MINIMAL_PLACEHOLDER = `{
   "providers": {
@@ -559,6 +571,38 @@ const parseLocalDate = (value?: string | null) => {
     day: '2-digit',
   }).format(now)
   return iso
+}
+
+const normalizeIsoDateText = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const matched = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  return matched ? matched[1] : null
+}
+
+const resolveNormalizedReportDateRange = (startValue?: string | null, endValue?: string | null): {
+  startDate: string
+  endDate: string
+  days: number
+} => {
+  const today = parseLocalDate()
+  const endDate = normalizeIsoDateText(endValue) || today
+  const startCandidate = normalizeIsoDateText(startValue) || endDate
+  const startDate = startCandidate <= endDate ? startCandidate : endDate
+
+  const startMs = Date.parse(`${startDate}T00:00:00.000Z`)
+  const endMs = Date.parse(`${endDate}T00:00:00.000Z`)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return { startDate, endDate, days: 1 }
+  }
+
+  const days = Math.floor((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1
+  return {
+    startDate,
+    endDate,
+    days: Math.max(1, days),
+  }
 }
 
 const isTruthy = (value?: string | null, fallback: boolean = false) => {
@@ -959,6 +1003,7 @@ export default function OpenClawPage() {
   const [tokens, setTokens] = useState<TokenRecord[]>([])
   const [newToken, setNewToken] = useState<string | null>(null)
   const [reportDate, setReportDate] = useState<string>(parseLocalDate())
+  const [reportStartDate, setReportStartDate] = useState<string>(parseLocalDate())
   const [report, setReport] = useState<DailyReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingUser, setSavingUser] = useState(false)
@@ -1177,12 +1222,17 @@ export default function OpenClawPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const reportQuery = new URLSearchParams({ date: reportDate })
-        if (reportDate === parseLocalDate()) {
+        const resolvedReportRange = resolveNormalizedReportDateRange(reportStartDate, reportDate)
+        const reportQuery = new URLSearchParams({ date: resolvedReportRange.endDate })
+        if (resolvedReportRange.startDate !== resolvedReportRange.endDate) {
+          reportQuery.set('start_date', resolvedReportRange.startDate)
+          reportQuery.set('end_date', resolvedReportRange.endDate)
+        }
+        if (resolvedReportRange.endDate === parseLocalDate()) {
           reportQuery.set('refresh', '1')
         }
 
-        const strategyDate = String(reportDate || parseLocalDate()).trim() || parseLocalDate()
+        const strategyDate = resolvedReportRange.endDate
         const strategyQuery = new URLSearchParams({
           date: strategyDate,
           limit: '200',
@@ -1217,9 +1267,15 @@ export default function OpenClawPage() {
         setSettings(settingsJson)
         setTokens(tokensJson.tokens || [])
         setReport(reportJson.report || null)
-        const normalizedReportDate = String(reportJson?.report?.date || '').trim()
+        const normalizedReportDate = normalizeIsoDateText(reportJson?.report?.date) || ''
+        const normalizedStartDateFromRange = normalizeIsoDateText(reportJson?.report?.dateRange?.startDate) || ''
         if (normalizedReportDate && normalizedReportDate !== reportDate) {
           setReportDate(normalizedReportDate)
+        }
+        if (normalizedStartDateFromRange && normalizedStartDateFromRange !== reportStartDate) {
+          setReportStartDate(normalizedStartDateFromRange)
+        } else if (normalizedReportDate && reportStartDate > normalizedReportDate) {
+          setReportStartDate(normalizedReportDate)
         }
         setStrategyRecommendations(Array.isArray(strategyRecommendationsJson.recommendations) ? strategyRecommendationsJson.recommendations : [])
         setStrategyServerDate(
@@ -1257,10 +1313,21 @@ export default function OpenClawPage() {
     return () => {
       active = false
     }
-    // Keep this effect keyed to reportDate/refreshKey only; expanding deps here can trigger
+    // Keep this effect keyed to report date range/refreshKey only; expanding deps here can trigger
     // repeated initial-load loops due to function identity churn in local async loaders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportDate, refreshKey])
+  }, [reportDate, reportStartDate, refreshKey])
+
+  const handleSelectReportTrendRange = useCallback((days: number) => {
+    const normalizedDays = REPORT_TREND_RANGE_OPTIONS.some((option) => option.days === days)
+      ? days
+      : DEFAULT_REPORT_TREND_RANGE_DAYS
+
+    const endDate = parseLocalDate()
+    const startDate = shiftOpenclawLocalIsoDate(endDate, -(normalizedDays - 1))
+    setReportStartDate(startDate)
+    setReportDate(endDate)
+  }, [])
 
   const strategySaveKeys = [...STRATEGY_MINIMAL_USER_KEYS]
 
@@ -2151,7 +2218,29 @@ export default function OpenClawPage() {
   const topOfferRows = [...offerRows]
     .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0))
     .slice(0, 10)
-  const trendData = report?.trends?.data?.trends || []
+  const normalizedReportRange = resolveNormalizedReportDateRange(reportStartDate, reportDate)
+  const normalizedReportStartDateForTrend = normalizedReportRange.startDate
+  const normalizedReportDateForTrend = normalizedReportRange.endDate
+  const reportDateRangeDays = normalizedReportRange.days
+  const trendData = useMemo(() => {
+    const sourceRows = Array.isArray(report?.trends?.data?.trends)
+      ? report.trends.data.trends
+      : []
+    if (sourceRows.length === 0) return []
+
+    return sourceRows.filter((row: any) => {
+      const date = normalizeIsoDateText(row?.date)
+      if (!date) return false
+      return date >= normalizedReportStartDateForTrend && date <= normalizedReportDateForTrend
+    })
+  }, [
+    normalizedReportDateForTrend,
+    normalizedReportStartDateForTrend,
+    report?.trends?.data?.trends,
+  ])
+  const trendDescription = reportDateRangeDays <= 1
+    ? `单日趋势（${normalizedReportDateForTrend}）`
+    : `${normalizedReportStartDateForTrend} ~ ${normalizedReportDateForTrend}（${reportDateRangeDays}天）`
   const budgetOverall = report?.budget?.data?.overall || {}
   const campaignRows = report?.roi?.data?.byCampaign || []
   const topCampaigns = [...campaignRows]
@@ -4619,15 +4708,65 @@ export default function OpenClawPage() {
               <CardTitle>每日报表</CardTitle>
               <CardDescription>统计数据 + 操作记录</CardDescription>
             </CardHeader>
-            <CardContent className="flex items-center gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">报表日期</label>
-                <Input
-                  type="date"
-                  value={reportDate}
-                  onChange={(e) => setReportDate(e.target.value)}
-                  className="max-w-[200px]"
-                />
+            <CardContent className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">报表日期范围</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      type="date"
+                      value={normalizedReportStartDateForTrend}
+                      max={normalizedReportDateForTrend}
+                      onChange={(e) => {
+                        const nextStart = e.target.value
+                        if (!nextStart) return
+                        setReportStartDate(nextStart)
+                        if (nextStart > reportDate) {
+                          setReportDate(nextStart)
+                        }
+                      }}
+                      className="w-[170px]"
+                    />
+                    <span className="text-xs text-slate-500">至</span>
+                    <Input
+                      type="date"
+                      value={normalizedReportDateForTrend}
+                      min={normalizedReportStartDateForTrend}
+                      onChange={(e) => {
+                        const nextEnd = e.target.value
+                        if (!nextEnd) return
+                        setReportDate(nextEnd)
+                        if (nextEnd < reportStartDate) {
+                          setReportStartDate(nextEnd)
+                        }
+                      }}
+                      className="w-[170px]"
+                    />
+                  </div>
+                  <div className="text-xs text-slate-500">已选择 {reportDateRangeDays} 天</div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">快捷区间</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {REPORT_TREND_RANGE_OPTIONS.map((option) => (
+                      <Button
+                        key={`report-range-${option.days}`}
+                        type="button"
+                        size="sm"
+                        variant={
+                          normalizedReportDateForTrend === parseLocalDate()
+                          && normalizedReportStartDateForTrend === shiftOpenclawLocalIsoDate(parseLocalDate(), -(option.days - 1))
+                            ? 'default'
+                            : 'outline'
+                        }
+                        className="whitespace-nowrap"
+                        onClick={() => handleSelectReportTrendRange(option.days)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               </div>
               {loading && <span className="text-sm text-slate-500">加载中...</span>}
             </CardContent>
@@ -4670,7 +4809,7 @@ export default function OpenClawPage() {
               { key: 'commission', label: 'Commission', color: '#9333ea', yAxisId: 'right' },
             ]}
             title="广告表现趋势"
-            description="近30天趋势"
+            description={trendDescription}
             dualYAxis
             hideTimeRangeSelector
           />

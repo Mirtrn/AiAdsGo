@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOrCreateDailyReport } from '@/lib/openclaw/reports'
+import { buildOpenclawDailyReport, getOrCreateDailyReport } from '@/lib/openclaw/reports'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
 import { getOpenclawSettingsMap } from '@/lib/openclaw/settings'
 
@@ -14,13 +14,51 @@ function normalizeAffiliateSyncMode(value: string | null | undefined): 'incremen
   return normalized === 'realtime' ? 'realtime' : 'incremental'
 }
 
+function parseIsoDateQuery(value: string | null): string | undefined {
+  if (value === null) return undefined
+  const normalized = value.trim()
+  if (!normalized) return undefined
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error('日期参数格式错误，应为 YYYY-MM-DD')
+  }
+  return normalized
+}
+
 export async function GET(request: NextRequest) {
   const auth = await resolveOpenclawRequestUser(request)
   if (!auth) {
     return NextResponse.json({ error: 'OpenClaw 功能未开启或未授权' }, { status: 403 })
   }
 
-  const date = request.nextUrl.searchParams.get('date') || undefined
+  let date: string | undefined
+  let rangeStartDate: string | undefined
+  let rangeEndDate: string | undefined
+  try {
+    date = parseIsoDateQuery(request.nextUrl.searchParams.get('date'))
+    rangeStartDate = parseIsoDateQuery(
+      request.nextUrl.searchParams.get('start_date')
+      || request.nextUrl.searchParams.get('startDate')
+    )
+    rangeEndDate = parseIsoDateQuery(
+      request.nextUrl.searchParams.get('end_date')
+      || request.nextUrl.searchParams.get('endDate')
+    )
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || '日期参数不合法' }, { status: 400 })
+  }
+
+  const hasDateRangeQuery = Boolean(rangeStartDate || rangeEndDate)
+  const effectiveEndDate = rangeEndDate || date || rangeStartDate
+  const effectiveStartDate = rangeStartDate || effectiveEndDate
+  if (
+    hasDateRangeQuery
+    && effectiveStartDate
+    && effectiveEndDate
+    && effectiveStartDate > effectiveEndDate
+  ) {
+    return NextResponse.json({ error: '开始日期不能晚于结束日期' }, { status: 400 })
+  }
+
   const forceRealtimeFromQuery = (
     parseBooleanQuery(request.nextUrl.searchParams.get('force_realtime'))
     || parseBooleanQuery(request.nextUrl.searchParams.get('forceRealtime'))
@@ -43,12 +81,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const report = await getOrCreateDailyReport(auth.userId, date, { forceRefresh })
+  const report = hasDateRangeQuery && effectiveStartDate && effectiveEndDate
+    ? await buildOpenclawDailyReport(auth.userId, effectiveEndDate, { startDate: effectiveStartDate })
+    : await getOrCreateDailyReport(auth.userId, date, { forceRefresh })
 
   return NextResponse.json({
     success: true,
     report,
-    forceRefreshApplied: forceRefresh,
+    forceRefreshApplied: hasDateRangeQuery ? true : forceRefresh,
     forceRefreshReason,
   })
 }
