@@ -7,12 +7,27 @@ import {
   type ProviderAuthContext,
 } from "openclaw/plugin-sdk";
 
-// OAuth constants - decoded from pi-ai's base64 encoded values to stay in sync
+// OAuth constants - client ID stays aligned with pi-ai's encoded value.
 const decode = (s: string) => Buffer.from(s, "base64").toString();
+const CLIENT_SECRET_KEYS = [
+  "OPENCLAW_GOOGLE_ANTIGRAVITY_CLIENT_SECRET",
+  "GOOGLE_ANTIGRAVITY_OAUTH_CLIENT_SECRET",
+];
+
+function resolveEnv(keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 const CLIENT_ID = decode(
   "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
 );
-const CLIENT_SECRET = decode("***REMOVED***");
+const CLIENT_SECRET = resolveEnv(CLIENT_SECRET_KEYS);
 const REDIRECT_URI = "http://localhost:51121/oauth-callback";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -170,21 +185,30 @@ async function exchangeCode(params: {
   code: string;
   verifier: string;
 }): Promise<{ access: string; refresh: string; expires: number }> {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    code: params.code,
+    grant_type: "authorization_code",
+    redirect_uri: REDIRECT_URI,
+    code_verifier: params.verifier,
+  });
+  if (CLIENT_SECRET) {
+    body.set("client_secret", CLIENT_SECRET);
+  }
+
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      code: params.code,
-      grant_type: "authorization_code",
-      redirect_uri: REDIRECT_URI,
-      code_verifier: params.verifier,
-    }),
+    body,
   });
 
   if (!response.ok) {
     const text = await response.text();
+    if (!CLIENT_SECRET) {
+      throw new Error(
+        `Token exchange failed: ${text}. If your OAuth client requires a secret, set OPENCLAW_GOOGLE_ANTIGRAVITY_CLIENT_SECRET.`,
+      );
+    }
     throw new Error(`Token exchange failed: ${text}`);
   }
 

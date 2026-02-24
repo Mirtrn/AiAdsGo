@@ -18,6 +18,18 @@ Restart the Gateway after enabling.
 openclaw models auth login --provider google-antigravity --set-default
 ```
 
+## OAuth Secret (Optional)
+
+If your Google OAuth client requires a secret during token exchange, set one of:
+
+```bash
+export OPENCLAW_GOOGLE_ANTIGRAVITY_CLIENT_SECRET="your_client_secret"
+# or
+export GOOGLE_ANTIGRAVITY_OAUTH_CLIENT_SECRET="your_client_secret"
+```
+
+Do not commit OAuth client secrets to git.
+
 ## Notes
 
 - Antigravity uses Google Cloud project quotas.
