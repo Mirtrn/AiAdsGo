@@ -439,6 +439,40 @@ export async function GET(request: NextRequest) {
       return Number(row?.total_commission) || 0
     }
 
+    const queryUnattributedCommissionTotals = async (params: {
+      start: string
+      end: string
+      currency?: string
+    }): Promise<number> => {
+      const hasCurrencyFilter = Boolean(params.currency)
+      try {
+        const row = await db.queryOne<{ total_commission: number }>(
+          `
+            SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
+            FROM openclaw_affiliate_attribution_failures
+            WHERE user_id = ?
+              AND report_date >= ?
+              AND report_date <= ?
+              ${hasCurrencyFilter ? 'AND COALESCE(currency, \'USD\') = ?' : ''}
+          `,
+          hasCurrencyFilter
+            ? [userId, params.start, params.end, String(params.currency)]
+            : [userId, params.start, params.end]
+        )
+
+        return Number(row?.total_commission) || 0
+      } catch (error: any) {
+        const message = String(error?.message || '')
+        if (
+          /openclaw_affiliate_attribution_failures/i.test(message)
+          && /(no such table|does not exist)/i.test(message)
+        ) {
+          return 0
+        }
+        throw error
+      }
+    }
+
     const isFilteredByCurrency = Boolean(reportingCurrency)
 
     const currentTotals = isFilteredByCurrency
@@ -463,16 +497,28 @@ export async function GET(request: NextRequest) {
           end: prevEndDateStr,
         })
 
-    const currentCommissionTotal = await queryCommissionTotals({
+    const currentAttributedCommissionTotal = await queryCommissionTotals({
       start: startDateStr,
       end: endDate,
       currency: reportingCurrency || undefined,
     })
-    const prevCommissionTotal = await queryCommissionTotals({
+    const prevAttributedCommissionTotal = await queryCommissionTotals({
       start: prevStartDateStr,
       end: prevEndDateStr,
       currency: reportingCurrency || undefined,
     })
+    const currentUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
+      start: startDateStr,
+      end: endDate,
+      currency: reportingCurrency || undefined,
+    })
+    const prevUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
+      start: prevStartDateStr,
+      end: prevEndDateStr,
+      currency: reportingCurrency || undefined,
+    })
+    const currentCommissionTotal = currentAttributedCommissionTotal + currentUnattributedCommissionTotal
+    const prevCommissionTotal = prevAttributedCommissionTotal + prevUnattributedCommissionTotal
 
     const calcChange = (current: number, previous: number): number | null => {
       if (previous === 0) return current > 0 ? 100 : null
@@ -524,6 +570,8 @@ export async function GET(request: NextRequest) {
         totalClicks: currentTotals.clicks,
         totalConversions: roundTo2(currentCommissionTotal),
         totalCommission: roundTo2(currentCommissionTotal),
+        attributedCommission: roundTo2(currentAttributedCommissionTotal),
+        unattributedCommission: roundTo2(currentUnattributedCommissionTotal),
         totalCostUsd: currentTotals.cost,
         totalRoas: roasAvailable ? totalRoas : null,
         totalRoasInfinite: roasAvailable ? totalRoasInfinite : false,

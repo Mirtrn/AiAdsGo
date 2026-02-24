@@ -97,6 +97,8 @@ interface PerformanceSummary {
   totalClicks: number
   totalConversions: number
   totalCommission?: number
+  attributedCommission?: number
+  unattributedCommission?: number
   totalCostUsd: number
   totalRoas?: number | null
   totalRoasInfinite?: boolean
@@ -284,6 +286,11 @@ export default function CampaignsPage() {
       timeZone: 'Asia/Shanghai',
     })
   })()
+  const summaryTotalCommission = Number(summary?.totalCommission ?? summary?.totalConversions) || 0
+  const summaryAttributedCommission = Number(summary?.attributedCommission ?? summaryTotalCommission) || 0
+  const summaryUnattributedCommission = Number(
+    summary?.unattributedCommission ?? Math.max(0, summaryTotalCommission - summaryAttributedCommission)
+  ) || 0
 
   const resetBatchOfflineOptions = () => {
     setBatchOfflineBlacklistOffer(false)
@@ -1512,7 +1519,13 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总佣金</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {formatMoney(Number(summary.totalCommission ?? summary.totalConversions) || 0)}
+                      {formatMoney(summaryTotalCommission)}
+                    </p>
+                    <p className="text-xs mt-1 text-gray-500">
+                      可归因: {formatMoney(summaryAttributedCommission)}
+                    </p>
+                    <p className={`text-xs mt-1 ${summaryUnattributedCommission > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                      未归因: {formatMoney(summaryUnattributedCommission)}
                     </p>
                     {summary.changes?.conversions !== null && summary.changes?.conversions !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.conversions >= 0 ? 'text-green-600' : 'text-red-600'}`}>

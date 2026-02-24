@@ -560,30 +560,12 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(failureInsertCalls).toHaveLength(0)
   })
 
-  it('falls back to top active campaign when no mapping is available', async () => {
+  it('does not fallback to unrelated active campaign when no reliable mapping is available', async () => {
     const today = formatLocalYmd(new Date())
 
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('source_order_id')) {
         return []
-      }
-      if (sql.includes('FROM campaigns c') && sql.includes("UPPER(COALESCE(c.status")) {
-        return [
-          {
-            campaign_id: 3002,
-            offer_id: 2002,
-            conversions: 1,
-            clicks: 10,
-            cost: 2,
-          },
-          {
-            campaign_id: 3001,
-            offer_id: 2001,
-            conversions: 5,
-            clicks: 20,
-            cost: 8,
-          },
-        ]
       }
       return []
     })
@@ -609,25 +591,24 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(result).toEqual({
       reportDate: today,
       totalCommission: 11.25,
-      attributedCommission: 11.25,
-      unattributedCommission: 0,
-      attributedOffers: 1,
-      attributedCampaigns: 1,
-      writtenRows: 1,
+      attributedCommission: 0,
+      unattributedCommission: 11.25,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
     })
 
     const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
       typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
     )
-    expect(attributionInsertCalls).toHaveLength(1)
-    const attributionParams = attributionInsertCalls[0]?.[1] as any[]
-    expect(attributionParams?.[6]).toBe(2001)
-    expect(attributionParams?.[7]).toBe(3001)
+    expect(attributionInsertCalls).toHaveLength(0)
 
     const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
       typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
     )
-    expect(failureInsertCalls).toHaveLength(0)
+    expect(failureInsertCalls).toHaveLength(1)
+    const failureParams = failureInsertCalls[0]?.[1] as any[]
+    expect(failureParams?.[10]).toBe('product_mapping_miss')
   })
 
   it('keeps unmatched commission unattributed when no offer match exists', async () => {
