@@ -238,6 +238,25 @@ function isIsoDateString(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
+export function normalizeTrendDateKey(value: unknown): string | null {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const ymdMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (ymdMatch) {
+    return ymdMatch[1]
+  }
+
+  const parsed = Date.parse(raw)
+  if (!Number.isFinite(parsed)) return null
+  return new Date(parsed).toISOString().slice(0, 10)
+}
+
 function shiftYmdDate(ymd: string, days: number): string {
   const parsed = new Date(`${ymd}T00:00:00.000Z`)
   if (Number.isNaN(parsed.getTime())) return ymd
@@ -419,7 +438,7 @@ async function queryCampaignPerformanceByDateRange(params: {
 
   const map = new Map<string, DailyPerformanceSnapshot>()
   for (const row of rows) {
-    const date = String(row.date || '').trim()
+    const date = normalizeTrendDateKey(row.date)
     if (!isIsoDateString(date)) continue
     map.set(date, {
       impressions: toNumber(row.impressions, 0),
@@ -454,7 +473,7 @@ async function queryCommissionByDateRange(params: {
 
   const map = new Map<string, number>()
   for (const row of rows) {
-    const date = String(row.report_date || '').trim()
+    const date = normalizeTrendDateKey(row.report_date)
     if (!isIsoDateString(date)) continue
     map.set(date, roundTo2(toNumber(row.commission, 0)))
   }
