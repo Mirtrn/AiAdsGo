@@ -165,6 +165,19 @@ type StrategyRecommendationsResponse = {
   error?: string
 }
 
+type AffiliateSyncTriggerResponse = {
+  success: boolean
+  trigger?: 'manual'
+  syncMode?: 'incremental' | 'realtime'
+  backfillDays?: number
+  reportDates?: string[]
+  queuedCount?: number
+  queueTaskIds?: string[]
+  message?: string
+  code?: string
+  error?: string
+}
+
 type StrategyRecommendationStatusFilter =
   | 'actionable'
   | 'all'
@@ -403,6 +416,7 @@ type OpenclawCommandRunsResponse = {
 
 const HIGH_RISK_COMMAND_LOOKBACK_DAYS = 7
 const HIGH_RISK_COMMAND_PAGE_LIMIT = 10
+const AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS = 7
 
 const AI_MINIMAL_PLACEHOLDER = `{
   "providers": {
@@ -959,6 +973,7 @@ export default function OpenClawPage() {
   const [report, setReport] = useState<DailyReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingUser, setSavingUser] = useState(false)
+  const [affiliateSyncTriggering, setAffiliateSyncTriggering] = useState(false)
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatusResponse | null>(null)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
@@ -1580,6 +1595,46 @@ export default function OpenClawPage() {
       toast.error(error?.message || '保存失败')
     } finally {
       setSavingUser(false)
+    }
+  }
+
+  const handleTriggerAffiliateSync = async () => {
+    const hasAffiliateUnsavedChanges = hasUserDirtyFields(AFFILIATE_USER_KEYS)
+    if (hasAffiliateUnsavedChanges) {
+      toast.error('请先保存联盟平台配置后再触发手动同步')
+      return
+    }
+
+    const targetDate = String(reportDate || parseLocalDate()).trim() || parseLocalDate()
+    setAffiliateSyncTriggering(true)
+    try {
+      const response = await fetch('/api/openclaw/affiliate-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          date: targetDate,
+          days: AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS,
+        }),
+      })
+      const payload = await response.json().catch(() => null) as AffiliateSyncTriggerResponse | null
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '手动触发联盟佣金同步失败')
+      }
+
+      const normalizedReportDates = Array.isArray(payload.reportDates)
+        ? payload.reportDates.filter((item) => typeof item === 'string' && item.trim())
+        : []
+      const displayRange = normalizedReportDates.length > 0
+        ? `${normalizedReportDates[0]} ~ ${normalizedReportDates[normalizedReportDates.length - 1]}`
+        : targetDate
+
+      toast.success(payload.message || `联盟佣金同步任务已入队（${displayRange}）`)
+      setRefreshKey(prev => prev + 1)
+    } catch (error: any) {
+      toast.error(error?.message || '手动触发联盟佣金同步失败')
+    } finally {
+      setAffiliateSyncTriggering(false)
     }
   }
 
@@ -3578,6 +3633,23 @@ export default function OpenClawPage() {
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
                   <div>incremental：每小时任务按配置间隔刷新当日佣金快照。</div>
                   <div>realtime：在上述基础上，Feishu 查询日报默认强制实时拉取联盟佣金。</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTriggerAffiliateSync}
+                    disabled={savingUser || affiliateSyncTriggering || affiliateDirty}
+                    title={affiliateDirty ? '请先保存联盟平台配置后再触发手动同步' : undefined}
+                  >
+                    {affiliateSyncTriggering
+                      ? '同步触发中...'
+                      : `手动触发同步（近${AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS}天）`}
+                  </Button>
+                  <span className="text-xs text-slate-500">
+                    以报表日期 {reportDate} 为截止日，回补联盟佣金并写入 /campaigns 口径。
+                  </span>
                 </div>
               </div>
 
