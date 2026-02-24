@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { getDatabase } from '@/lib/db'
+import { normalizeDateOnly } from '@/lib/db-datetime'
 import { toDbJsonObjectField } from '@/lib/json-field'
 import { fetchAutoadsJson } from '@/lib/openclaw/autoads-client'
 import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
@@ -294,6 +295,14 @@ function formatLocalDate(date: Date): string {
 
 function isIsoDateLike(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function normalizeRecommendationReportDate(value: unknown): string {
+  const normalized = normalizeDateOnly(value)
+  if (normalized && isIsoDateLike(normalized)) {
+    return normalized
+  }
+  return formatLocalDate(new Date())
 }
 
 function shiftIsoDate(dateText: string, offsetDays: number): string {
@@ -2006,7 +2015,7 @@ async function listRecommendations(params: {
   return rows.map((row: any) => ({
     id: String(row.id),
     userId: Number(row.user_id),
-    reportDate: String(row.report_date),
+    reportDate: normalizeRecommendationReportDate(row.report_date),
     campaignId: Number(row.campaign_id),
     googleCampaignId: row.google_campaign_id ? String(row.google_campaign_id) : null,
     snapshotHash: row.snapshot_hash ? String(row.snapshot_hash) : null,
@@ -2754,7 +2763,7 @@ async function getRecommendationById(params: {
   return {
     id: String(row.id),
     userId: Number(row.user_id),
-    reportDate: String(row.report_date),
+    reportDate: normalizeRecommendationReportDate(row.report_date),
     campaignId: Number(row.campaign_id),
     googleCampaignId: row.google_campaign_id ? String(row.google_campaign_id) : null,
     snapshotHash: row.snapshot_hash ? String(row.snapshot_hash) : null,
@@ -3869,4 +3878,5 @@ export const __testUtils = {
   buildDeterministicRecommendationExecuteTaskId,
   assertRecommendationActionResult,
   patchExpandKeywordsSummaryCoverage,
+  normalizeRecommendationReportDate,
 }

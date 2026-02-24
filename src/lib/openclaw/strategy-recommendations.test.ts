@@ -490,4 +490,10 @@ describe('openclaw strategy recommendations rules', () => {
     const summary = '建议新增 28 个关键词提升覆盖（目标 20-30 个）。'
     expect(__testUtils.patchExpandKeywordsSummaryCoverage(summary, 12)).toBe(summary)
   })
+
+  it('normalizes report_date values returned as Date/timestamp into YYYY-MM-DD', () => {
+    const dateObject = new Date('2026-02-25T00:00:00.000Z')
+    expect(__testUtils.normalizeRecommendationReportDate(dateObject)).toBe('2026-02-25')
+    expect(__testUtils.normalizeRecommendationReportDate('2026-02-25T13:45:00.000Z')).toBe('2026-02-25')
+  })
 })
