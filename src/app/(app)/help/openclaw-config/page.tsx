@@ -101,25 +101,8 @@ const AFFILIATE_OPTIONAL_PARAMS: ParamRow[] = [
 ]
 
 const STRATEGY_MINIMAL_PARAMS: ParamRow[] = [
-  { key: 'openclaw_strategy_enabled', desc: '启用策略', note: '必填（true/false）' },
-  { key: 'openclaw_strategy_cron', desc: 'Cron 表达式', note: '建议默认 0 9 * * *' },
-  { key: 'openclaw_strategy_ads_account_ids', desc: 'Ads 账号 ID 列表', note: '建议 JSON 数组或换行输入' },
-]
-
-const STRATEGY_OPTIONAL_PARAMS: ParamRow[] = [
-  { key: 'openclaw_strategy_priority_asins', desc: '优先 ASIN 列表', note: '可选，JSON 数组' },
-  { key: 'openclaw_strategy_default_budget', desc: '默认日预算', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_max_cpc', desc: '最大 CPC', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_min_cpc', desc: '最小 CPC', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_daily_budget_cap', desc: '每日预算上限', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_daily_spend_cap', desc: '每日花费上限', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_target_roas', desc: '目标 ROAS', note: '可选（有默认值）' },
-  { key: 'openclaw_strategy_enable_auto_publish', desc: '自动发布', note: '默认 true' },
-  { key: 'openclaw_strategy_enable_auto_pause', desc: '自动暂停冲突 Campaign', note: '默认 true' },
-  { key: 'openclaw_strategy_enable_auto_adjust_cpc', desc: '自动调整 CPC', note: '默认 true' },
-  { key: 'openclaw_strategy_allow_affiliate_fetch', desc: '允许联盟平台补全', note: '默认 true' },
-  { key: 'openclaw_strategy_enforce_autoads_only', desc: '仅 AutoAds 链路', note: '建议固定 true' },
-  { key: 'openclaw_strategy_dry_run', desc: 'Dry Run 模式', note: '默认 false' },
+  { key: 'openclaw_strategy_enabled', desc: '启用自动分析', note: '必填（true/false）' },
+  { key: 'openclaw_strategy_cron', desc: '分析频率（Cron）', note: '建议默认 0 9 * * *' },
 ]
 
 const AI_JSON_EXAMPLE = `{
@@ -207,8 +190,7 @@ export default function OpenClawConfigGuidePage() {
             <div>
               4）策略至少配置：
               <code className="rounded bg-slate-100 px-1 py-0.5">openclaw_strategy_enabled</code>、
-              <code className="rounded bg-slate-100 px-1 py-0.5">openclaw_strategy_cron</code>、
-              <code className="rounded bg-slate-100 px-1 py-0.5">openclaw_strategy_ads_account_ids</code>。
+              <code className="rounded bg-slate-100 px-1 py-0.5">openclaw_strategy_cron</code>。
             </div>
           </CardContent>
         </Card>
@@ -283,17 +265,14 @@ export default function OpenClawConfigGuidePage() {
         <Card>
           <CardHeader>
             <CardTitle>策略中心（用户级）</CardTitle>
-            <CardDescription>先用最小参数跑通，再按需调优预算与自动化细项</CardDescription>
+            <CardDescription>定位：自动分析运行中 Campaign 并生成建议；执行由人工确认触发（仅保留最小参数）</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4">
             <section className="space-y-2">
               <div className="text-sm font-semibold text-slate-700">最小参数</div>
               <ParamTable rows={STRATEGY_MINIMAL_PARAMS} />
             </section>
-            <section className="space-y-2">
-              <div className="text-sm font-semibold text-slate-700">可选参数（默认可用）</div>
-              <ParamTable rows={STRATEGY_OPTIONAL_PARAMS} />
-            </section>
+            <div className="text-xs text-slate-500">策略中心仅需“启用自动分析 + 分析频率”，其余历史策略参数已下线。</div>
           </CardContent>
         </Card>
 

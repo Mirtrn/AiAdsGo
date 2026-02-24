@@ -43,8 +43,8 @@ export async function POST(
     const status = message.includes('不存在')
       ? 404
       : (
-        message.includes('请先审批')
-        || message.includes('重新审批')
+        message.includes('重新分析')
+        || message.includes('已暂不执行')
         || message.includes('已执行')
         || message.includes('仅支持执行当天')
       )

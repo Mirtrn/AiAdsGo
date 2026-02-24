@@ -29,7 +29,7 @@ export async function POST(
       recommendation,
     })
   } catch (error: any) {
-    const message = error?.message || '忽略建议失败'
+    const message = error?.message || '设置暂不执行失败'
     const status = message.includes('不存在')
       ? 404
       : message.includes('已执行')

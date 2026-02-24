@@ -53,8 +53,6 @@ type DailyReport = {
   budget?: any
   performance?: any
   actions?: any[]
-  strategyActions?: any[]
-  strategyRun?: any
   strategyRecommendations?: OpenclawStrategyRecommendation[]
   errors?: Array<{ source: string; message: string }>
 }
@@ -74,8 +72,7 @@ type OpenclawStrategyRecommendation = {
   summary?: string | null
   reason?: string | null
   priorityScore: number
-  status: 'pending' | 'approved' | 'executed' | 'failed' | 'dismissed' | 'stale'
-  approvedAt?: string | null
+  status: 'pending' | 'executed' | 'failed' | 'dismissed' | 'stale'
   executedAt?: string | null
   executionResult?: {
     queued?: boolean
@@ -183,13 +180,12 @@ type StrategyRecommendationStatusFilter =
   | 'all'
   | 'queued'
   | 'pending'
-  | 'approved'
   | 'executed'
   | 'failed'
   | 'dismissed'
   | 'stale'
 
-type StrategyBatchAction = 'approve' | 'execute' | 'dismiss'
+type StrategyBatchAction = 'execute' | 'dismiss'
 type StrategyBatchScope = 'filtered' | 'display'
 
 type StrategyBatchFailure = {
@@ -207,13 +203,6 @@ type StrategyConfirmRequest = {
   confirmLabel?: string
   tone?: StrategyConfirmTone
   acknowledgeLabel?: string
-}
-
-type StrategyStatusResponse = {
-  success: boolean
-  run: any | null
-  actions: any[]
-  asinStats?: Record<string, number>
 }
 
 type GatewayStatusResponse = {
@@ -442,78 +431,13 @@ const AI_MINIMAL_PLACEHOLDER = `{
   }
 }`
 
-const STRATEGY_EXAMPLE_VALUES: Record<string, string> = {
-  openclaw_strategy_enabled: 'true',
-  openclaw_strategy_cron: '0 9 * * *',
-  openclaw_strategy_max_offers_per_run: '3',
-  openclaw_strategy_default_budget: '20',
-  openclaw_strategy_max_cpc: '1.2',
-  openclaw_strategy_min_cpc: '0.1',
-  openclaw_strategy_daily_budget_cap: '1000',
-  openclaw_strategy_daily_spend_cap: '100',
-  openclaw_strategy_target_roas: '1',
-  openclaw_strategy_ads_account_ids: '[]',
-  openclaw_strategy_priority_asins: '[]',
-  openclaw_strategy_enable_auto_publish: 'true',
-  openclaw_strategy_enable_auto_pause: 'true',
-  openclaw_strategy_enable_auto_adjust_cpc: 'true',
-  openclaw_strategy_allow_affiliate_fetch: 'true',
-  openclaw_strategy_enforce_autoads_only: 'true',
-  openclaw_strategy_dry_run: 'false',
-}
-
-const STRATEGY_PRESET_OPTIONS: Array<{
-  id: string
-  label: string
-  description: string
-  values: Record<string, string>
-}> = [
-  {
-    id: 'balanced',
-    label: '平衡（推荐）',
-    description: '默认自动化方案，兼顾成本与产出。',
-    values: STRATEGY_EXAMPLE_VALUES,
-  },
-  {
-    id: 'conservative',
-    label: '稳健',
-    description: '更低预算与出价，适合先观察数据。',
-    values: {
-      ...STRATEGY_EXAMPLE_VALUES,
-      openclaw_strategy_max_offers_per_run: '2',
-      openclaw_strategy_default_budget: '15',
-      openclaw_strategy_max_cpc: '0.8',
-      openclaw_strategy_daily_budget_cap: '600',
-      openclaw_strategy_daily_spend_cap: '60',
-      openclaw_strategy_target_roas: '1.5',
-    },
-  },
-  {
-    id: 'aggressive',
-    label: '进取',
-    description: '更高预算与覆盖，适合快速放量。',
-    values: {
-      ...STRATEGY_EXAMPLE_VALUES,
-      openclaw_strategy_max_offers_per_run: '6',
-      openclaw_strategy_default_budget: '40',
-      openclaw_strategy_max_cpc: '1.8',
-      openclaw_strategy_min_cpc: '0.2',
-      openclaw_strategy_daily_budget_cap: '1000',
-      openclaw_strategy_daily_spend_cap: '100',
-      openclaw_strategy_target_roas: '0.8',
-    },
-  },
-]
-
 const STRATEGY_CRON_OPTIONS: Array<{ id: string; label: string; cron: string }> = [
   { id: 'daily_morning', label: '每天 09:00（推荐）', cron: '0 9 * * *' },
   { id: 'weekday_morning', label: '工作日 09:00', cron: '0 9 * * 1-5' },
   { id: 'every_6_hours', label: '每 6 小时', cron: '0 */6 * * *' },
   { id: 'hourly', label: '每小时', cron: '0 * * * *' },
-  { id: 'custom', label: '自定义 Cron', cron: '' },
+  { id: 'custom', label: '自定义（保留历史值）', cron: '' },
 ]
-
-const AUTOADS_ONLY_SETTING_KEY = 'openclaw_strategy_enforce_autoads_only'
 
 const AI_GLOBAL_KEYS = [
   'ai_models_json',
@@ -580,24 +504,6 @@ const PARTNERBOOST_USER_KEYS = [
 const STRATEGY_MINIMAL_USER_KEYS = [
   'openclaw_strategy_enabled',
   'openclaw_strategy_cron',
-  'openclaw_strategy_ads_account_ids',
-  'openclaw_strategy_enforce_autoads_only',
-] as const
-
-const STRATEGY_ADVANCED_USER_KEYS = [
-  'openclaw_strategy_max_offers_per_run',
-  'openclaw_strategy_default_budget',
-  'openclaw_strategy_max_cpc',
-  'openclaw_strategy_min_cpc',
-  'openclaw_strategy_daily_budget_cap',
-  'openclaw_strategy_daily_spend_cap',
-  'openclaw_strategy_target_roas',
-  'openclaw_strategy_priority_asins',
-  'openclaw_strategy_enable_auto_publish',
-  'openclaw_strategy_enable_auto_pause',
-  'openclaw_strategy_enable_auto_adjust_cpc',
-  'openclaw_strategy_allow_affiliate_fetch',
-  'openclaw_strategy_dry_run',
 ] as const
 
 const FEISHU_CHAT_USER_KEYS = [...FEISHU_CHAT_MINIMAL_USER_KEYS, ...FEISHU_CHAT_COMMUNICATION_USER_KEYS] as const
@@ -606,7 +512,6 @@ const AFFILIATE_USER_KEYS = [
   'partnerboost_base_url',
   ...AFFILIATE_SYNC_USER_KEYS,
 ] as const
-const STRATEGY_USER_KEYS = [...STRATEGY_MINIMAL_USER_KEYS, ...STRATEGY_ADVANCED_USER_KEYS] as const
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
@@ -626,7 +531,7 @@ const USER_KEYS = new Set([
   'partnerboost_products_filter_sexual_wellness',
   'partnerboost_link_return_partnerboost_link',
   ...FEISHU_CHAT_USER_KEYS,
-  ...STRATEGY_USER_KEYS,
+  ...STRATEGY_MINIMAL_USER_KEYS,
 ])
 
 const USER_DEFAULT_VALUES: Record<string, string> = {
@@ -640,21 +545,6 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   openclaw_affiliate_sync_mode: 'incremental',
   openclaw_strategy_enabled: 'false',
   openclaw_strategy_cron: '0 9 * * *',
-  openclaw_strategy_ads_account_ids: '[]',
-  openclaw_strategy_max_offers_per_run: '3',
-  openclaw_strategy_default_budget: '20',
-  openclaw_strategy_max_cpc: '1.2',
-  openclaw_strategy_min_cpc: '0.1',
-  openclaw_strategy_daily_budget_cap: '1000',
-  openclaw_strategy_daily_spend_cap: '100',
-  openclaw_strategy_target_roas: '1',
-  openclaw_strategy_priority_asins: '[]',
-  openclaw_strategy_enable_auto_publish: 'true',
-  openclaw_strategy_enable_auto_pause: 'true',
-  openclaw_strategy_enable_auto_adjust_cpc: 'true',
-  openclaw_strategy_allow_affiliate_fetch: 'true',
-  openclaw_strategy_enforce_autoads_only: 'true',
-  openclaw_strategy_dry_run: 'false',
 }
 
 const parseLocalDate = (value?: string | null) => {
@@ -702,134 +592,6 @@ function parseFeishuVerifyTarget(input?: string | null): {
   if (normalized.startsWith('oc_')) return { target: normalized, receiveIdType: 'chat_id' }
 
   return null
-}
-
-const normalizeStrategyAccountId = (value: unknown): number | null => {
-  if (typeof value === 'number') {
-    if (!Number.isSafeInteger(value) || value <= 0) return null
-    return value
-  }
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (!trimmed || !/^\d+$/.test(trimmed)) return null
-  const parsed = Number(trimmed)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-const normalizeStrategyPriorityAsin = (value: unknown): string | null => {
-  const normalized = String(value || '').trim().toUpperCase()
-  if (!normalized) return null
-  return /^[A-Z0-9_-]{4,20}$/.test(normalized) ? normalized : null
-}
-
-const parseStrategyIntegerList = (value: string): { values: number[]; invalidCount: number } | null => {
-  const trimmed = value.trim()
-  if (!trimmed) return { values: [], invalidCount: 0 }
-
-  const deduped = new Set<number>()
-  let invalidCount = 0
-  let rawEntries: unknown[] = []
-
-  if (/^[\[{]/.test(trimmed)) {
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (!Array.isArray(parsed)) return null
-      rawEntries = parsed
-    } catch {
-      return null
-    }
-  } else {
-    rawEntries = trimmed
-      .split(/[\n,，]/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-
-  for (const entry of rawEntries) {
-    if (typeof entry === 'string' && entry.trim() === '') continue
-    const normalized = normalizeStrategyAccountId(entry)
-    if (normalized === null) {
-      invalidCount += 1
-      continue
-    }
-    deduped.add(normalized)
-  }
-
-  return {
-    values: Array.from(deduped),
-    invalidCount,
-  }
-}
-
-const parseStrategyAsinList = (value: string): { values: string[]; invalidCount: number } | null => {
-  const trimmed = value.trim()
-  if (!trimmed) return { values: [], invalidCount: 0 }
-
-  const deduped = new Set<string>()
-  let invalidCount = 0
-  let rawEntries: unknown[] = []
-
-  if (/^[\[{]/.test(trimmed)) {
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (!Array.isArray(parsed)) return null
-      rawEntries = parsed
-    } catch {
-      return null
-    }
-  } else {
-    rawEntries = trimmed
-      .split(/[\n,，\s]+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-
-  for (const entry of rawEntries) {
-    if (typeof entry === 'string' && entry.trim() === '') continue
-    const normalized = normalizeStrategyPriorityAsin(entry)
-    if (!normalized) {
-      invalidCount += 1
-      continue
-    }
-    deduped.add(normalized)
-  }
-
-  return {
-    values: Array.from(deduped),
-    invalidCount,
-  }
-}
-
-const formatStrategyAccountIdsForDraft = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const parsed = parseStrategyIntegerList(trimmed)
-  if (!parsed || parsed.invalidCount > 0) {
-    return value
-  }
-  return parsed.values.map((item) => String(item)).join('\n')
-}
-
-const normalizeStrategyAccountIdsForStorage = (value: string): string | null => {
-  const parsed = parseStrategyIntegerList(value)
-  if (!parsed || parsed.invalidCount > 0) return null
-  return JSON.stringify(parsed.values)
-}
-
-const formatStrategyPriorityAsinsForDraft = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const parsed = parseStrategyAsinList(trimmed)
-  if (!parsed || parsed.invalidCount > 0) {
-    return value
-  }
-  return parsed.values.join('\n')
-}
-
-const normalizeStrategyPriorityAsinsForStorage = (value: string): string | null => {
-  const parsed = parseStrategyAsinList(value)
-  if (!parsed || parsed.invalidCount > 0) return null
-  return JSON.stringify(parsed.values)
 }
 
 const resolveStrategyCronPreset = (cron: string) => {
@@ -943,18 +705,23 @@ const resolveStrategyRecommendationTypeTone = (type: OpenclawStrategyRecommendat
 
 const resolveStrategyRecommendationStatusBadge = (status: OpenclawStrategyRecommendation['status']) => {
   if (status === 'executed') return { label: '已执行', variant: 'default' as const }
-  if (status === 'approved') return { label: '已审批', variant: 'secondary' as const }
   if (status === 'failed') return { label: '执行失败', variant: 'destructive' as const }
-  if (status === 'stale') return { label: '待重审', variant: 'secondary' as const }
-  if (status === 'dismissed') return { label: '已忽略', variant: 'outline' as const }
-  return { label: '待审批', variant: 'outline' as const }
+  if (status === 'stale') return { label: '待重算', variant: 'secondary' as const }
+  if (status === 'dismissed') return { label: '暂不执行', variant: 'outline' as const }
+  return { label: '待执行', variant: 'outline' as const }
 }
 
 const isStrategyRecommendationQueued = (item: OpenclawStrategyRecommendation): boolean => {
-  if (item.status !== 'approved') return false
   const queueStatus = String(item.executionResult?.queueTaskStatus || '').toLowerCase()
   if (queueStatus === 'pending' || queueStatus === 'running') return true
   return item.executionResult?.queued === true
+}
+
+const isStrategyRecommendationExecutable = (item: OpenclawStrategyRecommendation): boolean => {
+  if (item.status === 'executed' || item.status === 'dismissed' || item.status === 'stale') {
+    return false
+  }
+  return !isStrategyRecommendationQueued(item)
 }
 
 const resolvePostReviewStatusText = (status?: string | null) => {
@@ -977,10 +744,9 @@ const resolveStrategyRecommendationTypeRank = (type: OpenclawStrategyRecommendat
 }
 
 const resolveStrategyRecommendationStatusRank = (status: OpenclawStrategyRecommendation['status']): number => {
-  if (status === 'approved') return 5
-  if (status === 'stale') return 4.5
-  if (status === 'pending') return 4
-  if (status === 'failed') return 3
+  if (status === 'pending') return 5
+  if (status === 'failed') return 4.4
+  if (status === 'stale') return 4
   if (status === 'dismissed') return 2
   return 1
 }
@@ -1102,7 +868,6 @@ export default function OpenClawPage() {
   const [loading, setLoading] = useState(true)
   const [savingUser, setSavingUser] = useState(false)
   const [affiliateSyncTriggering, setAffiliateSyncTriggering] = useState(false)
-  const [strategyStatus, setStrategyStatus] = useState<StrategyStatusResponse | null>(null)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
   const [gatewayReloading, setGatewayReloading] = useState(false)
@@ -1124,22 +889,17 @@ export default function OpenClawPage() {
   const [strategyRecommendationStatusFilter, setStrategyRecommendationStatusFilter] = useState<StrategyRecommendationStatusFilter>('actionable')
   const [strategyBatchScope, setStrategyBatchScope] = useState<StrategyBatchScope>('filtered')
   const [selectedStrategyRecommendationIds, setSelectedStrategyRecommendationIds] = useState<string[]>([])
-  const [strategyBatchApproving, setStrategyBatchApproving] = useState(false)
   const [strategyBatchExecuting, setStrategyBatchExecuting] = useState(false)
   const [strategyBatchDismissing, setStrategyBatchDismissing] = useState(false)
   const [strategyBatchLastAction, setStrategyBatchLastAction] = useState<StrategyBatchAction | null>(null)
   const [strategyBatchFailures, setStrategyBatchFailures] = useState<StrategyBatchFailure[]>([])
-  const [strategyRecommendationApprovingId, setStrategyRecommendationApprovingId] = useState<string | null>(null)
   const [strategyRecommendationExecutingId, setStrategyRecommendationExecutingId] = useState<string | null>(null)
   const [strategyRecommendationDismissingId, setStrategyRecommendationDismissingId] = useState<string | null>(null)
   const [strategyRecommendationDetailItem, setStrategyRecommendationDetailItem] = useState<OpenclawStrategyRecommendation | null>(null)
   const [strategyConfirmDialog, setStrategyConfirmDialog] = useState<StrategyConfirmRequest | null>(null)
   const strategyConfirmResolverRef = useRef<((accepted: boolean) => void) | null>(null)
   const [strategyConfirmAcknowledge, setStrategyConfirmAcknowledge] = useState(false)
-  const [strategyPreset, setStrategyPreset] = useState('balanced')
   const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
-  const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
-  const [strategyPriorityAsinsDraft, setStrategyPriorityAsinsDraft] = useState('')
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [feishuVerifyLoading, setFeishuVerifyLoading] = useState(false)
@@ -1148,7 +908,6 @@ export default function OpenClawPage() {
   const [feishuVerifySession, setFeishuVerifySession] = useState<FeishuVerifySessionState | null>(null)
   const [feishuVerifyResult, setFeishuVerifyResult] = useState<FeishuVerifyResultState | null>(null)
   const [feishuVerifyNow, setFeishuVerifyNow] = useState<number>(Date.now())
-  const [showStrategyAdvanced, setShowStrategyAdvanced] = useState(false)
   const [showFeishuAdvanced, setShowFeishuAdvanced] = useState(false)
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
   const [feishuHealthLoading, setFeishuHealthLoading] = useState(false)
@@ -1163,16 +922,8 @@ export default function OpenClawPage() {
   const [pendingCommandRunsTotalPages, setPendingCommandRunsTotalPages] = useState(1)
 
   useEffect(() => {
-    setStrategyAccountIdsDraft(formatStrategyAccountIdsForDraft(userValues.openclaw_strategy_ads_account_ids || ''))
-  }, [userValues.openclaw_strategy_ads_account_ids])
-
-  useEffect(() => {
     setStrategyCronPreset(resolveStrategyCronPreset(userValues.openclaw_strategy_cron || ''))
   }, [userValues.openclaw_strategy_cron])
-
-  useEffect(() => {
-    setStrategyPriorityAsinsDraft(formatStrategyPriorityAsinsForDraft(userValues.openclaw_strategy_priority_asins || ''))
-  }, [userValues.openclaw_strategy_priority_asins])
 
   useEffect(() => {
     if (!feishuVerifySession) return
@@ -1342,11 +1093,10 @@ export default function OpenClawPage() {
           limit: '200',
         })
 
-        const [settingsRes, tokensRes, reportRes, strategyRes, strategyRecommendationsRes] = await Promise.all([
+        const [settingsRes, tokensRes, reportRes, strategyRecommendationsRes] = await Promise.all([
           fetch('/api/openclaw/settings', { credentials: 'include' }),
           fetch('/api/openclaw/tokens', { credentials: 'include' }),
           fetch(`/api/openclaw/reports/daily?${reportQuery.toString()}`, { credentials: 'include' }),
-          fetch('/api/openclaw/strategy/status', { credentials: 'include' }),
           fetch(`/api/openclaw/strategy/recommendations?${strategyQuery.toString()}`, { credentials: 'include' }),
         ])
 
@@ -1363,7 +1113,6 @@ export default function OpenClawPage() {
         const settingsJson = await settingsRes.json() as OpenclawSettingsResponse
         const tokensJson = tokensRes.ok ? await tokensRes.json() : { tokens: [] }
         const reportJson = reportRes.ok ? await reportRes.json() : { report: null }
-        const strategyJson = strategyRes.ok ? await strategyRes.json() : null
         const strategyRecommendationsJson = strategyRecommendationsRes.ok
           ? await strategyRecommendationsRes.json() as StrategyRecommendationsResponse
           : { success: false, recommendations: [] } as StrategyRecommendationsResponse
@@ -1377,7 +1126,6 @@ export default function OpenClawPage() {
         if (normalizedReportDate && normalizedReportDate !== reportDate) {
           setReportDate(normalizedReportDate)
         }
-        setStrategyStatus(strategyJson || null)
         setStrategyRecommendations(Array.isArray(strategyRecommendationsJson.recommendations) ? strategyRecommendationsJson.recommendations : [])
         setStrategyServerDate(
           String(strategyRecommendationsJson?.serverDate || '').trim() || parseLocalDate()
@@ -1391,8 +1139,6 @@ export default function OpenClawPage() {
         settingsJson.user.forEach(item => {
           userMap[item.key] = item.value ?? ''
         })
-        userMap[AUTOADS_ONLY_SETTING_KEY] = 'true'
-
         Object.entries(USER_DEFAULT_VALUES).forEach(([key, defaultValue]) => {
           const current = userMap[key]
           if (current === undefined || current === null || String(current).trim() === '') {
@@ -1421,29 +1167,10 @@ export default function OpenClawPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportDate, refreshKey])
 
-  const strategySaveKeys = [...STRATEGY_USER_KEYS]
+  const strategySaveKeys = [...STRATEGY_MINIMAL_USER_KEYS]
 
   const setUserValue = (key: string, value: string) => {
-    if (key === AUTOADS_ONLY_SETTING_KEY) {
-      setUserValues(prev => ({ ...prev, [AUTOADS_ONLY_SETTING_KEY]: 'true' }))
-      return
-    }
     setUserValues(prev => ({ ...prev, [key]: value }))
-  }
-
-  const validateJsonArrayField = (value: string, label: string) => {
-    if (!value.trim()) return true
-    try {
-      const parsed = JSON.parse(value)
-      if (!Array.isArray(parsed)) {
-        toast.error(`${label} 必须为JSON数组`)
-        return false
-      }
-      return true
-    } catch (error) {
-      toast.error(`${label} JSON格式错误`)
-      return false
-    }
   }
 
   const hasUserDirtyFields = (keys: readonly string[]) => {
@@ -1697,108 +1424,24 @@ export default function OpenClawPage() {
   }) => {
     const { scope, keys, successMessage } = params
 
-    const normalizedUserValues: Record<string, string> = {
-      ...userValues,
-      [AUTOADS_ONLY_SETTING_KEY]: 'true',
-    }
+    const normalizedUserValues: Record<string, string> = { ...userValues }
 
     const selectedKeySet = keys && keys.length > 0 ? new Set(keys) : null
 
     if (scope === 'user') {
-      const isSavingStrategySettings = !selectedKeySet || STRATEGY_USER_KEYS.some((key) => selectedKeySet.has(key))
-      if (isSavingStrategySettings) {
-        const normalizedAccountIds = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
-        if (normalizedAccountIds === null) {
-          toast.error('Ads账号ID格式错误，仅支持正整数（逗号/换行分隔或JSON数组）')
-          return
-        }
-        if (!validateJsonArrayField(normalizedAccountIds, 'Ads账号ID列表')) return
-
-        const normalizedPriorityAsins = normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
-        if (normalizedPriorityAsins === null) {
-          toast.error('优先ASIN格式错误，请输入逗号/换行分隔，或合法JSON数组')
-          return
-        }
-        if (!validateJsonArrayField(normalizedPriorityAsins, '优先ASIN列表')) return
-
+      const isSavingStrategyMinimal = !selectedKeySet || STRATEGY_MINIMAL_USER_KEYS.some((key) => selectedKeySet.has(key))
+      if (isSavingStrategyMinimal) {
         const cronValue = String(normalizedUserValues.openclaw_strategy_cron || '').trim() || USER_DEFAULT_VALUES.openclaw_strategy_cron
         if (!isLikelyCronExpression(cronValue)) {
           toast.error('Cron 表达式格式错误，请输入 5 段表达式（例如：0 9 * * *）')
           return
         }
-
-        const numberRules: Array<{
-          key: keyof typeof USER_DEFAULT_VALUES
-          label: string
-          min: number
-          max: number
-          integer?: boolean
-        }> = [
-          { key: 'openclaw_strategy_max_offers_per_run', label: '每轮最大Offer数', min: 1, max: 50, integer: true },
-          { key: 'openclaw_strategy_default_budget', label: '默认预算', min: 0.01, max: 1000 },
-          { key: 'openclaw_strategy_max_cpc', label: '最大CPC', min: 0.01, max: 20 },
-          { key: 'openclaw_strategy_min_cpc', label: '最小CPC', min: 0.01, max: 20 },
-          { key: 'openclaw_strategy_daily_budget_cap', label: '日预算上限', min: 1, max: 1000 },
-          { key: 'openclaw_strategy_daily_spend_cap', label: '日花费上限', min: 1, max: 100 },
-          { key: 'openclaw_strategy_target_roas', label: '目标ROAS', min: 0.1, max: 20 },
-        ]
-
         const strategyNormalizedPatch: Record<string, string> = {
-          openclaw_strategy_ads_account_ids: normalizedAccountIds,
-          openclaw_strategy_priority_asins: normalizedPriorityAsins,
           openclaw_strategy_cron: cronValue,
-          openclaw_strategy_enable_auto_publish: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_publish, true) ? 'true' : 'false',
-          openclaw_strategy_enable_auto_pause: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_pause, true) ? 'true' : 'false',
-          openclaw_strategy_enable_auto_adjust_cpc: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_adjust_cpc, true) ? 'true' : 'false',
-          openclaw_strategy_allow_affiliate_fetch: isTruthy(normalizedUserValues.openclaw_strategy_allow_affiliate_fetch, true) ? 'true' : 'false',
-          openclaw_strategy_dry_run: isTruthy(normalizedUserValues.openclaw_strategy_dry_run, false) ? 'true' : 'false',
-          [AUTOADS_ONLY_SETTING_KEY]: 'true',
+          openclaw_strategy_enabled: isTruthy(normalizedUserValues.openclaw_strategy_enabled, false) ? 'true' : 'false',
         }
-
-        for (const rule of numberRules) {
-          const rawValue = String(normalizedUserValues[rule.key] || USER_DEFAULT_VALUES[rule.key]).trim()
-          const parsed = Number(rawValue)
-          if (!Number.isFinite(parsed)) {
-            toast.error(`${rule.label}必须是数字`)
-            return
-          }
-          const normalized = rule.integer ? Math.floor(parsed) : parsed
-          if (normalized < rule.min || normalized > rule.max) {
-            toast.error(`${rule.label}需在 ${rule.min} ~ ${rule.max} 之间`)
-            return
-          }
-          strategyNormalizedPatch[rule.key] = String(normalized)
-        }
-
-        const minCpc = Number(strategyNormalizedPatch.openclaw_strategy_min_cpc)
-        const maxCpc = Number(strategyNormalizedPatch.openclaw_strategy_max_cpc)
-        if (minCpc > maxCpc) {
-          toast.error('最小CPC不能大于最大CPC')
-          return
-        }
-
-        const dailyBudgetCap = Number(strategyNormalizedPatch.openclaw_strategy_daily_budget_cap)
-        const dailySpendCap = Number(strategyNormalizedPatch.openclaw_strategy_daily_spend_cap)
-        const defaultBudget = Number(strategyNormalizedPatch.openclaw_strategy_default_budget)
-        if (defaultBudget > Math.min(dailyBudgetCap, dailySpendCap)) {
-          toast.error('默认预算不能超过日预算上限和日花费上限')
-          return
-        }
-
-        const enabled = isTruthy(normalizedUserValues.openclaw_strategy_enabled, false)
-        strategyNormalizedPatch.openclaw_strategy_enabled = enabled ? 'true' : 'false'
-
-        const accountIds = JSON.parse(normalizedAccountIds) as unknown[]
-        if (enabled && accountIds.length === 0) {
-          toast.error('启用策略时至少需要配置一个 Ads 账号ID')
-          return
-        }
-
         Object.assign(normalizedUserValues, strategyNormalizedPatch)
-        setUserValues((prev) => ({
-          ...prev,
-          ...strategyNormalizedPatch,
-        }))
+        setUserValues((prev) => ({ ...prev, ...strategyNormalizedPatch }))
       }
 
       const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
@@ -1951,61 +1594,11 @@ export default function OpenClawPage() {
     }
   }
 
-  const applyStrategyValues = (values: Record<string, string>) => {
-    const nextValues = {
-      ...values,
-      [AUTOADS_ONLY_SETTING_KEY]: 'true',
-    }
-    setUserValues(prev => ({
-      ...prev,
-      ...nextValues,
-    }))
-  }
-
-  const applyStrategyExample = () => {
-    setStrategyPreset('balanced')
-    applyStrategyValues(STRATEGY_EXAMPLE_VALUES)
-  }
-
-  const applyStrategyPreset = (presetId: string) => {
-    setStrategyPreset(presetId)
-    const preset = STRATEGY_PRESET_OPTIONS.find(option => option.id === presetId)
-    if (!preset) return
-    applyStrategyValues(preset.values)
-  }
-
   const handleStrategyCronPresetChange = (presetId: string) => {
     setStrategyCronPreset(presetId)
     const preset = STRATEGY_CRON_OPTIONS.find(option => option.id === presetId)
-    if (!preset) return
-    if (preset.id !== 'custom') {
-      setUserValue('openclaw_strategy_cron', preset.cron)
-    }
-  }
-
-  const handleStrategyCronInputChange = (value: string) => {
-    setUserValue('openclaw_strategy_cron', value)
-    if (!value.trim()) {
-      setStrategyCronPreset('daily_morning')
-      return
-    }
-    setStrategyCronPreset(resolveStrategyCronPreset(value))
-  }
-
-  const handleStrategyAccountIdsDraftChange = (value: string) => {
-    setStrategyAccountIdsDraft(value)
-    const normalized = normalizeStrategyAccountIdsForStorage(value)
-    if (normalized !== null) {
-      setUserValue('openclaw_strategy_ads_account_ids', normalized)
-    }
-  }
-
-  const handleStrategyPriorityAsinsDraftChange = (value: string) => {
-    setStrategyPriorityAsinsDraft(value)
-    const normalized = normalizeStrategyPriorityAsinsForStorage(value)
-    if (normalized !== null) {
-      setUserValue('openclaw_strategy_priority_asins', normalized)
-    }
+    if (!preset || preset.id === 'custom') return
+    setUserValue('openclaw_strategy_cron', preset.cron)
   }
 
   const handleFeishuTestConnection = async () => {
@@ -2228,14 +1821,14 @@ export default function OpenClawPage() {
     }
 
     const hasReviewState = strategyRecommendations.some(
-      (item) => item.status === 'approved' || item.status === 'failed' || item.status === 'stale'
+      (item) => item.status === 'pending' || item.status === 'failed' || item.status === 'stale'
     )
     if (hasReviewState) {
       const confirmed = await requestStrategyConfirm({
         title: '确认重新分析',
         description: strategyAnalyzeSendFeishu
-          ? '将重算当前日期建议，历史审批结果可能被标记为待重审，并同时发送 Feishu 报告。'
-          : '将重算当前日期建议，历史审批结果可能被标记为待重审。',
+          ? '将重算当前日期建议，现有待执行/失败建议可能变化，并同时发送 Feishu 报告。'
+          : '将重算当前日期建议，现有待执行/失败建议可能变化。',
         details: [
           `策略建议日期：${targetDate}`,
           strategyAnalyzeSendFeishu ? '报告投递：Feishu 已开启' : '报告投递：仅更新页面建议',
@@ -2296,41 +1889,30 @@ export default function OpenClawPage() {
     }
   }
 
-  const handleApproveStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
-    if (!recommendation?.id) return
-    const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
-    const typeLabel = resolveStrategyRecommendationTypeLabel(recommendation.recommendationType)
-    const confirmed = await requestStrategyConfirm({
-      title: `确认审批「${typeLabel}」`,
-      description: '审批后该建议将进入可执行状态，可随时执行或继续忽略。',
-      details: [
-        `目标：${campaignName}`,
-        `建议ID：${recommendation.id}`,
-      ],
-      confirmLabel: '确认审批',
-      tone: 'info',
-    })
-    if (!confirmed) return
-    setStrategyRecommendationApprovingId(recommendation.id)
-    try {
-      await requestStrategyRecommendationAction(recommendation.id, 'approve')
-      toast.success('建议已审批')
-      await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
-    } catch (error: any) {
-      toast.error(error?.message || '审批建议失败')
-    } finally {
-      setStrategyRecommendationApprovingId(null)
-    }
-  }
-
   const handleExecuteStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
     if (!recommendation?.id) return
     if (strategyHistoricalReadOnly) {
       toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
       return
     }
-    if (recommendation.status !== 'approved') {
-      toast.error('请先审批该建议后再执行')
+    if (recommendation.status === 'stale') {
+      toast.error('建议内容已变化，请重新分析后再执行')
+      return
+    }
+    if (recommendation.status === 'dismissed') {
+      toast.error('该建议已暂不执行，请重新分析后再执行')
+      return
+    }
+    if (recommendation.status === 'executed') {
+      toast.error('建议已执行，无需重复执行')
+      return
+    }
+    if (isStrategyRecommendationQueued(recommendation)) {
+      toast.error('建议已在执行队列中')
+      return
+    }
+    if (!isStrategyRecommendationExecutable(recommendation)) {
+      toast.error('当前状态不支持执行该建议')
       return
     }
 
@@ -2370,18 +1952,18 @@ export default function OpenClawPage() {
   const handleDismissStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
     if (!recommendation?.id) return
     if (recommendation.status === 'executed') {
-      toast.error('已执行建议不支持忽略')
+      toast.error('已执行建议不支持暂不执行')
       return
     }
     const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
     const confirmed = await requestStrategyConfirm({
-      title: '确认忽略该建议',
-      description: '忽略后该建议将不进入执行队列，可在后续重新分析后再次处理。',
+      title: '确认暂不执行该建议',
+      description: '暂不执行后该建议将不进入执行队列，可在后续重新分析后再次处理。',
       details: [
         `目标：${campaignName}`,
         `建议ID：${recommendation.id}`,
       ],
-      confirmLabel: '确认忽略',
+      confirmLabel: '确认暂不执行',
       tone: 'info',
     })
     if (!confirmed) return
@@ -2389,26 +1971,24 @@ export default function OpenClawPage() {
     setStrategyRecommendationDismissingId(recommendation.id)
     try {
       await requestStrategyRecommendationAction(recommendation.id, 'dismiss')
-      toast.success('建议已忽略')
+      toast.success('建议已设为暂不执行')
       await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
     } catch (error: any) {
-      toast.error(error?.message || '忽略建议失败')
+      toast.error(error?.message || '设置暂不执行失败')
     } finally {
       setStrategyRecommendationDismissingId(null)
     }
   }
 
   const strategyRecommendationActionBusy =
-    strategyRecommendationApprovingId !== null
-    || strategyRecommendationExecutingId !== null
+    strategyRecommendationExecutingId !== null
     || strategyRecommendationDismissingId !== null
-    || strategyBatchApproving
     || strategyBatchExecuting
     || strategyBatchDismissing
 
   const requestStrategyRecommendationAction = useCallback(async (
     recommendationId: string,
-    action: 'approve' | 'execute' | 'dismiss',
+    action: 'execute' | 'dismiss',
     body?: Record<string, unknown>
   ) => {
     const response = await fetch(`/api/openclaw/strategy/recommendations/${recommendationId}/${action}`, {
@@ -2419,11 +1999,7 @@ export default function OpenClawPage() {
     })
     const payload = await response.json().catch(() => null)
     if (!response.ok || !payload?.success) {
-      const fallbackMessage = action === 'approve'
-        ? '审批建议失败'
-        : action === 'execute'
-          ? '执行建议失败'
-          : '忽略建议失败'
+      const fallbackMessage = action === 'execute' ? '执行建议失败' : '设置暂不执行失败'
       throw new Error(payload?.error || fallbackMessage)
     }
     return payload
@@ -2470,9 +2046,6 @@ export default function OpenClawPage() {
   const trendData = report?.trends?.data?.trends || []
   const budgetOverall = report?.budget?.data?.overall || {}
   const campaignRows = report?.roi?.data?.byCampaign || []
-  const strategyActions = report?.strategyActions || []
-  const reportStrategyRun = report?.strategyRun || null
-  const strategyRunLatest = strategyStatus?.run || reportStrategyRun
   const topCampaigns = [...campaignRows]
     .sort((a, b) => {
       const revenueDiff = (Number(b.revenue) || 0) - (Number(a.revenue) || 0)
@@ -2480,54 +2053,6 @@ export default function OpenClawPage() {
       return (Number(b.cost) || 0) - (Number(a.cost) || 0)
     })
     .slice(0, 5)
-  const strategyStats = (() => {
-    if (!strategyRunLatest?.stats_json) return null
-    try {
-      return JSON.parse(strategyRunLatest.stats_json)
-    } catch {
-      return null
-    }
-  })()
-  const strategyRunConfig = (() => {
-    if (!strategyRunLatest?.config_json) return null
-    try {
-      const parsed = typeof strategyRunLatest.config_json === 'string'
-        ? JSON.parse(strategyRunLatest.config_json)
-        : strategyRunLatest.config_json
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Record<string, unknown>
-        : null
-    } catch {
-      return null
-    }
-  })()
-  const strategyEffectiveConfig = (() => {
-    const fromStats = strategyStats?.effectiveConfig
-    const statsConfig = fromStats && typeof fromStats === 'object' && !Array.isArray(fromStats)
-      ? fromStats as Record<string, unknown>
-      : {}
-    const fallback = strategyRunConfig || {}
-    const maxOffersPerRun = Number(statsConfig.maxOffersPerRun ?? fallback.maxOffersPerRun)
-    const defaultBudget = Number(statsConfig.defaultBudget ?? fallback.defaultBudget)
-    const maxCpc = Number(statsConfig.maxCpc ?? fallback.maxCpc)
-    const minCpc = Number(fallback.minCpc)
-    const targetRoas = Number(fallback.targetRoas)
-    const dailyBudgetCap = Number(fallback.dailyBudgetCap)
-    const dailySpendCap = Number(fallback.dailySpendCap)
-    const mode = String(strategyRunLatest?.mode || '').trim() || null
-    const hasFiniteCore = Number.isFinite(maxOffersPerRun) || Number.isFinite(defaultBudget) || Number.isFinite(maxCpc)
-    if (!hasFiniteCore) return null
-    return {
-      maxOffersPerRun: Number.isFinite(maxOffersPerRun) ? maxOffersPerRun : null,
-      defaultBudget: Number.isFinite(defaultBudget) ? defaultBudget : null,
-      maxCpc: Number.isFinite(maxCpc) ? maxCpc : null,
-      minCpc: Number.isFinite(minCpc) ? minCpc : null,
-      targetRoas: Number.isFinite(targetRoas) ? targetRoas : null,
-      dailyBudgetCap: Number.isFinite(dailyBudgetCap) ? dailyBudgetCap : null,
-      dailySpendCap: Number.isFinite(dailySpendCap) ? dailySpendCap : null,
-      mode,
-    }
-  })()
   const strategyDisplayDate = String(strategyRecommendationsReportDate || reportDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyServerDateDisplay = String(strategyServerDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyDateNormalized = Boolean(strategyDisplayDate && reportDate && strategyDisplayDate !== reportDate)
@@ -2549,7 +2074,9 @@ export default function OpenClawPage() {
   const strategyRecommendationsFiltered = useMemo(() => {
     if (strategyRecommendationStatusFilter === 'actionable') {
       return strategyRecommendationsView.filter(
-        (item) => item.status === 'pending' || item.status === 'approved' || item.status === 'stale'
+        (item) => item.status === 'pending'
+          || item.status === 'failed'
+          || item.status === 'stale'
       )
     }
     if (strategyRecommendationStatusFilter === 'all') {
@@ -2608,7 +2135,6 @@ export default function OpenClawPage() {
     const summary = {
       total: strategyRecommendationsView.length,
       pending: 0,
-      approved: 0,
       executed: 0,
       failed: 0,
       dismissed: 0,
@@ -2620,19 +2146,22 @@ export default function OpenClawPage() {
 
     for (const item of strategyRecommendationsView) {
       if (item.status === 'pending') summary.pending += 1
-      if (item.status === 'approved') summary.approved += 1
       if (item.status === 'executed') summary.executed += 1
       if (item.status === 'failed') summary.failed += 1
       if (item.status === 'dismissed') summary.dismissed += 1
       if (item.status === 'stale') summary.stale += 1
 
-      if (item.status === 'pending' || item.status === 'approved' || item.status === 'stale') {
+      if (
+        item.status === 'pending'
+        || item.status === 'failed'
+        || item.status === 'stale'
+      ) {
         summary.actionable += 1
       }
 
       const queued = isStrategyRecommendationQueued(item)
       if (queued) summary.queued += 1
-      if (item.status === 'approved' && !queued) summary.executable += 1
+      if (isStrategyRecommendationExecutable(item)) summary.executable += 1
     }
 
     return summary
@@ -2654,18 +2183,13 @@ export default function OpenClawPage() {
     (item) => selectedStrategyRecommendationSet.has(item.id) && item.status !== 'executed'
   ).length
   const selectedHiddenCount = Math.max(0, selectedSelectableCount - selectedVisibleCount)
-  const selectedApprovableCount = strategyBatchActionPool.filter(
-    (item) => selectedStrategyRecommendationSet.has(item.id)
-      && (item.status === 'pending' || item.status === 'failed' || item.status === 'dismissed' || item.status === 'stale')
-  ).length
   const selectedExecutableCount = strategyBatchActionPool.filter(
     (item) => selectedStrategyRecommendationSet.has(item.id)
-      && item.status === 'approved'
-      && !isStrategyRecommendationQueued(item)
+      && isStrategyRecommendationExecutable(item)
   ).length
   const selectedDismissibleCount = strategyBatchActionPool.filter(
     (item) => selectedStrategyRecommendationSet.has(item.id)
-      && (item.status === 'pending' || item.status === 'approved' || item.status === 'failed' || item.status === 'stale')
+      && (item.status === 'pending' || item.status === 'failed' || item.status === 'stale')
   ).length
   const strategyRecommendationsAllSelected = selectableStrategyRecommendations.length > 0
     && selectedSelectableCount === selectableStrategyRecommendations.length
@@ -2683,7 +2207,8 @@ export default function OpenClawPage() {
   )
   const unknownQueueTaskCount = useMemo(
     () => strategyRecommendations.filter((item) => {
-      if (item.status !== 'approved') return false
+      const queueTaskId = String(item.executionResult?.queueTaskId || '').trim()
+      if (!queueTaskId) return false
       return String(item.executionResult?.queueTaskStatus || '').trim().toLowerCase() === 'unknown'
     }).length,
     [strategyRecommendations]
@@ -2737,17 +2262,10 @@ export default function OpenClawPage() {
     action: StrategyBatchAction,
     item: OpenclawStrategyRecommendation
   ): boolean => {
-    if (action === 'approve') {
-      return item.status === 'pending'
-        || item.status === 'failed'
-        || item.status === 'dismissed'
-        || item.status === 'stale'
-    }
     if (action === 'execute') {
-      return item.status === 'approved' && !isStrategyRecommendationQueued(item)
+      return isStrategyRecommendationExecutable(item)
     }
     return item.status === 'pending'
-      || item.status === 'approved'
       || item.status === 'failed'
       || item.status === 'stale'
   }
@@ -2768,28 +2286,14 @@ export default function OpenClawPage() {
     )
     if (selectedRows.length === 0) {
       if (action === 'execute') {
-        toast.error('所选建议中暂无可执行项，请先审批已选建议')
-      } else if (action === 'approve') {
-        toast.error('所选建议中暂无可审批项')
+        toast.error('所选建议中暂无可执行项')
       } else {
-        toast.error('所选建议中暂无可忽略项')
+        toast.error('所选建议中暂无可设为暂不执行项')
       }
       return
     }
 
-    if (action === 'approve') {
-      const confirmed = await requestStrategyConfirm({
-        title: `确认批量审批 ${selectedRows.length} 条建议`,
-        description: '审批后这些建议将进入可执行状态，可后续统一执行或忽略。',
-        details: [
-          `范围：${scopeLabel}`,
-          `条目数：${selectedRows.length}`,
-        ],
-        confirmLabel: '确认批量审批',
-        tone: 'info',
-      })
-      if (!confirmed) return
-    } else if (action === 'execute') {
+    if (action === 'execute') {
       if (strategyHistoricalReadOnly) {
         toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
         return
@@ -2808,19 +2312,18 @@ export default function OpenClawPage() {
       if (!confirmed) return
     } else if (action === 'dismiss') {
       const confirmed = await requestStrategyConfirm({
-        title: `确认批量忽略 ${selectedRows.length} 条建议`,
-        description: '忽略后这些建议将不会执行，可在后续重新分析后再次处理。',
+        title: `确认批量设为暂不执行 ${selectedRows.length} 条建议`,
+        description: '设为暂不执行后这些建议将不会执行，可在后续重新分析后再次处理。',
         details: [
           `范围：${scopeLabel}`,
           `条目数：${selectedRows.length}`,
         ],
-        confirmLabel: '确认批量忽略',
+        confirmLabel: '确认批量暂不执行',
         tone: 'warning',
       })
       if (!confirmed) return
     }
 
-    if (action === 'approve') setStrategyBatchApproving(true)
     if (action === 'execute') setStrategyBatchExecuting(true)
     if (action === 'dismiss') setStrategyBatchDismissing(true)
 
@@ -2863,22 +2366,16 @@ export default function OpenClawPage() {
       setStrategyBatchFailures(failed)
 
       if (failed.length === 0) {
-        if (action === 'approve') toast.success(`批量审批完成，共 ${successCount} 条`)
         if (action === 'execute') toast.success(`批量执行已入队，共 ${successCount} 条`)
-        if (action === 'dismiss') toast.success(`批量忽略完成，共 ${successCount} 条`)
+        if (action === 'dismiss') toast.success(`批量暂不执行完成，共 ${successCount} 条`)
       } else {
-        const label = action === 'approve' ? '审批' : action === 'execute' ? '执行' : '忽略'
+        const label = action === 'execute' ? '执行' : '暂不执行'
         toast.warning(`批量${label}完成：成功 ${successCount}，失败 ${failed.length}（失败项已保留，可一键重试）`)
       }
     } finally {
-      if (action === 'approve') setStrategyBatchApproving(false)
       if (action === 'execute') setStrategyBatchExecuting(false)
       if (action === 'dismiss') setStrategyBatchDismissing(false)
     }
-  }
-
-  const handleBatchApproveStrategyRecommendations = async () => {
-    await runStrategyRecommendationBatchAction('approve')
   }
 
   const handleBatchExecuteStrategyRecommendations = async () => {
@@ -3019,46 +2516,19 @@ export default function OpenClawPage() {
     },
     {
       id: 'strategy',
-      label: '策略',
+      label: '自动分析',
       done: isTruthy(userValues.openclaw_strategy_enabled, false),
       note: isTruthy(userValues.openclaw_strategy_enabled, false) ? '已启用' : '未启用',
     },
   ] as const
   const setupCompletedCount = setupCards.filter(item => item.done).length
   const setupProgressPercent = Math.round((setupCompletedCount / setupCards.length) * 100)
-  const strategyEnabled = isTruthy(userValues.openclaw_strategy_enabled, false)
-  const strategyCronValue = userValues.openclaw_strategy_cron || ''
-  const strategyAccountIdsNormalized = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
-  const strategyAccountIdsCount = (() => {
-    if (!strategyAccountIdsNormalized) return 0
-    try {
-      const parsed = JSON.parse(strategyAccountIdsNormalized)
-      return Array.isArray(parsed) ? parsed.length : 0
-    } catch {
-      return 0
-    }
-  })()
-  const strategyPriorityAsinsNormalized = normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
-  const strategyPriorityAsinsCount = (() => {
-    if (!strategyPriorityAsinsNormalized) return 0
-    try {
-      const parsed = JSON.parse(strategyPriorityAsinsNormalized)
-      return Array.isArray(parsed) ? parsed.length : 0
-    } catch {
-      return 0
-    }
-  })()
-  const strategyCronHasError = Boolean(strategyCronValue.trim()) && !isLikelyCronExpression(strategyCronValue)
-  const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
-  const strategyPriorityAsinsHasError = strategyPriorityAsinsNormalized === null
-  const strategyAccountIdsRequiredError = strategyEnabled && !strategyAccountIdsHasError && strategyAccountIdsCount === 0
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
   const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
   const pendingCommandCount = pendingCommandRunsTotal
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
-  const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
-  const strategyAdvancedDirty = hasUserDirtyFields(STRATEGY_ADVANCED_USER_KEYS)
+  const strategyDirty = hasUserDirtyFields(STRATEGY_MINIMAL_USER_KEYS)
 
   const feishuHealthRows = feishuHealthData?.rows || []
   const feishuHealthStats = feishuHealthData?.stats || {
@@ -4398,54 +3868,31 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                策略配置
-                {strategyDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="策略配置未保存" />}
+                自动分析设置
+                {strategyDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="自动分析设置未保存" />}
               </CardTitle>
-              <CardDescription>最小参数 + 可选高级参数（预算、CPC、自动化开关）</CardDescription>
+              <CardDescription>自动分析运行中 Campaign 表现并生成优化建议，执行环节始终由人工触发</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                建议顺序：①选预设 → ②确认调度频率 → ③填写 Ads 账号ID → ④保存策略配置
+            <CardContent className="space-y-5">
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                建议流程：①启用自动分析 → ②设置分析频率 → ③在下方“优化建议”中人工选择执行
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">策略预设</label>
-                <div className="grid gap-3 md:grid-cols-3">
-                  {STRATEGY_PRESET_OPTIONS.map(option => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => applyStrategyPreset(option.id)}
-                      className={`rounded-md border px-3 py-2 text-left transition-colors ${
-                        strategyPreset === option.id
-                          ? 'border-slate-900 bg-slate-900 text-white'
-                          : 'border-slate-200 bg-white hover:border-slate-400'
-                      }`}
-                    >
-                      <div className="text-sm font-medium">{option.label}</div>
-                      <div className={`mt-1 text-xs ${strategyPreset === option.id ? 'text-slate-200' : 'text-slate-500'}`}>
-                        {option.description}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <SwitchWithLabel
-                  label="启用策略"
+                  label="启用自动分析"
                   required
                   checked={isTruthy(userValues.openclaw_strategy_enabled, false)}
                   onChange={(val) => setUserValue('openclaw_strategy_enabled', val ? 'true' : 'false')}
                 />
                 <div className="space-y-2">
                   <label className="text-sm font-medium">
-                    调度频率
+                    分析频率
                     <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>
                   </label>
                   <Select value={strategyCronPreset} onValueChange={handleStrategyCronPresetChange}>
                     <SelectTrigger>
-                      <SelectValue placeholder="选择执行频率" />
+                      <SelectValue placeholder="选择分析频率" />
                     </SelectTrigger>
                     <SelectContent>
                       {STRATEGY_CRON_OPTIONS.map(option => (
@@ -4454,176 +3901,18 @@ export default function OpenClawPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <SwitchWithLabel
-                  label="仅AutoAds链路（锁定）"
-                  required
-                  checked={isTruthy(userValues.openclaw_strategy_enforce_autoads_only, true)}
-                  onChange={(val) => setUserValue(AUTOADS_ONLY_SETTING_KEY, val ? 'true' : 'false')}
-                  disabled
-                />
-              </div>
-              <p className="text-xs text-slate-500">仅通过 AutoAds 接口执行 Offer创建 / 创意生成 / 广告发布，手工Campaign冲突将被阻断。</p>
-
-              <div className="space-y-2">
-                <InputWithLabel
-                  label="Cron 表达式"
-                  value={strategyCronValue}
-                  onChange={handleStrategyCronInputChange}
-                  placeholder="0 9 * * *"
-                />
-                <p className={`text-xs ${strategyCronHasError ? 'text-red-600' : 'text-slate-500'}`}>
-                  {strategyCronHasError ? 'Cron 格式建议为 5 段，例如：0 9 * * *' : '格式：分 时 日 月 周（例如：0 9 * * *）'}
-                </p>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Ads账号ID列表
-                  <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>
-                </label>
-                <Textarea
-                  value={strategyAccountIdsDraft}
-                  onChange={(e) => handleStrategyAccountIdsDraftChange(e.target.value)}
-                  placeholder={'123456789\n987654321 或 123456789,987654321'}
-                  rows={3}
-                />
-                <div className="flex items-center justify-between text-xs">
-                  <span className={strategyAccountIdsHasError || strategyAccountIdsRequiredError ? 'text-red-600' : 'text-slate-500'}>
-                    {strategyAccountIdsHasError
-                      ? '账号ID格式错误，仅支持正整数；可用逗号/换行或 JSON 数组'
-                      : strategyAccountIdsRequiredError
-                        ? '策略已启用，至少需要填写 1 个 Ads 账号ID'
-                        : '支持逗号、换行或 JSON 数组输入，保存时自动标准化'}
-                  </span>
-                  <span className="text-slate-500">已识别 {strategyAccountIdsCount} 个账号</span>
-                </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                自动分析只负责生成报告与优化建议，不会自动执行对广告投放的变更。
               </div>
 
-              <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
-                <div className="text-xs text-slate-600">高级参数（预算、CPC、自动化开关）按需配置</div>
+              <div className="flex justify-end">
                 <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowStrategyAdvanced((prev) => !prev)}
-                >
-                  {showStrategyAdvanced ? '收起高级参数' : '展开高级参数'}
-                  {strategyAdvancedDirty ? ' *' : ''}
-                </Button>
-              </div>
-
-              {showStrategyAdvanced && (
-                <div className="rounded-md border px-4 py-3 space-y-4">
-                  <div className="text-sm font-medium">执行上限与成本控制</div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <InputWithLabel
-                      label="每轮最大Offer数"
-                      type="number"
-                      value={userValues.openclaw_strategy_max_offers_per_run || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_max_offers_per_run', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_max_offers_per_run}
-                    />
-                    <InputWithLabel
-                      label="默认预算"
-                      type="number"
-                      value={userValues.openclaw_strategy_default_budget || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_default_budget', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_default_budget}
-                    />
-                    <InputWithLabel
-                      label="目标ROAS"
-                      type="number"
-                      value={userValues.openclaw_strategy_target_roas || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_target_roas', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_target_roas}
-                    />
-                    <InputWithLabel
-                      label="最大CPC"
-                      type="number"
-                      value={userValues.openclaw_strategy_max_cpc || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_max_cpc', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_max_cpc}
-                    />
-                    <InputWithLabel
-                      label="最小CPC"
-                      type="number"
-                      value={userValues.openclaw_strategy_min_cpc || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_min_cpc', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_min_cpc}
-                    />
-                    <InputWithLabel
-                      label="日预算上限"
-                      type="number"
-                      value={userValues.openclaw_strategy_daily_budget_cap || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_daily_budget_cap', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_daily_budget_cap}
-                    />
-                    <InputWithLabel
-                      label="日花费上限"
-                      type="number"
-                      value={userValues.openclaw_strategy_daily_spend_cap || ''}
-                      onChange={(v) => setUserValue('openclaw_strategy_daily_spend_cap', v)}
-                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_daily_spend_cap}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">优先ASIN列表（可选）</label>
-                    <Textarea
-                      value={strategyPriorityAsinsDraft}
-                      onChange={(e) => handleStrategyPriorityAsinsDraftChange(e.target.value)}
-                      placeholder={'B08N5WRWNW\nB0B9X6Z123 或 B08N5WRWNW,B0B9X6Z123'}
-                      rows={3}
-                    />
-                    <div className="flex items-center justify-between text-xs">
-                      <span className={strategyPriorityAsinsHasError ? 'text-red-600' : 'text-slate-500'}>
-                        {strategyPriorityAsinsHasError
-                          ? 'ASIN格式错误，仅支持字母/数字/下划线/中划线（4~20位）'
-                          : '支持逗号、空格、换行或 JSON 数组输入，保存时自动标准化'}
-                      </span>
-                      <span className="text-slate-500">已识别 {strategyPriorityAsinsCount} 个ASIN</span>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <SwitchWithLabel
-                      label="自动发布"
-                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_publish, true)}
-                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_publish', val ? 'true' : 'false')}
-                    />
-                    <SwitchWithLabel
-                      label="自动暂停冲突Campaign"
-                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_pause, true)}
-                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_pause', val ? 'true' : 'false')}
-                    />
-                    <SwitchWithLabel
-                      label="自动调整CPC"
-                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_adjust_cpc, true)}
-                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_adjust_cpc', val ? 'true' : 'false')}
-                    />
-                    <SwitchWithLabel
-                      label="允许联盟补量"
-                      checked={isTruthy(userValues.openclaw_strategy_allow_affiliate_fetch, true)}
-                      onChange={(val) => setUserValue('openclaw_strategy_allow_affiliate_fetch', val ? 'true' : 'false')}
-                    />
-                    <SwitchWithLabel
-                      label="Dry Run（仅生成不发布）"
-                      checked={isTruthy(userValues.openclaw_strategy_dry_run, false)}
-                      onChange={(val) => setUserValue('openclaw_strategy_dry_run', val ? 'true' : 'false')}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={applyStrategyExample}>
-                  快速示例
-                </Button>
-                <Button
-                  onClick={() => saveSettings({ scope: 'user', keys: strategySaveKeys, successMessage: '策略配置已保存' })}
+                  onClick={() => saveSettings({ scope: 'user', keys: strategySaveKeys, successMessage: '自动分析设置已保存' })}
                   disabled={savingUser}
                 >
-                  {savingUser ? '保存中...' : strategyDirty ? '保存策略配置 *' : '保存策略配置'}
+                  {savingUser ? '保存中...' : strategyDirty ? '保存自动分析设置 *' : '保存自动分析设置'}
                 </Button>
               </div>
             </CardContent>
@@ -4634,7 +3923,7 @@ export default function OpenClawPage() {
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="space-y-1">
                   <CardTitle className="text-xl">优化建议（按优先级分排序）</CardTitle>
-                  <CardDescription>每日自动生成，先审批再执行，执行结果直接落地 AutoAds / Google Ads</CardDescription>
+                  <CardDescription>每日自动生成，确认后可直接执行，执行结果直接落地 AutoAds / Google Ads</CardDescription>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
                       建议日期：{strategyDisplayDate}
@@ -4677,7 +3966,7 @@ export default function OpenClawPage() {
                   <div className="mt-1 text-2xl font-semibold text-slate-900">{strategyRecommendationSummary.total}</div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <div className="text-xs text-slate-500">待处理（待审批/已审批/待重审）</div>
+                  <div className="text-xs text-slate-500">待处理（待执行/执行失败/待重算）</div>
                   <div className="mt-1 text-2xl font-semibold text-slate-900">{strategyRecommendationSummary.actionable}</div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
@@ -4685,7 +3974,7 @@ export default function OpenClawPage() {
                   <div className="mt-1 text-2xl font-semibold text-amber-700">{strategyRecommendationSummary.queued}</div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <div className="text-xs text-slate-500">已审批可执行</div>
+                  <div className="text-xs text-slate-500">当前可执行</div>
                   <div className="mt-1 text-2xl font-semibold text-emerald-700">{strategyRecommendationSummary.executable}</div>
                 </div>
               </div>
@@ -4693,12 +3982,13 @@ export default function OpenClawPage() {
             <CardContent className="space-y-4 p-4 md:p-6">
               <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
                 <div className="grid gap-2 md:grid-cols-2">
+                  <div>操作流程：重新分析 → 选择建议 → 执行（需二次确认），支持批量执行与批量暂不执行。</div>
                   <div>下线建议默认执行：删除 Google Ads Campaign + 暂停补点击任务 + 暂停换链接任务。</div>
                   <div>重新分析会重算建议；开启“分析后发送 Feishu”时，会同时入队发送最新报告。</div>
                   <div>佣金口径：仅按 Offer/Campaign 级联盟佣金统计，不做关键词级佣金归因。</div>
                   <div>优先级口径：优先级分用于排序；净影响为估算值，含低/中/高置信度。</div>
                 </div>
-                <div className="mt-2 text-slate-500">刷新建议会重新计算规则，历史审批建议可能被标记为“待重审”。</div>
+                <div className="mt-2 text-slate-500">刷新建议会重新计算规则，旧建议可能被标记为“待重算”。</div>
                 {strategyHistoricalReadOnly && (
                   <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
                     历史日期仅支持查看，不支持重新分析与执行。
@@ -4715,25 +4005,6 @@ export default function OpenClawPage() {
                   </div>
                 )}
               </div>
-
-              {strategyEffectiveConfig && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-                  <div className="font-medium">
-                    当前生效参数
-                    {strategyEffectiveConfig.mode ? `（run mode: ${strategyEffectiveConfig.mode}）` : ''}
-                  </div>
-                  <div className="mt-2 grid gap-x-4 gap-y-1 md:grid-cols-4">
-                    <div>每轮Offer上限：{strategyEffectiveConfig.maxOffersPerRun ?? '--'}</div>
-                    <div>默认预算：{strategyEffectiveConfig.defaultBudget ?? '--'}</div>
-                    <div>最大CPC：{strategyEffectiveConfig.maxCpc ?? '--'}</div>
-                    <div>最小CPC：{strategyEffectiveConfig.minCpc ?? '--'}</div>
-                    <div>目标ROAS：{strategyEffectiveConfig.targetRoas ?? '--'}</div>
-                    <div>日预算上限：{strategyEffectiveConfig.dailyBudgetCap ?? '--'}</div>
-                    <div>日花费上限：{strategyEffectiveConfig.dailySpendCap ?? '--'}</div>
-                  </div>
-                  <div className="mt-1 text-emerald-700">来源：最近一次策略运行快照（含 adaptive effectiveConfig）。</div>
-                </div>
-              )}
 
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -4765,15 +4036,14 @@ export default function OpenClawPage() {
                           <SelectValue placeholder="状态筛选" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="actionable">待处理（待审批+已审批+待重审）</SelectItem>
+                          <SelectItem value="actionable">待处理（待执行+执行失败+待重算）</SelectItem>
                           <SelectItem value="all">全部状态</SelectItem>
                           <SelectItem value="queued">排队执行中</SelectItem>
-                          <SelectItem value="pending">待审批</SelectItem>
-                          <SelectItem value="approved">已审批</SelectItem>
-                          <SelectItem value="stale">待重审</SelectItem>
+                          <SelectItem value="pending">待执行</SelectItem>
+                          <SelectItem value="stale">待重算</SelectItem>
                           <SelectItem value="failed">执行失败</SelectItem>
                           <SelectItem value="executed">已执行</SelectItem>
-                          <SelectItem value="dismissed">已忽略</SelectItem>
+                          <SelectItem value="dismissed">暂不执行</SelectItem>
                         </SelectContent>
                       </Select>
                       <Select
@@ -4802,17 +4072,9 @@ export default function OpenClawPage() {
                     已选 {selectedSelectableCount} 条
                     {selectedHiddenCount > 0 ? `（含当前未展示 ${selectedHiddenCount} 条）` : ''}
                     {' · '}
-                    可审批 {selectedApprovableCount} / 可执行 {selectedExecutableCount} / 可忽略 {selectedDismissibleCount}
+                    可执行 {selectedExecutableCount} / 可暂不执行 {selectedDismissibleCount}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleBatchApproveStrategyRecommendations}
-                      disabled={strategyRecommendationActionBusy || selectedApprovableCount === 0}
-                    >
-                      {strategyBatchApproving ? '批量审批中...' : '批量审批'}
-                    </Button>
                     <Button
                       size="sm"
                       onClick={handleBatchExecuteStrategyRecommendations}
@@ -4826,7 +4088,7 @@ export default function OpenClawPage() {
                       onClick={handleBatchDismissStrategyRecommendations}
                       disabled={strategyRecommendationActionBusy || selectedDismissibleCount === 0}
                     >
-                      {strategyBatchDismissing ? '批量忽略中...' : '批量忽略'}
+                      {strategyBatchDismissing ? '批量处理中...' : '批量暂不执行'}
                     </Button>
                     <Button
                       size="sm"
@@ -4875,13 +4137,12 @@ export default function OpenClawPage() {
                       <TableHead className="min-w-[240px] text-xs font-semibold text-slate-600">成本/盈亏平衡</TableHead>
                       <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">优先级分</TableHead>
                       <TableHead className="min-w-[190px] text-xs font-semibold text-slate-600">状态</TableHead>
-                      <TableHead className="min-w-[250px] text-right text-xs font-semibold text-slate-600">操作</TableHead>
+                      <TableHead className="min-w-[340px] text-right text-xs font-semibold text-slate-600">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {strategyRecommendationsDisplay.map((item, index) => {
                       const statusBadge = resolveStrategyRecommendationStatusBadge(item.status)
-                      const isApproving = strategyRecommendationApprovingId === item.id
                       const isExecuting = strategyRecommendationExecutingId === item.id
                       const isDismissing = strategyRecommendationDismissingId === item.id
                       const isSelectable = item.status !== 'executed'
@@ -5036,7 +4297,7 @@ export default function OpenClawPage() {
                           <TableCell className="space-y-1 pt-3">
                             <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
                             {item.status === 'stale' && (
-                              <div className="text-xs text-amber-600">建议内容已变化，请重新审批后再执行</div>
+                              <div className="text-xs text-amber-600">建议内容已变化，请重新分析后再执行</div>
                             )}
                             {isQueued && (
                               <div className="text-xs text-amber-600">排队执行中</div>
@@ -5050,8 +4311,8 @@ export default function OpenClawPage() {
                               <div className="text-xs text-slate-500">{formatTimestamp(item.executedAt)}</div>
                             )}
                           </TableCell>
-                          <TableCell className="pt-3 text-right">
-                            <div className="flex flex-wrap items-center justify-end gap-2">
+                          <TableCell className="min-w-[340px] pt-3 text-right">
+                            <div className="flex flex-nowrap items-center justify-end gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -5063,31 +4324,13 @@ export default function OpenClawPage() {
                               </Button>
                               <Button
                                 size="sm"
-                                variant="outline"
                                 className="h-8 px-3"
                                 disabled={
                                   strategyRecommendationActionBusy
-                                  || isApproving
-                                  || isExecuting
-                                  || isDismissing
-                                  || item.status === 'approved'
-                                  || item.status === 'executed'
-                                }
-                                onClick={() => handleApproveStrategyRecommendation(item)}
-                              >
-                                {isApproving ? '审批中...' : '审批'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                className="h-8 px-3"
-                                disabled={
-                                  strategyRecommendationActionBusy
-                                  || isApproving
                                   || isExecuting
                                   || isDismissing
                                   || strategyHistoricalReadOnly
-                                  || item.status !== 'approved'
-                                  || isQueued
+                                  || !isStrategyRecommendationExecutable(item)
                                 }
                                 onClick={() => handleExecuteStrategyRecommendation(item)}
                               >
@@ -5099,7 +4342,6 @@ export default function OpenClawPage() {
                                 className="h-8 px-3"
                                 disabled={
                                   strategyRecommendationActionBusy
-                                  || isApproving
                                   || isExecuting
                                   || isDismissing
                                   || item.status === 'executed'
@@ -5107,7 +4349,7 @@ export default function OpenClawPage() {
                                 }
                                 onClick={() => handleDismissStrategyRecommendation(item)}
                               >
-                                {isDismissing ? '忽略中...' : '忽略'}
+                                {isDismissing ? '处理中...' : '暂不执行'}
                               </Button>
                             </div>
                           </TableCell>
@@ -5491,45 +4733,6 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>策略动作</CardTitle>
-              <CardDescription>OpenClaw 策略执行动作记录</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>时间</TableHead>
-                    <TableHead>动作</TableHead>
-                    <TableHead>目标</TableHead>
-                    <TableHead>状态</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {strategyActions.map((action: any) => (
-                    <TableRow key={`strategy-${action.id}`}>
-                      <TableCell>{action.created_at}</TableCell>
-                      <TableCell>{action.action_type}</TableCell>
-                      <TableCell>{action.target_type} {action.target_id}</TableCell>
-                      <TableCell>
-                        <Badge variant={action.status === 'success' ? 'default' : 'secondary'}>
-                          {action.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {strategyActions.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-slate-500">
-                        暂无策略动作
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>

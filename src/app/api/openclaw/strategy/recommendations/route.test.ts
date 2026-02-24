@@ -122,11 +122,11 @@ describe('openclaw strategy recommendations route', () => {
     expect(recommendationFns.getStrategyRecommendations).not.toHaveBeenCalled()
   })
 
-  it('hydrates queue runtime and persists miss state for approved recommendations', async () => {
+  it('hydrates queue runtime and persists miss state for queued recommendations', async () => {
     recommendationFns.getStrategyRecommendations.mockResolvedValue([
       {
         id: 'rec-1',
-        status: 'approved',
+        status: 'pending',
         executionResult: {
           queueTaskId: 'task-1',
           queueTaskStatus: 'pending',

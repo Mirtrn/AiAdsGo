@@ -106,7 +106,7 @@ async function enqueueOpenclawStrategy(userId: number, mode: string) {
     const queue = getQueueManagerForTaskType('openclaw-strategy')
     await queue.enqueue(
       'openclaw-strategy',
-      { userId, mode, trigger: 'cron' },
+      { userId, mode, trigger: 'cron', kind: 'analyze_recommendations' },
       userId,
       { priority: 'normal', maxRetries: 0 }
     )

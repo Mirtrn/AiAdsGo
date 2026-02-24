@@ -1597,16 +1597,22 @@ function formatReportMessage(report: DailyReportPayload): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
 
   const lines: string[] = []
-  const strategySummary = buildStrategyKnowledgeSummary(report)
   const strategyRecommendations = Array.isArray(report.strategyRecommendations)
     ? report.strategyRecommendations
     : []
+  const normalizeRecommendationStatus = (value: unknown): 'pending' | 'executed' | 'failed' | 'dismissed' | 'stale' => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (normalized === 'executed') return 'executed'
+    if (normalized === 'failed') return 'failed'
+    if (normalized === 'dismissed') return 'dismissed'
+    if (normalized === 'stale') return 'stale'
+    return 'pending'
+  }
   const recommendationStatusSummary = strategyRecommendations.reduce(
     (acc, item) => {
       acc.total += 1
-      const status = String(item?.status || '').trim().toLowerCase()
-      if (status === 'approved') acc.approved += 1
-      else if (status === 'executed') acc.executed += 1
+      const status = normalizeRecommendationStatus(item?.status)
+      if (status === 'executed') acc.executed += 1
       else if (status === 'failed') acc.failed += 1
       else if (status === 'stale') acc.stale += 1
       else if (status === 'dismissed') acc.dismissed += 1
@@ -1616,7 +1622,6 @@ function formatReportMessage(report: DailyReportPayload): string {
     {
       total: 0,
       pending: 0,
-      approved: 0,
       executed: 0,
       failed: 0,
       stale: 0,
@@ -1697,50 +1702,19 @@ function formatReportMessage(report: DailyReportPayload): string {
     )
   }
 
-  if (strategySummary.runsTotal > 0) {
-    lines.push(
-      `- 策略执行：模式 ${strategySummary.mode}｜调节 ${strategySummary.adjustment}｜风控 ${strategySummary.guardLevel}｜发布成功 ${strategySummary.campaignsPublished}｜发布失败 ${strategySummary.publishFailed}`
-    )
-    lines.push(`- 策略动作：成功 ${strategySummary.actionSuccess}｜失败 ${strategySummary.actionFailed}`)
-    if (strategySummary.publishFailureRate > 0) {
-      lines.push(`- 发布失败率：${(strategySummary.publishFailureRate * 100).toFixed(1)}%`)
-    }
-    if (strategySummary.rankCandidateCount > 0) {
-      lines.push(
-        `- 排序模型：候选 ${strategySummary.rankCandidateCount}｜入选 ${strategySummary.rankSelectedCount}｜入选均分 ${strategySummary.rankSelectedAverageScore}`
-      )
-    }
-    if (strategySummary.recommendedMaxOffersPerRun > 0) {
-      lines.push(
-        `- 次日建议参数：Offer上限 ${strategySummary.recommendedMaxOffersPerRun}｜默认预算 ${strategySummary.recommendedDefaultBudget}｜最大CPC ${strategySummary.recommendedMaxCpc}｜来源 ${formatRecommendationSourceLabel(strategySummary.recommendationSource)}`
-      )
-    }
-    lines.push(`- 次日建议：${strategySummary.recommendationNote}`)
-    if (strategySummary.reason) {
-      lines.push(`- 策略原因：${strategySummary.reason}`)
-    }
-    if (strategySummary.circuitBreakTriggered) {
-      lines.push(`- 熔断状态：已触发｜暂停 ${strategySummary.circuitBreakPaused}`)
-    }
-    if (strategySummary.topPublishFailureReasons.length > 0) {
-      lines.push(`- 发布失败TOP：${strategySummary.topPublishFailureReasons.join('；')}`)
-    }
-  }
-
   if (recommendationStatusSummary.total > 0) {
+    const readyToExecuteCount = recommendationStatusSummary.pending
     lines.push(
-      `- 建议状态：总 ${recommendationStatusSummary.total}｜待审批 ${recommendationStatusSummary.pending}｜已审批 ${recommendationStatusSummary.approved}｜已执行 ${recommendationStatusSummary.executed}｜执行失败 ${recommendationStatusSummary.failed}｜待重审 ${recommendationStatusSummary.stale}｜已忽略 ${recommendationStatusSummary.dismissed}`
+      `- 建议状态：总 ${recommendationStatusSummary.total}｜待执行 ${readyToExecuteCount}｜已执行 ${recommendationStatusSummary.executed}｜执行失败 ${recommendationStatusSummary.failed}｜待重算 ${recommendationStatusSummary.stale}｜暂不执行 ${recommendationStatusSummary.dismissed}`
     )
   }
 
-  const pendingOrApprovedRecommendations = strategyRecommendations.filter((item) => {
-    const normalizedStatus = String(item?.status || '').trim().toLowerCase()
-    if (!normalizedStatus) return true
-    return normalizedStatus === 'pending' || normalizedStatus === 'approved'
+  const readyToExecuteRecommendations = strategyRecommendations.filter((item) => {
+    return normalizeRecommendationStatus(item?.status) === 'pending'
   })
 
-  if (pendingOrApprovedRecommendations.length > 0) {
-    const topRecommendations = [...pendingOrApprovedRecommendations]
+  if (readyToExecuteRecommendations.length > 0) {
+    const topRecommendations = [...readyToExecuteRecommendations]
       .sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
       .slice(0, 5)
     lines.push(`- 优化建议TOP${topRecommendations.length}（按优先级分排序）：`)
@@ -1773,9 +1747,9 @@ function formatReportMessage(report: DailyReportPayload): string {
       .slice(0, 3)
       .map((item) => item.data?.campaignName || `Campaign #${item.campaignId}`)
       .join('、')
-    lines.push(`- 待重审建议：${staleRecommendations.length} 条（不纳入可执行TOP）`)
+    lines.push(`- 待重算建议：${staleRecommendations.length} 条（不纳入可执行TOP）`)
     if (topStale) {
-      lines.push(`- 待重审示例：${topStale}`)
+      lines.push(`- 待重算示例：${topStale}`)
     }
   }
 

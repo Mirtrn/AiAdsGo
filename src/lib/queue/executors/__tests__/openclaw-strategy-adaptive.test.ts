@@ -23,7 +23,6 @@ function baseConfig(): OpenclawStrategyConfig {
     dailyBudgetCap: 1000,
     dailySpendCap: 100,
     targetRoas: 1,
-    adsAccountIds: [1],
     priorityAsins: undefined,
     enableAutoPublish: true,
     enableAutoPause: true,
@@ -69,7 +68,6 @@ describe('openclaw strategy adaptive helpers', () => {
       minCpc: 2,
       maxCpc: 0.5,
       targetRoas: 0,
-      adsAccountIds: [1, 1, 0, -5],
       priorityAsins: ['b0test1234', 'B0TEST1234', 'bad asin'],
     })
 
@@ -80,7 +78,6 @@ describe('openclaw strategy adaptive helpers', () => {
     expect(normalized.minCpc).toBe(2)
     expect(normalized.maxCpc).toBe(2)
     expect(normalized.targetRoas).toBe(0.1)
-    expect(normalized.adsAccountIds).toEqual([1])
     expect(normalized.priorityAsins).toEqual(['B0TEST1234'])
   })
 

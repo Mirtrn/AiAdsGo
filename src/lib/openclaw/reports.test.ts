@@ -254,7 +254,7 @@ describe('sendDailyReportToFeishu', () => {
                 id: 'r2',
                 recommendationType: 'adjust_cpc',
                 priorityScore: 83.5,
-                status: 'approved',
+                status: 'pending',
                 summary: '建议CPC = 商品价格 × 佣金比例 ÷ 50 = 0.80。',
                 campaignId: 12,
                 data: { campaignName: 'Renpho_3709' },
@@ -282,7 +282,7 @@ describe('sendDailyReportToFeishu', () => {
     })
 
     const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
-    expect(message).toContain('建议状态：总 3｜待审批 1｜已审批 1｜已执行 0｜执行失败 0｜待重审 0｜已忽略 1')
+    expect(message).toContain('建议状态：总 3｜待执行 2｜已执行 0｜执行失败 0｜待重算 0｜暂不执行 1')
     expect(message).toContain('优化建议TOP2（按优先级分排序）')
     expect(message).toContain('[下线Campaign] Dovoh_3679｜优先级分 95.2')
     expect(message).toContain('[CPC调整] Renpho_3709｜优先级分 83.5')

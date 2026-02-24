@@ -64,7 +64,7 @@ describe('POST /api/openclaw/strategy/recommendations/:id/dismiss', () => {
       authType: 'session',
     })
     recommendationFns.dismissStrategyRecommendation.mockRejectedValue(
-      new Error('已执行建议不支持忽略')
+      new Error('已执行建议不支持暂不执行')
     )
 
     const req = new NextRequest('http://localhost/api/openclaw/strategy/recommendations/rec-3/dismiss', {

@@ -21,7 +21,6 @@ export type StrategyRecommendationType =
 
 export type StrategyRecommendationStatus =
   | 'pending'
-  | 'approved'
   | 'executed'
   | 'failed'
   | 'dismissed'
@@ -153,7 +152,6 @@ export type StrategyRecommendation = {
   campaignId: number
   googleCampaignId: string | null
   snapshotHash: string | null
-  approvedSnapshotHash: string | null
   recommendationType: StrategyRecommendationType
   title: string
   summary: string | null
@@ -161,7 +159,6 @@ export type StrategyRecommendation = {
   priorityScore: number
   status: StrategyRecommendationStatus
   data: StrategyRecommendationData
-  approvedAt: string | null
   executedAt: string | null
   executionResult: unknown
   createdAt: string
@@ -466,6 +463,15 @@ function safeParseObject(value: unknown): Record<string, any> {
   } catch {
     return {}
   }
+}
+
+function normalizeStrategyRecommendationStatus(value: unknown): StrategyRecommendationStatus {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'executed') return 'executed'
+  if (normalized === 'failed') return 'failed'
+  if (normalized === 'dismissed') return 'dismissed'
+  if (normalized === 'stale') return 'stale'
+  return 'pending'
 }
 
 function normalizeGoogleCampaignId(...values: Array<unknown>): string | null {
@@ -1968,7 +1974,6 @@ async function listRecommendations(params: {
         campaign_id,
         google_campaign_id,
         snapshot_hash,
-        approved_snapshot_hash,
         recommendation_type,
         title,
         summary,
@@ -1976,7 +1981,6 @@ async function listRecommendations(params: {
         priority_score,
         status,
         data_json,
-        approved_at,
         executed_at,
         execution_result_json,
         created_at,
@@ -1997,15 +2001,13 @@ async function listRecommendations(params: {
     campaignId: Number(row.campaign_id),
     googleCampaignId: row.google_campaign_id ? String(row.google_campaign_id) : null,
     snapshotHash: row.snapshot_hash ? String(row.snapshot_hash) : null,
-    approvedSnapshotHash: row.approved_snapshot_hash ? String(row.approved_snapshot_hash) : null,
     recommendationType: String(row.recommendation_type) as StrategyRecommendationType,
     title: String(row.title || ''),
     summary: row.summary ? String(row.summary) : null,
     reason: row.reason ? String(row.reason) : null,
     priorityScore: toNumber(row.priority_score, 0),
-    status: String(row.status || 'pending') as StrategyRecommendationStatus,
+    status: normalizeStrategyRecommendationStatus(row.status),
     data: safeParseObject(row.data_json) as StrategyRecommendationData,
-    approvedAt: row.approved_at ? String(row.approved_at) : null,
     executedAt: row.executed_at ? String(row.executed_at) : null,
     executionResult: safeParseObject(row.execution_result_json),
     createdAt: String(row.created_at || ''),
@@ -2496,11 +2498,10 @@ export async function refreshStrategyRecommendations(params: {
       id: string
       campaign_id: number
       recommendation_type: StrategyRecommendationType
-      status: StrategyRecommendationStatus
       snapshot_hash: string | null
     }>(
       `
-        SELECT id, campaign_id, recommendation_type, status, snapshot_hash
+        SELECT id, campaign_id, recommendation_type, snapshot_hash
         FROM openclaw_strategy_recommendations
         WHERE user_id = ?
           AND report_date = ?
@@ -2510,13 +2511,11 @@ export async function refreshStrategyRecommendations(params: {
 
     const existingByKey = new Map<string, {
       id: string
-      status: StrategyRecommendationStatus
       snapshotHash: string | null
     }>()
     for (const row of existingRows || []) {
       existingByKey.set(`${row.campaign_id}:${row.recommendation_type}`, {
         id: row.id,
-        status: row.status,
         snapshotHash: row.snapshot_hash ? String(row.snapshot_hash) : null,
       })
     }
@@ -2546,12 +2545,11 @@ export async function refreshStrategyRecommendations(params: {
               priority_score,
               status,
               snapshot_hash,
-              approved_snapshot_hash,
               data_json,
               created_at,
               updated_at
             )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
           ON CONFLICT(user_id, report_date, campaign_id, recommendation_type)
           DO UPDATE SET
             google_campaign_id = excluded.google_campaign_id,
@@ -2567,32 +2565,10 @@ export async function refreshStrategyRecommendations(params: {
             END,
             status = CASE
               WHEN openclaw_strategy_recommendations.status = 'executed' THEN openclaw_strategy_recommendations.status
-              WHEN openclaw_strategy_recommendations.status = 'approved'
-                AND openclaw_strategy_recommendations.approved_snapshot_hash IS NOT NULL
-                AND openclaw_strategy_recommendations.snapshot_hash = excluded.snapshot_hash
-                THEN openclaw_strategy_recommendations.status
               WHEN openclaw_strategy_recommendations.status = 'dismissed'
                 AND openclaw_strategy_recommendations.snapshot_hash = excluded.snapshot_hash
                 THEN openclaw_strategy_recommendations.status
               ELSE excluded.status
-            END,
-            approved_at = CASE
-              WHEN openclaw_strategy_recommendations.status = 'approved'
-                AND openclaw_strategy_recommendations.approved_snapshot_hash IS NOT NULL
-                AND openclaw_strategy_recommendations.snapshot_hash = excluded.snapshot_hash
-                THEN openclaw_strategy_recommendations.approved_at
-              WHEN openclaw_strategy_recommendations.status = 'executed'
-                THEN openclaw_strategy_recommendations.approved_at
-              ELSE NULL
-            END,
-            approved_snapshot_hash = CASE
-              WHEN openclaw_strategy_recommendations.status = 'approved'
-                AND openclaw_strategy_recommendations.approved_snapshot_hash IS NOT NULL
-                AND openclaw_strategy_recommendations.snapshot_hash = excluded.snapshot_hash
-                THEN openclaw_strategy_recommendations.approved_snapshot_hash
-              WHEN openclaw_strategy_recommendations.status = 'executed'
-                THEN openclaw_strategy_recommendations.approved_snapshot_hash
-              ELSE NULL
             END,
             updated_at = ${nowFunc}
         `,
@@ -2609,7 +2585,6 @@ export async function refreshStrategyRecommendations(params: {
           draft.priorityScore,
           'pending',
           snapshotHash,
-          null,
           toDbJsonObjectField(draft.data, db.type, draft.data),
         ]
       )
@@ -2642,17 +2617,15 @@ export async function refreshStrategyRecommendations(params: {
         [params.userId, reportDate, ...generatedIds]
       )
 
-      // 对于当次未再命中的建议，标记为 stale（待重审），避免继续执行历史审批结果。
+      // 对于当次未再命中的建议，标记为 stale（待重算），避免继续执行历史结果。
       await db.exec(
         `
           UPDATE openclaw_strategy_recommendations
           SET status = 'stale',
-              approved_at = NULL,
-              approved_snapshot_hash = NULL,
               updated_at = ${nowFunc}
           WHERE user_id = ?
             AND report_date = ?
-            AND status IN ('approved', 'failed')
+            AND status NOT IN ('pending', 'executed', 'dismissed', 'stale')
             AND id NOT IN (${placeholders})
         `,
         [params.userId, reportDate, ...generatedIds]
@@ -2672,12 +2645,10 @@ export async function refreshStrategyRecommendations(params: {
         `
           UPDATE openclaw_strategy_recommendations
           SET status = 'stale',
-              approved_at = NULL,
-              approved_snapshot_hash = NULL,
               updated_at = ${nowFunc}
           WHERE user_id = ?
             AND report_date = ?
-            AND status IN ('approved', 'failed')
+            AND status NOT IN ('pending', 'executed', 'dismissed', 'stale')
         `,
         [params.userId, reportDate]
       )
@@ -2750,7 +2721,6 @@ async function getRecommendationById(params: {
         campaign_id,
         google_campaign_id,
         snapshot_hash,
-        approved_snapshot_hash,
         recommendation_type,
         title,
         summary,
@@ -2758,7 +2728,6 @@ async function getRecommendationById(params: {
         priority_score,
         status,
         data_json,
-        approved_at,
         executed_at,
         execution_result_json,
         created_at,
@@ -2780,72 +2749,18 @@ async function getRecommendationById(params: {
     campaignId: Number(row.campaign_id),
     googleCampaignId: row.google_campaign_id ? String(row.google_campaign_id) : null,
     snapshotHash: row.snapshot_hash ? String(row.snapshot_hash) : null,
-    approvedSnapshotHash: row.approved_snapshot_hash ? String(row.approved_snapshot_hash) : null,
     recommendationType: String(row.recommendation_type) as StrategyRecommendationType,
     title: String(row.title || ''),
     summary: row.summary ? String(row.summary) : null,
     reason: row.reason ? String(row.reason) : null,
     priorityScore: toNumber(row.priority_score, 0),
-    status: String(row.status || 'pending') as StrategyRecommendationStatus,
+    status: normalizeStrategyRecommendationStatus(row.status),
     data: safeParseObject(row.data_json) as StrategyRecommendationData,
-    approvedAt: row.approved_at ? String(row.approved_at) : null,
     executedAt: row.executed_at ? String(row.executed_at) : null,
     executionResult: safeParseObject(row.execution_result_json),
     createdAt: String(row.created_at || ''),
     updatedAt: String(row.updated_at || ''),
   }
-}
-
-export async function approveStrategyRecommendation(params: {
-  userId: number
-  recommendationId: string
-}): Promise<StrategyRecommendation> {
-  const db = await getDatabase()
-  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
-
-  const existing = await getRecommendationById({
-    userId: params.userId,
-    recommendationId: params.recommendationId,
-  })
-  if (!existing) {
-    throw new Error('建议不存在或无权限访问')
-  }
-
-  if (existing.status === 'executed') {
-    return existing
-  }
-
-  await db.exec(
-    `
-      UPDATE openclaw_strategy_recommendations
-      SET status = 'approved',
-          approved_at = COALESCE(approved_at, ${nowFunc}),
-          approved_snapshot_hash = snapshot_hash,
-          updated_at = ${nowFunc}
-      WHERE id = ?
-        AND user_id = ?
-    `,
-    [params.recommendationId, params.userId]
-  )
-
-  await appendRecommendationEvent({
-    recommendationId: params.recommendationId,
-    userId: params.userId,
-    eventType: 'approved',
-    actorUserId: params.userId,
-    eventJson: {
-      snapshotHash: existing.snapshotHash || null,
-    },
-  })
-
-  const latest = await getRecommendationById({
-    userId: params.userId,
-    recommendationId: params.recommendationId,
-  })
-  if (!latest) {
-    throw new Error('建议审批后读取失败')
-  }
-  return latest
 }
 
 export async function dismissStrategyRecommendation(params: {
@@ -2863,15 +2778,13 @@ export async function dismissStrategyRecommendation(params: {
     throw new Error('建议不存在或无权限访问')
   }
   if (existing.status === 'executed') {
-    throw new Error('已执行建议不支持忽略')
+    throw new Error('已执行建议不支持暂不执行')
   }
 
   await db.exec(
     `
       UPDATE openclaw_strategy_recommendations
       SET status = 'dismissed',
-          approved_at = NULL,
-          approved_snapshot_hash = NULL,
           updated_at = ${nowFunc}
       WHERE id = ?
         AND user_id = ?
@@ -2894,7 +2807,7 @@ export async function dismissStrategyRecommendation(params: {
     recommendationId: params.recommendationId,
   })
   if (!latest) {
-    throw new Error('建议忽略后读取失败')
+    throw new Error('建议设为暂不执行后读取失败')
   }
   return latest
 }
@@ -2943,14 +2856,11 @@ export async function assertStrategyRecommendationReadyForExecution(params: {
   if (recommendation.status === 'executed') {
     return recommendation
   }
-  if (recommendation.status !== 'approved') {
-    throw new Error('请先审批后再执行')
+  if (recommendation.status === 'dismissed') {
+    throw new Error('建议已暂不执行，请重新分析后再执行')
   }
-  if (!recommendation.snapshotHash || !recommendation.approvedSnapshotHash) {
-    throw new Error('建议快照缺失，请重新审批后再执行')
-  }
-  if (recommendation.snapshotHash !== recommendation.approvedSnapshotHash) {
-    throw new Error('建议内容已更新，请重新审批后再执行')
+  if (recommendation.status === 'stale') {
+    throw new Error('建议内容已更新，请重新分析后再执行')
   }
 
   return recommendation

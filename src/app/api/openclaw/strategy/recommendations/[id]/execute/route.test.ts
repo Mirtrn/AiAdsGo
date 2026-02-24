@@ -51,7 +51,7 @@ describe('POST /api/openclaw/strategy/recommendations/:id/execute', () => {
       taskId: 'task-123',
       recommendation: {
         id: 'rec-2',
-        status: 'approved',
+        status: 'pending',
       },
     })
 
@@ -75,13 +75,13 @@ describe('POST /api/openclaw/strategy/recommendations/:id/execute', () => {
     })
   })
 
-  it('returns 409 when recommendation requires re-approval', async () => {
+  it('returns 409 when recommendation requires re-analysis', async () => {
     authFns.resolveOpenclawRequestUser.mockResolvedValue({
       userId: 12,
       authType: 'session',
     })
     recommendationFns.queueStrategyRecommendationExecution.mockRejectedValue(
-      new Error('建议内容已更新，请重新审批后再执行')
+      new Error('建议内容已更新，请重新分析后再执行')
     )
 
     const req = new NextRequest('http://localhost/api/openclaw/strategy/recommendations/rec-2/execute', {

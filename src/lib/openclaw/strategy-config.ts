@@ -10,7 +10,6 @@ export type OpenclawStrategyConfig = {
   dailyBudgetCap: number
   dailySpendCap: number
   targetRoas: number
-  adsAccountIds?: number[]
   priorityAsins?: string[]
   enableAutoPublish: boolean
   enableAutoPause: boolean
@@ -71,10 +70,6 @@ export function normalizeOpenclawStrategyConfig(raw: OpenclawStrategyConfig): Op
   const targetRoas = Math.max(0.1, toFiniteNumber(raw.targetRoas, 1))
   const cron = (raw.cron || '0 9 * * *').trim() || '0 9 * * *'
 
-  const normalizedAdsAccountIds = raw.adsAccountIds
-    ?.map((entry) => Number(entry))
-    .filter((value, index, array) => Number.isFinite(value) && value > 0 && array.indexOf(value) === index)
-
   const normalizedPriorityAsins = normalizeAsinList(raw.priorityAsins)
 
   return {
@@ -87,7 +82,6 @@ export function normalizeOpenclawStrategyConfig(raw: OpenclawStrategyConfig): Op
     dailyBudgetCap,
     dailySpendCap,
     targetRoas,
-    adsAccountIds: normalizedAdsAccountIds && normalizedAdsAccountIds.length > 0 ? normalizedAdsAccountIds : undefined,
     priorityAsins: normalizedPriorityAsins && normalizedPriorityAsins.length > 0 ? normalizedPriorityAsins : undefined,
   }
 }
@@ -95,8 +89,6 @@ export function normalizeOpenclawStrategyConfig(raw: OpenclawStrategyConfig): Op
 export async function getOpenclawStrategyConfig(userId: number): Promise<OpenclawStrategyConfig> {
   const settingMap = await getOpenclawSettingsMap(userId)
 
-  const adsAccountIds = parseJsonArray(settingMap.openclaw_strategy_ads_account_ids)
-    ?.map((entry) => Number(entry)) as number[] | undefined
   const priorityAsins = parsePriorityAsins(settingMap.openclaw_strategy_priority_asins)
 
   return normalizeOpenclawStrategyConfig({
@@ -109,7 +101,6 @@ export async function getOpenclawStrategyConfig(userId: number): Promise<Opencla
     dailyBudgetCap: parseNumber(settingMap.openclaw_strategy_daily_budget_cap, MAX_DAILY_BUDGET_CAP) ?? MAX_DAILY_BUDGET_CAP,
     dailySpendCap: parseNumber(settingMap.openclaw_strategy_daily_spend_cap, MAX_DAILY_SPEND_CAP) ?? MAX_DAILY_SPEND_CAP,
     targetRoas: parseNumber(settingMap.openclaw_strategy_target_roas, 1) ?? 1,
-    adsAccountIds,
     priorityAsins,
     enableAutoPublish: parseBoolean(settingMap.openclaw_strategy_enable_auto_publish, true),
     enableAutoPause: parseBoolean(settingMap.openclaw_strategy_enable_auto_pause, true),

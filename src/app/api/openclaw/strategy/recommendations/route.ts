@@ -59,7 +59,7 @@ async function hydrateStrategyQueueRuntime(params: {
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => {
       const queueTaskId = String(item?.executionResult?.queueTaskId || '').trim()
-      return item?.status === 'approved' && Boolean(queueTaskId)
+      return item?.status !== 'executed' && Boolean(queueTaskId)
     })
     .slice(0, 20)
 
