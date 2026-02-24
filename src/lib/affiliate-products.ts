@@ -530,6 +530,14 @@ function isTransientNetworkErrorMessage(message: string): boolean {
     || normalized.includes('gateway timeout')
 }
 
+function isJsonParseErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return normalized.includes('unexpected end of json input')
+    || normalized.includes('is not valid json')
+    || normalized.includes('json parse')
+    || (normalized.includes('unexpected token') && normalized.includes('json'))
+}
+
 function isPartnerboostRateLimited(payloadStatusCode: number | null, payloadStatusMessage: string, responseStatus?: number): boolean {
   if (responseStatus === 429) return true
   if (payloadStatusCode === 1002) return true
@@ -593,6 +601,28 @@ function isYeahPromosRateLimited(code: number | null, message: string, responseS
   return normalizedMessage.includes('too many request')
     || normalizedMessage.includes('rate limit')
     || normalizedMessage.includes('too many requests')
+}
+
+function isYeahPromosTransientError(error: unknown): boolean {
+  if (!error) return false
+  const raw = error as {
+    message?: string
+    status?: {
+      code?: number | string
+      msg?: string
+    }
+  }
+
+  const message = String(raw?.message || '')
+  const responseStatus = parseHttpStatusFromErrorMessage(message)
+  if (isTransientHttpStatus(responseStatus)) return true
+
+  const payloadStatusCode = normalizeYeahPromosResultCode(raw?.status?.code)
+  if (payloadStatusCode !== null && payloadStatusCode >= 500) return true
+
+  if (isTransientNetworkErrorMessage(message)) return true
+
+  return isJsonParseErrorMessage(message)
 }
 
 function parseReviewCount(value: unknown): number | null {
@@ -1517,11 +1547,14 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
       const message = String(error?.message || '')
       const statusMatch = message.match(/\((\d{3})\):/)
       responseStatus = statusMatch ? Number(statusMatch[1]) : undefined
+      const isRateLimited = isYeahPromosRateLimited(null, message, responseStatus)
+      const isTransient = !isRateLimited && isYeahPromosTransientError(error)
 
-      if (isYeahPromosRateLimited(null, message, responseStatus) && attempt < options.maxRetries) {
+      if ((isRateLimited || isTransient) && attempt < options.maxRetries) {
         attempt += 1
         const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
-        console.warn(`[yeahpromos] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
+        const retryReason = isRateLimited ? 'rate limited' : 'transient error'
+        console.warn(`[yeahpromos] ${retryReason}(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
         await sleep(delayMs)
         continue
       }
@@ -3610,6 +3643,7 @@ export const __testOnly = {
   isPartnerboostRateLimited,
   isPartnerboostRateLimitError,
   isYeahPromosRateLimited,
+  isYeahPromosTransientError,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
   resolveSyncMaxPages,

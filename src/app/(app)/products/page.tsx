@@ -29,6 +29,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -53,11 +59,9 @@ import { showError, showSuccess } from '@/lib/toast-utils'
 import {
   ArrowLeft,
   ArrowUpRight,
-  ShieldOff,
   CheckCircle2,
   Clock3,
   XCircle,
-  Link2,
   ExternalLink,
   Link,
   Loader2,
@@ -65,6 +69,7 @@ import {
   Plus,
   PowerOff,
   RefreshCw,
+  ChevronDown,
   Search,
   Building2,
   HelpCircle,
@@ -529,12 +534,6 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
-  const [productsWithLinkCount, setProductsWithLinkCount] = useState(0)
-  const [activeProductsCount, setActiveProductsCount] = useState(0)
-  const [invalidProductsCount, setInvalidProductsCount] = useState(0)
-  const [syncMissingProductsCount, setSyncMissingProductsCount] = useState(0)
-  const [unknownProductsCount, setUnknownProductsCount] = useState(0)
-  const [blacklistedCount, setBlacklistedCount] = useState(0)
   const [platformStats, setPlatformStats] = useState<PlatformStatsMap>(() => createEmptyPlatformStatsMap())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -640,19 +639,6 @@ export default function ProductsPage() {
     { key: '90d', label: '过去90天（含当天）', days: 90 },
   ]
 
-  const stats = useMemo(() => {
-    const activeSyncRuns = latestRuns.filter((run) => run.status === 'queued' || run.status === 'running').length
-    const activeSyncRunsByPlatform: Record<ProductPlatform, number> = {
-      yeahpromos: latestRuns.filter((run) => run.platform === 'yeahpromos' && (run.status === 'queued' || run.status === 'running')).length,
-      partnerboost: latestRuns.filter((run) => run.platform === 'partnerboost' && (run.status === 'queued' || run.status === 'running')).length,
-    }
-
-    return {
-      activeSyncRuns,
-      activeSyncRunsByPlatform,
-    }
-  }, [latestRuns])
-
   const syncHistoryRows = useMemo(() => {
     const rows: Array<{
       key: string
@@ -661,34 +647,16 @@ export default function ProductsPage() {
       emptyText: string
     }> = [
       {
-        key: 'pb-delta',
-        label: 'PB 轻量刷新',
-        runs: latestRuns.filter((run) => run.platform === 'partnerboost' && run.mode === 'delta').slice(0, 4),
-        emptyText: '暂无 PB 轻量刷新历史任务',
+        key: 'light',
+        label: '轻量刷新任务',
+        runs: latestRuns.filter((run) => run.mode === 'delta').slice(0, 4),
+        emptyText: '暂无轻量刷新历史任务',
       },
       {
-        key: 'pb-platform',
-        label: 'PB 全量刷新',
-        runs: latestRuns.filter((run) => run.platform === 'partnerboost' && run.mode === 'platform').slice(0, 4),
-        emptyText: '暂无 PB 全量刷新历史任务',
-      },
-      {
-        key: 'yp-delta',
-        label: 'YP 轻量刷新',
-        runs: latestRuns.filter((run) => run.platform === 'yeahpromos' && run.mode === 'delta').slice(0, 4),
-        emptyText: '暂无 YP 轻量刷新历史任务',
-      },
-      {
-        key: 'yp-platform',
-        label: 'YP 全量刷新',
-        runs: latestRuns.filter((run) => run.platform === 'yeahpromos' && run.mode === 'platform').slice(0, 4),
-        emptyText: '暂无 YP 全量刷新历史任务',
-      },
-      {
-        key: 'single',
-        label: '单商品同步',
-        runs: latestRuns.filter((run) => run.mode === 'single').slice(0, 4),
-        emptyText: '暂无单商品同步历史任务',
+        key: 'full',
+        label: '全量刷新任务',
+        runs: latestRuns.filter((run) => run.mode === 'platform').slice(0, 4),
+        emptyText: '暂无全量刷新历史任务',
       },
     ]
     return rows
@@ -772,12 +740,6 @@ export default function ProductsPage() {
 
       setItems(data.items || [])
       setTotal(data.total || 0)
-      setProductsWithLinkCount(Number(data.productsWithLinkCount || 0))
-      setActiveProductsCount(Number(data.activeProductsCount || 0))
-      setInvalidProductsCount(Number(data.invalidProductsCount || 0))
-      setSyncMissingProductsCount(Number(data.syncMissingProductsCount || 0))
-      setUnknownProductsCount(Number(data.unknownProductsCount || 0))
-      setBlacklistedCount(Number(data.blacklistedCount || 0))
       setPlatformStats(normalizePlatformStatsMap(data.platformStats))
 
       setSelectedProductIds((prev) => {
@@ -1457,38 +1419,45 @@ export default function ProductsPage() {
                 {clearingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
                 一键清空
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => handlePlatformSync('yeahpromos', 'light')}
-                disabled={syncingPlatform !== null}
-              >
-                {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'light' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步 YP(轻量)
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handlePlatformSync('yeahpromos', 'full')}
-                disabled={syncingPlatform !== null}
-              >
-                {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'full' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步YP（全量）
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handlePlatformSync('partnerboost', 'light')}
-                disabled={syncingPlatform !== null}
-              >
-                {syncingPlatform?.platform === 'partnerboost' && syncingPlatform.strategy === 'light' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步 PB(轻量)
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handlePlatformSync('partnerboost', 'full')}
-                disabled={syncingPlatform !== null}
-              >
-                {syncingPlatform?.platform === 'partnerboost' && syncingPlatform.strategy === 'full' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                同步PB（全量）
-              </Button>
+              {(['yeahpromos', 'partnerboost'] as const).map((platform) => {
+                const isPlatformSyncing = syncingPlatform?.platform === platform
+                const isLightSyncing = isPlatformSyncing && syncingPlatform?.strategy === 'light'
+                const isFullSyncing = isPlatformSyncing && syncingPlatform?.strategy === 'full'
+                return (
+                  <div key={platform} className="inline-flex">
+                    <Button
+                      variant="outline"
+                      onClick={() => handlePlatformSync(platform, 'light')}
+                      disabled={syncingPlatform !== null}
+                      className="rounded-r-none border-r-0"
+                    >
+                      {isLightSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      同步 {PLATFORM_SHORT_LABEL[platform]}
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          disabled={syncingPlatform !== null}
+                          className="h-10 w-10 rounded-l-none"
+                          aria-label={`选择${PLATFORM_SHORT_LABEL[platform]}同步模式`}
+                        >
+                          {isFullSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-36">
+                        <DropdownMenuItem onClick={() => handlePlatformSync(platform, 'light')} disabled={syncingPlatform !== null}>
+                          轻量（默认）
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePlatformSync(platform, 'full')} disabled={syncingPlatform !== null}>
+                          全量
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                )
+              })}
               <Button variant="secondary" onClick={() => router.push('/openclaw')}>
                 平台配置
                 <ArrowUpRight className="ml-2 h-4 w-4" />
@@ -1499,7 +1468,7 @@ export default function ProductsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">
               <div className="text-xs text-muted-foreground">当前筛选商品</div>
@@ -1509,100 +1478,28 @@ export default function ProductsPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">有推广链接</div>
-              <div className="mt-1 flex items-center gap-2">
-                <Link2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-xl font-semibold">{productsWithLinkCount}</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">已失效商品(平台确认)</div>
-              <div className="mt-1 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <span className="text-xl font-semibold">{invalidProductsCount}</span>
-              </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">仅统计平台明确返回下架/无库存</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">同步未命中</div>
-              <div className="mt-1 flex items-center gap-2">
-                <Clock3 className="h-4 w-4 text-amber-600" />
-                <span className="text-xl font-semibold">{syncMissingProductsCount}</span>
-              </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">状态未知 {unknownProductsCount}</div>
-              <div className="text-[11px] text-muted-foreground">不计入“已失效商品”，建议人工复核</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">手动下线商品</div>
-              <div className="mt-1 flex items-center gap-2">
-                <ShieldOff className="h-4 w-4 text-rose-600" />
-                <span className="text-xl font-semibold">{blacklistedCount}</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="px-4 pb-4 pt-4">
-              <div className="text-xs text-muted-foreground">同步进行中</div>
-              <div className="mt-1 flex items-center gap-2">
-                <Clock3 className="h-4 w-4 text-amber-600" />
-                <span className="text-xl font-semibold">{stats.activeSyncRuns}</span>
-              </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                YP {stats.activeSyncRunsByPlatform.yeahpromos} · PB {stats.activeSyncRunsByPlatform.partnerboost}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">平台统计（当前筛选）</CardTitle>
-            <CardDescription>同时查看 YP / PB 的商品规模与同步健康度</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-2">
-              {(['yeahpromos', 'partnerboost'] as const).map((platform) => {
-                const statsItem = platformStats[platform]
-                return (
-                  <div key={platform} className="rounded-md border px-4 py-3 text-xs">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className={`font-semibold ${PLATFORM_CARD_ACCENT_CLASS[platform]}`}>{PLATFORM_LABEL[platform]}</span>
-                      <Badge variant="outline">{PLATFORM_SHORT_LABEL[platform]}</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-y-1 text-muted-foreground">
-                      <span>可见商品</span>
-                      <span className="text-right text-foreground">{statsItem.visibleCount}</span>
-                      <span>平台总商品</span>
-                      <span className="text-right text-foreground">{statsItem.total}</span>
-                      <span>有推广链接</span>
-                      <span className="text-right text-foreground">{statsItem.productsWithLinkCount}</span>
-                      <span>有效商品</span>
-                      <span className="text-right text-foreground">{statsItem.activeProductsCount}</span>
-                      <span>同步未命中</span>
-                      <span className="text-right text-foreground">{statsItem.syncMissingProductsCount}</span>
-                      <span>已失效</span>
-                      <span className="text-right text-foreground">{statsItem.invalidProductsCount}</span>
-                    </div>
+          {(['yeahpromos', 'partnerboost'] as const).map((platform) => {
+            const statsItem = platformStats[platform]
+            return (
+              <Card key={platform}>
+                <CardContent className="px-4 pb-4 pt-4">
+                  <div className="text-xs text-muted-foreground">{PLATFORM_LABEL[platform]}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Building2 className={`h-4 w-4 ${PLATFORM_CARD_ACCENT_CLASS[platform]}`} />
+                    <span className="text-xl font-semibold">{statsItem.visibleCount}</span>
                   </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                  <div className="mt-1 text-[11px] text-muted-foreground">平台总商品 {statsItem.total}</div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
 
         {latestRuns.length > 0 && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">最近同步任务</CardTitle>
-              <CardDescription>按平台与模式分组展示历史任务（各最多 4 条）</CardDescription>
+              <CardDescription>按同步模式分组展示历史任务（各最多 4 条）</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">

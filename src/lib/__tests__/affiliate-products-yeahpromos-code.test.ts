@@ -107,3 +107,20 @@ describe('isYeahPromosRateLimited', () => {
     expect(__testOnly.isYeahPromosRateLimited(100001, 'invalid token')).toBe(false)
   })
 })
+
+describe('isYeahPromosTransientError', () => {
+  it('detects HTTP 5xx gateway errors', () => {
+    const error = new Error('YeahPromos 商品拉取失败 (502): <html><title>502 Bad Gateway</title></html>')
+    expect(__testOnly.isYeahPromosTransientError(error)).toBe(true)
+  })
+
+  it('detects non-json parse failures from upstream transient responses', () => {
+    const error = new SyntaxError(`Unexpected token 'R', \"Request to\"... is not valid JSON`)
+    expect(__testOnly.isYeahPromosTransientError(error)).toBe(true)
+  })
+
+  it('returns false for normal business errors', () => {
+    const error = new Error('YeahPromos 商品拉取失败: 100001')
+    expect(__testOnly.isYeahPromosTransientError(error)).toBe(false)
+  })
+})
