@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClickFarmTaskById, restartClickFarmTask } from '@/lib/click-farm';
+import { hasEnabledCampaignForOffer } from '@/lib/click-farm/campaign-health-guard';
 import { notifyTaskResumed } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
@@ -19,9 +20,10 @@ export async function POST(
         { status: 401 }
       );
     }
+    const userIdNum = parseInt(userId, 10);
 
     const { id } = await context.params;
-    const task = await getClickFarmTaskById(id, parseInt(userId!));
+    const task = await getClickFarmTaskById(id, userIdNum);
     if (!task) {
       return NextResponse.json(
         { error: 'not_found', message: '任务不存在' },
@@ -36,6 +38,23 @@ export async function POST(
       );
     }
 
+    // 新增：重启前先校验关联 Offer 是否存在可用的 ENABLED Campaign
+    // 避免先重启成功，随后又被调度器立即打回 no_campaign
+    const enabledCampaignExists = await hasEnabledCampaignForOffer({
+      userId: userIdNum,
+      offerId: task.offer_id,
+    });
+    if (!enabledCampaignExists) {
+      return NextResponse.json(
+        {
+          error: 'campaign_required',
+          message: '当前 Offer 没有可用的已启用 Campaign，请先发布并启用至少一个 Campaign 后再重启任务',
+          suggestion: '请前往 Campaign 页面确认该 Offer 至少有一个状态为 ENABLED 的 Campaign',
+        },
+        { status: 400 }
+      );
+    }
+
     // 如果是因为代理缺失而暂停，需要检查代理是否已配置
     if (task.pause_reason === 'no_proxy') {
       const db = await getDatabase();
@@ -45,7 +64,7 @@ export async function POST(
 
       if (offer) {
         // 🔧 修复(2025-12-30): 使用新的代理配置系统（proxy.urls JSON数组）
-        const proxyUrls = await getAllProxyUrls(parseInt(userId!));
+        const proxyUrls = await getAllProxyUrls(userIdNum);
         const targetCountry = offer.target_country.toUpperCase();
         const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry);
 
@@ -83,10 +102,10 @@ export async function POST(
       }
     }
 
-    const updatedTask = await restartClickFarmTask(id, parseInt(userId!));
+    const updatedTask = await restartClickFarmTask(id, userIdNum);
 
     // 🔔 发送任务恢复通知
-    await notifyTaskResumed(parseInt(userId!), id);
+    await notifyTaskResumed(userIdNum, id);
 
     return NextResponse.json({
       success: true,
