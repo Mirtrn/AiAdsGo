@@ -263,3 +263,104 @@ describe('fetchAffiliateCommissionRevenue partnerboost commission sync', () => {
     expect(entry?.sourceLink).toContain('/dp/B0CCJGKY4M')
   })
 })
+
+describe('fetchAffiliateCommissionRevenue yeahpromos transaction parsing', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+
+    hoisted.getOpenclawSettingsMapMock.mockResolvedValue({
+      partnerboost_token: '',
+      yeahpromos_token: 'yp-token',
+      yeahpromos_site_id: '11767',
+      yeahpromos_is_amazon: '1',
+    })
+
+    hoisted.persistAffiliateCommissionAttributionsMock.mockResolvedValue({
+      reportDate: '2026-02-22',
+      totalCommission: 41.775,
+      attributedCommission: 0,
+      unattributedCommission: 41.775,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('supports nested data.Data rows returned by YeahPromos getorder API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeOkJsonResponse({
+        code: '100000',
+        status: 'success',
+        msg: '',
+        data: {
+          Num: 3,
+          PageTotal: 1,
+          PageNow: '1',
+          Limit: '1000',
+          Data: [
+            {
+              advert_id: 362632,
+              id: 'row-1',
+              sale_comm: 4.5,
+              amount: 39.99,
+              oid: '362632_2678_11767_a',
+              status: 'PENDING',
+              sku: 'B0FGJ3M5X4',
+            },
+            {
+              advert_id: 362632,
+              id: 'row-2',
+              sale_comm: 32.775,
+              amount: 189.98,
+              oid: '362632_2678_11767_b',
+              status: 'PENDING',
+              sku: 'B0FJFL8KP4',
+            },
+            {
+              advert_id: 362632,
+              id: 'row-3',
+              sale_comm: 4.5,
+              amount: 39.99,
+              oid: '362632_2678_11767_c',
+              status: 'PENDING',
+              sku: 'B0FGJ3M5X4',
+            },
+          ],
+        },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const revenue = await fetchAffiliateCommissionRevenue({
+      userId: 1,
+      reportDate: '2026-02-22',
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const requestUrl = String(fetchMock.mock.calls[0]?.[0] || '')
+    expect(requestUrl).toContain('/index/Getorder/getorder')
+    expect(requestUrl).toContain('is_amazon=1')
+
+    expect(revenue.totalCommission).toBe(41.78)
+    expect(revenue.breakdown).toEqual([
+      {
+        platform: 'yeahpromos',
+        totalCommission: 41.78,
+        records: 3,
+        currency: 'USD',
+      },
+    ])
+
+    expect(hoisted.persistAffiliateCommissionAttributionsMock).toHaveBeenCalledTimes(1)
+    const input = hoisted.persistAffiliateCommissionAttributionsMock.mock.calls[0]?.[0]
+    expect(input?.entries?.length).toBe(3)
+    expect(input?.entries?.[0]?.platform).toBe('yeahpromos')
+    expect(input?.entries?.[0]?.sourceOrderId).toBe('362632_2678_11767_a')
+    expect(input?.entries?.[0]?.sourceAsin).toBe('B0FGJ3M5X4')
+  })
+})

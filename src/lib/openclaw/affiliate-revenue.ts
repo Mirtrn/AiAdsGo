@@ -245,12 +245,27 @@ function normalizeYeahPromosPayloadRows(payload: any): { rows: any[]; pageTotal:
   let rows: any[] = []
   if (Array.isArray(container)) {
     rows = container
+  } else if (Array.isArray(container?.Data)) {
+    rows = container.Data
+  } else if (Array.isArray(container?.data)) {
+    rows = container.data
   } else if (Array.isArray(container?.list)) {
     rows = container.list
   } else if (Array.isArray(container?.rows)) {
     rows = container.rows
+  } else if (Array.isArray(payload?.Data)) {
+    rows = payload.Data
+  } else if (Array.isArray(payload?.data)) {
+    rows = payload.data
   } else if (Array.isArray(payload?.List)) {
     rows = payload.List
+  } else if (container && typeof container === 'object') {
+    const indexedRows = Object.entries(container)
+      .filter(([key, value]) => /^\d+$/.test(key) && value && typeof value === 'object' && !Array.isArray(value))
+      .map(([, value]) => value)
+    if (indexedRows.length > 0) {
+      rows = indexedRows
+    }
   }
 
   const pageTotalRaw =
