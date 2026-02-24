@@ -75,6 +75,30 @@ type CampaignWeight = {
   weight: number
 }
 
+type CampaignTarget = {
+  campaignId: number
+  offerId: number | null
+  weight: number
+}
+
+type HistoricalCampaignMappingRow = {
+  platform: AffiliatePlatform
+  source_order_id: string | null
+  source_mid: string | null
+  source_asin: string | null
+  offer_id: number | null
+  campaign_id: number
+  commission: number
+}
+
+type HistoricalCampaignFallbackMaps = {
+  byOrderId: Map<string, CampaignTarget[]>
+  byMid: Map<string, CampaignTarget[]>
+  byAsin: Map<string, CampaignTarget[]>
+  byOfferId: Map<number, CampaignTarget[]>
+  byPlatform: Map<AffiliatePlatform, CampaignTarget[]>
+}
+
 function roundTo(value: number, decimals = 4): number {
   const factor = 10 ** decimals
   return Math.round(value * factor) / factor
@@ -217,6 +241,86 @@ function isHistoricalReportDate(reportDate: string): boolean {
     return false
   }
   return reportDate < formatLocalYmd(new Date())
+}
+
+function shiftYmd(reportDate: string, deltaDays: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+    return reportDate
+  }
+  const date = new Date(`${reportDate}T00:00:00.000Z`)
+  if (!Number.isFinite(date.getTime())) {
+    return reportDate
+  }
+  date.setUTCDate(date.getUTCDate() + deltaDays)
+  return date.toISOString().slice(0, 10)
+}
+
+function normalizeOrderId(value: unknown): string | null {
+  const text = normalizeText(value)
+  return text ? text.toLowerCase() : null
+}
+
+function mergeCampaignTargets(targets: CampaignTarget[]): CampaignTarget[] {
+  const byCampaign = new Map<number, CampaignTarget>()
+
+  for (const target of targets) {
+    const campaignId = Number(target.campaignId)
+    if (!Number.isFinite(campaignId)) continue
+
+    const weight = Math.max(0, Number(target.weight) || 0)
+    if (weight <= 0) continue
+
+    const offerIdRaw = Number(target.offerId)
+    const offerId = Number.isFinite(offerIdRaw) ? offerIdRaw : null
+    const existing = byCampaign.get(campaignId)
+    if (!existing) {
+      byCampaign.set(campaignId, {
+        campaignId,
+        offerId,
+        weight,
+      })
+      continue
+    }
+
+    existing.weight = roundTo(existing.weight + weight)
+    if (existing.offerId === null && offerId !== null) {
+      existing.offerId = offerId
+    }
+  }
+
+  return Array.from(byCampaign.values())
+    .sort((a, b) => (b.weight - a.weight) || (a.campaignId - b.campaignId))
+}
+
+function pushTargetsByStringKey(
+  map: Map<string, CampaignTarget[]>,
+  key: string | null | undefined,
+  targets: CampaignTarget[]
+) {
+  if (!key) return
+  const existing = map.get(key) || []
+  map.set(key, mergeCampaignTargets([...existing, ...targets]))
+}
+
+function pushTargetsByOfferId(
+  map: Map<number, CampaignTarget[]>,
+  offerId: number | null | undefined,
+  targets: CampaignTarget[]
+) {
+  const normalizedOfferId = Number(offerId)
+  if (!Number.isFinite(normalizedOfferId)) return
+
+  const existing = map.get(normalizedOfferId) || []
+  map.set(normalizedOfferId, mergeCampaignTargets([...existing, ...targets]))
+}
+
+function pushTargetsByPlatform(
+  map: Map<AffiliatePlatform, CampaignTarget[]>,
+  platform: AffiliatePlatform,
+  targets: CampaignTarget[]
+) {
+  const existing = map.get(platform) || []
+  map.set(platform, mergeCampaignTargets([...existing, ...targets]))
 }
 
 type ExistingAttributionSummaryRow = {
@@ -717,6 +821,143 @@ async function queryCampaignWeights(params: {
   return result
 }
 
+async function queryHistoricalCampaignFallbackMaps(params: {
+  userId: number
+  reportDate: string
+  lookbackDays?: number
+}): Promise<HistoricalCampaignFallbackMaps> {
+  const result: HistoricalCampaignFallbackMaps = {
+    byOrderId: new Map<string, CampaignTarget[]>(),
+    byMid: new Map<string, CampaignTarget[]>(),
+    byAsin: new Map<string, CampaignTarget[]>(),
+    byOfferId: new Map<number, CampaignTarget[]>(),
+    byPlatform: new Map<AffiliatePlatform, CampaignTarget[]>(),
+  }
+
+  const db = await getDatabase()
+  const lookbackDays = Math.max(1, Math.min(180, Number(params.lookbackDays) || 60))
+  const startDate = shiftYmd(params.reportDate, -lookbackDays)
+
+  const rows = await db.query<HistoricalCampaignMappingRow>(
+    `
+      SELECT
+        platform,
+        source_order_id,
+        source_mid,
+        source_asin,
+        offer_id,
+        campaign_id,
+        COALESCE(SUM(commission_amount), 0) AS commission
+      FROM affiliate_commission_attributions
+      WHERE user_id = ?
+        AND report_date >= ?
+        AND report_date < ?
+        AND campaign_id IS NOT NULL
+      GROUP BY
+        platform,
+        source_order_id,
+        source_mid,
+        source_asin,
+        offer_id,
+        campaign_id
+    `,
+    [params.userId, startDate, params.reportDate]
+  )
+
+  for (const row of rows) {
+    const platform = row.platform === 'partnerboost' ? 'partnerboost' : row.platform === 'yeahpromos' ? 'yeahpromos' : null
+    if (!platform) continue
+
+    const campaignId = Number(row.campaign_id)
+    if (!Number.isFinite(campaignId)) continue
+
+    const offerIdRaw = Number(row.offer_id)
+    const offerId = Number.isFinite(offerIdRaw) ? offerIdRaw : null
+    const target: CampaignTarget = {
+      campaignId,
+      offerId,
+      weight: Math.max(0, Number(row.commission) || 0),
+    }
+    if (target.weight <= 0) continue
+
+    const orderId = normalizeOrderId(row.source_order_id)
+    const mid = normalizeMidForPlatform(platform, row.source_mid)
+    const asin = normalizeAsin(row.source_asin)
+
+    pushTargetsByStringKey(result.byOrderId, orderId, [target])
+    pushTargetsByStringKey(result.byMid, mid ? `${platform}|mid|${mid}` : null, [target])
+    pushTargetsByStringKey(result.byAsin, asin ? `${platform}|asin|${asin}` : null, [target])
+    pushTargetsByOfferId(result.byOfferId, offerId, [target])
+    pushTargetsByPlatform(result.byPlatform, platform, [target])
+  }
+
+  return result
+}
+
+async function queryGlobalCampaignFallbackTargets(params: {
+  userId: number
+  reportDate: string
+}): Promise<CampaignTarget[]> {
+  const db = await getDatabase()
+  const campaignNotDeletedCondition = db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
+
+  const rows = await db.query<CampaignWeightRow>(
+    `
+      SELECT
+        c.id AS campaign_id,
+        c.offer_id AS offer_id,
+        COALESCE(cp.conversions, 0) AS conversions,
+        COALESCE(cp.clicks, 0) AS clicks,
+        COALESCE(cp.cost, 0) AS cost
+      FROM campaigns c
+      LEFT JOIN campaign_performance cp
+        ON cp.campaign_id = c.id
+       AND cp.date = ?
+      WHERE c.user_id = ?
+        AND ${campaignNotDeletedCondition}
+        AND UPPER(COALESCE(c.status, '')) <> 'REMOVED'
+    `,
+    [params.reportDate, params.userId]
+  )
+
+  if (!rows || rows.length === 0) {
+    return []
+  }
+
+  const conversionsSum = rows.reduce((sum, row) => sum + Math.max(0, Number(row.conversions) || 0), 0)
+  const clicksSum = rows.reduce((sum, row) => sum + Math.max(0, Number(row.clicks) || 0), 0)
+  const costSum = rows.reduce((sum, row) => sum + Math.max(0, Number(row.cost) || 0), 0)
+
+  const targets: CampaignTarget[] = rows
+    .map((row) => {
+      const campaignId = Number(row.campaign_id)
+      if (!Number.isFinite(campaignId)) return null
+
+      const offerIdRaw = Number(row.offer_id)
+      const offerId = Number.isFinite(offerIdRaw) ? offerIdRaw : null
+
+      let weight = 1
+      if (conversionsSum > 0) {
+        weight = Math.max(0, Number(row.conversions) || 0)
+      } else if (clicksSum > 0) {
+        weight = Math.max(0, Number(row.clicks) || 0)
+      } else if (costSum > 0) {
+        weight = Math.max(0, Number(row.cost) || 0)
+      }
+
+      return {
+        campaignId,
+        offerId,
+        weight: weight > 0 ? weight : 1,
+      }
+    })
+    .filter((item): item is CampaignTarget => Boolean(item))
+
+  return mergeCampaignTargets(targets)
+}
+
 export async function persistAffiliateCommissionAttributions(params: {
   userId: number
   reportDate: string
@@ -946,13 +1187,154 @@ export async function persistAffiliateCommissionAttributions(params: {
     reportDate: params.reportDate,
     offerIds: Array.from(allOfferIds),
   })
+  const historicalFallbackMaps = await queryHistoricalCampaignFallbackMaps({
+    userId: params.userId,
+    reportDate: params.reportDate,
+  })
+  const globalCampaignFallbackTargets = await queryGlobalCampaignFallbackTargets({
+    userId: params.userId,
+    reportDate: params.reportDate,
+  })
 
   const rowsToInsert: AttributionRow[] = []
   const failureRows: AttributionFailureRow[] = []
   const inferredOfferLinkKeys = new Set<string>()
   const attributedOfferIds = new Set<number>()
   const attributedCampaignIds = new Set<number>()
+  const runtimeFallbackMaps: HistoricalCampaignFallbackMaps = {
+    byOrderId: new Map<string, CampaignTarget[]>(),
+    byMid: new Map<string, CampaignTarget[]>(),
+    byAsin: new Map<string, CampaignTarget[]>(),
+    byOfferId: new Map<number, CampaignTarget[]>(),
+    byPlatform: new Map<AffiliatePlatform, CampaignTarget[]>(),
+  }
   let attributedCommission = 0
+
+  const allocateEntryToCampaignTargets = (paramsForAllocation: {
+    entry: typeof normalizedEntries[number]
+    amount: number
+    targets: CampaignTarget[]
+    fallbackOfferId?: number | null
+  }): CampaignTarget[] => {
+    const targets = mergeCampaignTargets(paramsForAllocation.targets)
+    if (targets.length === 0) return []
+
+    const shares = buildWeightedShares(
+      paramsForAllocation.amount,
+      targets.map((target) => target.weight)
+    )
+
+    const allocatedTargets: CampaignTarget[] = []
+    targets.forEach((target, index) => {
+      const campaignAmount = shares[index] || 0
+      if (campaignAmount <= 0) return
+
+      const targetOfferId = Number(target.offerId)
+      const fallbackOfferId = Number(paramsForAllocation.fallbackOfferId)
+      const offerId =
+        Number.isFinite(targetOfferId)
+          ? targetOfferId
+          : (Number.isFinite(fallbackOfferId) ? fallbackOfferId : null)
+
+      if (Number.isFinite(Number(offerId))) {
+        attributedOfferIds.add(Number(offerId))
+      }
+      attributedCampaignIds.add(target.campaignId)
+
+      rowsToInsert.push({
+        userId: params.userId,
+        reportDate: params.reportDate,
+        platform: paramsForAllocation.entry.platform,
+        sourceOrderId: paramsForAllocation.entry.sourceOrderId,
+        sourceMid: paramsForAllocation.entry.sourceMid,
+        sourceAsin: paramsForAllocation.entry.sourceAsin,
+        offerId: Number.isFinite(Number(offerId)) ? Number(offerId) : null,
+        campaignId: target.campaignId,
+        commissionAmount: campaignAmount,
+        currency: paramsForAllocation.entry.currency,
+        rawPayload: toDbJsonObjectField(paramsForAllocation.entry.raw ?? null, db.type, null),
+      })
+      attributedCommission = roundTo(attributedCommission + campaignAmount)
+      allocatedTargets.push({
+        campaignId: target.campaignId,
+        offerId: Number.isFinite(Number(offerId)) ? Number(offerId) : null,
+        weight: campaignAmount,
+      })
+    })
+
+    return mergeCampaignTargets(allocatedTargets)
+  }
+
+  const registerRuntimeTargets = (entry: typeof normalizedEntries[number], targets: CampaignTarget[]) => {
+    if (!targets || targets.length === 0) return
+
+    const orderId = normalizeOrderId(entry.sourceOrderId)
+    const mid = entry.sourceMid ? `${entry.platform}|mid|${entry.sourceMid}` : null
+    const asin = entry.sourceAsin ? `${entry.platform}|asin|${entry.sourceAsin}` : null
+
+    pushTargetsByStringKey(runtimeFallbackMaps.byOrderId, orderId, targets)
+    pushTargetsByStringKey(runtimeFallbackMaps.byMid, mid, targets)
+    pushTargetsByStringKey(runtimeFallbackMaps.byAsin, asin, targets)
+    pushTargetsByPlatform(runtimeFallbackMaps.byPlatform, entry.platform, targets)
+
+    for (const target of targets) {
+      pushTargetsByOfferId(runtimeFallbackMaps.byOfferId, target.offerId, [target])
+    }
+  }
+
+  const resolveFallbackCampaignTargets = (paramsForResolve: {
+    entry: typeof normalizedEntries[number]
+    preferredOfferId?: number | null
+  }): CampaignTarget[] => {
+    const entry = paramsForResolve.entry
+    const orderId = normalizeOrderId(entry.sourceOrderId)
+    if (orderId) {
+      const runtimeByOrder = runtimeFallbackMaps.byOrderId.get(orderId)
+      if (runtimeByOrder && runtimeByOrder.length > 0) return runtimeByOrder
+
+      const historicalByOrder = historicalFallbackMaps.byOrderId.get(orderId)
+      if (historicalByOrder && historicalByOrder.length > 0) return historicalByOrder
+    }
+
+    const preferredOfferId = Number(paramsForResolve.preferredOfferId)
+    if (Number.isFinite(preferredOfferId)) {
+      const runtimeByOffer = runtimeFallbackMaps.byOfferId.get(preferredOfferId)
+      if (runtimeByOffer && runtimeByOffer.length > 0) return runtimeByOffer
+
+      const historicalByOffer = historicalFallbackMaps.byOfferId.get(preferredOfferId)
+      if (historicalByOffer && historicalByOffer.length > 0) return historicalByOffer
+    }
+
+    if (entry.sourceMid) {
+      const key = `${entry.platform}|mid|${entry.sourceMid}`
+      const runtimeByMid = runtimeFallbackMaps.byMid.get(key)
+      if (runtimeByMid && runtimeByMid.length > 0) return runtimeByMid
+
+      const historicalByMid = historicalFallbackMaps.byMid.get(key)
+      if (historicalByMid && historicalByMid.length > 0) return historicalByMid
+    }
+
+    if (entry.sourceAsin) {
+      const key = `${entry.platform}|asin|${entry.sourceAsin}`
+      const runtimeByAsin = runtimeFallbackMaps.byAsin.get(key)
+      if (runtimeByAsin && runtimeByAsin.length > 0) return runtimeByAsin
+
+      const historicalByAsin = historicalFallbackMaps.byAsin.get(key)
+      if (historicalByAsin && historicalByAsin.length > 0) return historicalByAsin
+    }
+
+    const runtimeByPlatform = runtimeFallbackMaps.byPlatform.get(entry.platform)
+    if (runtimeByPlatform && runtimeByPlatform.length > 0) return runtimeByPlatform
+
+    const historicalByPlatform = historicalFallbackMaps.byPlatform.get(entry.platform)
+    if (historicalByPlatform && historicalByPlatform.length > 0) return historicalByPlatform
+
+    if (globalCampaignFallbackTargets.length > 0) {
+      return [globalCampaignFallbackTargets[0]]
+    }
+
+    return []
+  }
 
   for (const entry of normalizedEntries) {
     const matchedProductIds = new Set<number>()
@@ -1040,6 +1422,17 @@ export async function persistAffiliateCommissionAttributions(params: {
 
     const offerIds = Array.from(matchedOfferIds)
     if (offerIds.length === 0) {
+      const fallbackTargets = resolveFallbackCampaignTargets({ entry })
+      if (fallbackTargets.length > 0) {
+        const allocatedTargets = allocateEntryToCampaignTargets({
+          entry,
+          amount: entry.commission,
+          targets: fallbackTargets,
+        })
+        registerRuntimeTargets(entry, allocatedTargets)
+        continue
+      }
+
       const hasAnyIdentifier = Boolean(
         entry.sourceMid
         || entry.sourceAsin
@@ -1088,10 +1481,23 @@ export async function persistAffiliateCommissionAttributions(params: {
       const offerAmount = offerShares[offerIndex] || 0
       if (offerAmount <= 0) return
 
-      attributedOfferIds.add(offerId)
-
       const campaigns = campaignWeightsByOffer.get(offerId) || []
       if (campaigns.length === 0) {
+        const fallbackTargets = resolveFallbackCampaignTargets({
+          entry,
+          preferredOfferId: offerId,
+        })
+        if (fallbackTargets.length > 0) {
+          const allocatedTargets = allocateEntryToCampaignTargets({
+            entry,
+            amount: offerAmount,
+            targets: fallbackTargets,
+            fallbackOfferId: offerId,
+          })
+          registerRuntimeTargets(entry, allocatedTargets)
+          return
+        }
+
         failureRows.push({
           userId: params.userId,
           reportDate: params.reportDate,
@@ -1126,36 +1532,22 @@ export async function persistAffiliateCommissionAttributions(params: {
           currency: entry.currency,
           rawPayload: toDbJsonObjectField(entry.raw ?? null, db.type, null),
         })
+        attributedOfferIds.add(offerId)
         attributedCommission = roundTo(attributedCommission + offerAmount)
         return
       }
 
-      const campaignShares = buildWeightedShares(
-        offerAmount,
-        campaigns.map((campaign) => campaign.weight)
-      )
-
-      campaigns.forEach((campaign, campaignIndex) => {
-        const campaignAmount = campaignShares[campaignIndex] || 0
-        if (campaignAmount <= 0) return
-
-        attributedCampaignIds.add(campaign.campaignId)
-
-        rowsToInsert.push({
-          userId: params.userId,
-          reportDate: params.reportDate,
-          platform: entry.platform,
-          sourceOrderId: entry.sourceOrderId,
-          sourceMid: entry.sourceMid,
-          sourceAsin: entry.sourceAsin,
-          offerId,
+      const allocatedTargets = allocateEntryToCampaignTargets({
+        entry,
+        amount: offerAmount,
+        targets: campaigns.map((campaign) => ({
           campaignId: campaign.campaignId,
-          commissionAmount: campaignAmount,
-          currency: entry.currency,
-          rawPayload: toDbJsonObjectField(entry.raw ?? null, db.type, null),
-        })
-        attributedCommission = roundTo(attributedCommission + campaignAmount)
+          offerId,
+          weight: campaign.weight,
+        })),
+        fallbackOfferId: offerId,
       })
+      registerRuntimeTargets(entry, allocatedTargets)
     })
   }
 

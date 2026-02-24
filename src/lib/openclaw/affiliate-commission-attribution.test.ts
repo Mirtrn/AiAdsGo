@@ -487,6 +487,149 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(insertParams?.[7]).toBe(3002)
   })
 
+  it('falls back to historical campaign mapping when product/offer mapping misses', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('source_order_id')) {
+        return [
+          {
+            platform: 'partnerboost',
+            source_order_id: 'order-historical-1',
+            source_mid: 'legacy-mid-1',
+            source_asin: 'B0HIST0001',
+            offer_id: 2001,
+            campaign_id: 3001,
+            commission: 25,
+          },
+        ]
+      }
+      if (sql.includes('FROM campaigns c') && sql.includes("UPPER(COALESCE(c.status")) {
+        return [
+          {
+            campaign_id: 3999,
+            offer_id: 2999,
+            conversions: 1,
+            clicks: 2,
+            cost: 3,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 10,
+          sourceOrderId: 'order-historical-1',
+          sourceMid: 'legacy-mid-1',
+          sourceAsin: 'B0MISS00001',
+          raw: { estCommission: 10 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 10,
+      attributedCommission: 10,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(1)
+    const attributionParams = attributionInsertCalls[0]?.[1] as any[]
+    expect(attributionParams?.[6]).toBe(2001)
+    expect(attributionParams?.[7]).toBe(3001)
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(0)
+  })
+
+  it('falls back to top active campaign when no mapping is available', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('source_order_id')) {
+        return []
+      }
+      if (sql.includes('FROM campaigns c') && sql.includes("UPPER(COALESCE(c.status")) {
+        return [
+          {
+            campaign_id: 3002,
+            offer_id: 2002,
+            conversions: 1,
+            clicks: 10,
+            cost: 2,
+          },
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 5,
+            clicks: 20,
+            cost: 8,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 11.25,
+          sourceOrderId: 'order-global-fallback-1',
+          sourceMid: 'yp-mid-unknown',
+          sourceAsin: 'B0GLOBAL01A',
+          raw: { sale_comm: 11.25 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 11.25,
+      attributedCommission: 11.25,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(1)
+    const attributionParams = attributionInsertCalls[0]?.[1] as any[]
+    expect(attributionParams?.[6]).toBe(2001)
+    expect(attributionParams?.[7]).toBe(3001)
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(0)
+  })
+
   it('keeps unmatched commission unattributed when no offer match exists', async () => {
     const today = formatLocalYmd(new Date())
 
