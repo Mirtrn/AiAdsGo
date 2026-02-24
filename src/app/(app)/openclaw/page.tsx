@@ -1650,14 +1650,21 @@ export default function OpenClawPage() {
     ? '未配置联盟平台参数，严格模式下不回退 AutoAds 收益。'
     : '联盟平台佣金查询失败或暂无返回，严格模式下不回退 AutoAds 收益。'
   const offerRows = report?.roi?.data?.byOffer || []
+  const topOfferRows = [...offerRows]
+    .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0))
+    .slice(0, 10)
   const trendData = report?.trends?.data?.trends || []
   const budgetOverall = report?.budget?.data?.overall || {}
-  const performanceCampaigns = report?.performance?.campaigns || []
+  const campaignRows = report?.roi?.data?.byCampaign || []
   const strategyActions = report?.strategyActions || []
   const reportStrategyRun = report?.strategyRun || null
   const strategyRunLatest = strategyStatus?.run || reportStrategyRun
-  const topCampaigns = [...performanceCampaigns]
-    .sort((a, b) => (b.performance?.costUsd || 0) - (a.performance?.costUsd || 0))
+  const topCampaigns = [...campaignRows]
+    .sort((a, b) => {
+      const revenueDiff = (Number(b.revenue) || 0) - (Number(a.revenue) || 0)
+      if (revenueDiff !== 0) return revenueDiff
+      return (Number(b.cost) || 0) - (Number(a.cost) || 0)
+    })
     .slice(0, 5)
   const strategyStats = (() => {
     if (!strategyRunLatest?.stats_json) return null
@@ -3311,6 +3318,7 @@ export default function OpenClawPage() {
               { key: 'impressions', label: 'Impressions', color: '#2563eb' },
               { key: 'clicks', label: 'Clicks', color: '#16a34a' },
               { key: 'cost', label: 'Cost', color: '#f97316', yAxisId: 'right' },
+              { key: 'commission', label: 'Commission', color: '#9333ea', yAxisId: 'right' },
             ]}
             title="广告表现趋势"
             description="近30天趋势"
@@ -3352,7 +3360,7 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle>Offer ROI Top 10</CardTitle>
-              <CardDescription>该表仍基于 AutoAds ROI 接口（按 Offer 聚合），用于投放表现对比</CardDescription>
+              <CardDescription>收益口径：联盟佣金归因（未归因佣金将以 Unattributed 行展示）</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -3368,11 +3376,19 @@ export default function OpenClawPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {offerRows.map((offer: any) => {
+                  {topOfferRows.map((offer: any) => {
                     const cost = Number(offer.cost) || 0
                     const revenue = Number(offer.revenue) || 0
-                    const roas = cost > 0 ? revenue / cost : 0
+                    const roasValue = offer.roas === null || offer.roas === undefined
+                      ? (cost > 0 ? revenue / cost : null)
+                      : Number(offer.roas)
                     const offerLabel = offer.offerName || `Offer #${offer.offerId}`
+                    const roiValue = offer.roi === null || offer.roi === undefined
+                      ? '—'
+                      : `${Number(offer.roi).toFixed(2)}%`
+                    const roasText = roasValue === null || !Number.isFinite(roasValue)
+                      ? '—'
+                      : `${roasValue.toFixed(2)}x`
                     return (
                       <TableRow key={offer.offerId}>
                         <TableCell>{offerLabel}</TableCell>
@@ -3380,12 +3396,12 @@ export default function OpenClawPage() {
                         <TableCell>{offer.campaignCount ?? 0}</TableCell>
                         <TableCell>{revenue}</TableCell>
                         <TableCell>{cost}</TableCell>
-                        <TableCell>{offer.roi ?? 0}%</TableCell>
-                        <TableCell>{roas.toFixed(2)}x</TableCell>
+                        <TableCell>{roiValue}</TableCell>
+                        <TableCell>{roasText}</TableCell>
                       </TableRow>
                     )
                   })}
-                  {offerRows.length === 0 && (
+                  {topOfferRows.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-slate-500">
                         暂无Offer数据
@@ -3400,7 +3416,7 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle>Campaign Top 5</CardTitle>
-              <CardDescription>近7天花费最高的广告系列</CardDescription>
+              <CardDescription>按佣金收入排序（未归因佣金将单列展示）</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -3410,22 +3426,28 @@ export default function OpenClawPage() {
                     <TableHead>状态</TableHead>
                     <TableHead>点击</TableHead>
                     <TableHead>花费</TableHead>
-                    <TableHead>转化</TableHead>
+                    <TableHead>佣金</TableHead>
+                    <TableHead>ROAS</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {topCampaigns.map((campaign: any) => (
-                    <TableRow key={campaign.id}>
+                    <TableRow key={campaign.campaignId}>
                       <TableCell>{campaign.campaignName}</TableCell>
                       <TableCell>{campaign.status}</TableCell>
-                      <TableCell>{campaign.performance?.clicks ?? 0}</TableCell>
-                      <TableCell>{campaign.performance?.costUsd ?? 0}</TableCell>
-                      <TableCell>{campaign.performance?.conversions ?? 0}</TableCell>
+                      <TableCell>{campaign.clicks ?? 0}</TableCell>
+                      <TableCell>{campaign.cost ?? 0}</TableCell>
+                      <TableCell>{campaign.revenue ?? 0}</TableCell>
+                      <TableCell>
+                        {campaign.roas === null || campaign.roas === undefined
+                          ? '—'
+                          : `${Number(campaign.roas).toFixed(2)}x`}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {topCampaigns.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-slate-500">
+                      <TableCell colSpan={6} className="text-center text-slate-500">
                         暂无数据
                       </TableCell>
                     </TableRow>
