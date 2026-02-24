@@ -547,11 +547,13 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   openclaw_strategy_cron: '0 9 * * *',
 }
 
+const OPENCLAW_TIMEZONE = 'Asia/Shanghai'
+
 const parseLocalDate = (value?: string | null) => {
   if (value) return value
   const now = new Date()
   const iso = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: OPENCLAW_TIMEZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -715,6 +717,99 @@ const isStrategyRecommendationQueued = (item: OpenclawStrategyRecommendation): b
   const queueStatus = String(item.executionResult?.queueTaskStatus || '').toLowerCase()
   if (queueStatus === 'pending' || queueStatus === 'running') return true
   return item.executionResult?.queued === true
+}
+
+const STRATEGY_T_MINUS_1_EXECUTABLE_TYPES = new Set<OpenclawStrategyRecommendation['recommendationType']>([
+  'adjust_cpc',
+  'adjust_budget',
+  'expand_keywords',
+  'add_negative_keywords',
+  'optimize_match_type',
+])
+const STRATEGY_T_MINUS_1_EXECUTABLE_TYPE_LABELS = 'CPC调整、预算调整、扩量关键词、新增否词、匹配类型优化'
+
+const shiftOpenclawLocalIsoDate = (dateText: string, offsetDays: number): string => {
+  const normalized = String(dateText || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return parseLocalDate()
+  const [yearText, monthText, dayText] = normalized.split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return parseLocalDate()
+  }
+  const baseMs = Date.UTC(year, month - 1, day, 12, 0, 0, 0)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: OPENCLAW_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(baseMs + offsetDays * 24 * 60 * 60 * 1000))
+}
+
+type StrategyRecommendationExecuteDatePolicy = {
+  allowed: boolean
+  reason: 'same_day' | 't_minus_1_allowed' | 't_minus_1_type_blocked' | 'out_of_window' | 'unknown_date'
+  reportDate: string
+  serverDate: string
+  tMinus1Date: string
+}
+
+const resolveStrategyRecommendationExecuteDatePolicy = (params: {
+  recommendation: OpenclawStrategyRecommendation
+  serverDate: string
+  fallbackReportDate?: string
+}): StrategyRecommendationExecuteDatePolicy => {
+  const reportDate = String(params.recommendation.reportDate || params.fallbackReportDate || '').trim()
+  const serverDate = String(params.serverDate || '').trim()
+  const tMinus1Date = shiftOpenclawLocalIsoDate(serverDate, -1)
+
+  if (!reportDate || !serverDate) {
+    return {
+      allowed: true,
+      reason: 'unknown_date',
+      reportDate,
+      serverDate,
+      tMinus1Date,
+    }
+  }
+
+  if (reportDate === serverDate) {
+    return {
+      allowed: true,
+      reason: 'same_day',
+      reportDate,
+      serverDate,
+      tMinus1Date,
+    }
+  }
+
+  if (reportDate === tMinus1Date) {
+    if (STRATEGY_T_MINUS_1_EXECUTABLE_TYPES.has(params.recommendation.recommendationType)) {
+      return {
+        allowed: true,
+        reason: 't_minus_1_allowed',
+        reportDate,
+        serverDate,
+        tMinus1Date,
+      }
+    }
+    return {
+      allowed: false,
+      reason: 't_minus_1_type_blocked',
+      reportDate,
+      serverDate,
+      tMinus1Date,
+    }
+  }
+
+  return {
+    allowed: false,
+    reason: 'out_of_window',
+    reportDate,
+    serverDate,
+    tMinus1Date,
+  }
 }
 
 const isStrategyRecommendationExecutable = (item: OpenclawStrategyRecommendation): boolean => {
@@ -1891,10 +1986,6 @@ export default function OpenClawPage() {
 
   const handleExecuteStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
     if (!recommendation?.id) return
-    if (strategyHistoricalReadOnly) {
-      toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
-      return
-    }
     if (recommendation.status === 'stale') {
       toast.error('建议内容已变化，请重新分析后再执行')
       return
@@ -1913,6 +2004,23 @@ export default function OpenClawPage() {
     }
     if (!isStrategyRecommendationExecutable(recommendation)) {
       toast.error('当前状态不支持执行该建议')
+      return
+    }
+    const executeDatePolicy = resolveStrategyRecommendationExecuteDatePolicy({
+      recommendation,
+      serverDate: strategyServerDateDisplay,
+      fallbackReportDate: strategyDisplayDate,
+    })
+    if (!executeDatePolicy.allowed) {
+      if (executeDatePolicy.reason === 't_minus_1_type_blocked') {
+        toast.error(
+          `建议日期 ${executeDatePolicy.reportDate} 为 T-1（${executeDatePolicy.tMinus1Date}），仅支持执行类型：${STRATEGY_T_MINUS_1_EXECUTABLE_TYPE_LABELS}`
+        )
+      } else {
+        toast.error(
+          `建议日期 ${executeDatePolicy.reportDate || strategyDisplayDate} 不可执行，仅支持当天 ${executeDatePolicy.serverDate || strategyServerDateDisplay}，以及 T-1 ${executeDatePolicy.tMinus1Date} 的部分类型`
+        )
+      }
       return
     }
 
@@ -2061,6 +2169,15 @@ export default function OpenClawPage() {
     && strategyServerDateDisplay
     && strategyDisplayDate < strategyServerDateDisplay
   )
+  const isStrategyRecommendationExecutableInCurrentWindow = useCallback((item: OpenclawStrategyRecommendation) => {
+    if (!isStrategyRecommendationExecutable(item)) return false
+    const datePolicy = resolveStrategyRecommendationExecuteDatePolicy({
+      recommendation: item,
+      serverDate: strategyServerDateDisplay,
+      fallbackReportDate: strategyDisplayDate,
+    })
+    return datePolicy.allowed
+  }, [strategyDisplayDate, strategyServerDateDisplay])
   const strategyRecommendationsView = useMemo(() => {
     const fromState = Array.isArray(strategyRecommendations) ? strategyRecommendations : []
     const fromReport = Array.isArray(report?.strategyRecommendations)
@@ -2161,11 +2278,11 @@ export default function OpenClawPage() {
 
       const queued = isStrategyRecommendationQueued(item)
       if (queued) summary.queued += 1
-      if (isStrategyRecommendationExecutable(item)) summary.executable += 1
+      if (isStrategyRecommendationExecutableInCurrentWindow(item)) summary.executable += 1
     }
 
     return summary
-  }, [strategyRecommendationsView])
+  }, [isStrategyRecommendationExecutableInCurrentWindow, strategyRecommendationsView])
   const strategyBatchActionPool = useMemo(
     () => (strategyBatchScope === 'filtered' ? strategyRecommendationsFiltered : strategyRecommendationsDisplay),
     [strategyBatchScope, strategyRecommendationsDisplay, strategyRecommendationsFiltered]
@@ -2185,7 +2302,7 @@ export default function OpenClawPage() {
   const selectedHiddenCount = Math.max(0, selectedSelectableCount - selectedVisibleCount)
   const selectedExecutableCount = strategyBatchActionPool.filter(
     (item) => selectedStrategyRecommendationSet.has(item.id)
-      && isStrategyRecommendationExecutable(item)
+      && isStrategyRecommendationExecutableInCurrentWindow(item)
   ).length
   const selectedDismissibleCount = strategyBatchActionPool.filter(
     (item) => selectedStrategyRecommendationSet.has(item.id)
@@ -2263,7 +2380,7 @@ export default function OpenClawPage() {
     item: OpenclawStrategyRecommendation
   ): boolean => {
     if (action === 'execute') {
-      return isStrategyRecommendationExecutable(item)
+      return isStrategyRecommendationExecutableInCurrentWindow(item)
     }
     return item.status === 'pending'
       || item.status === 'failed'
@@ -2294,10 +2411,6 @@ export default function OpenClawPage() {
     }
 
     if (action === 'execute') {
-      if (strategyHistoricalReadOnly) {
-        toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
-        return
-      }
       const confirmed = await requestStrategyConfirm({
         title: `确认批量执行 ${selectedRows.length} 条建议`,
         description: '批量执行将直接写入 AutoAds / Google Ads，请确认筛选范围和条目数量。',
@@ -3991,7 +4104,7 @@ export default function OpenClawPage() {
                 <div className="mt-2 text-slate-500">刷新建议会重新计算规则，旧建议可能被标记为“待重算”。</div>
                 {strategyHistoricalReadOnly && (
                   <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
-                    历史日期仅支持查看，不支持重新分析与执行。
+                    历史日期默认仅支持查看与复盘；执行仅开放 T-1（{shiftOpenclawLocalIsoDate(strategyServerDateDisplay, -1)}）且限：{STRATEGY_T_MINUS_1_EXECUTABLE_TYPE_LABELS}。
                   </div>
                 )}
                 {hasQueuedStrategyRecommendations && (
@@ -4078,7 +4191,7 @@ export default function OpenClawPage() {
                     <Button
                       size="sm"
                       onClick={handleBatchExecuteStrategyRecommendations}
-                      disabled={strategyRecommendationActionBusy || selectedExecutableCount === 0 || strategyHistoricalReadOnly}
+                      disabled={strategyRecommendationActionBusy || selectedExecutableCount === 0}
                     >
                       {strategyBatchExecuting ? '批量执行中...' : '批量执行'}
                     </Button>
@@ -4329,8 +4442,7 @@ export default function OpenClawPage() {
                                   strategyRecommendationActionBusy
                                   || isExecuting
                                   || isDismissing
-                                  || strategyHistoricalReadOnly
-                                  || !isStrategyRecommendationExecutable(item)
+                                  || !isStrategyRecommendationExecutableInCurrentWindow(item)
                                 }
                                 onClick={() => handleExecuteStrategyRecommendation(item)}
                               >

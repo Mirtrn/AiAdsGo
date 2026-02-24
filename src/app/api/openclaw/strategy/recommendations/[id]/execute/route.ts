@@ -46,7 +46,8 @@ export async function POST(
         message.includes('重新分析')
         || message.includes('已暂不执行')
         || message.includes('已执行')
-        || message.includes('仅支持执行当天')
+        || message.includes('仅支持执行')
+        || message.includes('T-1建议仅支持执行')
       )
         ? 409
         : 400

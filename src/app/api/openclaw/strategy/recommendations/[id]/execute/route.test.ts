@@ -93,4 +93,23 @@ describe('POST /api/openclaw/strategy/recommendations/:id/execute', () => {
 
     expect(res.status).toBe(409)
   })
+
+  it('returns 409 when recommendation is outside execution date window', async () => {
+    authFns.resolveOpenclawRequestUser.mockResolvedValue({
+      userId: 12,
+      authType: 'session',
+    })
+    recommendationFns.queueStrategyRecommendationExecution.mockRejectedValue(
+      new Error('T-1建议仅支持执行以下类型（2026-02-24）：adjust_cpc, adjust_budget, expand_keywords, add_negative_keywords, optimize_match_type')
+    )
+
+    const req = new NextRequest('http://localhost/api/openclaw/strategy/recommendations/rec-2/execute', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    })
+    const res = await POST(req, { params: { id: 'rec-2' } })
+
+    expect(res.status).toBe(409)
+  })
 })

@@ -277,6 +277,15 @@ const RECOMMENDATION_COOLDOWN_DAYS: Record<StrategyRecommendationType, number> =
   add_negative_keywords: 3,
   optimize_match_type: 5,
 }
+const T_MINUS_1_EXECUTION_ALLOWED_TYPES = new Set<StrategyRecommendationType>([
+  'adjust_cpc',
+  'adjust_budget',
+  'expand_keywords',
+  'add_negative_keywords',
+  'optimize_match_type',
+])
+const T_MINUS_1_EXECUTION_ALLOWED_TYPES_TEXT =
+  'adjust_cpc, adjust_budget, expand_keywords, add_negative_keywords, optimize_match_type'
 const refreshRecommendationsInflight = new Map<string, Promise<StrategyRecommendation[]>>()
 
 function formatLocalDate(date: Date): string {
@@ -2850,8 +2859,18 @@ export async function assertStrategyRecommendationReadyForExecution(params: {
     throw new Error('建议不存在或无权限访问')
   }
   const serverDate = formatLocalDate(new Date())
-  if (String(recommendation.reportDate || '').trim() !== serverDate) {
-    throw new Error(`仅支持执行当天策略建议（${serverDate}），历史日期建议仅可查看`)
+  const recommendationDate = String(recommendation.reportDate || '').trim()
+  const tMinus1Date = shiftIsoDate(serverDate, -1)
+  const allowTMinus1Execution =
+    recommendationDate === tMinus1Date
+    && T_MINUS_1_EXECUTION_ALLOWED_TYPES.has(recommendation.recommendationType)
+  if (recommendationDate !== serverDate && !allowTMinus1Execution) {
+    if (recommendationDate === tMinus1Date) {
+      throw new Error(
+        `T-1建议仅支持执行以下类型（${tMinus1Date}）：${T_MINUS_1_EXECUTION_ALLOWED_TYPES_TEXT}；当前类型 ${recommendation.recommendationType} 仅支持当天（${serverDate}）执行`
+      )
+    }
+    throw new Error(`仅支持执行当天策略建议（${serverDate}）；历史建议仅开放T-1（${tMinus1Date}）部分类型执行`)
   }
   if (recommendation.status === 'executed') {
     return recommendation
