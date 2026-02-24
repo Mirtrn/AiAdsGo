@@ -7,6 +7,7 @@ import { writeDailyReportToBitable, writeDailyReportToDoc } from '@/lib/openclaw
 import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
 import { getStrategyRecommendations, type StrategyRecommendation } from '@/lib/openclaw/strategy-recommendations'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import { createRiskAlert } from '@/lib/risk-alerts'
 
 type DailyReportPayload = {
   date: string
@@ -170,6 +171,32 @@ type CampaignPerformanceRow = {
   clicks: number | null
 }
 
+type AttributionFailureSummaryRow = {
+  reason_code: string
+  reason_count: number | null
+  commission: number | null
+}
+
+type AffiliateReconciliationTopReason = {
+  code: string
+  label: string
+  count: number
+  commission: number
+}
+
+type AffiliateReconciliationSnapshot = {
+  reportDate: string
+  totalRevenue: number
+  attributedRevenue: number
+  gap: number
+  gapRatio: number
+  hasGap: boolean
+  severity: 'critical' | 'warning' | null
+  failureRows: number
+  failureCommission: number
+  topFailureReasons: AffiliateReconciliationTopReason[]
+}
+
 type ReportOfferBreakdownRow = {
   offerId: number | string
   offerName: string
@@ -203,6 +230,9 @@ type ReportCampaignBreakdownRow = {
 
 const COMMISSION_EPSILON = 0.0001
 const REPORT_TREND_DAYS = 30
+const RECONCILIATION_GAP_ALERT_EPSILON = 0.01
+const RECONCILIATION_CRITICAL_GAP_AMOUNT = 20
+const RECONCILIATION_CRITICAL_GAP_RATIO = 30
 
 function isIsoDateString(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -243,6 +273,124 @@ function calculateRoasValue(revenue: number, cost: number): number | null {
 function normalizeCampaignStatus(value: unknown): string {
   const normalized = String(value || '').trim()
   return normalized || 'UNKNOWN'
+}
+
+function formatAffiliateFailureReasonLabel(reasonCode: string): string {
+  switch (String(reasonCode || '').trim().toLowerCase()) {
+    case 'missing_identifier':
+      return '缺少匹配标识'
+    case 'product_mapping_miss':
+      return '商品映射缺失'
+    case 'offer_mapping_miss':
+      return 'Offer映射缺失'
+    case 'campaign_mapping_miss':
+      return '无活动Campaign'
+    default:
+      return reasonCode || 'unknown'
+  }
+}
+
+async function queryAffiliateAttributionFailureSummary(params: {
+  db: DatabaseAdapter
+  userId: number
+  reportDate: string
+}): Promise<{ totalRows: number; totalCommission: number; topReasons: AffiliateReconciliationTopReason[] }> {
+  try {
+    const rows = await params.db.query<AttributionFailureSummaryRow>(
+      `
+        SELECT
+          reason_code,
+          COUNT(*) AS reason_count,
+          COALESCE(SUM(commission_amount), 0) AS commission
+        FROM openclaw_affiliate_attribution_failures
+        WHERE user_id = ?
+          AND report_date = ?
+        GROUP BY reason_code
+        ORDER BY reason_count DESC, commission DESC
+      `,
+      [params.userId, params.reportDate]
+    )
+
+    const topReasons = rows.map((row) => ({
+      code: String(row.reason_code || 'unknown'),
+      label: formatAffiliateFailureReasonLabel(String(row.reason_code || 'unknown')),
+      count: Math.round(toNumber(row.reason_count, 0)),
+      commission: roundTo2(toNumber(row.commission, 0)),
+    }))
+
+    return {
+      totalRows: topReasons.reduce((sum, item) => sum + item.count, 0),
+      totalCommission: roundTo2(topReasons.reduce((sum, item) => sum + item.commission, 0)),
+      topReasons: topReasons.slice(0, 5),
+    }
+  } catch (error: any) {
+    const message = String(error?.message || '')
+    if (
+      /openclaw_affiliate_attribution_failures/i.test(message)
+      && /(no such table|does not exist)/i.test(message)
+    ) {
+      return {
+        totalRows: 0,
+        totalCommission: 0,
+        topReasons: [],
+      }
+    }
+    throw error
+  }
+}
+
+function buildAffiliateReconciliationSnapshot(params: {
+  reportDate: string
+  totalRevenue: number
+  attributedRevenue: number
+  failureRows: number
+  failureCommission: number
+  topReasons: AffiliateReconciliationTopReason[]
+}): AffiliateReconciliationSnapshot {
+  const totalRevenue = roundTo2(Math.max(0, toNumber(params.totalRevenue, 0)))
+  const attributedRevenue = roundTo2(Math.max(0, toNumber(params.attributedRevenue, 0)))
+  const gap = roundTo2(Math.max(0, totalRevenue - attributedRevenue))
+  const gapRatio = totalRevenue > 0 ? roundTo2((gap / totalRevenue) * 100) : 0
+  const hasGap = gap >= RECONCILIATION_GAP_ALERT_EPSILON
+  const severity = !hasGap
+    ? null
+    : (
+        gap >= RECONCILIATION_CRITICAL_GAP_AMOUNT || gapRatio >= RECONCILIATION_CRITICAL_GAP_RATIO
+          ? 'critical'
+          : 'warning'
+      )
+
+  return {
+    reportDate: params.reportDate,
+    totalRevenue,
+    attributedRevenue,
+    gap,
+    gapRatio,
+    hasGap,
+    severity,
+    failureRows: Math.max(0, Math.round(toNumber(params.failureRows, 0))),
+    failureCommission: roundTo2(Math.max(0, toNumber(params.failureCommission, 0))),
+    topFailureReasons: params.topReasons.slice(0, 5),
+  }
+}
+
+function attachAffiliateReconciliation(params: {
+  roi: unknown
+  reconciliation: AffiliateReconciliationSnapshot
+}) {
+  const roiRoot = asObject(params.roi) ? { ...(params.roi as Record<string, any>) } : {}
+  const roiData = asObject(roiRoot.data) ? { ...(roiRoot.data as Record<string, any>) } : {}
+  const roiOverall = asObject(roiData.overall) ? { ...(roiData.overall as Record<string, any>) } : {}
+
+  roiData.overall = {
+    ...roiOverall,
+    affiliateReconciliation: params.reconciliation,
+  }
+
+  return {
+    ...roiRoot,
+    data: roiData,
+  }
 }
 
 async function queryCampaignPerformanceByDateRange(params: {
@@ -1020,7 +1168,7 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
     }), errors),
   ])
 
-  const normalizedRoi = mergeRoiWithAffiliateRevenue({
+  let normalizedRoi = mergeRoiWithAffiliateRevenue({
     roi,
     summary,
     affiliateRevenue: affiliateRevenue || {
@@ -1042,6 +1190,83 @@ export async function buildOpenclawDailyReport(userId: number, dateStr?: string)
   })
 
   const db = await getDatabase()
+  const roiRootForReconciliation = asObject(normalizedRoi)
+  const roiDataForReconciliation = asObject(roiRootForReconciliation?.data)
+  const roiOverallForReconciliation = asObject(roiDataForReconciliation?.overall)
+  const totalRevenueRawForReconciliation = roiOverallForReconciliation?.totalRevenue
+  const totalRevenueForReconciliation = totalRevenueRawForReconciliation === null
+    || totalRevenueRawForReconciliation === undefined
+    ? 0
+    : roundTo2(toNumber(totalRevenueRawForReconciliation, 0))
+  const attributedRevenueForReconciliation = roundTo2(
+    toNumber(
+      roiOverallForReconciliation?.affiliateAttribution?.attributedCommission,
+      toNumber(roiOverallForReconciliation?.attributedRevenue, 0)
+    )
+  )
+  const failureSummary = await fetchWithGuard(
+    'affiliate.attribution_failures',
+    () => queryAffiliateAttributionFailureSummary({
+      db,
+      userId,
+      reportDate,
+    }),
+    errors
+  )
+  const reconciliationSnapshot = buildAffiliateReconciliationSnapshot({
+    reportDate,
+    totalRevenue: totalRevenueForReconciliation,
+    attributedRevenue: attributedRevenueForReconciliation,
+    failureRows: failureSummary?.totalRows || 0,
+    failureCommission: failureSummary?.totalCommission || 0,
+    topReasons: failureSummary?.topReasons || [],
+  })
+  normalizedRoi = attachAffiliateReconciliation({
+    roi: normalizedRoi,
+    reconciliation: reconciliationSnapshot,
+  })
+
+  if (reconciliationSnapshot.hasGap) {
+    const reasonSummary = reconciliationSnapshot.topFailureReasons
+      .slice(0, 3)
+      .map((item) => `${item.label}(${item.count})`)
+      .join('；')
+    errors.push({
+      source: 'affiliate.reconciliation',
+      message: `date=${reportDate}; gap=${reconciliationSnapshot.gap}; ratio=${reconciliationSnapshot.gapRatio}%`
+        + (reasonSummary ? `; reasons=${reasonSummary}` : ''),
+    })
+
+    try {
+      const resourceId = Number(reportDate.replace(/-/g, ''))
+      await createRiskAlert(
+        userId,
+        'openclaw_affiliate_reconciliation_gap',
+        reconciliationSnapshot.severity === 'critical' ? 'critical' : 'warning',
+        `联盟佣金对账缺口（${reportDate}）`,
+        `总佣金 ${reconciliationSnapshot.totalRevenue}，已归因 ${reconciliationSnapshot.attributedRevenue}，缺口 ${reconciliationSnapshot.gap}（${reconciliationSnapshot.gapRatio}%）`,
+        {
+          resourceId: Number.isFinite(resourceId) ? resourceId : undefined,
+          details: {
+            reportDate,
+            totalRevenue: reconciliationSnapshot.totalRevenue,
+            attributedRevenue: reconciliationSnapshot.attributedRevenue,
+            gap: reconciliationSnapshot.gap,
+            gapRatio: reconciliationSnapshot.gapRatio,
+            failureRows: reconciliationSnapshot.failureRows,
+            failureCommission: reconciliationSnapshot.failureCommission,
+            topFailureReasons: reconciliationSnapshot.topFailureReasons,
+          },
+        }
+      )
+    } catch (error: any) {
+      errors.push({
+        source: 'affiliate.reconciliation_alert',
+        message: error?.message || String(error),
+      })
+    }
+  }
+
   const dailySnapshotRow = await db.queryOne<{
     impressions: number | null
     clicks: number | null
@@ -1313,6 +1538,17 @@ function formatReportMessage(report: DailyReportPayload): string {
     affiliateBreakdown.reduce((sum, item) => sum + (Number(item.records) || 0), 0),
     toNumber(roi?.affiliateAttribution?.writtenRows, 0)
   )
+  const affiliateReconciliation = asObject(roi?.affiliateReconciliation)
+  const reconciliationHasGap = affiliateReconciliation?.hasGap === true
+  const reconciliationSeverity = String(affiliateReconciliation?.severity || '').trim().toLowerCase()
+  const reconciliationTopReasons = Array.isArray(affiliateReconciliation?.topFailureReasons)
+    ? affiliateReconciliation.topFailureReasons as Array<{
+      code?: string
+      label?: string
+      count?: number
+      commission?: number
+    }>
+    : []
   const roiCurrency = normalizeCurrencyCode(roiRoot?.currency, 'USD')
   const budgetCurrency = normalizeCurrencyCode(budgetRoot?.currency, roiCurrency)
   const affiliateCurrencies = affiliateBreakdown
@@ -1392,6 +1628,35 @@ function formatReportMessage(report: DailyReportPayload): string {
           })
           .join(' | ')
         lines.push(`- 联盟拆分：${detail}`)
+      }
+
+      if (reconciliationHasGap) {
+        const reconciliationTotalRevenue = roundTo2(toNumber(affiliateReconciliation?.totalRevenue, totalRevenue || 0))
+        const reconciliationAttributedRevenue = roundTo2(
+          toNumber(
+            affiliateReconciliation?.attributedRevenue,
+            toNumber(roi?.affiliateAttribution?.attributedCommission, 0)
+          )
+        )
+        const reconciliationGap = roundTo2(toNumber(affiliateReconciliation?.gap, 0))
+        const reconciliationGapRatio = roundTo2(toNumber(affiliateReconciliation?.gapRatio, 0))
+        const severityLabel = reconciliationSeverity === 'critical' ? '严重' : '预警'
+        lines.push(
+          `- 佣金对账（${severityLabel}）：总佣金 ${formatMoney(reconciliationTotalRevenue, affiliateCurrency)}｜已归因 ${formatMoney(reconciliationAttributedRevenue, affiliateCurrency)}｜缺口 ${formatMoney(reconciliationGap, affiliateCurrency)}（${reconciliationGapRatio}%）`
+        )
+
+        if (reconciliationTopReasons.length > 0) {
+          const reasonLine = reconciliationTopReasons
+            .slice(0, 3)
+            .map((item) => {
+              const label = String(item.label || formatAffiliateFailureReasonLabel(String(item.code || 'unknown')))
+              const count = Math.round(toNumber(item.count, 0))
+              const commission = roundTo2(toNumber(item.commission, 0))
+              return `${label} ${count}条/${formatMoney(commission, affiliateCurrency)}`
+            })
+            .join('；')
+          lines.push(`- 缺口原因TOP：${reasonLine}`)
+        }
       }
     } else {
       lines.push(`- 花费：${formatMoney(totalCost, roiCurrency)}`)

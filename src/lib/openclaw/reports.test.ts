@@ -289,6 +289,66 @@ describe('sendDailyReportToFeishu', () => {
     expect(message).not.toContain('Filtered_Out')
   })
 
+  it('shows affiliate reconciliation gap and top failure reasons in daily report message', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-22',
+            generatedAt: '2026-02-22T09:00:00.000Z',
+            summary: { kpis: { totalOffers: 3, totalCampaigns: 8 } },
+            dailySnapshot: { impressions: 1000, clicks: 88, cost: 21, conversions: 0 },
+            roi: {
+              data: {
+                overall: {
+                  totalCost: 21,
+                  totalRevenue: 10,
+                  totalProfit: -11,
+                  roi: -52.38,
+                  roas: 0.48,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [
+                    { platform: 'partnerboost', totalCommission: 10, records: 4, currency: 'USD' },
+                  ],
+                  affiliateAttribution: {
+                    attributedCommission: 6,
+                    writtenRows: 2,
+                  },
+                  affiliateReconciliation: {
+                    reportDate: '2026-02-22',
+                    totalRevenue: 10,
+                    attributedRevenue: 6,
+                    gap: 4,
+                    gapRatio: 40,
+                    hasGap: true,
+                    severity: 'critical',
+                    failureRows: 4,
+                    failureCommission: 4,
+                    topFailureReasons: [
+                      { code: 'product_mapping_miss', label: '商品映射缺失', count: 3, commission: 3 },
+                      { code: 'campaign_mapping_miss', label: '无活动Campaign', count: 1, commission: 1 },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+        }
+      }
+      return undefined
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-22',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(message).toContain('- 佣金对账（严重）：总佣金 10 USD｜已归因 6 USD｜缺口 4 USD（40%）')
+    expect(message).toContain('- 缺口原因TOP：商品映射缺失 3条/3 USD；无活动Campaign 1条/1 USD')
+  })
+
   it('formats budget adjustment recommendation label in daily report message', async () => {
     hoisted.queryOneMock.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {

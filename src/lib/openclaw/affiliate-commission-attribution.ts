@@ -48,6 +48,28 @@ type AttributionRow = {
   rawPayload: unknown
 }
 
+type AttributionFailureReasonCode =
+  | 'missing_identifier'
+  | 'product_mapping_miss'
+  | 'offer_mapping_miss'
+  | 'campaign_mapping_miss'
+
+type AttributionFailureRow = {
+  userId: number
+  reportDate: string
+  platform: AffiliatePlatform
+  sourceOrderId: string | null
+  sourceMid: string | null
+  sourceAsin: string | null
+  sourceLinkId: string | null
+  offerId: number | null
+  commissionAmount: number
+  currency: string
+  reasonCode: AttributionFailureReasonCode
+  reasonDetail: string | null
+  rawPayload: unknown
+}
+
 type CampaignWeight = {
   campaignId: number
   weight: number
@@ -147,6 +169,27 @@ function extractPartnerboostLinkId(value: unknown): string | null {
   }
 
   return null
+}
+
+function derivePartnerboostLinkId(params: {
+  sourceLinkId: unknown
+  sourceLink: string | null
+  sourceMid: string | null
+}): string | null {
+  const explicit = normalizeText(params.sourceLinkId)?.toLowerCase()
+  if (explicit) return explicit
+
+  const fromLink = extractPartnerboostLinkId(params.sourceLink)?.toLowerCase()
+  if (fromLink) return fromLink
+
+  const fromMid = normalizeText(params.sourceMid)?.toLowerCase()
+  if (!fromMid) return null
+
+  // sourceMid may carry aa_adgroupid when transaction rows omit link fields.
+  const asin = normalizeAsin(fromMid)
+  if (asin && asin.toLowerCase() === fromMid) return null
+
+  return fromMid
 }
 
 const IN_CLAUSE_CHUNK_SIZE = 300
@@ -258,6 +301,27 @@ function aggregateOfferWeight(campaigns: CampaignWeight[]): number {
     0
   )
   return sum > 0 ? sum : 1
+}
+
+function buildFailureReasonDetail(params: {
+  reportDate: string
+  sourceMid: string | null
+  sourceAsin: string | null
+  sourceLinkId: string | null
+  offerId?: number | null
+}): string {
+  const segments = [
+    `reportDate=${params.reportDate}`,
+    `sourceMid=${params.sourceMid || '-'}`,
+    `sourceAsin=${params.sourceAsin || '-'}`,
+    `sourceLinkId=${params.sourceLinkId || '-'}`,
+  ]
+
+  if (Number.isFinite(Number(params.offerId))) {
+    segments.push(`offerId=${Number(params.offerId)}`)
+  }
+
+  return segments.join('; ')
 }
 
 async function queryProductIdentifierRows(params: {
@@ -668,8 +732,13 @@ export async function persistAffiliateCommissionAttributions(params: {
       if (commission <= 0) return null
 
       const sourceLink = normalizeText(entry.sourceLink)
+      const sourceMid = normalizeMidForPlatform(entry.platform, entry.sourceMid)
       const sourceLinkId = entry.platform === 'partnerboost'
-        ? (normalizeText(entry.sourceLinkId)?.toLowerCase() || extractPartnerboostLinkId(sourceLink)?.toLowerCase() || null)
+        ? derivePartnerboostLinkId({
+            sourceLinkId: entry.sourceLinkId,
+            sourceLink,
+            sourceMid,
+          })
         : null
 
       return {
@@ -678,7 +747,7 @@ export async function persistAffiliateCommissionAttributions(params: {
         commission,
         currency: normalizeText(entry.currency)?.toUpperCase() || 'USD',
         sourceOrderId: normalizeText(entry.sourceOrderId),
-        sourceMid: normalizeMidForPlatform(entry.platform, entry.sourceMid),
+        sourceMid,
         sourceAsin: normalizeAsin(entry.sourceAsin),
         sourceLink,
         sourceLinkId,
@@ -728,6 +797,17 @@ export async function persistAffiliateCommissionAttributions(params: {
       `DELETE FROM affiliate_commission_attributions WHERE user_id = ? AND report_date = ?`,
       [params.userId, params.reportDate]
     )
+    try {
+      await db.exec(
+        `DELETE FROM openclaw_affiliate_attribution_failures WHERE user_id = ? AND report_date = ?`,
+        [params.userId, params.reportDate]
+      )
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (!/openclaw_affiliate_attribution_failures/i.test(message) || !/(no such table|does not exist)/i.test(message)) {
+        throw error
+      }
+    }
 
     return {
       reportDate: params.reportDate,
@@ -868,6 +948,7 @@ export async function persistAffiliateCommissionAttributions(params: {
   })
 
   const rowsToInsert: AttributionRow[] = []
+  const failureRows: AttributionFailureRow[] = []
   const inferredOfferLinkKeys = new Set<string>()
   const attributedOfferIds = new Set<number>()
   const attributedCampaignIds = new Set<number>()
@@ -959,6 +1040,37 @@ export async function persistAffiliateCommissionAttributions(params: {
 
     const offerIds = Array.from(matchedOfferIds)
     if (offerIds.length === 0) {
+      const hasAnyIdentifier = Boolean(
+        entry.sourceMid
+        || entry.sourceAsin
+        || entry.sourceLinkId
+        || entry.sourceLink
+      )
+
+      const reasonCode: AttributionFailureReasonCode = !hasAnyIdentifier
+        ? 'missing_identifier'
+        : (matchedProductIds.size === 0 ? 'product_mapping_miss' : 'offer_mapping_miss')
+
+      failureRows.push({
+        userId: params.userId,
+        reportDate: params.reportDate,
+        platform: entry.platform,
+        sourceOrderId: entry.sourceOrderId,
+        sourceMid: entry.sourceMid,
+        sourceAsin: entry.sourceAsin,
+        sourceLinkId: entry.sourceLinkId,
+        offerId: null,
+        commissionAmount: entry.commission,
+        currency: entry.currency,
+        reasonCode,
+        reasonDetail: buildFailureReasonDetail({
+          reportDate: params.reportDate,
+          sourceMid: entry.sourceMid,
+          sourceAsin: entry.sourceAsin,
+          sourceLinkId: entry.sourceLinkId,
+        }),
+        rawPayload: entry.raw ?? null,
+      })
       continue
     }
 
@@ -980,6 +1092,27 @@ export async function persistAffiliateCommissionAttributions(params: {
 
       const campaigns = campaignWeightsByOffer.get(offerId) || []
       if (campaigns.length === 0) {
+        failureRows.push({
+          userId: params.userId,
+          reportDate: params.reportDate,
+          platform: entry.platform,
+          sourceOrderId: entry.sourceOrderId,
+          sourceMid: entry.sourceMid,
+          sourceAsin: entry.sourceAsin,
+          sourceLinkId: entry.sourceLinkId,
+          offerId,
+          commissionAmount: offerAmount,
+          currency: entry.currency,
+          reasonCode: 'campaign_mapping_miss',
+          reasonDetail: buildFailureReasonDetail({
+            reportDate: params.reportDate,
+            sourceMid: entry.sourceMid,
+            sourceAsin: entry.sourceAsin,
+            sourceLinkId: entry.sourceLinkId,
+            offerId,
+          }),
+          rawPayload: entry.raw ?? null,
+        })
         rowsToInsert.push({
           userId: params.userId,
           reportDate: params.reportDate,
@@ -1069,6 +1202,46 @@ export async function persistAffiliateCommissionAttributions(params: {
           row.rawPayload,
         ]
       )
+    }
+
+    try {
+      await db.exec(
+        `DELETE FROM openclaw_affiliate_attribution_failures WHERE user_id = ? AND report_date = ?`,
+        [params.userId, params.reportDate]
+      )
+
+      for (const row of failureRows) {
+        await db.exec(
+          `
+            INSERT INTO openclaw_affiliate_attribution_failures
+              (user_id, report_date, platform, source_order_id, source_mid, source_asin, source_link_id, offer_id, commission_amount, currency, reason_code, reason_detail, raw_payload)
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            row.userId,
+            row.reportDate,
+            row.platform,
+            row.sourceOrderId,
+            row.sourceMid,
+            row.sourceAsin,
+            row.sourceLinkId,
+            row.offerId,
+            row.commissionAmount,
+            row.currency,
+            row.reasonCode,
+            row.reasonDetail,
+            toDbJsonObjectField(row.rawPayload ?? null, db.type, null),
+          ]
+        )
+      }
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (/openclaw_affiliate_attribution_failures/i.test(message) && /(no such table|does not exist)/i.test(message)) {
+        console.warn('[affiliate-attribution] failure audit table missing, skip failure reason logging')
+      } else {
+        throw error
+      }
     }
   })
 

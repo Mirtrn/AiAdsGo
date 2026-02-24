@@ -207,7 +207,7 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM offers'), [9])
-    expect(exec).toHaveBeenCalledTimes(3)
+    expect(exec).toHaveBeenCalledTimes(4)
   })
 
   it('matches partnerboost entries via aa_adgroupid link id when asin is missing', async () => {
@@ -339,6 +339,70 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
   })
 
+  it('derives partnerboost link id from sourceMid when sourceLink fields are missing', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_products') && sql.includes('LOWER(COALESCE(mid')) {
+        return []
+      }
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('LOWER(COALESCE(promo_link')) {
+        return [
+          {
+            id: 501,
+            promo_link: 'https://www.amazon.com/dp/B0C7GYLKPM?aa_adgroupid=pb_link_mid_only',
+            short_promo_link: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return [{ product_id: 501, offer_id: 2001 }]
+      }
+      if (sql.includes('FROM offers')) {
+        return []
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 10,
+            cost: 2,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 5.55,
+          sourceOrderId: 'order-mid-fallback-1',
+          sourceMid: 'pb_link_mid_only',
+          raw: { estCommission: 5.55 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 5.55,
+      attributedCommission: 5.55,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+  })
+
   it('prefers partnerboost link-id match over asin/mid candidates', async () => {
     const today = formatLocalYmd(new Date())
 
@@ -454,5 +518,75 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
       attributedCampaigns: 0,
       writtenRows: 0,
     })
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(1)
+    const failureParams = failureInsertCalls[0]?.[1] as any[]
+    expect(failureParams?.[10]).toBe('product_mapping_miss')
+  })
+
+  it('records campaign_mapping_miss when matched offer has no active campaign', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes("platform = 'partnerboost'") && sql.includes('LOWER(COALESCE(promo_link')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_products')) {
+        return [{ id: 101, mid: 'pb-mid-1', asin: 'B0C7GYLKPM' }]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return [{ product_id: 101, offer_id: 2001 }]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return []
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 8.88,
+          sourceOrderId: 'order-no-campaign-1',
+          sourceMid: 'pb-mid-1',
+          raw: { estCommission: 8.88 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 8.88,
+      attributedCommission: 8.88,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 0,
+      writtenRows: 1,
+    })
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(1)
+    const attributionParams = attributionInsertCalls[0]?.[1] as any[]
+    expect(attributionParams?.[6]).toBe(2001)
+    expect(attributionParams?.[7]).toBeNull()
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(1)
+    const failureParams = failureInsertCalls[0]?.[1] as any[]
+    expect(failureParams?.[7]).toBe(2001)
+    expect(failureParams?.[10]).toBe('campaign_mapping_miss')
   })
 })
