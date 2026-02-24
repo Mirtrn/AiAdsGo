@@ -6,6 +6,7 @@ import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/open
 import { getCommissionPerConversion } from '@/lib/offer-monetization'
 import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
+import { extractCampaignConfigKeywords } from '@/lib/campaign-config-keywords'
 
 export type StrategyRecommendationType =
   | 'adjust_cpc'
@@ -182,6 +183,7 @@ type CampaignRow = {
   brand: string | null
   category: string | null
   product_name: string | null
+  campaign_config?: unknown
 }
 
 type PerfAgg = {
@@ -557,6 +559,16 @@ function normalizeBoolean(value: unknown): boolean {
 
 function normalizeKeywordKey(text: string): string {
   return sanitizeKeyword(String(text || '')).toLowerCase()
+}
+
+function extractCampaignConfigKeywordSet(campaignConfig: unknown): Set<string> {
+  const keywordSet = new Set<string>()
+  for (const item of extractCampaignConfigKeywords(campaignConfig)) {
+    const normalized = normalizeKeywordKey(item.text)
+    if (!normalized) continue
+    keywordSet.add(normalized)
+  }
+  return keywordSet
 }
 
 function dedupeKeywordPool(values: string[], existing: Set<string>): string[] {
@@ -1167,7 +1179,15 @@ function buildRecommendationDrafts(params: {
       recommendedCpc && commissionPerConversion
         ? roundTo2((recommendedCpc / commissionPerConversion) * 100)
         : null
-    const keywordSet = params.keywordsByCampaign.get(campaignId) || new Set<string>()
+    const inventoryKeywordSet = params.keywordsByCampaign.get(campaignId) || new Set<string>()
+    const configKeywordSet = extractCampaignConfigKeywordSet(campaign.campaign_config)
+    const keywordSet = new Set<string>(configKeywordSet)
+    for (const item of inventoryKeywordSet) {
+      keywordSet.add(item)
+    }
+    if (keywordSet.size > 0) {
+      params.keywordsByCampaign.set(campaignId, keywordSet)
+    }
     const keywordCoverageCount = keywordSet.size
     const keywordInventory = params.keywordInventoryByCampaign?.get(campaignId) || []
     const positiveKeywordInventory = keywordInventory.filter((item) => !item.isNegative)
@@ -1980,7 +2000,8 @@ export async function refreshStrategyRecommendations(params: {
           o.target_country,
           o.brand,
           o.category,
-          o.product_name
+          o.product_name,
+          c.campaign_config
         FROM campaigns c
         LEFT JOIN offers o ON c.offer_id = o.id
         WHERE c.user_id = ?
@@ -2160,7 +2181,16 @@ export async function refreshStrategyRecommendations(params: {
       if (!Number.isFinite(campaignId)) continue
       const perfTotal = perfTotalByCampaign.get(campaignId) || { impressions: 0, clicks: 0, cost: 0 }
       const runDays = calculateRunDays(campaign.created_at, campaign.published_at)
-      const keywordCoverageCount = (keywordsByCampaign.get(campaignId) || new Set<string>()).size
+      const inventoryKeywordSet = keywordsByCampaign.get(campaignId) || new Set<string>()
+      const configKeywordSet = extractCampaignConfigKeywordSet(campaign.campaign_config)
+      const keywordSet = new Set<string>(configKeywordSet)
+      for (const item of inventoryKeywordSet) {
+        keywordSet.add(item)
+      }
+      if (keywordSet.size > 0) {
+        keywordsByCampaign.set(campaignId, keywordSet)
+      }
+      const keywordCoverageCount = keywordSet.size
       if (shouldGenerateExpandKeywordsRecommendation({
         runDays,
         keywordCoverageCount,

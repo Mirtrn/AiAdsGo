@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { boolCondition, boolParam, getInsertedId } from '@/lib/db-helpers'
 import { createGoogleAdsKeywordsBatch, updateGoogleAdsKeywordStatus } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { patchCampaignConfigKeywords, type CampaignConfigKeyword } from '@/lib/campaign-config-keywords'
 
 type KeywordInput = string | {
   text?: string
@@ -414,6 +415,7 @@ export async function POST(
       is_deleted: number | boolean
       google_ads_account_id: number | null
       google_ad_group_id: string | null
+      campaign_config: unknown
       customer_id: string | null
       account_refresh_token: string | null
       account_is_active: number | boolean | null
@@ -427,6 +429,7 @@ export async function POST(
           c.is_deleted,
           c.google_ads_account_id,
           c.google_ad_group_id,
+          c.campaign_config,
           gaa.customer_id,
           gaa.refresh_token AS account_refresh_token,
           gaa.is_active AS account_is_active,
@@ -459,6 +462,33 @@ export async function POST(
       return NextResponse.json({ error: '关联Ads账号不可用（可能已停用或解绑）' }, { status: 400 })
     }
 
+    const syncCampaignConfigKeywords = async (params: {
+      addKeywords?: CampaignConfigKeyword[]
+      removeKeywords?: CampaignConfigKeyword[]
+    }) => {
+      const addKeywords = params.addKeywords || []
+      const removeKeywords = params.removeKeywords || []
+      if (!addKeywords.length && !removeKeywords.length) return
+      const patch = patchCampaignConfigKeywords({
+        campaignConfig: campaign.campaign_config,
+        addKeywords,
+        removeKeywords,
+      })
+      if (!patch.changed) return
+      const nowExpr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      await db.exec(
+        `
+          UPDATE campaigns
+          SET campaign_config = ?,
+              updated_at = ${nowExpr}
+          WHERE id = ?
+            AND user_id = ?
+        `,
+        [patch.nextCampaignConfigJson, campaignId, userId]
+      )
+      campaign.campaign_config = patch.nextCampaignConfigJson
+    }
+
     const parsedKeywords = parseKeywords(body.keywords)
     const replaceMode = normalizeReplaceMode(body.replaceMode)
     const parsedOldKeywords = parseOldKeywords(body.oldKeywords)
@@ -486,11 +516,14 @@ export async function POST(
     )
 
     const toCreate = parsedKeywords.filter((item) => !existingKeywordSet.has(`${item.text.toLowerCase()}|${item.matchType}`))
-    const skippedExistingKeywords = parsedKeywords
+    const skippedExistingKeywordRows = parsedKeywords
       .filter((item) => existingKeywordSet.has(`${item.text.toLowerCase()}|${item.matchType}`))
-      .map((item) => item.text)
+    const skippedExistingKeywords = skippedExistingKeywordRows.map((item) => item.text)
 
     if (toCreate.length === 0) {
+      await syncCampaignConfigKeywords({
+        addKeywords: skippedExistingKeywordRows.map((item) => ({ text: item.text, matchType: item.matchType })),
+      })
       return NextResponse.json({
         success: true,
         addedCount: 0,
@@ -584,6 +617,10 @@ export async function POST(
     const duplicateKeywords = Array.from(
       new Set([...createResult.duplicateKeywords, ...skippedExistingKeywords])
     )
+    const duplicateKeywordSet = new Set(createResult.duplicateKeywords.map((item) => item.toLowerCase()))
+    const duplicateKeywordRows = toCreate
+      .filter((item) => duplicateKeywordSet.has(item.text.toLowerCase()))
+      .map((item) => ({ text: item.text, matchType: item.matchType }))
 
     const pauseResult = replaceMode === 'pause_existing'
       ? await pauseExistingKeywords({
@@ -609,6 +646,18 @@ export async function POST(
         { status: 500 }
       )
     }
+
+    await syncCampaignConfigKeywords({
+      addKeywords: [
+        ...insertedKeywords.map((item) => ({ text: item.keywordText, matchType: item.matchType })),
+        ...skippedExistingKeywordRows.map((item) => ({ text: item.text, matchType: item.matchType })),
+        ...duplicateKeywordRows,
+      ],
+      removeKeywords: pauseResult.pausedKeywords.map((item) => ({
+        text: item.keywordText,
+        matchType: item.matchType,
+      })),
+    })
 
     return NextResponse.json({
       success: true,

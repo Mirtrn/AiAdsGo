@@ -115,6 +115,11 @@ describe('POST /api/campaigns/:id/keywords/add', () => {
     expect(payload.addedCount).toBe(2)
     expect(payload.addedKeywords[0].matchType).toBe('EXACT')
     expect(adsFns.createGoogleAdsKeywordsBatch).toHaveBeenCalledTimes(1)
+    const hasConfigSync = dbFns.exec.mock.calls.some(
+      (call: any[]) => String(call?.[0] || '').includes('UPDATE campaigns')
+        && String(call?.[0] || '').includes('campaign_config')
+    )
+    expect(hasConfigSync).toBe(true)
   })
 
   it('handles duplicate keyword errors gracefully with single-keyword fallback', async () => {

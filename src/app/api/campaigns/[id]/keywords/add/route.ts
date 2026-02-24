@@ -5,6 +5,7 @@ import { getInsertedId } from '@/lib/db-helpers'
 import { createGoogleAdsKeywordsBatch } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
+import { patchCampaignConfigKeywords, type CampaignConfigKeyword } from '@/lib/campaign-config-keywords'
 
 type KeywordInput = string | {
   text?: string
@@ -278,6 +279,7 @@ export async function POST(
       is_deleted: number | boolean
       google_ads_account_id: number | null
       google_ad_group_id: string | null
+      campaign_config: unknown
       offer_brand: string | null
       customer_id: string | null
       account_refresh_token: string | null
@@ -292,6 +294,7 @@ export async function POST(
           c.is_deleted,
           c.google_ads_account_id,
           c.google_ad_group_id,
+          c.campaign_config,
           o.brand AS offer_brand,
           gaa.customer_id,
           gaa.refresh_token AS account_refresh_token,
@@ -326,6 +329,27 @@ export async function POST(
       return NextResponse.json({ error: '关联Ads账号不可用（可能已停用或解绑）' }, { status: 400 })
     }
 
+    const syncCampaignConfigKeywords = async (keywordRows: CampaignConfigKeyword[]) => {
+      if (!keywordRows.length) return
+      const patch = patchCampaignConfigKeywords({
+        campaignConfig: campaign.campaign_config,
+        addKeywords: keywordRows,
+      })
+      if (!patch.changed) return
+      const nowExpr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      await db.exec(
+        `
+          UPDATE campaigns
+          SET campaign_config = ?,
+              updated_at = ${nowExpr}
+          WHERE id = ?
+            AND user_id = ?
+        `,
+        [patch.nextCampaignConfigJson, campaignId, userId]
+      )
+      campaign.campaign_config = patch.nextCampaignConfigJson
+    }
+
     const parsedKeywords = parseKeywords(body.keywords, campaign.offer_brand)
     if (parsedKeywords.length === 0) {
       return NextResponse.json({ error: '请提供至少一个有效关键词' }, { status: 400 })
@@ -350,11 +374,14 @@ export async function POST(
     )
 
     const toCreate = parsedKeywords.filter((item) => !existingKeywordSet.has(item.text.toLowerCase()))
-    const skippedExistingKeywords = parsedKeywords
+    const skippedExistingKeywordRows = parsedKeywords
       .filter((item) => existingKeywordSet.has(item.text.toLowerCase()))
-      .map((item) => item.text)
+    const skippedExistingKeywords = skippedExistingKeywordRows.map((item) => item.text)
 
     if (toCreate.length === 0) {
+      await syncCampaignConfigKeywords(
+        skippedExistingKeywordRows.map((item) => ({ text: item.text, matchType: item.matchType }))
+      )
       return NextResponse.json({
         success: true,
         addedCount: 0,
@@ -461,6 +488,16 @@ export async function POST(
     const duplicateKeywords = Array.from(
       new Set([...createResult.duplicateKeywords, ...skippedExistingKeywords])
     )
+    const duplicateKeywordSet = new Set(createResult.duplicateKeywords.map((item) => item.toLowerCase()))
+    const duplicateKeywordRows = toCreate
+      .filter((item) => duplicateKeywordSet.has(item.text.toLowerCase()))
+      .map((item) => ({ text: item.text, matchType: item.matchType }))
+
+    await syncCampaignConfigKeywords([
+      ...insertedKeywords.map((item) => ({ text: item.keywordText, matchType: item.matchType })),
+      ...skippedExistingKeywordRows.map((item) => ({ text: item.text, matchType: item.matchType })),
+      ...duplicateKeywordRows,
+    ])
 
     if (insertedKeywords.length === 0 && createResult.failures.length > 0) {
       return NextResponse.json(

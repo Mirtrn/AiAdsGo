@@ -211,6 +211,35 @@ describe('openclaw strategy recommendations rules', () => {
     expect((expandRec?.data.keywordPlan || []).every((kw) => ['BROAD', 'PHRASE', 'EXACT'].includes(kw.matchType))).toBe(true)
   })
 
+  it('falls back to campaign_config keywords when keyword inventory is empty', () => {
+    const fallbackKeywords = Array.from({ length: 12 }, (_, index) => ({
+      text: `fallback keyword ${index + 1}`,
+      matchType: 'PHRASE',
+    }))
+
+    const drafts = __testUtils.buildRecommendationDrafts({
+      campaigns: [makeCampaign({
+        id: 112,
+        created_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        campaign_config: JSON.stringify({
+          keywords: fallbackKeywords,
+        }),
+      })],
+      perf7dByCampaign: new Map([[112, { impressions: 80, clicks: 6, cost: 4 }]]),
+      perfTotalByCampaign: new Map([[112, { impressions: 80, clicks: 6, cost: 4 }]]),
+      commissionByCampaign: new Map(),
+      keywordsByCampaign: new Map(),
+      keywordIdeasByOffer: new Map(),
+      creativeById: new Map(),
+    })
+
+    const expandRec = drafts.find((item) => item.recommendationType === 'expand_keywords')
+    expect(expandRec).toBeTruthy()
+    expect(expandRec?.data.keywordCoverageCount).toBe(12)
+    expect(expandRec?.summary).toContain('当前关键词 12 个')
+  })
+
   it('generates negative keyword recommendations from hard-negative search terms', () => {
     const drafts = __testUtils.buildRecommendationDrafts({
       campaigns: [makeCampaign({

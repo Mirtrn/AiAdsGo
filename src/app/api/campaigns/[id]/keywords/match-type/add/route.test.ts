@@ -116,5 +116,10 @@ describe('POST /api/campaigns/:id/keywords/match-type/add', () => {
       matchType: 'PHRASE',
       isNegative: false,
     })
+    const hasConfigSync = dbFns.exec.mock.calls.some(
+      (call: any[]) => String(call?.[0] || '').includes('UPDATE campaigns')
+        && String(call?.[0] || '').includes('campaign_config')
+    )
+    expect(hasConfigSync).toBe(true)
   })
 })
