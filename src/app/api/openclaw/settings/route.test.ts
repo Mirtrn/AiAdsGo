@@ -298,4 +298,123 @@ describe('openclaw settings route AI global permissions', () => {
     })
   })
 
+  it('rejects invalid strategy cron expressions on user save', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          { key: 'openclaw_strategy_enabled', value: 'false' },
+          { key: 'openclaw_strategy_cron', value: 'not-a-cron' },
+          { key: 'openclaw_strategy_ads_account_ids', value: '[123456789]' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(payload.error).toContain('Cron')
+    expect(settingsFns.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('rejects enabling strategy without ads account ids', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          { key: 'openclaw_strategy_enabled', value: 'true' },
+          { key: 'openclaw_strategy_cron', value: '0 9 * * *' },
+          { key: 'openclaw_strategy_ads_account_ids', value: '[]' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(payload.error).toContain('至少需要配置一个 Ads 账号ID')
+    expect(settingsFns.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('accepts valid strategy config updates', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 9, role: 'member' },
+    })
+
+    settingsFns.getSettingsByCategory.mockResolvedValueOnce([
+      { key: 'openclaw_strategy_enabled', value: 'false', dataType: 'boolean' },
+      { key: 'openclaw_strategy_cron', value: '0 9 * * *', dataType: 'string' },
+      { key: 'openclaw_strategy_ads_account_ids', value: '[]', dataType: 'json' },
+      { key: 'openclaw_strategy_enforce_autoads_only', value: 'true', dataType: 'boolean' },
+      { key: 'openclaw_strategy_max_offers_per_run', value: '3', dataType: 'number' },
+      { key: 'openclaw_strategy_default_budget', value: '20', dataType: 'number' },
+      { key: 'openclaw_strategy_max_cpc', value: '1.2', dataType: 'number' },
+      { key: 'openclaw_strategy_min_cpc', value: '0.1', dataType: 'number' },
+      { key: 'openclaw_strategy_daily_budget_cap', value: '1000', dataType: 'number' },
+      { key: 'openclaw_strategy_daily_spend_cap', value: '100', dataType: 'number' },
+      { key: 'openclaw_strategy_target_roas', value: '1', dataType: 'number' },
+      { key: 'openclaw_strategy_priority_asins', value: '[]', dataType: 'json' },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        updates: [
+          { key: 'openclaw_strategy_enabled', value: 'true' },
+          { key: 'openclaw_strategy_cron', value: '0 */6 * * *' },
+          { key: 'openclaw_strategy_ads_account_ids', value: '[123456789,987654321]' },
+          { key: 'openclaw_strategy_enforce_autoads_only', value: 'true' },
+          { key: 'openclaw_strategy_max_offers_per_run', value: '6' },
+          { key: 'openclaw_strategy_default_budget', value: '40' },
+          { key: 'openclaw_strategy_max_cpc', value: '1.8' },
+          { key: 'openclaw_strategy_min_cpc', value: '0.2' },
+          { key: 'openclaw_strategy_daily_budget_cap', value: '1000' },
+          { key: 'openclaw_strategy_daily_spend_cap', value: '100' },
+          { key: 'openclaw_strategy_target_roas', value: '0.8' },
+          { key: 'openclaw_strategy_priority_asins', value: '["B08N5WRWNW"]' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(settingsFns.updateSettings).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { category: 'openclaw', key: 'openclaw_strategy_enabled', value: 'true' },
+        { category: 'openclaw', key: 'openclaw_strategy_cron', value: '0 */6 * * *' },
+        { category: 'openclaw', key: 'openclaw_strategy_ads_account_ids', value: '[123456789,987654321]' },
+      ]),
+      9
+    )
+    expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({
+      reason: 'openclaw-user-settings-nonsync',
+      actorUserId: 9,
+    })
+  })
+
 })
