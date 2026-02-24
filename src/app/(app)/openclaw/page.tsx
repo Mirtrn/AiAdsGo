@@ -899,6 +899,8 @@ const formatCountdown = (ms?: number | null) => {
 }
 
 const formatNumber = (value: unknown, digits = 2): string => {
+  if (value === null || value === undefined) return '--'
+  if (typeof value === 'string' && value.trim() === '') return '--'
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return '--'
   return parsed.toFixed(digits)

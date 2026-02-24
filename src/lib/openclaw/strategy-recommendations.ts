@@ -618,6 +618,36 @@ function extractCampaignConfigKeywordSet(campaignConfig: unknown): Set<string> {
   return keywordSet
 }
 
+function resolveCampaignConfigMaxCpc(campaignConfig: unknown): number | null {
+  const config = safeParseObject(campaignConfig)
+  const candidates = [
+    config.maxCpcBid,
+    config.max_cpc_bid,
+    config.maxCpc,
+    config.max_cpc,
+  ]
+  for (const candidate of candidates) {
+    const parsed = Number(candidate)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return roundTo2(parsed)
+    }
+  }
+  return null
+}
+
+function resolveCampaignCurrentCpc(campaign: CampaignRow): number | null {
+  const directCpc = Number(campaign.max_cpc)
+  if (
+    campaign.max_cpc !== null
+    && campaign.max_cpc !== undefined
+    && Number.isFinite(directCpc)
+    && directCpc > 0
+  ) {
+    return roundTo2(directCpc)
+  }
+  return resolveCampaignConfigMaxCpc(campaign.campaign_config)
+}
+
 function patchExpandKeywordsSummaryCoverage(summary: string | null, keywordCoverageCount: number): string | null {
   if (!summary) return summary
   if (!Number.isFinite(keywordCoverageCount) || keywordCoverageCount < 0) return summary
@@ -1225,9 +1255,7 @@ function buildRecommendationDrafts(params: {
     const recommendedCpc = commissionPerConversion
       ? roundTo2(Math.max(0.01, commissionPerConversion / CPC_RECOMMENDED_DIVISOR))
       : null
-    const currentCpc = campaign.max_cpc !== null && campaign.max_cpc !== undefined
-      ? roundTo2(Number(campaign.max_cpc))
-      : null
+    const currentCpc = resolveCampaignCurrentCpc(campaign)
     const currentBudget =
       campaign.budget_amount !== null && campaign.budget_amount !== undefined
         ? roundTo2(toNumber(campaign.budget_amount, 0))

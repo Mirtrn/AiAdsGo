@@ -101,7 +101,7 @@ function createMockDb() {
     }),
     exec: vi.fn(async (sql: string, params: any[]) => {
       if (sql.includes('INSERT INTO campaigns')) {
-        insertedCampaignConfig = JSON.parse(String(params[7] || '{}'))
+        insertedCampaignConfig = JSON.parse(String(params[8] || '{}'))
         return { changes: 1, lastInsertRowid: 1970 }
       }
       return { changes: 1, lastInsertRowid: 1 }

@@ -1124,6 +1124,10 @@ export async function POST(request: NextRequest) {
       }
       const normalizedBudgetType =
         (normalizedCampaignConfig as Record<string, any>).budgetType ?? _campaignConfig.budgetType
+      const normalizedMaxCpc = Number((normalizedCampaignConfig as Record<string, any>).maxCpcBid)
+      const persistedMaxCpc = Number.isFinite(normalizedMaxCpc) && normalizedMaxCpc > 0
+        ? normalizedMaxCpc
+        : null
       const namingWithOverrides = {
         ...naming,
         campaignName: resolvedCampaignName,
@@ -1142,6 +1146,7 @@ export async function POST(request: NextRequest) {
           campaign_name,
           budget_amount,
           budget_type,
+          max_cpc,
           status,
           creation_status,
           ad_creative_id,
@@ -1152,7 +1157,7 @@ export async function POST(request: NextRequest) {
           traffic_allocation,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'PAUSED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PAUSED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         userId,
         _offerId,
@@ -1160,6 +1165,7 @@ export async function POST(request: NextRequest) {
         resolvedCampaignName,  // 🔥 使用用户配置或规范化的Campaign名称
         variantBudget,
         normalizedBudgetType,
+        persistedMaxCpc,
         creative.id,
         JSON.stringify(normalizedCampaignConfig),
         _pauseOldCampaigns ? 1 : 0,

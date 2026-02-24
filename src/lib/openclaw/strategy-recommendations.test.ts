@@ -75,6 +75,32 @@ describe('openclaw strategy recommendations rules', () => {
     expect(cpcRec?.data.impactConfidence).toBe('low')
   })
 
+  it('uses campaign_config.maxCpcBid as currentCpc fallback when max_cpc is null', () => {
+    const drafts = __testUtils.buildRecommendationDrafts({
+      campaigns: [makeCampaign({
+        id: 113,
+        max_cpc: null,
+        campaign_config: JSON.stringify({
+          maxCpcBid: 0.9,
+        }),
+        created_at: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      })],
+      perf7dByCampaign: new Map([[113, { impressions: 1200, clicks: 120, cost: 108 }]]),
+      perfTotalByCampaign: new Map([[113, { impressions: 1800, clicks: 180, cost: 162 }]]),
+      commissionByCampaign: new Map([[113, 42]]),
+      keywordsByCampaign: new Map([[113, new Set(['dreo'])]]),
+      keywordIdeasByOffer: new Map(),
+      creativeById: new Map(),
+    })
+
+    const cpcRec = drafts.find((item) => item.recommendationType === 'adjust_cpc')
+    expect(cpcRec).toBeTruthy()
+    expect(cpcRec?.data.currentCpc).toBe(0.9)
+    expect(cpcRec?.data.cpcAdjustmentDirection).toBe('lower')
+    expect(cpcRec?.reason).toContain('当前CPC 0.90 高于建议CPC')
+  })
+
   it('includes offline recommendation when runDays > 7 and no impressions/clicks', () => {
     const drafts = __testUtils.buildRecommendationDrafts({
       campaigns: [makeCampaign({ id: 103, max_cpc: 0.6 })],
