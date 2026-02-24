@@ -198,6 +198,17 @@ type StrategyBatchFailure = {
   message: string
 }
 
+type StrategyConfirmTone = 'info' | 'warning' | 'danger'
+
+type StrategyConfirmRequest = {
+  title: string
+  description: string
+  details?: string[]
+  confirmLabel?: string
+  tone?: StrategyConfirmTone
+  acknowledgeLabel?: string
+}
+
 type StrategyStatusResponse = {
   success: boolean
   run: any | null
@@ -573,13 +584,29 @@ const STRATEGY_MINIMAL_USER_KEYS = [
   'openclaw_strategy_enforce_autoads_only',
 ] as const
 
+const STRATEGY_ADVANCED_USER_KEYS = [
+  'openclaw_strategy_max_offers_per_run',
+  'openclaw_strategy_default_budget',
+  'openclaw_strategy_max_cpc',
+  'openclaw_strategy_min_cpc',
+  'openclaw_strategy_daily_budget_cap',
+  'openclaw_strategy_daily_spend_cap',
+  'openclaw_strategy_target_roas',
+  'openclaw_strategy_priority_asins',
+  'openclaw_strategy_enable_auto_publish',
+  'openclaw_strategy_enable_auto_pause',
+  'openclaw_strategy_enable_auto_adjust_cpc',
+  'openclaw_strategy_allow_affiliate_fetch',
+  'openclaw_strategy_dry_run',
+] as const
+
 const FEISHU_CHAT_USER_KEYS = [...FEISHU_CHAT_MINIMAL_USER_KEYS, ...FEISHU_CHAT_COMMUNICATION_USER_KEYS] as const
 const AFFILIATE_USER_KEYS = [
   ...AFFILIATE_MINIMAL_USER_KEYS,
   'partnerboost_base_url',
   ...AFFILIATE_SYNC_USER_KEYS,
 ] as const
-const STRATEGY_USER_KEYS = STRATEGY_MINIMAL_USER_KEYS
+const STRATEGY_USER_KEYS = [...STRATEGY_MINIMAL_USER_KEYS, ...STRATEGY_ADVANCED_USER_KEYS] as const
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
@@ -599,7 +626,7 @@ const USER_KEYS = new Set([
   'partnerboost_products_filter_sexual_wellness',
   'partnerboost_link_return_partnerboost_link',
   ...FEISHU_CHAT_USER_KEYS,
-  ...STRATEGY_MINIMAL_USER_KEYS,
+  ...STRATEGY_USER_KEYS,
 ])
 
 const USER_DEFAULT_VALUES: Record<string, string> = {
@@ -614,6 +641,20 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   openclaw_strategy_enabled: 'false',
   openclaw_strategy_cron: '0 9 * * *',
   openclaw_strategy_ads_account_ids: '[]',
+  openclaw_strategy_max_offers_per_run: '3',
+  openclaw_strategy_default_budget: '20',
+  openclaw_strategy_max_cpc: '1.2',
+  openclaw_strategy_min_cpc: '0.1',
+  openclaw_strategy_daily_budget_cap: '1000',
+  openclaw_strategy_daily_spend_cap: '100',
+  openclaw_strategy_target_roas: '1',
+  openclaw_strategy_priority_asins: '[]',
+  openclaw_strategy_enable_auto_publish: 'true',
+  openclaw_strategy_enable_auto_pause: 'true',
+  openclaw_strategy_enable_auto_adjust_cpc: 'true',
+  openclaw_strategy_allow_affiliate_fetch: 'true',
+  openclaw_strategy_enforce_autoads_only: 'true',
+  openclaw_strategy_dry_run: 'false',
 }
 
 const parseLocalDate = (value?: string | null) => {
@@ -663,60 +704,133 @@ function parseFeishuVerifyTarget(input?: string | null): {
   return null
 }
 
-const normalizeStrategyAccountId = (value: unknown): number | string | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  if (/^-?\d+$/.test(trimmed)) {
-    const parsed = Number(trimmed)
-    return Number.isSafeInteger(parsed) ? parsed : trimmed
-  }
-  return trimmed
-}
-
-const formatStrategyAccountIdsForDraft = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (!Array.isArray(parsed)) return value
-    return parsed
-      .map((item) => normalizeStrategyAccountId(item))
-      .filter((item): item is number | string => item !== null)
-      .map((item) => String(item))
-      .join('\n')
-  } catch {
+const normalizeStrategyAccountId = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value <= 0) return null
     return value
   }
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || !/^\d+$/.test(trimmed)) return null
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
-const normalizeStrategyAccountIdsForStorage = (value: string): string | null => {
+const normalizeStrategyPriorityAsin = (value: unknown): string | null => {
+  const normalized = String(value || '').trim().toUpperCase()
+  if (!normalized) return null
+  return /^[A-Z0-9_-]{4,20}$/.test(normalized) ? normalized : null
+}
+
+const parseStrategyIntegerList = (value: string): { values: number[]; invalidCount: number } | null => {
   const trimmed = value.trim()
-  if (!trimmed) return '[]'
+  if (!trimmed) return { values: [], invalidCount: 0 }
+
+  const deduped = new Set<number>()
+  let invalidCount = 0
+  let rawEntries: unknown[] = []
 
   if (/^[\[{]/.test(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed)
       if (!Array.isArray(parsed)) return null
-      const normalized = parsed
-        .map((item) => normalizeStrategyAccountId(item))
-        .filter((item): item is number | string => item !== null)
-      return JSON.stringify(normalized)
+      rawEntries = parsed
     } catch {
       return null
     }
+  } else {
+    rawEntries = trimmed
+      .split(/[\n,，]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
   }
 
-  const normalized = trimmed
-    .split(/[\n,，]/)
-    .map((item) => normalizeStrategyAccountId(item))
-    .filter((item): item is number | string => item !== null)
+  for (const entry of rawEntries) {
+    if (typeof entry === 'string' && entry.trim() === '') continue
+    const normalized = normalizeStrategyAccountId(entry)
+    if (normalized === null) {
+      invalidCount += 1
+      continue
+    }
+    deduped.add(normalized)
+  }
 
-  return JSON.stringify(normalized)
+  return {
+    values: Array.from(deduped),
+    invalidCount,
+  }
 }
 
-// minimal mode only: advanced priority ASIN helpers removed
+const parseStrategyAsinList = (value: string): { values: string[]; invalidCount: number } | null => {
+  const trimmed = value.trim()
+  if (!trimmed) return { values: [], invalidCount: 0 }
+
+  const deduped = new Set<string>()
+  let invalidCount = 0
+  let rawEntries: unknown[] = []
+
+  if (/^[\[{]/.test(trimmed)) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!Array.isArray(parsed)) return null
+      rawEntries = parsed
+    } catch {
+      return null
+    }
+  } else {
+    rawEntries = trimmed
+      .split(/[\n,，\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  for (const entry of rawEntries) {
+    if (typeof entry === 'string' && entry.trim() === '') continue
+    const normalized = normalizeStrategyPriorityAsin(entry)
+    if (!normalized) {
+      invalidCount += 1
+      continue
+    }
+    deduped.add(normalized)
+  }
+
+  return {
+    values: Array.from(deduped),
+    invalidCount,
+  }
+}
+
+const formatStrategyAccountIdsForDraft = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const parsed = parseStrategyIntegerList(trimmed)
+  if (!parsed || parsed.invalidCount > 0) {
+    return value
+  }
+  return parsed.values.map((item) => String(item)).join('\n')
+}
+
+const normalizeStrategyAccountIdsForStorage = (value: string): string | null => {
+  const parsed = parseStrategyIntegerList(value)
+  if (!parsed || parsed.invalidCount > 0) return null
+  return JSON.stringify(parsed.values)
+}
+
+const formatStrategyPriorityAsinsForDraft = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const parsed = parseStrategyAsinList(trimmed)
+  if (!parsed || parsed.invalidCount > 0) {
+    return value
+  }
+  return parsed.values.join('\n')
+}
+
+const normalizeStrategyPriorityAsinsForStorage = (value: string): string | null => {
+  const parsed = parseStrategyAsinList(value)
+  if (!parsed || parsed.invalidCount > 0) return null
+  return JSON.stringify(parsed.values)
+}
 
 const resolveStrategyCronPreset = (cron: string) => {
   const normalized = cron.trim().replace(/\s+/g, ' ')
@@ -726,7 +840,9 @@ const resolveStrategyCronPreset = (cron: string) => {
 
 const isLikelyCronExpression = (value: string) => {
   const parts = value.trim().split(/\s+/)
-  return parts.length === 5 && parts.every(Boolean)
+  if (parts.length !== 5) return false
+  const partPattern = /^(\*|\*\/\d+|\d+(?:-\d+)?(?:\/\d+)?|\d+(?:,\d+)+)$/
+  return parts.every((part) => partPattern.test(part))
 }
 
 const formatTimestamp = (value?: number | string | null) => {
@@ -811,6 +927,16 @@ const resolveStrategyRecommendationTypeLabel = (type: OpenclawStrategyRecommenda
   if (type === 'add_negative_keywords') return '新增否词'
   if (type === 'optimize_match_type') return '匹配类型优化'
   return type
+}
+
+const resolveStrategyRecommendationTypeTone = (type: OpenclawStrategyRecommendation['recommendationType']): string => {
+  if (type === 'offline_campaign') return 'border-rose-200 bg-rose-50 text-rose-700'
+  if (type === 'adjust_budget') return 'border-sky-200 bg-sky-50 text-sky-700'
+  if (type === 'adjust_cpc') return 'border-indigo-200 bg-indigo-50 text-indigo-700'
+  if (type === 'expand_keywords') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (type === 'add_negative_keywords') return 'border-amber-200 bg-amber-50 text-amber-700'
+  if (type === 'optimize_match_type') return 'border-teal-200 bg-teal-50 text-teal-700'
+  return 'border-slate-200 bg-slate-50 text-slate-700'
 }
 
 const resolveStrategyRecommendationStatusBadge = (status: OpenclawStrategyRecommendation['status']) => {
@@ -1005,9 +1131,13 @@ export default function OpenClawPage() {
   const [strategyRecommendationExecutingId, setStrategyRecommendationExecutingId] = useState<string | null>(null)
   const [strategyRecommendationDismissingId, setStrategyRecommendationDismissingId] = useState<string | null>(null)
   const [strategyRecommendationDetailItem, setStrategyRecommendationDetailItem] = useState<OpenclawStrategyRecommendation | null>(null)
+  const [strategyConfirmDialog, setStrategyConfirmDialog] = useState<StrategyConfirmRequest | null>(null)
+  const strategyConfirmResolverRef = useRef<((accepted: boolean) => void) | null>(null)
+  const [strategyConfirmAcknowledge, setStrategyConfirmAcknowledge] = useState(false)
   const [strategyPreset, setStrategyPreset] = useState('balanced')
   const [strategyCronPreset, setStrategyCronPreset] = useState('daily_morning')
   const [strategyAccountIdsDraft, setStrategyAccountIdsDraft] = useState('')
+  const [strategyPriorityAsinsDraft, setStrategyPriorityAsinsDraft] = useState('')
   const [feishuTestLoading, setFeishuTestLoading] = useState(false)
   const [feishuTestResult, setFeishuTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [feishuVerifyLoading, setFeishuVerifyLoading] = useState(false)
@@ -1016,6 +1146,7 @@ export default function OpenClawPage() {
   const [feishuVerifySession, setFeishuVerifySession] = useState<FeishuVerifySessionState | null>(null)
   const [feishuVerifyResult, setFeishuVerifyResult] = useState<FeishuVerifyResultState | null>(null)
   const [feishuVerifyNow, setFeishuVerifyNow] = useState<number>(Date.now())
+  const [showStrategyAdvanced, setShowStrategyAdvanced] = useState(false)
   const [showFeishuAdvanced, setShowFeishuAdvanced] = useState(false)
   const [aiJsonError, setAiJsonError] = useState<string | null>(null)
   const [feishuHealthLoading, setFeishuHealthLoading] = useState(false)
@@ -1038,12 +1169,67 @@ export default function OpenClawPage() {
   }, [userValues.openclaw_strategy_cron])
 
   useEffect(() => {
+    setStrategyPriorityAsinsDraft(formatStrategyPriorityAsinsForDraft(userValues.openclaw_strategy_priority_asins || ''))
+  }, [userValues.openclaw_strategy_priority_asins])
+
+  useEffect(() => {
     if (!feishuVerifySession) return
     const timer = window.setInterval(() => {
       setFeishuVerifyNow(Date.now())
     }, 1000)
     return () => window.clearInterval(timer)
   }, [feishuVerifySession])
+
+  const resolveStrategyConfirmToneClasses = useCallback((tone?: StrategyConfirmTone) => {
+    if (tone === 'danger') {
+      return {
+        panel: 'border-red-200 bg-red-50 text-red-900',
+        detail: 'text-red-700',
+        confirm: 'destructive' as const,
+      }
+    }
+    if (tone === 'warning') {
+      return {
+        panel: 'border-amber-200 bg-amber-50 text-amber-900',
+        detail: 'text-amber-700',
+        confirm: 'default' as const,
+      }
+    }
+    return {
+      panel: 'border-sky-200 bg-sky-50 text-sky-900',
+      detail: 'text-sky-700',
+      confirm: 'default' as const,
+    }
+  }, [])
+
+  const closeStrategyConfirmDialog = useCallback((accepted: boolean) => {
+    const resolver = strategyConfirmResolverRef.current
+    strategyConfirmResolverRef.current = null
+    setStrategyConfirmDialog(null)
+    setStrategyConfirmAcknowledge(false)
+    resolver?.(accepted)
+  }, [])
+
+  const requestStrategyConfirm = useCallback((request: StrategyConfirmRequest) => {
+    if (strategyConfirmResolverRef.current) {
+      strategyConfirmResolverRef.current(false)
+      strategyConfirmResolverRef.current = null
+    }
+    setStrategyConfirmAcknowledge(false)
+    setStrategyConfirmDialog(request)
+    return new Promise<boolean>((resolve) => {
+      strategyConfirmResolverRef.current = resolve
+    })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (strategyConfirmResolverRef.current) {
+        strategyConfirmResolverRef.current(false)
+        strategyConfirmResolverRef.current = null
+      }
+    }
+  }, [])
 
   const loadFeishuHealthData = useCallback(async (silent: boolean = false) => {
     if (settings?.isAdmin !== true) return
@@ -1517,17 +1703,100 @@ export default function OpenClawPage() {
     const selectedKeySet = keys && keys.length > 0 ? new Set(keys) : null
 
     if (scope === 'user') {
-      const needsStrategyAccountNormalization = !keys || keys.length === 0 || keys.includes('openclaw_strategy_ads_account_ids')
-      if (needsStrategyAccountNormalization) {
+      const isSavingStrategySettings = !selectedKeySet || STRATEGY_USER_KEYS.some((key) => selectedKeySet.has(key))
+      if (isSavingStrategySettings) {
         const normalizedAccountIds = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
         if (normalizedAccountIds === null) {
-          toast.error('Ads账号ID格式错误，请输入逗号/换行分隔的ID，或合法JSON数组')
+          toast.error('Ads账号ID格式错误，仅支持正整数（逗号/换行分隔或JSON数组）')
+          return
+        }
+        if (!validateJsonArrayField(normalizedAccountIds, 'Ads账号ID列表')) return
+
+        const normalizedPriorityAsins = normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
+        if (normalizedPriorityAsins === null) {
+          toast.error('优先ASIN格式错误，请输入逗号/换行分隔，或合法JSON数组')
+          return
+        }
+        if (!validateJsonArrayField(normalizedPriorityAsins, '优先ASIN列表')) return
+
+        const cronValue = String(normalizedUserValues.openclaw_strategy_cron || '').trim() || USER_DEFAULT_VALUES.openclaw_strategy_cron
+        if (!isLikelyCronExpression(cronValue)) {
+          toast.error('Cron 表达式格式错误，请输入 5 段表达式（例如：0 9 * * *）')
           return
         }
 
-        if (!validateJsonArrayField(normalizedAccountIds, 'Ads账号ID列表')) return
-        normalizedUserValues.openclaw_strategy_ads_account_ids = normalizedAccountIds
-        setUserValues(prev => ({ ...prev, openclaw_strategy_ads_account_ids: normalizedAccountIds }))
+        const numberRules: Array<{
+          key: keyof typeof USER_DEFAULT_VALUES
+          label: string
+          min: number
+          max: number
+          integer?: boolean
+        }> = [
+          { key: 'openclaw_strategy_max_offers_per_run', label: '每轮最大Offer数', min: 1, max: 50, integer: true },
+          { key: 'openclaw_strategy_default_budget', label: '默认预算', min: 0.01, max: 1000 },
+          { key: 'openclaw_strategy_max_cpc', label: '最大CPC', min: 0.01, max: 20 },
+          { key: 'openclaw_strategy_min_cpc', label: '最小CPC', min: 0.01, max: 20 },
+          { key: 'openclaw_strategy_daily_budget_cap', label: '日预算上限', min: 1, max: 1000 },
+          { key: 'openclaw_strategy_daily_spend_cap', label: '日花费上限', min: 1, max: 100 },
+          { key: 'openclaw_strategy_target_roas', label: '目标ROAS', min: 0.1, max: 20 },
+        ]
+
+        const strategyNormalizedPatch: Record<string, string> = {
+          openclaw_strategy_ads_account_ids: normalizedAccountIds,
+          openclaw_strategy_priority_asins: normalizedPriorityAsins,
+          openclaw_strategy_cron: cronValue,
+          openclaw_strategy_enable_auto_publish: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_publish, true) ? 'true' : 'false',
+          openclaw_strategy_enable_auto_pause: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_pause, true) ? 'true' : 'false',
+          openclaw_strategy_enable_auto_adjust_cpc: isTruthy(normalizedUserValues.openclaw_strategy_enable_auto_adjust_cpc, true) ? 'true' : 'false',
+          openclaw_strategy_allow_affiliate_fetch: isTruthy(normalizedUserValues.openclaw_strategy_allow_affiliate_fetch, true) ? 'true' : 'false',
+          openclaw_strategy_dry_run: isTruthy(normalizedUserValues.openclaw_strategy_dry_run, false) ? 'true' : 'false',
+          [AUTOADS_ONLY_SETTING_KEY]: 'true',
+        }
+
+        for (const rule of numberRules) {
+          const rawValue = String(normalizedUserValues[rule.key] || USER_DEFAULT_VALUES[rule.key]).trim()
+          const parsed = Number(rawValue)
+          if (!Number.isFinite(parsed)) {
+            toast.error(`${rule.label}必须是数字`)
+            return
+          }
+          const normalized = rule.integer ? Math.floor(parsed) : parsed
+          if (normalized < rule.min || normalized > rule.max) {
+            toast.error(`${rule.label}需在 ${rule.min} ~ ${rule.max} 之间`)
+            return
+          }
+          strategyNormalizedPatch[rule.key] = String(normalized)
+        }
+
+        const minCpc = Number(strategyNormalizedPatch.openclaw_strategy_min_cpc)
+        const maxCpc = Number(strategyNormalizedPatch.openclaw_strategy_max_cpc)
+        if (minCpc > maxCpc) {
+          toast.error('最小CPC不能大于最大CPC')
+          return
+        }
+
+        const dailyBudgetCap = Number(strategyNormalizedPatch.openclaw_strategy_daily_budget_cap)
+        const dailySpendCap = Number(strategyNormalizedPatch.openclaw_strategy_daily_spend_cap)
+        const defaultBudget = Number(strategyNormalizedPatch.openclaw_strategy_default_budget)
+        if (defaultBudget > Math.min(dailyBudgetCap, dailySpendCap)) {
+          toast.error('默认预算不能超过日预算上限和日花费上限')
+          return
+        }
+
+        const enabled = isTruthy(normalizedUserValues.openclaw_strategy_enabled, false)
+        strategyNormalizedPatch.openclaw_strategy_enabled = enabled ? 'true' : 'false'
+
+        const accountIds = JSON.parse(normalizedAccountIds) as unknown[]
+        if (enabled && accountIds.length === 0) {
+          toast.error('启用策略时至少需要配置一个 Ads 账号ID')
+          return
+        }
+
+        Object.assign(normalizedUserValues, strategyNormalizedPatch)
+        setUserValues((prev) => ({
+          ...prev,
+          ...strategyNormalizedPatch,
+        }))
       }
 
       const isSavingFeishuSettings = !selectedKeySet || FEISHU_CHAT_USER_KEYS.some((key) => selectedKeySet.has(key))
@@ -1680,34 +1949,27 @@ export default function OpenClawPage() {
     }
   }
 
-  const applyStrategyExample = () => {
-    setStrategyPreset('balanced')
-    const exampleValues: Record<string, string> = {
-      openclaw_strategy_enabled: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_enabled,
-      openclaw_strategy_cron: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_cron,
-      openclaw_strategy_ads_account_ids: STRATEGY_EXAMPLE_VALUES.openclaw_strategy_ads_account_ids,
-      openclaw_strategy_enforce_autoads_only: 'true',
+  const applyStrategyValues = (values: Record<string, string>) => {
+    const nextValues = {
+      ...values,
+      [AUTOADS_ONLY_SETTING_KEY]: 'true',
     }
     setUserValues(prev => ({
       ...prev,
-      ...exampleValues,
+      ...nextValues,
     }))
+  }
+
+  const applyStrategyExample = () => {
+    setStrategyPreset('balanced')
+    applyStrategyValues(STRATEGY_EXAMPLE_VALUES)
   }
 
   const applyStrategyPreset = (presetId: string) => {
     setStrategyPreset(presetId)
     const preset = STRATEGY_PRESET_OPTIONS.find(option => option.id === presetId)
     if (!preset) return
-    const presetValues: Record<string, string> = {
-      openclaw_strategy_enabled: preset.values.openclaw_strategy_enabled,
-      openclaw_strategy_cron: preset.values.openclaw_strategy_cron,
-      openclaw_strategy_ads_account_ids: preset.values.openclaw_strategy_ads_account_ids,
-      openclaw_strategy_enforce_autoads_only: 'true',
-    }
-    setUserValues(prev => ({
-      ...prev,
-      ...presetValues,
-    }))
+    applyStrategyValues(preset.values)
   }
 
   const handleStrategyCronPresetChange = (presetId: string) => {
@@ -1733,6 +1995,14 @@ export default function OpenClawPage() {
     const normalized = normalizeStrategyAccountIdsForStorage(value)
     if (normalized !== null) {
       setUserValue('openclaw_strategy_ads_account_ids', normalized)
+    }
+  }
+
+  const handleStrategyPriorityAsinsDraftChange = (value: string) => {
+    setStrategyPriorityAsinsDraft(value)
+    const normalized = normalizeStrategyPriorityAsinsForStorage(value)
+    if (normalized !== null) {
+      setUserValue('openclaw_strategy_priority_asins', normalized)
     }
   }
 
@@ -1959,10 +2229,18 @@ export default function OpenClawPage() {
       (item) => item.status === 'approved' || item.status === 'failed' || item.status === 'stale'
     )
     if (hasReviewState) {
-      const confirmMessage = strategyAnalyzeSendFeishu
-        ? '重新分析会重新计算建议，并可能将历史审批结果标记为待重审，同时发送 Feishu 报告。是否继续？'
-        : '重新分析会重新计算建议，并可能将历史审批结果标记为待重审。是否继续？'
-      const confirmed = window.confirm(confirmMessage)
+      const confirmed = await requestStrategyConfirm({
+        title: '确认重新分析',
+        description: strategyAnalyzeSendFeishu
+          ? '将重算当前日期建议，历史审批结果可能被标记为待重审，并同时发送 Feishu 报告。'
+          : '将重算当前日期建议，历史审批结果可能被标记为待重审。',
+        details: [
+          `策略建议日期：${targetDate}`,
+          strategyAnalyzeSendFeishu ? '报告投递：Feishu 已开启' : '报告投递：仅更新页面建议',
+        ],
+        confirmLabel: '继续分析',
+        tone: 'warning',
+      })
       if (!confirmed) return
     }
     setStrategyManualTriggering(true)
@@ -2016,11 +2294,24 @@ export default function OpenClawPage() {
     }
   }
 
-  const handleApproveStrategyRecommendation = async (recommendationId: string) => {
-    if (!recommendationId) return
-    setStrategyRecommendationApprovingId(recommendationId)
+  const handleApproveStrategyRecommendation = async (recommendation: OpenclawStrategyRecommendation) => {
+    if (!recommendation?.id) return
+    const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
+    const typeLabel = resolveStrategyRecommendationTypeLabel(recommendation.recommendationType)
+    const confirmed = await requestStrategyConfirm({
+      title: `确认审批「${typeLabel}」`,
+      description: '审批后该建议将进入可执行状态，可随时执行或继续忽略。',
+      details: [
+        `目标：${campaignName}`,
+        `建议ID：${recommendation.id}`,
+      ],
+      confirmLabel: '确认审批',
+      tone: 'info',
+    })
+    if (!confirmed) return
+    setStrategyRecommendationApprovingId(recommendation.id)
     try {
-      await requestStrategyRecommendationAction(recommendationId, 'approve')
+      await requestStrategyRecommendationAction(recommendation.id, 'approve')
       toast.success('建议已审批')
       await loadStrategyRecommendations({ refresh: false, silent: true, date: reportDate })
     } catch (error: any) {
@@ -2043,10 +2334,18 @@ export default function OpenClawPage() {
 
     const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
     const typeLabel = resolveStrategyRecommendationTypeLabel(recommendation.recommendationType)
-    const firstConfirm = window.confirm(`确认执行「${typeLabel}」？\n目标：${campaignName}`)
-    if (!firstConfirm) return
-    const secondConfirm = window.confirm('请再次确认：执行后将直接写入 AutoAds / Google Ads。')
-    if (!secondConfirm) return
+    const confirmed = await requestStrategyConfirm({
+      title: `确认执行「${typeLabel}」`,
+      description: '执行后将直接写入 AutoAds / Google Ads，请确认当前建议已完成业务复核。',
+      details: [
+        `目标：${campaignName}`,
+        `建议ID：${recommendation.id}`,
+      ],
+      acknowledgeLabel: '我已确认：执行后将直接落地到投放系统',
+      confirmLabel: '确认执行',
+      tone: 'danger',
+    })
+    if (!confirmed) return
 
     setStrategyRecommendationExecutingId(recommendation.id)
     try {
@@ -2073,7 +2372,16 @@ export default function OpenClawPage() {
       return
     }
     const campaignName = recommendation.data?.campaignName || `Campaign #${recommendation.campaignId}`
-    const confirmed = window.confirm(`确认忽略该建议？\n目标：${campaignName}`)
+    const confirmed = await requestStrategyConfirm({
+      title: '确认忽略该建议',
+      description: '忽略后该建议将不进入执行队列，可在后续重新分析后再次处理。',
+      details: [
+        `目标：${campaignName}`,
+        `建议ID：${recommendation.id}`,
+      ],
+      confirmLabel: '确认忽略',
+      tone: 'info',
+    })
     if (!confirmed) return
 
     setStrategyRecommendationDismissingId(recommendation.id)
@@ -2178,6 +2486,46 @@ export default function OpenClawPage() {
       return null
     }
   })()
+  const strategyRunConfig = (() => {
+    if (!strategyRunLatest?.config_json) return null
+    try {
+      const parsed = typeof strategyRunLatest.config_json === 'string'
+        ? JSON.parse(strategyRunLatest.config_json)
+        : strategyRunLatest.config_json
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null
+    } catch {
+      return null
+    }
+  })()
+  const strategyEffectiveConfig = (() => {
+    const fromStats = strategyStats?.effectiveConfig
+    const statsConfig = fromStats && typeof fromStats === 'object' && !Array.isArray(fromStats)
+      ? fromStats as Record<string, unknown>
+      : {}
+    const fallback = strategyRunConfig || {}
+    const maxOffersPerRun = Number(statsConfig.maxOffersPerRun ?? fallback.maxOffersPerRun)
+    const defaultBudget = Number(statsConfig.defaultBudget ?? fallback.defaultBudget)
+    const maxCpc = Number(statsConfig.maxCpc ?? fallback.maxCpc)
+    const minCpc = Number(fallback.minCpc)
+    const targetRoas = Number(fallback.targetRoas)
+    const dailyBudgetCap = Number(fallback.dailyBudgetCap)
+    const dailySpendCap = Number(fallback.dailySpendCap)
+    const mode = String(strategyRunLatest?.mode || '').trim() || null
+    const hasFiniteCore = Number.isFinite(maxOffersPerRun) || Number.isFinite(defaultBudget) || Number.isFinite(maxCpc)
+    if (!hasFiniteCore) return null
+    return {
+      maxOffersPerRun: Number.isFinite(maxOffersPerRun) ? maxOffersPerRun : null,
+      defaultBudget: Number.isFinite(defaultBudget) ? defaultBudget : null,
+      maxCpc: Number.isFinite(maxCpc) ? maxCpc : null,
+      minCpc: Number.isFinite(minCpc) ? minCpc : null,
+      targetRoas: Number.isFinite(targetRoas) ? targetRoas : null,
+      dailyBudgetCap: Number.isFinite(dailyBudgetCap) ? dailyBudgetCap : null,
+      dailySpendCap: Number.isFinite(dailySpendCap) ? dailySpendCap : null,
+      mode,
+    }
+  })()
   const strategyDisplayDate = String(strategyRecommendationsReportDate || reportDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyServerDateDisplay = String(strategyServerDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyDateNormalized = Boolean(strategyDisplayDate && reportDate && strategyDisplayDate !== reportDate)
@@ -2254,6 +2602,39 @@ export default function OpenClawPage() {
     return Array.from(bestByCampaign.values())
       .sort((a, b) => (Number(b.priorityScore) || 0) - (Number(a.priorityScore) || 0))
   }, [strategyRecommendationsDisplayMode, strategyRecommendationsFiltered])
+  const strategyRecommendationSummary = useMemo(() => {
+    const summary = {
+      total: strategyRecommendationsView.length,
+      pending: 0,
+      approved: 0,
+      executed: 0,
+      failed: 0,
+      dismissed: 0,
+      stale: 0,
+      actionable: 0,
+      queued: 0,
+      executable: 0,
+    }
+
+    for (const item of strategyRecommendationsView) {
+      if (item.status === 'pending') summary.pending += 1
+      if (item.status === 'approved') summary.approved += 1
+      if (item.status === 'executed') summary.executed += 1
+      if (item.status === 'failed') summary.failed += 1
+      if (item.status === 'dismissed') summary.dismissed += 1
+      if (item.status === 'stale') summary.stale += 1
+
+      if (item.status === 'pending' || item.status === 'approved' || item.status === 'stale') {
+        summary.actionable += 1
+      }
+
+      const queued = isStrategyRecommendationQueued(item)
+      if (queued) summary.queued += 1
+      if (item.status === 'approved' && !queued) summary.executable += 1
+    }
+
+    return summary
+  }, [strategyRecommendationsView])
   const strategyBatchActionPool = useMemo(
     () => (strategyBatchScope === 'filtered' ? strategyRecommendationsFiltered : strategyRecommendationsDisplay),
     [strategyBatchScope, strategyRecommendationsDisplay, strategyRecommendationsFiltered]
@@ -2394,17 +2775,46 @@ export default function OpenClawPage() {
       return
     }
 
-    if (action === 'execute') {
+    if (action === 'approve') {
+      const confirmed = await requestStrategyConfirm({
+        title: `确认批量审批 ${selectedRows.length} 条建议`,
+        description: '审批后这些建议将进入可执行状态，可后续统一执行或忽略。',
+        details: [
+          `范围：${scopeLabel}`,
+          `条目数：${selectedRows.length}`,
+        ],
+        confirmLabel: '确认批量审批',
+        tone: 'info',
+      })
+      if (!confirmed) return
+    } else if (action === 'execute') {
       if (strategyHistoricalReadOnly) {
         toast.error(`历史日期 ${strategyDisplayDate} 的建议仅支持查看，请切换到 ${strategyServerDateDisplay} 后执行`)
         return
       }
-      const firstConfirm = window.confirm(`确认批量执行 ${selectedRows.length} 条建议？\n范围：${scopeLabel}`)
-      if (!firstConfirm) return
-      const secondConfirm = window.confirm('请再次确认：批量执行后将直接写入 AutoAds / Google Ads。')
-      if (!secondConfirm) return
+      const confirmed = await requestStrategyConfirm({
+        title: `确认批量执行 ${selectedRows.length} 条建议`,
+        description: '批量执行将直接写入 AutoAds / Google Ads，请确认筛选范围和条目数量。',
+        details: [
+          `范围：${scopeLabel}`,
+          `条目数：${selectedRows.length}`,
+        ],
+        acknowledgeLabel: '我已确认：批量执行会直接落地到投放系统',
+        confirmLabel: '确认批量执行',
+        tone: 'danger',
+      })
+      if (!confirmed) return
     } else if (action === 'dismiss') {
-      const confirmed = window.confirm(`确认批量忽略 ${selectedRows.length} 条建议？\n范围：${scopeLabel}`)
+      const confirmed = await requestStrategyConfirm({
+        title: `确认批量忽略 ${selectedRows.length} 条建议`,
+        description: '忽略后这些建议将不会执行，可在后续重新分析后再次处理。',
+        details: [
+          `范围：${scopeLabel}`,
+          `条目数：${selectedRows.length}`,
+        ],
+        confirmLabel: '确认批量忽略',
+        tone: 'warning',
+      })
       if (!confirmed) return
     }
 
@@ -2614,6 +3024,7 @@ export default function OpenClawPage() {
   ] as const
   const setupCompletedCount = setupCards.filter(item => item.done).length
   const setupProgressPercent = Math.round((setupCompletedCount / setupCards.length) * 100)
+  const strategyEnabled = isTruthy(userValues.openclaw_strategy_enabled, false)
   const strategyCronValue = userValues.openclaw_strategy_cron || ''
   const strategyAccountIdsNormalized = normalizeStrategyAccountIdsForStorage(strategyAccountIdsDraft)
   const strategyAccountIdsCount = (() => {
@@ -2625,14 +3036,27 @@ export default function OpenClawPage() {
       return 0
     }
   })()
+  const strategyPriorityAsinsNormalized = normalizeStrategyPriorityAsinsForStorage(strategyPriorityAsinsDraft)
+  const strategyPriorityAsinsCount = (() => {
+    if (!strategyPriorityAsinsNormalized) return 0
+    try {
+      const parsed = JSON.parse(strategyPriorityAsinsNormalized)
+      return Array.isArray(parsed) ? parsed.length : 0
+    } catch {
+      return 0
+    }
+  })()
   const strategyCronHasError = Boolean(strategyCronValue.trim()) && !isLikelyCronExpression(strategyCronValue)
   const strategyAccountIdsHasError = strategyAccountIdsNormalized === null
+  const strategyPriorityAsinsHasError = strategyPriorityAsinsNormalized === null
+  const strategyAccountIdsRequiredError = strategyEnabled && !strategyAccountIdsHasError && strategyAccountIdsCount === 0
   const aiDirty = hasUserDirtyFields(AI_GLOBAL_EDIT_KEYS)
   const aiSectionDirty = canEditAiSettings && aiDirty
   const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
   const pendingCommandCount = pendingCommandRunsTotal
   const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_USER_KEYS)
+  const strategyAdvancedDirty = hasUserDirtyFields(STRATEGY_ADVANCED_USER_KEYS)
 
   const feishuHealthRows = feishuHealthData?.rows || []
   const feishuHealthStats = feishuHealthData?.stats || {
@@ -3975,7 +4399,7 @@ export default function OpenClawPage() {
                 策略配置
                 {strategyDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="策略配置未保存" />}
               </CardTitle>
-              <CardDescription>仅保留最小参数：启用、调度、Ads账号ID</CardDescription>
+              <CardDescription>最小参数 + 可选高级参数（预算、CPC、自动化开关）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -4062,14 +4486,132 @@ export default function OpenClawPage() {
                   rows={3}
                 />
                 <div className="flex items-center justify-between text-xs">
-                  <span className={strategyAccountIdsHasError ? 'text-red-600' : 'text-slate-500'}>
+                  <span className={strategyAccountIdsHasError || strategyAccountIdsRequiredError ? 'text-red-600' : 'text-slate-500'}>
                     {strategyAccountIdsHasError
-                      ? '账号ID格式错误，请用逗号/换行分隔，或输入JSON数组'
-                      : '支持逗号、换行或 JSON 数组输入，保存时自动标准化'}
+                      ? '账号ID格式错误，仅支持正整数；可用逗号/换行或 JSON 数组'
+                      : strategyAccountIdsRequiredError
+                        ? '策略已启用，至少需要填写 1 个 Ads 账号ID'
+                        : '支持逗号、换行或 JSON 数组输入，保存时自动标准化'}
                   </span>
                   <span className="text-slate-500">已识别 {strategyAccountIdsCount} 个账号</span>
                 </div>
               </div>
+
+              <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                <div className="text-xs text-slate-600">高级参数（预算、CPC、自动化开关）按需配置</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowStrategyAdvanced((prev) => !prev)}
+                >
+                  {showStrategyAdvanced ? '收起高级参数' : '展开高级参数'}
+                  {strategyAdvancedDirty ? ' *' : ''}
+                </Button>
+              </div>
+
+              {showStrategyAdvanced && (
+                <div className="rounded-md border px-4 py-3 space-y-4">
+                  <div className="text-sm font-medium">执行上限与成本控制</div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <InputWithLabel
+                      label="每轮最大Offer数"
+                      type="number"
+                      value={userValues.openclaw_strategy_max_offers_per_run || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_max_offers_per_run', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_max_offers_per_run}
+                    />
+                    <InputWithLabel
+                      label="默认预算"
+                      type="number"
+                      value={userValues.openclaw_strategy_default_budget || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_default_budget', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_default_budget}
+                    />
+                    <InputWithLabel
+                      label="目标ROAS"
+                      type="number"
+                      value={userValues.openclaw_strategy_target_roas || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_target_roas', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_target_roas}
+                    />
+                    <InputWithLabel
+                      label="最大CPC"
+                      type="number"
+                      value={userValues.openclaw_strategy_max_cpc || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_max_cpc', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_max_cpc}
+                    />
+                    <InputWithLabel
+                      label="最小CPC"
+                      type="number"
+                      value={userValues.openclaw_strategy_min_cpc || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_min_cpc', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_min_cpc}
+                    />
+                    <InputWithLabel
+                      label="日预算上限"
+                      type="number"
+                      value={userValues.openclaw_strategy_daily_budget_cap || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_daily_budget_cap', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_daily_budget_cap}
+                    />
+                    <InputWithLabel
+                      label="日花费上限"
+                      type="number"
+                      value={userValues.openclaw_strategy_daily_spend_cap || ''}
+                      onChange={(v) => setUserValue('openclaw_strategy_daily_spend_cap', v)}
+                      placeholder={STRATEGY_EXAMPLE_VALUES.openclaw_strategy_daily_spend_cap}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">优先ASIN列表（可选）</label>
+                    <Textarea
+                      value={strategyPriorityAsinsDraft}
+                      onChange={(e) => handleStrategyPriorityAsinsDraftChange(e.target.value)}
+                      placeholder={'B08N5WRWNW\nB0B9X6Z123 或 B08N5WRWNW,B0B9X6Z123'}
+                      rows={3}
+                    />
+                    <div className="flex items-center justify-between text-xs">
+                      <span className={strategyPriorityAsinsHasError ? 'text-red-600' : 'text-slate-500'}>
+                        {strategyPriorityAsinsHasError
+                          ? 'ASIN格式错误，仅支持字母/数字/下划线/中划线（4~20位）'
+                          : '支持逗号、空格、换行或 JSON 数组输入，保存时自动标准化'}
+                      </span>
+                      <span className="text-slate-500">已识别 {strategyPriorityAsinsCount} 个ASIN</span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SwitchWithLabel
+                      label="自动发布"
+                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_publish, true)}
+                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_publish', val ? 'true' : 'false')}
+                    />
+                    <SwitchWithLabel
+                      label="自动暂停冲突Campaign"
+                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_pause, true)}
+                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_pause', val ? 'true' : 'false')}
+                    />
+                    <SwitchWithLabel
+                      label="自动调整CPC"
+                      checked={isTruthy(userValues.openclaw_strategy_enable_auto_adjust_cpc, true)}
+                      onChange={(val) => setUserValue('openclaw_strategy_enable_auto_adjust_cpc', val ? 'true' : 'false')}
+                    />
+                    <SwitchWithLabel
+                      label="允许联盟补量"
+                      checked={isTruthy(userValues.openclaw_strategy_allow_affiliate_fetch, true)}
+                      onChange={(val) => setUserValue('openclaw_strategy_allow_affiliate_fetch', val ? 'true' : 'false')}
+                    />
+                    <SwitchWithLabel
+                      label="Dry Run（仅生成不发布）"
+                      checked={isTruthy(userValues.openclaw_strategy_dry_run, false)}
+                      onChange={(val) => setUserValue('openclaw_strategy_dry_run', val ? 'true' : 'false')}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <Button variant="outline" size="sm" onClick={applyStrategyExample}>
@@ -4085,425 +4627,501 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle>优化建议（按优先级分排序）</CardTitle>
-                <CardDescription>每日自动生成，先审批再执行，执行结果直接落地 AutoAds</CardDescription>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <span>分析后发送 Feishu</span>
-                  <Switch
-                    checked={strategyAnalyzeSendFeishu}
-                    onCheckedChange={(checked) => setStrategyAnalyzeSendFeishu(Boolean(checked))}
-                    disabled={strategyManualTriggering || strategyRecommendationsLoading || strategyRecommendationActionBusy}
-                  />
+          <Card className="overflow-hidden border-slate-200">
+            <CardHeader className="gap-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-sky-50/40">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-xl">优化建议（按优先级分排序）</CardTitle>
+                  <CardDescription>每日自动生成，先审批再执行，执行结果直接落地 AutoAds / Google Ads</CardDescription>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      建议日期：{strategyDisplayDate}
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                      服务端日期：{strategyServerDateDisplay}
+                    </span>
+                    {strategyDateNormalized && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                        已从 {reportDate} 归一到服务端日期
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={handleTriggerStrategyRecommendations}
-                  disabled={
-                    strategyManualTriggering
-                    || strategyRecommendationsLoading
-                    || strategyRecommendationActionBusy
-                  }
-                >
-                  {strategyManualTriggering ? '分析中...' : '重新分析'}
-                </Button>
+                <div className="flex w-full flex-col gap-3 rounded-xl border border-slate-200 bg-white/90 p-3 xl:w-auto xl:min-w-[280px]">
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span>分析后发送 Feishu</span>
+                    <Switch
+                      checked={strategyAnalyzeSendFeishu}
+                      onCheckedChange={(checked) => setStrategyAnalyzeSendFeishu(Boolean(checked))}
+                      disabled={strategyManualTriggering || strategyRecommendationsLoading || strategyRecommendationActionBusy}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleTriggerStrategyRecommendations}
+                    disabled={
+                      strategyManualTriggering
+                      || strategyRecommendationsLoading
+                      || strategyRecommendationActionBusy
+                    }
+                  >
+                    {strategyManualTriggering ? '分析中...' : '重新分析'}
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div className="text-xs text-slate-500">总建议</div>
+                  <div className="mt-1 text-2xl font-semibold text-slate-900">{strategyRecommendationSummary.total}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div className="text-xs text-slate-500">待处理（待审批/已审批/待重审）</div>
+                  <div className="mt-1 text-2xl font-semibold text-slate-900">{strategyRecommendationSummary.actionable}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div className="text-xs text-slate-500">排队执行中</div>
+                  <div className="mt-1 text-2xl font-semibold text-amber-700">{strategyRecommendationSummary.queued}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div className="text-xs text-slate-500">已审批可执行</div>
+                  <div className="mt-1 text-2xl font-semibold text-emerald-700">{strategyRecommendationSummary.executable}</div>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <div className="mb-1 font-medium text-slate-700">
-                  策略建议日期：{strategyDisplayDate}
-                  {strategyDateNormalized ? `（服务端已从 ${reportDate} 归一）` : ''}
-                  {`｜服务端当前日期：${strategyServerDateDisplay}`}
+            <CardContent className="space-y-4 p-4 md:p-6">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div>下线建议默认执行：删除 Google Ads Campaign + 暂停补点击任务 + 暂停换链接任务。</div>
+                  <div>重新分析会重算建议；开启“分析后发送 Feishu”时，会同时入队发送最新报告。</div>
+                  <div>佣金口径：仅按 Offer/Campaign 级联盟佣金统计，不做关键词级佣金归因。</div>
+                  <div>优先级口径：优先级分用于排序；净影响为估算值，含低/中/高置信度。</div>
                 </div>
-                下线建议默认执行：删除 Google Ads Campaign + 暂停补点击任务 + 暂停换链接任务。
-                重新分析会重算建议；开启“分析后发送 Feishu”时，会同时入队发送最新报告。
-                佣金口径说明：仅按 Offer/Campaign 级联盟佣金统计，不做关键词级佣金归因。
-                优先级口径说明：优先级分用于排序；净影响为估算值，已展示低/中/高置信度。
-                刷新建议会重新计算规则，历史审批建议可能被标记为“待重审”。
+                <div className="mt-2 text-slate-500">刷新建议会重新计算规则，历史审批建议可能被标记为“待重审”。</div>
                 {strategyHistoricalReadOnly && (
-                  <div className="mt-1 text-amber-700">历史日期仅支持查看，不支持重新分析与执行。</div>
+                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                    历史日期仅支持查看，不支持重新分析与执行。
+                  </div>
                 )}
                 {hasQueuedStrategyRecommendations && (
-                  <div className="mt-1 text-amber-700">检测到执行队列任务，建议列表每15秒自动刷新一次。</div>
+                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                    检测到执行队列任务，建议列表每 15 秒自动刷新一次。
+                  </div>
                 )}
                 {unknownQueueTaskCount > 0 && (
-                  <div className="mt-1 text-amber-700">
+                  <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
                     {unknownQueueTaskCount} 条建议的队列状态未知（任务可能已过期），可重新执行。
                   </div>
                 )}
               </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-white px-3 py-2 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={strategyRecommendationsDisplayMode === 'final' ? 'default' : 'outline'}
-                    onClick={() => setStrategyRecommendationsDisplayMode('final')}
-                    disabled={strategyRecommendationActionBusy}
-                  >
-                    每Campaign优先级最高
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={strategyRecommendationsDisplayMode === 'all' ? 'default' : 'outline'}
-                    onClick={() => setStrategyRecommendationsDisplayMode('all')}
-                    disabled={strategyRecommendationActionBusy}
-                  >
-                    显示全部
-                  </Button>
-                  <span className="text-xs text-slate-500">
-                    当前 {strategyRecommendationsDisplayMode === 'final' ? '每个Campaign仅显示优先级最高建议' : '显示全部建议'}
-                  </span>
-                  <Select
-                    value={strategyRecommendationStatusFilter}
-                    onValueChange={(value) => setStrategyRecommendationStatusFilter(value as StrategyRecommendationStatusFilter)}
-                  >
-                    <SelectTrigger className="h-8 w-[130px]">
-                      <SelectValue placeholder="状态筛选" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="actionable">待处理（待审批+已审批+待重审）</SelectItem>
-                      <SelectItem value="all">全部状态</SelectItem>
-                      <SelectItem value="queued">排队执行中</SelectItem>
-                      <SelectItem value="pending">待审批</SelectItem>
-                      <SelectItem value="approved">已审批</SelectItem>
-                      <SelectItem value="stale">待重审</SelectItem>
-                      <SelectItem value="failed">执行失败</SelectItem>
-                      <SelectItem value="executed">已执行</SelectItem>
-                      <SelectItem value="dismissed">已忽略</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={strategyBatchScope}
-                    onValueChange={(value) => setStrategyBatchScope(value as StrategyBatchScope)}
-                  >
-                    <SelectTrigger className="h-8 w-[190px]">
-                      <SelectValue placeholder="批量作用范围" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="filtered">批量范围：当前筛选全部</SelectItem>
-                      <SelectItem value="display">批量范围：当前展示</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span className="text-xs text-slate-500">
-                    展示 {strategyRecommendationsDisplay.length} / {strategyRecommendationsView.length} 条
-                  </span>
+
+              {strategyEffectiveConfig && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                  <div className="font-medium">
+                    当前生效参数
+                    {strategyEffectiveConfig.mode ? `（run mode: ${strategyEffectiveConfig.mode}）` : ''}
+                  </div>
+                  <div className="mt-2 grid gap-x-4 gap-y-1 md:grid-cols-4">
+                    <div>每轮Offer上限：{strategyEffectiveConfig.maxOffersPerRun ?? '--'}</div>
+                    <div>默认预算：{strategyEffectiveConfig.defaultBudget ?? '--'}</div>
+                    <div>最大CPC：{strategyEffectiveConfig.maxCpc ?? '--'}</div>
+                    <div>最小CPC：{strategyEffectiveConfig.minCpc ?? '--'}</div>
+                    <div>目标ROAS：{strategyEffectiveConfig.targetRoas ?? '--'}</div>
+                    <div>日预算上限：{strategyEffectiveConfig.dailyBudgetCap ?? '--'}</div>
+                    <div>日花费上限：{strategyEffectiveConfig.dailySpendCap ?? '--'}</div>
+                  </div>
+                  <div className="mt-1 text-emerald-700">来源：最近一次策略运行快照（含 adaptive effectiveConfig）。</div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-slate-500">
+              )}
+
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant={strategyRecommendationsDisplayMode === 'final' ? 'default' : 'outline'}
+                        onClick={() => setStrategyRecommendationsDisplayMode('final')}
+                        disabled={strategyRecommendationActionBusy}
+                      >
+                        每 Campaign 仅显示最高优先级
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={strategyRecommendationsDisplayMode === 'all' ? 'default' : 'outline'}
+                        onClick={() => setStrategyRecommendationsDisplayMode('all')}
+                        disabled={strategyRecommendationActionBusy}
+                      >
+                        显示全部建议
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Select
+                        value={strategyRecommendationStatusFilter}
+                        onValueChange={(value) => setStrategyRecommendationStatusFilter(value as StrategyRecommendationStatusFilter)}
+                      >
+                        <SelectTrigger className="h-8 w-[176px]">
+                          <SelectValue placeholder="状态筛选" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="actionable">待处理（待审批+已审批+待重审）</SelectItem>
+                          <SelectItem value="all">全部状态</SelectItem>
+                          <SelectItem value="queued">排队执行中</SelectItem>
+                          <SelectItem value="pending">待审批</SelectItem>
+                          <SelectItem value="approved">已审批</SelectItem>
+                          <SelectItem value="stale">待重审</SelectItem>
+                          <SelectItem value="failed">执行失败</SelectItem>
+                          <SelectItem value="executed">已执行</SelectItem>
+                          <SelectItem value="dismissed">已忽略</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={strategyBatchScope}
+                        onValueChange={(value) => setStrategyBatchScope(value as StrategyBatchScope)}
+                      >
+                        <SelectTrigger className="h-8 w-[196px]">
+                          <SelectValue placeholder="批量作用范围" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="filtered">批量范围：当前筛选全部</SelectItem>
+                          <SelectItem value="display">批量范围：当前展示</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    当前 {strategyRecommendationsDisplayMode === 'final' ? '每个 Campaign 仅显示优先级最高建议' : '显示全部建议'}
+                    {' · '}
+                    展示 {strategyRecommendationsDisplay.length} / {strategyRecommendationsView.length} 条
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 xl:min-w-[360px]">
+                  <div className="text-xs text-slate-600">
                     已选 {selectedSelectableCount} 条
                     {selectedHiddenCount > 0 ? `（含当前未展示 ${selectedHiddenCount} 条）` : ''}
-                  </span>
-                  <span className="text-xs text-slate-500">
+                    {' · '}
                     可审批 {selectedApprovableCount} / 可执行 {selectedExecutableCount} / 可忽略 {selectedDismissibleCount}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBatchApproveStrategyRecommendations}
-                    disabled={strategyRecommendationActionBusy || selectedApprovableCount === 0}
-                  >
-                    {strategyBatchApproving ? '批量审批中...' : '批量审批'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleBatchExecuteStrategyRecommendations}
-                    disabled={strategyRecommendationActionBusy || selectedExecutableCount === 0 || strategyHistoricalReadOnly}
-                  >
-                    {strategyBatchExecuting ? '批量执行中...' : '批量执行'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleBatchDismissStrategyRecommendations}
-                    disabled={strategyRecommendationActionBusy || selectedDismissibleCount === 0}
-                  >
-                    {strategyBatchDismissing ? '批量忽略中...' : '批量忽略'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleRetryFailedStrategyRecommendations}
-                    disabled={strategyRecommendationActionBusy || strategyBatchFailures.length === 0}
-                  >
-                    重试失败项{strategyBatchFailures.length > 0 ? ` (${strategyBatchFailures.length})` : ''}
-                  </Button>
-                </div>
-                {strategyBatchFailures.length > 0 && (
-                  <div className="text-xs text-red-600">
-                    最近失败（Top3）：
-                    {strategyBatchFailures.slice(0, 3).map((item, idx) => (
-                      <span key={`${item.id}:${idx}`} className="ml-1">
-                        [{item.id}] {item.message}
-                      </span>
-                    ))}
                   </div>
-                )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleBatchApproveStrategyRecommendations}
+                      disabled={strategyRecommendationActionBusy || selectedApprovableCount === 0}
+                    >
+                      {strategyBatchApproving ? '批量审批中...' : '批量审批'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleBatchExecuteStrategyRecommendations}
+                      disabled={strategyRecommendationActionBusy || selectedExecutableCount === 0 || strategyHistoricalReadOnly}
+                    >
+                      {strategyBatchExecuting ? '批量执行中...' : '批量执行'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleBatchDismissStrategyRecommendations}
+                      disabled={strategyRecommendationActionBusy || selectedDismissibleCount === 0}
+                    >
+                      {strategyBatchDismissing ? '批量忽略中...' : '批量忽略'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRetryFailedStrategyRecommendations}
+                      disabled={strategyRecommendationActionBusy || strategyBatchFailures.length === 0}
+                    >
+                      重试失败项{strategyBatchFailures.length > 0 ? ` (${strategyBatchFailures.length})` : ''}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[42px]">
-                      <Checkbox
-                        checked={
-                          strategyRecommendationsAllSelected
-                            ? true
-                            : strategyRecommendationsPartiallySelected
-                              ? 'indeterminate'
-                              : false
-                        }
-                        onCheckedChange={(checked) => handleSelectAllStrategyRecommendations(Boolean(checked))}
-                        aria-label="全选策略建议"
-                        disabled={strategyRecommendationActionBusy || selectableStrategyRecommendations.length === 0}
-                      />
-                    </TableHead>
-                    <TableHead>#</TableHead>
-                    <TableHead>建议</TableHead>
-                    <TableHead>Campaign</TableHead>
-                    <TableHead>成本/盈亏平衡</TableHead>
-                    <TableHead>优先级分</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {strategyRecommendationsDisplay.map((item, index) => {
-                    const statusBadge = resolveStrategyRecommendationStatusBadge(item.status)
-                    const isApproving = strategyRecommendationApprovingId === item.id
-                    const isExecuting = strategyRecommendationExecutingId === item.id
-                    const isDismissing = strategyRecommendationDismissingId === item.id
-                    const isSelectable = item.status !== 'executed'
-                    const isChecked = selectedStrategyRecommendationSet.has(item.id)
-                    const analysisNote = item.data?.analysisNote || item.reason || item.summary || '-'
-                    const isQueued = isStrategyRecommendationQueued(item)
-                    const postReviewText = resolvePostReviewStatusText(
-                      item.data?.postReviewStatus || item.executionResult?.postReview?.status || null
-                    )
-                    const costText = `花费 ${formatNumber(item.data?.cost, 2)} / 点击 ${formatNumber(item.data?.clicks, 0)} / CTR ${formatNumber(item.data?.ctrPct, 2)}%`
-                    const roasText = item.data?.roas !== null && item.data?.roas !== undefined
-                      ? `ROAS ${formatNumber(item.data?.roas, 2)}`
-                      : 'ROAS --'
-                    const breakEvenText = item.data?.breakEvenConversionRatePct !== null && item.data?.breakEvenConversionRatePct !== undefined
-                      ? `盈亏平衡转化率 ${formatNumber(item.data?.breakEvenConversionRatePct, 2)}%`
-                      : '盈亏平衡转化率 --'
-                    const impactWindowDays = Number(item.data?.impactWindowDays || 0)
-                    const estimatedCostSaving = Number(item.data?.estimatedCostSaving || 0)
-                    const estimatedRevenueUplift = Number(item.data?.estimatedRevenueUplift || 0)
-                    const estimatedNetImpact = Number(item.data?.estimatedNetImpact || (estimatedCostSaving + estimatedRevenueUplift))
-                    const hasImpact = Number.isFinite(estimatedNetImpact) && impactWindowDays > 0
-                    const impactConfidenceText = resolveImpactConfidenceText(item.data?.impactConfidence)
-                    const impactEstimationSourceText = resolveImpactEstimationSourceText(item.data?.impactEstimationSource)
-                    const cpcAdjustText = item.recommendationType === 'adjust_cpc'
-                      ? `CPC ${formatNumber(item.data?.currentCpc, 2)} → ${formatNumber(item.data?.recommendedCpc, 2)}`
-                      : ''
-                    const budgetAdjustText = item.recommendationType === 'adjust_budget'
-                      ? `预算 ${formatNumber(item.data?.currentBudget, 2)} → ${formatNumber(item.data?.recommendedBudget, 2)} (${item.data?.budgetType || 'DAILY'})`
-                      : ''
-                    const keywordPlan = Array.isArray(item.data?.keywordPlan) ? item.data.keywordPlan : []
-                    const negativeKeywordPlan = Array.isArray(item.data?.negativeKeywordPlan) ? item.data.negativeKeywordPlan : []
-                    const matchTypePlan = Array.isArray(item.data?.matchTypePlan) ? item.data.matchTypePlan : []
-                    const keywordPlanText = item.recommendationType === 'expand_keywords'
-                      ? `新增词 ${keywordPlan.length} 个（自动匹配类型）`
-                      : ''
-                    const negativeKeywordPlanText = item.recommendationType === 'add_negative_keywords'
-                      ? `否词 ${negativeKeywordPlan.length} 个（建议默认EXACT）`
-                      : ''
-                    const matchTypePlanText = item.recommendationType === 'optimize_match_type'
-                      ? `匹配类型优化 ${matchTypePlan.length} 个（新增并暂停旧匹配类型）`
-                      : ''
-                    const hasRecommendationDetail = keywordPlan.length > 0 || negativeKeywordPlan.length > 0 || matchTypePlan.length > 0
-                    const creativeQualityText = item.data?.creativeQuality
-                      ? `创意 H${item.data.creativeQuality.headlineCount}/D${item.data.creativeQuality.descriptionCount}/K${item.data.creativeQuality.keywordCount} · ${item.data.creativeQuality.level.toUpperCase()}`
-                      : ''
-                    const queueRetryCount = Number(item.executionResult?.queueRetryCount)
-                    const hasQueueRetryCount = Number.isFinite(queueRetryCount) && queueRetryCount >= 0
 
-                    return (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          {isSelectable ? (
-                            <Checkbox
-                              checked={isChecked}
-                              onCheckedChange={(checked) => toggleStrategyRecommendationSelected(item.id, Boolean(checked))}
-                              aria-label={`选择建议 ${item.id}`}
-                              disabled={strategyRecommendationActionBusy}
-                            />
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-slate-500">{index + 1}</TableCell>
-                        <TableCell>
-                          <div className="font-medium">{resolveStrategyRecommendationTypeLabel(item.recommendationType)}</div>
-                          <div className="text-xs text-slate-500">{item.title}</div>
-                          <div className="mt-1 text-xs text-slate-600">{analysisNote}</div>
-                          {item.data?.commissionLagProtected && (
-                            <div className="mt-1 text-xs text-amber-600">佣金滞后保护：投放≤3天无佣金按正常处理</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{item.data?.campaignName || `Campaign #${item.campaignId}`}</div>
-                          <div className="text-xs text-slate-500">运行 {item.data?.runDays ?? '--'} 天</div>
-                          {creativeQualityText && (
-                            <div className="text-xs text-slate-500">{creativeQualityText}</div>
-                          )}
-                          {item.recommendationType === 'expand_keywords' && (
-                            <div className="text-xs text-slate-500">现有关键词 {item.data?.keywordCoverageCount ?? 0} 个</div>
-                          )}
-                          {item.recommendationType === 'add_negative_keywords' && (
-                            <div className="text-xs text-slate-500">建议否词 {negativeKeywordPlan.length} 个</div>
-                          )}
-                          {item.recommendationType === 'optimize_match_type' && (
-                            <div className="text-xs text-slate-500">建议优化 {matchTypePlan.length} 个</div>
-                          )}
-                          {isQueued && (
-                            <div className="text-xs text-amber-600">执行队列中（Task: {item.executionResult?.queueTaskId || '-'})</div>
-                          )}
-                          {isQueued && (
+              {strategyBatchFailures.length > 0 && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  最近失败（Top3）：
+                  {strategyBatchFailures.slice(0, 3).map((item, idx) => (
+                    <span key={`${item.id}:${idx}`} className="ml-1">
+                      [{item.id}] {item.message}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <Table className="min-w-[1320px]">
+                  <TableHeader className="bg-slate-50/80">
+                    <TableRow className="hover:bg-slate-50/80">
+                      <TableHead className="w-[44px] text-xs font-semibold text-slate-600">
+                        <Checkbox
+                          checked={
+                            strategyRecommendationsAllSelected
+                              ? true
+                              : strategyRecommendationsPartiallySelected
+                                ? 'indeterminate'
+                                : false
+                          }
+                          onCheckedChange={(checked) => handleSelectAllStrategyRecommendations(Boolean(checked))}
+                          aria-label="全选策略建议"
+                          disabled={strategyRecommendationActionBusy || selectableStrategyRecommendations.length === 0}
+                        />
+                      </TableHead>
+                      <TableHead className="w-[52px] text-xs font-semibold text-slate-600">#</TableHead>
+                      <TableHead className="min-w-[260px] text-xs font-semibold text-slate-600">建议</TableHead>
+                      <TableHead className="min-w-[260px] text-xs font-semibold text-slate-600">Campaign</TableHead>
+                      <TableHead className="min-w-[240px] text-xs font-semibold text-slate-600">成本/盈亏平衡</TableHead>
+                      <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">优先级分</TableHead>
+                      <TableHead className="min-w-[190px] text-xs font-semibold text-slate-600">状态</TableHead>
+                      <TableHead className="min-w-[250px] text-right text-xs font-semibold text-slate-600">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {strategyRecommendationsDisplay.map((item, index) => {
+                      const statusBadge = resolveStrategyRecommendationStatusBadge(item.status)
+                      const isApproving = strategyRecommendationApprovingId === item.id
+                      const isExecuting = strategyRecommendationExecutingId === item.id
+                      const isDismissing = strategyRecommendationDismissingId === item.id
+                      const isSelectable = item.status !== 'executed'
+                      const isChecked = selectedStrategyRecommendationSet.has(item.id)
+                      const analysisNote = item.data?.analysisNote || item.reason || item.summary || '-'
+                      const isQueued = isStrategyRecommendationQueued(item)
+                      const postReviewText = resolvePostReviewStatusText(
+                        item.data?.postReviewStatus || item.executionResult?.postReview?.status || null
+                      )
+                      const costText = `花费 ${formatNumber(item.data?.cost, 2)} / 点击 ${formatNumber(item.data?.clicks, 0)} / CTR ${formatNumber(item.data?.ctrPct, 2)}%`
+                      const roasText = item.data?.roas !== null && item.data?.roas !== undefined
+                        ? `ROAS ${formatNumber(item.data?.roas, 2)}`
+                        : 'ROAS --'
+                      const breakEvenText = item.data?.breakEvenConversionRatePct !== null && item.data?.breakEvenConversionRatePct !== undefined
+                        ? `盈亏平衡转化率 ${formatNumber(item.data?.breakEvenConversionRatePct, 2)}%`
+                        : '盈亏平衡转化率 --'
+                      const impactWindowDays = Number(item.data?.impactWindowDays || 0)
+                      const estimatedCostSaving = Number(item.data?.estimatedCostSaving || 0)
+                      const estimatedRevenueUplift = Number(item.data?.estimatedRevenueUplift || 0)
+                      const estimatedNetImpact = Number(item.data?.estimatedNetImpact || (estimatedCostSaving + estimatedRevenueUplift))
+                      const hasImpact = Number.isFinite(estimatedNetImpact) && impactWindowDays > 0
+                      const impactConfidenceText = resolveImpactConfidenceText(item.data?.impactConfidence)
+                      const impactEstimationSourceText = resolveImpactEstimationSourceText(item.data?.impactEstimationSource)
+                      const cpcAdjustText = item.recommendationType === 'adjust_cpc'
+                        ? `CPC ${formatNumber(item.data?.currentCpc, 2)} → ${formatNumber(item.data?.recommendedCpc, 2)}`
+                        : ''
+                      const budgetAdjustText = item.recommendationType === 'adjust_budget'
+                        ? `预算 ${formatNumber(item.data?.currentBudget, 2)} → ${formatNumber(item.data?.recommendedBudget, 2)} (${item.data?.budgetType || 'DAILY'})`
+                        : ''
+                      const keywordPlan = Array.isArray(item.data?.keywordPlan) ? item.data.keywordPlan : []
+                      const negativeKeywordPlan = Array.isArray(item.data?.negativeKeywordPlan) ? item.data.negativeKeywordPlan : []
+                      const matchTypePlan = Array.isArray(item.data?.matchTypePlan) ? item.data.matchTypePlan : []
+                      const keywordPlanText = item.recommendationType === 'expand_keywords'
+                        ? `新增词 ${keywordPlan.length} 个（自动匹配类型）`
+                        : ''
+                      const negativeKeywordPlanText = item.recommendationType === 'add_negative_keywords'
+                        ? `否词 ${negativeKeywordPlan.length} 个（建议默认EXACT）`
+                        : ''
+                      const matchTypePlanText = item.recommendationType === 'optimize_match_type'
+                        ? `匹配类型优化 ${matchTypePlan.length} 个（新增并暂停旧匹配类型）`
+                        : ''
+                      const hasRecommendationDetail = keywordPlan.length > 0 || negativeKeywordPlan.length > 0 || matchTypePlan.length > 0
+                      const creativeQualityText = item.data?.creativeQuality
+                        ? `创意 H${item.data.creativeQuality.headlineCount}/D${item.data.creativeQuality.descriptionCount}/K${item.data.creativeQuality.keywordCount} · ${item.data.creativeQuality.level.toUpperCase()}`
+                        : ''
+                      const queueRetryCount = Number(item.executionResult?.queueRetryCount)
+                      const hasQueueRetryCount = Number.isFinite(queueRetryCount) && queueRetryCount >= 0
+                      const recommendationTypeLabel = resolveStrategyRecommendationTypeLabel(item.recommendationType)
+                      const recommendationTypeTone = resolveStrategyRecommendationTypeTone(item.recommendationType)
+
+                      return (
+                        <TableRow key={item.id} className="align-top hover:bg-slate-50/70">
+                          <TableCell>
+                            {isSelectable ? (
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={(checked) => toggleStrategyRecommendationSelected(item.id, Boolean(checked))}
+                                aria-label={`选择建议 ${item.id}`}
+                                disabled={strategyRecommendationActionBusy}
+                              />
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="pt-3 text-sm font-medium text-slate-500">{index + 1}</TableCell>
+                          <TableCell className="space-y-2 pt-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${recommendationTypeTone}`}>
+                                {recommendationTypeLabel}
+                              </span>
+                              <span className="text-xs text-slate-400">ID: {item.id}</span>
+                            </div>
+                            <div className="text-sm font-medium leading-5 text-slate-900">{item.title}</div>
+                            <div className="text-xs leading-5 text-slate-600">{analysisNote}</div>
+                            {item.data?.commissionLagProtected && (
+                              <div className="text-xs text-amber-600">佣金滞后保护：投放≤3天无佣金按正常处理</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="space-y-1 pt-3">
+                            <div className="text-sm font-medium text-slate-900">{item.data?.campaignName || `Campaign #${item.campaignId}`}</div>
+                            <div className="text-xs text-slate-500">运行 {item.data?.runDays ?? '--'} 天</div>
+                            {creativeQualityText && (
+                              <div className="text-xs text-slate-500">{creativeQualityText}</div>
+                            )}
+                            {item.recommendationType === 'expand_keywords' && (
+                              <div className="text-xs text-slate-500">现有关键词 {item.data?.keywordCoverageCount ?? 0} 个</div>
+                            )}
+                            {item.recommendationType === 'add_negative_keywords' && (
+                              <div className="text-xs text-slate-500">建议否词 {negativeKeywordPlan.length} 个</div>
+                            )}
+                            {item.recommendationType === 'optimize_match_type' && (
+                              <div className="text-xs text-slate-500">建议优化 {matchTypePlan.length} 个</div>
+                            )}
+                            {isQueued && (
+                              <div className="text-xs text-amber-600">执行队列中（Task: {item.executionResult?.queueTaskId || '-'})</div>
+                            )}
+                            {isQueued && (
+                              <div className="text-xs text-slate-500">
+                                队列状态 {String(item.executionResult?.queueTaskStatus || 'pending')}
+                                {item.executionResult?.queuedAt ? ` · 入队 ${formatTimestamp(item.executionResult.queuedAt)}` : ''}
+                                {item.executionResult?.queueTaskCreatedAt ? ` · 创建 ${formatTimestamp(item.executionResult.queueTaskCreatedAt)}` : ''}
+                                {item.executionResult?.queueTaskStartedAt ? ` · 开始 ${formatTimestamp(item.executionResult.queueTaskStartedAt)}` : ''}
+                                {hasQueueRetryCount ? ` · 重试 ${queueRetryCount}` : ''}
+                              </div>
+                            )}
+                            {item.executionResult?.queueTaskError && (
+                              <div className="text-xs text-red-600" title={String(item.executionResult.queueTaskError)}>
+                                队列错误：{String(item.executionResult.queueTaskError)}
+                              </div>
+                            )}
+                            {item.executionResult?.postReviewTaskId && (
+                              <div className="text-xs text-slate-500">
+                                复盘任务 {String(item.executionResult.postReviewTaskId)}
+                                {item.executionResult?.postReviewScheduledAt
+                                  ? ` · 计划 ${formatTimestamp(item.executionResult.postReviewScheduledAt)}`
+                                  : ''}
+                              </div>
+                            )}
+                            {postReviewText && (
+                              <div className="text-xs text-slate-500">{postReviewText}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="space-y-1 pt-3 text-xs leading-5 text-slate-700">
+                            <div>{costText}</div>
+                            <div>{roasText}</div>
+                            <div>{breakEvenText}</div>
+                            {cpcAdjustText && <div>{cpcAdjustText}</div>}
+                            {budgetAdjustText && <div>{budgetAdjustText}</div>}
+                            {keywordPlanText && <div>{keywordPlanText}</div>}
+                            {negativeKeywordPlanText && <div>{negativeKeywordPlanText}</div>}
+                            {matchTypePlanText && <div>{matchTypePlanText}</div>}
+                          </TableCell>
+                          <TableCell className="space-y-1 pt-3">
+                            <div className="text-lg font-semibold text-slate-900">{formatNumber(item.priorityScore, 1)}</div>
+                            {hasImpact ? (
+                              <div className="text-xs text-slate-500">
+                                净影响(估) {formatNumber(estimatedNetImpact, 2)} / {impactWindowDays}天 · 置信度 {impactConfidenceText}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-500">净影响 --</div>
+                            )}
                             <div className="text-xs text-slate-500">
-                              队列状态 {String(item.executionResult?.queueTaskStatus || 'pending')}
-                              {item.executionResult?.queuedAt ? ` · 入队 ${formatTimestamp(item.executionResult.queuedAt)}` : ''}
-                              {item.executionResult?.queueTaskCreatedAt ? ` · 创建 ${formatTimestamp(item.executionResult.queueTaskCreatedAt)}` : ''}
-                              {item.executionResult?.queueTaskStartedAt ? ` · 开始 ${formatTimestamp(item.executionResult.queueTaskStartedAt)}` : ''}
-                              {hasQueueRetryCount ? ` · 重试 ${queueRetryCount}` : ''}
+                              节省 {formatNumber(estimatedCostSaving, 2)} / 增益 {formatNumber(estimatedRevenueUplift, 2)}
                             </div>
-                          )}
-                          {item.executionResult?.queueTaskError && (
-                            <div className="text-xs text-red-600" title={String(item.executionResult.queueTaskError)}>
-                              队列错误：{String(item.executionResult.queueTaskError)}
+                            {item.data?.impactConfidenceReason && (
+                              <div className="text-xs text-slate-500">{item.data.impactConfidenceReason}</div>
+                            )}
+                            {impactEstimationSourceText && (
+                              <div className="text-xs text-slate-500">{impactEstimationSourceText}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="space-y-1 pt-3">
+                            <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                            {item.status === 'stale' && (
+                              <div className="text-xs text-amber-600">建议内容已变化，请重新审批后再执行</div>
+                            )}
+                            {isQueued && (
+                              <div className="text-xs text-amber-600">排队执行中</div>
+                            )}
+                            {item.status === 'failed' && item.executionResult?.error && (
+                              <div className="text-xs text-red-600" title={String(item.executionResult.error)}>
+                                失败原因：{String(item.executionResult.error)}
+                              </div>
+                            )}
+                            {item.executedAt && (
+                              <div className="text-xs text-slate-500">{formatTimestamp(item.executedAt)}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="pt-3 text-right">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-3"
+                                disabled={!hasRecommendationDetail}
+                                onClick={() => setStrategyRecommendationDetailItem(item)}
+                              >
+                                明细
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-3"
+                                disabled={
+                                  strategyRecommendationActionBusy
+                                  || isApproving
+                                  || isExecuting
+                                  || isDismissing
+                                  || item.status === 'approved'
+                                  || item.status === 'executed'
+                                }
+                                onClick={() => handleApproveStrategyRecommendation(item)}
+                              >
+                                {isApproving ? '审批中...' : '审批'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-8 px-3"
+                                disabled={
+                                  strategyRecommendationActionBusy
+                                  || isApproving
+                                  || isExecuting
+                                  || isDismissing
+                                  || strategyHistoricalReadOnly
+                                  || item.status !== 'approved'
+                                  || isQueued
+                                }
+                                onClick={() => handleExecuteStrategyRecommendation(item)}
+                              >
+                                {isExecuting ? '执行中...' : '执行'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-3"
+                                disabled={
+                                  strategyRecommendationActionBusy
+                                  || isApproving
+                                  || isExecuting
+                                  || isDismissing
+                                  || item.status === 'executed'
+                                  || item.status === 'dismissed'
+                                }
+                                onClick={() => handleDismissStrategyRecommendation(item)}
+                              >
+                                {isDismissing ? '忽略中...' : '忽略'}
+                              </Button>
                             </div>
-                          )}
-                          {item.executionResult?.postReviewTaskId && (
-                            <div className="text-xs text-slate-500">
-                              复盘任务 {String(item.executionResult.postReviewTaskId)}
-                              {item.executionResult?.postReviewScheduledAt
-                                ? ` · 计划 ${formatTimestamp(item.executionResult.postReviewScheduledAt)}`
-                                : ''}
-                            </div>
-                          )}
-                          {postReviewText && (
-                            <div className="text-xs text-slate-500">{postReviewText}</div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div>{costText}</div>
-                          <div>{roasText}</div>
-                          <div>{breakEvenText}</div>
-                          {cpcAdjustText && <div>{cpcAdjustText}</div>}
-                          {budgetAdjustText && <div>{budgetAdjustText}</div>}
-                          {keywordPlanText && <div>{keywordPlanText}</div>}
-                          {negativeKeywordPlanText && <div>{negativeKeywordPlanText}</div>}
-                          {matchTypePlanText && <div>{matchTypePlanText}</div>}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{formatNumber(item.priorityScore, 1)}</div>
-                          {hasImpact ? (
-                            <div className="text-xs text-slate-500">
-                              净影响(估) {formatNumber(estimatedNetImpact, 2)} / {impactWindowDays}天 · 置信度 {impactConfidenceText}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-500">净影响 --</div>
-                          )}
-                          <div className="text-xs text-slate-500">
-                            节省 {formatNumber(estimatedCostSaving, 2)} / 增益 {formatNumber(estimatedRevenueUplift, 2)}
-                          </div>
-                          {item.data?.impactConfidenceReason && (
-                            <div className="text-xs text-slate-500">{item.data.impactConfidenceReason}</div>
-                          )}
-                          {impactEstimationSourceText && (
-                            <div className="text-xs text-slate-500">{impactEstimationSourceText}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-                          {item.status === 'stale' && (
-                            <div className="mt-1 text-xs text-amber-600">建议内容已变化，请重新审批后再执行</div>
-                          )}
-                          {isQueued && (
-                            <div className="mt-1 text-xs text-amber-600">排队执行中</div>
-                          )}
-                          {item.status === 'failed' && item.executionResult?.error && (
-                            <div className="mt-1 text-xs text-red-600" title={String(item.executionResult.error)}>
-                              失败原因：{String(item.executionResult.error)}
-                            </div>
-                          )}
-                          {item.executedAt && (
-                            <div className="mt-1 text-xs text-slate-500">{formatTimestamp(item.executedAt)}</div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!hasRecommendationDetail}
-                              onClick={() => setStrategyRecommendationDetailItem(item)}
-                            >
-                              明细
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={
-                                strategyRecommendationActionBusy
-                                || isApproving
-                                || isExecuting
-                                || isDismissing
-                                || item.status === 'approved'
-                                || item.status === 'executed'
-                              }
-                              onClick={() => handleApproveStrategyRecommendation(item.id)}
-                            >
-                              {isApproving ? '审批中...' : '审批'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={
-                                strategyRecommendationActionBusy
-                                || isApproving
-                                || isExecuting
-                                || isDismissing
-                                || strategyHistoricalReadOnly
-                                || item.status !== 'approved'
-                                || isQueued
-                              }
-                              onClick={() => handleExecuteStrategyRecommendation(item)}
-                            >
-                              {isExecuting ? '执行中...' : '执行'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={
-                                strategyRecommendationActionBusy
-                                || isApproving
-                                || isExecuting
-                                || isDismissing
-                                || item.status === 'executed'
-                                || item.status === 'dismissed'
-                              }
-                              onClick={() => handleDismissStrategyRecommendation(item)}
-                            >
-                              {isDismissing ? '忽略中...' : '忽略'}
-                            </Button>
-                          </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                    {strategyRecommendationsDisplay.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="py-10 text-center text-slate-500">
+                          {strategyRecommendationsLoading ? '策略建议生成中...' : '暂无策略建议'}
                         </TableCell>
                       </TableRow>
-                    )
-                  })}
-                  {strategyRecommendationsDisplay.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-slate-500">
-                        {strategyRecommendationsLoading ? '策略建议生成中...' : '暂无策略建议'}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
               <Dialog
                 open={Boolean(strategyRecommendationDetailItem)}
                 onOpenChange={(open) => {
@@ -4581,6 +5199,54 @@ export default function OpenClawPage() {
                         && (!Array.isArray(strategyRecommendationDetailItem.data?.matchTypePlan) || strategyRecommendationDetailItem.data.matchTypePlan.length === 0) && (
                           <div className="text-xs text-slate-500">该建议暂无可展示的执行明细。</div>
                         )}
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
+              <Dialog
+                open={Boolean(strategyConfirmDialog)}
+                onOpenChange={(open) => {
+                  if (!open) closeStrategyConfirmDialog(false)
+                }}
+              >
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>{strategyConfirmDialog?.title || '确认操作'}</DialogTitle>
+                    <DialogDescription>{strategyConfirmDialog?.description || ''}</DialogDescription>
+                  </DialogHeader>
+                  {strategyConfirmDialog && (
+                    <div className="space-y-4">
+                      {Array.isArray(strategyConfirmDialog.details) && strategyConfirmDialog.details.length > 0 && (
+                        <div className={`rounded-md border px-3 py-2 text-xs ${resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).panel}`}>
+                          {strategyConfirmDialog.details.map((item, idx) => (
+                            <div key={`confirm-detail-${idx}`}>{item}</div>
+                          ))}
+                        </div>
+                      )}
+                      {strategyConfirmDialog.acknowledgeLabel && (
+                        <label className={`flex cursor-pointer items-start gap-2 text-xs ${resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).detail}`}>
+                          <Checkbox
+                            checked={strategyConfirmAcknowledge}
+                            onCheckedChange={(checked) => setStrategyConfirmAcknowledge(Boolean(checked))}
+                          />
+                          <span>{strategyConfirmDialog.acknowledgeLabel}</span>
+                        </label>
+                      )}
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => closeStrategyConfirmDialog(false)}
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          variant={resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).confirm}
+                          onClick={() => closeStrategyConfirmDialog(true)}
+                          disabled={Boolean(strategyConfirmDialog.acknowledgeLabel) && !strategyConfirmAcknowledge}
+                        >
+                          {strategyConfirmDialog.confirmLabel || '确认'}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </DialogContent>
