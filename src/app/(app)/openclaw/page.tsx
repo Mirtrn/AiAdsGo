@@ -738,6 +738,22 @@ const formatMoney = (value: unknown, currency?: string | null, digits = 2): stri
   return `${formatted} ${normalizeCurrencyCode(currency)}`
 }
 
+const formatMoneyWithUnit = (value: unknown, currency?: string | null, digits = 2): string => {
+  if (value === null || value === undefined) return '--'
+  if (typeof value === 'string' && value.trim() === '') return '--'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '--'
+  const normalized = String(currency || '').trim().toUpperCase()
+  if (normalized === 'MIXED') {
+    const formatted = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(parsed)
+    return `${formatted} MIXED`
+  }
+  return formatMoney(parsed, normalized || 'USD', digits)
+}
+
 const resolveImpactConfidenceText = (value?: string | null): string => {
   const normalized = String(value || '').trim().toLowerCase()
   if (normalized === 'high') return '高'
@@ -2214,6 +2230,9 @@ export default function OpenClawPage() {
   const reportSummary = report?.summary?.kpis || {}
   const reportKpis = report?.kpis?.data || {}
   const reportRoi = report?.roi?.data?.overall || {}
+  const reportRoiCurrencyRaw = String(report?.roi?.currency || '').trim().toUpperCase()
+  const reportBudgetCurrencyRaw = String(report?.budget?.currency || '').trim().toUpperCase()
+  const reportCostCurrency = reportRoiCurrencyRaw || reportBudgetCurrencyRaw || 'USD'
   const totalCost = Number(reportRoi.totalCost) || 0
   const totalRevenueRaw = reportRoi?.totalRevenue
   const totalRevenue = totalRevenueRaw === null || totalRevenueRaw === undefined
@@ -2231,16 +2250,33 @@ export default function OpenClawPage() {
   const usingAffiliateCommissionRevenue = roiRevenueAvailable && roiRevenueSource === 'affiliate_commission'
   const roiUnavailableReason = String(reportRoi.unavailableReason || '')
   const affiliateRevenueBreakdown = Array.isArray(reportRoi.affiliateBreakdown)
-    ? reportRoi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number }>
+    ? reportRoi.affiliateBreakdown as Array<{ platform?: string; totalCommission?: number; records?: number; currency?: string }>
     : []
-  const revenueTitle = 'Commission Revenue'
-  const reportRevenueValue: string | number = roiRevenueAvailable ? (totalRevenue || 0) : '—'
+  const affiliateRevenueCurrencies = Array.from(
+    new Set(
+      affiliateRevenueBreakdown
+        .map((item) => String(item.currency || '').trim().toUpperCase())
+        .filter((item) => /^[A-Z]{3}$/.test(item))
+    )
+  )
+  const reportRevenueCurrency =
+    affiliateRevenueCurrencies.length > 1
+      ? 'MIXED'
+      : (affiliateRevenueCurrencies[0] || reportCostCurrency)
+  const revenueTitle = '佣金收入'
+  const reportRevenueValue: string = roiRevenueAvailable
+    ? formatMoneyWithUnit(totalRevenue || 0, reportRevenueCurrency)
+    : '—'
+  const reportCostValue: string = formatMoneyWithUnit(
+    reportKpis.current?.cost ?? totalCost,
+    reportCostCurrency
+  )
   const reportRoasValue = roiRevenueAvailable && reportRoas !== null ? `${reportRoas.toFixed(2)}x` : '—'
   const reportRoiValue = roiRevenueAvailable && reportRoi.roi !== null && reportRoi.roi !== undefined
     ? `${reportRoi.roi}%`
     : '—'
-  const reportProfitValue: string | number = roiRevenueAvailable && reportRoi.totalProfit !== null && reportRoi.totalProfit !== undefined
-    ? reportRoi.totalProfit
+  const reportProfitValue: string = roiRevenueAvailable && reportRoi.totalProfit !== null && reportRoi.totalProfit !== undefined
+    ? formatMoneyWithUnit(reportRoi.totalProfit, reportRevenueCurrency === 'MIXED' ? 'MIXED' : reportCostCurrency)
     : '—'
   const roiUnavailableHint = roiUnavailableReason === 'affiliate_not_configured'
     ? '未配置联盟平台参数，严格模式下不回退 AutoAds 收益。'
@@ -2273,6 +2309,11 @@ export default function OpenClawPage() {
     ? `单日趋势（${normalizedReportDateForTrend}）`
     : `${normalizedReportStartDateForTrend} ~ ${normalizedReportDateForTrend}（${reportDateRangeDays}天）`
   const budgetOverall = report?.budget?.data?.overall || {}
+  const budgetCurrency = reportBudgetCurrencyRaw || reportCostCurrency
+  const budgetTotalValue = formatMoneyWithUnit(budgetOverall.totalBudget ?? 0, budgetCurrency)
+  const budgetSpentValue = formatMoneyWithUnit(budgetOverall.totalSpent ?? 0, budgetCurrency)
+  const budgetRemainingValue = formatMoneyWithUnit(budgetOverall.remaining ?? 0, budgetCurrency)
+  const reportRoiCostValue = formatMoneyWithUnit(totalCost, reportCostCurrency)
   const campaignRows = report?.roi?.data?.byCampaign || []
   const topCampaigns = [...campaignRows]
     .sort((a, b) => {
@@ -4879,17 +4920,17 @@ export default function OpenClawPage() {
           </Card>
 
           <div className="grid gap-4 md:auto-rows-fr md:grid-cols-4">
-            <KpiCard title="Offers" value={reportSummary.totalOffers ?? 0} />
-            <KpiCard title="Campaigns" value={reportSummary.totalCampaigns ?? 0} />
+            <KpiCard title="Offer数" value={reportSummary.totalOffers ?? 0} />
+            <KpiCard title="Campaign数" value={reportSummary.totalCampaigns ?? 0} />
             <KpiCard title={revenueTitle} value={reportRevenueValue} />
             <KpiCard title="ROAS" value={reportRoasValue} />
           </div>
 
           <div className="grid gap-4 md:auto-rows-fr md:grid-cols-4">
-            <KpiCard title="Impressions" value={reportKpis.current?.impressions ?? 0} />
-            <KpiCard title="Clicks" value={reportKpis.current?.clicks ?? 0} />
-            <KpiCard title="Conversions" value={reportKpis.current?.conversions ?? 0} />
-            <KpiCard title="Cost" value={reportKpis.current?.cost ?? totalCost} />
+            <KpiCard title="曝光" value={reportKpis.current?.impressions ?? 0} />
+            <KpiCard title="点击" value={reportKpis.current?.clicks ?? 0} />
+            <KpiCard title="转化" value={reportKpis.current?.conversions ?? 0} />
+            <KpiCard title="花费" value={reportCostValue} />
           </div>
 
           <Card>
@@ -4898,21 +4939,21 @@ export default function OpenClawPage() {
               <CardDescription>基于当日预算统计</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:auto-rows-fr md:grid-cols-5">
-              <KpiCard title="Total Budget" value={budgetOverall.totalBudget ?? 0} />
-              <KpiCard title="Total Spent" value={budgetOverall.totalSpent ?? 0} />
-              <KpiCard title="Remaining" value={budgetOverall.remaining ?? 0} />
-              <KpiCard title="Utilization" value={`${budgetOverall.utilizationRate ?? 0}%`} />
-              <KpiCard title="Active Campaigns" value={budgetOverall.activeCampaigns ?? 0} />
+              <KpiCard title="总预算" value={budgetTotalValue} />
+              <KpiCard title="总花费" value={budgetSpentValue} />
+              <KpiCard title="剩余预算" value={budgetRemainingValue} />
+              <KpiCard title="预算使用率" value={`${budgetOverall.utilizationRate ?? 0}%`} />
+              <KpiCard title="启用Campaign数" value={budgetOverall.activeCampaigns ?? 0} />
             </CardContent>
           </Card>
 
           <TrendChartDynamic
             data={trendData}
             metrics={[
-              { key: 'impressions', label: 'Impressions', color: '#2563eb' },
-              { key: 'clicks', label: 'Clicks', color: '#16a34a' },
-              { key: 'cost', label: 'Cost', color: '#f97316', yAxisId: 'right' },
-              { key: 'commission', label: 'Commission', color: '#9333ea', yAxisId: 'right' },
+              { key: 'impressions', label: '曝光', color: '#2563eb' },
+              { key: 'clicks', label: '点击', color: '#16a34a' },
+              { key: 'cost', label: '花费', color: '#f97316', yAxisId: 'right' },
+              { key: 'commission', label: '佣金', color: '#9333ea', yAxisId: 'right' },
             ]}
             title="广告表现趋势"
             description={trendDescription}
@@ -4933,7 +4974,9 @@ export default function OpenClawPage() {
               {usingAffiliateCommissionRevenue && affiliateRevenueBreakdown.length > 0 && (
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   平台拆分：
-                  {affiliateRevenueBreakdown.map((item) => `${item.platform || 'unknown'} ${Number(item.totalCommission || 0).toFixed(2)}（${item.records || 0}条）`).join(' | ')}
+                  {affiliateRevenueBreakdown
+                    .map((item) => `${item.platform || 'unknown'} ${formatMoneyWithUnit(item.totalCommission || 0, item.currency || reportRevenueCurrency)}（${item.records || 0}条）`)
+                    .join(' | ')}
                 </div>
               )}
               {!roiRevenueAvailable && (
@@ -4942,9 +4985,9 @@ export default function OpenClawPage() {
                 </div>
               )}
               <div className="grid gap-4 md:auto-rows-fr md:grid-cols-5">
-                <KpiCard title="Cost" value={totalCost} />
+                <KpiCard title="花费" value={reportRoiCostValue} />
                 <KpiCard title={revenueTitle} value={reportRevenueValue} />
-                <KpiCard title="Profit" value={reportProfitValue} />
+                <KpiCard title="利润" value={reportProfitValue} />
                 <KpiCard title="ROAS" value={reportRoasValue} />
                 <KpiCard title="ROI" value={reportRoiValue} />
               </div>

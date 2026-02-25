@@ -88,7 +88,8 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const endDate = formatLocalYmd(now)
     const startDate = new Date(now)
-    startDate.setDate(startDate.getDate() - daysBack)
+    // daysBack=7 should mean "today + previous 6 days" (inclusive 7-day window).
+    startDate.setDate(startDate.getDate() - daysBack + 1)
     const startDateStr = formatLocalYmd(startDate)
 
     const prevEndDate = new Date(startDate)

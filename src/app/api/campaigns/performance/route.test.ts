@@ -36,6 +36,53 @@ describe('GET /api/campaigns/performance', () => {
     expect(res.status).toBe(401)
   })
 
+  it('treats daysBack as an inclusive date window (daysBack=7 => today + previous 6 days)', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-02-25T04:00:00.000Z')) // 2026-02-25 12:00 Asia/Shanghai
+
+      let capturedRange: { start?: string; end?: string } = {}
+
+      const query = vi.fn(async (sql: string, params: any[] = []) => {
+        if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+          capturedRange = {
+            start: String(params?.[1] || ''),
+            end: String(params?.[2] || ''),
+          }
+          return []
+        }
+        if (sql.includes('FROM campaigns c')) {
+          return []
+        }
+        return []
+      })
+
+      const queryOne = vi.fn(async (sql: string) => {
+        if (sql.includes('FROM sync_logs')) {
+          return { latest_sync_at: null }
+        }
+        return { impressions: 0, clicks: 0, cost: 0, total_commission: 0 }
+      })
+
+      dbFns.getDatabase.mockResolvedValue({
+        type: 'sqlite',
+        query,
+        queryOne,
+      })
+
+      const req = new NextRequest('http://localhost/api/campaigns/performance?daysBack=7')
+      const res = await GET(req)
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(data.success).toBe(true)
+      expect(capturedRange.end).toBe('2026-02-25')
+      expect(capturedRange.start).toBe('2026-02-19')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('applies currency filter and excludes campaign_mapping_miss failures from total commission', async () => {
     const query = vi.fn(async (sql: string, params: any[] = []) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
