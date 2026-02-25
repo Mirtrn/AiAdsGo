@@ -181,6 +181,102 @@ function extractPartnerboostLinkIdFromLink(value: unknown): string | null {
   return extractCaseInsensitiveQueryParam(value, 'aa_adgroupid')
 }
 
+type OfferExtractMessageCommissionCandidate = {
+  affiliateLink: string
+  normalizedAffiliateLink: string | null
+  commissionRate: number
+}
+
+function trimTrailingPunctuationFromUrl(value: string): string {
+  return value.replace(/[),.;，。；]+$/g, '')
+}
+
+function extractOfferExtractMessageCommissionCandidates(messageText: string): OfferExtractMessageCommissionCandidate[] {
+  if (!messageText) return []
+
+  const lines = messageText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+  const candidates: OfferExtractMessageCommissionCandidate[] = []
+  for (const line of lines) {
+    if (!line.includes('http')) continue
+    if (!line.includes('%')) continue
+
+    const urlMatched = line.match(/https?:\/\/\S+/i)
+    const percentMatched = line.match(/(\d+(?:\.\d+)?)\s*%/)
+    if (!urlMatched?.[0] || !percentMatched?.[1]) continue
+
+    const affiliateLink = trimTrailingPunctuationFromUrl(urlMatched[0].trim())
+    const commissionRate = Number(percentMatched[1])
+    if (!affiliateLink || !Number.isFinite(commissionRate) || commissionRate <= 0) {
+      continue
+    }
+
+    candidates.push({
+      affiliateLink,
+      normalizedAffiliateLink: normalizeUrlForComparison(affiliateLink),
+      commissionRate: roundTo2(commissionRate),
+    })
+  }
+
+  return candidates
+}
+
+function pickOfferExtractMessageCommissionCandidate(params: {
+  targetAffiliateLink: string
+  candidates: OfferExtractMessageCommissionCandidate[]
+}): OfferExtractMessageCommissionCandidate | null {
+  const targetAffiliateLink = toTrimmedString(params.targetAffiliateLink)
+  if (!targetAffiliateLink || params.candidates.length === 0) return null
+
+  const targetNormalizedLink = normalizeUrlForComparison(targetAffiliateLink)
+  const exactMatches = params.candidates.filter((candidate) => (
+    candidate.normalizedAffiliateLink
+    && targetNormalizedLink
+    && candidate.normalizedAffiliateLink === targetNormalizedLink
+  ))
+  if (exactMatches.length > 0) {
+    return exactMatches[0]
+  }
+
+  const targetYeahPromosPid = extractYeahPromosPidFromLink(targetAffiliateLink)
+  if (targetYeahPromosPid) {
+    const pidMatches = params.candidates.filter((candidate) => (
+      extractYeahPromosPidFromLink(candidate.affiliateLink) === targetYeahPromosPid
+    ))
+    if (pidMatches.length > 0) {
+      return pidMatches[0]
+    }
+  }
+
+  const targetPartnerboostLinkId = extractPartnerboostLinkIdFromLink(targetAffiliateLink)
+  if (targetPartnerboostLinkId) {
+    const partnerboostMatches = params.candidates.filter((candidate) => (
+      extractPartnerboostLinkIdFromLink(candidate.affiliateLink) === targetPartnerboostLinkId
+    ))
+    if (partnerboostMatches.length > 0) {
+      return partnerboostMatches[0]
+    }
+  }
+
+  const targetYeahPromosTrack = extractYeahPromosTrackFromLink(targetAffiliateLink)
+  if (targetYeahPromosTrack) {
+    const trackMatches = params.candidates.filter((candidate) => (
+      extractYeahPromosTrackFromLink(candidate.affiliateLink) === targetYeahPromosTrack
+    ))
+    if (trackMatches.length === 0) return null
+
+    const dedupedRates = Array.from(new Set(trackMatches.map((candidate) => candidate.commissionRate)))
+    if (dedupedRates.length === 1) {
+      return trackMatches[0]
+    }
+  }
+
+  return null
+}
+
 const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
 const MAX_INT32 = 2147483647
 
@@ -1158,6 +1254,191 @@ function buildOfferExtractCommissionHydratedBody(
   return hydratedBody
 }
 
+function hasOfferExtractCommissionInput(payload: Record<string, unknown>): boolean {
+  return Boolean(
+    toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+    || toTrimmedString(payload.commission_type ?? payload.commissionType)
+    || toTrimmedString(payload.commission_value ?? payload.commissionValue)
+    || toTrimmedString(payload.commission_currency ?? payload.commissionCurrency)
+  )
+}
+
+function applyOfferExtractPercentCommissionShape(params: {
+  payload: Record<string, unknown>
+  commissionRate: number
+}): { body: Record<string, unknown>; changed: boolean } {
+  const normalizedRateText = formatCompactNumber(params.commissionRate)
+  const normalizedPayout = `${normalizedRateText}%`
+  const nextBody: Record<string, unknown> = {
+    ...params.payload,
+    commission_payout: normalizedPayout,
+    commission_type: 'percent',
+    commission_value: normalizedRateText,
+  }
+  let changed = false
+
+  if (toTrimmedString(params.payload.commission_payout) !== normalizedPayout) {
+    changed = true
+  }
+  if (Object.prototype.hasOwnProperty.call(params.payload, 'commissionPayout')) {
+    if (toTrimmedString(params.payload.commissionPayout) !== normalizedPayout) {
+      changed = true
+    }
+    nextBody.commissionPayout = normalizedPayout
+  }
+
+  if (toTrimmedString(params.payload.commission_type)?.toLowerCase() !== 'percent') {
+    changed = true
+  }
+  if (Object.prototype.hasOwnProperty.call(params.payload, 'commissionType')) {
+    if (toTrimmedString(params.payload.commissionType)?.toLowerCase() !== 'percent') {
+      changed = true
+    }
+    nextBody.commissionType = 'percent'
+  }
+
+  if (toTrimmedString(params.payload.commission_value) !== normalizedRateText) {
+    changed = true
+  }
+  if (Object.prototype.hasOwnProperty.call(params.payload, 'commissionValue')) {
+    if (toTrimmedString(params.payload.commissionValue) !== normalizedRateText) {
+      changed = true
+    }
+    nextBody.commissionValue = normalizedRateText
+  }
+
+  if (toTrimmedString(params.payload.commission_currency)) {
+    changed = true
+    delete nextBody.commission_currency
+  }
+  if (Object.prototype.hasOwnProperty.call(params.payload, 'commissionCurrency')) {
+    if (toTrimmedString(params.payload.commissionCurrency)) {
+      changed = true
+    }
+    delete nextBody.commissionCurrency
+  }
+
+  return { body: nextBody, changed }
+}
+
+async function hydrateOfferExtractCommissionByMessageContext(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  parentRequestId: string | null
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method !== 'POST' || !isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+  if (!params.parentRequestId || !isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
+  if (!affiliateLink || hasOfferExtractCommissionInput(payload)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  let healthLog: { message_text: string | null } | null | undefined = null
+  try {
+    healthLog = await params.db.queryOne<{ message_text: string | null }>(
+      `
+        SELECT message_text
+        FROM openclaw_feishu_chat_health_logs
+        WHERE user_id = ?
+          AND message_id = ?
+          AND decision = 'allowed'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [params.userId, params.parentRequestId]
+    )
+  } catch (error: any) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] 读取飞书消息上下文失败，跳过佣金回填: ${error?.message || error}`
+      )
+    }
+    return { body: params.body, hydrated: false }
+  }
+
+  const messageText = toTrimmedString(healthLog?.message_text)
+  if (!messageText) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const candidates = extractOfferExtractMessageCommissionCandidates(messageText)
+  const matched = pickOfferExtractMessageCommissionCandidate({
+    targetAffiliateLink: affiliateLink,
+    candidates,
+  })
+  if (!matched) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const applied = applyOfferExtractPercentCommissionShape({
+    payload,
+    commissionRate: matched.commissionRate,
+  })
+  if (!applied.changed) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn(
+      `[OpenClawCommand] 从飞书原始消息回填佣金比例: offer.extract ${affiliateLink} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
+    )
+  }
+
+  return {
+    body: applied.body,
+    hydrated: true,
+  }
+}
+
+function harmonizeOfferExtractCommissionPayload(params: {
+  method: string
+  path: string
+  body: unknown
+}): { body: unknown; hydrated: boolean } {
+  if (params.method !== 'POST' || !isOfferExtractPath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+  if (!isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  if (!commissionText) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const parsedCommission = parseCommissionPayoutValue(commissionText, {
+    targetCountry,
+  })
+  if (!parsedCommission || parsedCommission.mode !== 'percent') {
+    return { body: params.body, hydrated: false }
+  }
+
+  const applied = applyOfferExtractPercentCommissionShape({
+    payload,
+    commissionRate: parsedCommission.displayRate,
+  })
+  if (!applied.changed) {
+    return { body: params.body, hydrated: false }
+  }
+
+  return {
+    body: applied.body,
+    hydrated: true,
+  }
+}
+
 async function hydrateOfferExtractCommissionBySiblingConsensus(params: {
   db: OpenclawExecutorDb
   userId: number
@@ -1804,6 +2085,16 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
+    const offerExtractByMessageHydrated = await hydrateOfferExtractCommissionByMessageContext({
+      db,
+      userId: data.userId,
+      parentRequestId: toTrimmedString(run.parent_request_id),
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractByMessageHydrated.body
+
     const offerExtractBySourceHydrated = await hydrateOfferExtractCommissionBySource({
       db,
       userId: data.userId,
@@ -1840,6 +2131,13 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     })
     requestBody = offerExtractByHeuristicHydrated.body
 
+    const offerExtractCommissionHarmonized = harmonizeOfferExtractCommissionPayload({
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractCommissionHarmonized.body
+
     const publishHydrated = await hydrateCampaignPublishRequestBody({
       db,
       userId: data.userId,
@@ -1852,10 +2150,12 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
 
     if (
       (
-        offerExtractBySourceHydrated.hydrated
+        offerExtractByMessageHydrated.hydrated
+        || offerExtractBySourceHydrated.hydrated
         || offerExtractByHistoryHydrated.hydrated
         || offerExtractBySiblingConsensusHydrated.hydrated
         || offerExtractByHeuristicHydrated.hydrated
+        || offerExtractCommissionHarmonized.hydrated
         || publishHydrated.hydrated
       )
       && requestBodyForAudit !== run.request_body_json
