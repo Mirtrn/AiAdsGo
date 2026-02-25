@@ -618,6 +618,23 @@ const FEISHU_CHAT_HEALTH_COMMAND_ACTION_HINT_REGEX =
 const FEISHU_CHAT_HEALTH_COMMAND_OBJECT_HINT_REGEX =
   /(offer|campaign|ads|asin|mcc|roas|cpc|pb|partnerboost|amazon|佣金|广告|创意|推广|出单|关键词|预算|联盟)/i
 const FEISHU_CHAT_HEALTH_QUESTION_HINT_REGEX = /[?？]|为什么|为何|怎么|如何|吗$/
+const FEISHU_CHAT_HEALTH_CONTINUATION_HINT_REGEX =
+  /^(继续|继续执行|继续任务|继续投放|继续跑|继续做|继续吧|继续上一步|继续上一条|接着|接着做|接着执行|恢复投放|resume|continue|goon)$/i
+
+function normalizeContinuationHintToken(text: string): string {
+  return text
+    .replace(/\s+/g, '')
+    .replace(/[，,。.!！？?;；:：]/g, '')
+    .toLowerCase()
+}
+
+function isContinuationMessageText(messageText: string | null): boolean {
+  const rawText = normalizeMessageText(messageText)
+  if (!rawText) return false
+  const compact = normalizeContinuationHintToken(rawText)
+  if (!compact) return false
+  return FEISHU_CHAT_HEALTH_CONTINUATION_HINT_REGEX.test(compact)
+}
 
 function shouldExpectExecutionForAllowedMessage(params: {
   messageText: string | null
@@ -652,6 +669,10 @@ function shouldExpectExecutionForAllowedMessage(params: {
 
   if (/(天气|几月几日|星期几|ai模型)/i.test(compact)) {
     return false
+  }
+
+  if (isContinuationMessageText(rawText)) {
+    return true
   }
 
   const hasActionHint = FEISHU_CHAT_HEALTH_COMMAND_ACTION_HINT_REGEX.test(rawText)
@@ -1278,7 +1299,11 @@ async function buildWorkflowAssessmentsByMessageId(params: {
   nowMs: number
 }): Promise<Map<string, WorkflowAssessment>> {
   const workflowContexts: WorkflowContext[] = []
-  const allowedMessageBoundaries: Array<{ createdMs: number; senderCandidates: string[] }> = []
+  const allowedMessageBoundaries: Array<{
+    createdMs: number
+    senderCandidates: string[]
+    isSoftBoundary: boolean
+  }> = []
 
   for (const row of params.rows) {
     if (row.decision !== 'allowed') continue
@@ -1290,14 +1315,18 @@ async function buildWorkflowAssessmentsByMessageId(params: {
       createdAt: row.created_at,
     })
     const createdMs = timing.linkAnchorMs
+    const messageText = normalizeMessageText(row.message_text)
 
     const senderCandidates = collectSenderCandidatesFromHealthRow(row)
     allowedMessageBoundaries.push({
       createdMs,
       senderCandidates,
+      // Continuation-only messages (e.g. "继续") should not split an unfinished
+      // workflow into independent chains.
+      isSoftBoundary: isContinuationMessageText(messageText),
     })
 
-    const expectation = resolveCreativeWorkflowExpectation(normalizeMessageText(row.message_text))
+    const expectation = resolveCreativeWorkflowExpectation(messageText)
     if (!expectation) continue
 
     const ageSeconds = Math.max(0, Math.floor((params.nowMs - createdMs) / 1000))
@@ -1328,6 +1357,9 @@ async function buildWorkflowAssessmentsByMessageId(params: {
     let previousBoundaryMs: number | null = null
     let nextBoundaryMs: number | null = null
     for (const boundary of sortedAllowedBoundaries) {
+      if (boundary.isSoftBoundary) {
+        continue
+      }
       if (hasSharedSender(context.senderCandidates, boundary.senderCandidates)) {
         if (boundary.createdMs < context.createdMs) {
           previousBoundaryMs = boundary.createdMs
