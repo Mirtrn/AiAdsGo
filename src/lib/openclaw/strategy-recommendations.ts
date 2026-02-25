@@ -8,6 +8,7 @@ import { getCommissionPerConversion } from '@/lib/offer-monetization'
 import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
 import { classifySearchTermFeedbackTerms } from '@/lib/search-term-feedback-hints'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
+import { containsPureBrand, getPureBrandKeywords } from '@/lib/brand-keyword-utils'
 import {
   extractCampaignConfigKeywords,
   extractCampaignConfigNegativeKeywords,
@@ -754,6 +755,7 @@ function buildKeywordExpansionPlan(params: {
   const brand = sanitizeKeyword(String(params.brand || ''))
   const category = sanitizeKeyword(String(params.category || ''))
   const productName = sanitizeKeyword(String(params.productName || ''))
+  const pureBrandKeywords = getPureBrandKeywords(brand)
   const existing = new Set<string>(Array.from(params.existing))
   const negativeTerms = new Set(
     Array.from(params.negativeTerms || [])
@@ -860,6 +862,7 @@ function buildKeywordExpansionPlan(params: {
   )
 
   const filteredSuggestions = [...externalSuggestions, ...localSuggestions]
+    .filter((item) => containsPureBrand(item.text, pureBrandKeywords))
     .filter((item) => !isKeywordConflictingWithNegativeTerms(item.text, negativeTerms))
 
   return filteredSuggestions.slice(0, desiredAdditionCount)

@@ -235,6 +235,7 @@ describe('openclaw strategy recommendations rules', () => {
     expect((expandRec?.data.keywordPlan || []).length).toBeGreaterThanOrEqual(20)
     expect((expandRec?.data.keywordPlan || []).length).toBeLessThanOrEqual(30)
     expect((expandRec?.data.keywordPlan || []).every((kw) => ['BROAD', 'PHRASE', 'EXACT'].includes(kw.matchType))).toBe(true)
+    expect((expandRec?.data.keywordPlan || []).every((kw) => kw.text.toLowerCase().includes('dreo'))).toBe(true)
   })
 
   it('falls back to campaign_config keywords when keyword inventory is empty', () => {
