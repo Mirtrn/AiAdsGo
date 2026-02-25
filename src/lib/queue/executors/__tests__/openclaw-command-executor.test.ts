@@ -174,7 +174,7 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
-  it('auto-corrects offer.extract commission when incoming percent matches historical amount-derived pattern', async () => {
+  it('does not auto-correct offer.extract commission from historical amount-derived pattern', async () => {
     const db = {
       type: 'postgres',
       exec: vi.fn().mockResolvedValue({ changes: 1 }),
@@ -239,7 +239,7 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '11.25%',
+          commission_payout: '22.5%',
         }),
       })
     )
@@ -689,7 +689,7 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
-  it('auto-corrects suspicious yeahpromos amount-derived percent using heuristic fallback', async () => {
+  it('does not auto-correct suspicious yeahpromos amount-derived percent by heuristic', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=test-track&pid=740178'
     const db = {
       type: 'postgres',
@@ -752,13 +752,13 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '22.5%',
+          commission_payout: '5.17%',
         }),
       })
     )
   })
 
-  it('auto-corrects low-rate amount-derived percent for high-price yeahpromos offers', async () => {
+  it('does not auto-correct low-rate amount-derived percent for high-price yeahpromos offers', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=3117168dd1120720&pid=435374'
     const db = {
       type: 'postgres',
@@ -825,13 +825,13 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '7.5%',
+          commission_payout: '11.81%',
         }),
       })
     )
   })
 
-  it('auto-corrects quarter percent via sibling consensus when sibling indicates amount-derived low-rate', async () => {
+  it('does not auto-correct quarter percent via sibling consensus amount-derived pattern', async () => {
     const parentRequestId = 'om_x100b569a1d988ca8c3454b17cf79415'
     const db = {
       type: 'postgres',
@@ -911,7 +911,7 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '7.5%',
+          commission_payout: '22.5%',
         }),
       })
     )
