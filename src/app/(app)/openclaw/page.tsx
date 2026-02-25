@@ -2814,7 +2814,6 @@ export default function OpenClawPage() {
         <TabsList className="bg-slate-100">
           <TabsTrigger value="config">配置中心</TabsTrigger>
           {settings?.isAdmin === true && <TabsTrigger value="feishu-health">飞书链路健康</TabsTrigger>}
-          <TabsTrigger value="strategy">策略中心</TabsTrigger>
           <TabsTrigger value="report">每日报表</TabsTrigger>
         </TabsList>
 
@@ -3435,6 +3434,23 @@ export default function OpenClawPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle>功能拆分提示</CardTitle>
+              <CardDescription>
+                联盟平台配置已迁移到「商品管理」，策略中心与飞书相关配置已迁移到「策略中心」。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <Link href="/products" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                前往商品管理
+              </Link>
+              <Link href="/strategy-center" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                前往策略中心
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className="hidden">
+            <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 飞书聊天
                 {feishuChatDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="飞书配置未保存" />}
@@ -3673,7 +3689,7 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 联盟平台

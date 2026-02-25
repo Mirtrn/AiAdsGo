@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Zap, ZapOff, MoreHorizontal } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Zap, ZapOff, MoreHorizontal, Boxes, TrendingUp } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,6 +57,8 @@ interface User {
     // 🔧 修复(2025-12-30): API统一返回boolean类型
     isActive: boolean
     openclawEnabled: boolean
+    productManagementEnabled: boolean
+    strategyCenterEnabled: boolean
     createdAt: string
     lockedUntil: string | null
     failedLoginCount: number
@@ -408,6 +410,40 @@ export default function UserManagementPage() {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error)
             toast.success(`已${action}用户 "${username}" 的 OpenClaw 访问`)
+            fetchUsers(pagination.page)
+        } catch (error: any) {
+            toast.error(error.message)
+        }
+    }
+
+    const handleToggleProductManagement = async (userId: number, username: string, currentEnabled: boolean) => {
+        const action = currentEnabled ? '关闭' : '开启'
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ productManagementEnabled: !currentEnabled })
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error)
+            toast.success(`已${action}用户 "${username}" 的 商品管理权限`)
+            fetchUsers(pagination.page)
+        } catch (error: any) {
+            toast.error(error.message)
+        }
+    }
+
+    const handleToggleStrategyCenter = async (userId: number, username: string, currentEnabled: boolean) => {
+        const action = currentEnabled ? '关闭' : '开启'
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategyCenterEnabled: !currentEnabled })
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error)
+            toast.success(`已${action}用户 "${username}" 的 策略中心权限`)
             fetchUsers(pagination.page)
         } catch (error: any) {
             toast.error(error.message)
@@ -936,6 +972,28 @@ export default function UserManagementPage() {
                                                                 </DropdownMenuItem>
                                                             )}
                                                             <DropdownMenuSeparator />
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleToggleProductManagement(user.id, user.username, user.productManagementEnabled)}
+                                                                className="items-start gap-2 py-2"
+                                                                title={user.productManagementEnabled ? '关闭用户 商品管理 权限' : '开启用户 商品管理 权限'}
+                                                            >
+                                                                <Boxes className={`w-4 h-4 mt-0.5 shrink-0 ${user.productManagementEnabled ? 'text-emerald-600' : 'text-gray-500'}`} />
+                                                                <div>
+                                                                    <div className="font-medium">{user.productManagementEnabled ? '关闭 商品管理 权限' : '开启 商品管理 权限'}</div>
+                                                                    <div className="text-xs text-muted-foreground">切换该用户的商品管理访问权限</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleToggleStrategyCenter(user.id, user.username, user.strategyCenterEnabled)}
+                                                                className="items-start gap-2 py-2"
+                                                                title={user.strategyCenterEnabled ? '关闭用户 策略中心 权限' : '开启用户 策略中心 权限'}
+                                                            >
+                                                                <TrendingUp className={`w-4 h-4 mt-0.5 shrink-0 ${user.strategyCenterEnabled ? 'text-blue-600' : 'text-gray-500'}`} />
+                                                                <div>
+                                                                    <div className="font-medium">{user.strategyCenterEnabled ? '关闭 策略中心 权限' : '开启 策略中心 权限'}</div>
+                                                                    <div className="text-xs text-muted-foreground">切换该用户的策略中心访问权限</div>
+                                                                </div>
+                                                            </DropdownMenuItem>
                                                             <DropdownMenuItem
                                                                 onClick={() => handleToggleOpenclaw(user.id, user.username, user.openclawEnabled)}
                                                                 className="items-start gap-2 py-2"

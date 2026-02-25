@@ -34,6 +34,8 @@ function transformUserToApiResponse(user: any) {
     // PostgreSQL返回boolean，SQLite返回0/1，统一转为boolean
     isActive: user.is_active === true || user.is_active === 1,
     openclawEnabled: user.openclaw_enabled === true || user.openclaw_enabled === 1,
+    productManagementEnabled: user.product_management_enabled === true || user.product_management_enabled === 1,
+    strategyCenterEnabled: user.strategy_center_enabled === true || user.strategy_center_enabled === 1,
     lastLoginAt: user.last_login_at,
     createdAt: user.created_at,
     lockedUntil: user.locked_until,
@@ -71,6 +73,8 @@ export async function GET(request: NextRequest) {
         package_expires_at,
         is_active,
         openclaw_enabled,
+        product_management_enabled,
+        strategy_center_enabled,
         last_login_at,
         created_at,
         locked_until,

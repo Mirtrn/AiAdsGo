@@ -35,13 +35,21 @@ export async function PATCH(
   try {
     const userId = parseInt(params.id)
     const body = await request.json()
-    const { email, packageType, packageExpiresAt, isActive, openclawEnabled } = body
+    const {
+      email,
+      packageType,
+      packageExpiresAt,
+      isActive,
+      openclawEnabled,
+      productManagementEnabled,
+      strategyCenterEnabled,
+    } = body
 
     const db = getDatabase()
 
     // 获取更新前的用户数据（用于审计日志）
     const beforeUser = await db.queryOne(
-      'SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled FROM users WHERE id = ?',
+      'SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled, product_management_enabled, strategy_center_enabled FROM users WHERE id = ?',
       [userId]
     ) as {
       id: number
@@ -51,6 +59,8 @@ export async function PATCH(
       package_expires_at: string
       is_active: number
       openclaw_enabled: number | boolean
+      product_management_enabled?: number | boolean
+      strategy_center_enabled?: number | boolean
     } | undefined
 
     if (!beforeUser) {
@@ -97,6 +107,26 @@ export async function PATCH(
       }
     }
 
+    if (productManagementEnabled !== undefined) {
+      const currentProductManagementEnabled = (beforeUser.product_management_enabled as any) === true || (beforeUser.product_management_enabled as any) === 1
+      const productManagementEnabledBoolean = Boolean(productManagementEnabled)
+      if (productManagementEnabledBoolean !== currentProductManagementEnabled) {
+        const valueToSet = db.type === 'postgres' ? productManagementEnabledBoolean : (productManagementEnabledBoolean ? 1 : 0)
+        fieldUpdates.push({ sql: 'product_management_enabled = ?', value: valueToSet })
+        changedFields.push('product_management_enabled')
+      }
+    }
+
+    if (strategyCenterEnabled !== undefined) {
+      const currentStrategyCenterEnabled = (beforeUser.strategy_center_enabled as any) === true || (beforeUser.strategy_center_enabled as any) === 1
+      const strategyCenterEnabledBoolean = Boolean(strategyCenterEnabled)
+      if (strategyCenterEnabledBoolean !== currentStrategyCenterEnabled) {
+        const valueToSet = db.type === 'postgres' ? strategyCenterEnabledBoolean : (strategyCenterEnabledBoolean ? 1 : 0)
+        fieldUpdates.push({ sql: 'strategy_center_enabled = ?', value: valueToSet })
+        changedFields.push('strategy_center_enabled')
+      }
+    }
+
     if (fieldUpdates.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     }
@@ -131,7 +161,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
     }
 
-    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled FROM users WHERE id = ?', [userId]) as any
+    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active, openclaw_enabled, product_management_enabled, strategy_center_enabled FROM users WHERE id = ?', [userId]) as any
 
     // 获取操作者的username（从数据库查询）
     const operator = await db.queryOne('SELECT username FROM users WHERE id = ?', [auth.user!.userId]) as { username: string } | undefined

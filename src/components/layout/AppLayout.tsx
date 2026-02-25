@@ -71,6 +71,8 @@ interface UserInfo {
   role: string
   packageType: string
   openclawEnabled?: boolean
+  productManagementEnabled?: boolean
+  strategyCenterEnabled?: boolean
 }
 
 interface NavItem {
@@ -127,8 +129,8 @@ const navigationItems: NavItem[] = [
     icon: Bot,
   },
   {
-    label: '优化迭代',
-    href: '/optimization',
+    label: '策略中心',
+    href: '/strategy-center',
     icon: TrendingUp,
   },
   {
@@ -150,8 +152,14 @@ const navigationItems: NavItem[] = [
 
 function filterNavigationItemsByUser(items: NavItem[], user: UserInfo): NavItem[] {
   return items.filter(item => {
-    if (item.href === '/openclaw' || item.href === '/products') {
+    if (item.href === '/openclaw') {
       return Boolean(user.openclawEnabled)
+    }
+    if (item.href === '/products') {
+      return Boolean(user.productManagementEnabled)
+    }
+    if (item.href === '/strategy-center') {
+      return Boolean(user.strategyCenterEnabled)
     }
     return true
   })

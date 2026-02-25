@@ -225,6 +225,7 @@ const LEGITIMATE_PATHS = [
   /^\/creatives/,                            // 创意管理
   /^\/analytics/,                            // 数据分析
   /^\/optimization/,                         // 优化迭代
+  /^\/strategy-center/,                      // 策略中心
   /^\/change-password/,                      // 修改密码
 ]
 
@@ -269,10 +270,11 @@ export async function middleware(request: NextRequest) {
     return attachRequestId(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 
-  // OpenClaw API 允许 Bearer Token 直接透传（由路由内 resolveOpenclawRequestUser 二次鉴权）
+  // OpenClaw / Strategy Center API 允许 Bearer Token 直接透传（由路由内二次鉴权）
   const isOpenclawApiRoute = pathname === '/api/openclaw' || pathname.startsWith('/api/openclaw/')
+  const isStrategyCenterApiRoute = pathname === '/api/strategy-center' || pathname.startsWith('/api/strategy-center/')
   const hasAuthorizationHeader = Boolean(request.headers.get('authorization')?.trim())
-  if (isOpenclawApiRoute && hasAuthorizationHeader) {
+  if ((isOpenclawApiRoute || isStrategyCenterApiRoute) && hasAuthorizationHeader) {
     return attachRequestId(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 

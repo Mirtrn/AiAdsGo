@@ -1010,7 +1010,7 @@ async function loadRecentStrategyRunStats(userId: number, limit = 8): Promise<St
   const db = await getDatabase()
   const rows = await db.query<{ stats_json: string | null }>(
     `SELECT stats_json
-     FROM openclaw_strategy_runs
+     FROM strategy_center_runs
      WHERE user_id = ?
        AND status = 'completed'
      ORDER BY created_at DESC

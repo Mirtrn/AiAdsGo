@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAffiliateProductById, setAffiliateProductBlacklist } from '@/lib/affiliate-products'
 import { invalidateProductListCache } from '@/lib/products-cache'
-import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
+import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
 
 type RouteParams = {
   id: string
@@ -18,9 +18,9 @@ async function resolveUserAndProductId(request: NextRequest, paramsPromise: Prom
     return { error: NextResponse.json({ error: '未授权' }, { status: 401 }) }
   }
 
-  const openclawEnabled = await isOpenclawEnabledForUser(userId)
-  if (!openclawEnabled) {
-    return { error: NextResponse.json({ error: 'OpenClaw 功能未开启' }, { status: 403 }) }
+  const productManagementEnabled = await isProductManagementEnabledForUser(userId)
+  if (!productManagementEnabled) {
+    return { error: NextResponse.json({ error: '商品管理功能未开启' }, { status: 403 }) }
   }
 
   const { id } = await paramsPromise

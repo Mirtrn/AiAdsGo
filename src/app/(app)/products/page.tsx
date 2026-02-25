@@ -154,6 +154,20 @@ type ProductListResponse = {
   pageSize: number
 }
 
+type ProductConfigSettingItem = {
+  key: string
+  value: string | null
+  dataType: string
+  isSensitive?: boolean
+  description?: string | null
+}
+
+type ProductConfigResponse = {
+  success: boolean
+  settings?: ProductConfigSettingItem[]
+  error?: string
+}
+
 type PlatformStatsItem = {
   total: number
   visibleCount: number
@@ -275,6 +289,69 @@ const EMPTY_NUMERIC_RANGE_FILTER_DRAFTS: NumericRangeFilterDrafts = {
   commissionRateMax: '',
   commissionAmountMin: '',
   commissionAmountMax: '',
+}
+
+const PRODUCT_CONFIG_KEYS = [
+  'yeahpromos_token',
+  'yeahpromos_site_id',
+  'partnerboost_token',
+  'partnerboost_base_url',
+  'openclaw_affiliate_sync_enabled',
+  'openclaw_affiliate_sync_interval_hours',
+  'openclaw_affiliate_sync_mode',
+] as const
+
+type ProductConfigKey = (typeof PRODUCT_CONFIG_KEYS)[number]
+
+const PRODUCT_CONFIG_DEFAULTS: Record<(typeof PRODUCT_CONFIG_KEYS)[number], string> = {
+  yeahpromos_token: '',
+  yeahpromos_site_id: '',
+  partnerboost_token: '',
+  partnerboost_base_url: 'https://app.partnerboost.com',
+  openclaw_affiliate_sync_enabled: 'false',
+  openclaw_affiliate_sync_interval_hours: '1',
+  openclaw_affiliate_sync_mode: 'incremental',
+}
+
+const PRODUCT_CONFIG_SENSITIVE_KEYS = new Set<ProductConfigKey>([
+  'yeahpromos_token',
+  'partnerboost_token',
+])
+
+const PRODUCT_CONFIG_LABELS: Record<ProductConfigKey, string> = {
+  yeahpromos_token: 'YeahPromos Token',
+  yeahpromos_site_id: 'YeahPromos Site ID',
+  partnerboost_token: 'PartnerBoost Token',
+  partnerboost_base_url: 'PartnerBoost Base URL',
+  openclaw_affiliate_sync_enabled: '自动同步开关',
+  openclaw_affiliate_sync_interval_hours: '自动同步间隔（小时）',
+  openclaw_affiliate_sync_mode: '自动同步模式',
+}
+
+const PRODUCT_CONFIG_DESCRIPTIONS: Record<ProductConfigKey, string> = {
+  yeahpromos_token: '用于拉取 YeahPromos 商品数据。',
+  yeahpromos_site_id: '用于识别当前联盟站点。',
+  partnerboost_token: '用于拉取 PartnerBoost 商品数据。',
+  partnerboost_base_url: '默认即可，除非平台地址变更。',
+  openclaw_affiliate_sync_enabled: '开启后系统按计划自动同步联盟商品。',
+  openclaw_affiliate_sync_interval_hours: '自动同步任务轮询间隔。',
+  openclaw_affiliate_sync_mode: '增量或实时自动同步模式。',
+}
+
+function createDefaultProductConfigValues(): Record<ProductConfigKey, string> {
+  return { ...PRODUCT_CONFIG_DEFAULTS }
+}
+
+function normalizeProductConfigValueMap(
+  settings?: ProductConfigSettingItem[]
+): Record<ProductConfigKey, string> {
+  const map = createDefaultProductConfigValues()
+  for (const setting of settings || []) {
+    if (!PRODUCT_CONFIG_KEYS.includes(setting.key as ProductConfigKey)) continue
+    const key = setting.key as ProductConfigKey
+    map[key] = setting.value ?? PRODUCT_CONFIG_DEFAULTS[key]
+  }
+  return map
 }
 
 function createEmptyPlatformStatsItem(): PlatformStatsItem {
@@ -568,6 +645,12 @@ export default function ProductsPage() {
   const [createOfferDialogOpen, setCreateOfferDialogOpen] = useState(false)
   const [clearAllConfirmOpen, setClearAllConfirmOpen] = useState(false)
   const [clearingAll, setClearingAll] = useState(false)
+  const [productConfigOpen, setProductConfigOpen] = useState(true)
+  const [productConfigLoading, setProductConfigLoading] = useState(false)
+  const [productConfigLoaded, setProductConfigLoaded] = useState(false)
+  const [productConfigSaving, setProductConfigSaving] = useState(false)
+  const [productConfigValues, setProductConfigValues] = useState<Record<ProductConfigKey, string>>(() => createDefaultProductConfigValues())
+  const [productConfigInitialValues, setProductConfigInitialValues] = useState<Record<ProductConfigKey, string>>(() => createDefaultProductConfigValues())
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
   const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
@@ -594,6 +677,10 @@ export default function ProductsPage() {
     || createdAtFrom.length > 0
     || createdAtTo.length > 0
     || Object.values(numericRangeFilters).some((value) => value !== null)
+  const productConfigDirty = useMemo(
+    () => PRODUCT_CONFIG_KEYS.some((key) => productConfigValues[key] !== productConfigInitialValues[key]),
+    [productConfigValues, productConfigInitialValues]
+  )
 
   const numericRangeFilterCards: Array<{
     label: string
@@ -773,9 +860,102 @@ export default function ProductsPage() {
     }
   }
 
+  const loadProductConfig = async (forceRefresh: boolean = false) => {
+    if (productConfigLoading) return
+    if (productConfigLoaded && !forceRefresh) return
+
+    setProductConfigLoading(true)
+    try {
+      const response = await fetch('/api/products/config', {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      const data = await response.json().catch(() => ({})) as ProductConfigResponse
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || '加载联盟配置失败')
+      }
+
+      const nextValues = normalizeProductConfigValueMap(data.settings)
+      setProductConfigValues(nextValues)
+      setProductConfigInitialValues(nextValues)
+      setProductConfigLoaded(true)
+    } catch (error: any) {
+      showError('加载失败', error?.message || '加载联盟配置失败')
+    } finally {
+      setProductConfigLoading(false)
+    }
+  }
+
+  const openProductConfigPanel = (forceRefresh: boolean = false) => {
+    setProductConfigOpen(true)
+    void loadProductConfig(forceRefresh)
+  }
+
+  const handleToggleProductConfigPanel = () => {
+    if (productConfigOpen) {
+      setProductConfigOpen(false)
+      return
+    }
+    openProductConfigPanel()
+  }
+
+  const updateProductConfigValue = (key: ProductConfigKey, value: string) => {
+    setProductConfigValues((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
+  }
+
+  const handleSaveProductConfig = async () => {
+    if (productConfigSaving) return
+    setProductConfigSaving(true)
+    try {
+      const updates = PRODUCT_CONFIG_KEYS.map((key) => ({
+        key,
+        value: productConfigValues[key] ?? '',
+      }))
+      const response = await fetch('/api/products/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ updates }),
+      })
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      const data = await response.json().catch(() => ({})) as ProductConfigResponse
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || '保存联盟配置失败')
+      }
+
+      const nextValues = normalizeProductConfigValueMap(
+        PRODUCT_CONFIG_KEYS.map((key) => ({
+          key,
+          value: productConfigValues[key],
+          dataType: 'string',
+        }))
+      )
+      setProductConfigValues(nextValues)
+      setProductConfigInitialValues(nextValues)
+      showSuccess('保存成功', '联盟平台配置已更新')
+    } catch (error: any) {
+      showError('保存失败', error?.message || '保存联盟配置失败')
+    } finally {
+      setProductConfigSaving(false)
+    }
+  }
+
   useEffect(() => {
     fetchProducts()
     fetchSyncRuns()
+    if (productConfigOpen) {
+      void loadProductConfig()
+    }
   }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, createdAtFrom, createdAtTo, sortBy, sortOrder])
 
   useEffect(() => {
@@ -848,8 +1028,8 @@ export default function ProductsPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
         if (data?.code === 'CONFIG_REQUIRED') {
-          showError('请先配置平台', data?.error || '请先前往OpenClaw配置联盟参数')
-          router.push(data?.redirect || '/openclaw')
+          showError('请先配置平台', data?.error || '请先完成联盟平台配置')
+          openProductConfigPanel(true)
           return
         }
         throw new Error(data?.error || '提交同步任务失败')
@@ -879,8 +1059,8 @@ export default function ProductsPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
         if (data?.code === 'CONFIG_REQUIRED') {
-          showError('请先配置平台', data?.error || '请先前往OpenClaw配置联盟参数')
-          router.push(data?.redirect || '/openclaw')
+          showError('请先配置平台', data?.error || '请先完成联盟平台配置')
+          openProductConfigPanel(true)
           return
         }
         throw new Error(data?.error || '提交单商品同步失败')
@@ -1458,8 +1638,8 @@ export default function ProductsPage() {
                   </div>
                 )
               })}
-              <Button variant="secondary" onClick={() => router.push('/openclaw')}>
-                平台配置
+              <Button variant="secondary" onClick={handleToggleProductConfigPanel}>
+                {productConfigOpen ? '收起配置' : '平台配置'}
                 <ArrowUpRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -1468,6 +1648,98 @@ export default function ProductsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">联盟平台配置</CardTitle>
+                <CardDescription>先完成配置，再执行商品同步。配置仅作用于当前登录用户。</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {productConfigDirty && <Badge variant="outline">未保存</Badge>}
+                <Button variant="outline" size="sm" onClick={handleToggleProductConfigPanel}>
+                  {productConfigOpen ? '收起' : '展开'}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          {productConfigOpen && (
+            <CardContent className="space-y-4">
+              {productConfigLoading ? (
+                <div className="flex h-24 items-center justify-center rounded-md border text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  加载配置中...
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {PRODUCT_CONFIG_KEYS.map((key) => {
+                      const value = productConfigValues[key] ?? ''
+                      const isBooleanKey = key === 'openclaw_affiliate_sync_enabled'
+                      const isModeKey = key === 'openclaw_affiliate_sync_mode'
+                      const isSensitive = PRODUCT_CONFIG_SENSITIVE_KEYS.has(key)
+                      return (
+                        <div key={key} className="space-y-1.5 rounded-md border p-3">
+                          <div className="text-sm font-medium">{PRODUCT_CONFIG_LABELS[key]}</div>
+                          <div className="text-xs text-muted-foreground">{PRODUCT_CONFIG_DESCRIPTIONS[key]}</div>
+                          {isBooleanKey ? (
+                            <Select
+                              value={value || 'false'}
+                              onValueChange={(nextValue) => updateProductConfigValue(key, nextValue)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="false">关闭</SelectItem>
+                                <SelectItem value="true">开启</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : isModeKey ? (
+                            <Select
+                              value={value || 'incremental'}
+                              onValueChange={(nextValue) => updateProductConfigValue(key, nextValue)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="incremental">incremental</SelectItem>
+                                <SelectItem value="realtime">realtime</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type={isSensitive ? 'password' : key === 'openclaw_affiliate_sync_interval_hours' ? 'number' : 'text'}
+                              value={value}
+                              onChange={(event) => updateProductConfigValue(key, event.target.value)}
+                              placeholder={PRODUCT_CONFIG_DEFAULTS[key]}
+                              autoComplete="off"
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setProductConfigValues({ ...productConfigInitialValues })}
+                      disabled={!productConfigDirty || productConfigSaving}
+                    >
+                      撤销修改
+                    </Button>
+                    <Button onClick={handleSaveProductConfig} disabled={!productConfigDirty || productConfigSaving}>
+                      {productConfigSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      保存配置
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          )}
+        </Card>
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Card>
             <CardContent className="px-4 pb-4 pt-4">

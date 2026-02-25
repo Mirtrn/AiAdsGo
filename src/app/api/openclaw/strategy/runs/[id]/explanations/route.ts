@@ -45,7 +45,7 @@ export async function GET(
           started_at,
           completed_at,
           created_at
-        FROM openclaw_strategy_runs
+        FROM strategy_center_runs
         WHERE id = ? AND user_id = ?
         LIMIT 1
       `,
@@ -68,7 +68,7 @@ export async function GET(
           response_json,
           error_message,
           created_at
-        FROM openclaw_strategy_actions
+        FROM strategy_center_actions
         WHERE run_id = ? AND user_id = ?
         ORDER BY created_at ASC, id ASC
       `,
@@ -106,7 +106,7 @@ export async function GET(
       meta: {
         runId,
         actionCount: actions.length,
-        source: 'openclaw_strategy_runs + openclaw_strategy_actions',
+        source: 'strategy_center_runs + strategy_center_actions',
       },
     })
   } catch (error: any) {

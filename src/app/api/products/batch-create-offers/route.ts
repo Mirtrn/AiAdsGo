@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { batchCreateOffersFromAffiliateProducts } from '@/lib/affiliate-products'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { invalidateProductListCache } from '@/lib/products-cache'
-import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
+import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
 
 const itemSchema = z.object({
   productId: z.number().int().positive(),
@@ -26,9 +26,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const openclawEnabled = await isOpenclawEnabledForUser(userId)
-    if (!openclawEnabled) {
-      return NextResponse.json({ error: 'OpenClaw 功能未开启' }, { status: 403 })
+    const productManagementEnabled = await isProductManagementEnabledForUser(userId)
+    if (!productManagementEnabled) {
+      return NextResponse.json({ error: '商品管理功能未开启' }, { status: 403 })
     }
 
     const body = await request.json().catch(() => null)

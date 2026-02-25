@@ -23,6 +23,8 @@ export interface User {
   must_change_password: number
   is_active: number
   openclaw_enabled: number | boolean
+  product_management_enabled?: number | boolean
+  strategy_center_enabled?: number | boolean
   last_login_at: string | null
   created_at: string
   updated_at: string
@@ -164,14 +166,22 @@ export async function createUser(input: CreateUserInput): Promise<User> {
   const username = input.username || await generateUniqueUsername()
   const role = input.role || 'user'
   const shouldEnableOpenclaw = role === 'admin'
+  const shouldEnableProducts = role === 'admin'
+  const shouldEnableStrategyCenter = role === 'admin'
   const openclawEnabledValue = db.type === 'postgres'
     ? shouldEnableOpenclaw
     : (shouldEnableOpenclaw ? 1 : 0)
+  const productManagementEnabledValue = db.type === 'postgres'
+    ? shouldEnableProducts
+    : (shouldEnableProducts ? 1 : 0)
+  const strategyCenterEnabledValue = db.type === 'postgres'
+    ? shouldEnableStrategyCenter
+    : (shouldEnableStrategyCenter ? 1 : 0)
 
   const result = await db.exec(`
     INSERT INTO users (
-      username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password, openclaw_enabled
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password, openclaw_enabled, product_management_enabled, strategy_center_enabled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     username,
     input.email || null, // email 可以为 null
@@ -184,6 +194,8 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     input.packageExpiresAt || null,
     input.mustChangePassword !== undefined ? input.mustChangePassword : 1,
     openclawEnabledValue,
+    productManagementEnabledValue,
+    strategyCenterEnabledValue,
   ])
 
   // 从INSERT结果中提取ID（兼容PostgreSQL和SQLite）

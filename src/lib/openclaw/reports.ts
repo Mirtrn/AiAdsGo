@@ -1950,7 +1950,7 @@ export async function buildOpenclawDailyReport(
 
   const strategyActions = await db.query<any>(
     `SELECT id, action_type, target_type, target_id, status, error_message, created_at
-     FROM openclaw_strategy_actions
+     FROM strategy_center_actions
      WHERE user_id = ?
        AND DATE(created_at) >= ?
        AND DATE(created_at) <= ?
@@ -1961,7 +1961,7 @@ export async function buildOpenclawDailyReport(
 
   const strategyRunsInRange = await db.query<any>(
     `SELECT id, mode, status, run_date, stats_json, error_message, started_at, completed_at, created_at
-     FROM openclaw_strategy_runs
+     FROM strategy_center_runs
      WHERE user_id = ?
        AND run_date >= ?
        AND run_date <= ?
@@ -2403,7 +2403,7 @@ function formatReportMessage(report: DailyReportPayload): string {
   }
 
   if (appUrl) {
-    lines.push(`🔗 详情链接：${appUrl}/openclaw`)
+    lines.push(`🔗 详情链接：${appUrl}/strategy-center`)
   }
 
   return lines.join('\n')

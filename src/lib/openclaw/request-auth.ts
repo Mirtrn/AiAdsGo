@@ -33,18 +33,64 @@ export type OpenclawSessionAuthResult =
       error: string
     }
 
-export async function isOpenclawEnabledForUser(userId: number): Promise<boolean> {
+type UserFeatureAccessFlags = {
+  isActive: boolean
+  openclawEnabled: boolean
+  productManagementEnabled: boolean
+  strategyCenterEnabled: boolean
+}
+
+async function getUserFeatureAccessFlags(userId: number): Promise<UserFeatureAccessFlags | null> {
   const db = await getDatabase()
-  const user = await db.queryOne<{ openclaw_enabled: boolean | number; is_active: boolean | number }>(
-    'SELECT openclaw_enabled, is_active FROM users WHERE id = ?',
+  const user = await db.queryOne<{
+    openclaw_enabled: boolean | number
+    product_management_enabled?: boolean | number
+    strategy_center_enabled?: boolean | number
+    is_active: boolean | number
+  }>(
+    'SELECT openclaw_enabled, product_management_enabled, strategy_center_enabled, is_active FROM users WHERE id = ?',
     [userId]
   )
-  if (!user) return false
+  if (!user) return null
 
   const isActive = (user.is_active as any) === true || (user.is_active as any) === 1
-  if (!isActive) return false
+  if (!isActive) {
+    return {
+      isActive: false,
+      openclawEnabled: false,
+      productManagementEnabled: false,
+      strategyCenterEnabled: false,
+    }
+  }
 
-  return (user.openclaw_enabled as any) === true || (user.openclaw_enabled as any) === 1
+  const openclawEnabled = (user.openclaw_enabled as any) === true || (user.openclaw_enabled as any) === 1
+  const productManagementEnabled = (user.product_management_enabled as any) === true || (user.product_management_enabled as any) === 1
+  const strategyCenterEnabled = (user.strategy_center_enabled as any) === true || (user.strategy_center_enabled as any) === 1
+
+  return {
+    isActive: true,
+    openclawEnabled,
+    productManagementEnabled,
+    strategyCenterEnabled,
+  }
+}
+
+export async function isOpenclawEnabledForUser(userId: number): Promise<boolean> {
+  const flags = await getUserFeatureAccessFlags(userId)
+  if (!flags || !flags.isActive) return false
+  return flags.openclawEnabled
+}
+
+export async function isProductManagementEnabledForUser(userId: number): Promise<boolean> {
+  const flags = await getUserFeatureAccessFlags(userId)
+  if (!flags || !flags.isActive) return false
+  return flags.productManagementEnabled
+}
+
+export async function isStrategyCenterEnabledForUser(userId: number): Promise<boolean> {
+  const flags = await getUserFeatureAccessFlags(userId)
+  if (!flags || !flags.isActive) return false
+  return flags.strategyCenterEnabled
 }
 
 export async function verifyOpenclawSessionAuth(
@@ -65,6 +111,60 @@ export async function verifyOpenclawSessionAuth(
       authenticated: false,
       status: 403,
       error: 'OpenClaw 功能未开启',
+    }
+  }
+
+  return {
+    authenticated: true,
+    user: auth.user,
+  }
+}
+
+export async function verifyStrategyCenterSessionAuth(
+  request: NextRequest
+): Promise<OpenclawSessionAuthResult> {
+  const auth = await verifyAuth(request)
+  if (!auth.authenticated || !auth.user) {
+    return {
+      authenticated: false,
+      status: 401,
+      error: auth.error || '未授权',
+    }
+  }
+
+  const strategyCenterEnabled = await isStrategyCenterEnabledForUser(auth.user.userId)
+  if (!strategyCenterEnabled) {
+    return {
+      authenticated: false,
+      status: 403,
+      error: '策略中心功能未开启',
+    }
+  }
+
+  return {
+    authenticated: true,
+    user: auth.user,
+  }
+}
+
+export async function verifyProductManagementSessionAuth(
+  request: NextRequest
+): Promise<OpenclawSessionAuthResult> {
+  const auth = await verifyAuth(request)
+  if (!auth.authenticated || !auth.user) {
+    return {
+      authenticated: false,
+      status: 401,
+      error: auth.error || '未授权',
+    }
+  }
+
+  const productManagementEnabled = await isProductManagementEnabledForUser(auth.user.userId)
+  if (!productManagementEnabled) {
+    return {
+      authenticated: false,
+      status: 403,
+      error: '商品管理功能未开启',
     }
   }
 
@@ -133,6 +233,50 @@ export async function resolveOpenclawRequestUser(
   if (!tokenRecord) return null
   const openclawEnabled = await isOpenclawEnabledForUser(tokenRecord.user_id)
   if (!openclawEnabled) {
+    return null
+  }
+  return { userId: tokenRecord.user_id, authType: 'user-token' }
+}
+
+export async function resolveStrategyCenterRequestUser(
+  request: NextRequest,
+  context: ResolveOpenclawRequestUserContext = {}
+): Promise<ResolvedUser | null> {
+  const auth = await verifyAuth(request)
+  if (auth.authenticated && auth.user) {
+    const strategyCenterEnabled = await isStrategyCenterEnabledForUser(auth.user.userId)
+    if (!strategyCenterEnabled) {
+      return null
+    }
+    return { userId: auth.user.userId, authType: 'session' }
+  }
+
+  const token = extractBearerToken(request.headers.get('authorization'))
+  if (!token) return null
+
+  if (await verifyOpenclawGatewayToken(token)) {
+    const channel = firstNonEmpty(context.channel, request.headers.get('x-openclaw-channel'))
+    const senderId = firstNonEmpty(
+      context.senderId,
+      request.headers.get('x-openclaw-sender'),
+      request.headers.get('x-openclaw-sender-id'),
+      request.headers.get('x-openclaw-sender-open-id')
+    )
+    const accountId = firstNonEmpty(context.accountId, request.headers.get('x-openclaw-account-id'))
+    const tenantKey = firstNonEmpty(context.tenantKey, request.headers.get('x-openclaw-tenant-key'))
+    const userId = await resolveOpenclawUserFromBinding(channel, senderId, { accountId, tenantKey })
+    if (!userId) return null
+    const strategyCenterEnabled = await isStrategyCenterEnabledForUser(userId)
+    if (!strategyCenterEnabled) {
+      return null
+    }
+    return { userId, authType: 'gateway-binding' }
+  }
+
+  const tokenRecord = await verifyOpenclawUserToken(token)
+  if (!tokenRecord) return null
+  const strategyCenterEnabled = await isStrategyCenterEnabledForUser(tokenRecord.user_id)
+  if (!strategyCenterEnabled) {
     return null
   }
   return { userId: tokenRecord.user_id, authType: 'user-token' }

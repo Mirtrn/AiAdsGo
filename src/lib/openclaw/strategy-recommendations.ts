@@ -2157,7 +2157,7 @@ async function listRecommendations(params: {
         execution_result_json,
         created_at,
         updated_at
-      FROM openclaw_strategy_recommendations
+      FROM strategy_center_recommendations
       WHERE user_id = ?
         AND report_date = ?
       ORDER BY priority_score DESC, created_at DESC
@@ -2311,7 +2311,7 @@ async function repairLegacyExpandKeywordCoverage(params: {
     Array.from(updates.entries()).map(async ([recommendationId, payload]) => {
       await db.exec(
         `
-          UPDATE openclaw_strategy_recommendations
+          UPDATE strategy_center_recommendations
           SET data_json = ?,
               summary = ?,
               updated_at = ${nowFunc}
@@ -2353,7 +2353,7 @@ async function appendRecommendationEvent(params: {
   const db = await getDatabase()
   await db.exec(
     `
-      INSERT INTO openclaw_strategy_recommendation_events
+      INSERT INTO strategy_center_recommendation_events
         (recommendation_id, user_id, event_type, actor_user_id, event_json)
       VALUES (?, ?, ?, ?, ?)
     `,
@@ -2376,7 +2376,7 @@ export async function persistStrategyRecommendationExecutionRuntime(params: {
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
   await db.exec(
     `
-      UPDATE openclaw_strategy_recommendations
+      UPDATE strategy_center_recommendations
       SET execution_result_json = ?,
           updated_at = ${nowFunc}
       WHERE id = ?
@@ -2643,7 +2643,7 @@ export async function refreshStrategyRecommendations(params: {
     }>(
       `
         SELECT campaign_id, recommendation_type, executed_at
-        FROM openclaw_strategy_recommendations
+        FROM strategy_center_recommendations
         WHERE user_id = ?
           AND status = 'executed'
           AND executed_at IS NOT NULL
@@ -2676,7 +2676,7 @@ export async function refreshStrategyRecommendations(params: {
     }>(
       `
         SELECT id, campaign_id, recommendation_type, snapshot_hash
-        FROM openclaw_strategy_recommendations
+        FROM strategy_center_recommendations
         WHERE user_id = ?
           AND report_date = ?
       `,
@@ -2705,7 +2705,7 @@ export async function refreshStrategyRecommendations(params: {
 
       await db.exec(
         `
-          INSERT INTO openclaw_strategy_recommendations
+          INSERT INTO strategy_center_recommendations
             (
               id,
               user_id,
@@ -2733,15 +2733,15 @@ export async function refreshStrategyRecommendations(params: {
             priority_score = excluded.priority_score,
             snapshot_hash = excluded.snapshot_hash,
             data_json = CASE
-              WHEN openclaw_strategy_recommendations.status = 'executed'
-                THEN openclaw_strategy_recommendations.data_json
+              WHEN strategy_center_recommendations.status = 'executed'
+                THEN strategy_center_recommendations.data_json
               ELSE excluded.data_json
             END,
             status = CASE
-              WHEN openclaw_strategy_recommendations.status = 'executed' THEN openclaw_strategy_recommendations.status
-              WHEN openclaw_strategy_recommendations.status = 'dismissed'
-                AND openclaw_strategy_recommendations.snapshot_hash = excluded.snapshot_hash
-                THEN openclaw_strategy_recommendations.status
+              WHEN strategy_center_recommendations.status = 'executed' THEN strategy_center_recommendations.status
+              WHEN strategy_center_recommendations.status = 'dismissed'
+                AND strategy_center_recommendations.snapshot_hash = excluded.snapshot_hash
+                THEN strategy_center_recommendations.status
               ELSE excluded.status
             END,
             updated_at = ${nowFunc}
@@ -2782,7 +2782,7 @@ export async function refreshStrategyRecommendations(params: {
       const placeholders = generatedIds.map(() => '?').join(', ')
       await db.exec(
         `
-          DELETE FROM openclaw_strategy_recommendations
+          DELETE FROM strategy_center_recommendations
           WHERE user_id = ?
             AND report_date = ?
             AND status = 'pending'
@@ -2794,7 +2794,7 @@ export async function refreshStrategyRecommendations(params: {
       // 对于当次未再命中的建议，标记为 stale（待重算），避免继续执行历史结果。
       await db.exec(
         `
-          UPDATE openclaw_strategy_recommendations
+          UPDATE strategy_center_recommendations
           SET status = 'stale',
               updated_at = ${nowFunc}
           WHERE user_id = ?
@@ -2807,7 +2807,7 @@ export async function refreshStrategyRecommendations(params: {
     } else {
       await db.exec(
         `
-          DELETE FROM openclaw_strategy_recommendations
+          DELETE FROM strategy_center_recommendations
           WHERE user_id = ?
             AND report_date = ?
             AND status = 'pending'
@@ -2817,7 +2817,7 @@ export async function refreshStrategyRecommendations(params: {
 
       await db.exec(
         `
-          UPDATE openclaw_strategy_recommendations
+          UPDATE strategy_center_recommendations
           SET status = 'stale',
               updated_at = ${nowFunc}
           WHERE user_id = ?
@@ -2906,7 +2906,7 @@ async function getRecommendationById(params: {
         execution_result_json,
         created_at,
         updated_at
-      FROM openclaw_strategy_recommendations
+      FROM strategy_center_recommendations
       WHERE id = ?
         AND user_id = ?
       LIMIT 1
@@ -2957,7 +2957,7 @@ export async function dismissStrategyRecommendation(params: {
 
   await db.exec(
     `
-      UPDATE openclaw_strategy_recommendations
+      UPDATE strategy_center_recommendations
       SET status = 'dismissed',
           updated_at = ${nowFunc}
       WHERE id = ?
@@ -3098,7 +3098,7 @@ export async function markStrategyRecommendationQueued(params: {
 
   await db.exec(
     `
-      UPDATE openclaw_strategy_recommendations
+      UPDATE strategy_center_recommendations
       SET execution_result_json = ?,
           updated_at = ${nowFunc}
       WHERE id = ?
@@ -3161,7 +3161,7 @@ export async function markStrategyRecommendationReviewQueued(params: {
 
   await db.exec(
     `
-      UPDATE openclaw_strategy_recommendations
+      UPDATE strategy_center_recommendations
       SET data_json = ?,
           execution_result_json = ?,
           updated_at = ${nowFunc}
@@ -3393,7 +3393,7 @@ export async function reviewStrategyRecommendationEffect(params: {
     }
     await db.exec(
       `
-        UPDATE openclaw_strategy_recommendations
+        UPDATE strategy_center_recommendations
         SET data_json = ?,
             updated_at = ${nowFunc}
         WHERE id = ?
@@ -3516,7 +3516,7 @@ export async function reviewStrategyRecommendationEffect(params: {
 
   await db.exec(
     `
-      UPDATE openclaw_strategy_recommendations
+      UPDATE strategy_center_recommendations
       SET data_json = ?,
           execution_result_json = ?,
           updated_at = ${nowFunc}
@@ -3978,7 +3978,7 @@ export async function executeStrategyRecommendation(params: {
 
     await db.exec(
       `
-        UPDATE openclaw_strategy_recommendations
+        UPDATE strategy_center_recommendations
         SET status = 'executed',
             executed_at = ${nowFunc},
             execution_result_json = ?,
@@ -4023,7 +4023,7 @@ export async function executeStrategyRecommendation(params: {
     }
     await db.exec(
       `
-        UPDATE openclaw_strategy_recommendations
+        UPDATE strategy_center_recommendations
         SET status = 'failed',
             execution_result_json = ?,
             updated_at = ${nowFunc}

@@ -8,7 +8,8 @@ import {
   Megaphone,
   Lightbulb,
   Bot,
-  Settings
+  Settings,
+  TrendingUp,
 } from 'lucide-react'
 
 interface NavItem {
@@ -19,6 +20,8 @@ interface NavItem {
 
 interface MobileBottomNavUser {
   openclawEnabled?: boolean
+  productManagementEnabled?: boolean
+  strategyCenterEnabled?: boolean
 }
 
 const mainNavItems: NavItem[] = [
@@ -28,6 +31,7 @@ const mainNavItems: NavItem[] = [
   { label: '广告', href: '/campaigns', icon: Megaphone },
   { label: '创意', href: '/creatives', icon: Lightbulb },
   { label: 'OpenClaw', href: '/openclaw', icon: Bot },
+  { label: '策略', href: '/strategy-center', icon: TrendingUp },
   { label: '设置', href: '/settings', icon: Settings },
 ]
 
@@ -43,13 +47,19 @@ export function MobileBottomNav({ user }: { user?: MobileBottomNavUser }) {
   }
 
   const filteredMainNavItems = mainNavItems.filter(item => {
-    if (item.href === '/openclaw' || item.href === '/products') {
+    if (item.href === '/openclaw') {
       return Boolean(user?.openclawEnabled)
+    }
+    if (item.href === '/products') {
+      return Boolean(user?.productManagementEnabled)
+    }
+    if (item.href === '/strategy-center') {
+      return Boolean(user?.strategyCenterEnabled)
     }
     return true
   })
-  // 只显示前6个最重要的导航项
-  const visibleItems = filteredMainNavItems.slice(0, 6)
+  // 只显示前7个最重要的导航项
+  const visibleItems = filteredMainNavItems.slice(0, 7)
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">

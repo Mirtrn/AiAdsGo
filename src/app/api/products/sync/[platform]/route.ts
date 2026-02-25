@@ -7,7 +7,7 @@ import {
   type SyncMode,
 } from '@/lib/affiliate-products'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
-import { isOpenclawEnabledForUser } from '@/lib/openclaw/request-auth'
+import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
 
 type RouteParams = {
   platform: string
@@ -42,9 +42,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const openclawEnabled = await isOpenclawEnabledForUser(userId)
-    if (!openclawEnabled) {
-      return NextResponse.json({ error: 'OpenClaw 功能未开启' }, { status: 403 })
+    const productManagementEnabled = await isProductManagementEnabledForUser(userId)
+    if (!productManagementEnabled) {
+      return NextResponse.json({ error: '商品管理功能未开启' }, { status: 403 })
     }
 
     const resolved = await params
@@ -100,11 +100,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     if (error instanceof ConfigRequiredError) {
       return NextResponse.json(
         {
-          error: '请先在 OpenClaw 配置该联盟平台参数',
+          error: '请先在商品管理页完成联盟平台配置',
           code: error.code,
           platform: error.platform,
           missingKeys: error.missingKeys,
-          redirect: '/openclaw',
+          redirect: '/products',
         },
         { status: 400 }
       )

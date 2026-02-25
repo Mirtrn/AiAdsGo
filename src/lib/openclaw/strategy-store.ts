@@ -13,7 +13,7 @@ export async function createStrategyRun(params: {
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
   const runId = crypto.randomUUID()
 
-  const insertSql = `INSERT INTO openclaw_strategy_runs
+  const insertSql = `INSERT INTO strategy_center_runs
      (id, user_id, mode, status, run_date, config_json, created_at, updated_at)
      VALUES (?, ?, ?, 'pending', ?, ?, ${nowFunc}, ${nowFunc})`
 
@@ -66,7 +66,7 @@ export async function updateStrategyRun(params: {
   if (fields.length === 0) return
 
   await db.exec(
-    `UPDATE openclaw_strategy_runs
+    `UPDATE strategy_center_runs
      SET ${fields.join(', ')}, updated_at = ${nowFunc}
      WHERE id = ? AND user_id = ?`,
     [...values, params.runId, params.userId]
@@ -81,7 +81,7 @@ export async function touchStrategyRun(params: {
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   await db.exec(
-    `UPDATE openclaw_strategy_runs
+    `UPDATE strategy_center_runs
      SET updated_at = ${nowFunc}
      WHERE id = ? AND user_id = ?`,
     [params.runId, params.userId]
@@ -102,10 +102,10 @@ export async function recordStrategyAction(params: {
   const db = await getDatabase()
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
   const insertSql = db.type === 'postgres'
-    ? `INSERT INTO openclaw_strategy_actions
+    ? `INSERT INTO strategy_center_actions
        (run_id, user_id, action_type, target_type, target_id, status, request_json, response_json, error_message, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}) RETURNING id`
-    : `INSERT INTO openclaw_strategy_actions
+    : `INSERT INTO strategy_center_actions
        (run_id, user_id, action_type, target_type, target_id, status, request_json, response_json, error_message, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})`
 
@@ -151,7 +151,7 @@ export async function updateStrategyAction(params: {
   if (fields.length === 0) return
 
   await db.exec(
-    `UPDATE openclaw_strategy_actions SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
+    `UPDATE strategy_center_actions SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
     [...values, params.actionId, params.userId]
   )
 }
