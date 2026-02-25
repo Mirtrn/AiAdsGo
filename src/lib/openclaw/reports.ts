@@ -182,6 +182,11 @@ type AttributionSummaryRangeRow = {
   attributed_campaigns: number | null
 }
 
+type UnattributedFailureSummaryRangeRow = {
+  total_commission: number | null
+  total_rows: number | null
+}
+
 type OfferRevenueRow = {
   offer_id: number
   revenue: number | null
@@ -274,6 +279,9 @@ type ReportCampaignBreakdownRow = {
 }
 
 const COMMISSION_EPSILON = 0.0001
+// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
+// Counting them again from failure audit rows would double-count commission.
+const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
 const REPORT_TREND_DAYS = 30
 const RECONCILIATION_GAP_ALERT_EPSILON = 0.01
 const RECONCILIATION_CRITICAL_GAP_AMOUNT = 20
@@ -396,10 +404,11 @@ async function queryAffiliateAttributionFailureSummary(params: {
         FROM openclaw_affiliate_attribution_failures
         WHERE user_id = ?
           AND report_date = ?
+          AND COALESCE(reason_code, '') <> ?
         GROUP BY reason_code
         ORDER BY reason_count DESC, commission DESC
       `,
-      [params.userId, params.reportDate]
+      [params.userId, params.reportDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
     )
 
     const topReasons = rows.map((row) => ({
@@ -613,7 +622,67 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
   startDate: string
   endDate: string
 }): Promise<AffiliateCommissionRevenue> {
-  const [platformRows, attributionRow] = await Promise.all([
+  const queryUnattributedFailureByDateRange = async (): Promise<{
+    platformRows: PlatformCommissionSummaryRow[]
+    totalCommission: number
+    totalRows: number
+  }> => {
+    try {
+      const [platformRows, summaryRow] = await Promise.all([
+        params.db.query<PlatformCommissionSummaryRow>(
+          `
+            SELECT
+              platform,
+              currency,
+              COALESCE(SUM(commission_amount), 0) AS total_commission,
+              COUNT(*) AS records
+            FROM openclaw_affiliate_attribution_failures
+            WHERE user_id = ?
+              AND report_date >= ?
+              AND report_date <= ?
+              AND COALESCE(reason_code, '') <> ?
+            GROUP BY platform, currency
+            ORDER BY total_commission DESC
+          `,
+          [params.userId, params.startDate, params.endDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+        ),
+        params.db.queryOne<UnattributedFailureSummaryRangeRow>(
+          `
+            SELECT
+              COALESCE(SUM(commission_amount), 0) AS total_commission,
+              COUNT(*) AS total_rows
+            FROM openclaw_affiliate_attribution_failures
+            WHERE user_id = ?
+              AND report_date >= ?
+              AND report_date <= ?
+              AND COALESCE(reason_code, '') <> ?
+          `,
+          [params.userId, params.startDate, params.endDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+        ),
+      ])
+
+      return {
+        platformRows,
+        totalCommission: roundTo2(toNumber(summaryRow?.total_commission, 0)),
+        totalRows: Math.max(0, Math.round(toNumber(summaryRow?.total_rows, 0))),
+      }
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (
+        /openclaw_affiliate_attribution_failures/i.test(message)
+        && /(no such table|does not exist)/i.test(message)
+      ) {
+        return {
+          platformRows: [],
+          totalCommission: 0,
+          totalRows: 0,
+        }
+      }
+      throw error
+    }
+  }
+
+  const [platformRows, attributionRow, unattributedFailureSummary] = await Promise.all([
     params.db.query<PlatformCommissionSummaryRow>(
       `
         SELECT
@@ -650,28 +719,52 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
       `,
       [params.userId, params.startDate, params.endDate]
     ),
+    queryUnattributedFailureByDateRange(),
   ])
 
-  const breakdown: AffiliateCommissionRevenue['breakdown'] = []
+  const breakdownMap = new Map<string, {
+    platform: 'partnerboost' | 'yeahpromos'
+    currency: string
+    totalCommission: number
+    records: number
+  }>()
+  const appendBreakdownRows = (rows: PlatformCommissionSummaryRow[]) => {
+    for (const row of rows) {
+      const platform = normalizeAffiliatePlatform(row.platform)
+      if (!platform) continue
+      const currency = normalizeCurrencyCode(row.currency, 'USD')
+      const key = `${platform}:${currency}`
+      const current = breakdownMap.get(key) || {
+        platform,
+        currency,
+        totalCommission: 0,
+        records: 0,
+      }
+      current.totalCommission = roundTo2(current.totalCommission + toNumber(row.total_commission, 0))
+      current.records = Math.max(0, current.records + Math.round(toNumber(row.records, 0)))
+      breakdownMap.set(key, current)
+    }
+  }
+  appendBreakdownRows(platformRows)
+  appendBreakdownRows(unattributedFailureSummary.platformRows)
+
+  const mergedBreakdown: AffiliateCommissionRevenue['breakdown'] = Array.from(breakdownMap.values())
+    .filter((row) => row.totalCommission > 0 || row.records > 0)
+    .sort((a, b) => (b.totalCommission - a.totalCommission) || a.platform.localeCompare(b.platform))
+    .map((row) => ({
+      platform: row.platform,
+      totalCommission: roundTo2(row.totalCommission),
+      records: row.records,
+      currency: row.currency,
+    }))
+
   const configuredPlatforms: Array<'partnerboost' | 'yeahpromos'> = []
   const queriedPlatforms: Array<'partnerboost' | 'yeahpromos'> = []
   const configuredSet = new Set<'partnerboost' | 'yeahpromos'>()
   const queriedSet = new Set<'partnerboost' | 'yeahpromos'>()
 
-  for (const row of platformRows) {
-    const platform = normalizeAffiliatePlatform(row.platform)
-    if (!platform) continue
-    const totalCommission = roundTo2(toNumber(row.total_commission, 0))
-    const records = Math.max(0, Math.round(toNumber(row.records, 0)))
-    if (totalCommission <= 0 && records <= 0) continue
-
-    breakdown.push({
-      platform,
-      totalCommission,
-      records,
-      currency: normalizeCurrencyCode(row.currency, 'USD'),
-    })
-
+  for (const row of mergedBreakdown) {
+    const platform = row.platform
     if (!configuredSet.has(platform)) {
       configuredSet.add(platform)
       configuredPlatforms.push(platform)
@@ -682,16 +775,19 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
     }
   }
 
-  const totalCommission = roundTo2(toNumber(attributionRow?.total_commission, 0))
+  const attributedRowsCommission = roundTo2(toNumber(attributionRow?.total_commission, 0))
   const attributedCommission = roundTo2(toNumber(attributionRow?.attributed_commission, 0))
-  const unattributedCommission = roundTo2(Math.max(0, totalCommission - attributedCommission))
+  const unattributedFromAttributionRows = roundTo2(Math.max(0, attributedRowsCommission - attributedCommission))
+  const unattributedFromFailureRows = roundTo2(Math.max(0, unattributedFailureSummary.totalCommission))
+  const totalCommission = roundTo2(attributedRowsCommission + unattributedFromFailureRows)
+  const unattributedCommission = roundTo2(unattributedFromAttributionRows + unattributedFromFailureRows)
 
   return {
     reportDate: params.endDate,
     configuredPlatforms,
     queriedPlatforms,
     totalCommission,
-    breakdown,
+    breakdown: mergedBreakdown,
     errors: [],
     attribution: {
       attributedCommission,

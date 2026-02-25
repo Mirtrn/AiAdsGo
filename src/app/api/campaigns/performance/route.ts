@@ -55,6 +55,10 @@ type Agg = {
   cost: number
 }
 
+// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
+// Counting them again from failure audit rows would double-count commission.
+const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
+
 /**
  * GET /api/campaigns/performance
  *
@@ -202,7 +206,9 @@ export async function GET(request: NextRequest) {
     const queryCommissionByCampaign = async (params: {
       start: string
       end: string
+      currency?: string
     }): Promise<Map<number, number>> => {
+      const hasCurrencyFilter = Boolean(params.currency)
       const rows = await db.query<{ campaign_id: number; commission: number }>(
         `
           SELECT
@@ -212,10 +218,13 @@ export async function GET(request: NextRequest) {
           WHERE user_id = ?
             AND report_date >= ?
             AND report_date <= ?
+            ${hasCurrencyFilter ? 'AND COALESCE(currency, \'USD\') = ?' : ''}
             AND campaign_id IS NOT NULL
           GROUP BY campaign_id
         `,
-        [userId, params.start, params.end]
+        hasCurrencyFilter
+          ? [userId, params.start, params.end, String(params.currency)]
+          : [userId, params.start, params.end]
       )
 
       const map = new Map<number, number>()
@@ -234,6 +243,7 @@ export async function GET(request: NextRequest) {
     const currentCommissionByCampaign = await queryCommissionByCampaign({
       start: startDateStr,
       end: endDate,
+      currency: reportingCurrency || undefined,
     })
     const pickCampaignCurrency = (params: {
       accountCurrency: string
@@ -446,6 +456,9 @@ export async function GET(request: NextRequest) {
     }): Promise<number> => {
       const hasCurrencyFilter = Boolean(params.currency)
       try {
+        const queryParams = hasCurrencyFilter
+          ? [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE, String(params.currency)]
+          : [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE]
         const row = await db.queryOne<{ total_commission: number }>(
           `
             SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
@@ -453,11 +466,10 @@ export async function GET(request: NextRequest) {
             WHERE user_id = ?
               AND report_date >= ?
               AND report_date <= ?
+              AND COALESCE(reason_code, '') <> ?
               ${hasCurrencyFilter ? 'AND COALESCE(currency, \'USD\') = ?' : ''}
           `,
-          hasCurrencyFilter
-            ? [userId, params.start, params.end, String(params.currency)]
-            : [userId, params.start, params.end]
+          queryParams
         )
 
         return Number(row?.total_commission) || 0

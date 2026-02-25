@@ -104,5 +104,41 @@ describe('GET /api/campaigns/trends', () => {
     expect(data.success).toBe(true)
     expect(data.trends.find((row: any) => row.date === '2026-02-24')?.commission).toBe(3)
   })
-})
 
+  it('applies currency filter and excludes campaign_mapping_miss failures from unattributed totals', async () => {
+    const query = vi.fn(async (sql: string, params: any[]) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+        return [
+          { currency: 'USD', cost: 12.5 },
+          { currency: 'CNY', cost: 8.2 },
+        ]
+      }
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY DATE(date)')) {
+        expect(params?.[3]).toBe('CNY')
+        return [{ date: '2026-02-24', impressions: 80, clicks: 16, cost: 6.4 }]
+      }
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        expect(params?.[3]).toBe('CNY')
+        return [{ date: '2026-02-24', commission: 1 }]
+      }
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        expect(sql).toContain("COALESCE(reason_code, '') <> ?")
+        expect(params?.[3]).toBe('campaign_mapping_miss')
+        expect(params?.[4]).toBe('CNY')
+        return [{ date: '2026-02-24', commission: 2 }]
+      }
+      throw new Error(`unexpected sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({ query })
+
+    const req = new NextRequest('http://localhost/api/campaigns/trends?daysBack=7&currency=CNY')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.summary?.currency).toBe('CNY')
+    expect(data.trends.find((row: any) => row.date === '2026-02-24')?.commission).toBe(3)
+  })
+})

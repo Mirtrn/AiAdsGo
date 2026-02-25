@@ -48,6 +48,10 @@ interface KPIData {
   }
 }
 
+// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
+// Counting them again from failure audit rows would double-count commission.
+const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
+
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -213,8 +217,9 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
               WHERE user_id = ?
                 AND report_date >= ?
                 AND report_date <= ?
+                AND COALESCE(reason_code, '') <> ?
             `,
-            [userId, params.start, params.end]
+            [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE]
           )
 
           return Number(row?.total_commission) || 0

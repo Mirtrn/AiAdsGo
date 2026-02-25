@@ -1519,13 +1519,22 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总佣金</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {formatMoney(summaryTotalCommission)}
+                      {formatCurrencyDashboard(
+                        summaryTotalCommission,
+                        String(summary?.currency || trendsCurrencyValue || defaultCurrency)
+                      )}
                     </p>
                     <p className="text-xs mt-1 text-gray-500">
-                      可归因: {formatMoney(summaryAttributedCommission)}
+                      可归因: {formatCurrencyDashboard(
+                        summaryAttributedCommission,
+                        String(summary?.currency || trendsCurrencyValue || defaultCurrency)
+                      )}
                     </p>
                     <p className={`text-xs mt-1 ${summaryUnattributedCommission > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
-                      未归因: {formatMoney(summaryUnattributedCommission)}
+                      未归因: {formatCurrencyDashboard(
+                        summaryUnattributedCommission,
+                        String(summary?.currency || trendsCurrencyValue || defaultCurrency)
+                      )}
                     </p>
                     {summary.changes?.conversions !== null && summary.changes?.conversions !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.conversions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
