@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       [userId, startDateStr, endDateStr, reportingCurrency]
     )
 
-    const commissionTrends = await db.query<any>(
+    const queryAttributedCommissionTrends = async () => db.query<any>(
       `
       SELECT
         report_date as date,
@@ -127,6 +127,39 @@ export async function GET(request: NextRequest) {
       [userId, startDateStr, endDateStr]
     )
 
+    const queryUnattributedCommissionTrends = async (): Promise<any[]> => {
+      try {
+        return await db.query<any>(
+          `
+          SELECT
+            report_date as date,
+            COALESCE(SUM(commission_amount), 0) as commission
+          FROM openclaw_affiliate_attribution_failures
+          WHERE user_id = ?
+            AND report_date >= ?
+            AND report_date <= ?
+          GROUP BY report_date
+          ORDER BY report_date ASC
+          `,
+          [userId, startDateStr, endDateStr]
+        )
+      } catch (error: any) {
+        const message = String(error?.message || '')
+        if (
+          /openclaw_affiliate_attribution_failures/i.test(message)
+          && /(no such table|does not exist)/i.test(message)
+        ) {
+          return []
+        }
+        throw error
+      }
+    }
+
+    const [attributedCommissionTrends, unattributedCommissionTrends] = await Promise.all([
+      queryAttributedCommissionTrends(),
+      queryUnattributedCommissionTrends(),
+    ])
+
     const adMap = new Map<string, { impressions: number; clicks: number; cost: number }>()
     for (const row of adTrends) {
       const date = normalizeDateKey(row.date)
@@ -138,10 +171,15 @@ export async function GET(request: NextRequest) {
     }
 
     const commissionMap = new Map<string, number>()
-    for (const row of commissionTrends) {
-      const date = normalizeDateKey(row.date)
-      commissionMap.set(date, Number(row.commission) || 0)
+    const appendCommissionRows = (rows: any[]) => {
+      for (const row of rows) {
+        const date = normalizeDateKey(row.date)
+        const commission = Number(row.commission) || 0
+        commissionMap.set(date, (commissionMap.get(date) || 0) + commission)
+      }
     }
+    appendCommissionRows(attributedCommissionTrends)
+    appendCommissionRows(unattributedCommissionTrends)
 
     const dates = Array.from(new Set<string>([
       ...Array.from(adMap.keys()),

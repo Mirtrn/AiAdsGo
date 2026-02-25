@@ -79,7 +79,7 @@ function formatDateInTimezone(date: Date, timeZone: string): string {
 }
 
 function buildAffiliateLookbackDates(days: number, timeZone: string): string[] {
-  const safeDays = Math.min(30, Math.max(1, Math.round(days)))
+  const safeDays = Math.min(30, Math.max(7, Math.round(days)))
   const today = new Date()
   const dates: string[] = []
 
@@ -424,7 +424,7 @@ async function openclawAffiliateRevenueSnapshotTask() {
 
   const db = await getDatabase()
   const reportTimeZone = 'Asia/Shanghai'
-  const lookbackDays = parsePositiveInt(process.env.OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS, 7)
+  const lookbackDays = Math.max(7, parsePositiveInt(process.env.OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS, 7))
   const reportDates = buildAffiliateLookbackDates(lookbackDays, reportTimeZone)
   const firstReportDate = reportDates[0]
   const latestReportDate = reportDates[reportDates.length - 1]

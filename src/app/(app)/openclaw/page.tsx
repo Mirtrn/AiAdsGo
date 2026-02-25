@@ -1710,7 +1710,9 @@ export default function OpenClawPage() {
       return
     }
 
-    const targetDate = String(reportDate || parseLocalDate()).trim() || parseLocalDate()
+    // 联盟佣金存在平台侧滞后更新，手动同步统一以“今日”为截止日回补近N天，
+    // 避免因当前报表日期停留在历史日而遗漏最近窗口数据。
+    const targetDate = parseLocalDate()
     setAffiliateSyncTriggering(true)
     try {
       const response = await fetch('/api/openclaw/affiliate-sync', {
@@ -3758,7 +3760,7 @@ export default function OpenClawPage() {
                   </div>
                 </div>
                 <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                  <div>incremental：每小时任务按配置间隔刷新当日佣金快照。</div>
+                  <div>incremental：每小时任务按配置间隔回补近7天佣金快照（覆盖平台滞后更新）。</div>
                   <div>realtime：在上述基础上，Feishu 查询日报默认强制实时拉取联盟佣金。</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -3775,7 +3777,7 @@ export default function OpenClawPage() {
                       : `手动触发同步（近${AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS}天）`}
                   </Button>
                   <span className="text-xs text-slate-500">
-                    以报表日期 {reportDate} 为截止日，回补联盟佣金并写入 /campaigns 口径。
+                    以今日为截止日回补近{AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS}天联盟佣金，并写入 /campaigns 口径。
                   </span>
                 </div>
               </div>

@@ -7,6 +7,7 @@ import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 export const dynamic = 'force-dynamic'
 
 const DEFAULT_BACKFILL_DAYS = 7
+const MIN_BACKFILL_DAYS = 7
 const MAX_BACKFILL_DAYS = 30
 
 function parseReportDate(value: unknown): string | undefined {
@@ -24,7 +25,7 @@ function parseBackfillDays(value: unknown): number {
   if (!Number.isFinite(raw)) {
     return DEFAULT_BACKFILL_DAYS
   }
-  return Math.min(MAX_BACKFILL_DAYS, Math.max(1, Math.floor(raw)))
+  return Math.min(MAX_BACKFILL_DAYS, Math.max(MIN_BACKFILL_DAYS, Math.floor(raw)))
 }
 
 function shiftYmdDate(ymd: string, daysOffset: number): string {
