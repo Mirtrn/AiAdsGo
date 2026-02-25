@@ -157,6 +157,10 @@ describe('openclaw canonical routes', () => {
       method: 'POST',
       path: '/api/products/56/create-offer',
     })
+    const productLinkOffer = assertOpenclawCommandRouteAllowed({
+      method: 'POST',
+      path: '/api/products/56/link-offer',
+    })
     const campaignSync = assertOpenclawCommandRouteAllowed({
       method: 'POST',
       path: '/api/campaigns/201/sync',
@@ -164,6 +168,7 @@ describe('openclaw canonical routes', () => {
 
     expect(launchAds.feature).toBe('offer-management')
     expect(productCreateOffer.feature).toBe('product-sync')
+    expect(productLinkOffer.feature).toBe('product-sync')
     expect(campaignSync.feature).toBe('campaign-management')
   })
 

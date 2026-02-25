@@ -39,6 +39,7 @@ import { invalidateOfferCache } from '@/lib/api-cache'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { addUrlSwapTargetForOfferCampaign } from '@/lib/url-swap'
 import { applyCampaignTransition } from '@/lib/campaign-state-machine'
+import { backfillOfferProductLinkForPublishedCampaign } from '@/lib/affiliate-products'
 import {
   normalizeNegativeKeywordMatchTypeMap,
   resolveNegativeKeywordMatchType,
@@ -1138,6 +1139,27 @@ export async function executeCampaignPublish(
         creationError: finalCreationError,
       },
     })
+
+    try {
+      const backfillResult = await backfillOfferProductLinkForPublishedCampaign({
+        userId,
+        offerId,
+      })
+      if (backfillResult.linked) {
+        console.log(
+          `🔗 发布后已补齐product-offer链路: offer=${offerId}, product=${backfillResult.productId}, reason=${backfillResult.reason}`
+        )
+      } else {
+        console.log(
+          `ℹ️ 发布后未补齐product-offer链路: offer=${offerId}, reason=${backfillResult.reason}`
+        )
+      }
+    } catch (backfillError: any) {
+      console.warn(
+        `⚠️ 发布后补齐product-offer链路失败（不影响发布结果）: ${backfillError?.message || backfillError}`
+      )
+    }
+
     // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面"关联Ads账号"及时更新
     invalidateOfferCache(userId, offerId)
 

@@ -863,6 +863,15 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
   },
   {
     method: 'POST',
+    path: '/api/products/:id/link-offer',
+    canonicalKeys: ['offerId'],
+    requiredKeys: ['offerId'],
+    aliasMap: {
+      offer_id: 'offerId',
+    },
+  },
+  {
+    method: 'POST',
     path: '/api/products/:id/offline',
     canonicalKeys: [],
     allowEmptyBody: true,

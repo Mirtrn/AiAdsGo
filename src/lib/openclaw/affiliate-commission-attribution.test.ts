@@ -339,6 +339,70 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     })
   })
 
+  it('keeps commission unattributed when only brand could match but no product-offer link exists', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_products')) {
+        return [{ id: 101, mid: '362632', asin: null }]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return []
+      }
+      if (sql.includes('FROM offers')) {
+        return []
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 1,
+            clicks: 20,
+            cost: 5,
+          },
+        ]
+      }
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('source_order_id')) {
+        return []
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 7.25,
+          sourceOrderId: 'order-brand-platform-guard-1',
+          sourceMid: '362632',
+          sourceAsin: 'B0FGJ3M5X4',
+          raw: { sale_comm: 7.25 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 7.25,
+      attributedCommission: 0,
+      unattributedCommission: 7.25,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
+    })
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(0)
+  })
+
   it('derives partnerboost link id from sourceMid when sourceLink fields are missing', async () => {
     const today = formatLocalYmd(new Date())
 

@@ -1,4 +1,4 @@
-import { createOffer, deleteOffer } from '@/lib/offers'
+import { createOffer, deleteOffer, findOfferById } from '@/lib/offers'
 import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
@@ -180,6 +180,57 @@ export type AffiliateProductOfflineResult = {
   failedOffers: AffiliateProductOfflineFailure[]
   offlined: boolean
   product: AffiliateProduct | null
+}
+
+export type AffiliateProductOfferLinkCreatedVia =
+  | 'single'
+  | 'batch'
+  | 'manual_link'
+  | 'publish_backfill'
+  | 'asin_fallback'
+
+type OfferProductBackfillDecisionReason =
+  | 'exact_url'
+  | 'link_id'
+  | 'asin'
+  | 'link_id_asin_intersection'
+  | 'ambiguous_exact_url'
+  | 'ambiguous_link_id'
+  | 'ambiguous_asin'
+  | 'ambiguous_link_id_asin_intersection'
+  | 'conflicting_link_id_asin'
+  | 'no_match'
+
+export type OfferProductLinkBackfillReason =
+  | 'already_linked'
+  | 'offer_not_found'
+  | 'no_offer_signal'
+  | 'linked_by_exact_url'
+  | 'linked_by_link_id'
+  | 'linked_by_asin'
+  | 'linked_by_link_id_asin_intersection'
+  | 'ambiguous_exact_url'
+  | 'ambiguous_link_id'
+  | 'ambiguous_asin'
+  | 'ambiguous_link_id_asin_intersection'
+  | 'conflicting_link_id_asin'
+  | 'no_match'
+
+export type OfferProductLinkBackfillResult = {
+  linked: boolean
+  offerId: number
+  productId: number | null
+  reason: OfferProductLinkBackfillReason
+  signals: {
+    urlTokenCount: number
+    linkIdCount: number
+    asinCount: number
+  }
+  candidates: {
+    exactUrlProductIds: number[]
+    linkIdProductIds: number[]
+    asinProductIds: number[]
+  }
 }
 
 export type BatchOfflineAffiliateProductsResult = {
@@ -787,6 +838,264 @@ function normalizeUrl(value?: string | null): string | null {
   if (!value) return null
   const trimmed = String(value).trim()
   return trimmed || null
+}
+
+function extractAsinFromUrlLike(value: unknown): string | null {
+  const raw = normalizeUrl(typeof value === 'string' ? value : String(value || ''))
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded && decoded !== raw) {
+        candidates.push(decoded)
+      }
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  const patterns = [
+    /\/dp\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /\/gp\/product\/([A-Za-z0-9]{10})(?=[/?#&]|$)/i,
+    /[?&#]asin=([A-Za-z0-9]{10})(?=[&#]|$)/i,
+  ]
+
+  for (const candidate of candidates) {
+    for (const pattern of patterns) {
+      const matched = candidate.match(pattern)
+      if (!matched?.[1]) continue
+      const asin = normalizeAsin(matched[1])
+      if (asin) return asin
+    }
+  }
+
+  return null
+}
+
+function extractPartnerboostLinkId(value: unknown): string | null {
+  const raw = normalizeUrl(typeof value === 'string' ? value : String(value || ''))
+  if (!raw) return null
+
+  const candidates = [raw]
+  if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded && decoded !== raw) {
+        candidates.push(decoded)
+      }
+    } catch {
+      // ignore malformed percent-encoding
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate)
+      const key = Array.from(url.searchParams.keys())
+        .find((item) => item.toLowerCase() === 'aa_adgroupid')
+      if (key) {
+        const value = normalizeUrl(url.searchParams.get(key))
+        if (value) return value
+      }
+    } catch {
+      // ignore invalid url
+    }
+
+    const matched = candidate.match(/[?&#]aa_adgroupid=([^&#]+)/i)
+    if (matched?.[1]) {
+      const value = normalizeUrl(matched[1])
+      if (value) return value
+    }
+  }
+
+  return null
+}
+
+function buildComparableUrlTokens(value: unknown): string[] {
+  const raw = normalizeUrl(typeof value === 'string' ? value : String(value || ''))
+  if (!raw) return []
+
+  const queue: string[] = [raw]
+  const seen = new Set<string>()
+  const tokens: string[] = []
+
+  while (queue.length > 0) {
+    const current = queue.shift() as string
+    const normalizedCurrent = normalizeUrl(current)
+    if (!normalizedCurrent || seen.has(normalizedCurrent)) continue
+
+    seen.add(normalizedCurrent)
+    tokens.push(normalizedCurrent)
+
+    if (/%[0-9A-Fa-f]{2}/.test(normalizedCurrent)) {
+      try {
+        const decoded = decodeURIComponent(normalizedCurrent)
+        const normalizedDecoded = normalizeUrl(decoded)
+        if (normalizedDecoded && !seen.has(normalizedDecoded)) {
+          queue.push(normalizedDecoded)
+        }
+      } catch {
+        // ignore malformed percent-encoding
+      }
+    }
+
+    try {
+      const parsed = new URL(normalizedCurrent)
+      const protocol = parsed.protocol.toLowerCase()
+      const hostname = parsed.hostname.toLowerCase()
+      const pathname = parsed.pathname ? parsed.pathname.replace(/\/+$/, '') : ''
+      const normalizedPathname = pathname || '/'
+
+      const queryEntries = Array.from(parsed.searchParams.entries())
+      queryEntries.sort((a, b) => {
+        if (a[0] === b[0]) return a[1].localeCompare(b[1])
+        return a[0].localeCompare(b[0])
+      })
+      const sortedParams = new URLSearchParams()
+      for (const [key, val] of queryEntries) {
+        sortedParams.append(key, val)
+      }
+      const sortedQuery = sortedParams.toString()
+      const canonical = `${protocol}//${hostname}${normalizedPathname}${sortedQuery ? `?${sortedQuery}` : ''}`
+      if (!seen.has(canonical)) {
+        queue.push(canonical)
+      }
+    } catch {
+      // ignore invalid url
+    }
+  }
+
+  return tokens
+}
+
+function dedupePositiveIds(ids: number[]): number[] {
+  const result: number[] = []
+  const seen = new Set<number>()
+  for (const raw of ids) {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    result.push(id)
+  }
+  return result
+}
+
+function resolveOfferProductBackfillDecision(params: {
+  exactUrlProductIds: number[]
+  linkIdProductIds: number[]
+  asinProductIds: number[]
+}): {
+  productId: number | null
+  reason: OfferProductBackfillDecisionReason
+  exactUrlProductIds: number[]
+  linkIdProductIds: number[]
+  asinProductIds: number[]
+} {
+  const exactUrlProductIds = dedupePositiveIds(params.exactUrlProductIds)
+  const linkIdProductIds = dedupePositiveIds(params.linkIdProductIds)
+  const asinProductIds = dedupePositiveIds(params.asinProductIds)
+
+  if (exactUrlProductIds.length === 1) {
+    return {
+      productId: exactUrlProductIds[0],
+      reason: 'exact_url',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (exactUrlProductIds.length > 1) {
+    return {
+      productId: null,
+      reason: 'ambiguous_exact_url',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (linkIdProductIds.length > 0 && asinProductIds.length > 0) {
+    const asinSet = new Set(asinProductIds)
+    const intersection = linkIdProductIds.filter((productId) => asinSet.has(productId))
+    if (intersection.length === 1) {
+      return {
+        productId: intersection[0],
+        reason: 'link_id_asin_intersection',
+        exactUrlProductIds,
+        linkIdProductIds,
+        asinProductIds,
+      }
+    }
+
+    if (intersection.length > 1) {
+      return {
+        productId: null,
+        reason: 'ambiguous_link_id_asin_intersection',
+        exactUrlProductIds,
+        linkIdProductIds,
+        asinProductIds,
+      }
+    }
+
+    return {
+      productId: null,
+      reason: 'conflicting_link_id_asin',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (linkIdProductIds.length === 1) {
+    return {
+      productId: linkIdProductIds[0],
+      reason: 'link_id',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (linkIdProductIds.length > 1) {
+    return {
+      productId: null,
+      reason: 'ambiguous_link_id',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (asinProductIds.length === 1) {
+    return {
+      productId: asinProductIds[0],
+      reason: 'asin',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  if (asinProductIds.length > 1) {
+    return {
+      productId: null,
+      reason: 'ambiguous_asin',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+    }
+  }
+
+  return {
+    productId: null,
+    reason: 'no_match',
+    exactUrlProductIds,
+    linkIdProductIds,
+    asinProductIds,
+  }
 }
 
 function toNumber(value: unknown): number | null {
@@ -3639,11 +3948,15 @@ function mapAffiliateProductRow(
 export const __testOnly = {
   assertPartnerboostAsinRequestLimit,
   calculateExponentialBackoffDelay,
+  buildComparableUrlTokens,
+  extractAsinFromUrlLike,
+  extractPartnerboostLinkId,
   isPartnerboostTransientError,
   isPartnerboostRateLimited,
   isPartnerboostRateLimitError,
   isYeahPromosRateLimited,
   isYeahPromosTransientError,
+  resolveOfferProductBackfillDecision,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
   resolveSyncMaxPages,
@@ -3826,7 +4139,7 @@ export async function recordAffiliateProductOfferLink(params: {
   userId: number
   productId: number
   offerId: number
-  createdVia?: 'single' | 'batch'
+  createdVia?: AffiliateProductOfferLinkCreatedVia
 }): Promise<void> {
   const db = await getDatabase()
   await db.exec(
@@ -3837,6 +4150,298 @@ export async function recordAffiliateProductOfferLink(params: {
     `,
     [params.userId, params.productId, params.offerId, params.createdVia || 'single']
   )
+}
+
+export async function linkOfferToAffiliateProduct(params: {
+  userId: number
+  productId: number
+  offerId: number
+}): Promise<{ product: AffiliateProduct; offerId: number; linked: boolean }> {
+  const db = await getDatabase()
+
+  const product = await getAffiliateProductById(params.userId, params.productId)
+  if (!product) {
+    throw new Error('商品不存在')
+  }
+
+  const offer = await findOfferById(params.offerId, params.userId)
+  if (!offer) {
+    throw new Error('Offer不存在')
+  }
+
+  const existing = await db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM affiliate_product_offer_links
+      WHERE user_id = ? AND product_id = ? AND offer_id = ?
+      LIMIT 1
+    `,
+    [params.userId, params.productId, params.offerId]
+  )
+
+  if (existing) {
+    return {
+      product,
+      offerId: offer.id,
+      linked: false,
+    }
+  }
+
+  await recordAffiliateProductOfferLink({
+    userId: params.userId,
+    productId: params.productId,
+    offerId: params.offerId,
+    createdVia: 'manual_link',
+  })
+
+  return {
+    product,
+    offerId: offer.id,
+    linked: true,
+  }
+}
+
+export async function backfillOfferProductLinkForPublishedCampaign(params: {
+  userId: number
+  offerId: number
+}): Promise<OfferProductLinkBackfillResult> {
+  const db = await getDatabase()
+
+  const existing = await db.queryOne<{ product_id: number }>(
+    `
+      SELECT product_id
+      FROM affiliate_product_offer_links
+      WHERE user_id = ? AND offer_id = ?
+      LIMIT 1
+    `,
+    [params.userId, params.offerId]
+  )
+
+  if (existing && Number.isFinite(Number(existing.product_id)) && Number(existing.product_id) > 0) {
+    return {
+      linked: false,
+      offerId: params.offerId,
+      productId: Number(existing.product_id),
+      reason: 'already_linked',
+      signals: {
+        urlTokenCount: 0,
+        linkIdCount: 0,
+        asinCount: 0,
+      },
+      candidates: {
+        exactUrlProductIds: [],
+        linkIdProductIds: [],
+        asinProductIds: [],
+      },
+    }
+  }
+
+  const offerNotDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const offer = await db.queryOne<{
+    id: number
+    url: string | null
+    final_url: string | null
+    affiliate_link: string | null
+  }>(
+    `
+      SELECT id, url, final_url, affiliate_link
+      FROM offers
+      WHERE id = ? AND user_id = ? AND ${offerNotDeletedCondition}
+      LIMIT 1
+    `,
+    [params.offerId, params.userId]
+  )
+
+  if (!offer) {
+    return {
+      linked: false,
+      offerId: params.offerId,
+      productId: null,
+      reason: 'offer_not_found',
+      signals: {
+        urlTokenCount: 0,
+        linkIdCount: 0,
+        asinCount: 0,
+      },
+      candidates: {
+        exactUrlProductIds: [],
+        linkIdProductIds: [],
+        asinProductIds: [],
+      },
+    }
+  }
+
+  const offerUrlTokens = new Set<string>()
+  const offerLinkIds = new Set<string>()
+  const offerAsins = new Set<string>()
+  const offerUrlCandidates = [offer.url, offer.final_url, offer.affiliate_link]
+
+  for (const candidate of offerUrlCandidates) {
+    for (const token of buildComparableUrlTokens(candidate)) {
+      offerUrlTokens.add(token)
+    }
+
+    const linkId = extractPartnerboostLinkId(candidate)
+    if (linkId) {
+      offerLinkIds.add(linkId.toLowerCase())
+    }
+
+    const asin = extractAsinFromUrlLike(candidate)
+    if (asin) {
+      offerAsins.add(asin)
+    }
+  }
+
+  if (offerUrlTokens.size === 0 && offerLinkIds.size === 0 && offerAsins.size === 0) {
+    return {
+      linked: false,
+      offerId: params.offerId,
+      productId: null,
+      reason: 'no_offer_signal',
+      signals: {
+        urlTokenCount: 0,
+        linkIdCount: 0,
+        asinCount: 0,
+      },
+      candidates: {
+        exactUrlProductIds: [],
+        linkIdProductIds: [],
+        asinProductIds: [],
+      },
+    }
+  }
+
+  const notBlacklistedCondition = db.type === 'postgres'
+    ? '(is_blacklisted = false OR is_blacklisted IS NULL)'
+    : '(is_blacklisted = 0 OR is_blacklisted IS NULL)'
+
+  const productRows = await db.query<{
+    id: number
+    asin: string | null
+    promo_link: string | null
+    short_promo_link: string | null
+    product_url: string | null
+  }>(
+    `
+      SELECT id, asin, promo_link, short_promo_link, product_url
+      FROM affiliate_products
+      WHERE user_id = ? AND ${notBlacklistedCondition}
+    `,
+    [params.userId]
+  )
+
+  const exactUrlProductIds: number[] = []
+  const linkIdProductIds: number[] = []
+  const asinProductIds: number[] = []
+
+  for (const row of productRows) {
+    const productId = Number(row.id)
+    if (!Number.isFinite(productId) || productId <= 0) continue
+
+    if (offerUrlTokens.size > 0) {
+      const productUrlTokens = new Set<string>()
+      for (const token of buildComparableUrlTokens(row.promo_link)) {
+        productUrlTokens.add(token)
+      }
+      for (const token of buildComparableUrlTokens(row.short_promo_link)) {
+        productUrlTokens.add(token)
+      }
+      for (const token of buildComparableUrlTokens(row.product_url)) {
+        productUrlTokens.add(token)
+      }
+      for (const token of productUrlTokens) {
+        if (!offerUrlTokens.has(token)) continue
+        exactUrlProductIds.push(productId)
+        break
+      }
+    }
+
+    if (offerLinkIds.size > 0) {
+      const productLinkIdCandidates = [
+        extractPartnerboostLinkId(row.promo_link),
+        extractPartnerboostLinkId(row.short_promo_link),
+      ]
+      for (const linkId of productLinkIdCandidates) {
+        if (!linkId) continue
+        if (offerLinkIds.has(linkId.toLowerCase())) {
+          linkIdProductIds.push(productId)
+          break
+        }
+      }
+    }
+
+    if (offerAsins.size > 0) {
+      const productAsin = normalizeAsin(row.asin)
+      if (productAsin && offerAsins.has(productAsin)) {
+        asinProductIds.push(productId)
+      }
+    }
+  }
+
+  const decision = resolveOfferProductBackfillDecision({
+    exactUrlProductIds,
+    linkIdProductIds,
+    asinProductIds,
+  })
+
+  const reasonMap: Record<OfferProductBackfillDecisionReason, OfferProductLinkBackfillReason> = {
+    exact_url: 'linked_by_exact_url',
+    link_id: 'linked_by_link_id',
+    asin: 'linked_by_asin',
+    link_id_asin_intersection: 'linked_by_link_id_asin_intersection',
+    ambiguous_exact_url: 'ambiguous_exact_url',
+    ambiguous_link_id: 'ambiguous_link_id',
+    ambiguous_asin: 'ambiguous_asin',
+    ambiguous_link_id_asin_intersection: 'ambiguous_link_id_asin_intersection',
+    conflicting_link_id_asin: 'conflicting_link_id_asin',
+    no_match: 'no_match',
+  }
+
+  if (!decision.productId) {
+    return {
+      linked: false,
+      offerId: params.offerId,
+      productId: null,
+      reason: reasonMap[decision.reason],
+      signals: {
+        urlTokenCount: offerUrlTokens.size,
+        linkIdCount: offerLinkIds.size,
+        asinCount: offerAsins.size,
+      },
+      candidates: {
+        exactUrlProductIds: decision.exactUrlProductIds,
+        linkIdProductIds: decision.linkIdProductIds,
+        asinProductIds: decision.asinProductIds,
+      },
+    }
+  }
+
+  await recordAffiliateProductOfferLink({
+    userId: params.userId,
+    productId: decision.productId,
+    offerId: params.offerId,
+    createdVia: 'publish_backfill',
+  })
+
+  return {
+    linked: true,
+    offerId: params.offerId,
+    productId: decision.productId,
+    reason: reasonMap[decision.reason],
+    signals: {
+      urlTokenCount: offerUrlTokens.size,
+      linkIdCount: offerLinkIds.size,
+      asinCount: offerAsins.size,
+    },
+    candidates: {
+      exactUrlProductIds: decision.exactUrlProductIds,
+      linkIdProductIds: decision.linkIdProductIds,
+      asinProductIds: decision.asinProductIds,
+    },
+  }
 }
 
 export async function createOfferFromAffiliateProduct(params: {

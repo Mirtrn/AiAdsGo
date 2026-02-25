@@ -194,6 +194,7 @@ const WRITE_ROUTE_DEFINITIONS: CanonicalRouteDefinition[] = [
   { method: 'POST', pattern: '/api/products/sync/:platform', feature: 'product-sync' },
   { method: 'POST', pattern: '/api/products/:id/sync', feature: 'product-sync' },
   { method: 'POST', pattern: '/api/products/:id/create-offer', feature: 'product-sync' },
+  { method: 'POST', pattern: '/api/products/:id/link-offer', feature: 'product-sync' },
   { method: 'POST', pattern: '/api/products/:id/offline', feature: 'product-sync' },
   { method: 'POST', pattern: '/api/products/:id/blacklist', feature: 'product-sync' },
   { method: 'DELETE', pattern: '/api/products/:id/blacklist', feature: 'product-sync' },

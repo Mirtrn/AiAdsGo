@@ -135,6 +135,7 @@ const ROUTE_RISK_POLICIES: RouteRiskPolicy[] = [
   { method: 'POST', path: '/api/products/sync/:platform', riskLevel: 'medium' },
   { method: 'POST', path: '/api/products/:id/sync', riskLevel: 'medium' },
   { method: 'POST', path: '/api/products/:id/create-offer', riskLevel: 'medium' },
+  { method: 'POST', path: '/api/products/:id/link-offer', riskLevel: 'medium' },
   { method: 'POST', path: '/api/products/:id/offline', riskLevel: 'high' },
   { method: 'POST', path: '/api/products/:id/blacklist', riskLevel: 'high' },
   { method: 'DELETE', path: '/api/products/:id/blacklist', riskLevel: 'high' },
