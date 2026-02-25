@@ -7,11 +7,17 @@ export interface SearchTermFeedbackHints {
   sourceRows: number
 }
 
-interface SearchTermAggregateRow {
+export interface SearchTermFeedbackAggregateRow {
   search_term: string
   impressions: number
   clicks: number
   cost: number
+}
+
+export interface SearchTermFeedbackClassifyResult {
+  hardNegativeTerms: string[]
+  softSuppressTerms: string[]
+  sourceRows: number
 }
 
 interface CurrencyAggregateRow {
@@ -96,7 +102,7 @@ function resolveFallbackCpcByCurrency(currency: string): number {
 }
 
 function buildAdaptiveThresholds(
-  rows: SearchTermAggregateRow[],
+  rows: SearchTermFeedbackAggregateRow[],
   dominantCurrency: string
 ): AdaptiveThresholds {
   const cpcSamples = rows
@@ -194,58 +200,15 @@ function isUsableSearchTerm(term: string): boolean {
   return /[\p{L}\p{N}]/u.test(term)
 }
 
-/**
- * Build lightweight hard/soft suppression hints from search term reports.
- * This module intentionally does NOT depend on conversions signal, because some
- * accounts run with missing/always-zero conversion tracking.
- * - hardNegativeTerms: clear spend waste by clicks/cost + poor efficiency (CPC/CTR)
- * - softSuppressTerms: moderate inefficiency that should be deprioritized in copy
- */
-export async function getSearchTermFeedbackHints(params: {
-  offerId: number
-  userId: number
-  lookbackDays?: number
-  maxTerms?: number
-}): Promise<SearchTermFeedbackHints> {
-  const db = await getDatabase()
-  const lookbackDays = Math.max(3, Math.min(60, params.lookbackDays ?? DEFAULT_LOOKBACK_DAYS))
-  const maxTerms = Math.max(5, Math.min(100, params.maxTerms ?? DEFAULT_MAX_TERMS))
-
-  const isDeletedCondition = db.type === 'postgres' ? 'COALESCE(c.is_deleted, FALSE) = FALSE' : 'COALESCE(c.is_deleted, 0) = 0'
-  const dateExpr = `date('now', '-${lookbackDays} days')`
-
-  const currencyRows = await db.query<CurrencyAggregateRow>(
-    `SELECT
-       COALESCE(gaa.currency, 'USD') AS currency,
-       COUNT(*) AS campaign_count
-     FROM campaigns c
-     LEFT JOIN google_ads_accounts gaa ON gaa.id = c.google_ads_account_id
-     WHERE c.user_id = ?
-       AND c.offer_id = ?
-       AND ${isDeletedCondition}
-     GROUP BY COALESCE(gaa.currency, 'USD')
-     ORDER BY COUNT(*) DESC`,
-    [params.userId, params.offerId]
-  )
-  const dominantCurrency = String(currencyRows[0]?.currency || 'USD').trim().toUpperCase()
-
-  const rows = await db.query<SearchTermAggregateRow>(
-    `SELECT
-       str.search_term,
-       SUM(str.impressions) AS impressions,
-       SUM(str.clicks) AS clicks,
-       SUM(str.cost) AS cost
-     FROM search_term_reports str
-     JOIN campaigns c ON c.id = str.campaign_id
-     WHERE str.user_id = ?
-       AND c.offer_id = ?
-       AND ${isDeletedCondition}
-       AND str.date >= ${dateExpr}
-     GROUP BY str.search_term
-     HAVING SUM(str.clicks) > 0
-     ORDER BY SUM(str.cost) DESC`,
-    [params.userId, params.offerId]
-  )
+export function classifySearchTermFeedbackTerms(
+  rows: SearchTermFeedbackAggregateRow[],
+  params?: {
+    dominantCurrency?: string
+    maxTerms?: number
+  }
+): SearchTermFeedbackClassifyResult {
+  const maxTerms = Math.max(5, Math.min(100, params?.maxTerms ?? DEFAULT_MAX_TERMS))
+  const dominantCurrency = String(params?.dominantCurrency || 'USD').trim().toUpperCase()
   const thresholds = buildAdaptiveThresholds(rows, dominantCurrency)
 
   const hardNegativeTerms: string[] = []
@@ -290,7 +253,6 @@ export async function getSearchTermFeedbackHints(params: {
   }
 
   const dedupe = (list: string[]) => Array.from(new Set(list.map(sanitizeSearchTerm))).filter(isUsableSearchTerm)
-
   const hard = dedupe(hardNegativeTerms).slice(0, maxTerms)
   const soft = dedupe(softSuppressTerms)
     .filter(term => !hard.includes(term))
@@ -299,7 +261,71 @@ export async function getSearchTermFeedbackHints(params: {
   return {
     hardNegativeTerms: hard,
     softSuppressTerms: soft,
-    lookbackDays,
     sourceRows: rows.length
+  }
+}
+
+/**
+ * Build lightweight hard/soft suppression hints from search term reports.
+ * This module intentionally does NOT depend on conversions signal, because some
+ * accounts run with missing/always-zero conversion tracking.
+ * - hardNegativeTerms: clear spend waste by clicks/cost + poor efficiency (CPC/CTR)
+ * - softSuppressTerms: moderate inefficiency that should be deprioritized in copy
+ */
+export async function getSearchTermFeedbackHints(params: {
+  offerId: number
+  userId: number
+  lookbackDays?: number
+  maxTerms?: number
+}): Promise<SearchTermFeedbackHints> {
+  const db = await getDatabase()
+  const lookbackDays = Math.max(3, Math.min(60, params.lookbackDays ?? DEFAULT_LOOKBACK_DAYS))
+  const maxTerms = Math.max(5, Math.min(100, params.maxTerms ?? DEFAULT_MAX_TERMS))
+
+  const isDeletedCondition = db.type === 'postgres' ? 'COALESCE(c.is_deleted, FALSE) = FALSE' : 'COALESCE(c.is_deleted, 0) = 0'
+  const dateExpr = `date('now', '-${lookbackDays} days')`
+
+  const currencyRows = await db.query<CurrencyAggregateRow>(
+    `SELECT
+       COALESCE(gaa.currency, 'USD') AS currency,
+       COUNT(*) AS campaign_count
+     FROM campaigns c
+     LEFT JOIN google_ads_accounts gaa ON gaa.id = c.google_ads_account_id
+     WHERE c.user_id = ?
+       AND c.offer_id = ?
+       AND ${isDeletedCondition}
+     GROUP BY COALESCE(gaa.currency, 'USD')
+     ORDER BY COUNT(*) DESC`,
+    [params.userId, params.offerId]
+  )
+  const dominantCurrency = String(currencyRows[0]?.currency || 'USD').trim().toUpperCase()
+
+  const rows = await db.query<SearchTermFeedbackAggregateRow>(
+    `SELECT
+       str.search_term,
+       SUM(str.impressions) AS impressions,
+       SUM(str.clicks) AS clicks,
+       SUM(str.cost) AS cost
+     FROM search_term_reports str
+     JOIN campaigns c ON c.id = str.campaign_id
+     WHERE str.user_id = ?
+       AND c.offer_id = ?
+       AND ${isDeletedCondition}
+       AND str.date >= ${dateExpr}
+     GROUP BY str.search_term
+     HAVING SUM(str.clicks) > 0
+     ORDER BY SUM(str.cost) DESC`,
+    [params.userId, params.offerId]
+  )
+  const classified = classifySearchTermFeedbackTerms(rows, {
+    dominantCurrency,
+    maxTerms
+  })
+
+  return {
+    hardNegativeTerms: classified.hardNegativeTerms,
+    softSuppressTerms: classified.softSuppressTerms,
+    lookbackDays,
+    sourceRows: classified.sourceRows
   }
 }

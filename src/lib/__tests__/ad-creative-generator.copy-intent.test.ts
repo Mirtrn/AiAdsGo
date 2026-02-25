@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GeneratedAdCreativeData } from '../ad-creative'
-import { softlyReinforceTypeCopy } from '../ad-creative-generator'
+import { enforceHeadlineComplementarity, softlyReinforceTypeCopy } from '../ad-creative-generator'
 
 function buildCreativeDraft(): GeneratedAdCreativeData {
   return {
@@ -90,5 +90,85 @@ describe('ad-creative-generator softlyReinforceTypeCopy', () => {
 
     expect(fix.descriptionFixes + fix.headlineFixes).toBeGreaterThan(0)
     expect(creative.descriptions.some((d) => /(shop now|learn more|buy now)/i.test(d))).toBe(true)
+  })
+})
+
+describe('ad-creative-generator enforceHeadlineComplementarity', () => {
+  it('reduces top-window single-intent concentration inside first 8 headlines', () => {
+    const creative: GeneratedAdCreativeData = {
+      headlines: [
+        '{KeyWord:ToolPro} Official',
+        'Official ToolPro Store',
+        'Trusted ToolPro Quality',
+        'Certified ToolPro Support',
+        'ToolPro Warranty Included',
+        'Authentic ToolPro Source',
+        'Official ToolPro Site',
+        'Trusted ToolPro Choice',
+        'For Home Repair Projects',
+        'Buy ToolPro Today'
+      ],
+      descriptions: ['Trusted quality with support'],
+      keywords: ['toolpro drill', 'repair tool'],
+      callouts: [],
+      sitelinks: [],
+      theme: 'test',
+      explanation: 'test'
+    }
+
+    const fix = enforceHeadlineComplementarity(creative, 'en', 'ToolPro')
+
+    expect(fix.fixes).toBeGreaterThan(0)
+    expect(creative.headlines[0]).toBe('{KeyWord:ToolPro} Official')
+    const editableTop8 = creative.headlines.slice(1, 9)
+    expect(editableTop8.some((h) => /Need Better Project Results\?/i.test(h))).toBe(true)
+  })
+
+  it('treats solution-style copy as scenario-equivalent to avoid intent conflicts', () => {
+    const creative: GeneratedAdCreativeData = {
+      headlines: [
+        '{KeyWord:ToolPro} Official',
+        'Official ToolPro Warranty',
+        'Built to solve daily repair pain',
+        'Buy ToolPro Today',
+        'Trusted ToolPro Support'
+      ],
+      descriptions: ['Trusted value for daily use'],
+      keywords: ['repair tool', 'home project tool'],
+      callouts: [],
+      sitelinks: [],
+      theme: 'test',
+      explanation: 'test'
+    }
+    const before = [...creative.headlines]
+
+    const fix = enforceHeadlineComplementarity(creative, 'en', 'ToolPro')
+
+    expect(fix.scenarioCount).toBeGreaterThanOrEqual(1)
+    expect(fix.fixes).toBe(0)
+    expect(creative.headlines).toEqual(before)
+  })
+
+  it('does not force transactional headline when bucket B has no transactional keyword signal', () => {
+    const creative: GeneratedAdCreativeData = {
+      headlines: [
+        '{KeyWord:ToolPro} Official',
+        'Official ToolPro Warranty',
+        'For Home Repair Projects',
+        'Built to solve daily repair pain',
+        'Trusted ToolPro Support'
+      ],
+      descriptions: ['Trusted value for daily use'],
+      keywords: ['home repair tool', 'project drill'],
+      callouts: [],
+      sitelinks: [],
+      theme: 'test',
+      explanation: 'test'
+    }
+
+    const fix = enforceHeadlineComplementarity(creative, 'en', 'ToolPro', 'B')
+
+    expect(fix.transactionalCount).toBe(0)
+    expect(creative.headlines.some((h) => /^Buy\s/i.test(h))).toBe(false)
   })
 })

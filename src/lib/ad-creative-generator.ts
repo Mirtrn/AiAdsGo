@@ -714,6 +714,7 @@ function enforceKeywordEmbedding(
 
 type NormalizedCreativeBucket = 'A' | 'B' | 'D' | null
 type CopyIntentTag = 'brand' | 'scenario' | 'solution' | 'transactional' | 'other'
+type ComplementarityTag = 'brand' | 'scenario' | 'transactional' | 'other'
 type DescriptionStructureTag = 'pain_solution_cta' | 'benefit_cta' | 'trust_cta' | 'value_cta' | 'other'
 
 function normalizeCreativeBucketType(bucket?: string | null): NormalizedCreativeBucket {
@@ -960,6 +961,18 @@ function classifyCopyIntentFromText(text: string, languageCode: string, keywords
     if (intent === 'COMMERCIAL') return 'scenario'
   }
 
+  return 'other'
+}
+
+function mapToComplementarityTag(tag: CopyIntentTag): ComplementarityTag {
+  if (tag === 'brand' || tag === 'scenario' || tag === 'transactional') {
+    return tag
+  }
+  // Keep compatibility with existing keyword intent taxonomy (brand/scenario/function):
+  // "solution/function-like" copy is treated as scenario-equivalent for complementarity.
+  if (tag === 'solution') {
+    return 'scenario'
+  }
   return 'other'
 }
 
@@ -1455,10 +1468,11 @@ export function softlyReinforceTypeCopy(
   return { headlineFixes, descriptionFixes }
 }
 
-function enforceHeadlineComplementarity(
+export function enforceHeadlineComplementarity(
   result: GeneratedAdCreativeData,
   languageCode: string,
-  brandName: string
+  brandName: string,
+  bucket: NormalizedCreativeBucket = null
 ): { fixes: number; brandCount: number; scenarioCount: number; transactionalCount: number } {
   const headlines = [...(result.headlines || [])]
   const keywords = [...(result.keywords || [])]
@@ -1476,51 +1490,110 @@ function enforceHeadlineComplementarity(
   const templates = getSoftCopyTemplates(softLanguage, preferredKeyword, brandSeed)
   let fixes = 0
 
-  const classifyTags = () => headlines.map((h) => classifyCopyIntentFromText(h, languageCode, keywords))
+  const classifyTags = () =>
+    headlines.map((h) => mapToComplementarityTag(classifyCopyIntentFromText(h, languageCode, keywords)))
   let tags = classifyTags()
-  const countTag = (tag: CopyIntentTag) => tags.filter((t) => t === tag).length
+  const countTag = (tag: 'brand' | 'scenario' | 'transactional') => tags.filter((t) => t === tag).length
+  const topWindowStart = 1 // index 0 is reserved for DKI headline and must not be modified.
+  const topWindowEndExclusive = Math.min(9, headlines.length) // editable top-8 window: [1, 8]
+  const keywordIntents = detectKeywordIntentsForPrompt(keywords, languageCode)
+  const hasScenarioSignal = keywordIntents.scenario.length > 0 || keywordIntents.solution.length > 0
+  const hasTransactionalSignal = keywordIntents.transactional.length > 0
 
-  const replaceHeadlineByTag = (targetTag: CopyIntentTag, text: string): boolean => {
+  let minBrand = 1
+  let minScenario = hasScenarioSignal ? 1 : 0
+  let minTransactional = hasTransactionalSignal ? 1 : 0
+
+  if (bucket === 'A') {
+    minBrand = 2
+  } else if (bucket === 'B') {
+    minBrand = 1
+    minScenario = Math.max(1, minScenario)
+  } else if (bucket === 'D') {
+    minBrand = 1
+    minTransactional = Math.max(1, minTransactional)
+  } else {
+    // Unknown bucket: keep conservative baseline while still honoring observed keyword signals.
+    minBrand = 2
+    minScenario = Math.max(1, minScenario)
+    minTransactional = Math.max(1, minTransactional)
+  }
+
+  const replaceHeadlineByTag = (
+    targetTag: 'brand' | 'scenario' | 'transactional',
+    text: string,
+    options?: { topWindowOnly?: boolean }
+  ): boolean => {
     const fitted = fitLocalizedHeadline(text, 30)
     if (!fitted) return false
-    for (let i = headlines.length - 1; i >= 1; i -= 1) {
-      if (tags[i] === targetTag) continue
-      const duplicated = headlines.some((h, idx) => idx !== i && h.toLowerCase() === fitted.toLowerCase())
-      if (duplicated) continue
-      if (headlines[i] === fitted) continue
-      headlines[i] = fitted
-      fixes += 1
-      tags = classifyTags()
-      return true
+
+    const tryReplaceInRange = (start: number, end: number): boolean => {
+      if (start < end || end < 1) return false
+      for (let i = start; i >= end; i -= 1) {
+        if (i <= 0 || i >= headlines.length) continue
+        if (tags[i] === targetTag) continue
+        const duplicated = headlines.some((h, idx) => idx !== i && h.toLowerCase() === fitted.toLowerCase())
+        if (duplicated) continue
+        if (headlines[i] === fitted) continue
+        headlines[i] = fitted
+        fixes += 1
+        tags = classifyTags()
+        return true
+      }
+      return false
     }
-    return false
+
+    // Prefer fixing within top-8 headlines first, so complementarity is visible in RSA primary mix.
+    const replacedTop = tryReplaceInRange(topWindowEndExclusive - 1, topWindowStart)
+    if (replacedTop || options?.topWindowOnly) {
+      return replacedTop
+    }
+
+    return tryReplaceInRange(headlines.length - 1, Math.max(topWindowStart, topWindowEndExclusive))
   }
 
-  // Keep a balanced baseline: brand >=2, scenario >=1, transactional >=1.
-  if (countTag('brand') < 2) {
-    replaceHeadlineByTag('brand', templates.a.brandHeadline)
-  }
-  if (countTag('scenario') < 1) {
-    replaceHeadlineByTag('scenario', templates.b.scenarioHeadline)
-  }
-  if (countTag('transactional') < 1) {
-    replaceHeadlineByTag('transactional', templates.d.transactionalHeadline)
+  const enforceMinimumTagCount = (
+    tag: 'brand' | 'scenario' | 'transactional',
+    min: number,
+    template: string
+  ) => {
+    if (min <= 0) return
+    while (countTag(tag) < min) {
+      const replaced = replaceHeadlineByTag(tag, template)
+      if (!replaced) break
+    }
   }
 
-  // Avoid excessive concentration in first 8 headlines.
-  const topWindow = tags.slice(0, Math.min(8, tags.length)).filter((t) => t !== 'other')
+  // Keep complementarity aligned with bucket theme and observed keyword-intent signals.
+  enforceMinimumTagCount('brand', minBrand, templates.a.brandHeadline)
+  enforceMinimumTagCount('scenario', minScenario, templates.b.scenarioHeadline)
+  enforceMinimumTagCount('transactional', minTransactional, templates.d.transactionalHeadline)
+
+  // Avoid excessive concentration in editable top-8 headlines (index 1-8, excluding DKI at index 0).
+  const topWindow = tags.slice(topWindowStart, topWindowEndExclusive).filter((t) => t !== 'other')
   const distribution = topWindow.reduce<Record<string, number>>((acc, tag) => {
     acc[tag] = (acc[tag] || 0) + 1
     return acc
   }, {})
   const dominantEntry = Object.entries(distribution).sort((a, b) => b[1] - a[1])[0]
   if (dominantEntry && dominantEntry[1] >= 6) {
-    if (dominantEntry[0] === 'brand') {
-      replaceHeadlineByTag('scenario', templates.b.scenarioHeadline)
-    } else if (dominantEntry[0] === 'scenario') {
-      replaceHeadlineByTag('transactional', templates.d.transactionalHeadline)
-    } else if (dominantEntry[0] === 'transactional') {
-      replaceHeadlineByTag('brand', templates.a.brandHeadline)
+    const candidateOrderByDominant: Record<string, Array<'brand' | 'scenario' | 'transactional'>> = {
+      brand: ['scenario', 'transactional'],
+      scenario: ['transactional', 'brand'],
+      transactional: ['scenario', 'brand']
+    }
+    const candidateOrder = candidateOrderByDominant[dominantEntry[0]] || ['scenario', 'transactional', 'brand']
+    for (const candidate of candidateOrder) {
+      if (candidate === 'scenario' && minScenario <= 0) continue
+      if (candidate === 'transactional' && minTransactional <= 0) continue
+      if (candidate === 'brand' && minBrand <= 0) continue
+      const template = candidate === 'brand'
+        ? templates.a.brandHeadline
+        : candidate === 'scenario'
+          ? templates.b.scenarioHeadline
+          : templates.d.transactionalHeadline
+      const replaced = replaceHeadlineByTag(candidate, template, { topWindowOnly: true })
+      if (replaced) break
     }
   }
 
@@ -6271,7 +6344,8 @@ export async function generateAdCreative(
   const complementarityFix = enforceHeadlineComplementarity(
     result,
     targetLanguage || resolvedLanguage,
-    brandName
+    brandName,
+    normalizedBucket
   )
   if (complementarityFix.fixes > 0) {
     console.log(

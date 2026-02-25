@@ -6,6 +6,7 @@ import { fetchAutoadsJson } from '@/lib/openclaw/autoads-client'
 import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
 import { getCommissionPerConversion } from '@/lib/offer-monetization'
 import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keyword-intent'
+import { classifySearchTermFeedbackTerms } from '@/lib/search-term-feedback-hints'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import {
   extractCampaignConfigKeywords,
@@ -141,6 +142,12 @@ export type StrategyRecommendationData = {
   keywordPlan?: StrategyKeywordSuggestion[]
   negativeKeywordPlan?: StrategyNegativeKeywordSuggestion[]
   matchTypePlan?: StrategyMatchTypeSuggestion[]
+  searchTermFeedback?: {
+    hardNegativeTerms?: string[]
+    softSuppressTerms?: string[]
+    lookbackDays?: number
+    dominantCurrency?: string
+  }
   matchTypeReplaceMode?: StrategyMatchTypeReplaceMode
   ruleCode: string
   analysisNote: string
@@ -184,6 +191,7 @@ type CampaignRow = {
   brand: string | null
   category: string | null
   product_name: string | null
+  currency?: string | null
   campaign_config?: unknown
 }
 
@@ -955,12 +963,22 @@ function estimateMatchTypePriority(params: {
 function buildNegativeKeywordPlan(params: {
   searchTerms: SearchTermAgg[]
   existingNegativeTerms: Set<string>
+  hardFeedbackTerms?: Set<string>
 }): StrategyNegativeKeywordSuggestion[] {
   const selected: StrategyNegativeKeywordSuggestion[] = []
   const seen = new Set<string>()
+  const hardFeedbackTerms = new Set(
+    Array.from(params.hardFeedbackTerms || [])
+      .map((item) => normalizeKeywordKey(item))
+      .filter(Boolean)
+  )
 
   const ranked = [...params.searchTerms]
     .sort((a, b) => {
+      const hardAByFeedback = hardFeedbackTerms.has(normalizeKeywordKey(a.searchTerm)) ? 1 : 0
+      const hardBByFeedback = hardFeedbackTerms.has(normalizeKeywordKey(b.searchTerm)) ? 1 : 0
+      if (hardAByFeedback !== hardBByFeedback) return hardBByFeedback - hardAByFeedback
+
       const hardA = classifyKeywordIntent(a.searchTerm).hardNegative ? 1 : 0
       const hardB = classifyKeywordIntent(b.searchTerm).hardNegative ? 1 : 0
       if (hardA !== hardB) return hardB - hardA
@@ -979,16 +997,20 @@ function buildNegativeKeywordPlan(params: {
     const clicks = toNumber(row.clicks, 0)
     const conversions = toNumber(row.conversions, 0)
     const cost = toNumber(row.cost, 0)
+    const isFeedbackHard = hardFeedbackTerms.has(normalized)
     const intent = classifyKeywordIntent(term)
-    if (!intent.hardNegative) continue
+    if (!isFeedbackHard && !intent.hardNegative) continue
     if (conversions > 0) continue
     if (clicks < 2 && cost < 1.5) continue
 
+    const reasonParts = new Set<string>()
+    if (isFeedbackHard) reasonParts.add('performance_hard_negative')
+    intent.reasons.forEach((reason) => reasonParts.add(reason))
     seen.add(normalized)
     selected.push({
       text: term,
       matchType: 'EXACT',
-      reason: intent.reasons.join(', ') || 'hard_negative_intent',
+      reason: Array.from(reasonParts).join(', ') || 'hard_negative_intent',
     })
     if (selected.length >= NEGATIVE_KEYWORD_PLAN_MAX) {
       break
@@ -1002,6 +1024,8 @@ function buildMatchTypeOptimizationPlan(params: {
   campaignKeywords: CampaignKeywordInventory[]
   brand: string | null
   searchTermMetrics: Map<string, SearchTermAgg>
+  searchTerms?: SearchTermAgg[]
+  softFeedbackTerms?: Set<string>
 }): StrategyMatchTypeSuggestion[] {
   const selected: StrategyMatchTypeSuggestion[] = []
   const existingByTextMatch = new Set<string>()
@@ -1045,6 +1069,93 @@ function buildMatchTypeOptimizationPlan(params: {
       conversions: roundTo2(conversions),
       cost: roundTo2(cost),
     })
+  }
+
+  const softFeedbackTerms = new Set(
+    Array.from(params.softFeedbackTerms || [])
+      .map((item) => normalizeKeywordKey(item))
+      .filter(Boolean)
+  )
+  if (softFeedbackTerms.size > 0 && Array.isArray(params.searchTerms) && params.searchTerms.length > 0) {
+    const softRows = params.searchTerms
+      .filter((row) => softFeedbackTerms.has(normalizeKeywordKey(row.searchTerm)))
+      .sort((a, b) => {
+        const costDiff = toNumber(b.cost) - toNumber(a.cost)
+        if (costDiff !== 0) return costDiff
+        return toNumber(b.clicks) - toNumber(a.clicks)
+      })
+
+    for (const row of softRows) {
+      const softNormalized = normalizeKeywordKey(row.searchTerm)
+      if (!softNormalized) continue
+      const softTokens = tokenizeKeywordText(softNormalized)
+      if (softTokens.length === 0) continue
+
+      let bestCandidate: {
+        text: string
+        normalized: string
+        currentMatchType: 'BROAD' | 'PHRASE' | 'EXACT'
+        tokenCount: number
+      } | null = null
+
+      for (const keyword of params.campaignKeywords) {
+        if (keyword.isNegative) continue
+        const keywordText = sanitizeKeyword(keyword.text)
+        const keywordNormalized = normalizeKeywordKey(keywordText)
+        if (!keywordNormalized) continue
+        const currentMatchType = normalizeKeywordMatchType(keyword.matchType) || 'PHRASE'
+        if (currentMatchType === 'EXACT') continue
+
+        const keywordTokens = tokenizeKeywordText(keywordNormalized)
+        if (
+          !containsTokenSequence(keywordTokens, softTokens)
+          && !containsTokenSequence(softTokens, keywordTokens)
+        ) {
+          continue
+        }
+
+        const candidate = {
+          text: keywordText,
+          normalized: keywordNormalized,
+          currentMatchType,
+          tokenCount: keywordTokens.length || 999,
+        }
+
+        if (!bestCandidate) {
+          bestCandidate = candidate
+          continue
+        }
+
+        // Prefer narrowing BROAD first, then choose the broader phrase (fewer tokens).
+        if (bestCandidate.currentMatchType !== 'BROAD' && candidate.currentMatchType === 'BROAD') {
+          bestCandidate = candidate
+          continue
+        }
+        if (bestCandidate.currentMatchType === candidate.currentMatchType && candidate.tokenCount < bestCandidate.tokenCount) {
+          bestCandidate = candidate
+        }
+      }
+
+      if (!bestCandidate) continue
+      const recommendedMatchType = bestCandidate.currentMatchType === 'BROAD' ? 'PHRASE' : 'EXACT'
+      if (existingByTextMatch.has(`${bestCandidate.normalized}|${recommendedMatchType}`)) continue
+
+      const duplicated = selected.some(
+        (item) =>
+          normalizeKeywordKey(item.text) === bestCandidate?.normalized
+          && item.recommendedMatchType === recommendedMatchType
+      )
+      if (duplicated) continue
+
+      selected.push({
+        text: bestCandidate.text,
+        currentMatchType: bestCandidate.currentMatchType,
+        recommendedMatchType,
+        clicks: roundTo2(toNumber(row.clicks, 0)),
+        conversions: roundTo2(toNumber(row.conversions, 0)),
+        cost: roundTo2(toNumber(row.cost, 0)),
+      })
+    }
   }
 
   return selected
@@ -1335,6 +1446,39 @@ function buildRecommendationDrafts(params: {
         })
       }
     }
+    const dominantCurrency = String(campaign.currency || 'USD').trim().toUpperCase() || 'USD'
+    const searchTermFeedback = classifySearchTermFeedbackTerms(
+      searchTermRows.map((item) => ({
+        search_term: item.searchTerm,
+        impressions: toNumber(item.impressions, 0),
+        clicks: toNumber(item.clicks, 0),
+        cost: toNumber(item.cost, 0),
+      })),
+      {
+        dominantCurrency,
+        maxTerms: 24
+      }
+    )
+    const hardFeedbackTerms = new Set(
+      searchTermFeedback.hardNegativeTerms
+        .map((item) => normalizeKeywordKey(item))
+        .filter(Boolean)
+    )
+    const softFeedbackTerms = new Set(
+      searchTermFeedback.softSuppressTerms
+        .map((item) => normalizeKeywordKey(item))
+        .filter(Boolean)
+    )
+    const searchTermFeedbackSummary = (
+      searchTermFeedback.hardNegativeTerms.length > 0 || searchTermFeedback.softSuppressTerms.length > 0
+    )
+      ? {
+          hardNegativeTerms: searchTermFeedback.hardNegativeTerms.slice(0, 15),
+          softSuppressTerms: searchTermFeedback.softSuppressTerms.slice(0, 15),
+          lookbackDays: SEARCH_TERM_LOOKBACK_DAYS,
+          dominantCurrency,
+        }
+      : undefined
     const creativeQuality = calculateCreativeQuality(
       campaign.ad_creative_id ? params.creativeById.get(Number(campaign.ad_creative_id)) : undefined
     )
@@ -1801,6 +1945,7 @@ function buildRecommendationDrafts(params: {
     const negativeKeywordPlan = buildNegativeKeywordPlan({
       searchTerms: searchTermRows,
       existingNegativeTerms: negativeKeywordSet,
+      hardFeedbackTerms,
     })
     if (negativeKeywordPlan.length > 0) {
       const inCooldown = isRecommendationInCooldown({
@@ -1848,8 +1993,9 @@ function buildRecommendationDrafts(params: {
             }),
             snapshotHash,
             negativeKeywordPlan,
+            searchTermFeedback: searchTermFeedbackSummary,
             ruleCode: 'negative_keywords_from_search_terms',
-            analysisNote: '基于搜索词报告识别硬负向意图词（投放回收口径仍按Campaign/Offer级佣金）。',
+            analysisNote: '基于搜索词 hard 反馈与硬负向意图词识别否词（投放回收口径仍按Campaign/Offer级佣金）。',
           },
         })
       }
@@ -1859,6 +2005,8 @@ function buildRecommendationDrafts(params: {
       campaignKeywords: positiveKeywordInventory,
       brand: campaign.brand,
       searchTermMetrics: searchTermPerfByText,
+      searchTerms: searchTermRows,
+      softFeedbackTerms,
     })
     if (matchTypePlan.length > 0) {
       const inCooldown = isRecommendationInCooldown({
@@ -1891,8 +2039,8 @@ function buildRecommendationDrafts(params: {
           googleCampaignId,
           recommendationType: 'optimize_match_type',
           title: '优化匹配类型（收紧流量）',
-          summary: `识别到 ${matchTypePlan.length} 个关键词存在匹配类型优化空间，建议收紧以提升流量质量。`,
-          reason: `候选词近${SEARCH_TERM_LOOKBACK_DAYS}天累计花费 ${totalCost.toFixed(2)}，建议优先从 BROAD 收敛到 PHRASE/EXACT。`,
+          summary: `识别到 ${matchTypePlan.length} 个关键词存在匹配类型优化空间，建议收紧以提升流量质量。${searchTermFeedback.softSuppressTerms.length > 0 ? `（参考 soft 抑制词 ${searchTermFeedback.softSuppressTerms.length} 个）` : ''}`,
+          reason: `候选词近${SEARCH_TERM_LOOKBACK_DAYS}天累计花费 ${totalCost.toFixed(2)}，建议优先从 BROAD 收敛到 PHRASE/EXACT${searchTermFeedback.softSuppressTerms.length > 0 ? ' 并弱化 soft 低效搜索词触发' : ''}。`,
           priorityScore: estimateMatchTypePriority({
             selectedCount: matchTypePlan.length,
             totalCost,
@@ -1906,9 +2054,10 @@ function buildRecommendationDrafts(params: {
             }),
             snapshotHash,
             matchTypePlan,
+            searchTermFeedback: searchTermFeedbackSummary,
             matchTypeReplaceMode: 'pause_existing',
             ruleCode: 'optimize_keyword_match_type',
-            analysisNote: '执行方式为新增推荐匹配类型关键词，并默认暂停原匹配类型关键词（可回滚）。',
+            analysisNote: '执行方式为新增推荐匹配类型关键词，并默认暂停原匹配类型关键词（可回滚）；soft 反馈词用于优先收紧匹配类型。',
           },
         })
       }
@@ -2274,9 +2423,11 @@ export async function refreshStrategyRecommendations(params: {
           o.brand,
           o.category,
           o.product_name,
+          COALESCE(gaa.currency, 'USD') AS currency,
           c.campaign_config
         FROM campaigns c
         LEFT JOIN offers o ON c.offer_id = o.id
+        LEFT JOIN google_ads_accounts gaa ON gaa.id = c.google_ads_account_id
         WHERE c.user_id = ?
           AND c.status = 'ENABLED'
           AND ${isDeletedCondition}

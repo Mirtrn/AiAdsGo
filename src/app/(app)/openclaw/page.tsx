@@ -149,6 +149,12 @@ type OpenclawStrategyRecommendation = {
       conversions?: number
       cost?: number
     }>
+    searchTermFeedback?: {
+      hardNegativeTerms?: string[]
+      softSuppressTerms?: string[]
+      lookbackDays?: number
+      dominantCurrency?: string
+    }
     matchTypeReplaceMode?: 'none' | 'pause_existing'
   }
 }
@@ -4378,6 +4384,12 @@ export default function OpenClawPage() {
                       const keywordPlan = Array.isArray(item.data?.keywordPlan) ? item.data.keywordPlan : []
                       const negativeKeywordPlan = Array.isArray(item.data?.negativeKeywordPlan) ? item.data.negativeKeywordPlan : []
                       const matchTypePlan = Array.isArray(item.data?.matchTypePlan) ? item.data.matchTypePlan : []
+                      const hardFeedbackTerms = Array.isArray(item.data?.searchTermFeedback?.hardNegativeTerms)
+                        ? item.data?.searchTermFeedback?.hardNegativeTerms || []
+                        : []
+                      const softFeedbackTerms = Array.isArray(item.data?.searchTermFeedback?.softSuppressTerms)
+                        ? item.data?.searchTermFeedback?.softSuppressTerms || []
+                        : []
                       const keywordPlanText = item.recommendationType === 'expand_keywords'
                         ? `新增词 ${keywordPlan.length} 个（自动匹配类型）`
                         : ''
@@ -4434,10 +4446,16 @@ export default function OpenClawPage() {
                               <div className="text-xs text-slate-500">现有关键词 {item.data?.keywordCoverageCount ?? 0} 个</div>
                             )}
                             {item.recommendationType === 'add_negative_keywords' && (
-                              <div className="text-xs text-slate-500">建议否词 {negativeKeywordPlan.length} 个</div>
+                              <div className="text-xs text-slate-500">
+                                建议否词 {negativeKeywordPlan.length} 个
+                                {hardFeedbackTerms.length > 0 ? ` · hard反馈 ${hardFeedbackTerms.length} 个` : ''}
+                              </div>
                             )}
                             {item.recommendationType === 'optimize_match_type' && (
-                              <div className="text-xs text-slate-500">建议优化 {matchTypePlan.length} 个</div>
+                              <div className="text-xs text-slate-500">
+                                建议优化 {matchTypePlan.length} 个
+                                {softFeedbackTerms.length > 0 ? ` · soft反馈 ${softFeedbackTerms.length} 个` : ''}
+                              </div>
                             )}
                             {isQueued && (
                               <div className="text-xs text-amber-600">执行队列中（Task: {item.executionResult?.queueTaskId || '-'})</div>
@@ -4640,9 +4658,45 @@ export default function OpenClawPage() {
                           </div>
                         </div>
                       )}
+                      {(
+                        (Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.hardNegativeTerms)
+                          && strategyRecommendationDetailItem.data.searchTermFeedback.hardNegativeTerms.length > 0)
+                        || (Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.softSuppressTerms)
+                          && strategyRecommendationDetailItem.data.searchTermFeedback.softSuppressTerms.length > 0)
+                      ) && (
+                        <div className="space-y-2 rounded-md border p-3">
+                          <div className="text-sm font-medium">
+                            搜索词反馈（近{strategyRecommendationDetailItem.data?.searchTermFeedback?.lookbackDays || 14}天）
+                          </div>
+                          {Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.hardNegativeTerms)
+                            && strategyRecommendationDetailItem.data.searchTermFeedback.hardNegativeTerms.length > 0 && (
+                              <div className="space-y-1 text-xs text-slate-600">
+                                <div className="font-medium text-amber-700">
+                                  hard 词（建议优先否词）{strategyRecommendationDetailItem.data.searchTermFeedback.hardNegativeTerms.length}
+                                </div>
+                                {strategyRecommendationDetailItem.data.searchTermFeedback.hardNegativeTerms.slice(0, 30).map((term, idx) => (
+                                  <div key={`hard:${term}:${idx}`}>{idx + 1}. {term}</div>
+                                ))}
+                              </div>
+                            )}
+                          {Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.softSuppressTerms)
+                            && strategyRecommendationDetailItem.data.searchTermFeedback.softSuppressTerms.length > 0 && (
+                              <div className="space-y-1 text-xs text-slate-600">
+                                <div className="font-medium text-sky-700">
+                                  soft 词（建议弱化/收紧匹配）{strategyRecommendationDetailItem.data.searchTermFeedback.softSuppressTerms.length}
+                                </div>
+                                {strategyRecommendationDetailItem.data.searchTermFeedback.softSuppressTerms.slice(0, 30).map((term, idx) => (
+                                  <div key={`soft:${term}:${idx}`}>{idx + 1}. {term}</div>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                      )}
                       {(!Array.isArray(strategyRecommendationDetailItem.data?.keywordPlan) || strategyRecommendationDetailItem.data.keywordPlan.length === 0)
                         && (!Array.isArray(strategyRecommendationDetailItem.data?.negativeKeywordPlan) || strategyRecommendationDetailItem.data.negativeKeywordPlan.length === 0)
-                        && (!Array.isArray(strategyRecommendationDetailItem.data?.matchTypePlan) || strategyRecommendationDetailItem.data.matchTypePlan.length === 0) && (
+                        && (!Array.isArray(strategyRecommendationDetailItem.data?.matchTypePlan) || strategyRecommendationDetailItem.data.matchTypePlan.length === 0)
+                        && (!Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.hardNegativeTerms) || strategyRecommendationDetailItem.data.searchTermFeedback.hardNegativeTerms.length === 0)
+                        && (!Array.isArray(strategyRecommendationDetailItem.data?.searchTermFeedback?.softSuppressTerms) || strategyRecommendationDetailItem.data.searchTermFeedback.softSuppressTerms.length === 0) && (
                           <div className="text-xs text-slate-500">该建议暂无可展示的执行明细。</div>
                         )}
                     </div>
