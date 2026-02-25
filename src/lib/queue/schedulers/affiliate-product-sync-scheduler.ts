@@ -33,6 +33,7 @@ const YP_DELTA_INTERVAL_KEY = 'affiliate_yp_delta_interval_minutes'
 const YP_FULL_INTERVAL_KEY = 'affiliate_yp_full_interval_hours'
 const YP_LAST_DELTA_SYNC_KEY = 'affiliate_yp_last_delta_sync_at'
 const YP_LAST_FULL_SYNC_KEY = 'affiliate_yp_last_full_sync_at'
+const OPENCLAW_GLOBAL_SYNC_INTERVAL_KEY = 'openclaw_affiliate_sync_interval_hours'
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000
 const DEFAULT_STARTUP_DELAY_MS = 45 * 1000
@@ -221,10 +222,11 @@ export class AffiliateProductSyncScheduler {
 
     const nowIso = now.toISOString()
     const nowMs = now.getTime()
+    const globalDeltaIntervalMinutes = await this.loadOpenclawGlobalDeltaIntervalMinutes(userId)
 
     const pbConfigCheck = await checkAffiliatePlatformConfig(userId, 'partnerboost')
     if (pbConfigCheck.configured) {
-      const scheduleConfig = await this.loadUserScheduleConfig(userId)
+      const scheduleConfig = await this.loadUserScheduleConfig(userId, globalDeltaIntervalMinutes)
       const latestCompleted = await this.loadLatestCompletedRunTimes(userId)
       const lastDeltaAt = scheduleConfig.lastDeltaAt || latestCompleted.lastDeltaAt
       const lastFullAt = scheduleConfig.lastFullAt || latestCompleted.lastFullAt
@@ -259,7 +261,7 @@ export class AffiliateProductSyncScheduler {
       return false
     }
 
-    const ypScheduleConfig = await this.loadYeahpromosScheduleConfig(userId)
+    const ypScheduleConfig = await this.loadYeahpromosScheduleConfig(userId, globalDeltaIntervalMinutes)
     const latestYpCompleted = await this.loadLatestCompletedRunTimesByPlatform(userId, 'yeahpromos')
     const ypLastDeltaAt = ypScheduleConfig.lastDeltaAt || latestYpCompleted.lastDeltaAt
     const ypLastFullAt = ypScheduleConfig.lastFullAt || latestYpCompleted.lastFullAt
@@ -288,6 +290,30 @@ export class AffiliateProductSyncScheduler {
     const ypRecordKey = shouldRunYpFull ? YP_LAST_FULL_SYNC_KEY : YP_LAST_DELTA_SYNC_KEY
     await this.upsertUserSystemSetting(userId, ypRecordKey, nowIso)
     return true
+  }
+
+  private async loadOpenclawGlobalDeltaIntervalMinutes(userId: number): Promise<number | null> {
+    const db = await getDatabase()
+    const row = await db.queryOne<{ value: string | null }>(
+      `
+        SELECT value
+        FROM system_settings
+        WHERE user_id = ?
+          AND category = 'openclaw'
+          AND key = ?
+        LIMIT 1
+      `,
+      [userId, OPENCLAW_GLOBAL_SYNC_INTERVAL_KEY]
+    )
+
+    const raw = String(row?.value || '').trim()
+    if (!raw) return null
+
+    const hours = Number(raw)
+    if (!Number.isFinite(hours)) return null
+
+    const normalizedHours = Math.max(1, Math.min(24, Math.trunc(hours)))
+    return normalizedHours * 60
   }
 
   private async hasActiveSyncRun(userId: number): Promise<boolean> {
@@ -348,7 +374,10 @@ export class AffiliateProductSyncScheduler {
     }
   }
 
-  private async loadUserScheduleConfig(userId: number): Promise<UserScheduleConfig> {
+  private async loadUserScheduleConfig(
+    userId: number,
+    fallbackDeltaIntervalMinutes: number | null = null
+  ): Promise<UserScheduleConfig> {
     const db = await getDatabase()
     const rows = await db.query<{ key: string; value: string | null }>(
       `
@@ -372,10 +401,14 @@ export class AffiliateProductSyncScheduler {
       valueMap.set(row.key, row.value)
     }
 
+    const deltaFallback = typeof fallbackDeltaIntervalMinutes === 'number' && Number.isFinite(fallbackDeltaIntervalMinutes)
+      ? Math.trunc(fallbackDeltaIntervalMinutes)
+      : DEFAULT_DELTA_INTERVAL_MINUTES
+
     return {
       deltaIntervalMinutes: parseIntegerInRange(
-        valueMap.get(PB_DELTA_INTERVAL_KEY) || String(DEFAULT_DELTA_INTERVAL_MINUTES),
-        DEFAULT_DELTA_INTERVAL_MINUTES,
+        valueMap.get(PB_DELTA_INTERVAL_KEY) || String(deltaFallback),
+        deltaFallback,
         MIN_DELTA_INTERVAL_MINUTES,
         MAX_DELTA_INTERVAL_MINUTES
       ),
@@ -390,7 +423,10 @@ export class AffiliateProductSyncScheduler {
     }
   }
 
-  private async loadYeahpromosScheduleConfig(userId: number): Promise<UserScheduleConfig> {
+  private async loadYeahpromosScheduleConfig(
+    userId: number,
+    fallbackDeltaIntervalMinutes: number | null = null
+  ): Promise<UserScheduleConfig> {
     const db = await getDatabase()
     const rows = await db.query<{ key: string; value: string | null }>(
       `
@@ -414,10 +450,14 @@ export class AffiliateProductSyncScheduler {
       valueMap.set(row.key, row.value)
     }
 
+    const deltaFallback = typeof fallbackDeltaIntervalMinutes === 'number' && Number.isFinite(fallbackDeltaIntervalMinutes)
+      ? Math.trunc(fallbackDeltaIntervalMinutes)
+      : DEFAULT_DELTA_INTERVAL_MINUTES
+
     return {
       deltaIntervalMinutes: parseIntegerInRange(
-        valueMap.get(YP_DELTA_INTERVAL_KEY) || String(DEFAULT_DELTA_INTERVAL_MINUTES),
-        DEFAULT_DELTA_INTERVAL_MINUTES,
+        valueMap.get(YP_DELTA_INTERVAL_KEY) || String(deltaFallback),
+        deltaFallback,
         MIN_DELTA_INTERVAL_MINUTES,
         MAX_DELTA_INTERVAL_MINUTES
       ),
