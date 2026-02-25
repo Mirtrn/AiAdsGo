@@ -1669,7 +1669,7 @@ export default function CampaignsPage() {
               )}
               <span className="text-sm text-gray-500">时间范围:</span>
               <div className="flex gap-1">
-                {[7, 30, 90].map((days) => (
+                {[7, 14, 30, 90].map((days) => (
                   <button
                     key={days}
                     onClick={() => setTimeRange(days.toString())}
@@ -1828,6 +1828,7 @@ export default function CampaignsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="7">近7天</SelectItem>
+                  <SelectItem value="14">近14天</SelectItem>
                   <SelectItem value="30">近30天</SelectItem>
                   <SelectItem value="90">近90天</SelectItem>
                 </SelectContent>
