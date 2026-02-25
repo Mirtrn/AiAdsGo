@@ -183,32 +183,74 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         cost: number | null
       } | undefined
 
-      const commissionCurrentRow = await db.queryOne<{ commission: number }>(
-        `
-          SELECT COALESCE(SUM(commission_amount), 0) AS commission
-          FROM affiliate_commission_attributions
-          WHERE user_id = ?
-            AND report_date >= ?
-            AND report_date <= ?
-        `,
-        [userId, formatDate(startDate), formatDate(endDate)]
-      )
+      const queryAttributedCommissionTotals = async (params: {
+        start: string
+        end: string
+      }): Promise<number> => {
+        const row = await db.queryOne<{ total_commission: number }>(
+          `
+            SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
+            FROM affiliate_commission_attributions
+            WHERE user_id = ?
+              AND report_date >= ?
+              AND report_date <= ?
+          `,
+          [userId, params.start, params.end]
+        )
 
-      const commissionPreviousRow = await db.queryOne<{ commission: number }>(
-        `
-          SELECT COALESCE(SUM(commission_amount), 0) AS commission
-          FROM affiliate_commission_attributions
-          WHERE user_id = ?
-            AND report_date >= ?
-            AND report_date <= ?
-        `,
-        [userId, formatDate(previousStartDate), formatDate(previousEndDate)]
-      )
+        return Number(row?.total_commission) || 0
+      }
+
+      const queryUnattributedCommissionTotals = async (params: {
+        start: string
+        end: string
+      }): Promise<number> => {
+        try {
+          const row = await db.queryOne<{ total_commission: number }>(
+            `
+              SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
+              FROM openclaw_affiliate_attribution_failures
+              WHERE user_id = ?
+                AND report_date >= ?
+                AND report_date <= ?
+            `,
+            [userId, params.start, params.end]
+          )
+
+          return Number(row?.total_commission) || 0
+        } catch (error: any) {
+          const message = String(error?.message || '')
+          if (
+            /openclaw_affiliate_attribution_failures/i.test(message)
+            && /(no such table|does not exist)/i.test(message)
+          ) {
+            return 0
+          }
+          throw error
+        }
+      }
+
+      const currentAttributedCommissionTotal = await queryAttributedCommissionTotals({
+        start: formatDate(startDate),
+        end: formatDate(endDate),
+      })
+      const previousAttributedCommissionTotal = await queryAttributedCommissionTotals({
+        start: formatDate(previousStartDate),
+        end: formatDate(previousEndDate),
+      })
+      const currentUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
+        start: formatDate(startDate),
+        end: formatDate(endDate),
+      })
+      const previousUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
+        start: formatDate(previousStartDate),
+        end: formatDate(previousEndDate),
+      })
 
       const totalImpressions = currentData.reduce((sum, row) => sum + (Number(row?.impressions) || 0), 0)
       const totalClicks = currentData.reduce((sum, row) => sum + (Number(row?.clicks) || 0), 0)
       const totalCost = currentData.reduce((sum, row) => sum + (Number(row?.cost) || 0), 0)
-      const totalCommission = Number(commissionCurrentRow?.commission) || 0
+      const totalCommission = currentAttributedCommissionTotal + currentUnattributedCommissionTotal
 
       const current = {
         impressions: totalImpressions,
@@ -231,7 +273,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
           : undefined
       }
 
-      const previousCommission = Number(commissionPreviousRow?.commission) || 0
+      const previousCommission = previousAttributedCommissionTotal + previousUnattributedCommissionTotal
       const previous = {
         impressions: Number(previousData?.impressions) || 0,
         clicks: Number(previousData?.clicks) || 0,
