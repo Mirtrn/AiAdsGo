@@ -40,9 +40,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
+import AdjustCampaignBudgetDialog from '@/components/AdjustCampaignBudgetDialog'
 import {
   getCampaignStatusLabel,
 } from '@/lib/i18n-constants'
@@ -194,6 +195,14 @@ export default function CampaignsPage() {
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
   const [adjustCpcTarget, setAdjustCpcTarget] = useState<{ googleCampaignId: string; campaignName: string } | null>(null)
+  const [adjustBudgetOpen, setAdjustBudgetOpen] = useState(false)
+  const [adjustBudgetTarget, setAdjustBudgetTarget] = useState<{
+    googleCampaignId: string
+    campaignName: string
+    currentBudget: number
+    currentBudgetType: string
+    currency: string
+  } | null>(null)
 
   // Toggle status states
   const [statusUpdatingIds, setStatusUpdatingIds] = useState<Set<number>>(new Set())
@@ -519,6 +528,30 @@ export default function CampaignsPage() {
     } finally {
       setTrendsLoading(false)
     }
+  }
+
+  const handleBudgetAdjusted = (payload: {
+    googleCampaignId: string
+    budgetAmount: number
+    budgetType: 'DAILY' | 'TOTAL'
+  }) => {
+    const normalizedBudgetAmount = Number(payload.budgetAmount)
+    if (!Number.isFinite(normalizedBudgetAmount) || normalizedBudgetAmount <= 0) return
+    const normalizedBudgetType = payload.budgetType === 'TOTAL' ? 'TOTAL' : 'DAILY'
+
+    setCampaigns((prev) =>
+      prev.map((campaign) => {
+        if (String(getCampaignGoogleId(campaign) || '') !== payload.googleCampaignId) {
+          return campaign
+        }
+
+        return {
+          ...campaign,
+          budgetAmount: normalizedBudgetAmount,
+          budgetType: normalizedBudgetType,
+        }
+      })
+    )
   }
 
   const openDeleteDraftDialog = (campaign: Campaign) => {
@@ -1918,16 +1951,26 @@ export default function CampaignsPage() {
                               : '-')
                           )
 
-		                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
-		                    const adjustCpcDisabledReason = !googleCampaignId
-		                      ? '该广告系列尚未发布到Google Ads，无法调整CPC'
-		                      : campaign.adsAccountAvailable === false
-		                        ? 'Ads账号已解绑，无法调整CPC'
-		                        : isDeleted
-		                          ? '该广告系列已删除，无法调整CPC'
-		                          : offerDeleted
-		                            ? '关联Offer已删除，无法调整CPC'
-		                            : '调整CPC出价'
+			                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
+			                    const adjustCpcDisabledReason = !googleCampaignId
+			                      ? '该广告系列尚未发布到Google Ads，无法调整CPC'
+			                      : campaign.adsAccountAvailable === false
+			                        ? 'Ads账号已解绑，无法调整CPC'
+			                        : isDeleted
+			                          ? '该广告系列已删除，无法调整CPC'
+			                          : offerDeleted
+			                            ? '关联Offer已删除，无法调整CPC'
+			                            : '调整CPC出价'
+			                    const canAdjustBudget = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
+			                    const adjustBudgetDisabledReason = !googleCampaignId
+			                      ? '该广告系列尚未发布到Google Ads，无法调整每日预算'
+			                      : campaign.adsAccountAvailable === false
+			                        ? 'Ads账号已解绑，无法调整每日预算'
+			                        : isDeleted
+			                          ? '该广告系列已删除，无法调整每日预算'
+			                          : offerDeleted
+			                            ? '关联Offer已删除，无法调整每日预算'
+			                            : '调整每日预算'
 
 		                    const canToggleStatus = !isStatusUpdating && Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false && (campaign.status === 'ENABLED' || campaign.status === 'PAUSED')
 		                    const toggleLabel = campaign.status === 'ENABLED' ? '暂停广告系列' : '启用广告系列'
@@ -2093,10 +2136,31 @@ export default function CampaignsPage() {
                               <span>查看关联Offer</span>
                             </DropdownMenuItem>
 
-                            <DropdownMenuItem
-                              className="gap-2"
-                              onClick={() => {
-                                if (!googleCampaignId) return
+	                            <DropdownMenuItem
+	                              className="gap-2"
+	                              onClick={() => {
+	                                if (!googleCampaignId) return
+	                                if (campaign.adsAccountAvailable === false) return
+	                                setAdjustBudgetTarget({
+	                                  googleCampaignId,
+	                                  campaignName: campaign.campaignName,
+	                                  currentBudget: Number(campaign.budgetAmount) || 0,
+	                                  currentBudgetType: String(campaign.budgetType || 'DAILY'),
+	                                  currency: campaignCurrency,
+	                                })
+	                                setAdjustBudgetOpen(true)
+	                              }}
+	                              disabled={!canAdjustBudget}
+	                              title={adjustBudgetDisabledReason}
+	                            >
+	                              <Wallet className="w-4 h-4 text-emerald-600" />
+	                              <span>调整每日预算</span>
+	                            </DropdownMenuItem>
+
+	                            <DropdownMenuItem
+	                              className="gap-2"
+	                              onClick={() => {
+	                                if (!googleCampaignId) return
                                 if (campaign.adsAccountAvailable === false) return
                                 setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
                                 setAdjustCpcOpen(true)
@@ -2185,6 +2249,23 @@ export default function CampaignsPage() {
           </Card>
         )}
 	      </main>
+
+	      {/* Adjust Budget Dialog */}
+	      {adjustBudgetTarget && (
+	        <AdjustCampaignBudgetDialog
+	          open={adjustBudgetOpen}
+	          onOpenChange={(nextOpen: boolean) => {
+	            setAdjustBudgetOpen(nextOpen)
+	            if (!nextOpen) setAdjustBudgetTarget(null)
+	          }}
+	          googleCampaignId={adjustBudgetTarget.googleCampaignId}
+	          campaignName={adjustBudgetTarget.campaignName}
+	          currentBudget={adjustBudgetTarget.currentBudget}
+	          currentBudgetType={adjustBudgetTarget.currentBudgetType}
+	          currency={adjustBudgetTarget.currency}
+	          onSaved={handleBudgetAdjusted}
+	        />
+	      )}
 
 	      {/* Adjust CPC Dialog */}
 	      {adjustCpcTarget && (
