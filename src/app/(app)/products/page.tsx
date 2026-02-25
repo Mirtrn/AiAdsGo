@@ -1672,22 +1672,22 @@ export default function ProductsPage() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     {PRODUCT_CONFIG_KEYS.map((key) => {
                       const value = productConfigValues[key] ?? ''
                       const isBooleanKey = key === 'openclaw_affiliate_sync_enabled'
                       const isModeKey = key === 'openclaw_affiliate_sync_mode'
                       const isSensitive = PRODUCT_CONFIG_SENSITIVE_KEYS.has(key)
                       return (
-                        <div key={key} className="space-y-1.5 rounded-md border p-3">
-                          <div className="text-sm font-medium">{PRODUCT_CONFIG_LABELS[key]}</div>
-                          <div className="text-xs text-muted-foreground">{PRODUCT_CONFIG_DESCRIPTIONS[key]}</div>
+                        <div key={key} className="space-y-1 rounded-md border p-2.5">
+                          <div className="text-xs font-medium leading-tight">{PRODUCT_CONFIG_LABELS[key]}</div>
+                          <div className="text-[11px] leading-tight text-muted-foreground">{PRODUCT_CONFIG_DESCRIPTIONS[key]}</div>
                           {isBooleanKey ? (
                             <Select
                               value={value || 'false'}
                               onValueChange={(nextValue) => updateProductConfigValue(key, nextValue)}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger className="h-8 text-xs">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1700,7 +1700,7 @@ export default function ProductsPage() {
                               value={value || 'incremental'}
                               onValueChange={(nextValue) => updateProductConfigValue(key, nextValue)}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger className="h-8 text-xs">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1715,6 +1715,7 @@ export default function ProductsPage() {
                               onChange={(event) => updateProductConfigValue(key, event.target.value)}
                               placeholder={PRODUCT_CONFIG_DEFAULTS[key]}
                               autoComplete="off"
+                              className="h-8 text-xs"
                             />
                           )}
                         </div>
