@@ -2,11 +2,16 @@ import { NextRequest } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
+import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
   evaluateCreativeAdStrength,
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
 import { isControllerOpen } from '@/lib/sse-helper'
+import {
+  evaluateRsaQualityGate,
+  type RetryFailureType
+} from '@/lib/rsa-quality-gate'
 
 /**
  * POST /api/offers/:id/generate-creatives-stream
@@ -32,9 +37,12 @@ export async function POST(
     maxRetries = 3,
     targetRating = 'EXCELLENT'
   } = body
+  const forcePublishRequested = body?.forcePublish === true || body?.force_publish === true
+  const parsedOfferId = parseInt(id, 10)
+  const parsedUserId = parseInt(userId, 10)
 
   // 验证Offer存在
-  const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
+  const offer = await findOfferById(parsedOfferId, parsedUserId)
   if (!offer) {
     return new Response(JSON.stringify({ error: 'Offer不存在或无权访问' }), {
       status: 404,
@@ -49,8 +57,29 @@ export async function POST(
     })
   }
 
+  let searchTermFeedbackHints: {
+    hardNegativeTerms?: string[]
+    softSuppressTerms?: string[]
+  } | undefined
+  try {
+    const hints = await getSearchTermFeedbackHints({
+      offerId: parsedOfferId,
+      userId: parsedUserId
+    })
+    searchTermFeedbackHints = {
+      hardNegativeTerms: hints.hardNegativeTerms,
+      softSuppressTerms: hints.softSuppressTerms
+    }
+    console.log(
+      `🔁 [SSE] 搜索词反馈已加载: hard=${hints.hardNegativeTerms.length}, soft=${hints.softSuppressTerms.length}, rows=${hints.sourceRows}`
+    )
+  } catch (hintError: any) {
+    console.warn(`⚠️ [SSE] 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)
+  }
+
   // 创建SSE流
   const encoder = new TextEncoder()
+  const MINIMUM_SCORE = 70
   const stream = new ReadableStream({
     async start(controller) {
       // 🔥 安全的enqueue封装 - 处理竞态条件
@@ -112,19 +141,27 @@ export async function POST(
       try {
         const totalStartTime = Date.now()
         sendProgress('init', 5, '正在初始化生成任务...')
+        if (forcePublishRequested) {
+          sendProgress('compat_notice', 6, 'generate-creatives-stream 接口不再支持 forcePublish，参数已忽略')
+        }
 
         let bestCreative: GeneratedAdCreativeData | null = null
         let bestEvaluation: ComprehensiveAdStrengthResult | null = null
+        let bestGateDecision: ReturnType<typeof evaluateRsaQualityGate> | null = null
         let attempts = 0
         let retryHistory: Array<{
           attempt: number
           rating: string
           score: number
+          gatePassed: boolean
+          failureType: RetryFailureType | null
+          gateReasons: string[]
           suggestions: string[]
         }> = []
 
         let usedKeywords: string[] = []
         const brandKeywords = [offer.brand.toLowerCase()]
+        let retryFailureType: RetryFailureType | undefined
 
         while (attempts < maxRetries) {
           attempts++
@@ -138,11 +175,13 @@ export async function POST(
           // 1. 生成创意
           startTimer(`generate_${attempts}`)
           const creative = await generateAdCreative(
-            parseInt(id, 10),
-            parseInt(userId, 10),
+            parsedOfferId,
+            parsedUserId,
             {
               skipCache: attempts > 1,
-              excludeKeywords: attempts > 1 ? usedKeywords : undefined
+              excludeKeywords: attempts > 1 ? usedKeywords : undefined,
+              retryFailureType,
+              searchTermFeedbackHints
             }
           )
           const generateTime = endTimer(`generate_${attempts}`)
@@ -171,17 +210,20 @@ export async function POST(
               brandName: offer.brand,
               targetCountry: offer.target_country || 'US',
               targetLanguage: offer.target_language || 'en',
-              userId: parseInt(userId, 10)
+              userId: parsedUserId
             }
           )
+          const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
           const evaluateTime = endTimer(`evaluate_${attempts}`)
 
           sendProgress('evaluated', attemptBaseProgress + 18,
-            `第${attempts}次生成: ${evaluation.finalRating} (${evaluation.finalScore}分) [评估 ${(evaluateTime / 1000).toFixed(1)}s]`,
+            `第${attempts}次生成: ${evaluation.finalRating} (${evaluation.finalScore}分) gate=${gateDecision.passed ? 'PASS' : 'BLOCK'} [评估 ${(evaluateTime / 1000).toFixed(1)}s]`,
             {
               attempt: attempts,
               rating: evaluation.finalRating,
               score: evaluation.finalScore,
+              gatePassed: gateDecision.passed,
+              failureType: gateDecision.failureType,
               generateTime,
               evaluateTime
             }
@@ -191,13 +233,23 @@ export async function POST(
             attempt: attempts,
             rating: evaluation.finalRating,
             score: evaluation.finalScore,
+            gatePassed: gateDecision.passed,
+            failureType: gateDecision.failureType,
+            gateReasons: gateDecision.reasons,
             suggestions: evaluation.combinedSuggestions
           })
 
           // 更新最佳结果
-          if (!bestEvaluation || evaluation.finalScore > bestEvaluation.finalScore) {
+          const currentPassed = gateDecision.passed
+          const bestPassed = bestGateDecision?.passed ?? false
+          if (
+            !bestEvaluation ||
+            (currentPassed && !bestPassed) ||
+            (currentPassed === bestPassed && evaluation.finalScore > bestEvaluation.finalScore)
+          ) {
             bestCreative = creative
             bestEvaluation = evaluation
+            bestGateDecision = gateDecision
           }
 
           // 收集已使用关键词
@@ -210,19 +262,27 @@ export async function POST(
           }
 
           // 检查是否达到目标
-          if (evaluation.finalRating === targetRating) {
+          if (evaluation.finalRating === targetRating && gateDecision.passed) {
             sendProgress('target_reached', attemptBaseProgress + 20,
-              `达到目标评级 ${targetRating}！`,
-              { rating: evaluation.finalRating, score: evaluation.finalScore }
+              `达到目标评级 ${targetRating} 且通过质量门禁！`,
+              {
+                rating: evaluation.finalRating,
+                score: evaluation.finalScore,
+                gatePassed: gateDecision.passed
+              }
             )
             break
           }
 
           if (attempts < maxRetries) {
+            retryFailureType = gateDecision.failureType || 'format_fail'
             sendProgress('retry_prepare', attemptBaseProgress + 20,
               `未达到${targetRating}，准备第${attempts + 1}次优化...`,
               {
                 currentRating: evaluation.finalRating,
+                gatePassed: gateDecision.passed,
+                failureType: retryFailureType,
+                gateReasons: gateDecision.reasons.slice(0, 2),
                 suggestions: evaluation.combinedSuggestions.slice(0, 3)
               }
             )
@@ -236,25 +296,23 @@ export async function POST(
           controller.close()
           return
         }
+        const finalGateDecision = bestGateDecision || evaluateRsaQualityGate(bestEvaluation, MINIMUM_SCORE)
 
-        // 质量门检查
-        const MINIMUM_SCORE = 70
-        if (bestEvaluation.finalScore < MINIMUM_SCORE) {
-          sendError(`创意质量未达标（${bestEvaluation.finalScore}分）`, {
-            currentScore: bestEvaluation.finalScore,
-            currentRating: bestEvaluation.finalRating,
-            minimumScore: MINIMUM_SCORE,
-            suggestions: bestEvaluation.combinedSuggestions.slice(0, 10)
-          })
-          controller.close()
-          return
+        if (!finalGateDecision.passed) {
+          sendProgress('quality_warning', 84,
+            'RSA质量门禁未通过，已保存为告警结果，最终以发布阶段 Launch Score 为准',
+            {
+              failureType: finalGateDecision.failureType,
+              gateReasons: finalGateDecision.reasons
+            }
+          )
         }
 
         sendProgress('saving', 85, '正在保存创意到数据库...')
 
         // 保存到数据库
         startTimer('save')
-        const savedCreative = await createAdCreative(parseInt(userId, 10), parseInt(id, 10), {
+        const savedCreative = await createAdCreative(parsedUserId, parsedOfferId, {
           headlines: bestCreative.headlines,
           descriptions: bestCreative.descriptions,
           keywords: bestCreative.keywords,
@@ -289,6 +347,22 @@ export async function POST(
         // 发送最终结果
         sendResult({
           success: true,
+          forcePublish: false,
+          forcedPublish: false,
+          qualityGateBypassed: false,
+          forcePublishIgnored: forcePublishRequested,
+          finalPublishDecision: {
+            status: 'PENDING_LAUNCH_SCORE_CHECK',
+            stage: 'campaign_publish',
+            hardBlockSource: 'launch_score'
+          },
+          qualityGate: {
+            passed: finalGateDecision.passed,
+            warning: !finalGateDecision.passed,
+            reasons: finalGateDecision.reasons,
+            failureType: finalGateDecision.failureType,
+            rsaQualityGate: bestEvaluation.rsaQualityGate
+          },
           creative: {
             id: savedCreative.id,
             headlines: bestCreative.headlines,
@@ -308,13 +382,15 @@ export async function POST(
             rating: bestEvaluation.finalRating,
             score: bestEvaluation.finalScore,
             isExcellent: bestEvaluation.finalRating === 'EXCELLENT',
+            rsaQualityGate: bestEvaluation.rsaQualityGate,
             dimensions: bestEvaluation.localEvaluation.dimensions,
             suggestions: bestEvaluation.combinedSuggestions
           },
           optimization: {
             attempts,
             targetRating,
-            achieved: bestEvaluation.finalRating === targetRating,
+            achieved: bestEvaluation.finalRating === targetRating && finalGateDecision.passed,
+            qualityGatePassed: finalGateDecision.passed,
             history: retryHistory
           },
           offer: {

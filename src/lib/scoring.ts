@@ -380,6 +380,15 @@ export interface ComprehensiveAdStrengthResult {
   // 本地评估结果
   localEvaluation: AdStrengthEvaluation
 
+  // RSA专用质量门（新增：用于发布前阻断）
+  rsaQualityGate: {
+    intentAlignmentScore: number // 0-100
+    evidenceAlignmentScore: number // 0-100
+    queryLandingAlignmentScore: number // 0-100
+    passed: boolean
+    reasons: string[]
+  }
+
   // Google API验证结果（可选）
   googleValidation?: {
     adStrength: AdStrengthRating
@@ -398,6 +407,71 @@ export interface ComprehensiveAdStrengthResult {
 
   // 综合建议
   combinedSuggestions: string[]
+}
+
+const RSA_QUALITY_THRESHOLDS = {
+  intentAlignmentScore: 70,
+  evidenceAlignmentScore: 75,
+  queryLandingAlignmentScore: 65,
+} as const
+
+function buildRsaQualityGate(localEvaluation: AdStrengthEvaluation): {
+  intentAlignmentScore: number
+  evidenceAlignmentScore: number
+  queryLandingAlignmentScore: number
+  passed: boolean
+  reasons: string[]
+} {
+  const relevance = localEvaluation.dimensions.relevance
+  const compliance = localEvaluation.dimensions.compliance
+
+  const intentAlignmentScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        localEvaluation.copyIntentMetrics?.typeIntentAlignmentScore ??
+          (relevance.score / 18) * 100
+      )
+    )
+  )
+
+  const evidenceAlignmentScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round((compliance.score / 8) * 100)
+    )
+  )
+
+  const keywordCoveragePct = Math.max(
+    0,
+    Math.min(100, Math.round((relevance.details.keywordCoverage || 0) * 10))
+  )
+  const productFocusPct = Math.max(
+    0,
+    Math.min(100, Math.round(((relevance.details.productFocus || 0) / 4) * 100))
+  )
+  const queryLandingAlignmentScore = Math.round(keywordCoveragePct * 0.6 + productFocusPct * 0.4)
+
+  const reasons: string[] = []
+  if (intentAlignmentScore < RSA_QUALITY_THRESHOLDS.intentAlignmentScore) {
+    reasons.push(`intentAlignmentScore ${intentAlignmentScore} < ${RSA_QUALITY_THRESHOLDS.intentAlignmentScore}`)
+  }
+  if (evidenceAlignmentScore < RSA_QUALITY_THRESHOLDS.evidenceAlignmentScore) {
+    reasons.push(`evidenceAlignmentScore ${evidenceAlignmentScore} < ${RSA_QUALITY_THRESHOLDS.evidenceAlignmentScore}`)
+  }
+  if (queryLandingAlignmentScore < RSA_QUALITY_THRESHOLDS.queryLandingAlignmentScore) {
+    reasons.push(`queryLandingAlignmentScore ${queryLandingAlignmentScore} < ${RSA_QUALITY_THRESHOLDS.queryLandingAlignmentScore}`)
+  }
+
+  return {
+    intentAlignmentScore,
+    evidenceAlignmentScore,
+    queryLandingAlignmentScore,
+    passed: reasons.length === 0,
+    reasons,
+  }
 }
 
 /**
@@ -470,6 +544,7 @@ export async function evaluateCreativeAdStrength(
   // 3. 确定最终评级（优先Google API）
   const finalRating = googleValidation?.adStrength || localEvaluation.rating
   const finalScore = localEvaluation.overallScore
+  const rsaQualityGate = buildRsaQualityGate(localEvaluation)
 
   // 4. 合并建议
   const combinedSuggestions = [
@@ -482,9 +557,13 @@ export async function evaluateCreativeAdStrength(
 
   console.log(`🎯 最终评级: ${finalRating} (${finalScore}分)`)
   console.log(`💡 改进建议: ${uniqueSuggestions.length}条`)
+  console.log(
+    `🧪 RSA质量门: intent=${rsaQualityGate.intentAlignmentScore}, evidence=${rsaQualityGate.evidenceAlignmentScore}, queryLanding=${rsaQualityGate.queryLandingAlignmentScore}, passed=${rsaQualityGate.passed}`
+  )
 
   return {
     localEvaluation,
+    rsaQualityGate,
     googleValidation,
     finalRating,
     finalScore,
@@ -545,4 +624,3 @@ export function convertLegacyCreativeFormat(creative: {
 
   return { headlines, descriptions }
 }
-

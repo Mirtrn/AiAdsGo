@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
+import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
   evaluateCreativeAdStrength,
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
+import {
+  evaluateRsaQualityGate,
+  type RetryFailureType
+} from '@/lib/rsa-quality-gate'
 
 /**
  * POST /api/offers/:id/generate-creatives
@@ -35,9 +40,12 @@ export async function POST(
       maxRetries = 3, // 最大重试次数
       targetRating = 'EXCELLENT' // 目标评级
     } = body
+    const forcePublishRequested = body?.forcePublish === true || body?.force_publish === true
+    const parsedOfferId = parseInt(id, 10)
+    const parsedUserId = parseInt(userId, 10)
 
     // 验证Offer存在且属于当前用户
-    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parsedOfferId, parsedUserId)
 
     if (!offer) {
       return NextResponse.json(
@@ -58,23 +66,51 @@ export async function POST(
       )
     }
 
+    // 读取近期搜索词反馈（轻量 hard/soft 提示）
+    let searchTermFeedbackHints: {
+      hardNegativeTerms?: string[]
+      softSuppressTerms?: string[]
+    } | undefined
+    try {
+      const hints = await getSearchTermFeedbackHints({
+        offerId: parsedOfferId,
+        userId: parsedUserId
+      })
+      searchTermFeedbackHints = {
+        hardNegativeTerms: hints.hardNegativeTerms,
+        softSuppressTerms: hints.softSuppressTerms
+      }
+      console.log(
+        `🔁 搜索词反馈已加载: hard=${hints.hardNegativeTerms.length}, soft=${hints.softSuppressTerms.length}, rows=${hints.sourceRows}`
+      )
+    } catch (hintError: any) {
+      console.warn(`⚠️ 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)
+    }
+
     console.log(`🎯 开始生成创意，目标评级: ${targetRating}, 最大重试: ${maxRetries}次`)
+    console.log(`📌 生成接口 forcePublish 参数: ${forcePublishRequested ? '已传入（本接口忽略）' : '未传入'}`)
     console.time('⏱️ 总生成耗时')
+    const MINIMUM_SCORE = 70 // GOOD评级的最低分数
 
     // 生成创意的核心函数（支持反馈优化）
     let bestCreative: GeneratedAdCreativeData | null = null
     let bestEvaluation: ComprehensiveAdStrengthResult | null = null
+    let bestGateDecision: ReturnType<typeof evaluateRsaQualityGate> | null = null
     let attempts = 0
     let retryHistory: Array<{
       attempt: number
       rating: string
       score: number
+      gatePassed: boolean
+      failureType: RetryFailureType | null
+      gateReasons: string[]
       suggestions: string[]
     }> = []
 
     // 关键词去重：收集已使用的非品牌关键词
     let usedKeywords: string[] = []
     const brandKeywords = [offer.brand.toLowerCase()] // 品牌词列表（可以重复）
+    let retryFailureType: RetryFailureType | undefined
 
     while (attempts < maxRetries) {
       attempts++
@@ -83,11 +119,13 @@ export async function POST(
 
       // 1. 生成创意（使用优化后的Prompt + 关键词去重）
       const creative = await generateAdCreative(
-        parseInt(id, 10),
-        parseInt(userId, 10),
+        parsedOfferId,
+        parsedUserId,
         {
           skipCache: attempts > 1, // 第2次及以后跳过缓存，强制重新生成
-          excludeKeywords: attempts > 1 ? usedKeywords : undefined // 第2次及以后传递已使用的关键词
+          excludeKeywords: attempts > 1 ? usedKeywords : undefined, // 第2次及以后传递已使用的关键词
+          retryFailureType,
+          searchTermFeedbackHints
         }
       )
 
@@ -119,11 +157,14 @@ export async function POST(
           brandName: offer.brand,
           targetCountry: offer.target_country || 'US',
           targetLanguage: offer.target_language || 'en',
-          userId: parseInt(userId, 10)
+          userId: parsedUserId
         }
       )
+      const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
 
-      console.log(`📊 评估结果: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
+      console.log(
+        `📊 评估结果: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}, failureType=${gateDecision.failureType || 'none'}`
+      )
       console.timeEnd(`⏱️ 第${attempts}次尝试耗时`)
 
       // 记录历史
@@ -131,13 +172,23 @@ export async function POST(
         attempt: attempts,
         rating: evaluation.finalRating,
         score: evaluation.finalScore,
+        gatePassed: gateDecision.passed,
+        failureType: gateDecision.failureType,
+        gateReasons: gateDecision.reasons,
         suggestions: evaluation.combinedSuggestions
       })
 
-      // 4. 如果是第一次，或者分数更高，更新最佳结果
-      if (!bestEvaluation || evaluation.finalScore > bestEvaluation.finalScore) {
+      // 4. 如果是第一次，或通过门禁优先，或同门禁状态下分数更高，更新最佳结果
+      const currentPassed = gateDecision.passed
+      const bestPassed = bestGateDecision?.passed ?? false
+      if (
+        !bestEvaluation ||
+        (currentPassed && !bestPassed) ||
+        (currentPassed === bestPassed && evaluation.finalScore > bestEvaluation.finalScore)
+      ) {
         bestCreative = creative
         bestEvaluation = evaluation
+        bestGateDecision = gateDecision
         console.log(`✅ 更新最佳结果: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
       }
 
@@ -159,18 +210,26 @@ export async function POST(
       }
 
       // 5. 如果达到目标评级，停止重试
-      if (evaluation.finalRating === targetRating) {
-        console.log(`🎉 达到目标评级 ${targetRating}，停止重试`)
+      if (evaluation.finalRating === targetRating && gateDecision.passed) {
+        console.log(`🎉 达到目标评级 ${targetRating} 且通过质量门禁，停止重试`)
         break
       }
 
       // 6. 如果还没达到最大重试次数，准备下一次重试
       if (attempts < maxRetries) {
+        retryFailureType = gateDecision.failureType || 'format_fail'
         console.log(`💡 未达到${targetRating}，准备第${attempts + 1}次重试...`)
+        console.log(`🎯 下一轮重试路由: ${retryFailureType}`)
         console.log(`📋 改进建议:`)
         evaluation.combinedSuggestions.slice(0, 5).forEach(suggestion => {
           console.log(`   - ${suggestion}`)
         })
+        if (gateDecision.reasons.length > 0) {
+          console.log(`🧪 门禁未通过原因:`)
+          gateDecision.reasons.slice(0, 3).forEach(reason => {
+            console.log(`   - ${reason}`)
+          })
+        }
 
         // 等待1秒后重试（避免API rate limit）
         await new Promise(resolve => setTimeout(resolve, 1000))
@@ -181,39 +240,23 @@ export async function POST(
     if (!bestCreative || !bestEvaluation) {
       throw new Error('生成创意失败')
     }
+    const finalGateDecision = bestGateDecision || evaluateRsaQualityGate(bestEvaluation, MINIMUM_SCORE)
 
     console.log(`\n🎯 最终结果: ${bestEvaluation.finalRating} (${bestEvaluation.finalScore}分)`)
     console.log(`📊 总尝试次数: ${attempts}次`)
     console.timeEnd('⏱️ 总生成耗时')
 
-    // 阻断规则：Ad Strength <70分（GOOD以下）不允许进入下一步
-    const MINIMUM_SCORE = 70 // GOOD评级的最低分数
-    if (bestEvaluation.finalScore < MINIMUM_SCORE) {
-      console.error(`❌ 创意质量未达标: ${bestEvaluation.finalScore}分 < ${MINIMUM_SCORE}分 (${bestEvaluation.finalRating})`)
-
-      return NextResponse.json(
-        {
-          error: `创意质量未达标（${bestEvaluation.finalScore}分），需要至少${MINIMUM_SCORE}分（GOOD评级）才能继续`,
-          details: {
-            currentScore: bestEvaluation.finalScore,
-            currentRating: bestEvaluation.finalRating,
-            minimumScore: MINIMUM_SCORE,
-            requiredRating: 'GOOD',
-            attempts,
-            suggestions: bestEvaluation.combinedSuggestions.slice(0, 10),
-            dimensions: bestEvaluation.localEvaluation.dimensions
-          },
-          action: 'QUALITY_GATE_BLOCKED'
-        },
-        { status: 422 } // 422 Unprocessable Entity
+    if (!finalGateDecision.passed) {
+      console.warn(
+        `⚠️ 创意未通过RSA质量门禁，按新策略仅告警不阻断: rating=${bestEvaluation.finalRating}, score=${bestEvaluation.finalScore}, failureType=${finalGateDecision.failureType}`
       )
+    } else {
+      console.log(`✅ 创意质量达标: ${bestEvaluation.finalScore}分 ≥ ${MINIMUM_SCORE}分 且通过RSA门禁`)
     }
-
-    console.log(`✅ 创意质量达标: ${bestEvaluation.finalScore}分 ≥ ${MINIMUM_SCORE}分`)
 
 
     // 保存到数据库
-    const savedCreative = await createAdCreative(parseInt(userId, 10), parseInt(id, 10), {
+    const savedCreative = await createAdCreative(parsedUserId, parsedOfferId, {
       headlines: bestCreative.headlines,
       descriptions: bestCreative.descriptions,
       keywords: bestCreative.keywords,
@@ -243,6 +286,22 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+      forcePublish: false,
+      forcedPublish: false,
+      qualityGateBypassed: false,
+      forcePublishIgnored: forcePublishRequested,
+      finalPublishDecision: {
+        status: 'PENDING_LAUNCH_SCORE_CHECK',
+        stage: 'campaign_publish',
+        hardBlockSource: 'launch_score'
+      },
+      qualityGate: {
+        passed: finalGateDecision.passed,
+        warning: !finalGateDecision.passed,
+        reasons: finalGateDecision.reasons,
+        failureType: finalGateDecision.failureType,
+        rsaQualityGate: bestEvaluation.rsaQualityGate
+      },
       creative: {
         id: savedCreative.id,
         headlines: bestCreative.headlines,
@@ -263,13 +322,15 @@ export async function POST(
         rating: bestEvaluation.finalRating,
         score: bestEvaluation.finalScore,
         isExcellent: bestEvaluation.finalRating === 'EXCELLENT',
+        rsaQualityGate: bestEvaluation.rsaQualityGate,
         dimensions: bestEvaluation.localEvaluation.dimensions,
         suggestions: bestEvaluation.combinedSuggestions
       },
       optimization: {
         attempts,
         targetRating,
-        achieved: bestEvaluation.finalRating === targetRating,
+        achieved: bestEvaluation.finalRating === targetRating && finalGateDecision.passed,
+        qualityGatePassed: finalGateDecision.passed,
         history: retryHistory
       },
       offer: {

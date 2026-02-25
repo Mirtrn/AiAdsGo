@@ -60,6 +60,18 @@ function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | 
 
 const PRICE_EVIDENCE_MISMATCH_THRESHOLD = 0.2
 
+export type RetryFailureType = 'evidence_fail' | 'intent_fail' | 'format_fail'
+
+export interface SearchTermFeedbackHintsInput {
+  hardNegativeTerms?: string[]
+  softSuppressTerms?: string[]
+}
+
+interface PromptRuntimeGuidanceOptions {
+  retryFailureType?: RetryFailureType
+  searchTermFeedbackHints?: SearchTermFeedbackHintsInput
+}
+
 export interface CreativePriceEvidenceResolution {
   currentPrice: string | null
   originalPrice: string | null
@@ -855,6 +867,80 @@ function buildTypeIntentGuidanceSection(
 - Solution keyword candidates: ${solutionLine}`
 }
 
+function normalizeSearchTermHintsTerms(terms: string[] | undefined, limit: number): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  for (const raw of terms || []) {
+    const cleaned = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!cleaned || cleaned.length < 2 || cleaned.length > 60) continue
+    const key = cleaned.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(cleaned)
+    if (out.length >= limit) break
+  }
+
+  return out
+}
+
+function buildRetryFailureGuidanceSection(retryFailureType?: RetryFailureType): string {
+  if (!retryFailureType) return ''
+
+  if (retryFailureType === 'evidence_fail') {
+    return `
+## ♻️ RETRY FOCUS: EVIDENCE ALIGNMENT
+- Remove any unverified numbers, guarantees, rankings, and price promises.
+- Rebuild copy around verified facts only (promotion, stock, service, support, official signals).
+- Prefer concrete but compliant proof language over exaggerated claims.`
+  }
+
+  if (retryFailureType === 'intent_fail') {
+    return `
+## ♻️ RETRY FOCUS: INTENT ALIGNMENT
+- Increase search-intent match in headlines and first two descriptions.
+- Keep value proposition explicit and add clearer action language.
+- Use high-intent keywords naturally in copy, not as isolated keyword stuffing.`
+  }
+
+  return `
+## ♻️ RETRY FOCUS: FORMAT/DELIVERY
+- Prioritize RSA structure quality: clearer headline roles and stronger complementarity.
+- Reduce repetitive wording; keep each headline serving a distinct angle.
+- Keep descriptions concise, direct, and CTA-complete with no formatting violations.`
+}
+
+function buildSearchTermFeedbackGuidanceSection(
+  hints?: SearchTermFeedbackHintsInput
+): { hardTerms: string[]; softTerms: string[]; section: string } {
+  const hardTerms = normalizeSearchTermHintsTerms(hints?.hardNegativeTerms, 12)
+  const softTerms = normalizeSearchTermHintsTerms(hints?.softSuppressTerms, 12)
+
+  if (hardTerms.length === 0 && softTerms.length === 0) {
+    return { hardTerms, softTerms, section: '' }
+  }
+
+  const lines: string[] = [
+    '## 🔁 SEARCH-TERM FEEDBACK (RECENT PERFORMANCE)',
+    '- Use this feedback only to improve relevance; do not change business positioning.'
+  ]
+
+  if (hardTerms.length > 0) {
+    lines.push(`- HARD EXCLUDE TERMS: ${hardTerms.join(', ')} (do not use in copy or generated keywords).`)
+  }
+  if (softTerms.length > 0) {
+    lines.push(`- SOFT SUPPRESS TERMS: ${softTerms.join(', ')} (deprioritize unless absolutely necessary).`)
+  }
+
+  return {
+    hardTerms,
+    softTerms,
+    section: lines.join('\n')
+  }
+}
+
 function classifyCopyIntentFromText(text: string, languageCode: string, keywords: string[] = []): CopyIntentTag {
   const normalized = String(text || '').toLowerCase()
   if (!normalized) return 'other'
@@ -1367,6 +1453,85 @@ export function softlyReinforceTypeCopy(
   result.headlines = headlines
   result.descriptions = descriptions
   return { headlineFixes, descriptionFixes }
+}
+
+function enforceHeadlineComplementarity(
+  result: GeneratedAdCreativeData,
+  languageCode: string,
+  brandName: string
+): { fixes: number; brandCount: number; scenarioCount: number; transactionalCount: number } {
+  const headlines = [...(result.headlines || [])]
+  const keywords = [...(result.keywords || [])]
+  if (headlines.length < 3) {
+    return { fixes: 0, brandCount: 0, scenarioCount: 0, transactionalCount: 0 }
+  }
+
+  const softLanguage = resolveSoftCopyLanguage(languageCode)
+  if (!softLanguage) {
+    return { fixes: 0, brandCount: 0, scenarioCount: 0, transactionalCount: 0 }
+  }
+
+  const preferredKeyword = keywords.find((kw) => kw.length <= 24) || brandName || getDefaultProductNoun(softLanguage)
+  const brandSeed = String(brandName || preferredKeyword).trim() || preferredKeyword
+  const templates = getSoftCopyTemplates(softLanguage, preferredKeyword, brandSeed)
+  let fixes = 0
+
+  const classifyTags = () => headlines.map((h) => classifyCopyIntentFromText(h, languageCode, keywords))
+  let tags = classifyTags()
+  const countTag = (tag: CopyIntentTag) => tags.filter((t) => t === tag).length
+
+  const replaceHeadlineByTag = (targetTag: CopyIntentTag, text: string): boolean => {
+    const fitted = fitLocalizedHeadline(text, 30)
+    if (!fitted) return false
+    for (let i = headlines.length - 1; i >= 1; i -= 1) {
+      if (tags[i] === targetTag) continue
+      const duplicated = headlines.some((h, idx) => idx !== i && h.toLowerCase() === fitted.toLowerCase())
+      if (duplicated) continue
+      if (headlines[i] === fitted) continue
+      headlines[i] = fitted
+      fixes += 1
+      tags = classifyTags()
+      return true
+    }
+    return false
+  }
+
+  // Keep a balanced baseline: brand >=2, scenario >=1, transactional >=1.
+  if (countTag('brand') < 2) {
+    replaceHeadlineByTag('brand', templates.a.brandHeadline)
+  }
+  if (countTag('scenario') < 1) {
+    replaceHeadlineByTag('scenario', templates.b.scenarioHeadline)
+  }
+  if (countTag('transactional') < 1) {
+    replaceHeadlineByTag('transactional', templates.d.transactionalHeadline)
+  }
+
+  // Avoid excessive concentration in first 8 headlines.
+  const topWindow = tags.slice(0, Math.min(8, tags.length)).filter((t) => t !== 'other')
+  const distribution = topWindow.reduce<Record<string, number>>((acc, tag) => {
+    acc[tag] = (acc[tag] || 0) + 1
+    return acc
+  }, {})
+  const dominantEntry = Object.entries(distribution).sort((a, b) => b[1] - a[1])[0]
+  if (dominantEntry && dominantEntry[1] >= 6) {
+    if (dominantEntry[0] === 'brand') {
+      replaceHeadlineByTag('scenario', templates.b.scenarioHeadline)
+    } else if (dominantEntry[0] === 'scenario') {
+      replaceHeadlineByTag('transactional', templates.d.transactionalHeadline)
+    } else if (dominantEntry[0] === 'transactional') {
+      replaceHeadlineByTag('brand', templates.a.brandHeadline)
+    }
+  }
+
+  result.headlines = headlines
+  tags = classifyTags()
+  return {
+    fixes,
+    brandCount: tags.filter((t) => t === 'brand').length,
+    scenarioCount: tags.filter((t) => t === 'scenario').length,
+    transactionalCount: tags.filter((t) => t === 'transactional').length
+  }
 }
 
 function annotateCopyIntentMetadata(
@@ -2465,7 +2630,8 @@ async function buildAdCreativePrompt(
       intentEn?: string
       keywordCount: number
     }
-  }
+  },
+  runtimeGuidance?: PromptRuntimeGuidanceOptions
 ): Promise<string> {
   // 🎯 v3.0 REFACTOR: Load template from database (migration 056)
   const promptTemplate = await loadPrompt('ad_creative_generation')
@@ -3945,7 +4111,18 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   )
 
   variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions, hasVerifiedFacts)
-  variables.exclude_keywords_section = excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''
+  const searchTermFeedbackGuidance = buildSearchTermFeedbackGuidanceSection(runtimeGuidance?.searchTermFeedbackHints)
+  const excludeKeywordLines: string[] = []
+  if (excludeKeywords?.length) {
+    excludeKeywordLines.push(`- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}`)
+  }
+  if (searchTermFeedbackGuidance.hardTerms.length > 0) {
+    excludeKeywordLines.push(`- 搜索词硬排除: ${searchTermFeedbackGuidance.hardTerms.join(', ')}`)
+  }
+  if (searchTermFeedbackGuidance.softTerms.length > 0) {
+    excludeKeywordLines.push(`- 搜索词软抑制: ${searchTermFeedbackGuidance.softTerms.join(', ')}`)
+  }
+  variables.exclude_keywords_section = excludeKeywordLines.join('\n')
 
   // 🎯 新增：AI关键词section
   // 🔥 修复(2025-12-17): 优先使用mergedData中的关键词池数据，而非旧的ai_keywords字段
@@ -3991,11 +4168,17 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
   // 🆕 非破坏式A/B/D意图引导（仅作用于标题/描述表达）
   const normalizedPromptBucket = normalizeCreativeBucketType(extractedElements?.bucketInfo?.bucket)
-  variables.type_intent_guidance_section = buildTypeIntentGuidanceSection(
+  const typeIntentGuidanceSection = buildTypeIntentGuidanceSection(
     normalizedPromptBucket,
     keywordsForPrompt,
     normalizeLanguageCode(targetLanguage || 'English')
   )
+  const retryFailureGuidanceSection = buildRetryFailureGuidanceSection(runtimeGuidance?.retryFailureType)
+  variables.type_intent_guidance_section = [
+    typeIntentGuidanceSection,
+    searchTermFeedbackGuidance.section,
+    retryFailureGuidanceSection
+  ].filter(Boolean).join('\n')
 
   // 🎯 新增：AI竞争优势section
   let ai_competitive_section = ''
@@ -5242,6 +5425,8 @@ export async function generateAdCreative(
     referencePerformance?: any
     skipCache?: boolean
     excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
+    retryFailureType?: RetryFailureType
+    searchTermFeedbackHints?: SearchTermFeedbackHintsInput
     // 🆕 v4.10: 关键词池参数
     keywordPool?: any  // OfferKeywordPool
     bucket?: 'A' | 'B' | 'C' | 'S' | 'D'  // 🔥 2025-12-22: 添加D（高购买意图）桶支持
@@ -5686,7 +5871,11 @@ export async function generateAdCreative(
     options?.theme,
     options?.referencePerformance,
     options?.excludeKeywords,
-    mergedData  // 🎯 传入合并后的增强数据
+    mergedData,  // 🎯 传入合并后的增强数据
+    {
+      retryFailureType: options?.retryFailureType,
+      searchTermFeedbackHints: options?.searchTermFeedbackHints
+    }
   )
 
   // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）
@@ -6079,6 +6268,17 @@ export async function generateAdCreative(
     console.log(`🔧 类型化文案补强: headlines ${softFix.headlineFixes} 条, descriptions ${softFix.descriptionFixes} 条`)
   }
 
+  const complementarityFix = enforceHeadlineComplementarity(
+    result,
+    targetLanguage || resolvedLanguage,
+    brandName
+  )
+  if (complementarityFix.fixes > 0) {
+    console.log(
+      `🔧 标题互补性补强: ${complementarityFix.fixes} 条 (brand=${complementarityFix.brandCount}, scenario=${complementarityFix.scenarioCount}, transactional=${complementarityFix.transactionalCount})`
+    )
+  }
+
   // 🆕 添加只读意图元数据（向后兼容，不影响关键词和发布）
   annotateCopyIntentMetadata(result, resolvedLanguage, result.keywords || [])
 
@@ -6152,6 +6352,8 @@ export async function generateAdCreativesBatch(
     theme?: string
     referencePerformance?: any
     skipCache?: boolean
+    retryFailureType?: RetryFailureType
+    searchTermFeedbackHints?: SearchTermFeedbackHintsInput
   }
 ): Promise<Array<GeneratedAdCreativeData & { ai_model: string }>> {
   // 限制数量在1-3之间
@@ -6542,6 +6744,8 @@ export async function generateMultipleCreativesWithDiversityCheck(
     referencePerformance?: any
     skipCache?: boolean
     excludeKeywords?: string[]
+    retryFailureType?: RetryFailureType
+    searchTermFeedbackHints?: SearchTermFeedbackHintsInput
   }
 ): Promise<{
   creatives: GeneratedAdCreativeData[]

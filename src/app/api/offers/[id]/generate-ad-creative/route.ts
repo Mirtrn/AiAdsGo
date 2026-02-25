@@ -5,10 +5,12 @@ import { getDatabase } from '@/lib/db'
 import { generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
+import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
   evaluateCreativeAdStrength,
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
+import { evaluateRsaQualityGate } from '@/lib/rsa-quality-gate'
 // 🆕 v4.16: 导入智能创意选择函数
 import { getNextCreativeType, getThemeByBucket, BucketType } from '@/lib/ad-creative-generator'
 
@@ -103,6 +105,7 @@ export async function POST(
       // 🆕 v4.16: 支持手动指定bucket（用于补生成或重生成）
       bucket: explicitBucket
     } = body
+    const forcePublishRequested = body?.forcePublish === true || body?.force_publish === true
 
     // 🆕 v4.16: 使用智能选择机制确定bucket
     // 如果用户指定了bucket，则使用指定的bucket；否则自动选择
@@ -188,20 +191,46 @@ export async function POST(
     if (theme) {
       console.log(`   自定义主题: ${theme}`)
     }
+    console.log(`   生成接口 forcePublish 参数: ${forcePublishRequested ? '已传入（本接口忽略）' : '未传入'}`)
+    if (forcePublishRequested) {
+      console.warn('⚠️ generate-ad-creative 接口已忽略 forcePublish 参数；最终阻断仅在发布阶段执行')
+    }
 
     // 批量生成或单个生成
     const userId = authResult.user!.userId  // Already verified above
+    const MINIMUM_SCORE = 70
+    let searchTermFeedbackHints: {
+      hardNegativeTerms?: string[]
+      softSuppressTerms?: string[]
+    } | undefined
+
+    try {
+      const hints = await getSearchTermFeedbackHints({
+        offerId,
+        userId
+      })
+      searchTermFeedbackHints = {
+        hardNegativeTerms: hints.hardNegativeTerms,
+        softSuppressTerms: hints.softSuppressTerms
+      }
+      console.log(
+        `🔁 搜索词反馈已加载: hard=${hints.hardNegativeTerms.length}, soft=${hints.softSuppressTerms.length}, rows=${hints.sourceRows}`
+      )
+    } catch (hintError: any) {
+      console.warn(`⚠️ 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)
+    }
 
     if (batch && actualCount > 1) {
       // 批量并行生成（传入userId以获取用户特定配置）
       const generatedDataList = await generateAdCreativesBatch(offerId, userId, actualCount, {
         theme,
         referencePerformance: reference_performance,
-        skipCache: true  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        searchTermFeedbackHints
       })
 
-      // 批量评估Ad Strength并保存到数据库
-      const savedCreatives = await Promise.all(generatedDataList.map(async (generatedData) => {
+      // 批量评估Ad Strength并保存到数据库（门禁未通过仅告警，不阻断）
+      const batchResults = await Promise.all(generatedDataList.map(async (generatedData, index) => {
         // 确保有metadata，否则构造基础格式
         const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
           text,
@@ -224,11 +253,20 @@ export async function POST(
             userId
           }
         )
+        const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
 
-        console.log(`📊 批量创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
+        console.log(
+          `📊 批量创意评估#${index + 1}: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}`
+        )
+
+        if (!gateDecision.passed) {
+          console.warn(
+            `⚠️ 批量创意#${index + 1} 未通过RSA门禁，按新策略仅告警保存: failureType=${gateDecision.failureType || 'unknown'}`
+          )
+        }
 
         // 保存到数据库（传入Ad Strength评分）
-        return createAdCreative(userId, offerId, {
+        const saved = await createAdCreative(userId, offerId, {
           ...generatedData,
           final_url: offer.final_url || offer.url,
           final_url_suffix: offer.final_url_suffix || undefined,
@@ -245,14 +283,40 @@ export async function POST(
             competitivePositioning: evaluation.localEvaluation.dimensions.competitivePositioning.score
           }
         })
+        return {
+          saved,
+          qualityWarning: !gateDecision.passed ? {
+            index: index + 1,
+            score: evaluation.finalScore,
+            rating: evaluation.finalRating,
+            failureType: gateDecision.failureType,
+            gateReasons: gateDecision.reasons,
+            rsaQualityGate: evaluation.rsaQualityGate,
+          } : null
+        }
       }))
+      const savedCreatives = batchResults.map(item => item.saved)
+      const qualityWarnings = batchResults.flatMap(item => item.qualityWarning ? [item.qualityWarning] : [])
 
-      console.log(`✅ ${savedCreatives.length} 个广告创意已保存（使用Ad Strength评估）`)
+      console.log(
+        `✅ ${savedCreatives.length} 个广告创意已保存（质量告警 ${qualityWarnings.length} 个）`
+      )
 
       return NextResponse.json({
         success: true,
+        forcePublish: false,
+        forcedPublish: false,
+        qualityGateBypassed: false,
+        forcePublishIgnored: forcePublishRequested,
+        finalPublishDecision: {
+          status: 'PENDING_LAUNCH_SCORE_CHECK',
+          stage: 'campaign_publish',
+          hardBlockSource: 'launch_score'
+        },
         creatives: savedCreatives,  // 前端期望 creatives 字段
         count: savedCreatives.length,
+        qualityWarningCount: qualityWarnings.length,
+        qualityWarnings,
         message: `成功生成 ${savedCreatives.length} 个广告创意`
       })
     } else {
@@ -261,6 +325,7 @@ export async function POST(
         theme: bucketIntent,  // 🆕 v4.16: 使用bucket主题
         referencePerformance: reference_performance,
         skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        searchTermFeedbackHints,
         // 🆕 v4.16: 传递bucket信息
         bucket: bucket,
         bucketIntent: bucketIntent,
@@ -318,8 +383,17 @@ export async function POST(
           userId
         }
       )
+      const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
 
-      console.log(`📊 创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
+      console.log(
+        `📊 创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}`
+      )
+
+      if (!gateDecision.passed) {
+        console.warn(
+          `⚠️ 创意未通过RSA门禁，按新策略仅告警保存: rating=${evaluation.finalRating}, score=${evaluation.finalScore}, failureType=${gateDecision.failureType}`
+        )
+      }
 
       // 保存到数据库（传入Ad Strength评分）
       const adCreative = await createAdCreative(userId, offerId, {
@@ -354,7 +428,23 @@ export async function POST(
       // 🆕 v4.16: 返回bucket信息给前端
       return NextResponse.json({
         success: true,
+        forcePublish: false,
+        forcedPublish: false,
+        qualityGateBypassed: false,
+        forcePublishIgnored: forcePublishRequested,
+        finalPublishDecision: {
+          status: 'PENDING_LAUNCH_SCORE_CHECK',
+          stage: 'campaign_publish',
+          hardBlockSource: 'launch_score'
+        },
         creative: adCreative,  // 前端期望 creative 字段（单数）
+        qualityGate: {
+          passed: gateDecision.passed,
+          warning: !gateDecision.passed,
+          reasons: gateDecision.reasons,
+          failureType: gateDecision.failureType,
+          rsaQualityGate: evaluation.rsaQualityGate,
+        },
         bucket: bucket,  // 🆕 当前生成的bucket类型
         bucketIntent: bucketIntent,  // 🆕 bucket主题描述
         generatedBuckets: updatedGeneratedBuckets,  // 🆕 更新后的已生成列表
