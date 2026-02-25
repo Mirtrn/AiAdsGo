@@ -478,6 +478,32 @@ describe('openclaw strategy recommendations rules', () => {
     })).toThrow('执行不完整')
   })
 
+  it('accepts offline remove fallback pause as complete', () => {
+    expect(() => __testUtils.assertRecommendationActionResult({
+      recommendationType: 'offline_campaign',
+      response: {
+        success: true,
+        googleAds: {
+          queued: false,
+          action: 'REMOVE',
+          planned: 1,
+          removed: 0,
+          pausedFallback: 1,
+          failed: 0,
+        },
+      },
+    })).not.toThrow()
+  })
+
+  it('detects already-offline API errors as idempotent', () => {
+    expect(
+      __testUtils.isAlreadyOfflineCampaignError(
+        new Error('AutoAds API error (400): {"error":"该广告系列已下线/删除"}')
+      )
+    ).toBe(true)
+    expect(__testUtils.isAlreadyOfflineCampaignError(new Error('AutoAds API error (400): {"error":"其他错误"}'))).toBe(false)
+  })
+
   it('patches legacy expand summary keyword coverage in text', () => {
     const patched = __testUtils.patchExpandKeywordsSummaryCoverage(
       '当前关键词 0 个，建议新增 28 个关键词提升覆盖（目标 20-30 个）。',

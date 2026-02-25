@@ -68,6 +68,7 @@ export type StrategyRecommendationData = {
   campaignName: string
   offerId: number | null
   googleCampaignId: string | null
+  currency?: string | null
   snapshotHash?: string
   runDays: number
   impressions: number
@@ -1511,6 +1512,7 @@ function buildRecommendationDrafts(params: {
       campaignName: campaign.campaign_name,
       offerId: campaign.offer_id ?? null,
       googleCampaignId,
+      currency: dominantCurrency,
       runDays,
       impressions: perfTotal.impressions,
       clicks: perfTotal.clicks,
@@ -3665,6 +3667,11 @@ function normalizeNonNegativeInt(value: unknown): number {
   return Math.floor(parsed)
 }
 
+function isAlreadyOfflineCampaignError(error: unknown): boolean {
+  const message = String((error as any)?.message || error || '')
+  return message.includes('该广告系列已下线/删除')
+}
+
 function assertRecommendationActionResult(params: {
   recommendationType: StrategyRecommendationType
   response: unknown
@@ -3701,14 +3708,16 @@ function assertRecommendationActionResult(params: {
     const planned = normalizeNonNegativeInt(googleAds.planned)
     if (planned > 0) {
       const action = String(googleAds.action || '').trim().toUpperCase()
+      const pausedFallback = normalizeNonNegativeInt(googleAds.pausedFallback)
       if (action === 'REMOVE') {
         const removed = normalizeNonNegativeInt(googleAds.removed)
-        if (removed < planned) {
-          throw new Error(`下线执行不完整：计划删除 ${planned} 条，成功 ${removed} 条`)
+        if (removed + pausedFallback < planned) {
+          throw new Error(
+            `下线执行不完整：计划删除 ${planned} 条，成功删除 ${removed} 条，降级暂停 ${pausedFallback} 条`
+          )
         }
       } else {
         const paused = normalizeNonNegativeInt(googleAds.paused)
-        const pausedFallback = normalizeNonNegativeInt(googleAds.pausedFallback)
         if (paused + pausedFallback < planned) {
           throw new Error(`下线执行不完整：计划暂停 ${planned} 条，成功 ${paused + pausedFallback} 条`)
         }
@@ -3789,12 +3798,40 @@ async function executeRecommendationAction(params: {
       pauseUrlSwapTasks: true,
       waitRemote: true,
     }
-    const response = await fetchAutoadsJson({
-      userId: params.userId,
-      path: `/api/campaigns/${campaignId}/offline`,
-      method: 'POST',
-      body,
-    })
+    let response: unknown
+    try {
+      response = await fetchAutoadsJson({
+        userId: params.userId,
+        path: `/api/campaigns/${campaignId}/offline`,
+        method: 'POST',
+        body,
+      })
+    } catch (error: any) {
+      if (!isAlreadyOfflineCampaignError(error)) {
+        throw error
+      }
+      // 幂等处理：本地已经下线时视为执行完成，避免重复执行导致策略任务误判失败。
+      response = {
+        success: true,
+        message: '广告系列已处于下线状态（幂等）',
+        data: {
+          campaignId,
+          offlineCount: 1,
+          alreadyOffline: true,
+        },
+        googleAds: {
+          queued: false,
+          planned: 0,
+          paused: 0,
+          removed: 0,
+          pausedFallback: 0,
+          failed: 0,
+          errors: [],
+          skippedReason: 'campaign_already_offline',
+          action: 'REMOVE',
+        },
+      }
+    }
     return {
       route: `/api/campaigns/${campaignId}/offline`,
       response,
@@ -4028,6 +4065,7 @@ export const __testUtils = {
   buildRecommendationDrafts,
   buildDeterministicRecommendationExecuteTaskId,
   assertRecommendationActionResult,
+  isAlreadyOfflineCampaignError,
   patchExpandKeywordsSummaryCoverage,
   normalizeRecommendationReportDate,
 }

@@ -422,9 +422,12 @@ export async function POST(
 
             if (!googleAdsSummary.skippedReason) {
               const runRemoteUpdates = async () => {
+                const toErrorMessage = (error: any): string =>
+                  String(error?.message || error || 'Google Ads 更新失败')
+
                 for (const id of googleCampaignIds) {
-                  try {
-                    if (removeGoogleAdsCampaign) {
+                  if (removeGoogleAdsCampaign) {
+                    try {
                       if (authType === 'service_account') {
                         const { removeCampaignPython } = await import('@/lib/python-ads-client')
                         const resourceName = `customers/${customerIdValue}/campaigns/${id}`
@@ -465,29 +468,58 @@ export async function POST(
                             requestCount: 1,
                             responseTimeMs: Date.now() - startTime,
                             isSuccess: false,
-                            errorMessage: error?.message || String(error),
+                            errorMessage: toErrorMessage(error),
                           }).catch(() => {})
                           throw error
                         }
                       }
                       googleAdsSummary.removed += 1
-                    } else {
-                      await updateGoogleAdsCampaignStatus({
-                        customerId: customerIdValue,
-                        refreshToken,
-                        campaignId: id,
-                        status: 'PAUSED',
-                        accountId: campaignRow.google_ads_account_id!,
-                        userId,
-                        loginCustomerId,
-                        authType,
-                        serviceAccountId,
-                      })
-                      googleAdsSummary.paused += 1
+                    } catch (removeError: any) {
+                      const removeMessage = toErrorMessage(removeError)
+                      try {
+                        await updateGoogleAdsCampaignStatus({
+                          customerId: customerIdValue,
+                          refreshToken,
+                          campaignId: id,
+                          status: 'PAUSED',
+                          accountId: campaignRow.google_ads_account_id!,
+                          userId,
+                          loginCustomerId,
+                          authType,
+                          serviceAccountId,
+                        })
+                        googleAdsSummary.pausedFallback += 1
+                        console.warn(
+                          `[offline] remove failed, paused as fallback: campaign=${id}, reason=${removeMessage}`
+                        )
+                      } catch (pauseError: any) {
+                        const pauseMessage = toErrorMessage(pauseError)
+                        googleAdsSummary.failed += 1
+                        googleAdsSummary.errors.push(
+                          `campaign ${id}: remove failed (${removeMessage}); pause fallback failed (${pauseMessage})`
+                        )
+                        console.error('[offline] Google Ads remove/pause fallback failed:', pauseMessage)
+                      }
                     }
+                    continue
+                  }
+
+                  try {
+                    await updateGoogleAdsCampaignStatus({
+                      customerId: customerIdValue,
+                      refreshToken,
+                      campaignId: id,
+                      status: 'PAUSED',
+                      accountId: campaignRow.google_ads_account_id!,
+                      userId,
+                      loginCustomerId,
+                      authType,
+                      serviceAccountId,
+                    })
+                    googleAdsSummary.paused += 1
                   } catch (err: any) {
                     googleAdsSummary.failed += 1
-                    const message = String(err?.message || err || 'Google Ads 更新失败')
+                    const message = toErrorMessage(err)
                     googleAdsSummary.errors.push(`campaign ${id}: ${message}`)
                     console.error('[offline] Google Ads update failed:', message)
                   }

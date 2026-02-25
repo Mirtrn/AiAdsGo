@@ -79,11 +79,22 @@ vi.mock('@/lib/google-ads-service-account', () => ({
   getServiceAccountConfig: vi.fn(async () => null),
 }))
 
+vi.mock('@/lib/google-ads-api-tracker', () => ({
+  trackApiUsage: vi.fn(async () => {}),
+  ApiOperationType: {
+    MUTATE: 'mutate',
+  },
+}))
+
 const { invalidateOfferCache } = await import('@/lib/api-cache')
 const { removePendingClickFarmQueueTasksByTaskIds } = await import('@/lib/click-farm/queue-cleanup')
 const { removePendingUrlSwapQueueTasksByTaskIds } = await import('@/lib/url-swap/queue-cleanup')
 const { applyCampaignTransition } = await import('@/lib/campaign-state-machine')
-const { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } = await import('@/lib/google-ads-api')
+const {
+  updateGoogleAdsCampaignStatus,
+  getGoogleAdsCredentialsFromDB,
+  getCustomerWithCredentials,
+} = await import('@/lib/google-ads-api')
 const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
 
 describe('POST /api/campaigns/:id/offline', () => {
@@ -269,5 +280,66 @@ describe('POST /api/campaigns/:id/offline', () => {
     expect(data.googleAds.failed).toBe(1)
     expect(Array.isArray(data.googleAds.errors)).toBe(true)
     expect(String(data.googleAds.errors?.[0] || '')).toContain('quota limited')
+  })
+
+  it('waitRemote=true falls back to pause when remove fails', async () => {
+    dbFns.queryOne.mockResolvedValue({
+      id: 123,
+      campaign_id: '999000111',
+      google_campaign_id: '999000111',
+      google_ads_account_id: 88,
+      status: 'ENABLED',
+      is_deleted: false,
+      offer_id: 777,
+      offer_brand: 'BrandX',
+      offer_target_country: 'US',
+      offer_is_deleted: false,
+      customer_id: '1234567890',
+      parent_mcc_id: null,
+      ads_account_active: true,
+      ads_account_deleted: false,
+      ads_account_status: 'ENABLED',
+    })
+    vi.mocked(getGoogleAdsCredentialsFromDB).mockResolvedValue({
+      useServiceAccount: false,
+      login_customer_id: null,
+    } as any)
+    vi.mocked(getGoogleAdsCredentials).mockResolvedValue({
+      refresh_token: 'rtok',
+    } as any)
+    vi.mocked(getCustomerWithCredentials).mockResolvedValue({
+      campaigns: {
+        remove: vi.fn(async () => {
+          throw new Error('remove rejected')
+        }),
+      },
+    } as any)
+    vi.mocked(updateGoogleAdsCampaignStatus).mockResolvedValue(undefined)
+
+    const req = new NextRequest('http://localhost/api/campaigns/123/offline', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        waitRemote: true,
+        removeGoogleAdsCampaign: true,
+      }),
+    })
+
+    const res = await POST(req, { params: { id: '123' } })
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.googleAds.action).toBe('REMOVE')
+    expect(data.googleAds.planned).toBe(1)
+    expect(data.googleAds.removed).toBe(0)
+    expect(data.googleAds.pausedFallback).toBe(1)
+    expect(data.googleAds.failed).toBe(0)
+    expect(vi.mocked(updateGoogleAdsCampaignStatus)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: '999000111',
+        status: 'PAUSED',
+      })
+    )
   })
 })
