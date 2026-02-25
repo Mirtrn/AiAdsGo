@@ -95,6 +95,16 @@ function isOfferExtractPath(path: string): boolean {
   return path === '/api/offers/extract' || path === '/api/offers/extract/stream'
 }
 
+function isOfferUpdatePath(path: string): boolean {
+  return /^\/api\/offers\/\d+$/.test(String(path || ''))
+}
+
+function extractOfferIdFromOfferUpdatePath(path: string): number | null {
+  const matched = String(path || '').match(/^\/api\/offers\/(\d+)$/)
+  if (!matched?.[1]) return null
+  return toPositiveInteger(matched[1])
+}
+
 type OfferExtractCommissionSourceMatchType =
   | 'exact_link'
   | 'yeahpromos_pid'
@@ -275,6 +285,53 @@ function pickOfferExtractMessageCommissionCandidate(params: {
   }
 
   return null
+}
+
+async function resolveMessageCommissionCandidateForAffiliateLink(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  parentRequestId: string | null
+  affiliateLink: string
+  logPrefix: string
+}): Promise<OfferExtractMessageCommissionCandidate | null> {
+  if (!params.parentRequestId) return null
+
+  const affiliateLink = toTrimmedString(params.affiliateLink)
+  if (!affiliateLink) return null
+
+  let healthLog: { message_text: string | null } | null | undefined = null
+  try {
+    healthLog = await params.db.queryOne<{ message_text: string | null }>(
+      `
+        SELECT message_text
+        FROM openclaw_feishu_chat_health_logs
+        WHERE user_id = ?
+          AND message_id = ?
+          AND decision = 'allowed'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [params.userId, params.parentRequestId]
+    )
+  } catch (error: any) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] ${params.logPrefix} 读取飞书消息上下文失败，跳过佣金回填: ${error?.message || error}`
+      )
+    }
+    return null
+  }
+
+  const messageText = toTrimmedString(healthLog?.message_text)
+  if (!messageText) {
+    return null
+  }
+
+  const candidates = extractOfferExtractMessageCommissionCandidates(messageText)
+  return pickOfferExtractMessageCommissionCandidate({
+    targetAffiliateLink: affiliateLink,
+    candidates,
+  })
 }
 
 const CLICK_FARM_PUBLISH_LOOKBACK_MS = 6 * 60 * 60 * 1000
@@ -1338,45 +1395,62 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
 
   const payload = params.body as Record<string, unknown>
   const affiliateLink = toTrimmedString(payload.affiliate_link ?? payload.affiliateLink)
-  if (!affiliateLink || hasOfferExtractCommissionInput(payload)) {
+  if (!affiliateLink) {
     return { body: params.body, hydrated: false }
   }
 
-  let healthLog: { message_text: string | null } | null | undefined = null
-  try {
-    healthLog = await params.db.queryOne<{ message_text: string | null }>(
-      `
-        SELECT message_text
-        FROM openclaw_feishu_chat_health_logs
-        WHERE user_id = ?
-          AND message_id = ?
-          AND decision = 'allowed'
-        ORDER BY created_at DESC
-        LIMIT 1
-      `,
-      [params.userId, params.parentRequestId]
-    )
-  } catch (error: any) {
-    if (process.env.NODE_ENV !== 'test') {
-      console.warn(
-        `[OpenClawCommand] 读取飞书消息上下文失败，跳过佣金回填: ${error?.message || error}`
-      )
+  const hasCommissionInput = hasOfferExtractCommissionInput(payload)
+  const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+
+  let incomingCommissionRate: number | null = null
+  if (commissionText) {
+    const parsedCommission = parseCommissionPayoutValue(commissionText, {
+      targetCountry,
+    })
+    if (parsedCommission?.mode === 'percent') {
+      incomingCommissionRate = parsedCommission.displayRate
+    } else if (hasCommissionInput) {
+      return { body: params.body, hydrated: false }
     }
-    return { body: params.body, hydrated: false }
   }
 
-  const messageText = toTrimmedString(healthLog?.message_text)
-  if (!messageText) {
-    return { body: params.body, hydrated: false }
+  if (incomingCommissionRate === null) {
+    const structuredType = toTrimmedString(payload.commission_type ?? payload.commissionType)?.toLowerCase()
+    const structuredValue = toTrimmedString(payload.commission_value ?? payload.commissionValue)
+    if (structuredType === 'percent' && structuredValue) {
+      const parsedValue = Number(structuredValue)
+      if (Number.isFinite(parsedValue) && parsedValue > 0) {
+        incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
+      }
+    } else if (hasCommissionInput) {
+      return { body: params.body, hydrated: false }
+    }
   }
 
-  const candidates = extractOfferExtractMessageCommissionCandidates(messageText)
-  const matched = pickOfferExtractMessageCommissionCandidate({
-    targetAffiliateLink: affiliateLink,
-    candidates,
+  const matched = await resolveMessageCommissionCandidateForAffiliateLink({
+    db: params.db,
+    userId: params.userId,
+    parentRequestId: params.parentRequestId,
+    affiliateLink,
+    logPrefix: 'offer.extract',
   })
   if (!matched) {
     return { body: params.body, hydrated: false }
+  }
+
+  if (incomingCommissionRate !== null && Math.abs(incomingCommissionRate - matched.commissionRate) <= 0.05) {
+    const harmonized = applyOfferExtractPercentCommissionShape({
+      payload,
+      commissionRate: matched.commissionRate,
+    })
+    if (!harmonized.changed) {
+      return { body: params.body, hydrated: false }
+    }
+    return {
+      body: harmonized.body,
+      hydrated: true,
+    }
   }
 
   const applied = applyOfferExtractPercentCommissionShape({
@@ -1389,7 +1463,119 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
 
   if (process.env.NODE_ENV !== 'test') {
     console.warn(
-      `[OpenClawCommand] 从飞书原始消息回填佣金比例: offer.extract ${affiliateLink} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
+      `[OpenClawCommand] 从飞书原始消息回填佣金比例: offer.extract ${affiliateLink} ${incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
+    )
+  }
+
+  return {
+    body: applied.body,
+    hydrated: true,
+  }
+}
+
+async function hydrateOfferUpdateCommissionByMessageContext(params: {
+  db: OpenclawExecutorDb
+  userId: number
+  parentRequestId: string | null
+  method: string
+  path: string
+  body: unknown
+}): Promise<{ body: unknown; hydrated: boolean }> {
+  if (params.method.toUpperCase() !== 'PUT' || !isOfferUpdatePath(params.path)) {
+    return { body: params.body, hydrated: false }
+  }
+  if (!params.parentRequestId || !isPlainObject(params.body)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const offerId = extractOfferIdFromOfferUpdatePath(params.path)
+  if (!offerId) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const payload = params.body as Record<string, unknown>
+  if (!hasOfferExtractCommissionInput(payload)) {
+    return { body: params.body, hydrated: false }
+  }
+
+  let offerMeta: { affiliate_link: string | null; target_country: string | null } | null | undefined = null
+  try {
+    offerMeta = await params.db.queryOne<{ affiliate_link: string | null; target_country: string | null }>(
+      `
+        SELECT affiliate_link, target_country
+        FROM offers
+        WHERE user_id = ? AND id = ?
+        LIMIT 1
+      `,
+      [params.userId, offerId]
+    )
+  } catch (error: any) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(
+        `[OpenClawCommand] offer.update 读取Offer关联链接失败，跳过佣金回填: ${error?.message || error}`
+      )
+    }
+    return { body: params.body, hydrated: false }
+  }
+
+  const affiliateLink = toTrimmedString(offerMeta?.affiliate_link)
+  if (!affiliateLink) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const matched = await resolveMessageCommissionCandidateForAffiliateLink({
+    db: params.db,
+    userId: params.userId,
+    parentRequestId: params.parentRequestId,
+    affiliateLink,
+    logPrefix: 'offer.update',
+  })
+  if (!matched) {
+    return { body: params.body, hydrated: false }
+  }
+
+  const targetCountry =
+    toTrimmedString(payload.target_country ?? payload.targetCountry)
+    || toTrimmedString(offerMeta?.target_country)
+    || 'US'
+  const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+
+  let incomingCommissionRate: number | null = null
+  if (commissionText) {
+    const parsedCommission = parseCommissionPayoutValue(commissionText, {
+      targetCountry,
+    })
+    if (parsedCommission?.mode === 'percent') {
+      incomingCommissionRate = parsedCommission.displayRate
+    } else {
+      return { body: params.body, hydrated: false }
+    }
+  }
+
+  if (incomingCommissionRate === null) {
+    const structuredType = toTrimmedString(payload.commission_type ?? payload.commissionType)?.toLowerCase()
+    const structuredValue = toTrimmedString(payload.commission_value ?? payload.commissionValue)
+    if (structuredType === 'percent' && structuredValue) {
+      const parsedValue = Number(structuredValue)
+      if (Number.isFinite(parsedValue) && parsedValue > 0) {
+        incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
+      }
+    } else {
+      return { body: params.body, hydrated: false }
+    }
+  }
+
+  const applied = applyOfferExtractPercentCommissionShape({
+    payload,
+    commissionRate: matched.commissionRate,
+  })
+  if (!applied.changed) {
+    return { body: params.body, hydrated: false }
+  }
+
+  if (process.env.NODE_ENV !== 'test' && (incomingCommissionRate === null || Math.abs(incomingCommissionRate - matched.commissionRate) > 0.05)) {
+    console.warn(
+      `[OpenClawCommand] 从飞书原始消息纠正佣金比例: offer.update offerId=${offerId} ${incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
     )
   }
 
@@ -2095,6 +2281,16 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     })
     requestBody = offerExtractByMessageHydrated.body
 
+    const offerUpdateByMessageHydrated = await hydrateOfferUpdateCommissionByMessageContext({
+      db,
+      userId: data.userId,
+      parentRequestId: toTrimmedString(run.parent_request_id),
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerUpdateByMessageHydrated.body
+
     const offerExtractBySourceHydrated = await hydrateOfferExtractCommissionBySource({
       db,
       userId: data.userId,
@@ -2151,6 +2347,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
     if (
       (
         offerExtractByMessageHydrated.hydrated
+        || offerUpdateByMessageHydrated.hydrated
         || offerExtractBySourceHydrated.hydrated
         || offerExtractByHistoryHydrated.hydrated
         || offerExtractBySiblingConsensusHydrated.hydrated
