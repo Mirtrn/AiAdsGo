@@ -82,6 +82,8 @@ interface NavItem {
   requireAdmin?: boolean
 }
 
+const collapsibleNavigationHrefs = new Set(['/data-management', '/openclaw'])
+
 const navigationItems: NavItem[] = [
   {
     label: '仪表盘',
@@ -220,6 +222,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [user, setUser] = useState<UserInfo | null>(cachedUser)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [advancedNavOpen, setAdvancedNavOpen] = useState(() =>
+    Array.from(collapsibleNavigationHrefs).some(href => pathname?.startsWith(href))
+  )
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [loading, setLoading] = useState(!cachedUser)
@@ -315,6 +320,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return pathname?.startsWith(href) || false
   }
 
+  useEffect(() => {
+    const hasActiveCollapsibleRoute = Array.from(collapsibleNavigationHrefs).some(href => pathname?.startsWith(href))
+    if (hasActiveCollapsibleRoute) {
+      setAdvancedNavOpen(true)
+    }
+  }, [pathname])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -326,6 +338,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!user) return null
 
   const filteredNavigationItems = filterNavigationItemsByUser(navigationItems, user)
+  const mainNavigationItems = filteredNavigationItems.filter(item => !collapsibleNavigationHrefs.has(item.href))
+  const advancedNavigationItems = filteredNavigationItems.filter(item => collapsibleNavigationHrefs.has(item.href))
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 lg:pb-0 pb-16">
@@ -414,7 +428,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           )}
-          {filteredNavigationItems.map((item) => {
+          {mainNavigationItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)
 
@@ -440,6 +454,56 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </a>
             )
           })}
+
+          {sidebarOpen && advancedNavigationItems.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setAdvancedNavOpen(prev => !prev)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-all duration-200"
+                aria-expanded={advancedNavOpen}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  数据与扩展
+                </span>
+                <ChevronDown
+                  className={`
+                    w-4 h-4 text-slate-400 transition-transform duration-200
+                    ${advancedNavOpen ? 'rotate-180' : ''}
+                  `}
+                />
+              </button>
+
+              {advancedNavOpen && (
+                <div className="mt-1 space-y-1">
+                  {advancedNavigationItems.map((item) => {
+                    const Icon = item.icon
+                    const active = isActive(item.href)
+
+                    return (
+                      <a
+                        key={item.href}
+                        href={item.href}
+                        className={`
+                          group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          ${active
+                            ? 'bg-blue-50/80 text-blue-600 font-medium shadow-sm shadow-blue-100/50'
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                          }
+                        `}
+                      >
+                        <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${active ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                        <span className="text-sm">{item.label}</span>
+                        {active && (
+                          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
+                        )}
+                      </a>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 管理员功能区 - 仅管理员可见 */}
           {user.role === 'admin' && (

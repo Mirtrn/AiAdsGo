@@ -11,6 +11,7 @@ SOURCE_COMMIT_PIN_FILE="${OPENCLAW_DIR}/.source-commit"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 SOURCE_VERSION="$(node -e "const p=require(process.argv[1]);process.stdout.write(String(p.version||''));" "${OPENCLAW_DIR}/package.json" 2>/dev/null || true)"
+PNPM_VERSION="${OPENCLAW_PNPM_VERSION:-10.23.0}"
 SOURCE_COMMIT_GIT=""
 if [[ -e "${OPENCLAW_DIR}/.git" ]]; then
   SOURCE_COMMIT_GIT="$(git -C "${OPENCLAW_DIR}" rev-parse HEAD 2>/dev/null || true)"
@@ -62,6 +63,7 @@ build_with_docker() {
     -e OPENCLAW_A2UI_SKIP_MISSING=1 \
     -e SOURCE_COMMIT="${SOURCE_COMMIT}" \
     -e SOURCE_VERSION="${SOURCE_VERSION}" \
+    -e PNPM_VERSION="${PNPM_VERSION}" \
     -e CI=true \
     -e HOST_UID="${HOST_UID}" \
     -e HOST_GID="${HOST_GID}" \
@@ -69,19 +71,32 @@ build_with_docker() {
     sh -lc '
       set -e
       apt-get update && apt-get install -y git python3 make g++ bash >/dev/null
+      use_npm_exec_pnpm=0
+      run_pnpm() {
+        if [ "${use_npm_exec_pnpm}" -eq 1 ]; then
+          npm exec --yes --package="pnpm@${PNPM_VERSION}" -- pnpm "$@"
+        else
+          pnpm "$@"
+        fi
+      }
+
       corepack enable
-      corepack prepare pnpm@10.23.0 --activate
+      if ! corepack prepare "pnpm@${PNPM_VERSION}" --activate; then
+        echo "⚠️ corepack prepare pnpm@${PNPM_VERSION} 失败，回退到 npm exec pnpm" >&2
+        use_npm_exec_pnpm=1
+      fi
+      run_pnpm --version >/dev/null
 
       # 构建阶段需要完整依赖
-      pnpm install --no-frozen-lockfile
+      run_pnpm install --no-frozen-lockfile
       OPENCLAW_A2UI_SKIP_MISSING=1 \
       GIT_COMMIT="${SOURCE_COMMIT}" \
       OPENCLAW_BUNDLED_VERSION="${SOURCE_VERSION}" \
-      pnpm build
+      run_pnpm build
 
       # 仅保留生产依赖，避免将 devDependencies 带入镜像
       # CI=true + confirmModulesPurge=false，避免无TTY环境交互中断
-      pnpm prune --prod --config.confirmModulesPurge=false
+      run_pnpm prune --prod --config.confirmModulesPurge=false
 
       # 防御性清理（历史问题：@typescript/native-preview 导致镜像暴涨）
       rm -rf node_modules/.pnpm/@typescript+native-preview* \
@@ -129,13 +144,25 @@ build_with_local_toolchain() {
   (
     set -e
     cd "${local_build_dir}"
-    corepack prepare pnpm@10.23.0 --activate
-    pnpm install --no-frozen-lockfile
+    use_npm_exec_pnpm=0
+    run_pnpm() {
+      if [[ "${use_npm_exec_pnpm}" -eq 1 ]]; then
+        npm exec --yes --package="pnpm@${PNPM_VERSION}" -- pnpm "$@"
+      else
+        pnpm "$@"
+      fi
+    }
+    if ! corepack prepare "pnpm@${PNPM_VERSION}" --activate; then
+      echo "⚠️ corepack prepare pnpm@${PNPM_VERSION} 失败，回退到 npm exec pnpm" >&2
+      use_npm_exec_pnpm=1
+    fi
+    run_pnpm --version >/dev/null
+    run_pnpm install --no-frozen-lockfile
     OPENCLAW_A2UI_SKIP_MISSING=1 \
     GIT_COMMIT="${SOURCE_COMMIT}" \
     OPENCLAW_BUNDLED_VERSION="${SOURCE_VERSION}" \
-    pnpm build
-    pnpm prune --prod --config.confirmModulesPurge=false
+    run_pnpm build
+    run_pnpm prune --prod --config.confirmModulesPurge=false
 
     rm -rf node_modules/.pnpm/@typescript+native-preview* \
            node_modules/@typescript/native-preview* \
