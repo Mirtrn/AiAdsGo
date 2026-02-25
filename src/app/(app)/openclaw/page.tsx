@@ -2742,12 +2742,6 @@ export default function OpenClawPage() {
         : '成员无需配置（管理员统一维护）',
     },
     {
-      id: 'feishu_user',
-      label: '飞书账号',
-      done: canRunFeishuConnectionTest,
-      note: canRunFeishuConnectionTest ? '可进行 Feishu 连通测试' : '缺少飞书必填参数',
-    },
-    {
       id: 'strategy',
       label: '自动分析',
       done: isTruthy(userValues.openclaw_strategy_enabled, false),
@@ -2835,7 +2829,7 @@ export default function OpenClawPage() {
                   <div className="h-2 rounded bg-slate-900 transition-all" style={{ width: `${setupProgressPercent}%` }} />
                 </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-3">
                 {setupCards.map(card => (
                   <div key={card.id} className="rounded-md border px-3 py-2">
                     <div className="flex items-center justify-between">
@@ -2846,8 +2840,11 @@ export default function OpenClawPage() {
                   </div>
                 ))}
               </div>
-              <div className="text-xs text-slate-500">
-                建议顺序：Gateway → AI引擎 → 飞书聊天 → 策略中心。
+              <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                <span>建议顺序：Gateway → AI引擎 → 自动分析。飞书账号已迁移到策略中心独立配置。</span>
+                <Link href="/strategy-center" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                  去策略中心配置飞书账号
+                </Link>
               </div>
             </CardContent>
           </Card>
