@@ -53,6 +53,55 @@ describe('openclaw strategy recommendations rules', () => {
     expect(String(cpcRec?.data.impactConfidenceReason || '')).toContain('样本：曝光')
   })
 
+  it('raises CPC by 20% when campaign has no impressions/clicks for 3-7 days', () => {
+    const drafts = __testUtils.buildRecommendationDrafts({
+      campaigns: [makeCampaign({
+        id: 114,
+        max_cpc: 0.5,
+        created_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      })],
+      perf7dByCampaign: new Map([[114, { impressions: 0, clicks: 0, cost: 0 }]]),
+      perfTotalByCampaign: new Map([[114, { impressions: 0, clicks: 0, cost: 0 }]]),
+      commissionByCampaign: new Map(),
+      keywordsByCampaign: new Map([[114, new Set(['dreo'])]]),
+      keywordIdeasByOffer: new Map(),
+      creativeById: new Map(),
+    })
+
+    const cpcRec = drafts.find((item) => item.recommendationType === 'adjust_cpc')
+    expect(cpcRec).toBeTruthy()
+    expect(cpcRec?.data.cpcAdjustmentDirection).toBe('raise')
+    expect(cpcRec?.data.currentCpc).toBe(0.5)
+    expect(cpcRec?.data.recommendedCpc).toBe(0.6)
+    expect(cpcRec?.data.ruleCode).toBe('cpc_no_traffic_raise')
+    expect(cpcRec?.reason).toContain('无曝光无点击')
+  })
+
+  it('caps raised CPC at recommendedCpc * 1.5', () => {
+    const drafts = __testUtils.buildRecommendationDrafts({
+      campaigns: [makeCampaign({
+        id: 115,
+        product_price: '$250',
+        commission_payout: '20%', // recommendedCpc = 1.0
+        max_cpc: 1.4,
+        created_at: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        published_at: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      })],
+      perf7dByCampaign: new Map([[115, { impressions: 0, clicks: 0, cost: 0 }]]),
+      perfTotalByCampaign: new Map([[115, { impressions: 0, clicks: 0, cost: 0 }]]),
+      commissionByCampaign: new Map(),
+      keywordsByCampaign: new Map([[115, new Set(['dreo'])]]),
+      keywordIdeasByOffer: new Map(),
+      creativeById: new Map(),
+    })
+
+    const cpcRec = drafts.find((item) => item.recommendationType === 'adjust_cpc')
+    expect(cpcRec).toBeTruthy()
+    expect(cpcRec?.data.cpcAdjustmentDirection).toBe('raise')
+    expect(cpcRec?.data.recommendedCpc).toBe(1.5)
+  })
+
   it('marks <=3 day campaigns with zero commission as lag protected', () => {
     const drafts = __testUtils.buildRecommendationDrafts({
       campaigns: [makeCampaign({

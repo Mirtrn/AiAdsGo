@@ -83,7 +83,7 @@ export type StrategyRecommendationData = {
   commissionPerConversion: number | null
   currentCpc: number | null
   recommendedCpc: number | null
-  cpcAdjustmentDirection?: 'lower' | 'set'
+  cpcAdjustmentDirection?: 'lower' | 'set' | 'raise'
   currentBudget: number | null
   recommendedBudget: number | null
   budgetType?: 'DAILY' | 'TOTAL'
@@ -265,6 +265,10 @@ const MIN_KEYWORD_COVERAGE_TARGET = 20
 const KEYWORD_EXPANSION_TARGET_MAX = 30
 const KEYWORD_EXPANSION_TARGET_MIN = 20
 const CPC_RECOMMENDED_DIVISOR = 50
+const CPC_RAISE_NO_TRAFFIC_MIN_RUN_DAYS = 3
+const CPC_RAISE_NO_TRAFFIC_MAX_RUN_DAYS = 7
+const CPC_RAISE_STEP_RATIO = 0.2
+const CPC_RAISE_CAP_MULTIPLIER = 1.5
 const SEARCH_TERM_LOOKBACK_DAYS = 14
 const NEGATIVE_KEYWORD_PLAN_MAX = 15
 const MATCH_TYPE_OPTIMIZATION_MAX = 15
@@ -907,7 +911,22 @@ function estimateCpcPriority(params: {
   currentCpc: number | null
   recommendedCpc: number
   clicks7d: number
+  direction?: 'lower' | 'set' | 'raise'
+  runDays?: number
+  noTraffic?: boolean
 }): number {
+  if (params.direction === 'raise') {
+    const raiseRatio = params.currentCpc && params.currentCpc > 0
+      ? Math.max(0, (params.recommendedCpc / params.currentCpc) - 1)
+      : 0
+    const ratioBoost = Math.min(8, raiseRatio * 40)
+    const dayBoost = Math.min(
+      6,
+      Math.max(0, toNumber(params.runDays, CPC_RAISE_NO_TRAFFIC_MIN_RUN_DAYS) - CPC_RAISE_NO_TRAFFIC_MIN_RUN_DAYS) * 1.5
+    )
+    const base = params.noTraffic ? 78 : 72
+    return roundTo2(Math.min(90, base + ratioBoost + dayBoost))
+  }
   if (!params.currentCpc || params.currentCpc <= 0) {
     return 70
   }
@@ -1707,9 +1726,23 @@ function buildRecommendationDrafts(params: {
     }
 
     if (recommendedCpc && recommendedCpc > 0 && googleCampaignId) {
+      const shouldRaiseCpcNoTraffic =
+        runDays >= CPC_RAISE_NO_TRAFFIC_MIN_RUN_DAYS
+        && runDays <= CPC_RAISE_NO_TRAFFIC_MAX_RUN_DAYS
+        && perfTotal.impressions <= 0
+        && perfTotal.clicks <= 0
+      const cpcRaiseBase = currentCpc && currentCpc > 0 ? currentCpc : recommendedCpc
+      const cpcRaiseCap = roundTo2(recommendedCpc * CPC_RAISE_CAP_MULTIPLIER)
+      const raisedRecommendedCpc = roundTo2(
+        Math.min(
+          cpcRaiseCap,
+          Math.max(0.01, cpcRaiseBase * (1 + CPC_RAISE_STEP_RATIO))
+        )
+      )
+      const shouldRaiseCpc = shouldRaiseCpcNoTraffic && raisedRecommendedCpc > cpcRaiseBase * 1.001
       const shouldSetCpc = !currentCpc || currentCpc <= 0
       const shouldLowerCpc = Boolean(currentCpc && currentCpc > recommendedCpc * 1.05)
-      if (shouldSetCpc || shouldLowerCpc) {
+      if (shouldRaiseCpc || shouldSetCpc || shouldLowerCpc) {
         const inCooldown = isRecommendationInCooldown({
           campaignId,
           recommendationType: 'adjust_cpc',
@@ -1717,8 +1750,22 @@ function buildRecommendationDrafts(params: {
           nowMs: params.nowMs,
         })
         if (!inCooldown) {
-          const direction = shouldLowerCpc ? 'lower' : 'set'
-          const ruleCode = direction === 'lower' ? 'cpc_above_recommended' : 'cpc_unset_use_recommended'
+          const direction: StrategyRecommendationData['cpcAdjustmentDirection'] =
+            shouldRaiseCpc
+              ? 'raise'
+              : shouldLowerCpc
+                ? 'lower'
+                : 'set'
+          const actionCpc =
+            direction === 'raise'
+              ? raisedRecommendedCpc
+              : recommendedCpc
+          const ruleCode =
+            direction === 'raise'
+              ? 'cpc_no_traffic_raise'
+              : direction === 'lower'
+                ? 'cpc_above_recommended'
+                : 'cpc_unset_use_recommended'
           const snapshotHash = buildSnapshotHash({
             type: 'adjust_cpc',
             campaignId,
@@ -1727,37 +1774,58 @@ function buildRecommendationDrafts(params: {
             runDays,
             currentCpc,
             recommendedCpc,
+            actionCpc,
+            cpcRaiseCap,
             commissionPerConversion,
             breakEvenConversionRatePct,
             breakEvenConversionRateByRecommendedCpcPct,
           })
-          const reason = shouldLowerCpc
-            ? `当前CPC ${currentCpc?.toFixed(2)} 高于建议CPC ${recommendedCpc.toFixed(2)}，建议下调。`
-            : `当前未设置CPC上限，建议设置为 ${recommendedCpc.toFixed(2)}。`
-          const lagHint = commissionLagProtected
-            ? '投放≤3天且暂无佣金，按佣金滞后规则不做负向判定。'
-            : '已纳入投放成本与盈亏平衡分析。'
+          const reason = direction === 'raise'
+            ? `已连续${runDays}天无曝光无点击，建议将CPC上调至 ${actionCpc.toFixed(2)}（单次+${Math.round(CPC_RAISE_STEP_RATIO * 100)}%，上限 ${cpcRaiseCap.toFixed(2)}）。`
+            : direction === 'lower'
+              ? `当前CPC ${currentCpc?.toFixed(2)} 高于建议CPC ${recommendedCpc.toFixed(2)}，建议下调。`
+              : `当前未设置CPC上限，建议设置为 ${recommendedCpc.toFixed(2)}。`
+          const lagHint = direction === 'raise'
+            ? '连续3-7天无量场景优先提价抢量，本规则不校验ROAS门槛。'
+            : commissionLagProtected
+              ? '投放≤3天且暂无佣金，按佣金滞后规则不做负向判定。'
+              : '已纳入投放成本与盈亏平衡分析。'
           const projectedClicks = Math.max(
             perf7d.clicks,
             Math.round((perfTotal.clicks / Math.max(runDays, 1)) * IMPACT_WINDOW_DAYS_COST_CONTROL)
           )
           const baselineCpc = currentCpc && currentCpc > 0 ? currentCpc : (cpc > 0 ? cpc : recommendedCpc)
-          const estimatedCostSaving = roundTo2(
-            Math.max(0, baselineCpc - recommendedCpc) * Math.max(0, projectedClicks)
-          )
+          const estimatedCostSaving = direction === 'raise'
+            ? 0
+            : roundTo2(Math.max(0, baselineCpc - actionCpc) * Math.max(0, projectedClicks))
+          const breakEvenConversionRateByActionCpcPct =
+            actionCpc && commissionPerConversion
+              ? roundTo2((actionCpc / commissionPerConversion) * 100)
+              : null
 
           recommendations.push({
             key: `${campaignId}:adjust_cpc`,
             campaignId,
             googleCampaignId,
             recommendationType: 'adjust_cpc',
-            title: direction === 'lower' ? '降低CPC至建议值' : '设置建议CPC',
-            summary: `建议CPC = 商品价格 × 佣金比例 ÷ 50 = ${recommendedCpc.toFixed(2)}。`,
+            title:
+              direction === 'raise'
+                ? '上调CPC抢量'
+                : direction === 'lower'
+                  ? '降低CPC至建议值'
+                  : '设置建议CPC',
+            summary:
+              direction === 'raise'
+                ? `连续${runDays}天无曝光无点击，建议先上调CPC至 ${actionCpc.toFixed(2)}（封顶 ${cpcRaiseCap.toFixed(2)}）。`
+                : `建议CPC = 商品价格 × 佣金比例 ÷ 50 = ${recommendedCpc.toFixed(2)}。`,
             reason,
             priorityScore: estimateCpcPriority({
               currentCpc,
-              recommendedCpc,
+              recommendedCpc: actionCpc,
               clicks7d: perf7d.clicks,
+              direction: direction || undefined,
+              runDays,
+              noTraffic: shouldRaiseCpcNoTraffic,
             }),
             data: {
               ...applyImpactEstimation(baseData, {
@@ -1766,9 +1834,13 @@ function buildRecommendationDrafts(params: {
                 impactWindowDays: IMPACT_WINDOW_DAYS_COST_CONTROL,
               }),
               snapshotHash,
+              recommendedCpc: actionCpc,
               cpcAdjustmentDirection: direction,
+              breakEvenConversionRateByRecommendedCpcPct: breakEvenConversionRateByActionCpcPct,
               ruleCode,
-              analysisNote: `${lagHint} 当前盈亏平衡转化率 ${breakEvenConversionRatePct?.toFixed(2) ?? '--'}%，按建议CPC可降至 ${breakEvenConversionRateByRecommendedCpcPct?.toFixed(2) ?? '--'}%。`,
+              analysisNote: direction === 'raise'
+                ? `${lagHint} 公式建议CPC ${recommendedCpc.toFixed(2)}，本次目标CPC ${actionCpc.toFixed(2)}。当前盈亏平衡转化率 ${breakEvenConversionRatePct?.toFixed(2) ?? '--'}%，按目标CPC为 ${breakEvenConversionRateByActionCpcPct?.toFixed(2) ?? '--'}%。`
+                : `${lagHint} 当前盈亏平衡转化率 ${breakEvenConversionRatePct?.toFixed(2) ?? '--'}%，按建议CPC可降至 ${breakEvenConversionRateByActionCpcPct?.toFixed(2) ?? '--'}%。`,
             },
           })
         }
