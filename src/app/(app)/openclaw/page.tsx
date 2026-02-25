@@ -104,6 +104,7 @@ type OpenclawStrategyRecommendation = {
     impressions?: number
     clicks?: number
     cost?: number
+    currency?: string | null
     ctrPct?: number
     cpc?: number
     roas?: number | null
@@ -720,6 +721,23 @@ const formatNumber = (value: unknown, digits = 2): string => {
   return parsed.toFixed(digits)
 }
 
+const normalizeCurrencyCode = (value?: string | null): string => {
+  const normalized = String(value || '').trim().toUpperCase()
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : 'USD'
+}
+
+const formatMoney = (value: unknown, currency?: string | null, digits = 2): string => {
+  if (value === null || value === undefined) return '--'
+  if (typeof value === 'string' && value.trim() === '') return '--'
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '--'
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(parsed)
+  return `${formatted} ${normalizeCurrencyCode(currency)}`
+}
+
 const resolveImpactConfidenceText = (value?: string | null): string => {
   const normalized = String(value || '').trim().toLowerCase()
   if (normalized === 'high') return '高'
@@ -1100,6 +1118,11 @@ export default function OpenClawPage() {
       confirm: 'default' as const,
     }
   }, [])
+
+  const strategyConfirmToneClasses = useMemo(
+    () => resolveStrategyConfirmToneClasses(strategyConfirmDialog?.tone),
+    [strategyConfirmDialog?.tone, resolveStrategyConfirmToneClasses]
+  )
 
   const closeStrategyConfirmDialog = useCallback((accepted: boolean) => {
     const resolver = strategyConfirmResolverRef.current
@@ -4361,7 +4384,10 @@ export default function OpenClawPage() {
                       const postReviewText = resolvePostReviewStatusText(
                         item.data?.postReviewStatus || item.executionResult?.postReview?.status || null
                       )
-                      const costText = `花费 ${formatNumber(item.data?.cost, 2)} / 点击 ${formatNumber(item.data?.clicks, 0)} / CTR ${formatNumber(item.data?.ctrPct, 2)}%`
+                      const recommendationCurrency = normalizeCurrencyCode(
+                        item.data?.currency || item.data?.searchTermFeedback?.dominantCurrency || null
+                      )
+                      const costText = `花费 ${formatMoney(item.data?.cost, recommendationCurrency, 2)} / 点击 ${formatNumber(item.data?.clicks, 0)} / CTR ${formatNumber(item.data?.ctrPct, 2)}%`
                       const roasText = item.data?.roas !== null && item.data?.roas !== undefined
                         ? `ROAS ${formatNumber(item.data?.roas, 2)}`
                         : 'ROAS --'
@@ -4376,10 +4402,10 @@ export default function OpenClawPage() {
                       const impactConfidenceText = resolveImpactConfidenceText(item.data?.impactConfidence)
                       const impactEstimationSourceText = resolveImpactEstimationSourceText(item.data?.impactEstimationSource)
                       const cpcAdjustText = item.recommendationType === 'adjust_cpc'
-                        ? `CPC ${formatNumber(item.data?.currentCpc, 2)} → ${formatNumber(item.data?.recommendedCpc, 2)}`
+                        ? `CPC ${formatMoney(item.data?.currentCpc, recommendationCurrency, 2)} → ${formatMoney(item.data?.recommendedCpc, recommendationCurrency, 2)}`
                         : ''
                       const budgetAdjustText = item.recommendationType === 'adjust_budget'
-                        ? `预算 ${formatNumber(item.data?.currentBudget, 2)} → ${formatNumber(item.data?.recommendedBudget, 2)} (${item.data?.budgetType || 'DAILY'})`
+                        ? `预算 ${formatMoney(item.data?.currentBudget, recommendationCurrency, 2)} → ${formatMoney(item.data?.recommendedBudget, recommendationCurrency, 2)} (${item.data?.budgetType || 'DAILY'})`
                         : ''
                       const keywordPlan = Array.isArray(item.data?.keywordPlan) ? item.data.keywordPlan : []
                       const negativeKeywordPlan = Array.isArray(item.data?.negativeKeywordPlan) ? item.data.negativeKeywordPlan : []
@@ -4500,13 +4526,13 @@ export default function OpenClawPage() {
                             <div className="text-lg font-semibold text-slate-900">{formatNumber(item.priorityScore, 1)}</div>
                             {hasImpact ? (
                               <div className="text-xs text-slate-500">
-                                净影响(估) {formatNumber(estimatedNetImpact, 2)} / {impactWindowDays}天 · 置信度 {impactConfidenceText}
+                                净影响(估) {formatMoney(estimatedNetImpact, recommendationCurrency, 2)} / {impactWindowDays}天 · 置信度 {impactConfidenceText}
                               </div>
                             ) : (
                               <div className="text-xs text-slate-500">净影响 --</div>
                             )}
                             <div className="text-xs text-slate-500">
-                              节省 {formatNumber(estimatedCostSaving, 2)} / 增益 {formatNumber(estimatedRevenueUplift, 2)}
+                              节省 {formatMoney(estimatedCostSaving, recommendationCurrency, 2)} / 增益 {formatMoney(estimatedRevenueUplift, recommendationCurrency, 2)}
                             </div>
                             {item.data?.impactConfidenceReason && (
                               <div className="text-xs text-slate-500">{item.data.impactConfidenceReason}</div>
@@ -4649,7 +4675,9 @@ export default function OpenClawPage() {
                                 {idx + 1}. {kw.text} [{kw.currentMatchType} → {kw.recommendedMatchType}]
                                 {Number.isFinite(Number(kw.clicks)) ? ` · 点击 ${formatNumber(kw.clicks, 0)}` : ''}
                                 {Number.isFinite(Number(kw.conversions)) ? ` · 转化 ${formatNumber(kw.conversions, 2)}` : ''}
-                                {Number.isFinite(Number(kw.cost)) ? ` · 花费 ${formatNumber(kw.cost, 2)}` : ''}
+                                {Number.isFinite(Number(kw.cost))
+                                  ? ` · 花费 ${formatMoney(kw.cost, strategyRecommendationDetailItem.data?.currency || strategyRecommendationDetailItem.data?.searchTermFeedback?.dominantCurrency, 2)}`
+                                  : ''}
                               </div>
                             ))}
                             {strategyRecommendationDetailItem.data.matchTypePlan.length > 30 && (
@@ -4709,38 +4737,47 @@ export default function OpenClawPage() {
                   if (!open) closeStrategyConfirmDialog(false)
                 }}
               >
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>{strategyConfirmDialog?.title || '确认操作'}</DialogTitle>
-                    <DialogDescription>{strategyConfirmDialog?.description || ''}</DialogDescription>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader className="space-y-2">
+                    <DialogTitle className="text-lg leading-6 sm:text-xl">
+                      {strategyConfirmDialog?.title || '确认操作'}
+                    </DialogTitle>
+                    <DialogDescription className="text-sm leading-6 text-slate-600">
+                      {strategyConfirmDialog?.description || ''}
+                    </DialogDescription>
                   </DialogHeader>
                   {strategyConfirmDialog && (
                     <div className="space-y-4">
                       {Array.isArray(strategyConfirmDialog.details) && strategyConfirmDialog.details.length > 0 && (
-                        <div className={`rounded-md border px-3 py-2 text-xs ${resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).panel}`}>
+                        <div className={`space-y-1.5 rounded-md border px-3 py-2.5 text-sm leading-6 ${strategyConfirmToneClasses.panel}`}>
                           {strategyConfirmDialog.details.map((item, idx) => (
                             <div key={`confirm-detail-${idx}`}>{item}</div>
                           ))}
                         </div>
                       )}
                       {strategyConfirmDialog.acknowledgeLabel && (
-                        <label className={`flex cursor-pointer items-start gap-2 text-xs ${resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).detail}`}>
+                        <label className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 ${strategyConfirmToneClasses.panel}`}>
                           <Checkbox
+                            className="mt-1 h-4 w-4 shrink-0"
                             checked={strategyConfirmAcknowledge}
                             onCheckedChange={(checked) => setStrategyConfirmAcknowledge(Boolean(checked))}
                           />
-                          <span>{strategyConfirmDialog.acknowledgeLabel}</span>
+                          <span className={`text-sm font-medium leading-6 ${strategyConfirmToneClasses.detail}`}>
+                            {strategyConfirmDialog.acknowledgeLabel}
+                          </span>
                         </label>
                       )}
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
                         <Button
+                          className="h-9 px-4"
                           variant="outline"
                           onClick={() => closeStrategyConfirmDialog(false)}
                         >
                           取消
                         </Button>
                         <Button
-                          variant={resolveStrategyConfirmToneClasses(strategyConfirmDialog.tone).confirm}
+                          className="h-9 px-4"
+                          variant={strategyConfirmToneClasses.confirm}
                           onClick={() => closeStrategyConfirmDialog(true)}
                           disabled={Boolean(strategyConfirmDialog.acknowledgeLabel) && !strategyConfirmAcknowledge}
                         >
