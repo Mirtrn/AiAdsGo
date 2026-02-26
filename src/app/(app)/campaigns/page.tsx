@@ -31,6 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import {
@@ -40,7 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal, Maximize2 } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import AdjustCampaignBudgetDialog from '@/components/AdjustCampaignBudgetDialog'
@@ -204,6 +205,7 @@ export default function CampaignsPage() {
   const [trendsError, setTrendsError] = useState<string | null>(null)
   const [trendsCurrencies, setTrendsCurrencies] = useState<string[]>([])
   const [trendsCurrency, setTrendsCurrency] = useState<string>('')
+  const [expandedTrendChart, setExpandedTrendChart] = useState<'traffic' | 'cost' | null>(null)
 
   // Batch offline states
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
@@ -274,6 +276,16 @@ export default function CampaignsPage() {
     formatCurrency(value, currencyCode)
   const trendsCurrencyValue = trendsCurrency || trendsCurrencies[0] || defaultCurrency
   const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
+  const trafficTrendMetrics: TrendChartMetric[] = [
+    { key: 'impressions', label: '展示', color: 'hsl(217, 91%, 60%)', yAxisId: 'left' },
+    { key: 'clicks', label: '点击', color: 'hsl(142, 76%, 36%)', yAxisId: 'right' },
+    { key: 'commission', label: '佣金', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
+  ]
+  const costTrendMetrics: TrendChartMetric[] = [
+    { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left' },
+    { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
+    { key: 'costPerCommission', label: '费佣比', color: 'hsl(0, 84%, 60%)', formatter: (v) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right' },
+  ]
   const formatSummaryRoas = (value: PerformanceSummary | null): string => {
     if (!value) return '--'
     if (value.currency === 'MIXED') return '--'
@@ -1725,11 +1737,7 @@ export default function CampaignsPage() {
             <div className="lg:col-span-2">
               <TrendChart
                 data={trendsData}
-                metrics={[
-                  { key: 'impressions', label: '展示', color: 'hsl(217, 91%, 60%)', yAxisId: 'left' },
-                  { key: 'clicks', label: '点击', color: 'hsl(142, 76%, 36%)', yAxisId: 'right' },
-                  { key: 'commission', label: '佣金', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
-                ]}
+                metrics={trafficTrendMetrics}
                 title="流量趋势"
                 description="展示(左轴) / 点击·佣金(右轴)"
                 loading={trendsLoading}
@@ -1739,6 +1747,18 @@ export default function CampaignsPage() {
                 hideTimeRangeSelector={true}
                 chartType="bar"
                 dualYAxis={true}
+                headerActions={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setExpandedTrendChart('traffic')}
+                    title="放大趋势图"
+                    aria-label="放大流量趋势图"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                }
               />
             </div>
 
@@ -1746,11 +1766,7 @@ export default function CampaignsPage() {
             <div className="lg:col-span-2">
               <TrendChart
                 data={trendsData}
-                metrics={[
-                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left' },
-                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
-                  { key: 'costPerCommission', label: '费佣比', color: 'hsl(0, 84%, 60%)', formatter: (v) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right' },
-                ]}
+                metrics={costTrendMetrics}
                 title="成本趋势"
                 description="花费(左轴) / CPC·费佣比(右轴)"
                 loading={trendsLoading}
@@ -1759,6 +1775,18 @@ export default function CampaignsPage() {
                 height={220}
                 hideTimeRangeSelector={true}
                 dualYAxis={true}
+                headerActions={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setExpandedTrendChart('cost')}
+                    title="放大趋势图"
+                    aria-label="放大成本趋势图"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                }
               />
             </div>
 
@@ -2321,6 +2349,49 @@ export default function CampaignsPage() {
 	          campaignName={adjustCpcTarget.campaignName}
 	        />
 	      )}
+
+      {/* Trend Expand Dialog */}
+      <Dialog
+        open={expandedTrendChart !== null}
+        onOpenChange={(open) => {
+          if (!open) setExpandedTrendChart(null)
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{expandedTrendChart === 'traffic' ? '流量趋势（放大）' : '成本趋势（放大）'}</DialogTitle>
+          </DialogHeader>
+          {expandedTrendChart === 'traffic' && (
+            <TrendChart
+              data={trendsData}
+              metrics={trafficTrendMetrics}
+              title="流量趋势"
+              description="展示(左轴) / 点击·佣金(右轴)"
+              loading={trendsLoading}
+              error={trendsError}
+              onRetry={fetchTrends}
+              height={460}
+              hideTimeRangeSelector={true}
+              chartType="bar"
+              dualYAxis={true}
+            />
+          )}
+          {expandedTrendChart === 'cost' && (
+            <TrendChart
+              data={trendsData}
+              metrics={costTrendMetrics}
+              title="成本趋势"
+              description="花费(左轴) / CPC·费佣比(右轴)"
+              loading={trendsLoading}
+              error={trendsError}
+              onRetry={fetchTrends}
+              height={460}
+              hideTimeRangeSelector={true}
+              dualYAxis={true}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
         {/* Toggle Status Confirmation Dialog */}
         <AlertDialog

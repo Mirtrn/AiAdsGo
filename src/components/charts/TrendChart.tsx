@@ -34,6 +34,7 @@ export interface TrendChartProps {
   metrics: TrendChartMetric[]
   title?: string
   description?: string
+  headerActions?: React.ReactNode
   loading?: boolean
   error?: string | null
   onRetry?: () => void
@@ -55,6 +56,7 @@ export function TrendChart({
   metrics,
   title = '性能趋势',
   description,
+  headerActions,
   loading = false,
   error = null,
   onRetry,
@@ -251,22 +253,27 @@ export function TrendChart({
           </div>
 
           {/* Time range selector */}
-          {!hideTimeRangeSelector && onTimeRangeChange && selectedTimeRange !== undefined && (
+          {(headerActions || (!hideTimeRangeSelector && onTimeRangeChange && selectedTimeRange !== undefined)) && (
             <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground hidden sm:block" />
-              <div className="flex gap-2">
-                {timeRangeOptions.map((days) => (
-                  <Button
-                    key={days}
-                    variant={selectedTimeRange === days ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => onTimeRangeChange(days)}
-                    className="text-xs sm:text-sm px-3"
-                  >
-                    {days}天
-                  </Button>
-                ))}
-              </div>
+              {!hideTimeRangeSelector && onTimeRangeChange && selectedTimeRange !== undefined && (
+                <>
+                  <Calendar className="h-4 w-4 text-muted-foreground hidden sm:block" />
+                  <div className="flex gap-2">
+                    {timeRangeOptions.map((days) => (
+                      <Button
+                        key={days}
+                        variant={selectedTimeRange === days ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => onTimeRangeChange(days)}
+                        className="text-xs sm:text-sm px-3"
+                      >
+                        {days}天
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {headerActions}
             </div>
           )}
         </div>
