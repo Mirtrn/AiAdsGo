@@ -14,9 +14,11 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { TrendChartDynamic } from '@/components/charts/dynamic'
 import { toast } from 'sonner'
 import { Eye } from 'lucide-react'
+import { usePagination } from '@/hooks'
 import { parseAiModelsJson, setAiModelsSelectedModel } from '@/lib/openclaw/ai-models'
 
 type SettingItem = {
@@ -1045,6 +1047,15 @@ export default function OpenClawPage() {
   const [reportDate, setReportDate] = useState<string>(parseLocalDate())
   const [reportStartDate, setReportStartDate] = useState<string>(parseLocalDate())
   const [report, setReport] = useState<DailyReport | null>(null)
+  const {
+    currentPage: reportActionCurrentPage,
+    pageSize: reportActionPageSize,
+    setPage: setReportActionPage,
+    setPageSize: setReportActionPageSize,
+    offset: reportActionOffset,
+    getTotalPages: getReportActionTotalPages,
+    pageSizeOptions: reportActionPageSizeOptions,
+  } = usePagination({ initialPageSize: 10 })
   const [loading, setLoading] = useState(true)
   const [savingUser, setSavingUser] = useState(false)
   const [affiliateSyncTriggering, setAffiliateSyncTriggering] = useState(false)
@@ -1112,6 +1123,10 @@ export default function OpenClawPage() {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [feishuVerifySession])
+
+  useEffect(() => {
+    setReportActionPage(1)
+  }, [report?.date, report?.dateRange?.startDate, setReportActionPage])
 
   const resolveStrategyConfirmToneClasses = useCallback((tone?: StrategyConfirmTone) => {
     if (tone === 'danger') {
@@ -2322,6 +2337,25 @@ export default function OpenClawPage() {
       return (Number(b.cost) || 0) - (Number(a.cost) || 0)
     })
     .slice(0, 5)
+  const reportActions = useMemo(() => {
+    if (!Array.isArray(report?.actions)) return []
+    return report.actions
+  }, [report?.actions])
+  const reportActionTotalPages = getReportActionTotalPages(reportActions.length)
+  const pagedReportActions = useMemo(() => {
+    return reportActions.slice(reportActionOffset, reportActionOffset + reportActionPageSize)
+  }, [reportActions, reportActionOffset, reportActionPageSize])
+
+  useEffect(() => {
+    if (reportActionTotalPages <= 0 && reportActionCurrentPage !== 1) {
+      setReportActionPage(1)
+      return
+    }
+    if (reportActionTotalPages > 0 && reportActionCurrentPage > reportActionTotalPages) {
+      setReportActionPage(reportActionTotalPages)
+    }
+  }, [reportActionCurrentPage, reportActionTotalPages, setReportActionPage])
+
   const strategyDisplayDate = String(strategyRecommendationsReportDate || reportDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyServerDateDisplay = String(strategyServerDate || parseLocalDate()).trim() || parseLocalDate()
   const strategyDateNormalized = Boolean(strategyDisplayDate && reportDate && strategyDisplayDate !== reportDate)
@@ -5110,7 +5144,7 @@ export default function OpenClawPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report?.actions || []).map((action: any) => (
+                  {pagedReportActions.map((action: any) => (
                     <TableRow key={action.id}>
                       <TableCell>{action.created_at}</TableCell>
                       <TableCell>{action.action}</TableCell>
@@ -5122,7 +5156,7 @@ export default function OpenClawPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {(!report?.actions || report.actions.length === 0) && (
+                  {reportActions.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="text-center text-slate-500">
                         暂无操作记录
@@ -5131,6 +5165,19 @@ export default function OpenClawPage() {
                   )}
                 </TableBody>
               </Table>
+              {reportActionTotalPages > 0 && (
+                <div className="mt-4 border-t px-1 pt-4">
+                  <ResponsivePagination
+                    currentPage={reportActionCurrentPage}
+                    totalPages={reportActionTotalPages}
+                    totalItems={reportActions.length}
+                    pageSize={reportActionPageSize}
+                    onPageChange={setReportActionPage}
+                    onPageSizeChange={setReportActionPageSize}
+                    pageSizeOptions={reportActionPageSizeOptions}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 

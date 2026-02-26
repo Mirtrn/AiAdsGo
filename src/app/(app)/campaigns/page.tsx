@@ -147,6 +147,32 @@ type BatchOfflinePendingState = {
   accountIssues: BatchOfflineAccountIssue[]
 }
 
+const getCampaignCommissionValue = (campaign: Campaign): number | null => {
+  const raw = campaign.performance?.commission ?? campaign.performance?.conversions
+  if (raw === null || raw === undefined) return null
+  const normalized = Number(raw)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+const getCampaignCostValue = (campaign: Campaign): number | null => {
+  const raw = campaign.performance?.costUsd
+  if (raw === null || raw === undefined) return null
+  const normalized = Number(raw)
+  return Number.isFinite(normalized) ? normalized : null
+}
+
+const calculateCampaignRoas = (campaign: Campaign): number | null => {
+  const commission = getCampaignCommissionValue(campaign)
+  const cost = getCampaignCostValue(campaign)
+  if (commission === null || cost === null || cost <= 0) return null
+  return Math.round((commission / cost) * 100) / 100
+}
+
+const formatCampaignRoas = (campaign: Campaign): string => {
+  const roas = calculateCampaignRoas(campaign)
+  return roas === null ? '-' : roas.toFixed(2)
+}
+
 export default function CampaignsPage() {
   const router = useRouter()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -166,7 +192,7 @@ export default function CampaignsPage() {
   const [pageSize, setPageSize] = useState(10)
 
   // Sorting states
-  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'status' | 'servingStartDate'
+  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'roas' | 'status' | 'servingStartDate'
   type SortDirection = 'asc' | 'desc' | null
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
@@ -388,6 +414,14 @@ export default function CampaignsPage() {
           if (aDate < bDate) return sortDirection === 'asc' ? -1 : 1
           if (aDate > bDate) return sortDirection === 'asc' ? 1 : -1
           return 0
+        }
+        if (sortField === 'roas') {
+          const aRoas = calculateCampaignRoas(a)
+          const bRoas = calculateCampaignRoas(b)
+          if (aRoas === null && bRoas === null) return 0
+          if (aRoas === null) return 1
+          if (bRoas === null) return -1
+          return sortDirection === 'asc' ? aRoas - bRoas : bRoas - aRoas
         }
 
         let aVal: number | string = 0
@@ -1903,7 +1937,7 @@ export default function CampaignsPage() {
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="min-w-[1080px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
+                <Table className="min-w-[1160px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
@@ -1919,13 +1953,14 @@ export default function CampaignsPage() {
                       </TableHead>
                       <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
                       <TableHead className="w-[160px] whitespace-nowrap">关联Ads账号</TableHead>
-                      <SortableHeader field="budgetAmount" className="w-[98px] whitespace-nowrap">预算</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[86px] whitespace-nowrap">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
                       <SortableHeader field="ctr" className="w-[56px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
                       <SortableHeader field="cpc" className="w-[66px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
                       <SortableHeader field="conversions" className="w-[66px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[66px] whitespace-nowrap !px-0.5">花费</SortableHeader>
+                      <SortableHeader field="roas" className="w-[62px] whitespace-nowrap !px-0.5">ROAS</SortableHeader>
                       <SortableHeader field="status" className="w-[78px] whitespace-nowrap">投放状态</SortableHeader>
                       <SortableHeader field="servingStartDate" className="w-[74px] whitespace-nowrap">投放日期</SortableHeader>
                       <TableHead className="w-[48px] whitespace-nowrap text-center">操作</TableHead>
@@ -2013,6 +2048,7 @@ export default function CampaignsPage() {
 		                    const canDeleteDraftAction = canDeleteDraft && !deleteDraftSubmitting
 		                    const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
 		                    const canDeleteRemovedAction = isRemovedStatus && !deleteRemovedSubmitting
+                        const campaignRoas = formatCampaignRoas(campaign)
 
 
 		                    return (
@@ -2068,11 +2104,11 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        <div className="flex items-center gap-0.5 min-w-0">
-                          <div className="font-medium text-gray-900">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 truncate" title={formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}>
                             {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
                           </div>
-                          <Badge variant="outline" className="text-[10px] px-1 py-0 whitespace-nowrap border-gray-200 text-gray-600">
+                          <Badge variant="outline" className="mt-0.5 text-[10px] px-1 py-0 whitespace-nowrap border-gray-200 text-gray-600">
                             {campaign.budgetType}
                           </Badge>
                         </div>
@@ -2105,6 +2141,11 @@ export default function CampaignsPage() {
                       <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.costUsd) || 0, campaignCurrency)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap !px-0.5">
+                        <div className="font-medium text-gray-900">
+                          {campaignRoas}
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
