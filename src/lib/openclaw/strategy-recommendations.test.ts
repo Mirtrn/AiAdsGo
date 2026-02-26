@@ -462,6 +462,23 @@ describe('openclaw strategy recommendations rules', () => {
     expect(budgetRec?.data.budgetAdjustmentDirection).toBe('increase')
   })
 
+  it('normalizes strategy budget execution payload to campaigns daily-budget interface', () => {
+    expect(__testUtils.buildDailyBudgetUpdatePayload(16.236)).toEqual({
+      budgetAmount: 16.24,
+      budgetType: 'DAILY',
+    })
+    expect(__testUtils.buildDailyBudgetUpdatePayload('19.9')).toEqual({
+      budgetAmount: 19.9,
+      budgetType: 'DAILY',
+    })
+  })
+
+  it('rejects invalid budget values when building strategy budget execution payload', () => {
+    expect(() => __testUtils.buildDailyBudgetUpdatePayload(0)).toThrow('建议预算无效，无法执行')
+    expect(() => __testUtils.buildDailyBudgetUpdatePayload(-1)).toThrow('建议预算无效，无法执行')
+    expect(() => __testUtils.buildDailyBudgetUpdatePayload('NaN')).toThrow('建议预算无效，无法执行')
+  })
+
   it('does not generate CPC recommendation when google campaign id is missing', () => {
     const drafts = __testUtils.buildRecommendationDrafts({
       campaigns: [makeCampaign({

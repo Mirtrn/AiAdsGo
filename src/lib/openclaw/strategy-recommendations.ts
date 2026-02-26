@@ -582,6 +582,21 @@ function normalizeBudgetType(value: unknown): 'DAILY' | 'TOTAL' {
   return text === 'TOTAL' ? 'TOTAL' : 'DAILY'
 }
 
+function buildDailyBudgetUpdatePayload(recommendedBudget: unknown): {
+  budgetAmount: number
+  budgetType: 'DAILY'
+} {
+  const budgetAmount = roundTo2(toNumber(recommendedBudget, 0))
+  if (!(budgetAmount > 0)) {
+    throw new Error('建议预算无效，无法执行')
+  }
+  // Align with campaigns page "调整每日预算" dialog payload contract.
+  return {
+    budgetAmount,
+    budgetType: 'DAILY',
+  }
+}
+
 function normalizeKeywordMatchType(value: unknown): 'BROAD' | 'PHRASE' | 'EXACT' | null {
   const text = String(value || '').trim().toUpperCase()
   if (text === 'BROAD' || text === 'PHRASE' || text === 'EXACT') {
@@ -3838,23 +3853,16 @@ async function executeRecommendationAction(params: {
       data.googleCampaignId,
       recommendation.googleCampaignId
     )
-    const budgetAmount = toNumber(data.recommendedBudget, 0)
     if (!googleCampaignId) {
       throw new Error('缺少Google Campaign ID，无法执行预算调整')
     }
-    if (!(budgetAmount > 0)) {
-      throw new Error('建议预算无效，无法执行')
-    }
-    const budgetType = normalizeBudgetType(data.budgetType)
+    const payload = buildDailyBudgetUpdatePayload(data.recommendedBudget)
 
     const response = await fetchAutoadsJson({
       userId: params.userId,
       path: `/api/campaigns/${googleCampaignId}/update-budget`,
       method: 'PUT',
-      body: {
-        budgetAmount,
-        budgetType,
-      },
+      body: payload,
     })
     return {
       route: `/api/campaigns/${googleCampaignId}/update-budget`,
@@ -4139,6 +4147,7 @@ export async function executeStrategyRecommendation(params: {
 export const __testUtils = {
   buildRecommendationDrafts,
   buildDeterministicRecommendationExecuteTaskId,
+  buildDailyBudgetUpdatePayload,
   assertRecommendationActionResult,
   isAlreadyOfflineCampaignError,
   patchExpandKeywordsSummaryCoverage,

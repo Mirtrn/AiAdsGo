@@ -1631,8 +1631,8 @@ export default function StrategyCenterPage() {
                     <TableHead className="min-w-[260px] text-xs font-semibold text-slate-600">Campaign</TableHead>
                     <TableHead className="min-w-[240px] text-xs font-semibold text-slate-600">成本/盈亏平衡</TableHead>
                     <TableHead className="min-w-[220px] text-xs font-semibold text-slate-600">优先级分</TableHead>
-                    <TableHead className="min-w-[140px] text-xs font-semibold text-slate-600">状态</TableHead>
-                    <TableHead className="min-w-[340px] text-right text-xs font-semibold text-slate-600">操作</TableHead>
+                    <TableHead className="min-w-[96px] text-xs font-semibold text-slate-600">状态</TableHead>
+                    <TableHead className="min-w-[340px] text-left text-xs font-semibold text-slate-600">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1804,7 +1804,7 @@ export default function StrategyCenterPage() {
                             <div className="text-xs text-slate-500">{impactEstimationSourceText}</div>
                           )}
                         </TableCell>
-                        <TableCell className="w-[140px] max-w-[140px] space-y-1 pt-3">
+                        <TableCell className="w-[96px] max-w-[96px] space-y-1 pt-3">
                           <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
                           {item.status === 'stale' && (
                             <div className="text-xs text-amber-600">建议内容已变化，请重新分析后再执行</div>
