@@ -485,6 +485,7 @@ function resolvePostReviewStatusText(status?: string | null): string {
 export default function StrategyCenterPage() {
   const router = useRouter()
 
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(true)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsValues, setSettingsValues] = useState<Record<StrategySettingKey, string>>({ ...STRATEGY_SETTING_DEFAULTS })
@@ -914,6 +915,10 @@ export default function StrategyCenterPage() {
     const preset = STRATEGY_CRON_OPTIONS.find((option) => option.id === presetId)
     if (!preset || preset.id === 'custom') return
     setSettingsValues((prev) => ({ ...prev, openclaw_strategy_cron: preset.cron }))
+  }
+
+  const handleToggleSettingsPanel = () => {
+    setSettingsPanelOpen((prev) => !prev)
   }
 
   const requestRecommendationAction = useCallback(async (
@@ -1348,77 +1353,82 @@ export default function StrategyCenterPage() {
                   {settingsSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   保存配置
                 </Button>
+                <Button variant="outline" size="sm" onClick={handleToggleSettingsPanel}>
+                  {settingsPanelOpen ? '收起' : '展开'}
+                </Button>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            {settingsLoading ? (
-              <div className="flex h-24 items-center justify-center rounded-md border text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                配置加载中...
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {STRATEGY_SETTING_KEYS.map((key) => {
-                  const value = settingsValues[key] ?? ''
-                  if (key === 'openclaw_strategy_enabled') {
+          {settingsPanelOpen && (
+            <CardContent>
+              {settingsLoading ? (
+                <div className="flex h-24 items-center justify-center rounded-md border text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  配置加载中...
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {STRATEGY_SETTING_KEYS.map((key) => {
+                    const value = settingsValues[key] ?? ''
+                    if (key === 'openclaw_strategy_enabled') {
+                      return (
+                        <div key={key} className="space-y-1.5 rounded-md border p-3">
+                          <div className="text-sm font-medium">{SETTING_LABELS[key]}</div>
+                          <Select
+                            value={value || 'false'}
+                            onValueChange={(nextValue) => setSettingsValues((prev) => ({ ...prev, [key]: nextValue }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">true</SelectItem>
+                              <SelectItem value="false">false</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )
+                    }
+
+                    if (key === 'openclaw_strategy_cron') {
+                      return (
+                        <div key={key} className="space-y-1.5 rounded-md border p-3">
+                          <div className="text-sm font-medium">{SETTING_LABELS[key]}</div>
+                          <Select value={strategyCronPreset} onValueChange={handleStrategyCronPresetChange}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择分析频率" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STRATEGY_CRON_OPTIONS.map((option) => (
+                                <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {strategyCronPreset === 'custom' ? (
+                            <div className="text-xs text-muted-foreground">
+                              当前保留历史值：<code>{value || '--'}</code>
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    }
+
                     return (
                       <div key={key} className="space-y-1.5 rounded-md border p-3">
                         <div className="text-sm font-medium">{SETTING_LABELS[key]}</div>
-                        <Select
-                          value={value || 'false'}
-                          onValueChange={(nextValue) => setSettingsValues((prev) => ({ ...prev, [key]: nextValue }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true">true</SelectItem>
-                            <SelectItem value="false">false</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Input
+                          type={key === 'feishu_app_secret' ? 'password' : 'text'}
+                          value={value}
+                          onChange={(event) => setSettingsValues((prev) => ({ ...prev, [key]: event.target.value }))}
+                          autoComplete="off"
+                        />
                       </div>
                     )
-                  }
-
-                  if (key === 'openclaw_strategy_cron') {
-                    return (
-                      <div key={key} className="space-y-1.5 rounded-md border p-3">
-                        <div className="text-sm font-medium">{SETTING_LABELS[key]}</div>
-                        <Select value={strategyCronPreset} onValueChange={handleStrategyCronPresetChange}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择分析频率" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STRATEGY_CRON_OPTIONS.map((option) => (
-                              <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {strategyCronPreset === 'custom' ? (
-                          <div className="text-xs text-muted-foreground">
-                            当前保留历史值：<code>{value || '--'}</code>
-                          </div>
-                        ) : null}
-                      </div>
-                    )
-                  }
-
-                  return (
-                    <div key={key} className="space-y-1.5 rounded-md border p-3">
-                      <div className="text-sm font-medium">{SETTING_LABELS[key]}</div>
-                      <Input
-                        type={key === 'feishu_app_secret' ? 'password' : 'text'}
-                        value={value}
-                        onChange={(event) => setSettingsValues((prev) => ({ ...prev, [key]: event.target.value }))}
-                        autoComplete="off"
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
+                  })}
+                </div>
+              )}
+            </CardContent>
+          )}
         </Card>
 
         <Card className="overflow-hidden border-slate-200">
