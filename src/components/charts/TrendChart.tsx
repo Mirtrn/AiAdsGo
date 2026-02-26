@@ -13,7 +13,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, BarChart, Bar } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, BarChart, Bar, ComposedChart } from 'recharts'
 import { TrendingUp, Calendar } from 'lucide-react'
 
 export interface TrendChartData {
@@ -27,6 +27,7 @@ export interface TrendChartMetric {
   color: string
   formatter?: (value: number) => string
   yAxisId?: 'left' | 'right' // 指定使用左侧还是右侧Y轴
+  chartType?: 'line' | 'bar' // mixed 模式下指定该指标渲染类型
 }
 
 export interface TrendChartProps {
@@ -38,7 +39,7 @@ export interface TrendChartProps {
   loading?: boolean
   error?: string | null
   onRetry?: () => void
-  chartType?: 'line' | 'bar'
+  chartType?: 'line' | 'bar' | 'mixed'
   timeRangeOptions?: number[]
   selectedTimeRange?: number
   onTimeRangeChange?: (days: number) => void
@@ -232,8 +233,10 @@ export function TrendChart({
   }
 
   const isBar = chartType === 'bar'
-  const barSize = !isBar ? undefined : data.length > 60 ? 4 : data.length > 30 ? 6 : data.length > 14 ? 10 : 14
-  const enableHorizontalScroll = isBar && data.length > 20
+  const isMixed = chartType === 'mixed'
+  const hasBarMetrics = isBar || (isMixed && metrics.some((metric) => metric.chartType !== 'line'))
+  const barSize = !hasBarMetrics ? undefined : data.length > 60 ? 4 : data.length > 30 ? 6 : data.length > 14 ? 10 : 14
+  const enableHorizontalScroll = hasBarMetrics && data.length > 20
   const minChartWidth = enableHorizontalScroll
     ? Math.max(640, data.length * (12 + (barSize ?? 10) * metrics.length))
     : undefined
@@ -411,7 +414,7 @@ export function TrendChart({
                   />
                 ))}
               </LineChart>
-            ) : (
+            ) : chartType === 'bar' ? (
               <BarChart
                 data={data}
                 margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}
@@ -520,6 +523,135 @@ export function TrendChart({
                   />
                 ))}
               </BarChart>
+            ) : (
+              <ComposedChart
+                data={data}
+                margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}
+                barGap={2}
+                barCategoryGap={enableHorizontalScroll ? 8 : '20%'}
+              >
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(value) => {
+                    // 解析日期，处理 "YYYY-MM-DD" 格式
+                    let date: Date
+                    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                      // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                      const [year, month, day] = value.split('-').map(Number)
+                      date = new Date(year, month - 1, day)
+                    } else {
+                      date = new Date(value)
+                    }
+                    return `${date.getMonth() + 1}/${date.getDate()}`
+                  }}
+                />
+                {/* 左侧Y轴 */}
+                <YAxis
+                  yAxisId="left"
+                  domain={leftDomain}
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) {
+                      return `${(value / 1000000).toFixed(1)}M`
+                    }
+                    if (value >= 1000) {
+                      return `${(value / 1000).toFixed(1)}K`
+                    }
+                    return value.toString()
+                  }}
+                />
+                {/* 右侧Y轴（仅在dualYAxis启用时显示） */}
+                {dualYAxis && (
+                  <YAxis
+                    yAxisId="right"
+                    domain={rightDomain}
+                    orientation="right"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) {
+                        return `${(value / 1000000).toFixed(1)}M`
+                      }
+                      if (value >= 1000) {
+                        return `${(value / 1000).toFixed(1)}K`
+                      }
+                      return value.toString()
+                    }}
+                  />
+                )}
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      labelFormatter={(value) => {
+                        // 解析日期，处理 "YYYY-MM-DD" 格式
+                        let date: Date
+                        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                          // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                          const [year, month, day] = value.split('-').map(Number)
+                          date = new Date(year, month - 1, day)
+                        } else {
+                          date = new Date(value)
+                        }
+                        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+                      }}
+                      formatter={(value, name, item, index, payload) => {
+                        const metric = metrics.find(m => m.key === name)
+                        const label = metric?.label || name
+                        const formattedValue = metric?.formatter
+                          ? metric.formatter(value as number)
+                          : (value as number).toLocaleString()
+                        return (
+                          <div className="flex flex-1 justify-between items-center leading-none gap-4">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">
+                              {formattedValue}
+                            </span>
+                          </div>
+                        )
+                      }}
+                    />
+                  }
+                />
+                {showLegend && <Legend />}
+                {metrics.map((metric) => {
+                  const metricChartType = metric.chartType || 'bar'
+
+                  if (metricChartType === 'line') {
+                    return (
+                      <Line
+                        key={metric.key}
+                        type="monotone"
+                        dataKey={metric.key}
+                        stroke={metric.color}
+                        strokeWidth={2}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                        name={metric.label}
+                        yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
+                      />
+                    )
+                  }
+
+                  return (
+                    <Bar
+                      key={metric.key}
+                      dataKey={metric.key}
+                      fill={metric.color}
+                      name={metric.label}
+                      yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
+                      radius={[4, 4, 0, 0]}
+                      barSize={barSize}
+                    />
+                  )
+                })}
+              </ComposedChart>
             )}
             </ChartContainer>
           </div>

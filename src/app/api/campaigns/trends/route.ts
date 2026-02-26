@@ -202,6 +202,7 @@ export async function GET(request: NextRequest) {
 
       const commissionPerClick = clicks > 0 ? commission / clicks : 0
       const costPerCommission = commission > 0 ? cost / commission : 0
+      const roas = cost > 0 ? commission / cost : 0
 
       return {
         date,
@@ -214,6 +215,7 @@ export async function GET(request: NextRequest) {
         conversionRate: roundTo2(commissionPerClick),
         commissionPerClick: roundTo2(commissionPerClick),
         avgCpc: clicks > 0 ? roundTo2(cost / clicks) : 0,
+        roas: roundTo2(roas),
         avgCpa: roundTo2(costPerCommission),
         costPerCommission: roundTo2(costPerCommission),
       }

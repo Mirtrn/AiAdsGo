@@ -73,8 +73,10 @@ describe('GET /api/campaigns/trends', () => {
 
     expect(day24?.commission).toBe(5)
     expect(day24?.conversions).toBe(5)
+    expect(day24?.roas).toBe(0.5)
     expect(day25?.commission).toBe(5)
     expect(day25?.conversions).toBe(5)
+    expect(day25?.roas).toBe(0)
   })
 
   it('falls back when unattributed table is unavailable', async () => {
@@ -103,6 +105,7 @@ describe('GET /api/campaigns/trends', () => {
     expect(res.status).toBe(200)
     expect(data.success).toBe(true)
     expect(data.trends.find((row: any) => row.date === '2026-02-24')?.commission).toBe(3)
+    expect(data.trends.find((row: any) => row.date === '2026-02-24')?.roas).toBe(0.6)
   })
 
   it('applies currency filter and excludes campaign_mapping_miss failures from unattributed totals', async () => {

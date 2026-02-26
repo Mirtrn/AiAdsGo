@@ -282,9 +282,10 @@ export default function CampaignsPage() {
     { key: 'commission', label: '佣金', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
   ]
   const costTrendMetrics: TrendChartMetric[] = [
-    { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left' },
-    { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right' },
-    { key: 'costPerCommission', label: '费佣比', color: 'hsl(0, 84%, 60%)', formatter: (v) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right' },
+    { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left', chartType: 'bar' },
+    { key: 'commission', label: '佣金', color: 'hsl(280, 87%, 65%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'left', chartType: 'bar' },
+    { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => formatTrendsMoney(v), yAxisId: 'right', chartType: 'line' },
+    { key: 'roas', label: 'ROAS', color: 'hsl(221, 83%, 53%)', formatter: (v) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right', chartType: 'line' },
   ]
   const formatSummaryRoas = (value: PerformanceSummary | null): string => {
     if (!value) return '--'
@@ -1762,18 +1763,19 @@ export default function CampaignsPage() {
               />
             </div>
 
-            {/* 成本趋势 - 2/5 (使用双Y轴：花费在左轴，CPC/CPA在右轴) */}
+            {/* 成本趋势 - 2/5 (柱状+折线：花费/佣金在左轴，CPC/ROAS在右轴) */}
             <div className="lg:col-span-2">
               <TrendChart
                 data={trendsData}
                 metrics={costTrendMetrics}
                 title="成本趋势"
-                description="花费(左轴) / CPC·费佣比(右轴)"
+                description="花费·佣金(左轴) / CPC·ROAS(右轴)"
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={fetchTrends}
                 height={220}
                 hideTimeRangeSelector={true}
+                chartType="mixed"
                 dualYAxis={true}
                 headerActions={
                   <Button
@@ -1814,10 +1816,10 @@ export default function CampaignsPage() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-500">平均费佣比</span>
+                      <span className="text-xs text-gray-500">平均ROAS</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? `${(trendsData.reduce((sum, d) => sum + ((d.costPerCommission as number) || 0), 0) / trendsData.length).toFixed(2)}x`
+                          ? `${(trendsData.reduce((sum, d) => sum + ((d.roas as number) || 0), 0) / trendsData.length).toFixed(2)}x`
                           : '0.00x'}
                       </span>
                     </div>
@@ -2381,12 +2383,13 @@ export default function CampaignsPage() {
               data={trendsData}
               metrics={costTrendMetrics}
               title="成本趋势"
-              description="花费(左轴) / CPC·费佣比(右轴)"
+              description="花费·佣金(左轴) / CPC·ROAS(右轴)"
               loading={trendsLoading}
               error={trendsError}
               onRetry={fetchTrends}
               height={460}
               hideTimeRangeSelector={true}
+              chartType="mixed"
               dualYAxis={true}
             />
           )}
