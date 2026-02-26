@@ -119,6 +119,13 @@ describe('isYeahPromosTransientError', () => {
     expect(__testOnly.isYeahPromosTransientError(error)).toBe(true)
   })
 
+  it('detects enriched non-json parse failures with response snippet', () => {
+    const error = new SyntaxError(
+      `YeahPromos 商品拉取失败 (200): Unexpected token 'R', \"Request to\"... is not valid JSON; response=Request too frequent`
+    )
+    expect(__testOnly.isYeahPromosTransientError(error)).toBe(true)
+  })
+
   it('returns false for normal business errors', () => {
     const error = new Error('YeahPromos 商品拉取失败: 100001')
     expect(__testOnly.isYeahPromosTransientError(error)).toBe(false)

@@ -1757,11 +1757,25 @@ function ensurePlatformConfigured(check: PlatformConfigCheck, platform: Affiliat
 
 async function fetchJsonOrThrow<T>(url: string, init: RequestInit, errorPrefix: string): Promise<T> {
   const response = await fetch(url, init)
+  const text = await response.text().catch(() => '')
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 220)
+
   if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`${errorPrefix} (${response.status}): ${text || '请求失败'}`)
+    throw new Error(`${errorPrefix} (${response.status}): ${snippet || '请求失败'}`)
   }
-  return await response.json() as T
+
+  const body = text.trim()
+  if (!body) {
+    throw new Error(`${errorPrefix} (${response.status}): Empty response body`)
+  }
+
+  try {
+    return JSON.parse(body) as T
+  } catch (error: any) {
+    const parseMessage = String(error?.message || 'Failed to parse JSON response')
+    const responseHint = snippet ? `; response=${snippet}` : ''
+    throw new SyntaxError(`${errorPrefix} (${response.status}): ${parseMessage}${responseHint}`)
+  }
 }
 
 type PartnerboostRequestRateLimitOptions = {
