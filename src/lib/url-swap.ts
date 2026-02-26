@@ -592,6 +592,7 @@ export async function getUrlSwapTasks(
   userId: number,
   options: {
     status?: UrlSwapTaskStatus
+    include_deleted?: boolean
     page?: number
     limit?: number
   } = {}
@@ -602,8 +603,12 @@ export async function getUrlSwapTasks(
   const offset = (page - 1) * limit
 
   const isDeletedCondition = db.type === 'postgres' ? 'ust.is_deleted = FALSE' : 'ust.is_deleted = 0'
-  let whereClause = `ust.user_id = ? AND ${isDeletedCondition}`
+  let whereClause = 'ust.user_id = ?'
   const params: any[] = [userId]
+
+  if (!options.include_deleted) {
+    whereClause += ` AND ${isDeletedCondition}`
+  }
 
   if (options.status) {
     whereClause += ' AND ust.status = ?'

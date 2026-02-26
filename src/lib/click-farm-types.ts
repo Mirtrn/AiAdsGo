@@ -251,6 +251,7 @@ export interface UpdateClickFarmTaskRequest {
 export interface TaskFilters {
   status?: ClickFarmTaskStatus;
   offer_id?: number;
+  include_deleted?: boolean;
   page?: number;
   limit?: number;
 }

@@ -334,23 +334,31 @@ export async function getClickFarmTasks(
 ): Promise<{ tasks: ClickFarmTaskListItem[]; total: number }> {
   const db = await getDatabase();
 
-  let query = `
-    SELECT cft.*, o.target_country, o.offer_name
-    FROM click_farm_tasks cft
-    LEFT JOIN offers o ON cft.offer_id = o.id
-    WHERE cft.user_id = ? AND cft.IS_DELETED_FALSE
-  `;
+  const whereConditions: string[] = ['cft.user_id = ?'];
   const params: any[] = [userId];
 
+  if (!filters.include_deleted) {
+    whereConditions.push('cft.IS_DELETED_FALSE');
+  }
+
   if (filters.status) {
-    query += ' AND cft.status = ?';
+    whereConditions.push('cft.status = ?');
     params.push(filters.status);
   }
 
   if (filters.offer_id) {
-    query += ' AND cft.offer_id = ?';
+    whereConditions.push('cft.offer_id = ?');
     params.push(filters.offer_id);
   }
+
+  const whereClause = whereConditions.join(' AND ');
+
+  let query = `
+    SELECT cft.*, o.target_country, o.offer_name
+    FROM click_farm_tasks cft
+    LEFT JOIN offers o ON cft.offer_id = o.id
+    WHERE ${whereClause}
+  `;
 
   // 分页
   const page = filters.page || 1;
@@ -360,10 +368,9 @@ export async function getClickFarmTasks(
   // 获取总数（注意：count查询需要完整的params，包含userId）
   const countParams = [...params]; // 复制完整的params
   const countResult = await db.queryOne<{ count: number }>(`
-    SELECT COUNT(*) as count FROM click_farm_tasks
-    WHERE user_id = ? AND IS_DELETED_FALSE
-    ${filters.status ? 'AND status = ?' : ''}
-    ${filters.offer_id ? 'AND offer_id = ?' : ''}
+    SELECT COUNT(*) as count
+    FROM click_farm_tasks cft
+    WHERE ${whereClause}
   `, countParams);
 
   const total = countResult?.count || 0;

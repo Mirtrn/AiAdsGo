@@ -8,6 +8,11 @@ import { validateUrlSwapTask } from '@/lib/url-swap-validator';
 import type { CreateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { normalizeAffiliateLinksInput, findInvalidAffiliateLinks } from '@/lib/url-swap-link-utils';
 
+function parseBooleanQuery(value: string | null): boolean {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
 /**
  * GET - 获取换链接任务列表
  */
@@ -26,11 +31,13 @@ export async function GET(request: NextRequest) {
 
     // 解析查询参数
     const status = searchParams.get('status') as any;
+    const includeDeleted = parseBooleanQuery(searchParams.get('include_deleted') ?? searchParams.get('includeDeleted'));
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
 
     const result = await getUrlSwapTasks(userIdNum, {
       status: status || undefined,
+      include_deleted: includeDeleted,
       page,
       limit
     });

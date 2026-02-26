@@ -14,6 +14,11 @@ import { getQueueRoutingDiagnostics } from '@/lib/queue/queue-routing';
 import { isBackgroundWorkerAlive, getBackgroundWorkerHeartbeatKey } from '@/lib/queue/background-worker-heartbeat';
 import { normalizeClickFarmTaskRequestBody } from '@/lib/autoads-request-normalizers';
 
+function parseBooleanQuery(value: string | null): boolean {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
 /**
  * POST - 创建补点击任务
  */
@@ -340,6 +345,7 @@ export async function GET(request: NextRequest) {
     const filters: TaskFilters = {
       status: searchParams.get('status') as any,
       offer_id: searchParams.get('offer_id') ? parseInt(searchParams.get('offer_id')!) : undefined,
+      include_deleted: parseBooleanQuery(searchParams.get('include_deleted') ?? searchParams.get('includeDeleted')),
       page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20
     };

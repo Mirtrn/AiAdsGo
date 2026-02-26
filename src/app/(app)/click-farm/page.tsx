@@ -73,6 +73,7 @@ export default function ClickFarmPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showDeletedTasks, setShowDeletedTasks] = useState(true);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,7 +92,15 @@ export default function ClickFarmPage() {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks]);
+
+  useEffect(() => {
+    setSelectedTaskIds((prev) => {
+      const allowedIds = new Set(tasks.filter((task) => !task.is_deleted).map((task) => task.id));
+      const nextSelected = new Set(Array.from(prev).filter((id) => allowedIds.has(id)));
+      return nextSelected.size === prev.size ? prev : nextSelected;
+    });
+  }, [tasks]);
 
   const fetchAllTasks = async (): Promise<ClickFarmTaskListItem[]> => {
     const pageSize = 200;
@@ -99,7 +108,7 @@ export default function ClickFarmPage() {
     const allTasks: ClickFarmTaskListItem[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
-      const response = await fetch(`/api/click-farm/tasks?page=${page}&limit=${pageSize}`);
+      const response = await fetch(`/api/click-farm/tasks?page=${page}&limit=${pageSize}&include_deleted=1`);
       if (!response.ok) {
         throw new Error(`获取补点击任务失败: page=${page}`);
       }
@@ -140,6 +149,10 @@ export default function ClickFarmPage() {
 
   const filterTasks = () => {
     let result = [...tasks];
+
+    if (!showDeletedTasks) {
+      result = result.filter((task) => !task.is_deleted);
+    }
 
     // Search filter
     if (searchQuery) {
@@ -240,7 +253,7 @@ export default function ClickFarmPage() {
 
     setFilteredTasks(result);
 
-    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection });
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks });
     const filtersChanged = filterKeyRef.current !== filterKey;
     filterKeyRef.current = filterKey;
 
@@ -387,7 +400,7 @@ export default function ClickFarmPage() {
   // 🆕 全选/取消全选
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allIds = new Set(paginatedTasks.map(t => t.id));
+      const allIds = new Set(paginatedTasks.filter((task) => !task.is_deleted).map((t) => t.id));
       setSelectedTaskIds(allIds);
     } else {
       setSelectedTaskIds(new Set());
@@ -518,6 +531,8 @@ export default function ClickFarmPage() {
   };
 
   const paginatedTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const selectablePaginatedTasks = paginatedTasks.filter((task) => !task.is_deleted);
+  const selectedSelectableCount = selectablePaginatedTasks.filter((task) => selectedTaskIds.has(task.id)).length;
 
   if (loading) {
     return (
@@ -731,6 +746,19 @@ export default function ClickFarmPage() {
                 <option value="paused">已暂停</option>
                 <option value="completed">已完成</option>
               </select>
+              <div className="md:col-span-3 flex items-center">
+                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
+                  <Checkbox
+                    id="show-deleted-click-farm-tasks"
+                    checked={showDeletedTasks}
+                    onCheckedChange={(checked) => setShowDeletedTasks(Boolean(checked))}
+                    aria-label="显示历史补点击任务（含已删除）"
+                  />
+                  <label htmlFor="show-deleted-click-farm-tasks" className="text-sm text-gray-700">
+                    显示历史（含已删除）
+                  </label>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -762,8 +790,9 @@ export default function ClickFarmPage() {
                     {/* 🆕 全选复选框 */}
                     <TableHead className="w-[50px]">
                       <Checkbox
-                        checked={paginatedTasks.length > 0 && selectedTaskIds.size === paginatedTasks.length}
+                        checked={selectablePaginatedTasks.length > 0 && selectedSelectableCount === selectablePaginatedTasks.length}
                         onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                        disabled={selectablePaginatedTasks.length === 0}
                         aria-label="全选"
                       />
                     </TableHead>
@@ -786,6 +815,7 @@ export default function ClickFarmPage() {
                         <Checkbox
                           checked={selectedTaskIds.has(task.id)}
                           onCheckedChange={(checked) => handleSelectTask(task.id, checked as boolean)}
+                          disabled={task.is_deleted}
                           aria-label={`选择任务 ${task.id.slice(0, 8)}`}
                         />
                       </TableCell>
@@ -806,7 +836,14 @@ export default function ClickFarmPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(task.status)}
+                        <div className="flex flex-col gap-1">
+                          {getStatusBadge(task.status)}
+                          {task.is_deleted && (
+                            <Badge variant="outline" className="border-gray-300 text-gray-500">
+                              已删除
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -856,80 +893,84 @@ export default function ClickFarmPage() {
                         {formatDate(task.scheduled_start_date)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => router.push(`/click-farm/tasks/${task.id}`)}
-                            className="text-blue-600 hover:text-blue-800"
-                            title="查看详情"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {(task.status === 'pending' || task.status === 'running') && (
+                        {task.is_deleted ? (
+                          <span className="text-xs text-gray-400">已删除</span>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => router.push(`/click-farm/tasks/${task.id}`)}
+                              className="text-blue-600 hover:text-blue-800"
+                              title="查看详情"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            {(task.status === 'pending' || task.status === 'running') && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditTaskId(task.id);
+                                  setModalOpen(true);
+                                }}
+                                className="text-gray-600"
+                                title="编辑任务"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {task.status === 'pending' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleTriggerTask(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                title="立即触发"
+                              >
+                                <Zap className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {task.status === 'running' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleStopTask(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-yellow-600"
+                                title="暂停任务"
+                              >
+                                <Pause className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {(task.status === 'stopped' || task.status === 'paused') && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleRestartTask(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-green-600"
+                                title="重启任务"
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => {
-                                setEditTaskId(task.id);
-                                setModalOpen(true);
+                                setDeleteTaskId(task.id);
+                                setDeleteDialogOpen(true);
                               }}
-                              className="text-gray-600"
-                              title="编辑任务"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {task.status === 'pending' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleTriggerTask(task.id)}
                               disabled={actionLoading === task.id}
-                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                              title="立即触发"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="删除任务"
                             >
-                              <Zap className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
-                          )}
-                          {task.status === 'running' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleStopTask(task.id)}
-                              disabled={actionLoading === task.id}
-                              className="text-yellow-600"
-                              title="暂停任务"
-                            >
-                              <Pause className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {(task.status === 'stopped' || task.status === 'paused') && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleRestartTask(task.id)}
-                              disabled={actionLoading === task.id}
-                              className="text-green-600"
-                              title="重启任务"
-                            >
-                              <Play className="w-4 h-4" />
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setDeleteTaskId(task.id);
-                              setDeleteDialogOpen(true);
-                            }}
-                            disabled={actionLoading === task.id}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="删除任务"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

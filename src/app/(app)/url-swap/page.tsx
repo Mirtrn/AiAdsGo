@@ -69,6 +69,7 @@ export default function UrlSwapPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showDeletedTasks, setShowDeletedTasks] = useState(true);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -87,7 +88,7 @@ export default function UrlSwapPage() {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks]);
 
   const fetchAllTasks = async (): Promise<UrlSwapTaskListItem[]> => {
     const pageSize = 200;
@@ -95,7 +96,7 @@ export default function UrlSwapPage() {
     const allTasks: UrlSwapTaskListItem[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
-      const response = await fetch(`/api/url-swap/tasks?page=${page}&limit=${pageSize}`);
+      const response = await fetch(`/api/url-swap/tasks?page=${page}&limit=${pageSize}&include_deleted=1`);
       if (!response.ok) {
         throw new Error(`获取换链任务失败: page=${page}`);
       }
@@ -137,6 +138,10 @@ export default function UrlSwapPage() {
 
   const filterTasks = () => {
     let result = [...tasks];
+
+    if (!showDeletedTasks) {
+      result = result.filter((task) => !task.is_deleted);
+    }
 
     // Search filter
     if (searchQuery) {
@@ -221,7 +226,7 @@ export default function UrlSwapPage() {
 
     setFilteredTasks(result);
 
-    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection });
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks });
     const filtersChanged = filterKeyRef.current !== filterKey;
     filterKeyRef.current = filterKey;
 
@@ -534,6 +539,19 @@ export default function UrlSwapPage() {
                 <option value="error">异常</option>
                 <option value="completed">已完成</option>
               </select>
+              <div className="md:col-span-3 flex items-center">
+                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
+                  <Checkbox
+                    id="show-deleted-url-swap-tasks"
+                    checked={showDeletedTasks}
+                    onCheckedChange={(checked) => setShowDeletedTasks(Boolean(checked))}
+                    aria-label="显示历史换链接任务（含已删除）"
+                  />
+                  <label htmlFor="show-deleted-url-swap-tasks" className="text-sm text-gray-700">
+                    显示历史（含已删除）
+                  </label>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -600,6 +618,11 @@ export default function UrlSwapPage() {
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           {getStatusBadge(task.status)}
+                          {task.is_deleted && (
+                            <Badge variant="outline" className="border-gray-300 text-gray-500">
+                              已删除
+                            </Badge>
+                          )}
                           {task.status === 'error' && task.error_message && (
                             <span className="text-xs text-red-600" title={task.error_message}>
                               {task.error_message.slice(0, 20)}...
@@ -626,90 +649,94 @@ export default function UrlSwapPage() {
                         {formatDate(task.created_at)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => router.push(`/url-swap/${task.id}`)}
-                            className="text-blue-600 hover:text-blue-800"
-                            title="查看详情"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setHistoryTaskId(task.id);
-                              setHistoryOpen(true);
-                            }}
-                            className="text-gray-600"
-                            title="查看历史"
-                          >
-                            <Calendar className="w-4 h-4" />
-                          </Button>
-                          {task.status === 'enabled' && (
+                        {task.is_deleted ? (
+                          <span className="text-xs text-gray-400">已删除</span>
+                        ) : (
+                          <div className="flex items-center gap-1">
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleSwapNow(task.id)}
-                              disabled={actionLoading === task.id}
-                              className="text-purple-600 hover:text-purple-700"
-                              title="立即执行"
+                              onClick={() => router.push(`/url-swap/${task.id}`)}
+                              className="text-blue-600 hover:text-blue-800"
+                              title="查看详情"
                             >
-                              <Play className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </Button>
-                          )}
-                          {task.status === 'disabled' && (
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleEnableTask(task.id)}
-                              disabled={actionLoading === task.id}
-                              className="text-green-600"
-                              title="恢复任务"
+                              onClick={() => {
+                                setHistoryTaskId(task.id);
+                                setHistoryOpen(true);
+                              }}
+                              className="text-gray-600"
+                              title="查看历史"
                             >
-                              <Play className="w-4 h-4" />
+                              <Calendar className="w-4 h-4" />
                             </Button>
-                          )}
-                          {task.status === 'enabled' && (
+                            {task.status === 'enabled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleSwapNow(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-purple-600 hover:text-purple-700"
+                                title="立即执行"
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {task.status === 'disabled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEnableTask(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-green-600"
+                                title="恢复任务"
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {task.status === 'enabled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDisableTask(task.id)}
+                                disabled={actionLoading === task.id}
+                                className="text-yellow-600"
+                                title="暂停任务"
+                              >
+                                <Pause className="w-4 h-4" />
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleDisableTask(task.id)}
-                              disabled={actionLoading === task.id}
-                              className="text-yellow-600"
-                              title="暂停任务"
+                              onClick={() => {
+                                setEditTaskId(task.id);
+                                setModalOpen(true);
+                              }}
+                              className="text-gray-600"
+                              title="编辑任务"
                             >
-                              <Pause className="w-4 h-4" />
+                              <RefreshCw className="w-4 h-4" />
                             </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditTaskId(task.id);
-                              setModalOpen(true);
-                            }}
-                            className="text-gray-600"
-                            title="编辑任务"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setDeleteTaskId(task.id);
-                              setDeleteDialogOpen(true);
-                            }}
-                            disabled={actionLoading === task.id}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="删除任务"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setDeleteTaskId(task.id);
+                                setDeleteDialogOpen(true);
+                              }}
+                              disabled={actionLoading === task.id}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="删除任务"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
