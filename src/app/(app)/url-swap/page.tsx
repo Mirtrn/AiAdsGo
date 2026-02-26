@@ -89,18 +89,39 @@ export default function UrlSwapPage() {
     filterTasks();
   }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
+  const fetchAllTasks = async (): Promise<UrlSwapTaskListItem[]> => {
+    const pageSize = 200;
+    const maxPages = 200;
+    const allTasks: UrlSwapTaskListItem[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const response = await fetch(`/api/url-swap/tasks?page=${page}&limit=${pageSize}`);
+      if (!response.ok) {
+        throw new Error(`获取换链任务失败: page=${page}`);
+      }
+
+      const payload = await response.json();
+      const pageTasks = payload?.data?.tasks || [];
+      const total = Number(payload?.data?.pagination?.total || pageTasks.length);
+
+      allTasks.push(...pageTasks);
+
+      if (pageTasks.length < pageSize || allTasks.length >= total) {
+        break;
+      }
+    }
+
+    return allTasks;
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [tasksRes, statsRes] = await Promise.all([
-        fetch('/api/url-swap/tasks'),
+      const [allTasks, statsRes] = await Promise.all([
+        fetchAllTasks(),
         fetch('/api/url-swap/stats'),
       ]);
-
-      if (tasksRes.ok) {
-        const data = await tasksRes.json();
-        setTasks(data.data?.tasks || []);
-      }
+      setTasks(allTasks);
 
       if (statsRes.ok) {
         const data = await statsRes.json();

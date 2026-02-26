@@ -93,18 +93,39 @@ export default function ClickFarmPage() {
     filterTasks();
   }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
+  const fetchAllTasks = async (): Promise<ClickFarmTaskListItem[]> => {
+    const pageSize = 200;
+    const maxPages = 200;
+    const allTasks: ClickFarmTaskListItem[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const response = await fetch(`/api/click-farm/tasks?page=${page}&limit=${pageSize}`);
+      if (!response.ok) {
+        throw new Error(`获取补点击任务失败: page=${page}`);
+      }
+
+      const payload = await response.json();
+      const pageTasks = payload?.data?.tasks || [];
+      const total = Number(payload?.data?.total || 0);
+
+      allTasks.push(...pageTasks);
+
+      if (pageTasks.length < pageSize || (total > 0 && allTasks.length >= total)) {
+        break;
+      }
+    }
+
+    return allTasks;
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [tasksRes, statsRes] = await Promise.all([
-        fetch('/api/click-farm/tasks'),
+      const [allTasks, statsRes] = await Promise.all([
+        fetchAllTasks(),
         fetch('/api/click-farm/stats'),
       ]);
-
-      if (tasksRes.ok) {
-        const data = await tasksRes.json();
-        setTasks(data.data.tasks || []);
-      }
+      setTasks(allTasks);
 
       if (statsRes.ok) {
         const data = await statsRes.json();
