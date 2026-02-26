@@ -221,8 +221,9 @@ export async function createClickFarmTask(
 ): Promise<ClickFarmTask> {
   const db = await getDatabase();
 
-  // 🆕 scheduled_start_date默认为当天
-  const scheduledStartDate = input.scheduled_start_date || new Date().toISOString().split('T')[0];
+  // 🆕 scheduled_start_date默认为“任务时区当天”，避免 UTC 日期导致西半球任务延后一天启动
+  const taskTimezone = input.timezone || 'America/New_York'
+  const scheduledStartDate = input.scheduled_start_date || getDateInTimezone(new Date(), taskTimezone);
 
   console.log('[createClickFarmTask] 开始插入任务:', {
     userId,
@@ -257,7 +258,7 @@ export async function createClickFarmTask(
       input.duration_days,
       scheduledStartDate,
       hourlyDistributionJson,
-      input.timezone || 'America/New_York',
+      taskTimezone,
       refererConfigJson
     ]);
 
@@ -1052,7 +1053,7 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     start_time: safeParseTime(row.start_time, '06:00'),
     end_time: safeParseTime(row.end_time, '24:00'),
     duration_days: row.duration_days,
-    scheduled_start_date: normalizeDateOnly(row.scheduled_start_date) || new Date().toISOString().split('T')[0],
+    scheduled_start_date: normalizeDateOnly(row.scheduled_start_date) || getDateInTimezone(new Date(), row.timezone || 'America/New_York'),
     hourly_distribution: safeParse(row.hourly_distribution, []),
     status: row.status,
     pause_reason: row.pause_reason,
