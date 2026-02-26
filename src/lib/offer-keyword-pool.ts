@@ -61,6 +61,76 @@ function isGeminiTimeoutError(error: unknown): boolean {
   return message.includes('timeout') || code === 'ECONNABORTED'
 }
 
+function extractHttpStatusFromError(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+
+  const responseStatus = (error as any)?.response?.status
+  if (typeof responseStatus === 'number' && responseStatus >= 400 && responseStatus <= 599) {
+    return responseStatus
+  }
+
+  const message = String((error as any)?.message || '')
+  const bracketMatch = message.match(/\((\d{3})\)/)
+  if (bracketMatch) {
+    const parsed = Number.parseInt(bracketMatch[1], 10)
+    if (Number.isFinite(parsed) && parsed >= 400 && parsed <= 599) {
+      return parsed
+    }
+  }
+
+  const httpMatch = message.match(/HTTP\s*(\d{3})/i)
+  if (httpMatch) {
+    const parsed = Number.parseInt(httpMatch[1], 10)
+    if (Number.isFinite(parsed) && parsed >= 400 && parsed <= 599) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function isTransientClusteringMessage(message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('high demand') ||
+    lower.includes('overloaded') ||
+    lower.includes('resource_exhausted') ||
+    lower.includes('resource exhausted') ||
+    lower.includes('try again later') ||
+    lower.includes('temporarily unavailable') ||
+    lower.includes('service unavailable') ||
+    lower.includes('gateway timeout') ||
+    lower.includes('bad gateway') ||
+    lower.includes('too many requests') ||
+    lower.includes('rate limit') ||
+    lower.includes('稍后重试') ||
+    lower.includes('服务不可用') ||
+    lower.includes('系统繁忙')
+  )
+}
+
+function isRetryableClusteringError(error: unknown): boolean {
+  if (!error) return false
+  if (isGeminiTimeoutError(error)) return true
+
+  const status = extractHttpStatusFromError(error)
+  if (status === 408 || status === 425 || status === 429 || (status !== null && status >= 500)) {
+    return true
+  }
+
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: string }).code || '').toUpperCase()
+    : ''
+  if (['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'ECONNREFUSED'].includes(code)) {
+    return true
+  }
+
+  const message = typeof error === 'object' && error !== null && 'message' in error
+    ? String((error as { message?: string }).message || '')
+    : String(error)
+  return isTransientClusteringMessage(message)
+}
+
 async function runKeywordClustering(
   params: GeminiGenerateParams,
   userId: number
@@ -1354,7 +1424,12 @@ export async function clusterKeywordsByIntent(
         }
       }
 
-      const workerCount = Math.min(MAX_CONCURRENT_BATCHES, batches.length)
+      const workerCount = retryCount === 0
+        ? Math.min(MAX_CONCURRENT_BATCHES, batches.length)
+        : 1
+      if (retryCount > 0 && workerCount === 1) {
+        console.warn(`⚠️ 分批聚类重试阶段降级为串行执行（第 ${retryCount + 1} 轮）`)
+      }
       const workers = Array.from({ length: workerCount }, () => worker())
       await Promise.all(workers)
 
@@ -1392,19 +1467,17 @@ export async function clusterKeywordsByIntent(
       return mergedBuckets
     } catch (error: any) {
       lastError = error
-      const isTimeout = error.message?.includes('timeout') || error.code === 'ECONNABORTED'
-      const isRateLimited = error.response?.status === 429
-      const isGatewayError = error.response?.status >= 500  // 504, 502, 500 等服务器错误
+      const status = extractHttpStatusFromError(error)
+      const retryable = isRetryableClusteringError(error)
 
-      // 🔧 修复(2025-12-31): 添加 5xx 网关错误识别，支持 504 等错误重试
-      if (retryCount < maxRetries && (isTimeout || isRateLimited || isGatewayError)) {
+      if (retryCount < maxRetries && retryable) {
         // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
         const baseDelayMs = baseDelay * Math.pow(2, retryCount)
         const jitter = Math.random() * 2000  // 0-2秒随机抖动
         const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
-        const errorInfo = error.response?.status
-          ? `HTTP ${error.response.status}`
-          : error.message?.substring(0, 50)
+        const errorInfo = status
+          ? `HTTP ${status}`
+          : String(error?.message || '').substring(0, 80)
         console.warn(`⚠️ 分批聚类第 ${retryCount + 1} 次失败 (${errorInfo})，${(delay / 1000).toFixed(1)}s 后重试...`)
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
@@ -1640,18 +1713,17 @@ async function clusterKeywordsDirectly(
       return buckets
     } catch (error: any) {
       lastError = error
-      const isTimeout = error.message?.includes('timeout') || error.code === 'ECONNABORTED'
-      const isRateLimited = error.response?.status === 429
-      const isGatewayError = error.response?.status >= 500  // 🔧 2025-12-31: 5xx 网关错误（502, 504 等）
+      const status = extractHttpStatusFromError(error)
+      const retryable = isRetryableClusteringError(error)
 
-      if (retryCount < maxRetries && (isTimeout || isRateLimited || isGatewayError)) {
+      if (retryCount < maxRetries && retryable) {
         // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
         const baseDelayMs = baseDelay * Math.pow(2, retryCount)
         const jitter = Math.random() * 2000  // 0-2秒随机抖动
         const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
-        const errorInfo = error.response?.status
-          ? `HTTP ${error.response.status} ${error.response.status === 504 ? '(Gateway Timeout)' : ''}`
-          : error.message?.substring(0, 50)
+        const errorInfo = status
+          ? `HTTP ${status} ${status === 504 ? '(Gateway Timeout)' : ''}`
+          : String(error?.message || '').substring(0, 80)
         console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败 (${errorInfo})，${(delay / 1000).toFixed(1)}s 后重试...`)
         console.warn(`   错误: ${error.message}`)
         await new Promise(resolve => setTimeout(resolve, delay))
