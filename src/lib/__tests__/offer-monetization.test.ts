@@ -20,8 +20,9 @@ describe('offer monetization helpers', () => {
 
   it('normalizes commission payout in percent and absolute modes', () => {
     expect(normalizeOfferCommissionPayoutInput('30%', 'US')).toBe('30%')
-    expect(normalizeOfferCommissionPayoutInput('15', 'US')).toBe('15%')
-    expect(normalizeOfferCommissionPayoutInput('15', 'GB')).toBe('15%')
+    expect(normalizeOfferCommissionPayoutInput('15', 'US')).toBe('15')
+    expect(normalizeOfferCommissionPayoutInput('15', 'GB')).toBe('15')
+    expect(normalizeOfferCommissionPayoutInput('0.225', 'US')).toBe('22.5%')
     expect(normalizeOfferCommissionPayoutInput('15', 'US', { numericMode: 'amount' })).toBe('$15')
   })
 
@@ -41,12 +42,14 @@ describe('offer monetization helpers', () => {
       explicitCurrency: true,
     })
 
-    const numericPercent = parseCommissionPayoutValue('12.5', { targetCountry: 'US' })
+    const numericPercent = parseCommissionPayoutValue('0.125', { targetCountry: 'US' })
     expect(numericPercent).toEqual({
       mode: 'percent',
       rate: 0.125,
       displayRate: 12.5,
     })
+
+    expect(parseCommissionPayoutValue('12.5', { targetCountry: 'US' })).toBeNull()
   })
 
   it('normalizes structured commission input and validates conflicts', () => {
@@ -75,13 +78,18 @@ describe('offer monetization helpers', () => {
 
     expect(normalizeOfferCommissionInput({
       targetCountry: 'US',
-      commissionPayout: '11.25',
+      commissionPayout: '11.25%',
     })).toEqual({
       commissionType: 'percent',
       commissionValue: '11.25',
       commissionCurrency: null,
       commissionPayout: '11.25%',
     })
+
+    expect(() => normalizeOfferCommissionInput({
+      targetCountry: 'US',
+      commissionPayout: '11.25',
+    })).toThrow('缺少单位')
 
     expect(() => normalizeOfferCommissionInput({
       targetCountry: 'US',

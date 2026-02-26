@@ -135,10 +135,32 @@ function isMonetaryCommissionText(value: unknown): boolean {
   return /[¥€£$₹₩฿₫₱₽₺$]|[A-Za-z]{2,}/.test(raw)
 }
 
-function parseCommissionPayoutAsPercentValue(value: unknown): string | undefined {
+function parseCommissionPayoutAsPercentValue(
+  value: unknown
+): string | undefined {
   if (!hasExplicitCommissionValue(value)) return undefined
-  if (isMonetaryCommissionText(value)) return undefined
-  return parseCommissionRateAsPercentValue(value)
+
+  const raw = String(value).trim()
+  if (!raw) return undefined
+  if (isMonetaryCommissionText(raw)) return undefined
+
+  const parsedPercent = parseCommissionRateAsPercentValue(raw)
+  if (parsedPercent === undefined) return undefined
+
+  if (raw.includes('%')) {
+    return parsedPercent
+  }
+
+  const numeric = Number(raw)
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined
+
+  // 仅对 0~1 的裸数字按“比例”解释（如 0.225 => 22.5%）
+  if (numeric <= 1) {
+    return parsedPercent
+  }
+
+  // >1 的裸数字（如 7.5 / 31.32）存在“百分比/金额”歧义，默认拒绝。
+  return undefined
 }
 
 function isCommissionPercentMismatch(a: string, b: string, tolerance = 0.05): boolean {
@@ -182,7 +204,7 @@ function normalizeOfferExtractCommissionInputStrict(params: {
     return {
       ...sourceBody,
       commission_rate: commissionRatePercent,
-      commission_payout: commissionRatePercent,
+      commission_payout: `${commissionRatePercent}%`,
     }
   }
 
@@ -191,6 +213,17 @@ function normalizeOfferExtractCommissionInputStrict(params: {
       return sourceBody
     }
     if (commissionPayoutPercent === undefined) {
+      const payoutRaw = String(commissionPayoutRaw).trim()
+      const payoutNumeric = Number(payoutRaw)
+      const looksAmbiguousBareNumeric = payoutRaw.length > 0
+        && !payoutRaw.includes('%')
+        && Number.isFinite(payoutNumeric)
+        && payoutNumeric > 1
+      if (looksAmbiguousBareNumeric) {
+        throw new Error(
+          `Invalid payload: ${method} ${path} commission_payout 缺少单位（比例请使用 7.5%，金额请使用 $7.5 或 USD 7.5）`
+        )
+      }
       throw new Error(
         `Invalid payload: ${method} ${path} commission_payout 格式非法（比例请使用 7.5%）`
       )
@@ -198,7 +231,7 @@ function normalizeOfferExtractCommissionInputStrict(params: {
     return {
       ...sourceBody,
       commission_rate: commissionPayoutPercent,
-      commission_payout: commissionPayoutPercent,
+      commission_payout: `${commissionPayoutPercent}%`,
     }
   }
 

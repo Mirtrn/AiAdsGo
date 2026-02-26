@@ -144,7 +144,7 @@ describe('autoads request normalizers', () => {
     expect(normalized.skip_cache).toBeUndefined()
   })
 
-  it('supports command-safe offer normalization options', () => {
+  it('keeps ambiguous bare numeric commission untouched in offer normalization', () => {
     const normalized = normalizeOfferExtractRequestBody(
       {
         affiliate_link: 'https://aff.example.com/track',
@@ -158,12 +158,12 @@ describe('autoads request normalizers', () => {
     ) || {}
 
     expect(normalized.product_price).toBe('$349.99')
-    expect(normalized.commission_payout).toBe('105%')
-    expect(normalized.commission_type).toBe('percent')
-    expect(normalized.commission_value).toBe('105')
+    expect(normalized.commission_payout).toBe('105.00')
+    expect(normalized.commission_type).toBeUndefined()
+    expect(normalized.commission_value).toBeUndefined()
   })
 
-  it('supports percent mode for bare numeric commission in offer normalization', () => {
+  it('does not auto-convert bare numeric commission to percent in offer normalization', () => {
     const normalized = normalizeOfferExtractRequestBody(
       {
         affiliate_link: 'https://aff.example.com/track',
@@ -178,7 +178,7 @@ describe('autoads request normalizers', () => {
     ) || {}
 
     expect(normalized.product_price).toBe('$349.99')
-    expect(normalized.commission_payout).toBe('30%')
+    expect(normalized.commission_payout).toBe('30')
   })
 
   it('preserves explicit currency and percent commission when provided', () => {

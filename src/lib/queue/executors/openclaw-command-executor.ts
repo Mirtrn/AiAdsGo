@@ -91,6 +91,14 @@ function toTrimmedString(value: unknown): string | null {
   return normalized || null
 }
 
+function isAmbiguousBareNumericCommissionText(value: unknown): boolean {
+  const text = toTrimmedString(value)
+  if (!text) return false
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return false
+  const numeric = Number(text)
+  return Number.isFinite(numeric) && numeric > 1
+}
+
 function isOfferExtractPath(path: string): boolean {
   return path === '/api/offers/extract' || path === '/api/offers/extract/stream'
 }
@@ -1181,6 +1189,7 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
   const hasCommissionInput = hasOfferExtractCommissionInput(payload)
   const targetCountry = toTrimmedString(payload.target_country ?? payload.targetCountry) || 'US'
   const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  const hasAmbiguousBareCommissionText = isAmbiguousBareNumericCommissionText(commissionText)
 
   let incomingCommissionRate: number | null = null
   if (commissionText) {
@@ -1189,7 +1198,9 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
     })
     if (parsedCommission?.mode === 'percent') {
       incomingCommissionRate = parsedCommission.displayRate
-    } else if (hasCommissionInput) {
+    } else if (parsedCommission?.mode === 'amount') {
+      return { body: params.body, hydrated: false }
+    } else if (hasCommissionInput && !hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }
@@ -1202,7 +1213,9 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
       if (Number.isFinite(parsedValue) && parsedValue > 0) {
         incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
       }
-    } else if (hasCommissionInput) {
+    } else if (structuredType) {
+      return { body: params.body, hydrated: false }
+    } else if (hasCommissionInput && !hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }
@@ -1318,6 +1331,7 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
     || toTrimmedString(offerMeta?.target_country)
     || 'US'
   const commissionText = toTrimmedString(payload.commission_payout ?? payload.commissionPayout)
+  const hasAmbiguousBareCommissionText = isAmbiguousBareNumericCommissionText(commissionText)
 
   let incomingCommissionRate: number | null = null
   if (commissionText) {
@@ -1326,7 +1340,9 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
     })
     if (parsedCommission?.mode === 'percent') {
       incomingCommissionRate = parsedCommission.displayRate
-    } else {
+    } else if (parsedCommission?.mode === 'amount') {
+      return { body: params.body, hydrated: false }
+    } else if (!hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }
@@ -1339,7 +1355,9 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
       if (Number.isFinite(parsedValue) && parsedValue > 0) {
         incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
       }
-    } else {
+    } else if (structuredType) {
+      return { body: params.body, hydrated: false }
+    } else if (!hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }

@@ -156,29 +156,19 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
-  it('normalizes offer extract numeric commission payload as percent ratio', () => {
-    const { body } = normalizeOpenclawCommandPayload({
-      method: 'POST',
-      path: '/api/offers/extract',
-      body: {
-        affiliate_link: 'https://example.com/aff',
-        target_country: 'US',
-        product_price: '399',
-        commission_payout: '74.81',
-      },
-    })
-
-    expect(body).toEqual({
-      affiliate_link: 'https://example.com/aff',
-      target_country: 'US',
-      product_price: '$399',
-      commission_payout: '74.81%',
-      commission_type: 'percent',
-      commission_value: '74.81',
-      page_type: 'product',
-      skipCache: false,
-      skipWarmup: false,
-    })
+  it('rejects ambiguous bare numeric commission_payout for offer extract', () => {
+    expect(() =>
+      normalizeOpenclawCommandPayload({
+        method: 'POST',
+        path: '/api/offers/extract',
+        body: {
+          affiliate_link: 'https://example.com/aff',
+          target_country: 'US',
+          product_price: '399',
+          commission_payout: '74.81',
+        },
+      })
+    ).toThrow('commission_payout 缺少单位')
   })
 
   it('preserves explicit currency commission amount for offer extract', () => {
@@ -304,6 +294,22 @@ describe('openclaw command payload policy behavior', () => {
       skipCache: false,
       skipWarmup: false,
     })
+  })
+
+  it('rejects bare numeric commission_payout even when commission_rate is provided', () => {
+    expect(() =>
+      normalizeOpenclawCommandPayload({
+        method: 'POST',
+        path: '/api/offers/extract',
+        body: {
+          affiliate_link: 'https://example.com/aff',
+          target_country: 'US',
+          product_price: '$129.99',
+          commission_rate: '12.75',
+          commission_payout: '12.75',
+        },
+      })
+    ).toThrow('commission_payout 必须是百分比')
   })
 
   it('treats decimal commission_rate as ratio and converts to percent', () => {

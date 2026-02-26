@@ -313,7 +313,13 @@ export function normalizeOfferCommissionPayoutInput(
     return `${getCurrencySymbolByCountry(targetCountry)}${formatCompactNumber(parsedAmount)}`
   }
 
-  return `${formatCompactNumber(parsedAmount)}%`
+  // 裸数字在 percent 模式下仅接受 0~1 比例值（如 0.225 => 22.5%）。
+  // >1 的裸数字语义不明确（可能是百分比也可能是金额），保留原值交给上层严格校验。
+  if (parsedAmount <= 1) {
+    return `${formatCompactNumber(parsedAmount * 100)}%`
+  }
+
+  return raw
 }
 
 export type CommissionType = 'percent' | 'amount'
@@ -373,6 +379,9 @@ function parseStructuredCommission(
   if (commissionType === 'percent') {
     if (hasCommissionCurrencyField) {
       throw new Error('commission_type=percent 时不应提供 commission_currency')
+    }
+    if (hasExplicitCurrencyMarker(valueRaw)) {
+      throw new Error('commission_type=percent 时，commission_value 不应包含货币单位')
     }
 
     const normalizedPayout = normalizeOfferCommissionPayoutInput(valueRaw, targetCountry, {
@@ -449,6 +458,24 @@ function parseLegacyCommission(
       commissionCurrency: parsedMoney.currency,
       commissionPayout: `${getCurrencySymbolByCode(parsedMoney.currency)}${normalizedAmount}`,
     }
+  }
+
+  const parsedPercentRaw = parseNumberish(raw)
+  if (parsedPercentRaw === null || parsedPercentRaw <= 0) {
+    throw new Error('commission_payout 百分比格式非法')
+  }
+
+  if (!raw.includes('%')) {
+    if (parsedPercentRaw <= 1) {
+      const ratioDisplayRate = parsedPercentRaw * 100
+      return {
+        commissionType: 'percent',
+        commissionValue: formatCompactNumber(ratioDisplayRate),
+        commissionCurrency: null,
+        commissionPayout: `${formatCompactNumber(ratioDisplayRate)}%`,
+      }
+    }
+    throw new Error('commission_payout 缺少单位（比例请使用 7.5%，金额请使用 $7.5 或 USD 7.5）')
   }
 
   const normalizedPercent = normalizeOfferCommissionPayoutInput(raw, targetCountry, {
@@ -549,27 +576,29 @@ export function parseCommissionPayoutValue(
     }
   }
 
-  if (!hasExplicitCurrencyMarker(raw)) {
-    const parsedPercent = parseNumberish(raw)
-    if (parsedPercent === null || parsedPercent <= 0) return null
+  if (hasExplicitCurrencyMarker(raw)) {
+    const parsedMoney = parseMoneyValue(raw, {
+      targetCountry: options?.targetCountry,
+      defaultCurrency: options?.fallbackCurrency,
+    })
+    if (!parsedMoney || parsedMoney.amount <= 0) return null
+
     return {
-      mode: 'percent',
-      rate: parsedPercent / 100,
-      displayRate: parsedPercent,
+      mode: 'amount',
+      amount: parsedMoney.amount,
+      currency: parsedMoney.currency,
+      explicitCurrency: parsedMoney.explicitCurrency,
     }
   }
 
-  const parsedMoney = parseMoneyValue(raw, {
-    targetCountry: options?.targetCountry,
-    defaultCurrency: options?.fallbackCurrency,
-  })
-  if (!parsedMoney || parsedMoney.amount <= 0) return null
+  const parsedNumeric = parseNumberish(raw)
+  if (parsedNumeric === null || parsedNumeric <= 0) return null
+  if (parsedNumeric > 1) return null
 
   return {
-    mode: 'amount',
-    amount: parsedMoney.amount,
-    currency: parsedMoney.currency,
-    explicitCurrency: parsedMoney.explicitCurrency,
+    mode: 'percent',
+    rate: parsedNumeric,
+    displayRate: parsedNumeric * 100,
   }
 }
 
