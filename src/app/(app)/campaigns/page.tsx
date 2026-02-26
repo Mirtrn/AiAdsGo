@@ -206,6 +206,7 @@ export default function CampaignsPage() {
   const [trendsCurrencies, setTrendsCurrencies] = useState<string[]>([])
   const [trendsCurrency, setTrendsCurrency] = useState<string>('')
   const [expandedTrendChart, setExpandedTrendChart] = useState<'traffic' | 'cost' | null>(null)
+  const expandedTrendChartHeight = 380
 
   // Batch offline states
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
@@ -2359,7 +2360,7 @@ export default function CampaignsPage() {
           if (!open) setExpandedTrendChart(null)
         }}
       >
-        <DialogContent className="w-[95vw] max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-[96vw] lg:max-w-[1280px] xl:max-w-[1440px] max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{expandedTrendChart === 'traffic' ? '流量趋势（放大）' : '成本趋势（放大）'}</DialogTitle>
           </DialogHeader>
@@ -2372,7 +2373,7 @@ export default function CampaignsPage() {
               loading={trendsLoading}
               error={trendsError}
               onRetry={fetchTrends}
-              height={460}
+              height={expandedTrendChartHeight}
               hideTimeRangeSelector={true}
               chartType="bar"
               dualYAxis={true}
@@ -2387,7 +2388,7 @@ export default function CampaignsPage() {
               loading={trendsLoading}
               error={trendsError}
               onRetry={fetchTrends}
-              height={460}
+              height={expandedTrendChartHeight}
               hideTimeRangeSelector={true}
               chartType="mixed"
               dualYAxis={true}
