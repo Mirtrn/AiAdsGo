@@ -244,6 +244,8 @@ type RecommendationDraft = {
   data: StrategyRecommendationData
 }
 
+const STRATEGY_KEYWORD_IDEAS_TIMEOUT_MS = 20_000
+
 export type StrategyRecommendationQueueTaskData = {
   userId: number
   mode?: string
@@ -2183,6 +2185,7 @@ async function fetchOfferKeywordIdeas(params: {
         path: `/api/offers/${offerId}/keyword-ideas`,
         method: 'POST',
         body: {},
+        timeoutMs: STRATEGY_KEYWORD_IDEAS_TIMEOUT_MS,
       })
 
       const brand = sanitizeKeyword(params.brandByOfferId.get(offerId) || '')
