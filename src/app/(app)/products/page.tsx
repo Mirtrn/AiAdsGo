@@ -2376,9 +2376,12 @@ export default function ProductsPage() {
             <div className="rounded-md border bg-slate-50 p-3">
               <div className="font-medium">操作步骤</div>
               <div>1. 已自动打开 YP 登录页，先完成账号登录。</div>
-              <div>2. 点击“复制书签脚本”，在浏览器新建书签，将 URL 粘贴为脚本内容。</div>
-              <div>3. 登录后在 YP 页面点击该书签，系统将自动回传登录态。</div>
-              <div>4. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
+              <div>2. 点击“复制书签脚本”。</div>
+              <div>3. 打开任意网页，按 Ctrl+Shift+O（Mac: Command+Option+B）进入书签管理器。</div>
+              <div>4. 点右上角“⋮”→“添加新书签”。</div>
+              <div>5. 名称可填“YP登录态回传”，URL 粘贴刚复制的书签脚本（javascript:...）。</div>
+              <div>6. 回到 yeahpromos.com 的任意页面，点击该书签一次。</div>
+              <div>7. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
             </div>
 
             <div className="rounded-md border p-3">
