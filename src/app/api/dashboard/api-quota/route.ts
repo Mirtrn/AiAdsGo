@@ -4,6 +4,15 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 
+function formatLocalYmd(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
 /**
  * GET /api/dashboard/api-quota
  * 获取Google Ads API配额使用情况
@@ -133,7 +142,7 @@ function generateRecommendations(stats: any, check: any, topFailureMessage?: str
 async function getTopFailureMessageForToday(userId: number): Promise<string | null> {
   try {
     const db = await getDatabase()
-    const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD (UTC)
+    const today = formatLocalYmd(new Date())
     const isFailureCondition = db.type === 'postgres' ? 'is_success = false' : 'is_success = 0'
 
     const row = await db.queryOne(

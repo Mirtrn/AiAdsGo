@@ -19,8 +19,13 @@ async function getKPIs(userId: number, days: number = 30) {
     : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
 
   const startDate = new Date()
-  startDate.setDate(startDate.getDate() - days)
-  const startDateStr = startDate.toISOString().split('T')[0]
+  startDate.setDate(startDate.getDate() - days + 1)
+  const startDateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(startDate)
 
   // 获取基础KPI数据
   const result = await db.queryOne(`

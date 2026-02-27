@@ -229,7 +229,7 @@ export default function DashboardPage() {
             </Button>
             {/* 时间范围 */}
             <div className="flex bg-white rounded-lg border p-1">
-              {[7, 30].map((d) => (
+              {[7, 14, 30, 90].map((d) => (
                 <Button
                   key={d}
                   variant={days === d ? 'default' : 'ghost'}

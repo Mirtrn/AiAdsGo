@@ -49,10 +49,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '7', 10)
 
-    // 计算日期范围
+    // 计算日期范围（使用本地时区，days=7 表示含今天在内的7天窗口）
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
+    startDate.setDate(startDate.getDate() - days + 1)
 
     console.log(`[Insights API] days=${days}, startDate=${formatDate(startDate)}, endDate=${formatDate(endDate)}`)
 
@@ -922,5 +922,10 @@ export async function GET(request: NextRequest) {
  * 格式化日期为 YYYY-MM-DD
  */
 function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0]
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
 }

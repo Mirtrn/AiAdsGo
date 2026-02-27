@@ -105,12 +105,12 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     const buildResult = async () => {
       const endDate = new Date()
       const startDate = new Date()
-      startDate.setDate(startDate.getDate() - days)
+      startDate.setDate(startDate.getDate() - days + 1)
 
       const previousEndDate = new Date(startDate)
       previousEndDate.setDate(previousEndDate.getDate() - 1)
       const previousStartDate = new Date(previousEndDate)
-      previousStartDate.setDate(previousStartDate.getDate() - days)
+      previousStartDate.setDate(previousStartDate.getDate() - days + 1)
 
       const db = await getDatabase()
 
@@ -381,5 +381,10 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
 }, { path: '/api/dashboard/kpis' })
 
 function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0]
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
 }

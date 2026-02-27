@@ -52,12 +52,12 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const days = parseInt(searchParams.get('days') || '7', 10)
 
-    // 计算日期范围
+    // 计算日期范围（使用本地时区，days=7 表示含今天在内的7天窗口）
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
-    const startDateStr = startDate.toISOString().split('T')[0]
-    const endDateStr = endDate.toISOString().split('T')[0]
+    startDate.setDate(startDate.getDate() - days + 1)
+    const startDateStr = formatLocalYmd(startDate)
+    const endDateStr = formatLocalYmd(endDate)
 
     // 获取数据库实例
     const db = await getDatabase()

@@ -1598,6 +1598,32 @@ export default function CampaignsPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
+                    <p className="text-sm font-medium text-gray-600">总花费</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {summary?.currency === 'MIXED' && Array.isArray(summary.costs) && summary.costs.length > 0
+                        ? formatMultiCurrency(summary.costs)
+                        : formatCurrencyDashboard(
+                            Number(summary?.totalCostUsd ?? 0),
+                            String(summary?.currency || trendsCurrencyValue || defaultCurrency)
+                          )}
+                    </p>
+                    {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
+                      <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {summary.changes.cost >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.cost).toFixed(1)}% 环比
+                      </p>
+                    )}
+                  </div>
+                  <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
+                    <Coins className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
                     <p className="text-sm font-medium text-gray-600">总佣金</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {formatCurrencyDashboard(
@@ -1625,32 +1651,6 @@ export default function CampaignsPage() {
                   </div>
                   <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-purple-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">总花费</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {summary?.currency === 'MIXED' && Array.isArray(summary.costs) && summary.costs.length > 0
-                        ? formatMultiCurrency(summary.costs)
-                        : formatCurrencyDashboard(
-                            Number(summary?.totalCostUsd ?? 0),
-                            String(summary?.currency || trendsCurrencyValue || defaultCurrency)
-                          )}
-                    </p>
-                    {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
-                      <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {summary.changes.cost >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.cost).toFixed(1)}% 环比
-                      </p>
-                    )}
-                  </div>
-                  <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
-                    <Coins className="w-6 h-6 text-orange-600" />
                   </div>
                 </div>
               </CardContent>

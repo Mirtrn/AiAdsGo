@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { toNumber } from '@/lib/utils'
 
+function formatLocalYmd(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ || 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
 /**
  * GET /api/dashboard/ai-token-cost
  * 获取AI Token成本统计数据
@@ -22,7 +31,7 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '7', 10)
 
     const db = await getDatabase()
-    const today = new Date().toISOString().split('T')[0]
+    const today = formatLocalYmd(new Date())
 
     // 获取今日数据
     const todayData = await db.query<{
@@ -85,8 +94,8 @@ export async function GET(request: NextRequest) {
 
     // 获取趋势数据（最近N天）
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - days)
-    const startDateStr = startDate.toISOString().split('T')[0]
+    startDate.setDate(startDate.getDate() - days + 1)
+    const startDateStr = formatLocalYmd(startDate)
 
     const trendData = await db.query<{
       date: string
