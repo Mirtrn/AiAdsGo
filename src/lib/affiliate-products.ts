@@ -2660,36 +2660,101 @@ async function fetchYeahPromosProductsHtmlPage(params: {
   siteId: string
   page: number
   sessionCookie: string
+  rateLimitRetryOptions: YeahPromosRequestRateLimitOptions
 }): Promise<YeahPromosProductPageParseResult> {
   const url = new URL('https://yeahpromos.com/index/offer/products')
   url.searchParams.set('is_delete', '0')
   url.searchParams.set('site_id', params.siteId)
   url.searchParams.set('page', String(params.page))
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      Cookie: params.sessionCookie,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-    },
-  })
-  const html = await response.text().catch(() => '')
-  const snippet = html.replace(/\s+/g, ' ').trim().slice(0, 220)
+  let attempt = 0
+  const resolveRetryDelayMs = (retryAttempt: number, message: string): number => {
+    const backoffDelayMs = calculateExponentialBackoffDelay(
+      retryAttempt,
+      params.rateLimitRetryOptions.baseDelayMs,
+      params.rateLimitRetryOptions.maxDelayMs
+    )
+    if (!isYeahPromosRequestTooFastMessage(message)) {
+      return backoffDelayMs
+    }
 
-  if (!response.ok) {
-    throw new Error(`YeahPromos 产品页拉取失败 (${response.status}): ${snippet || '请求失败'}`)
+    const minDelayForTooFastMs = Math.min(params.rateLimitRetryOptions.maxDelayMs, 5000 * retryAttempt)
+    return Math.max(backoffDelayMs, minDelayForTooFastMs)
   }
 
-  const redirectedUrl = normalizeUrl(response.url) || ''
-  const isLoginRedirect = redirectedUrl.includes('/index/login/login')
-    || redirectedUrl.includes('/index/index/login')
-    || /action=\"\/index\/login\/login\"/i.test(html)
-  if (isLoginRedirect) {
-    throw new Error('YeahPromos 登录态已失效，请先在 /products 执行 YP 登录态采集')
-  }
+  while (true) {
+    let response: Response
+    try {
+      response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Cookie: params.sessionCookie,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        },
+      })
+    } catch (error: any) {
+      const message = String(error?.message || '网络请求失败')
+      const isTransient = isTransientNetworkErrorMessage(message)
+      if (isTransient && attempt < params.rateLimitRetryOptions.maxRetries) {
+        attempt += 1
+        const delayMs = resolveRetryDelayMs(attempt, message)
+        console.warn(`[yeahpromos] transient network(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+      throw error
+    }
 
-  return parseYeahPromosProductHtmlPage(html)
+    const html = await response.text().catch(() => '')
+    const snippet = html.replace(/\s+/g, ' ').trim().slice(0, 220)
+
+    const redirectedUrl = normalizeUrl(response.url) || ''
+    const isLoginRedirect = redirectedUrl.includes('/index/login/login')
+      || redirectedUrl.includes('/index/index/login')
+      || /action=\"\/index\/login\/login\"/i.test(html)
+    if (isLoginRedirect) {
+      throw new Error('YeahPromos 登录态已失效，请先在 /products 执行 YP 登录态采集')
+    }
+
+    const rateLimitSignal = snippet || `HTTP ${response.status}`
+    if (isYeahPromosRateLimited(null, rateLimitSignal, response.status)) {
+      if (attempt < params.rateLimitRetryOptions.maxRetries) {
+        attempt += 1
+        const delayMs = resolveRetryDelayMs(attempt, rateLimitSignal)
+        console.warn(`[yeahpromos] rate limited(产品页 page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+      throw new Error(`YeahPromos 产品页触发频控 (${response.status}): ${snippet || 'Request too fast, please request later!'}`)
+    }
+
+    if (!response.ok) {
+      const failureMessage = `YeahPromos 产品页拉取失败 (${response.status}): ${snippet || '请求失败'}`
+      if (isTransientHttpStatus(response.status) && attempt < params.rateLimitRetryOptions.maxRetries) {
+        attempt += 1
+        const delayMs = resolveRetryDelayMs(attempt, failureMessage)
+        console.warn(`[yeahpromos] transient http(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+      throw new Error(failureMessage)
+    }
+
+    if (!html.trim()) {
+      const message = `YeahPromos 产品页拉取失败 (${response.status}): Empty response body`
+      if (attempt < params.rateLimitRetryOptions.maxRetries) {
+        attempt += 1
+        const delayMs = resolveRetryDelayMs(attempt, message)
+        console.warn(`[yeahpromos] empty response(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        await sleep(delayMs)
+        continue
+      }
+      throw new Error(message)
+    }
+
+    return parseYeahPromosProductHtmlPage(html)
+  }
 }
 
 async function fetchYeahPromosPromotableProductsWithMeta(params: {
@@ -2730,6 +2795,26 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     0,
     MAX_YP_PRODUCTS_DELAY_JITTER_MS
   )
+  const rateLimitRetryOptions: YeahPromosRequestRateLimitOptions = {
+    maxRetries: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_max_retries || String(DEFAULT_YP_RATE_LIMIT_MAX_RETRIES),
+      DEFAULT_YP_RATE_LIMIT_MAX_RETRIES,
+      0,
+      10
+    ),
+    baseDelayMs: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_base_delay_ms || String(DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS),
+      DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS,
+      100,
+      60000
+    ),
+    maxDelayMs: parseIntegerInRange(
+      check.values.yeahpromos_rate_limit_max_delay_ms || String(DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS),
+      DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS,
+      500,
+      120000
+    ),
+  }
   const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
   const configuredStartPage = Math.max(1, parseInteger(check.values.yeahpromos_page || '1', 1))
   let page = Math.max(1, parseInteger(params.startPage, configuredStartPage))
@@ -2762,6 +2847,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       siteId,
       page,
       sessionCookie,
+      rateLimitRetryOptions,
     })
 
     items.push(...parsed.items)
