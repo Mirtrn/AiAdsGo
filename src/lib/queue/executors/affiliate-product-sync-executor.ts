@@ -9,6 +9,7 @@ import {
   normalizeAffiliatePlatform,
   type ProductSortField,
   type ProductSortOrder,
+  recordAffiliateProductSyncHourlySnapshot,
   type SyncMode,
   syncAffiliateProducts,
   updateAffiliateProductSyncRun,
@@ -287,6 +288,13 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       resumeFromPage,
       progressEvery: 20,
       onProgress: async (progress: AffiliateProductSyncProgress) => {
+        await recordAffiliateProductSyncHourlySnapshot({
+          userId: data.userId,
+          runId: data.runId,
+          platform: data.platform,
+          totalItems: baseTotalItems + toSafeCount(progress.totalFetched),
+        })
+
         await updateAffiliateProductSyncRun({
           runId: data.runId,
           totalItems: baseTotalItems + toSafeCount(progress.totalFetched),
@@ -297,6 +305,13 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
         })
       },
       onCheckpoint: async (checkpoint: AffiliateProductSyncCheckpoint) => {
+        await recordAffiliateProductSyncHourlySnapshot({
+          userId: data.userId,
+          runId: data.runId,
+          platform: data.platform,
+          totalItems: baseTotalItems + toSafeCount(checkpoint.totalFetched),
+        })
+
         await updateAffiliateProductSyncRun({
           runId: data.runId,
           totalItems: baseTotalItems + toSafeCount(checkpoint.totalFetched),
@@ -308,6 +323,13 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
           lastHeartbeatAt: new Date().toISOString(),
         })
       },
+    })
+
+    await recordAffiliateProductSyncHourlySnapshot({
+      userId: data.userId,
+      runId: data.runId,
+      platform: data.platform,
+      totalItems: baseTotalItems + toSafeCount(result.totalFetched),
     })
 
     try {

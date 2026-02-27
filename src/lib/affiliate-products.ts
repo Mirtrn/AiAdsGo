@@ -321,6 +321,8 @@ const YP_PRODUCTS_LONG_BREAK_MAX_MS = 90000
 const YP_PRODUCTS_ALLOWED_TIMEZONE = 'Asia/Shanghai'
 const YP_PRODUCTS_ALLOWED_HOUR_START = 6
 const YP_PRODUCTS_ALLOWED_HOUR_END = 24
+const AFFILIATE_YP_ACCESS_PRODUCTS_TARGET_KEY = 'affiliate_yp_access_products_target'
+const AFFILIATE_YP_ACCESS_PRODUCTS_UPDATED_AT_KEY = 'affiliate_yp_access_products_updated_at'
 
 type PartnerboostProduct = {
   product_id?: string
@@ -1794,6 +1796,57 @@ async function getUserScopedSettingMap(userId: number, keys: string[]): Promise<
   }, {})
 }
 
+async function upsertUserSystemSetting(params: {
+  userId: number
+  key: string
+  value: string
+  description: string
+}): Promise<void> {
+  const db = await getDatabase()
+  const nowExpr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const falseValue = db.type === 'postgres' ? false : 0
+
+  const existing = await db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM system_settings
+      WHERE user_id = ?
+        AND category = 'system'
+        AND key = ?
+      LIMIT 1
+    `,
+    [params.userId, params.key]
+  )
+
+  if (existing?.id) {
+    await db.exec(
+      `
+        UPDATE system_settings
+        SET value = ?, updated_at = ${nowExpr}
+        WHERE id = ?
+      `,
+      [params.value, existing.id]
+    )
+    return
+  }
+
+  await db.exec(
+    `
+      INSERT INTO system_settings (
+        user_id,
+        category,
+        key,
+        value,
+        data_type,
+        is_sensitive,
+        is_required,
+        description
+      ) VALUES (?, 'system', ?, ?, 'string', ?, ?, ?)
+    `,
+    [params.userId, params.key, params.value, falseValue, falseValue, params.description]
+  )
+}
+
 export async function checkAffiliatePlatformConfig(userId: number, platform: AffiliatePlatform): Promise<PlatformConfigCheck> {
   const requiredKeys = PLATFORM_KEY_REQUIREMENTS[platform]
   const optionalKeys = platform === 'partnerboost'
@@ -2393,6 +2446,66 @@ async function fetchPartnerboostPromotableProducts(
   return result.items
 }
 
+async function fetchYeahPromosAccessProductsCount(params: {
+  userId: number
+  siteId: string
+  sessionCookie: string
+}): Promise<number | null> {
+  const url = new URL('https://yeahpromos.com/index/offer/report_performance')
+  url.searchParams.set('site_id', params.siteId)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Cookie: params.sessionCookie,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    },
+  })
+  const html = await response.text().catch(() => '')
+
+  if (!response.ok) {
+    return null
+  }
+
+  const redirectedUrl = normalizeUrl(response.url) || ''
+  const isLoginRedirect = redirectedUrl.includes('/index/login/login')
+    || redirectedUrl.includes('/index/index/login')
+    || /action=\"\/index\/login\/login\"/i.test(html)
+  if (isLoginRedirect) {
+    return null
+  }
+
+  const match = html.match(/Access\\s*Products\\s*:\\s*([0-9,]+)/i)
+  if (!match?.[1]) {
+    return null
+  }
+
+  const parsed = Number(match[1].replace(/,/g, ''))
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+
+  const normalized = Math.trunc(parsed)
+  const nowIso = new Date().toISOString()
+  await Promise.all([
+    upsertUserSystemSetting({
+      userId: params.userId,
+      key: AFFILIATE_YP_ACCESS_PRODUCTS_TARGET_KEY,
+      value: String(normalized),
+      description: 'YP Access Products 最新目标总量',
+    }),
+    upsertUserSystemSetting({
+      userId: params.userId,
+      key: AFFILIATE_YP_ACCESS_PRODUCTS_UPDATED_AT_KEY,
+      value: nowIso,
+      description: 'YP Access Products 最近更新时间',
+    }),
+  ])
+
+  return normalized
+}
+
 function extractYeahPromosPageNumberFromHref(href: string | null | undefined): number | null {
   const rawHref = normalizeUrl(href)
   if (!rawHref) return null
@@ -2593,6 +2706,16 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
   const sessionCookie = await getYeahPromosSessionCookieForSync(params.userId)
   if (!sessionCookie) {
     throw new Error('YeahPromos 登录态缺失或已过期，请先在 /products 完成 YP 登录态采集')
+  }
+
+  try {
+    await fetchYeahPromosAccessProductsCount({
+      userId: params.userId,
+      siteId,
+      sessionCookie,
+    })
+  } catch (error: any) {
+    console.warn('[yeahpromos] failed to refresh Access Products baseline:', error?.message || error)
   }
 
   const requestDelayMs = parseIntegerInRange(
@@ -3445,6 +3568,31 @@ function parseDateToTimestamp(input: string | null): number | null {
   const timestamp = Date.parse(input)
   if (!Number.isFinite(timestamp)) return null
   return timestamp
+}
+
+function isMissingTableError(error: unknown): boolean {
+  const message = String((error as any)?.message || '').toLowerCase()
+  return /(no such table|does not exist)/i.test(message)
+}
+
+function toHourBucketIso(date: Date): string {
+  const copy = new Date(date.getTime())
+  copy.setUTCMinutes(0, 0, 0)
+  return copy.toISOString()
+}
+
+function toSafeNonNegativeInt(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return 0
+  return Math.trunc(parsed)
+}
+
+function resolveBeijingWindowCloseAt(now: Date): Date {
+  const tomorrow = getDateInTimezone(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    YP_PRODUCTS_ALLOWED_TIMEZONE
+  )
+  return createDateInTimezone(tomorrow, '00:00', YP_PRODUCTS_ALLOWED_TIMEZONE)
 }
 
 function resolveLifecycleStatusFromRowForList(
@@ -4999,6 +5147,232 @@ export async function getAffiliateProductSyncRuns(userId: number, limit: number 
   )
 }
 
+export async function recordAffiliateProductSyncHourlySnapshot(params: {
+  userId: number
+  runId: number
+  platform: AffiliatePlatform
+  totalItems: number
+  timestamp?: Date
+}): Promise<void> {
+  const totalItems = toSafeNonNegativeInt(params.totalItems)
+  const now = params.timestamp || new Date()
+  const nowIso = now.toISOString()
+  const hourBucket = toHourBucketIso(now)
+  const db = await getDatabase()
+
+  try {
+    if (db.type === 'postgres') {
+      await db.exec(
+        `
+          INSERT INTO affiliate_product_sync_hourly_stats (
+            user_id,
+            run_id,
+            platform,
+            hour_bucket,
+            max_total_items,
+            sample_count,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+          ON CONFLICT (run_id, hour_bucket)
+          DO UPDATE SET
+            max_total_items = GREATEST(affiliate_product_sync_hourly_stats.max_total_items, EXCLUDED.max_total_items),
+            sample_count = affiliate_product_sync_hourly_stats.sample_count + 1,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [params.userId, params.runId, params.platform, hourBucket, totalItems, nowIso, nowIso]
+      )
+      return
+    }
+
+    await db.exec(
+      `
+        INSERT INTO affiliate_product_sync_hourly_stats (
+          user_id,
+          run_id,
+          platform,
+          hour_bucket,
+          max_total_items,
+          sample_count,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(run_id, hour_bucket)
+        DO UPDATE SET
+          max_total_items = CASE
+            WHEN excluded.max_total_items > affiliate_product_sync_hourly_stats.max_total_items
+              THEN excluded.max_total_items
+            ELSE affiliate_product_sync_hourly_stats.max_total_items
+          END,
+          sample_count = affiliate_product_sync_hourly_stats.sample_count + 1,
+          updated_at = excluded.updated_at
+      `,
+      [params.userId, params.runId, params.platform, hourBucket, totalItems, nowIso, nowIso]
+    )
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return
+    }
+    throw error
+  }
+}
+
+export async function getYeahPromosSyncMonitor(userId: number): Promise<YeahPromosSyncMonitor> {
+  const fallback: YeahPromosSyncMonitor = {
+    runId: null,
+    runStatus: null,
+    targetItems: null,
+    fetchedItems: 0,
+    remainingItems: null,
+    avgItemsPerHour: null,
+    etaAt: null,
+    windowCloseAt: resolveBeijingWindowCloseAt(new Date()).toISOString(),
+    canFinishInWindow: null,
+    statsUpdatedAt: null,
+    hourlyStats: [],
+  }
+
+  const targetSetting = await getUserOnlySetting('system', AFFILIATE_YP_ACCESS_PRODUCTS_TARGET_KEY, userId)
+  const targetItemsParsed = toSafeNonNegativeInt(targetSetting?.value || null)
+  const targetItems = targetItemsParsed > 0 ? targetItemsParsed : null
+
+  const db = await getDatabase()
+  const latestRun = await db.queryOne<{
+    id: number
+    status: string
+    total_items: number
+    started_at: string | null
+    completed_at: string | null
+    last_heartbeat_at: string | null
+    updated_at: string
+  }>(
+    `
+      SELECT
+        id,
+        status,
+        total_items,
+        started_at,
+        completed_at,
+        last_heartbeat_at,
+        updated_at
+      FROM affiliate_product_sync_runs
+      WHERE user_id = ?
+        AND platform = 'yeahpromos'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [userId]
+  )
+
+  if (!latestRun?.id) {
+    return {
+      ...fallback,
+      targetItems,
+    }
+  }
+
+  const runId = Number(latestRun.id)
+  const fetchedItems = toSafeNonNegativeInt(latestRun.total_items)
+
+  let hourlyRows: Array<{
+    hour_bucket: string
+    max_total_items: number
+    sample_count: number
+    updated_at: string | null
+  }> = []
+  try {
+    hourlyRows = await db.query(
+      `
+        SELECT
+          hour_bucket,
+          max_total_items,
+          sample_count,
+          updated_at
+        FROM affiliate_product_sync_hourly_stats
+        WHERE user_id = ?
+          AND run_id = ?
+        ORDER BY hour_bucket DESC
+        LIMIT 36
+      `,
+      [userId, runId]
+    )
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error
+    }
+  }
+
+  const rowsAsc = [...hourlyRows].reverse()
+  const hourlyStats: AffiliateProductSyncHourlyStat[] = []
+  let previousCumulative = 0
+  for (const row of rowsAsc) {
+    const cumulativeFetched = Math.max(previousCumulative, toSafeNonNegativeInt(row.max_total_items))
+    const fetchedCount = Math.max(0, cumulativeFetched - previousCumulative)
+    previousCumulative = cumulativeFetched
+    hourlyStats.push({
+      hourBucket: String(row.hour_bucket || ''),
+      fetchedCount,
+      cumulativeFetched,
+      sampleCount: toSafeNonNegativeInt(row.sample_count),
+      updatedAt: row.updated_at || null,
+    })
+  }
+
+  const recentStats = hourlyStats.slice(-6).filter((item) => item.fetchedCount > 0)
+  let avgItemsPerHour = recentStats.length > 0
+    ? roundTo2(recentStats.reduce((sum, item) => sum + item.fetchedCount, 0) / recentStats.length)
+    : null
+
+  if ((avgItemsPerHour === null || avgItemsPerHour <= 0) && fetchedItems > 0) {
+    const startedAtMs = parseDateToTimestamp(latestRun.started_at)
+    if (startedAtMs !== null) {
+      const elapsedHours = Math.max(0, (Date.now() - startedAtMs) / (60 * 60 * 1000))
+      if (elapsedHours >= 0.1) {
+        avgItemsPerHour = roundTo2(fetchedItems / elapsedHours)
+      }
+    }
+  }
+
+  const remainingItems = targetItems !== null
+    ? Math.max(0, targetItems - fetchedItems)
+    : null
+
+  let etaAt: string | null = null
+  if (remainingItems !== null) {
+    if (remainingItems === 0) {
+      etaAt = latestRun.completed_at || new Date().toISOString()
+    } else if (avgItemsPerHour !== null && avgItemsPerHour > 0) {
+      const etaMs = Date.now() + (remainingItems / avgItemsPerHour) * 60 * 60 * 1000
+      etaAt = new Date(etaMs).toISOString()
+    }
+  }
+
+  const windowCloseAt = resolveBeijingWindowCloseAt(new Date()).toISOString()
+  const windowCloseMs = Date.parse(windowCloseAt)
+  const etaMs = parseDateToTimestamp(etaAt)
+  const canFinishInWindow = etaMs !== null && Number.isFinite(windowCloseMs)
+    ? etaMs <= windowCloseMs
+    : null
+
+  const statsUpdatedAt = hourlyStats.length > 0
+    ? (hourlyStats[hourlyStats.length - 1].updatedAt || null)
+    : (latestRun.last_heartbeat_at || latestRun.updated_at || null)
+
+  return {
+    runId,
+    runStatus: latestRun.status || null,
+    targetItems,
+    fetchedItems,
+    remainingItems,
+    avgItemsPerHour,
+    etaAt,
+    windowCloseAt,
+    canFinishInWindow,
+    statsUpdatedAt,
+    hourlyStats,
+  }
+}
+
 export type AffiliateProductSyncCheckpoint = {
   cursorPage: number
   processedBatches: number
@@ -5006,6 +5380,28 @@ export type AffiliateProductSyncCheckpoint = {
   createdCount: number
   updatedCount: number
   failedCount: number
+}
+
+export type AffiliateProductSyncHourlyStat = {
+  hourBucket: string
+  fetchedCount: number
+  cumulativeFetched: number
+  sampleCount: number
+  updatedAt: string | null
+}
+
+export type YeahPromosSyncMonitor = {
+  runId: number | null
+  runStatus: string | null
+  targetItems: number | null
+  fetchedItems: number
+  remainingItems: number | null
+  avgItemsPerHour: number | null
+  etaAt: string | null
+  windowCloseAt: string | null
+  canFinishInWindow: boolean | null
+  statsUpdatedAt: string | null
+  hourlyStats: AffiliateProductSyncHourlyStat[]
 }
 
 async function syncPartnerboostPlatformByWindow(params: {

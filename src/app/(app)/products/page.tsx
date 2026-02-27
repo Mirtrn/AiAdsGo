@@ -221,6 +221,28 @@ type SyncRunItem = {
   created_at: string
 }
 
+type SyncHourlyStatItem = {
+  hourBucket: string
+  fetchedCount: number
+  cumulativeFetched: number
+  sampleCount: number
+  updatedAt: string | null
+}
+
+type YeahPromosSyncMonitorItem = {
+  runId: number | null
+  runStatus: string | null
+  targetItems: number | null
+  fetchedItems: number
+  remainingItems: number | null
+  avgItemsPerHour: number | null
+  etaAt: string | null
+  windowCloseAt: string | null
+  canFinishInWindow: boolean | null
+  statsUpdatedAt: string | null
+  hourlyStats: SyncHourlyStatItem[]
+}
+
 type BatchRow = {
   productId: number
   linkType: '单品'
@@ -399,6 +421,22 @@ function createEmptyPlatformStatsMap(): PlatformStatsMap {
   }
 }
 
+function createEmptyYeahPromosSyncMonitor(): YeahPromosSyncMonitorItem {
+  return {
+    runId: null,
+    runStatus: null,
+    targetItems: null,
+    fetchedItems: 0,
+    remainingItems: null,
+    avgItemsPerHour: null,
+    etaAt: null,
+    windowCloseAt: null,
+    canFinishInWindow: null,
+    statsUpdatedAt: null,
+    hourlyStats: [],
+  }
+}
+
 function createEmptyYeahPromosSessionStatus(): YeahPromosSessionStatus {
   return {
     hasSession: false,
@@ -456,6 +494,12 @@ function formatPercent(rate: number | null): string {
 function formatReviewCount(count: number | null): string {
   if (count === null || count === undefined) return '-'
   return String(count)
+}
+
+function formatIntegerCount(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '-'
+  if (!Number.isFinite(value)) return '-'
+  return Math.max(0, Math.trunc(value)).toLocaleString('en-US')
 }
 
 function resolveDisplayCurrency(product: ProductListItem): string | null {
@@ -558,6 +602,19 @@ function formatSyncRunDateTime(value: string | null): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatHourBucket(value: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
 
 function formatProductAddedDate(value: string | null): string {
@@ -669,6 +726,7 @@ export default function ProductsPage() {
 
   const [syncingPlatform, setSyncingPlatform] = useState<{ platform: ProductPlatform; strategy: PlatformSyncStrategy } | null>(null)
   const [latestRuns, setLatestRuns] = useState<SyncRunItem[]>([])
+  const [ypSyncMonitor, setYpSyncMonitor] = useState<YeahPromosSyncMonitorItem>(() => createEmptyYeahPromosSyncMonitor())
   const [syncingProductId, setSyncingProductId] = useState<number | null>(null)
   const [creatingOfferId, setCreatingOfferId] = useState<number | null>(null)
   const [offliningProductId, setOffliningProductId] = useState<number | null>(null)
@@ -894,9 +952,14 @@ export default function ProductsPage() {
         cache: 'no-store',
       })
       if (!response.ok) return
-      const data = await response.json() as { success?: boolean; runs?: SyncRunItem[] }
+      const data = await response.json() as {
+        success?: boolean
+        runs?: SyncRunItem[]
+        ypMonitor?: YeahPromosSyncMonitorItem
+      }
       if (!data.success) return
       setLatestRuns(data.runs || [])
+      setYpSyncMonitor(data.ypMonitor || createEmptyYeahPromosSyncMonitor())
     } catch {
       // ignore
     }
@@ -1966,6 +2029,93 @@ export default function ProductsPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {(ypSyncMonitor.runId !== null || ypSyncMonitor.targetItems !== null) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">YP 同步 ETA 监控</CardTitle>
+              <CardDescription>基于每小时抓取快照估算完成时间，时间窗按北京时间 06:00-24:00 计算。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-md border p-2">
+                  <div className="text-[11px] text-muted-foreground">运行任务</div>
+                  <div className="mt-1 text-sm font-medium">
+                    {ypSyncMonitor.runId ? `#${ypSyncMonitor.runId}` : '-'}
+                    {ypSyncMonitor.runStatus ? ` · ${ypSyncMonitor.runStatus}` : ''}
+                  </div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-[11px] text-muted-foreground">目标商品量</div>
+                  <div className="mt-1 text-sm font-medium">{formatIntegerCount(ypSyncMonitor.targetItems)}</div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-[11px] text-muted-foreground">已抓取</div>
+                  <div className="mt-1 text-sm font-medium">{formatIntegerCount(ypSyncMonitor.fetchedItems)}</div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-[11px] text-muted-foreground">近小时均速</div>
+                  <div className="mt-1 text-sm font-medium">
+                    {ypSyncMonitor.avgItemsPerHour !== null
+                      ? `${formatIntegerCount(Math.round(ypSyncMonitor.avgItemsPerHour))} /小时`
+                      : '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-[11px] text-muted-foreground">预计完成时间</div>
+                  <div className="mt-1 text-sm font-medium">{formatSyncRunDateTime(ypSyncMonitor.etaAt)}</div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge
+                  variant={
+                    ypSyncMonitor.canFinishInWindow === null
+                      ? 'outline'
+                      : (ypSyncMonitor.canFinishInWindow ? 'default' : 'destructive')
+                  }
+                >
+                  {ypSyncMonitor.canFinishInWindow === null
+                    ? '窗口内完成: 待估算'
+                    : (ypSyncMonitor.canFinishInWindow ? '窗口内完成: 可达成' : '窗口内完成: 风险较高')}
+                </Badge>
+                <span>窗口截止 {formatSyncRunDateTime(ypSyncMonitor.windowCloseAt)}</span>
+                <span>剩余 {formatIntegerCount(ypSyncMonitor.remainingItems)}</span>
+                <span>数据更新时间 {formatSyncRunDateTime(ypSyncMonitor.statsUpdatedAt)}</span>
+              </div>
+
+              <div className="rounded-md border">
+                <div className="border-b px-3 py-2 text-xs font-medium">每小时抓取统计（最近 12 小时）</div>
+                {ypSyncMonitor.hourlyStats.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-muted-foreground">暂无小时级抓取快照，任务运行后会自动生成。</div>
+                ) : (
+                  <div className="max-h-64 overflow-auto px-3 py-2">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-muted-foreground">
+                          <th className="py-1 pr-2 font-medium">小时</th>
+                          <th className="py-1 pr-2 font-medium">本小时新增</th>
+                          <th className="py-1 pr-2 font-medium">累计抓取</th>
+                          <th className="py-1 font-medium">采样点</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...ypSyncMonitor.hourlyStats].slice(-12).reverse().map((stat) => (
+                          <tr key={stat.hourBucket} className="border-t">
+                            <td className="py-1 pr-2">{formatHourBucket(stat.hourBucket)}</td>
+                            <td className="py-1 pr-2">{formatIntegerCount(stat.fetchedCount)}</td>
+                            <td className="py-1 pr-2">{formatIntegerCount(stat.cumulativeFetched)}</td>
+                            <td className="py-1">{formatIntegerCount(stat.sampleCount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

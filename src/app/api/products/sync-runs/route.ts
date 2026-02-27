@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAffiliateProductSyncRuns } from '@/lib/affiliate-products'
+import { getAffiliateProductSyncRuns, getYeahPromosSyncMonitor } from '@/lib/affiliate-products'
 import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
 
 export async function GET(request: NextRequest) {
@@ -20,11 +20,15 @@ export async function GET(request: NextRequest) {
     }
 
     const limit = Number(request.nextUrl.searchParams.get('limit') || '20')
-    const runs = await getAffiliateProductSyncRuns(userId, limit)
+    const [runs, ypMonitor] = await Promise.all([
+      getAffiliateProductSyncRuns(userId, limit),
+      getYeahPromosSyncMonitor(userId),
+    ])
 
     return NextResponse.json({
       success: true,
       runs,
+      ypMonitor,
     })
   } catch (error: any) {
     console.error('[GET /api/products/sync-runs] failed:', error)
@@ -34,4 +38,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-
