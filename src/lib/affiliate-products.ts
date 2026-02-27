@@ -12,6 +12,9 @@ import {
   type ProductSummaryCachePayload,
 } from '@/lib/products-cache'
 import { getYeahPromosSessionCookieForSync } from '@/lib/yeahpromos-session'
+import axios from 'axios'
+import { HttpsProxyAgent } from 'https-proxy-agent'
+import { getProxyIp } from '@/lib/proxy/fetch-proxy-ip'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single' | 'delta'
@@ -2446,29 +2449,55 @@ async function fetchPartnerboostPromotableProducts(
   return result.items
 }
 
+async function getYeahPromosProxyAgent(userId: number): Promise<HttpsProxyAgent<string> | undefined> {
+  try {
+    const setting = await getUserOnlySetting('proxy', 'urls', userId)
+    if (!setting?.value) return undefined
+    const configs = JSON.parse(setting.value) as { country: string; url: string }[]
+    const usConfig = configs.find((c) => c.country === 'US')
+    if (!usConfig?.url) return undefined
+    const proxy = await getProxyIp(usConfig.url)
+    console.log(`[yeahpromos] 使用代理: ${proxy.fullAddress}`)
+    return new HttpsProxyAgent(`http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`, {
+      keepAlive: true,
+      timeout: 60000,
+    })
+  } catch (error: any) {
+    console.warn(`[yeahpromos] 获取代理失败，回退直连: ${error?.message || error}`)
+    return undefined
+  }
+}
+
 async function fetchYeahPromosAccessProductsCount(params: {
   userId: number
   siteId: string
   sessionCookie: string
+  proxyAgent?: HttpsProxyAgent<string>
 }): Promise<number | null> {
   const url = new URL('https://yeahpromos.com/index/offer/report_performance')
   url.searchParams.set('site_id', params.siteId)
 
-  const response = await fetch(url.toString(), {
-    method: 'GET',
+  const agent = params.proxyAgent
+  const response = await axios.get(url.toString(), {
     headers: {
       Cookie: params.sessionCookie,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
     },
+    httpsAgent: agent,
+    httpAgent: agent,
+    maxRedirects: 5,
+    validateStatus: () => true,
+    responseType: 'text',
+    timeout: 60000,
   })
-  const html = await response.text().catch(() => '')
+  const html = typeof response.data === 'string' ? response.data : ''
 
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     return null
   }
 
-  const redirectedUrl = normalizeUrl(response.url) || ''
+  const redirectedUrl = normalizeUrl(response.request?.res?.responseUrl) || ''
   const isLoginRedirect = redirectedUrl.includes('/index/login/login')
     || redirectedUrl.includes('/index/index/login')
     || /action=\"\/index\/login\/login\"/i.test(html)
@@ -2661,6 +2690,7 @@ async function fetchYeahPromosProductsHtmlPage(params: {
   page: number
   sessionCookie: string
   rateLimitRetryOptions: YeahPromosRequestRateLimitOptions
+  proxyAgent?: HttpsProxyAgent<string>
 }): Promise<YeahPromosProductPageParseResult> {
   const url = new URL('https://yeahpromos.com/index/offer/products')
   url.searchParams.set('is_delete', '0')
@@ -2682,16 +2712,23 @@ async function fetchYeahPromosProductsHtmlPage(params: {
     return Math.max(backoffDelayMs, minDelayForTooFastMs)
   }
 
+  const agent = params.proxyAgent
+
   while (true) {
-    let response: Response
+    let response: import('axios').AxiosResponse<string>
     try {
-      response = await fetch(url.toString(), {
-        method: 'GET',
+      response = await axios.get(url.toString(), {
         headers: {
           Cookie: params.sessionCookie,
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
         },
+        httpsAgent: agent,
+        httpAgent: agent,
+        maxRedirects: 5,
+        validateStatus: () => true,
+        responseType: 'text',
+        timeout: 60000,
       })
     } catch (error: any) {
       const message = String(error?.message || '网络请求失败')
@@ -2706,10 +2743,10 @@ async function fetchYeahPromosProductsHtmlPage(params: {
       throw error
     }
 
-    const html = await response.text().catch(() => '')
+    const html = typeof response.data === 'string' ? response.data : ''
     const snippet = html.replace(/\s+/g, ' ').trim().slice(0, 220)
 
-    const redirectedUrl = normalizeUrl(response.url) || ''
+    const redirectedUrl = normalizeUrl(response.request?.res?.responseUrl) || ''
     const isLoginRedirect = redirectedUrl.includes('/index/login/login')
       || redirectedUrl.includes('/index/index/login')
       || /action=\"\/index\/login\/login\"/i.test(html)
@@ -2729,7 +2766,8 @@ async function fetchYeahPromosProductsHtmlPage(params: {
       throw new Error(`YeahPromos 产品页触发频控 (${response.status}): ${snippet || 'Request too fast, please request later!'}`)
     }
 
-    if (!response.ok) {
+    const isOk = response.status >= 200 && response.status < 300
+    if (!isOk) {
       const failureMessage = `YeahPromos 产品页拉取失败 (${response.status}): ${snippet || '请求失败'}`
       if (isTransientHttpStatus(response.status) && attempt < params.rateLimitRetryOptions.maxRetries) {
         attempt += 1
@@ -2773,11 +2811,14 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     throw new Error('YeahPromos 登录态缺失或已过期，请先在 /products 完成 YP 登录态采集')
   }
 
+  const proxyAgent = await getYeahPromosProxyAgent(params.userId)
+
   try {
     await fetchYeahPromosAccessProductsCount({
       userId: params.userId,
       siteId,
       sessionCookie,
+      proxyAgent,
     })
   } catch (error: any) {
     console.warn('[yeahpromos] failed to refresh Access Products baseline:', error?.message || error)
@@ -2848,6 +2889,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       page,
       sessionCookie,
       rateLimitRetryOptions,
+      proxyAgent,
     })
 
     items.push(...parsed.items)
