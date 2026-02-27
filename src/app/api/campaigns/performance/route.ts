@@ -29,6 +29,38 @@ function formatLocalYmd(date: Date): string {
   }).format(date)
 }
 
+function parseYmdParam(value: string | null): string | null {
+  if (!value) return null
+  const normalized = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+
+  const [year, month, day] = normalized.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function shiftYmd(ymd: string, deltaDays: number): string {
+  const [year, month, day] = ymd.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + deltaDays)
+  return date.toISOString().slice(0, 10)
+}
+
+function diffDaysInclusive(startYmd: string, endYmd: string): number {
+  const startTs = Date.parse(`${startYmd}T00:00:00Z`)
+  const endTs = Date.parse(`${endYmd}T00:00:00Z`)
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return 1
+  return Math.max(1, Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1)
+}
+
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -66,6 +98,8 @@ const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
  *
  * Query Parameters:
  * - daysBack: number (default: 7)
+ * - start_date: string (optional, YYYY-MM-DD)
+ * - end_date: string (optional, YYYY-MM-DD)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -79,25 +113,48 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
-    const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const rawDaysBack = parseInt(searchParams.get('daysBack') || '7', 10)
+    const daysBack = Number.isFinite(rawDaysBack) ? Math.min(Math.max(rawDaysBack, 1), 3650) : 7
+    const startDateQuery = parseYmdParam(searchParams.get('start_date'))
+    const endDateQuery = parseYmdParam(searchParams.get('end_date'))
+    const hasCustomRangeQuery = searchParams.has('start_date') || searchParams.has('end_date')
+    if (hasCustomRangeQuery) {
+      if (!startDateQuery || !endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 和 end_date 必须同时提供，且格式为 YYYY-MM-DD' },
+          { status: 400 }
+        )
+      }
+      if (startDateQuery > endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 不能晚于 end_date' },
+          { status: 400 }
+        )
+      }
+    }
     const requestedCurrencyRaw = searchParams.get('currency')
     const requestedCurrency = requestedCurrencyRaw ? normalizeCurrency(requestedCurrencyRaw) : null
 
     const db = await getDatabase()
 
-    const now = new Date()
-    const endDate = formatLocalYmd(now)
-    const startDate = new Date(now)
-    // daysBack=7 should mean "today + previous 6 days" (inclusive 7-day window).
-    startDate.setDate(startDate.getDate() - daysBack + 1)
-    const startDateStr = formatLocalYmd(startDate)
+    let startDateStr = startDateQuery || ''
+    let endDateStr = endDateQuery || ''
+    let rangeDays = daysBack
 
-    const prevEndDate = new Date(startDate)
-    prevEndDate.setDate(prevEndDate.getDate() - 1)
-    const prevStartDate = new Date(prevEndDate)
-    prevStartDate.setDate(prevStartDate.getDate() - daysBack + 1)
-    const prevStartDateStr = formatLocalYmd(prevStartDate)
-    const prevEndDateStr = formatLocalYmd(prevEndDate)
+    if (!startDateStr || !endDateStr) {
+      const now = new Date()
+      endDateStr = formatLocalYmd(now)
+      const startDate = new Date(now)
+      // daysBack=7 means "today + previous 6 days" (inclusive 7-day window).
+      startDate.setDate(startDate.getDate() - daysBack + 1)
+      startDateStr = formatLocalYmd(startDate)
+      rangeDays = daysBack
+    } else {
+      rangeDays = diffDaysInclusive(startDateStr, endDateStr)
+    }
+
+    const prevEndDateStr = shiftYmd(startDateStr, -1)
+    const prevStartDateStr = shiftYmd(prevEndDateStr, -(rangeDays - 1))
 
     const currencyRows = await db.query<any>(
       `
@@ -111,7 +168,7 @@ export async function GET(request: NextRequest) {
         GROUP BY COALESCE(currency, 'USD')
         ORDER BY total_cost DESC
       `,
-      [userId, startDateStr, endDate]
+      [userId, startDateStr, endDateStr]
     )
 
     const currencies = Array.from(
@@ -239,11 +296,11 @@ export async function GET(request: NextRequest) {
 
     const currentAggByCampaign = await aggregateByCampaignCurrency({
       start: startDateStr,
-      end: endDate,
+      end: endDateStr,
     })
     const currentCommissionByCampaign = await queryCommissionByCampaign({
       start: startDateStr,
-      end: endDate,
+      end: endDateStr,
       currency: reportingCurrency || undefined,
     })
     const pickCampaignCurrency = (params: {
@@ -328,8 +385,8 @@ export async function GET(request: NextRequest) {
           commissionPerClick: roundTo2(commissionPerClick),
           dateRange: {
             start: startDateStr,
-            end: endDate,
-            days: daysBack
+            end: endDateStr,
+            days: rangeDays
           }
         }
       }
@@ -491,12 +548,12 @@ export async function GET(request: NextRequest) {
     const currentTotals = isFilteredByCurrency
       ? await queryTotals({
           start: startDateStr,
-          end: endDate,
+          end: endDateStr,
           currency: String(reportingCurrency),
         })
       : await queryTotalsAll({
           start: startDateStr,
-          end: endDate,
+          end: endDateStr,
         })
 
     const prevTotals = isFilteredByCurrency
@@ -512,7 +569,7 @@ export async function GET(request: NextRequest) {
 
     const currentAttributedCommissionTotal = await queryCommissionTotals({
       start: startDateStr,
-      end: endDate,
+      end: endDateStr,
       currency: reportingCurrency || undefined,
     })
     const prevAttributedCommissionTotal = await queryCommissionTotals({
@@ -522,7 +579,7 @@ export async function GET(request: NextRequest) {
     })
     const currentUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
       start: startDateStr,
-      end: endDate,
+      end: endDateStr,
       currency: reportingCurrency || undefined,
     })
     const prevUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
@@ -600,7 +657,7 @@ export async function GET(request: NextRequest) {
           cost: changes.cost
         },
         comparisonPeriod: {
-          current: { start: startDateStr, end: endDate },
+          current: { start: startDateStr, end: endDateStr },
           previous: { start: prevStartDateStr, end: prevEndDateStr }
         }
       }

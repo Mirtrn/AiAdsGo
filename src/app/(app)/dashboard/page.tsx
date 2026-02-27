@@ -11,6 +11,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Eye,
   MousePointerClick,
@@ -22,7 +28,8 @@ import {
   Rocket,
   AlertTriangle,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  CalendarDays,
 } from 'lucide-react'
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
 import { ApiQuotaChart } from '@/components/dashboard/ApiQuotaChart'
@@ -65,9 +72,22 @@ interface OfferSummary {
   pendingScrape: number
 }
 
+type DashboardTimeRange = '7' | '14' | '30' | 'custom'
+
+const formatDateInputValue = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function DashboardPage() {
   const router = useRouter()
-  const [days, setDays] = useState(7)
+  const [timeRange, setTimeRange] = useState<DashboardTimeRange>('7')
+  const [customRangeOpen, setCustomRangeOpen] = useState(false)
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
   const [kpiData, setKpiData] = useState<KPIData | null>(null)
   const [risks, setRisks] = useState<RiskAlert[]>([])
   const [offerSummary, setOfferSummary] = useState<OfferSummary | null>(null)
@@ -88,8 +108,19 @@ export default function DashboardPage() {
     else setLoading(true)
 
     try {
+      const kpiParams = new URLSearchParams()
+      if (timeRange === 'custom' && appliedCustomRange) {
+        kpiParams.set('start_date', appliedCustomRange.startDate)
+        kpiParams.set('end_date', appliedCustomRange.endDate)
+      } else {
+        kpiParams.set('days', timeRange)
+      }
+      if (showRefresh) {
+        kpiParams.set('refresh', 'true')
+      }
+
       const [kpiRes, riskRes, offerRes] = await Promise.all([
-        fetch(`/api/dashboard/kpis?days=${days}${showRefresh ? '&refresh=true' : ''}`, { credentials: 'include', cache: 'no-store' }),
+        fetch(`/api/dashboard/kpis?${kpiParams.toString()}`, { credentials: 'include', cache: 'no-store' }),
         fetch('/api/risk-alerts?limit=3', { credentials: 'include', cache: 'no-store' }),
         fetch('/api/offers?summary=true', { credentials: 'include', cache: 'no-store' })
       ])
@@ -141,7 +172,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData()
-  }, [days])
+  }, [timeRange, appliedCustomRange?.startDate, appliedCustomRange?.endDate])
 
   const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
 
@@ -189,6 +220,50 @@ export default function DashboardPage() {
     return `${value >= 0 ? '+' : ''}${safeToFixed(value, 1)}%`
   }
 
+  const canApplyCustomRange = Boolean(
+    customStartDate
+      && customEndDate
+      && customStartDate <= customEndDate
+  )
+  const customRangeLabel = appliedCustomRange
+    ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
+    : '自定义'
+
+  const openCustomRange = (open: boolean) => {
+    setCustomRangeOpen(open)
+    if (!open) return
+
+    if (appliedCustomRange) {
+      setCustomStartDate(appliedCustomRange.startDate)
+      setCustomEndDate(appliedCustomRange.endDate)
+      return
+    }
+
+    if (!customStartDate && !customEndDate) {
+      const end = new Date()
+      const start = new Date(end)
+      start.setDate(start.getDate() - 6)
+      setCustomStartDate(formatDateInputValue(start))
+      setCustomEndDate(formatDateInputValue(end))
+    }
+  }
+
+  const applyCustomRange = () => {
+    if (!canApplyCustomRange) return
+    setAppliedCustomRange({ startDate: customStartDate, endDate: customEndDate })
+    setTimeRange('custom')
+    setCustomRangeOpen(false)
+  }
+
+  const widgetDays = (() => {
+    if (timeRange !== 'custom') return Number(timeRange)
+    if (!appliedCustomRange) return 7
+    const startTs = Date.parse(`${appliedCustomRange.startDate}T00:00:00`)
+    const endTs = Date.parse(`${appliedCustomRange.endDate}T00:00:00`)
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs < startTs) return 7
+    return Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1
+  })()
+
   // 加载骨架屏
   if (loading) {
     return (
@@ -229,17 +304,61 @@ export default function DashboardPage() {
             </Button>
             {/* 时间范围 */}
             <div className="flex bg-white rounded-lg border p-1">
-              {[7, 14, 30, 90].map((d) => (
+              {([7, 14, 30] as const).map((d) => (
                 <Button
                   key={d}
-                  variant={days === d ? 'default' : 'ghost'}
+                  variant={timeRange === String(d) ? 'default' : 'ghost'}
                   size="sm"
-                  onClick={() => setDays(d)}
+                  onClick={() => setTimeRange(String(d) as DashboardTimeRange)}
                   className="h-7 px-3 text-xs"
                 >
                   {d}天
                 </Button>
               ))}
+              <DropdownMenu open={customRangeOpen} onOpenChange={openCustomRange}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-3 text-xs max-w-[220px]"
+                  >
+                    <CalendarDays className="w-3 h-3 mr-1" />
+                    <span className="truncate">{customRangeLabel}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72 p-3">
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">开始日期</p>
+                      <Input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">结束日期</p>
+                      <Input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
+                    {customStartDate && customEndDate && customStartDate > customEndDate && (
+                      <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
+                    )}
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={applyCustomRange}
+                      disabled={!canApplyCustomRange}
+                    >
+                      应用时间范围
+                    </Button>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -413,10 +532,10 @@ export default function DashboardPage() {
         {/* API配额、AI Token成本 和 快速开始 - 新布局 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* API配额卡片 */}
-          <ApiQuotaChart days={days} />
+          <ApiQuotaChart days={widgetDays} />
 
           {/* AI Token成本卡片 */}
-          <AiTokenCostChart days={days} />
+          <AiTokenCostChart days={widgetDays} />
 
           {/* 快速开始 - 占1列，最右侧 */}
           <Card>
@@ -505,7 +624,7 @@ export default function DashboardPage() {
 
         {/* Insights */}
         <div className="mt-6">
-          <InsightsCard days={days} />
+          <InsightsCard days={widgetDays} />
         </div>
       </div>
     </div>

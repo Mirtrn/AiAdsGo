@@ -72,11 +72,45 @@ function calculateRoas(commission: number, cost: number): { value: number | null
   }
 }
 
+function parseYmdParam(value: string | null): string | null {
+  if (!value) return null
+  const normalized = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+
+  const [year, month, day] = normalized.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function shiftYmd(ymd: string, deltaDays: number): string {
+  const [year, month, day] = ymd.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + deltaDays)
+  return date.toISOString().slice(0, 10)
+}
+
+function diffDaysInclusive(startYmd: string, endYmd: string): number {
+  const startTs = Date.parse(`${startYmd}T00:00:00Z`)
+  const endTs = Date.parse(`${endYmd}T00:00:00Z`)
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return 1
+  return Math.max(1, Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1)
+}
+
 /**
  * GET /api/dashboard/kpis
  * 获取核心KPI指标（展示、点击、花费、佣金）
  * Query参数：
  * - days: 统计天数（默认7天）
+ * - start_date: 自定义开始日期（可选，YYYY-MM-DD）
+ * - end_date: 自定义结束日期（可选，YYYY-MM-DD）
  */
 export async function GET(request: NextRequest) {
   return getHandler(request)
@@ -91,10 +125,32 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
 
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
-    const days = parseInt(searchParams.get('days') || '7', 10)
+    const rawDays = parseInt(searchParams.get('days') || '7', 10)
+    const days = Number.isFinite(rawDays) ? Math.min(Math.max(rawDays, 1), 3650) : 7
+    const startDateQuery = parseYmdParam(searchParams.get('start_date'))
+    const endDateQuery = parseYmdParam(searchParams.get('end_date'))
+    const hasCustomRangeQuery = searchParams.has('start_date') || searchParams.has('end_date')
+    if (hasCustomRangeQuery) {
+      if (!startDateQuery || !endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 和 end_date 必须同时提供，且格式为 YYYY-MM-DD' },
+          { status: 400 }
+        )
+      }
+      if (startDateQuery > endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 不能晚于 end_date' },
+          { status: 400 }
+        )
+      }
+    }
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('noCache') === 'true'
 
-    const cacheKey = generateCacheKey('kpis', userId, { days })
+    const cacheKey = generateCacheKey('kpis', userId, {
+      days,
+      startDate: startDateQuery || '',
+      endDate: endDateQuery || '',
+    })
     if (!refresh) {
       const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
       if (cached) {
@@ -103,14 +159,22 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     }
 
     const buildResult = async () => {
-      const endDate = new Date()
-      const startDate = new Date()
-      startDate.setDate(startDate.getDate() - days + 1)
+      let currentStartDate = startDateQuery || ''
+      let currentEndDate = endDateQuery || ''
+      let rangeDays = days
+      if (!currentStartDate || !currentEndDate) {
+        const endDate = new Date()
+        const startDate = new Date(endDate)
+        startDate.setDate(startDate.getDate() - days + 1)
+        currentStartDate = formatDate(startDate)
+        currentEndDate = formatDate(endDate)
+        rangeDays = days
+      } else {
+        rangeDays = diffDaysInclusive(currentStartDate, currentEndDate)
+      }
 
-      const previousEndDate = new Date(startDate)
-      previousEndDate.setDate(previousEndDate.getDate() - 1)
-      const previousStartDate = new Date(previousEndDate)
-      previousStartDate.setDate(previousStartDate.getDate() - days + 1)
+      const previousEndDate = shiftYmd(currentStartDate, -1)
+      const previousStartDate = shiftYmd(previousEndDate, -(rangeDays - 1))
 
       const db = await getDatabase()
 
@@ -123,7 +187,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       `
       const currencies = await db.query(
         currencyQuery,
-        [userId, formatDate(startDate), formatDate(endDate)]
+        [userId, currentStartDate, currentEndDate]
       ) as Array<{ currency: string }>
 
       const uniqueCurrencies = currencies.map(c => c.currency).filter(Boolean)
@@ -153,8 +217,8 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       `
 
       const currentDataRaw = isMultiCurrency
-        ? await db.query(currentPeriodQuery, [userId, formatDate(startDate), formatDate(endDate)])
-        : [await db.queryOne(currentPeriodQuery, [userId, formatDate(startDate), formatDate(endDate)])]
+        ? await db.query(currentPeriodQuery, [userId, currentStartDate, currentEndDate])
+        : [await db.queryOne(currentPeriodQuery, [userId, currentStartDate, currentEndDate])]
 
       const currentData = currentDataRaw as Array<{
         currency?: string | null
@@ -178,8 +242,8 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         previousPeriodQuery,
         [
           userId,
-          formatDate(previousStartDate),
-          formatDate(previousEndDate)
+          previousStartDate,
+          previousEndDate
         ]
       ) as {
         impressions: number | null
@@ -236,20 +300,20 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       }
 
       const currentAttributedCommissionTotal = await queryAttributedCommissionTotals({
-        start: formatDate(startDate),
-        end: formatDate(endDate),
+        start: currentStartDate,
+        end: currentEndDate,
       })
       const previousAttributedCommissionTotal = await queryAttributedCommissionTotals({
-        start: formatDate(previousStartDate),
-        end: formatDate(previousEndDate),
+        start: previousStartDate,
+        end: previousEndDate,
       })
       const currentUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
-        start: formatDate(startDate),
-        end: formatDate(endDate),
+        start: currentStartDate,
+        end: currentEndDate,
       })
       const previousUnattributedCommissionTotal = await queryUnattributedCommissionTotals({
-        start: formatDate(previousStartDate),
-        end: formatDate(previousEndDate),
+        start: previousStartDate,
+        end: previousEndDate,
       })
 
       const totalImpressions = currentData.reduce((sum, row) => sum + (Number(row?.impressions) || 0), 0)
@@ -344,12 +408,12 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         changes,
         period: {
           current: {
-            start: formatDate(startDate),
-            end: formatDate(endDate),
+            start: currentStartDate,
+            end: currentEndDate,
           },
           previous: {
-            start: formatDate(previousStartDate),
-            end: formatDate(previousEndDate),
+            start: previousStartDate,
+            end: previousEndDate,
           },
         },
       }

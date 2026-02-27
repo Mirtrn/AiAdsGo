@@ -16,6 +16,31 @@ function formatLocalYmd(date: Date): string {
   }).format(date)
 }
 
+function parseYmdParam(value: string | null): string | null {
+  if (!value) return null
+  const normalized = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+
+  const [year, month, day] = normalized.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function diffDaysInclusive(startYmd: string, endYmd: string): number {
+  const startTs = Date.parse(`${startYmd}T00:00:00Z`)
+  const endTs = Date.parse(`${endYmd}T00:00:00Z`)
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return 1
+  return Math.max(1, Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1)
+}
+
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -51,6 +76,8 @@ function normalizeDateKey(value: unknown): string {
  *
  * Query Parameters:
  * - daysBack: number (可选，默认7天)
+ * - start_date: string (可选，YYYY-MM-DD)
+ * - end_date: string (可选，YYYY-MM-DD)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -61,17 +88,42 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
-    const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const rawDaysBack = parseInt(searchParams.get('daysBack') || '7', 10)
+    const daysBack = Number.isFinite(rawDaysBack) ? Math.min(Math.max(rawDaysBack, 1), 3650) : 7
+    const startDateQuery = parseYmdParam(searchParams.get('start_date'))
+    const endDateQuery = parseYmdParam(searchParams.get('end_date'))
+    const hasCustomRangeQuery = searchParams.has('start_date') || searchParams.has('end_date')
+    if (hasCustomRangeQuery) {
+      if (!startDateQuery || !endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 和 end_date 必须同时提供，且格式为 YYYY-MM-DD' },
+          { status: 400 }
+        )
+      }
+      if (startDateQuery > endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 不能晚于 end_date' },
+          { status: 400 }
+        )
+      }
+    }
     const requestedCurrency = normalizeCurrency(searchParams.get('currency'))
 
     const db = await getDatabase()
 
-    const endDate = new Date()
-    const startDate = new Date(endDate)
-    startDate.setDate(startDate.getDate() - daysBack + 1)
-
-    const startDateStr = formatLocalYmd(startDate)
-    const endDateStr = formatLocalYmd(endDate)
+    let startDateStr = startDateQuery || ''
+    let endDateStr = endDateQuery || ''
+    let rangeDays = daysBack
+    if (!startDateStr || !endDateStr) {
+      const endDate = new Date()
+      const startDate = new Date(endDate)
+      startDate.setDate(startDate.getDate() - daysBack + 1)
+      startDateStr = formatLocalYmd(startDate)
+      endDateStr = formatLocalYmd(endDate)
+      rangeDays = daysBack
+    } else {
+      rangeDays = diffDaysInclusive(startDateStr, endDateStr)
+    }
 
     const currencyRows = await db.query<any>(
       `
@@ -227,7 +279,7 @@ export async function GET(request: NextRequest) {
       dateRange: {
         start: startDateStr,
         end: endDateStr,
-        days: daysBack,
+        days: rangeDays,
       },
       summary: {
         currency: reportingCurrency,

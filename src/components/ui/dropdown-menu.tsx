@@ -17,8 +17,28 @@ const DropdownMenuContext = React.createContext<{
     contentRef: { current: null },
 });
 
-const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
-    const [open, setOpen] = React.useState(false);
+type DropdownMenuProps = {
+    children: React.ReactNode;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+}
+
+const DropdownMenu = ({ children, open: controlledOpen, onOpenChange }: DropdownMenuProps) => {
+    const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+    const isControlled = typeof controlledOpen === "boolean";
+    const open = isControlled ? Boolean(controlledOpen) : uncontrolledOpen;
+
+    const setOpen = React.useCallback<React.Dispatch<React.SetStateAction<boolean>>>((value) => {
+        const nextOpen = typeof value === "function"
+            ? (value as (prevState: boolean) => boolean)(open)
+            : value;
+
+        if (!isControlled) {
+            setUncontrolledOpen(nextOpen);
+        }
+        onOpenChange?.(nextOpen);
+    }, [isControlled, onOpenChange, open]);
+
     const containerRef = React.useRef<HTMLDivElement>(null);
     const contentRef = React.useRef<HTMLDivElement>(null);
 

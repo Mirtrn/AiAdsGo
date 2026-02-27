@@ -41,7 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal, Maximize2 } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal, Maximize2, CalendarDays } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import AdjustCampaignBudgetDialog from '@/components/AdjustCampaignBudgetDialog'
@@ -148,6 +148,15 @@ type BatchOfflinePendingState = {
   accountIssues: BatchOfflineAccountIssue[]
 }
 
+type CampaignsTimeRange = '7' | '14' | '30' | 'custom'
+
+const formatDateInputValue = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const getCampaignCommissionValue = (campaign: Campaign): number | null => {
   const raw = campaign.performance?.commission ?? campaign.performance?.conversions
   if (raw === null || raw === undefined) return null
@@ -185,7 +194,12 @@ export default function CampaignsPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [timeRange, setTimeRange] = useState<string>('7')
+  const [timeRange, setTimeRange] = useState<CampaignsTimeRange>('7')
+  const [isTrendCustomDateRangeOpen, setIsTrendCustomDateRangeOpen] = useState(false)
+  const [isFilterCustomDateRangeOpen, setIsFilterCustomDateRangeOpen] = useState(false)
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
   const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(true)
 
   // Pagination states
@@ -340,6 +354,63 @@ export default function CampaignsPage() {
   const summaryUnattributedCommission = Number(
     summary?.unattributedCommission ?? Math.max(0, summaryTotalCommission - summaryAttributedCommission)
   ) || 0
+  const canApplyCustomRange = Boolean(
+    customStartDate
+      && customEndDate
+      && customStartDate <= customEndDate
+  )
+  const customRangeLabel = appliedCustomRange
+    ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
+    : '自定义'
+
+  const openCustomDateRange = (source: 'trends' | 'filters', open: boolean) => {
+    if (source === 'trends') {
+      setIsTrendCustomDateRangeOpen(open)
+      if (open) setIsFilterCustomDateRangeOpen(false)
+    } else {
+      setIsFilterCustomDateRangeOpen(open)
+      if (open) setIsTrendCustomDateRangeOpen(false)
+    }
+
+    if (!open) return
+
+    if (appliedCustomRange) {
+      setCustomStartDate(appliedCustomRange.startDate)
+      setCustomEndDate(appliedCustomRange.endDate)
+      return
+    }
+
+    if (!customStartDate && !customEndDate) {
+      const end = new Date()
+      const start = new Date(end)
+      start.setDate(start.getDate() - 6)
+      setCustomStartDate(formatDateInputValue(start))
+      setCustomEndDate(formatDateInputValue(end))
+    }
+  }
+
+  const applyCustomDateRange = () => {
+    if (!customStartDate || !customEndDate) {
+      showError('请选择时间范围', '需要同时选择开始日期和结束日期')
+      return
+    }
+    if (customStartDate > customEndDate) {
+      showError('时间范围无效', '结束日期不能早于开始日期')
+      return
+    }
+
+    setAppliedCustomRange({
+      startDate: customStartDate,
+      endDate: customEndDate,
+    })
+    setTimeRange('custom')
+    setIsTrendCustomDateRangeOpen(false)
+    setIsFilterCustomDateRangeOpen(false)
+  }
+
+  const selectPresetTimeRange = (days: Exclude<CampaignsTimeRange, 'custom'>) => {
+    setTimeRange(days)
+  }
 
   const resetBatchOfflineOptions = () => {
     setBatchOfflineBlacklistOffer(false)
@@ -367,12 +438,7 @@ export default function CampaignsPage() {
   useEffect(() => {
     fetchCampaigns()
     fetchTrends()
-  }, [])
-
-  useEffect(() => {
-    fetchCampaigns()
-    fetchTrends()
-  }, [timeRange])
+  }, [timeRange, appliedCustomRange?.startDate, appliedCustomRange?.endDate])
 
   useEffect(() => {
     if (!trendsCurrency) return
@@ -389,7 +455,7 @@ export default function CampaignsPage() {
     return () => {
       window.clearInterval(timer)
     }
-  }, [timeRange, trendsCurrency])
+  }, [timeRange, trendsCurrency, appliedCustomRange?.startDate, appliedCustomRange?.endDate])
 
   useEffect(() => {
     let result = campaigns
@@ -506,12 +572,31 @@ export default function CampaignsPage() {
     })
   }, [campaigns, searchQuery, statusFilter, sortField, sortDirection, pageSize, showDeletedCampaigns])
 
+  const buildDateRangeParams = (currencyOverride?: string): URLSearchParams => {
+    const params = new URLSearchParams()
+    if (timeRange === 'custom') {
+      if (appliedCustomRange) {
+        params.set('start_date', appliedCustomRange.startDate)
+        params.set('end_date', appliedCustomRange.endDate)
+      } else {
+        params.set('daysBack', '7')
+      }
+    } else {
+      params.set('daysBack', timeRange)
+    }
+
+    const currencyParam = currencyOverride || trendsCurrency
+    if (currencyParam) {
+      params.set('currency', currencyParam)
+    }
+
+    return params
+  }
+
   const fetchCampaigns = async (currencyOverride?: string) => {
     try {
       setLoading(true)
-      const currencyParam = currencyOverride || trendsCurrency
-      const currencyQuery = currencyParam ? `&currency=${encodeURIComponent(currencyParam)}` : ''
-      const response = await fetch(`/api/campaigns/performance?daysBack=${timeRange}${currencyQuery}`, {
+      const response = await fetch(`/api/campaigns/performance?${buildDateRangeParams(currencyOverride).toString()}`, {
         credentials: 'include',
       })
 
@@ -547,9 +632,7 @@ export default function CampaignsPage() {
   const fetchTrends = async (currencyOverride?: string) => {
     try {
       setTrendsLoading(true)
-      const currencyParam = currencyOverride || trendsCurrency
-      const currencyQuery = currencyParam ? `&currency=${encodeURIComponent(currencyParam)}` : ''
-      const response = await fetch(`/api/campaigns/trends?daysBack=${timeRange}${currencyQuery}`, {
+      const response = await fetch(`/api/campaigns/trends?${buildDateRangeParams(currencyOverride).toString()}`, {
         credentials: 'include',
       })
 
@@ -1717,19 +1800,64 @@ export default function CampaignsPage() {
               )}
               <span className="text-sm text-gray-500">时间范围:</span>
               <div className="flex gap-1">
-                {[7, 14, 30, 90].map((days) => (
-                  <button
+                {(['7', '14', '30'] as const).map((days) => (
+                  <Button
                     key={days}
-                    onClick={() => setTimeRange(days.toString())}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      timeRange === days.toString()
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
+                    size="sm"
+                    variant={timeRange === days ? 'default' : 'ghost'}
+                    className={`h-8 px-3 text-sm ${timeRange === days ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    onClick={() => selectPresetTimeRange(days)}
                   >
                     {days}天
-                  </button>
+                  </Button>
                 ))}
+                <DropdownMenu
+                  open={isTrendCustomDateRangeOpen}
+                  onOpenChange={(open) => openCustomDateRange('trends', open)}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                      className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 mr-1" />
+                      <span className="truncate">{customRangeLabel}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-72 p-3">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">开始日期</p>
+                        <Input
+                          type="date"
+                          value={customStartDate}
+                          onChange={(e) => setCustomStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">结束日期</p>
+                        <Input
+                          type="date"
+                          value={customEndDate}
+                          onChange={(e) => setCustomEndDate(e.target.value)}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
+                      {customStartDate && customEndDate && customStartDate > customEndDate && (
+                        <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
+                      )}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={applyCustomDateRange}
+                        disabled={!canApplyCustomRange}
+                      >
+                        应用时间范围
+                      </Button>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
@@ -1887,17 +2015,68 @@ export default function CampaignsPage() {
               </div>
 
               {/* Time Range Filter */}
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="时间范围" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">近7天</SelectItem>
-                  <SelectItem value="14">近14天</SelectItem>
-                  <SelectItem value="30">近30天</SelectItem>
-                  <SelectItem value="90">近90天</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-1 border border-gray-200 rounded-md p-1 bg-white">
+                {(['7', '14', '30'] as const).map((days) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    size="sm"
+                    variant={timeRange === days ? 'default' : 'ghost'}
+                    className="h-8 px-2 text-xs"
+                    onClick={() => selectPresetTimeRange(days)}
+                  >
+                    {days}天
+                  </Button>
+                ))}
+                <DropdownMenu
+                  open={isFilterCustomDateRangeOpen}
+                  onOpenChange={(open) => openCustomDateRange('filters', open)}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                      className="h-8 px-2 text-xs max-w-[140px]"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 mr-1" />
+                      <span className="truncate">{customRangeLabel}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-72 p-3">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">开始日期</p>
+                        <Input
+                          type="date"
+                          value={customStartDate}
+                          onChange={(e) => setCustomStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">结束日期</p>
+                        <Input
+                          type="date"
+                          value={customEndDate}
+                          onChange={(e) => setCustomEndDate(e.target.value)}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
+                      {customStartDate && customEndDate && customStartDate > customEndDate && (
+                        <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
+                      )}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={applyCustomDateRange}
+                        disabled={!canApplyCustomRange}
+                      >
+                        应用时间范围
+                      </Button>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
 
               {/* Status Filter */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
