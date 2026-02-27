@@ -81,6 +81,10 @@ const FLASH_OPERATIONS = new Set<string>([
   // 🟢 竞品关键词推断 - Flash
   // 温度0.3，简单关键词列表，模式识别任务
   'competitor_keyword_inference',
+
+  // 🟢 补词相关性打分 - Flash
+  // 结构化JSON输出，批量候选词评分与筛选
+  'keyword_supplement_relevance_scoring',
 ])
 
 const PRO_OPERATIONS = new Set<string>([

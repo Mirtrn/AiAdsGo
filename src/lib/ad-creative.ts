@@ -153,6 +153,14 @@ export interface GeneratedAdCreativeData {
   headlinesWithMetadata?: HeadlineAsset[]
   descriptionsWithMetadata?: DescriptionAsset[]
   qualityMetrics?: QualityMetrics
+  // Runtime-only metadata: returned via API/logs, not persisted in ad_creatives table
+  keywordSupplementation?: {
+    triggered: boolean
+    beforeCount: number
+    afterCount: number
+    addedKeywords: Array<{ keyword: string; source: 'keyword_pool' | 'title_about' }>
+    supplementCapApplied: boolean
+  }
 }
 
 function parsePossiblyNestedJson(value: unknown, maxDepth = 2): unknown {

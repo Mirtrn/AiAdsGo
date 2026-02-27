@@ -27,6 +27,9 @@ export interface StealthBrowserResult {
  */
 export interface AmazonProductData {
   productName: string | null
+  // Raw capture fields for supplementation and audit
+  rawProductTitle?: string | null
+  rawAboutThisItem?: string[]
   productDescription: string | null
   productPrice: string | null
   originalPrice: string | null
@@ -191,6 +194,8 @@ export interface IndependentStoreData {
 export interface IndependentProductData {
   // 基础产品信息
   productName: string | null
+  rawProductTitle?: string | null
+  rawAboutThisItem?: string[]
   productDescription: string | null
   productPrice: string | null
   originalPrice: string | null

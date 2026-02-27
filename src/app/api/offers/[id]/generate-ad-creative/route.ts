@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { findOfferById, markBucketGenerated } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
-import { generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
+import { applyKeywordSupplementationOnce, generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
@@ -297,6 +297,7 @@ export async function POST(
       }))
       const savedCreatives = batchResults.map(item => item.saved)
       const qualityWarnings = batchResults.flatMap(item => item.qualityWarning ? [item.qualityWarning] : [])
+      const keywordSupplementations = generatedDataList.map(item => item.keywordSupplementation || null)
 
       console.log(
         `✅ ${savedCreatives.length} 个广告创意已保存（质量告警 ${qualityWarnings.length} 个）`
@@ -314,6 +315,7 @@ export async function POST(
           hardBlockSource: 'launch_score'
         },
         creatives: savedCreatives,  // 前端期望 creatives 字段
+        keywordSupplementations,
         count: savedCreatives.length,
         qualityWarningCount: qualityWarnings.length,
         qualityWarnings,
@@ -326,6 +328,7 @@ export async function POST(
         referencePerformance: reference_performance,
         skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
         searchTermFeedbackHints,
+        deferKeywordSupplementation: bucket === 'D',
         // 🆕 v4.16: 传递bucket信息
         bucket: bucket,
         bucketIntent: bucketIntent,
@@ -334,6 +337,7 @@ export async function POST(
 
       // ✅ D桶要求全量覆盖：强制使用全部合格关键词
       if (bucket === 'D') {
+        let poolCandidates: string[] = []
         try {
           const { getKeywordsByLinkTypeAndBucket } = await import('@/lib/offer-keyword-pool')
           const bucketResult = await getKeywordsByLinkTypeAndBucket(
@@ -342,6 +346,7 @@ export async function POST(
             'D'
           )
           const keywordStrings = bucketResult.keywords.map(kw => kw.keyword)
+          poolCandidates = keywordStrings
 
           if (keywordStrings.length > 0) {
             generatedData.keywords = keywordStrings
@@ -358,6 +363,32 @@ export async function POST(
           }
         } catch (error: any) {
           console.warn(`⚠️ D桶全量关键词同步失败: ${error.message}`)
+        }
+
+        try {
+          const baseKeywordsWithVolume = Array.isArray(generatedData.keywordsWithVolume)
+            ? generatedData.keywordsWithVolume
+            : generatedData.keywords.map(keyword => ({
+                keyword,
+                searchVolume: 0,
+                matchType: 'PHRASE' as const,
+                source: 'AI_GENERATED' as const
+              }))
+
+          const supplemented = await applyKeywordSupplementationOnce({
+            offer,
+            userId,
+            brandName: offer.brand || 'Unknown',
+            targetLanguage: offer.target_language || 'English',
+            keywordsWithVolume: baseKeywordsWithVolume,
+            poolCandidates,
+          })
+
+          generatedData.keywords = supplemented.keywords
+          generatedData.keywordsWithVolume = supplemented.keywordsWithVolume
+          generatedData.keywordSupplementation = supplemented.keywordSupplementation
+        } catch (error: any) {
+          console.warn(`⚠️ D桶补词失败: ${error?.message || error}`)
         }
       }
 
@@ -445,6 +476,7 @@ export async function POST(
           failureType: gateDecision.failureType,
           rsaQualityGate: evaluation.rsaQualityGate,
         },
+        keywordSupplementation: generatedData.keywordSupplementation || null,
         bucket: bucket,  // 🆕 当前生成的bucket类型
         bucketIntent: bucketIntent,  // 🆕 bucket主题描述
         generatedBuckets: updatedGeneratedBuckets,  // 🆕 更新后的已生成列表

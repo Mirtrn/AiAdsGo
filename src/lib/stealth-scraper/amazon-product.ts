@@ -1298,6 +1298,8 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
 
   const productData: AmazonProductData = {
     productName: finalProductName,
+    rawProductTitle: finalProductName,
+    rawAboutThisItem: features.slice(0, 10),
     productDescription,
     productPrice: finalPrice,
     originalPrice,

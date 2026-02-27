@@ -13,7 +13,7 @@ import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义
 import { generateContent, getGeminiMode, type ResponseSchema } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
-import { loadPrompt } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
+import { loadPrompt, interpolateTemplate } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
 import { calculateIntentScore, getIntentLevel } from './keyword-priority-classifier'  // 🎯 购买意图评分
 import {
   normalizeGoogleAdsKeyword,
@@ -1909,6 +1909,608 @@ export interface KeywordWithVolume {
   volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
+export interface KeywordSupplementationReport {
+  triggered: boolean
+  beforeCount: number
+  afterCount: number
+  addedKeywords: Array<{ keyword: string; source: 'keyword_pool' | 'title_about' }>
+  supplementCapApplied: boolean
+}
+
+interface ApplyKeywordSupplementationOnceInput {
+  offer: any
+  userId: number
+  brandName: string
+  targetLanguage: string
+  keywordsWithVolume: KeywordWithVolume[]
+  poolCandidates?: string[]
+  triggerThreshold?: number
+  supplementCap?: number
+}
+
+interface ApplyKeywordSupplementationOnceOutput {
+  keywordsWithVolume: KeywordWithVolume[]
+  keywords: string[]
+  keywordSupplementation: KeywordSupplementationReport
+}
+
+const KEYWORD_SUPPLEMENT_TRIGGER_THRESHOLD = 10
+const KEYWORD_SUPPLEMENT_CAP = 20
+const KEYWORD_SUPPLEMENT_MODEL_PASS_SCORE = 70
+const KEYWORD_SUPPLEMENT_MODEL_MAX_CANDIDATES = 60
+const KEYWORD_SUPPLEMENT_SCORING_PROMPT_ID = 'keyword_supplement_relevance_scoring'
+const KEYWORD_SUPPLEMENT_SCORING_PROMPT_FALLBACK = `You are a strict SEO keyword relevance scorer for paid search.
+Task: score candidate supplemental keywords for product ads.
+
+Source: {{source}}
+Brand: {{brandName}}
+Target language: {{targetLanguage}}
+
+Product title:
+{{titleLine}}
+
+About this item:
+{{aboutBlock}}
+
+Existing high-confidence keywords:
+{{existingLines}}
+
+Candidate keywords to score:
+{{candidateLines}}
+
+Scoring rules (0-100):
+- Keep only query-like keywords clearly related to product/category/function/use-case/material/spec.
+- Reject generic marketing slogans or vague phrases (e.g., "easy clean", "wide use").
+- Reject candidates that are semantically detached from product context.
+- Prefer candidates likely to be real user search queries.
+
+Output JSON only with this structure:
+{ "assessments": [ { "candidate": "...", "score": 0-100, "keep": true|false, "reason": "..." } ] }
+Include every candidate exactly once in assessments.`
+const KEYWORD_SUPPLEMENT_STOPWORDS_EN = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'from', 'as',
+  'this', 'that', 'these', 'those', 'it', 'its', 'is', 'are', 'be', 'can', 'will', 'you', 'your', 'our',
+  'because'
+])
+const KEYWORD_SUPPLEMENT_GENERIC_TOKENS_EN = new Set([
+  'easy', 'clean', 'wide', 'use', 'quality', 'premium', 'durable', 'reliable', 'best',
+  'new', 'hot', 'top', 'great', 'good', 'nice', 'perfect', 'ultimate', 'professional',
+  'advanced', 'improved'
+])
+const KEYWORD_SUPPLEMENT_BANNED_PHRASES_EN = new Set([
+  'easy clean',
+  'easy to clean',
+  'wide use',
+  'wide usage',
+  'high quality',
+  'premium quality',
+  'best quality',
+])
+
+function matchesTargetLanguageScriptForKeyword(keyword: string, targetLanguage: string): boolean {
+  const base = normalizeLanguageCode(targetLanguage || 'English').split(/[-_]/)[0]
+  const text = String(keyword || '')
+  if (!text.trim()) return false
+
+  if (base === 'zh') return /[\p{Script=Han}]/u.test(text)
+  if (base === 'ja') return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text)
+  if (base === 'ko') return /[\p{Script=Hangul}]/u.test(text)
+  if (base === 'ru') return /[\p{Script=Cyrillic}]/u.test(text)
+  if (base === 'ar') return /[\p{Script=Arabic}]/u.test(text)
+
+  const hasLatin = /[\p{Script=Latin}]/u.test(text)
+  if (!hasLatin) return false
+  return !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Cyrillic}]/u.test(text)
+}
+
+function normalizeSupplementCandidate(raw: string): string {
+  return String(raw || '')
+    .replace(/[•·]/g, ' ')
+    .replace(/[\/_-]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s&]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenizeSupplementCandidate(raw: string): string[] {
+  return normalizeSupplementCandidate(raw)
+    .split(/\s+/)
+    .map(part => part.trim())
+    .filter(Boolean)
+}
+
+function isStructuredSupplementKeyword(keyword: string, targetLanguage: string): boolean {
+  const cleaned = normalizeSupplementCandidate(keyword)
+  if (!cleaned) return false
+  if (cleaned.length < 4 || cleaned.length > 80) return false
+  if (!matchesTargetLanguageScriptForKeyword(cleaned, targetLanguage)) return false
+
+  const languageBase = normalizeLanguageCode(targetLanguage || 'English').split(/[-_]/)[0]
+  const isCjkLanguage = languageBase === 'zh' || languageBase === 'ja' || languageBase === 'ko'
+  const words = tokenizeSupplementCandidate(cleaned)
+  if (isCjkLanguage) {
+    const compact = cleaned.replace(/\s+/g, '')
+    return compact.length >= 2 && compact.length <= 30
+  }
+  if (words.length < 2 || words.length > 6) return false
+
+  const lowerWords = words.map(word => word.toLowerCase())
+  const normalizedPhrase = lowerWords.join(' ')
+  if (KEYWORD_SUPPLEMENT_BANNED_PHRASES_EN.has(normalizedPhrase)) return false
+  const allStopwords = lowerWords.every(word => KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(word))
+  if (allStopwords) return false
+
+  const startsWithStopword = KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(lowerWords[0])
+  const endsWithStopword = KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(lowerWords[lowerWords.length - 1])
+  const secondTokenIsStopword = lowerWords.length >= 3 && KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(lowerWords[1])
+  if (startsWithStopword || endsWithStopword || secondTokenIsStopword) return false
+
+  const stopwordCount = lowerWords.filter(word => KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(word)).length
+  if (stopwordCount / lowerWords.length >= 0.4) return false
+  const nonStopwords = lowerWords.filter(word => !KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(word))
+  if (nonStopwords.length === 0) return false
+  const genericTokenCount = nonStopwords.filter(word => KEYWORD_SUPPLEMENT_GENERIC_TOKENS_EN.has(word)).length
+  if (genericTokenCount === nonStopwords.length && nonStopwords.length <= 3) return false
+
+  return true
+}
+
+function buildSupplementContextTokens(
+  title: string,
+  existingKeywords: KeywordWithVolume[]
+): Set<string> {
+  const seedTexts = [
+    title,
+    ...existingKeywords.map(kw => kw.keyword),
+  ]
+
+  const tokens = new Set<string>()
+  for (const seed of seedTexts) {
+    for (const rawToken of tokenizeSupplementCandidate(seed)) {
+      const token = rawToken.toLowerCase()
+      if (token.length < 3) continue
+      if (KEYWORD_SUPPLEMENT_STOPWORDS_EN.has(token)) continue
+      if (KEYWORD_SUPPLEMENT_GENERIC_TOKENS_EN.has(token)) continue
+      tokens.add(token)
+    }
+  }
+
+  return tokens
+}
+
+interface SupplementCandidateAssessment {
+  candidate: string
+  score: number
+  keep: boolean
+  reason?: string
+}
+
+interface RankSupplementCandidatesWithModelInput {
+  source: 'keyword_pool' | 'title_about'
+  candidates: string[]
+  userId: number
+  brandName: string
+  targetLanguage: string
+  title: string
+  about: string[]
+  existingKeywords: KeywordWithVolume[]
+}
+
+interface BuildKeywordSupplementScoringPromptInput {
+  source: 'keyword_pool' | 'title_about'
+  brandName: string
+  targetLanguage: string
+  titleLine: string
+  aboutBlock: string
+  existingLines: string
+  candidateLines: string
+}
+
+async function buildKeywordSupplementScoringPrompt(
+  input: BuildKeywordSupplementScoringPromptInput
+): Promise<string> {
+  const variables = {
+    source: input.source,
+    brandName: input.brandName || 'N/A',
+    targetLanguage: input.targetLanguage || 'English',
+    titleLine: input.titleLine || 'N/A',
+    aboutBlock: input.aboutBlock || 'N/A',
+    existingLines: input.existingLines || 'N/A',
+    candidateLines: input.candidateLines || 'N/A',
+  }
+
+  try {
+    const promptTemplate = await loadPrompt(KEYWORD_SUPPLEMENT_SCORING_PROMPT_ID)
+    return interpolateTemplate(promptTemplate, variables)
+  } catch (error: any) {
+    console.warn(
+      `[KeywordSupplement] 加载 prompt(${KEYWORD_SUPPLEMENT_SCORING_PROMPT_ID}) 失败，回退内置模板: ${error?.message || error}`
+    )
+    return interpolateTemplate(KEYWORD_SUPPLEMENT_SCORING_PROMPT_FALLBACK, variables)
+  }
+}
+
+async function rankSupplementCandidatesWithModel(
+  input: RankSupplementCandidatesWithModelInput
+): Promise<string[]> {
+  const uniqueCandidates: string[] = []
+  const seen = new Set<string>()
+  for (const raw of input.candidates) {
+    const cleaned = normalizeSupplementCandidate(raw)
+    const normalized = normalizeGoogleAdsKeyword(cleaned)
+    if (!cleaned || !normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    uniqueCandidates.push(cleaned)
+    if (uniqueCandidates.length >= KEYWORD_SUPPLEMENT_MODEL_MAX_CANDIDATES) break
+  }
+
+  if (uniqueCandidates.length === 0) return []
+
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+    return uniqueCandidates
+  }
+
+  const existingKeywordTexts = input.existingKeywords
+    .map(kw => normalizeSupplementCandidate(kw.keyword))
+    .filter(Boolean)
+    .slice(0, 20)
+
+  const titleLine = input.title || 'N/A'
+  const aboutLines = (input.about || []).slice(0, 8)
+  const candidateLines = uniqueCandidates.map((kw, idx) => `${idx + 1}. ${kw}`).join('\n')
+  const existingLines = existingKeywordTexts.length > 0
+    ? existingKeywordTexts.map((kw, idx) => `${idx + 1}. ${kw}`).join('\n')
+    : 'N/A'
+  const aboutBlock = aboutLines.length > 0
+    ? aboutLines.map((line, idx) => `${idx + 1}. ${line}`).join('\n')
+    : 'N/A'
+  const prompt = await buildKeywordSupplementScoringPrompt({
+    source: input.source,
+    brandName: input.brandName,
+    targetLanguage: input.targetLanguage,
+    titleLine,
+    aboutBlock,
+    existingLines,
+    candidateLines,
+  })
+
+  const responseSchema: ResponseSchema = {
+    type: 'OBJECT',
+    properties: {
+      assessments: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            candidate: { type: 'STRING' },
+            score: { type: 'NUMBER' },
+            keep: { type: 'BOOLEAN' },
+            reason: { type: 'STRING' },
+          },
+          required: ['candidate', 'score', 'keep'],
+        },
+      },
+    },
+    required: ['assessments'],
+  }
+
+  try {
+    const aiResponse = await generateContent({
+      operationType: 'keyword_supplement_relevance_scoring',
+      prompt,
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      responseSchema,
+      responseMimeType: 'application/json',
+    }, input.userId)
+
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId: input.userId,
+        model: aiResponse.model,
+        operationType: 'keyword_supplement_relevance_scoring',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
+
+    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      throw new Error('model output missing JSON')
+    }
+
+    const parsed = JSON.parse(repairJsonText(jsonMatch[0])) as {
+      assessments?: SupplementCandidateAssessment[]
+    }
+    const assessments = Array.isArray(parsed.assessments) ? parsed.assessments : []
+
+    const scoredByNormalized = new Map<string, SupplementCandidateAssessment>()
+    for (const item of assessments) {
+      const normalized = normalizeGoogleAdsKeyword(item?.candidate || '')
+      if (!normalized) continue
+      const score = Number.isFinite(Number(item?.score)) ? Number(item.score) : 0
+      const keep = Boolean(item?.keep) || score >= KEYWORD_SUPPLEMENT_MODEL_PASS_SCORE
+      const existing = scoredByNormalized.get(normalized)
+      if (!existing || score > existing.score) {
+        scoredByNormalized.set(normalized, {
+          candidate: normalizeSupplementCandidate(item?.candidate || ''),
+          score,
+          keep,
+          reason: typeof item?.reason === 'string' ? item.reason : '',
+        })
+      }
+    }
+
+    const ranked = uniqueCandidates
+      .map((candidate) => {
+        const normalized = normalizeGoogleAdsKeyword(candidate)
+        const scored = normalized ? scoredByNormalized.get(normalized) : undefined
+        return {
+          candidate,
+          score: scored?.score ?? 0,
+          keep: scored?.keep ?? false,
+        }
+      })
+      .filter(item => item.keep || item.score >= KEYWORD_SUPPLEMENT_MODEL_PASS_SCORE)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.candidate)
+
+    if (ranked.length > 0) {
+      return ranked
+    }
+  } catch (error: any) {
+    console.warn(`[KeywordSupplement] 模型打分失败，回退规则筛选: ${error?.message || error}`)
+  }
+
+  return uniqueCandidates
+}
+
+function extractRawTitleAndAboutForSupplement(offer: any): { title: string; about: string[] } {
+  const scrapedData = safeParseJson(offer?.scraped_data, {}) || {}
+  const title = normalizeSnippetText(
+    scrapedData?.rawProductTitle ||
+    scrapedData?.productName ||
+    offer?.product_name ||
+    ''
+  )
+
+  const normalizeList = (input: unknown): string[] => {
+    if (!Array.isArray(input)) return []
+    return input
+      .map(item => normalizeSnippetText(String(item || '')))
+      .filter(Boolean)
+      .slice(0, 8)
+  }
+
+  let about = normalizeList(scrapedData?.rawAboutThisItem)
+  if (about.length === 0) about = normalizeList(scrapedData?.aboutThisItem)
+  if (about.length === 0) about = normalizeList(scrapedData?.features)
+  if (about.length === 0) about = normalizeList(scrapedData?.productFeatures)
+
+  if (about.length === 0 && typeof scrapedData?.productDescription === 'string') {
+    about = scrapedData.productDescription
+      .split(/[\n.;!?]+/)
+      .map((line: string) => normalizeSnippetText(line))
+      .filter((line: string) => line.length >= 12)
+      .slice(0, 6)
+  }
+
+  return { title, about }
+}
+
+function buildTitleAboutSupplementCandidates(
+  title: string,
+  about: string[],
+  targetLanguage: string
+): string[] {
+  const signals = extractTitleAndAboutSignals(title, about)
+  const seedTexts = [
+    signals.productTitle,
+    ...signals.titlePhrases,
+    ...signals.aboutClaims,
+    ...signals.keywordSeeds,
+  ].filter(Boolean)
+
+  const candidates: string[] = []
+  const seen = new Set<string>()
+  const push = (phrase: string) => {
+    const cleaned = normalizeSupplementCandidate(phrase)
+    const norm = normalizeGoogleAdsKeyword(cleaned)
+    if (!norm || seen.has(norm)) return
+    if (!isStructuredSupplementKeyword(cleaned, targetLanguage)) return
+    const intent = classifyKeywordIntent(cleaned, { language: targetLanguage })
+    if (intent.hardNegative) return
+    seen.add(norm)
+    candidates.push(cleaned)
+  }
+
+  for (const text of seedTexts) {
+    const words = tokenizeSupplementCandidate(text)
+    if (words.length >= 2 && words.length <= 6) {
+      push(words.join(' '))
+      continue
+    }
+
+    if (words.length > 6) {
+      // Prefer complete leading keyphrases over arbitrary sliding n-grams.
+      // This keeps supplementation semantically coherent (e.g. "non slip bath mat")
+      // and avoids broken fragments like "fit under" / "backing non".
+      push(words.slice(0, 6).join(' '))
+      push(words.slice(0, 5).join(' '))
+      push(words.slice(0, 4).join(' '))
+    }
+  }
+
+  return candidates
+}
+
+async function loadPoolCandidatesForSupplement(offerId: number): Promise<string[]> {
+  try {
+    const { getKeywordPoolByOfferId } = await import('./offer-keyword-pool')
+    const pool = await getKeywordPoolByOfferId(offerId)
+    if (!pool) return []
+
+    const extractKeywords = (list: Array<{ keyword?: string } | string>): string[] =>
+      list
+        .map((item) => (typeof item === 'string' ? item : String(item?.keyword || '')))
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+    return [
+      ...extractKeywords(pool.brandKeywords || []),
+      ...extractKeywords(pool.bucketAKeywords || []),
+      ...extractKeywords(pool.bucketBKeywords || []),
+      ...extractKeywords(pool.bucketCKeywords || []),
+      ...extractKeywords(pool.bucketDKeywords || []),
+      ...extractKeywords(pool.storeBucketAKeywords || []),
+      ...extractKeywords(pool.storeBucketBKeywords || []),
+      ...extractKeywords(pool.storeBucketCKeywords || []),
+      ...extractKeywords(pool.storeBucketDKeywords || []),
+      ...extractKeywords(pool.storeBucketSKeywords || []),
+    ]
+  } catch (error: any) {
+    console.warn(`[KeywordSupplement] 读取关键词池失败: ${error?.message || error}`)
+    return []
+  }
+}
+
+export async function applyKeywordSupplementationOnce(
+  input: ApplyKeywordSupplementationOnceInput
+): Promise<ApplyKeywordSupplementationOnceOutput> {
+  const triggerThreshold = input.triggerThreshold ?? KEYWORD_SUPPLEMENT_TRIGGER_THRESHOLD
+  const supplementCap = input.supplementCap ?? KEYWORD_SUPPLEMENT_CAP
+  const beforeKeywords = [...(input.keywordsWithVolume || [])]
+  const beforeCount = beforeKeywords.length
+
+  if (beforeCount >= triggerThreshold) {
+    return {
+      keywordsWithVolume: beforeKeywords,
+      keywords: beforeKeywords.map(kw => kw.keyword),
+      keywordSupplementation: {
+        triggered: false,
+        beforeCount,
+        afterCount: beforeCount,
+        addedKeywords: [],
+        supplementCapApplied: false,
+      },
+    }
+  }
+
+  const maxAddCount = Math.max(0, supplementCap - beforeCount)
+  const seen = new Set(
+    beforeKeywords
+      .map(kw => normalizeGoogleAdsKeyword(kw.keyword))
+      .filter(Boolean)
+  )
+
+  const added: Array<{ keyword: string; source: 'keyword_pool' | 'title_about' }> = []
+  const supplementWithVolume: KeywordWithVolume[] = []
+  const pureBrandKeywords = getPureBrandKeywords(input.brandName || '')
+  const rawContextForRelevance = extractRawTitleAndAboutForSupplement(input.offer)
+  const contextTokens = buildSupplementContextTokens(rawContextForRelevance.title, beforeKeywords)
+
+  const tryAdd = (rawKeyword: string, source: 'keyword_pool' | 'title_about') => {
+    if (maxAddCount <= 0 || added.length >= maxAddCount) return
+    const cleaned = normalizeSupplementCandidate(rawKeyword)
+    const normalized = normalizeGoogleAdsKeyword(cleaned)
+    if (!normalized || seen.has(normalized)) return
+    if (!isStructuredSupplementKeyword(cleaned, input.targetLanguage)) return
+    const intent = classifyKeywordIntent(cleaned, { language: input.targetLanguage })
+    if (intent.hardNegative) return
+    if (source === 'title_about' && contextTokens.size > 0) {
+      const candidateTokens = tokenizeSupplementCandidate(cleaned)
+        .map(token => token.toLowerCase())
+        .filter(token => token.length >= 3)
+      const hasContextOverlap = candidateTokens.some(token => contextTokens.has(token))
+      if (!hasContextOverlap) return
+    }
+
+    seen.add(normalized)
+    added.push({ keyword: cleaned, source })
+    supplementWithVolume.push({
+      keyword: cleaned,
+      searchVolume: 0,
+      source: source === 'keyword_pool' ? 'KEYWORD_POOL' : 'AI_GENERATED',
+      matchType: shouldUseExactMatch(cleaned, pureBrandKeywords) ? 'EXACT' : 'PHRASE',
+    })
+  }
+
+  const dbPoolCandidates = await loadPoolCandidatesForSupplement(Number(input.offer?.id || 0))
+  const orderedPoolCandidatesRaw = [
+    ...(input.poolCandidates || []),
+    ...dbPoolCandidates,
+  ]
+  const orderedPoolCandidates = await rankSupplementCandidatesWithModel({
+    source: 'keyword_pool',
+    candidates: orderedPoolCandidatesRaw,
+    userId: input.userId,
+    brandName: input.brandName,
+    targetLanguage: input.targetLanguage,
+    title: rawContextForRelevance.title,
+    about: rawContextForRelevance.about,
+    existingKeywords: beforeKeywords,
+  })
+  for (const candidate of orderedPoolCandidates) {
+    tryAdd(candidate, 'keyword_pool')
+    if (added.length >= maxAddCount) break
+  }
+
+  if (added.length < maxAddCount) {
+    const titleAboutCandidatesRaw = buildTitleAboutSupplementCandidates(
+      rawContextForRelevance.title,
+      rawContextForRelevance.about,
+      input.targetLanguage
+    )
+    const titleAboutCandidates = await rankSupplementCandidatesWithModel({
+      source: 'title_about',
+      candidates: titleAboutCandidatesRaw,
+      userId: input.userId,
+      brandName: input.brandName,
+      targetLanguage: input.targetLanguage,
+      title: rawContextForRelevance.title,
+      about: rawContextForRelevance.about,
+      existingKeywords: [...beforeKeywords, ...supplementWithVolume],
+    })
+    for (const candidate of titleAboutCandidates) {
+      tryAdd(candidate, 'title_about')
+      if (added.length >= maxAddCount) break
+    }
+  }
+
+  const merged = [...beforeKeywords, ...supplementWithVolume]
+  const afterCount = merged.length
+  const supplementCapApplied = beforeCount < supplementCap && afterCount >= supplementCap
+
+  console.log(
+    `[KeywordSupplement] offer=${input.offer?.id || 'unknown'} triggered=true before=${beforeCount} after=${afterCount} added=${added.length} cap=${supplementCap}`
+  )
+  if (added.length > 0) {
+    console.log(
+      `[KeywordSupplement] added: ${added.map(item => `${item.keyword} [${item.source}]`).slice(0, 12).join(' | ')}`
+    )
+  }
+
+  return {
+    keywordsWithVolume: merged,
+    keywords: merged.map(kw => kw.keyword),
+    keywordSupplementation: {
+      triggered: true,
+      beforeCount,
+      afterCount,
+      addedKeywords: added,
+      supplementCapApplied,
+    },
+  }
+}
+
 interface ExtractedKeywordForMerge {
   keyword?: string
   searchVolume: number
@@ -2261,13 +2863,12 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
     }
   }
 
-  // 强制约束2/3：非品牌词阈值 + 最小关键词数量
+  // 强制约束2：非品牌词阈值
   console.log(`\n📌 强制约束2: 非品牌词搜索量 >= ${dynamicNonBrandMinSearchVolume} 或来自高价值词提取`)
   console.log(`   - 搜索量达标的非品牌词: ${filteredNonBrandKeywords.length} 个`)
   console.log(`   - 提取的高价值词 (>10000): ${extractedGenericKeywords.length} 个`)
   console.log(`   - 合计非品牌词: ${enhancedNonBrandKeywords.length} 个`)
 
-  console.log(`\n📌 强制约束3: 保留最少 10 个关键词（只补充搜索量>0的关键词）`)
   const hasAnyVolumeBrand = brandRelatedKeywords.some(kw => kw.searchVolume > 0)
   const shouldFilterBrandByVolume = hasAnyVolumeBrand && !volumeDataUnavailable
   const allBrandKeywords = [
@@ -2277,30 +2878,8 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
   let finalKeywords = [...allBrandKeywords, ...enhancedNonBrandKeywords]
   console.log(`   📊 初始合并: ${allBrandKeywords.length} 品牌词 + ${enhancedNonBrandKeywords.length} 非品牌词 = ${finalKeywords.length} 个`)
 
-  if (finalKeywords.length < 10) {
-    const needMore = 10 - finalKeywords.length
-    const hasAnyVolumeForSupplement = nonBrandKeywords.some(kw => kw.searchVolume > 0)
-    const enforceVolumeFilter = hasAnyVolumeForSupplement && !volumeDataUnavailable
-    const supplementaryKeywords = nonBrandKeywords
-      .filter(kw => !finalKeywords.some(fk => fk.keyword === kw.keyword))
-      .filter(kw => enforceVolumeFilter ? kw.searchVolume > 0 : true)
-      .sort((a, b) => b.searchVolume - a.searchVolume)
-      .slice(0, needMore)
-
-    if (supplementaryKeywords.length > 0) {
-      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个${enforceVolumeFilter ? '低搜索量' : ''}关键词:`)
-      supplementaryKeywords.forEach(kw => {
-        if (!kw.matchType) kw.matchType = 'PHRASE'
-        console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月) [补充]`)
-      })
-      finalKeywords = [...finalKeywords, ...supplementaryKeywords]
-    } else {
-      console.log(`   ℹ️ 没有更多${enforceVolumeFilter ? '有搜索量的' : ''}关键词可补充，当前关键词数: ${finalKeywords.length}`)
-    }
-  }
-
-  // 强制约束4：移除无搜索量关键词（纯品牌词豁免）
-  console.log(`\n📌 强制约束4: 移除所有搜索量为0或null的关键词（品牌词除外）`)
+  // 强制约束3：移除无搜索量关键词（纯品牌词豁免）
+  console.log(`\n📌 强制约束3: 移除所有搜索量为0或null的关键词（品牌词除外）`)
   const beforeFinalFilter = finalKeywords.length
   const hasAnyVolumeData = finalKeywords.some(kw => kw.searchVolume > 0)
   const pureBrandKeywordNormalized = new Set(
@@ -2338,8 +2917,8 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
     })
   }
 
-  // 强制约束5：购买意图评分过滤
-  console.log(`\n📌 强制约束5: 购买意图评分过滤（移除纯信息查询词）`)
+  // 强制约束4：购买意图评分过滤
+  console.log(`\n📌 强制约束4: 购买意图评分过滤（移除纯信息查询词）`)
   const MIN_INTENT_SCORE = KEYWORD_POLICY.creative.minIntentScore
   const EXPLORE_MIN_INTENT_SCORE = KEYWORD_POLICY.creative.explore.minIntentScore
   const EXPLORE_MAX_INTENT_SCORE = Math.min(
@@ -5506,6 +6085,7 @@ export async function generateAdCreative(
     bucketKeywords?: string[]
     bucketIntent?: string
     bucketIntentEn?: string
+    deferKeywordSupplementation?: boolean
     // 🆕 2025-12-16: 综合创意专用参数
     isSyntheticCreative?: boolean  // 是否为综合创意
     syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
@@ -6301,6 +6881,22 @@ export async function generateAdCreative(
   keywordsWithVolume = finalizedKeywords.keywordsWithVolume
   result.keywords = finalizedKeywords.keywords
 
+  let keywordSupplementationReport: KeywordSupplementationReport | undefined
+  if (!options?.deferKeywordSupplementation) {
+    const supplemented = await applyKeywordSupplementationOnce({
+      offer,
+      userId,
+      brandName,
+      targetLanguage: resolvedTargetLanguage,
+      keywordsWithVolume,
+      poolCandidates: Array.isArray(options?.bucketKeywords) ? options.bucketKeywords : undefined,
+    })
+    keywordsWithVolume = supplemented.keywordsWithVolume
+    result.keywords = supplemented.keywords
+    keywordSupplementationReport = supplemented.keywordSupplementation
+    result.keywordSupplementation = keywordSupplementationReport
+  }
+
   // ✅ 基础约束修复：CTA（多语言软补强）与关键词嵌入率（English）
   const resolvedLanguage = normalizeLanguageCode(targetLanguage)
   const resolvedSoftLanguage = resolveSoftCopyLanguage(targetLanguage || resolvedLanguage)
@@ -6397,6 +6993,7 @@ export async function generateAdCreative(
     ...result,
     keywordsWithVolume,
     negativeKeywords,  // 🎯 新增：添加否定关键词到结果
+    keywordSupplementation: keywordSupplementationReport,
     ai_model: aiModel
   }
 
@@ -6428,6 +7025,7 @@ export async function generateAdCreativesBatch(
     skipCache?: boolean
     retryFailureType?: RetryFailureType
     searchTermFeedbackHints?: SearchTermFeedbackHintsInput
+    deferKeywordSupplementation?: boolean
   }
 ): Promise<Array<GeneratedAdCreativeData & { ai_model: string }>> {
   // 限制数量在1-3之间

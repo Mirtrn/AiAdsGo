@@ -15,5 +15,8 @@ export { getAIConfig, getLanguageInstruction } from './ai-config'
 export {
   generateAdCreative,
   generateAdCreativesBatch,
-  generateMultipleCreativesWithDiversityCheck
+  generateMultipleCreativesWithDiversityCheck,
+  applyKeywordSupplementationOnce,
 } from '../ad-creative-generator'
+
+export type { KeywordSupplementationReport } from '../ad-creative-generator'

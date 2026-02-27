@@ -157,6 +157,9 @@ export async function validateUrl(url: string, customProxyUrl?: string): Promise
  */
 export interface ScrapedProductData {
   productName: string | null
+  // Raw capture fields (source text for keyword supplementation/audit)
+  rawProductTitle?: string | null
+  rawAboutThisItem?: string[]
   productDescription: string | null
   productPrice: string | null
   productCategory: string | null
@@ -629,6 +632,8 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
 
   return {
     productName: productTitle || null,
+    rawProductTitle: productTitle || null,
+    rawAboutThisItem: features.slice(0, 10),
     productDescription: $('#feature-bullets').text().trim() || $('#productDescription').text().trim() || null,
     productPrice,
     productCategory: $('#wayfinding-breadcrumbs_feature_div').text().trim() || null,
@@ -907,6 +912,8 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
   // ==================== 10. 返回增强的数据结构 ====================
   return {
     productName: $('.product-title').text().trim() || $('h1').first().text().trim() || null,
+    rawProductTitle: $('.product-title').text().trim() || $('h1').first().text().trim() || null,
+    rawAboutThisItem: [...coreFeatures, ...secondaryFeatures].slice(0, 20),
     productDescription,
     productPrice: $('.product-price').first().text().trim() || $('[class*="price"]').first().text().trim() || null,
     productCategory: $('.breadcrumbs').text().trim() || null,
@@ -1028,6 +1035,8 @@ function extractGenericData($: any, url: string): ScrapedProductData {
 
   return {
     productName,
+    rawProductTitle: productName,
+    rawAboutThisItem: features.slice(0, 10),
     productDescription,
     productPrice,
     productCategory: $('.breadcrumb').text().trim() || $('[class*="breadcrumb"]').text().trim() || null,

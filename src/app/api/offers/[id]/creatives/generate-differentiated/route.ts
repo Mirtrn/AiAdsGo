@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
-import { generateAdCreative } from '@/lib/ad-creative-generator'
+import { applyKeywordSupplementationOnce, generateAdCreative } from '@/lib/ad-creative-generator'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength,
@@ -265,7 +265,8 @@ export async function POST(
             keywords: r.creative.keywords?.length || 0,
             theme: r.creative.theme,
             score: r.creative.score,
-            bucketIntent: getBucketInfo(pool, r.bucket).intent
+            bucketIntent: getBucketInfo(pool, r.bucket).intent,
+            keywordSupplementation: r.creative.keywordSupplementation || null
           } : null,
           evaluation: r.evaluation ? {
             rating: r.evaluation.finalRating,
@@ -333,7 +334,8 @@ async function generateCreativeWithBucket(
         bucket: bucket,
         bucketKeywords: keywordStrings,
         bucketIntent: bucketInfo.intent,
-        bucketIntentEn: bucketInfo.intentEn
+        bucketIntentEn: bucketInfo.intentEn,
+        deferKeywordSupplementation: true
       })
 
       // 确保创意关键词与桶关键词一致
@@ -351,6 +353,18 @@ async function generateCreativeWithBucket(
         matchType: 'PHRASE' as const,
         source: 'KEYWORD_POOL' as const
       }))
+
+      const supplemented = await applyKeywordSupplementationOnce({
+        offer,
+        userId,
+        brandName: offer.brand || 'Unknown',
+        targetLanguage: offer.target_language || 'English',
+        keywordsWithVolume: creative.keywordsWithVolume,
+        poolCandidates: keywordStrings,
+      })
+      creative.keywords = supplemented.keywords
+      creative.keywordsWithVolume = supplemented.keywordsWithVolume
+      creative.keywordSupplementation = supplemented.keywordSupplementation
 
       // 评估 Ad Strength
       const headlinesWithMetadata = creative.headlinesWithMetadata || creative.headlines.map(text => ({
@@ -410,7 +424,8 @@ async function generateCreativeWithBucket(
           creative: {
             ...savedCreative,
             keyword_bucket: bucket,
-            bucket_intent: bucketInfo.intent
+            bucket_intent: bucketInfo.intent,
+            keywordSupplementation: creative.keywordSupplementation || null
           },
           evaluation
         }

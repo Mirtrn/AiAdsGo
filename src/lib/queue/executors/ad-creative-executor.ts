@@ -8,7 +8,7 @@
  */
 
 import type { Task } from '../types'
-import { generateAdCreative } from '@/lib/ad-creative-gen'
+import { applyKeywordSupplementationOnce, generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength
@@ -288,7 +288,8 @@ export async function executeAdCreativeGeneration(
             bucket: selectedBucket || undefined,
             bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
             bucketIntent: bucketInfo?.intent,
-            bucketIntentEn: bucketInfo?.intentEn
+            bucketIntentEn: bucketInfo?.intentEn,
+            deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0)
           }
         )
       } finally {
@@ -338,6 +339,38 @@ export async function executeAdCreativeGeneration(
 
         creative.keywords = limitedBucketKeywords.map((kw: any) => kw.keyword)
         creative.keywordsWithVolume = limitedBucketKeywords
+      }
+
+      if (selectedBucket) {
+        try {
+          const poolCandidates = Array.isArray(bucketInfo?.keywords)
+            ? bucketInfo.keywords
+                .map((kw: any) => typeof kw === 'string' ? kw : kw?.keyword)
+                .map((keyword: string) => String(keyword || '').trim())
+                .filter(Boolean)
+            : []
+          const baseKeywordsWithVolume = Array.isArray(creative.keywordsWithVolume)
+            ? creative.keywordsWithVolume
+            : (creative.keywords || []).map((keyword: string) => ({
+                keyword,
+                searchVolume: 0,
+                matchType: 'PHRASE' as const,
+                source: 'AI_GENERATED' as const
+              }))
+          const supplemented = await applyKeywordSupplementationOnce({
+            offer,
+            userId: task.userId,
+            brandName: offer.brand || 'Unknown',
+            targetLanguage: offer.target_language || 'English',
+            keywordsWithVolume: baseKeywordsWithVolume,
+            poolCandidates,
+          })
+          creative.keywords = supplemented.keywords
+          creative.keywordsWithVolume = supplemented.keywordsWithVolume
+          creative.keywordSupplementation = supplemented.keywordSupplementation
+        } catch (supplementError: any) {
+          console.warn(`⚠️ 关键词补充失败（继续执行）: ${supplementError?.message || supplementError}`)
+        }
       }
 
       // 更新进度：评估中
@@ -535,7 +568,8 @@ export async function executeAdCreativeGeneration(
         explanation: bestCreative.explanation,
         headlinesWithMetadata: bestCreative.headlinesWithMetadata,
         descriptionsWithMetadata: bestCreative.descriptionsWithMetadata,
-        qualityMetrics: bestCreative.qualityMetrics
+        qualityMetrics: bestCreative.qualityMetrics,
+        keywordSupplementation: bestCreative.keywordSupplementation || null
       },
       adStrength: {
         rating: bestEvaluation.finalRating,

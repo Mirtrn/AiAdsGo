@@ -665,6 +665,8 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
 
   return {
     productName,
+    rawProductTitle: productName,
+    rawAboutThisItem: features.slice(0, 10),
     productDescription,
     productPrice,
     originalPrice,

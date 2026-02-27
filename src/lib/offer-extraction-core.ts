@@ -82,6 +82,8 @@ export interface ExtractOfferResult {
 
     // 单品页数据（可选）
     productName?: string
+    rawProductTitle?: string
+    rawAboutThisItem?: string[]
     productPrice?: string  // 🔥 统一字段名：price → productPrice
     productCategory?: string
     productFeatures?: string[]
@@ -701,6 +703,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         productDescription = amazonProductData.productDescription
         scrapedData = {
           productName: amazonProductData.productName,
+          rawProductTitle: amazonProductData.rawProductTitle || amazonProductData.productName,
+          rawAboutThisItem: Array.isArray(amazonProductData.rawAboutThisItem)
+            ? amazonProductData.rawAboutThisItem
+            : (Array.isArray(amazonProductData.aboutThisItem) ? amazonProductData.aboutThisItem : []),
           productDescription: amazonProductData.productDescription,
           productPrice: amazonProductData.productPrice,
           productCategory: amazonProductData.category || null,
@@ -782,6 +788,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
             // 使用Playwright获取的数据更新
             scrapedData = {
               productName: independentProductData.productName,
+              rawProductTitle: independentProductData.rawProductTitle || independentProductData.productName,
+              rawAboutThisItem: Array.isArray(independentProductData.rawAboutThisItem)
+                ? independentProductData.rawAboutThisItem
+                : (Array.isArray(independentProductData.features) ? independentProductData.features : []),
               productDescription: independentProductData.productDescription,
               productPrice: independentProductData.productPrice,
               productCategory: null,
@@ -921,6 +931,54 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     // ========== 步骤9: 确定推广语言 ==========
     const targetLanguage = getTargetLanguage(targetCountry)
 
+    const fallbackRawAboutFromDescription = (description: string | null | undefined): string[] => {
+      if (typeof description !== 'string' || !description.trim()) return []
+      const lines = description
+        .split(/[\n.;!?]+/)
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(line => line.length >= 12)
+      return Array.from(new Set(lines)).slice(0, 6)
+    }
+
+    const resolvedRawProductTitle =
+      (typeof scrapedData?.rawProductTitle === 'string' && scrapedData.rawProductTitle.trim())
+        ? scrapedData.rawProductTitle.trim()
+        : (typeof scrapedData?.productName === 'string' && scrapedData.productName.trim())
+          ? scrapedData.productName.trim()
+          : (typeof amazonProductData?.rawProductTitle === 'string' && amazonProductData.rawProductTitle.trim())
+            ? amazonProductData.rawProductTitle.trim()
+            : (typeof amazonProductData?.productName === 'string' && amazonProductData.productName.trim())
+              ? amazonProductData.productName.trim()
+              : undefined
+
+    const resolvedRawAboutThisItem = (() => {
+      if (Array.isArray(scrapedData?.rawAboutThisItem) && scrapedData.rawAboutThisItem.length > 0) {
+        return scrapedData.rawAboutThisItem
+          .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      }
+      if (Array.isArray(amazonProductData?.rawAboutThisItem) && amazonProductData.rawAboutThisItem.length > 0) {
+        return amazonProductData.rawAboutThisItem
+          .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      }
+      if (Array.isArray(amazonProductData?.aboutThisItem) && amazonProductData.aboutThisItem.length > 0) {
+        return amazonProductData.aboutThisItem
+          .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      }
+      if (Array.isArray(scrapedData?.productFeatures) && scrapedData.productFeatures.length > 0) {
+        return scrapedData.productFeatures
+          .map(item => String(item || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      }
+      return fallbackRawAboutFromDescription(scrapedData?.productDescription || productDescription)
+    })()
+
     trackStageProgress(progressCallback, processingDataStartTime, 'processing_data', 'completed', '数据处理完成')
 
     // ========== 步骤10: 返回提取结果 ==========
@@ -938,6 +996,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         // 🔥 2026-01-04修复：保存完整的scrapedData（包含reviews、faqs、specifications等字段）
         ...(scrapedData && {
           productName: scrapedData.productName,
+          rawProductTitle: resolvedRawProductTitle,
+          rawAboutThisItem: resolvedRawAboutThisItem,
           productPrice: scrapedData.productPrice,
           // 独立站增强数据字段
           reviews: scrapedData.reviews,
@@ -957,6 +1017,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
 
         // Amazon单品页评论数据（复用已抓取数据，避免重复请求）
         ...(amazonProductData && {
+          rawProductTitle: resolvedRawProductTitle,
+          rawAboutThisItem: resolvedRawAboutThisItem,
           rating: amazonProductData.rating,
           reviewCount: amazonProductData.reviewCount,
           reviewHighlights: amazonProductData.reviewHighlights,
