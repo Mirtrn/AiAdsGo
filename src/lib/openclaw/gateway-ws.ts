@@ -34,6 +34,10 @@ type GatewayClient = {
   close: () => void
 }
 
+type ConnectGatewayOptions = {
+  scopes?: string[]
+}
+
 let cachedSnapshot: OpenclawGatewaySnapshot | null = null
 let cacheExpiresAt = 0
 let inflight: Promise<OpenclawGatewaySnapshot> | null = null
@@ -229,9 +233,17 @@ function createGatewayClient(ws: any): GatewayClient {
   return { request, close }
 }
 
-async function connectGateway(client: GatewayClient, token: string, timeoutMs: number) {
+async function connectGateway(
+  client: GatewayClient,
+  token: string,
+  timeoutMs: number,
+  options: ConnectGatewayOptions = {},
+) {
   const version = process.env.APP_VERSION || process.env.npm_package_version || 'dev'
   const platform = `node-${process.platform}`
+  const scopes = Array.isArray(options.scopes) && options.scopes.length > 0
+    ? options.scopes
+    : ['operator.read']
   const connectPayload = {
     minProtocol: PROTOCOL_VERSION,
     maxProtocol: PROTOCOL_VERSION,
@@ -243,12 +255,74 @@ async function connectGateway(client: GatewayClient, token: string, timeoutMs: n
       mode: 'backend',
     },
     role: 'operator',
-    scopes: ['operator.read'],
+    scopes,
     auth: { token },
     locale: 'zh-CN',
     userAgent: `autoads/${version}`,
   }
   return await client.request('connect', connectPayload, timeoutMs)
+}
+
+export type OpenclawGatewayRestartResult = {
+  requestedAt: string
+  restart: any | null
+  path: string | null
+}
+
+export async function requestOpenclawGatewayRestart(opts?: {
+  note?: string
+}): Promise<OpenclawGatewayRestartResult> {
+  const baseUrl = await resolveOpenclawGatewayBaseUrl()
+  const wsUrl = toWsUrl(baseUrl)
+  const timeoutMs = resolveTimeoutMs()
+  const token = await getOpenclawGatewayToken()
+
+  let ws: any = null
+  let client: GatewayClient | null = null
+
+  try {
+    ws = await openGatewaySocket(wsUrl, timeoutMs)
+    client = createGatewayClient(ws)
+
+    await connectGateway(client, token, timeoutMs, { scopes: ['operator.admin'] })
+
+    const configSnapshot = await client.request('config.get', {}, timeoutMs)
+    const baseHash = typeof configSnapshot?.hash === 'string'
+      ? configSnapshot.hash.trim()
+      : ''
+
+    if (!baseHash) {
+      throw new Error('Gateway 未返回配置哈希，无法触发重启')
+    }
+
+    const patchResult = await client.request(
+      'config.patch',
+      {
+        baseHash,
+        raw: '{}',
+        note: String(opts?.note || '').trim() || 'openclaw-manual-hot-reload',
+        restartDelayMs: 0,
+      },
+      timeoutMs,
+    )
+
+    return {
+      requestedAt: new Date().toISOString(),
+      restart: patchResult?.restart ?? null,
+      path: typeof patchResult?.path === 'string' ? patchResult.path : null,
+    }
+  } catch (error: any) {
+    const message = error?.message || '未知错误'
+    throw new Error(`Gateway 重启请求失败 (${wsUrl}): ${message}`)
+  } finally {
+    if (client) {
+      client.close()
+    } else if (ws) {
+      try {
+        ws.close()
+      } catch {}
+    }
+  }
 }
 
 async function fetchGatewaySnapshot(): Promise<OpenclawGatewaySnapshot> {

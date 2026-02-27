@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 import { syncOpenclawConfig } from '@/lib/openclaw/config'
-import { getOpenclawGatewaySnapshot } from '@/lib/openclaw/gateway-ws'
+import { getOpenclawGatewaySnapshot, requestOpenclawGatewayRestart } from '@/lib/openclaw/gateway-ws'
 
 type GatewayStatusPayload = {
   success: boolean
@@ -30,6 +30,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 
+  let restartResult: any = null
+  let restartError: string | null = null
+  try {
+    restartResult = await requestOpenclawGatewayRestart({
+      note: 'OpenClaw 控制台手动执行配置热加载',
+    })
+  } catch (error: any) {
+    restartError = error?.message || 'Gateway 重启触发失败'
+    console.error('[openclaw] manual config hot reload restart trigger failed:', restartError)
+  }
+
   let gatewayStatus: GatewayStatusPayload
   try {
     const snapshot = await getOpenclawGatewaySnapshot({ force: true })
@@ -46,9 +57,14 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     success: true,
     reloadedAt: new Date().toISOString(),
+    restartRequested: !restartError,
+    restartResult,
+    restartError,
     gatewayStatus,
-    message: gatewayStatus.success
-      ? '配置已同步并触发 Gateway 热加载'
-      : '配置已同步，Gateway 状态暂不可用',
+    message: restartError
+      ? '配置已同步，但 Gateway 重启触发失败'
+      : gatewayStatus.success
+        ? '配置已同步并触发 Gateway 重启'
+        : '配置已同步并触发 Gateway 重启，Gateway 状态暂不可用',
   })
 }

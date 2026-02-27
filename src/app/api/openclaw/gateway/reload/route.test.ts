@@ -12,6 +12,7 @@ const configFns = vi.hoisted(() => ({
 
 const gatewayFns = vi.hoisted(() => ({
   getOpenclawGatewaySnapshot: vi.fn(),
+  requestOpenclawGatewayRestart: vi.fn(),
 }))
 
 vi.mock('@/lib/openclaw/request-auth', () => ({
@@ -24,6 +25,7 @@ vi.mock('@/lib/openclaw/config', () => ({
 
 vi.mock('@/lib/openclaw/gateway-ws', () => ({
   getOpenclawGatewaySnapshot: gatewayFns.getOpenclawGatewaySnapshot,
+  requestOpenclawGatewayRestart: gatewayFns.requestOpenclawGatewayRestart,
 }))
 
 describe('POST /api/openclaw/gateway/reload', () => {
@@ -41,6 +43,11 @@ describe('POST /api/openclaw/gateway/reload', () => {
       health: { ok: true },
       skills: null,
       errors: [],
+    })
+    gatewayFns.requestOpenclawGatewayRestart.mockResolvedValue({
+      requestedAt: '2026-02-08T00:00:00.000Z',
+      restart: { ok: true },
+      path: '/tmp/openclaw.json',
     })
   })
 
@@ -96,6 +103,9 @@ describe('POST /api/openclaw/gateway/reload', () => {
       })
     )
     expect(configFns.syncOpenclawConfig).toHaveBeenCalledWith({ reason: 'openclaw-manual-hot-reload' })
+    expect(gatewayFns.requestOpenclawGatewayRestart).toHaveBeenCalledWith({
+      note: 'OpenClaw 控制台手动执行配置热加载',
+    })
     expect(gatewayFns.getOpenclawGatewaySnapshot).toHaveBeenCalledWith({ force: true })
   })
 
@@ -115,6 +125,22 @@ describe('POST /api/openclaw/gateway/reload', () => {
     )
   })
 
+  it('returns success with warning when restart trigger fails', async () => {
+    gatewayFns.requestOpenclawGatewayRestart.mockRejectedValue(new Error('restart failed'))
+
+    const req = new NextRequest('http://localhost/api/openclaw/gateway/reload', {
+      method: 'POST',
+    })
+    const res = await POST(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.restartRequested).toBe(false)
+    expect(payload.restartError).toContain('restart failed')
+    expect(payload.message).toContain('重启触发失败')
+  })
+
   it('returns 500 when config sync fails', async () => {
     configFns.syncOpenclawConfig.mockRejectedValue(new Error('sync failed'))
 
@@ -127,6 +153,7 @@ describe('POST /api/openclaw/gateway/reload', () => {
     expect(res.status).toBe(500)
     expect(payload.success).toBe(false)
     expect(payload.error).toContain('sync failed')
+    expect(gatewayFns.requestOpenclawGatewayRestart).not.toHaveBeenCalled()
     expect(gatewayFns.getOpenclawGatewaySnapshot).not.toHaveBeenCalled()
   })
 })
