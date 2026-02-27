@@ -10,9 +10,7 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://yeahpromos.com/*",
-    "https://www.yeahpromos.com/*",
-    "https://*.yeahpromos.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"

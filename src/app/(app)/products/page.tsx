@@ -2037,11 +2037,12 @@ export default function ProductsPage() {
 
         {(ypSyncMonitor.runId !== null || ypSyncMonitor.targetItems !== null) && (
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">YP 同步 ETA 监控</CardTitle>
-              <CardDescription>基于每小时抓取快照估算完成时间，时间窗按北京时间 06:00-24:00 计算。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+            <details>
+              <summary className="cursor-pointer px-6 py-4">
+                <span className="text-base font-semibold">YP 同步 ETA 监控</span>
+                <p className="mt-1 text-sm text-muted-foreground">基于每小时抓取快照估算完成时间，时间窗按北京时间 06:00-24:00 计算。</p>
+              </summary>
+            <CardContent className="space-y-3 pt-0">
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-md border p-2">
                   <div className="text-[11px] text-muted-foreground">运行任务</div>
@@ -2119,6 +2120,7 @@ export default function ProductsPage() {
                 )}
               </div>
             </CardContent>
+            </details>
           </Card>
         )}
 
@@ -2382,7 +2384,7 @@ export default function ProductsPage() {
                 <div>2. Chrome 打开 chrome://extensions 或 Edge 打开 edge://extensions。</div>
                 <div>3. 打开“开发者模式”后，点“加载已解压的扩展程序”，选择解压后的目录。</div>
                 <div>4. 保持当前 AutoAds /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
-                <div>5. 点击浏览器右上角扩展图标，执行“回传 YeahPromos 登录态”。</div>
+                <div>5. 切回 AutoAds /products 标签页，点击浏览器右上角扩展图标，执行"回传 YeahPromos 登录态"。</div>
                 <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
               </div>
 
