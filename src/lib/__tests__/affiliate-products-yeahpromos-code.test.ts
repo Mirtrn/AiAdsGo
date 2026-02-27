@@ -175,6 +175,10 @@ describe('parseYeahPromosProductHtmlPage', () => {
     expect(item?.commissionRate).toBe(12.5)
     expect(item?.priceAmount).toBe(25.99)
     expect(item?.reviewCount).toBe(12345)
+
+    const rawJson = JSON.parse(item?.rawJson || '{}')
+    expect(rawJson?.key_fields_status?.complete).toBe(true)
+    expect(rawJson?.key_fields_status?.missing_fields || []).toEqual([])
   })
 
   it('parses apply-only card without promo link', () => {
@@ -207,5 +211,62 @@ describe('parseYeahPromosProductHtmlPage', () => {
     expect(item?.mid).toBe('product_123456')
     expect(item?.promoLink).toBeNull()
     expect(item?.asin).toBe('B0ABCDE123')
+
+    const rawJson = JSON.parse(item?.rawJson || '{}')
+    expect(rawJson?.key_fields_status?.complete).toBe(false)
+    expect(rawJson?.key_fields_status?.missing_fields || []).toContain('promoLink')
+  })
+})
+
+describe('yeahpromos template and proxy helpers', () => {
+  it('only mutates page parameter when building paged url', () => {
+    const templateUrl = 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.fr&sort=5&min_price=0&max_price=501&page=2'
+    const page10 = __testOnly.buildYeahPromosProductsPageUrl(templateUrl, 10)
+    const parsed = new URL(page10)
+
+    expect(parsed.searchParams.get('page')).toBe('10')
+    expect(parsed.searchParams.get('site_id')).toBe('11767')
+    expect(parsed.searchParams.get('market_place')).toBe('amazon.fr')
+    expect(parsed.searchParams.get('sort')).toBe('5')
+  })
+
+  it('maps marketplace templates and resolves strict country proxies with UK/GB alias', () => {
+    const templates = __testOnly.resolveYeahPromosMarketplaceTemplates(
+      JSON.stringify([
+        {
+          marketplace: 'amazon.co.uk',
+          country: 'GB',
+          url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.co.uk&sort=5&min_price=0&max_price=501&page=2',
+        },
+      ])
+    )
+    expect(templates).toHaveLength(1)
+    expect(templates[0]?.scope).toBe('amazon.co.uk')
+
+    const proxyMap = __testOnly.parseYeahPromosProxyCountryUrlMap(
+      JSON.stringify([
+        { country: 'UK', url: 'https://proxy.example/uk' },
+        { country: 'US', url: 'https://proxy.example/us' },
+      ])
+    )
+    expect(__testOnly.resolveYeahPromosProxyProviderUrl(proxyMap, 'GB')).toBe('https://proxy.example/uk')
+    expect(__testOnly.resolveYeahPromosProxyProviderUrl(proxyMap, 'FR')).toBeNull()
+  })
+
+  it('detects html intercept signals for fallback decisions', () => {
+    expect(__testOnly.detectYeahPromosHttpIntercept({
+      status: 403,
+      html: '<html>forbidden</html>',
+    }).blocked).toBe(true)
+
+    expect(__testOnly.detectYeahPromosHttpIntercept({
+      status: 200,
+      html: '<html><body>Request too fast, please request later!</body></html>',
+    }).blocked).toBe(true)
+
+    expect(__testOnly.detectYeahPromosHttpIntercept({
+      status: 200,
+      html: '<div class=\"adv-content\"></div><div id=\"pageList\"></div>',
+    }).blocked).toBe(false)
   })
 })

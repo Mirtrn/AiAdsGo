@@ -236,8 +236,6 @@ type YeahPromosSyncMonitorItem = {
   remainingItems: number | null
   avgItemsPerHour: number | null
   etaAt: string | null
-  windowCloseAt: string | null
-  canFinishInWindow: boolean | null
   statsUpdatedAt: string | null
   hourlyStats: SyncHourlyStatItem[]
 }
@@ -431,8 +429,6 @@ function createEmptyYeahPromosSyncMonitor(): YeahPromosSyncMonitorItem {
     remainingItems: null,
     avgItemsPerHour: null,
     etaAt: null,
-    windowCloseAt: null,
-    canFinishInWindow: null,
     statsUpdatedAt: null,
     hourlyStats: [],
   }
@@ -2040,7 +2036,7 @@ export default function ProductsPage() {
             <details>
               <summary className="cursor-pointer px-6 py-4">
                 <span className="text-base font-semibold">YP 同步 ETA 监控</span>
-                <p className="mt-1 text-sm text-muted-foreground">基于每小时抓取快照估算完成时间，时间窗按北京时间 06:00-24:00 计算。</p>
+                <p className="mt-1 text-sm text-muted-foreground">基于每小时抓取快照估算完成时间，按跨天连续抓取模型计算。</p>
               </summary>
             <CardContent className="space-y-3 pt-0">
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
@@ -2074,18 +2070,6 @@ export default function ProductsPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge
-                  variant={
-                    ypSyncMonitor.canFinishInWindow === null
-                      ? 'outline'
-                      : (ypSyncMonitor.canFinishInWindow ? 'default' : 'destructive')
-                  }
-                >
-                  {ypSyncMonitor.canFinishInWindow === null
-                    ? '窗口内完成: 待估算'
-                    : (ypSyncMonitor.canFinishInWindow ? '窗口内完成: 可达成' : '窗口内完成: 风险较高')}
-                </Badge>
-                <span>窗口截止 {formatSyncRunDateTime(ypSyncMonitor.windowCloseAt)}</span>
                 <span>剩余 {formatIntegerCount(ypSyncMonitor.remainingItems)}</span>
                 <span>数据更新时间 {formatSyncRunDateTime(ypSyncMonitor.statsUpdatedAt)}</span>
               </div>

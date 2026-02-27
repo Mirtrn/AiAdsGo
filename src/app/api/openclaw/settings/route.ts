@@ -19,6 +19,7 @@ const USER_SCOPED_KEYS = new Set([
   'yeahpromos_rate_limit_max_retries',
   'yeahpromos_rate_limit_base_delay_ms',
   'yeahpromos_rate_limit_max_delay_ms',
+  'yeahpromos_marketplace_templates_json',
   'partnerboost_base_url',
   'partnerboost_token',
   'partnerboost_products_page_size',

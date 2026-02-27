@@ -5,12 +5,15 @@ const mocks = vi.hoisted(() => ({
   getAffiliateProductSyncRunById: vi.fn(),
   listAffiliateProducts: vi.fn(),
   normalizeAffiliatePlatform: vi.fn(),
+  recordAffiliateProductSyncHourlySnapshot: vi.fn(),
   syncAffiliateProducts: vi.fn(),
   updateAffiliateProductSyncRun: vi.fn(),
   buildProductListCacheHash: vi.fn(),
   getLatestProductListQuery: vi.fn(),
   invalidateProductListCache: vi.fn(),
   setCachedProductList: vi.fn(),
+  getQueueManagerForTaskType: vi.fn(),
+  queueEnqueue: vi.fn(),
 }))
 
 vi.mock('@/lib/affiliate-products', () => ({
@@ -18,6 +21,7 @@ vi.mock('@/lib/affiliate-products', () => ({
   getAffiliateProductSyncRunById: mocks.getAffiliateProductSyncRunById,
   listAffiliateProducts: mocks.listAffiliateProducts,
   normalizeAffiliatePlatform: mocks.normalizeAffiliatePlatform,
+  recordAffiliateProductSyncHourlySnapshot: mocks.recordAffiliateProductSyncHourlySnapshot,
   syncAffiliateProducts: mocks.syncAffiliateProducts,
   updateAffiliateProductSyncRun: mocks.updateAffiliateProductSyncRun,
 }))
@@ -27,6 +31,10 @@ vi.mock('@/lib/products-cache', () => ({
   getLatestProductListQuery: mocks.getLatestProductListQuery,
   invalidateProductListCache: mocks.invalidateProductListCache,
   setCachedProductList: mocks.setCachedProductList,
+}))
+
+vi.mock('@/lib/queue/queue-routing', () => ({
+  getQueueManagerForTaskType: mocks.getQueueManagerForTaskType,
 }))
 
 import { executeAffiliateProductSync } from '../affiliate-product-sync-executor'
@@ -88,6 +96,7 @@ describe('affiliate-product-sync executor resume behavior', () => {
       createdCount: 1,
       updatedCount: 9,
     })
+    mocks.recordAffiliateProductSyncHourlySnapshot.mockResolvedValue(undefined)
     mocks.updateAffiliateProductSyncRun.mockResolvedValue(undefined)
 
     mocks.invalidateProductListCache.mockResolvedValue(undefined)
@@ -106,6 +115,10 @@ describe('affiliate-product-sync executor resume behavior', () => {
       pageSize: 20,
     })
     mocks.setCachedProductList.mockResolvedValue(undefined)
+    mocks.queueEnqueue.mockResolvedValue('task-next')
+    mocks.getQueueManagerForTaskType.mockReturnValue({
+      enqueue: mocks.queueEnqueue,
+    })
   })
 
   it('does not resume from historical failed runs when current run has no checkpoint', async () => {
@@ -148,6 +161,79 @@ describe('affiliate-product-sync executor resume behavior', () => {
         platform: 'partnerboost',
         mode: 'platform',
         resumeFromPage: 321,
+      })
+    )
+  })
+
+  it('re-enqueues next shard for yeahpromos platform sync when hasMore=true', async () => {
+    mocks.getAffiliateProductSyncRunById.mockResolvedValue({
+      id: 303,
+      user_id: 1,
+      platform: 'yeahpromos',
+      mode: 'platform',
+      status: 'running',
+      total_items: 200,
+      created_count: 30,
+      updated_count: 170,
+      failed_count: 0,
+      cursor_page: 2,
+      cursor_scope: 'amazon.com',
+      processed_batches: 2,
+      started_at: '2026-02-21T10:00:00.000Z',
+      completed_at: null,
+    })
+    mocks.syncAffiliateProducts.mockResolvedValue({
+      totalFetched: 12,
+      createdCount: 2,
+      updatedCount: 10,
+      hasMore: true,
+      nextCursorPage: 5,
+      nextCursorScope: 'amazon.co.uk',
+    })
+
+    const task = createTask({
+      runId: 303,
+      platform: 'yeahpromos',
+      mode: 'platform',
+      trigger: 'manual',
+    })
+    const result = await executeAffiliateProductSync(task)
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        runId: 303,
+        continued: true,
+      })
+    )
+    expect(mocks.queueEnqueue).toHaveBeenCalledWith(
+      'affiliate-product-sync',
+      expect.objectContaining({
+        userId: 1,
+        platform: 'yeahpromos',
+        mode: 'platform',
+        runId: 303,
+        trigger: 'retry',
+      }),
+      1,
+      expect.objectContaining({
+        priority: 'normal',
+        maxRetries: 1,
+      })
+    )
+    expect(mocks.updateAffiliateProductSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 303,
+        status: 'queued',
+        cursorPage: 5,
+        cursorScope: 'amazon.co.uk',
+        completedAt: null,
+      })
+    )
+    expect(mocks.updateAffiliateProductSyncRun).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 303,
+        status: 'completed',
       })
     )
   })

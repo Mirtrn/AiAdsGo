@@ -1,4 +1,5 @@
 import type { Task } from '@/lib/queue/types'
+import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import {
   checkAffiliatePlatformConfig,
   type AffiliatePlatform,
@@ -30,6 +31,8 @@ export type AffiliateProductSyncTaskData = {
   productId?: number
   trigger?: 'manual' | 'retry' | 'schedule'
 }
+
+const YP_CONTINUATION_DELAY_MS = 2 * 60 * 1000
 
 const DEFAULT_CACHE_WARM_PARAMS: {
   page: number
@@ -251,6 +254,9 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
   const resumeFromPage = resumeSourceRun
     ? Math.max(1, toSafeCount(resumeSourceRun.cursor_page || 1))
     : undefined
+  const resumeFromScope = resumeSourceRun
+    ? (String(resumeSourceRun.cursor_scope || '').trim() || undefined)
+    : undefined
   const baseTotalItems = resumeSourceRun ? toSafeCount(resumeSourceRun.total_items) : 0
   const baseCreatedCount = resumeSourceRun ? toSafeCount(resumeSourceRun.created_count) : 0
   const baseUpdatedCount = resumeSourceRun ? toSafeCount(resumeSourceRun.updated_count) : 0
@@ -269,6 +275,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     updatedCount: baseUpdatedCount,
     failedCount: 0,
     cursorPage: resumeFromPage || 1,
+    cursorScope: resumeFromScope || null,
     processedBatches: baseProcessedBatches,
     lastHeartbeatAt: startedAt,
     errorMessage: null,
@@ -286,6 +293,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       mode: data.mode || 'platform',
       productId: data.productId,
       resumeFromPage,
+      resumeFromScope,
       progressEvery: 20,
       onProgress: async (progress: AffiliateProductSyncProgress) => {
         await recordAffiliateProductSyncHourlySnapshot({
@@ -319,6 +327,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
           updatedCount: baseUpdatedCount + toSafeCount(checkpoint.updatedCount),
           failedCount: checkpoint.failedCount,
           cursorPage: checkpoint.cursorPage,
+          cursorScope: checkpoint.cursorScope || null,
           processedBatches: baseProcessedBatches + toSafeCount(checkpoint.processedBatches),
           lastHeartbeatAt: new Date().toISOString(),
         })
@@ -342,6 +351,58 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     const finalCreatedCount = baseCreatedCount + toSafeCount(result.createdCount)
     const finalUpdatedCount = baseUpdatedCount + toSafeCount(result.updatedCount)
 
+    const shouldContinueYpPlatform = data.platform === 'yeahpromos'
+      && data.mode === 'platform'
+      && Boolean(result.hasMore)
+    if (shouldContinueYpPlatform) {
+      const nextCursorPage = Math.max(1, toSafeCount(result.nextCursorPage || 1))
+      const nextCursorScope = String(result.nextCursorScope || '').trim() || null
+      const continuationScheduledAt = new Date(Date.now() + YP_CONTINUATION_DELAY_MS).toISOString()
+      const heartbeatAt = new Date().toISOString()
+
+      await updateAffiliateProductSyncRun({
+        runId: data.runId,
+        status: 'queued',
+        totalItems: finalTotalItems,
+        createdCount: finalCreatedCount,
+        updatedCount: finalUpdatedCount,
+        failedCount: 0,
+        cursorPage: nextCursorPage,
+        cursorScope: nextCursorScope,
+        completedAt: null,
+        lastHeartbeatAt: heartbeatAt,
+        errorMessage: null,
+      })
+
+      const queue = getQueueManagerForTaskType('affiliate-product-sync')
+      await queue.enqueue(
+        'affiliate-product-sync',
+        {
+          userId: data.userId,
+          platform: data.platform,
+          mode: data.mode,
+          runId: data.runId,
+          productId: data.productId,
+          trigger: 'retry',
+          scheduledAt: continuationScheduledAt,
+        },
+        data.userId,
+        {
+          priority: 'normal',
+          maxRetries: 1,
+        }
+      )
+
+      return {
+        success: true,
+        runId: data.runId,
+        totalFetched: finalTotalItems,
+        createdCount: finalCreatedCount,
+        updatedCount: finalUpdatedCount,
+        continued: true,
+      }
+    }
+
     await updateAffiliateProductSyncRun({
       runId: data.runId,
       status: 'completed',
@@ -350,6 +411,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
       updatedCount: finalUpdatedCount,
       failedCount: 0,
       cursorPage: 0,
+      cursorScope: null,
       completedAt: new Date().toISOString(),
       lastHeartbeatAt: new Date().toISOString(),
       errorMessage: null,

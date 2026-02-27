@@ -1,10 +1,9 @@
 import { createOffer, deleteOffer, findOfferById } from '@/lib/offers'
 import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { getInsertedId, toBool } from '@/lib/db-helpers'
-import { getUserOnlySetting } from '@/lib/settings'
+import { getSetting, getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
 import { load as loadHtml } from 'cheerio'
-import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils'
 import {
   buildProductSummaryCacheHash,
   getCachedProductSummary,
@@ -14,7 +13,7 @@ import {
 import { getYeahPromosSessionCookieForSync } from '@/lib/yeahpromos-session'
 import axios from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
-import { getProxyIp } from '@/lib/proxy/fetch-proxy-ip'
+import { fetchProxyIp } from '@/lib/proxy/fetch-proxy-ip'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single' | 'delta'
@@ -300,8 +299,8 @@ const DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS = 800
 const DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS = 12000
 const DEFAULT_PB_STREAM_WINDOW_PAGES = 10
 const MAX_PB_STREAM_WINDOW_PAGES = 200
-const DEFAULT_YP_STREAM_WINDOW_PAGES = 25
-const MAX_YP_STREAM_WINDOW_PAGES = 300
+const DEFAULT_YP_STREAM_WINDOW_PAGES = 3
+const MAX_YP_STREAM_WINDOW_PAGES = 20
 const DEFAULT_UPSERT_BATCH_SIZE_POSTGRES = 800
 const DEFAULT_UPSERT_BATCH_SIZE_SQLITE = 40
 const DEFAULT_YP_REQUEST_DELAY_MS = 120
@@ -317,13 +316,27 @@ const MIN_YP_PRODUCTS_REQUEST_DELAY_MS = 1500
 const MAX_YP_PRODUCTS_REQUEST_DELAY_MS = 15000
 const DEFAULT_YP_PRODUCTS_DELAY_JITTER_MS = 1200
 const MAX_YP_PRODUCTS_DELAY_JITTER_MS = 4000
-const YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES = 80
-const YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES = 120
-const YP_PRODUCTS_LONG_BREAK_MIN_MS = 30000
-const YP_PRODUCTS_LONG_BREAK_MAX_MS = 90000
-const YP_PRODUCTS_ALLOWED_TIMEZONE = 'Asia/Shanghai'
-const YP_PRODUCTS_ALLOWED_HOUR_START = 6
-const YP_PRODUCTS_ALLOWED_HOUR_END = 24
+const YP_MARKETPLACE_TEMPLATES_SETTING_KEY = 'yeahpromos_marketplace_templates_json'
+const YP_PROXY_COUNTRY_ALIAS: Record<string, string> = {
+  UK: 'GB',
+}
+const YP_DOM_INTERCEPT_KEYWORDS = [
+  'request too fast',
+  'request too frequent',
+  'please request later',
+  'too many request',
+  'rate limit',
+  'too many requests',
+  'captcha',
+  'verify you are human',
+  'access denied',
+  'forbidden',
+  'robot check',
+  'cloudflare',
+  '请求过于频繁',
+  '请求太快',
+  '请稍后再试',
+] as const
 const AFFILIATE_YP_ACCESS_PRODUCTS_TARGET_KEY = 'affiliate_yp_access_products_target'
 const AFFILIATE_YP_ACCESS_PRODUCTS_UPDATED_AT_KEY = 'affiliate_yp_access_products_updated_at'
 
@@ -477,10 +490,23 @@ type YeahPromosProductPageParseResult = {
   noProductsFound: boolean
 }
 
+type YeahPromosMarketplaceTemplate = {
+  scope: string
+  marketplace: string
+  country: string
+  url: string
+}
+
+type YeahPromosProxyConfigEntry = {
+  country?: string
+  url?: string
+}
+
 type YeahPromosProductsFetchResult = {
   items: NormalizedAffiliateProduct[]
   hasMore: boolean
   nextPage: number
+  nextScope: string | null
   fetchedPages: number
 }
 
@@ -489,6 +515,47 @@ type ParsedYeahPromosCommission = {
   rate: number | null
   amount: number | null
 }
+
+const YP_MARKETPLACE_COUNTRY_MAP: Record<string, string> = {
+  'amazon.com': 'US',
+  'amazon.co.uk': 'GB',
+  'amazon.ca': 'CA',
+  'amazon.de': 'DE',
+  'amazon.fr': 'FR',
+}
+
+const DEFAULT_YP_MARKETPLACE_TEMPLATES: YeahPromosMarketplaceTemplate[] = [
+  {
+    scope: 'amazon.com',
+    marketplace: 'amazon.com',
+    country: 'US',
+    url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.com&sort=5&min_price=0&max_price=501&page=2',
+  },
+  {
+    scope: 'amazon.co.uk',
+    marketplace: 'amazon.co.uk',
+    country: 'GB',
+    url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.co.uk&sort=5&min_price=0&max_price=501&page=2',
+  },
+  {
+    scope: 'amazon.ca',
+    marketplace: 'amazon.ca',
+    country: 'CA',
+    url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.ca&sort=5&min_price=0&max_price=501&page=2',
+  },
+  {
+    scope: 'amazon.de',
+    marketplace: 'amazon.de',
+    country: 'DE',
+    url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.de&sort=5&min_price=0&max_price=501&page=2',
+  },
+  {
+    scope: 'amazon.fr',
+    marketplace: 'amazon.fr',
+    country: 'FR',
+    url: 'https://yeahpromos.com/index/offer/products?is_delete=0&site_id=11767&join_status=2&market_place=amazon.fr&sort=5&min_price=0&max_price=501&page=2',
+  },
+]
 
 export function normalizeYeahPromosResultCode(code: unknown): number | null {
   if (code === null || code === undefined || code === '') {
@@ -587,48 +654,6 @@ function randomIntInRange(min: number, max: number): number {
   const normalizedMax = Math.trunc(Math.max(min, max))
   if (normalizedMax <= normalizedMin) return normalizedMin
   return normalizedMin + Math.floor(Math.random() * (normalizedMax - normalizedMin + 1))
-}
-
-function isWithinYeahPromosAllowedWindow(now: Date): boolean {
-  const hour = getHourInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
-  return hour >= YP_PRODUCTS_ALLOWED_HOUR_START && hour < YP_PRODUCTS_ALLOWED_HOUR_END
-}
-
-function resolveNextYeahPromosWindowStart(now: Date): Date {
-  const nowHour = getHourInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
-  if (nowHour < YP_PRODUCTS_ALLOWED_HOUR_START) {
-    const date = getDateInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
-    return createDateInTimezone(
-      date,
-      `${String(YP_PRODUCTS_ALLOWED_HOUR_START).padStart(2, '0')}:00`,
-      YP_PRODUCTS_ALLOWED_TIMEZONE
-    )
-  }
-
-  const tomorrowDate = getDateInTimezone(
-    new Date(now.getTime() + 24 * 60 * 60 * 1000),
-    YP_PRODUCTS_ALLOWED_TIMEZONE
-  )
-  return createDateInTimezone(
-    tomorrowDate,
-    `${String(YP_PRODUCTS_ALLOWED_HOUR_START).padStart(2, '0')}:00`,
-    YP_PRODUCTS_ALLOWED_TIMEZONE
-  )
-}
-
-async function waitForYeahPromosSyncWindowIfNeeded(): Promise<void> {
-  const now = new Date()
-  if (isWithinYeahPromosAllowedWindow(now)) return
-
-  const nextStart = resolveNextYeahPromosWindowStart(now)
-  const waitMs = Math.max(0, nextStart.getTime() - now.getTime())
-  if (waitMs <= 0) return
-
-  console.log(
-    `[yeahpromos] 当前不在抓取时段（北京时间 ${YP_PRODUCTS_ALLOWED_HOUR_START}:00-${YP_PRODUCTS_ALLOWED_HOUR_END}:00），` +
-    `暂停 ${Math.round(waitMs / 1000)} 秒至 ${nextStart.toISOString()} 后继续`
-  )
-  await sleep(waitMs)
 }
 
 function calculateExponentialBackoffDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
@@ -1401,6 +1426,196 @@ function normalizeCountries(input: unknown): string[] {
   return fromArray(text.split(/[;,|/\s]+/g).filter(Boolean))
 }
 
+function normalizeProxyCountryCode(value: string): string | null {
+  const normalized = normalizeCountryCode(value)
+  if (!normalized) return null
+  return YP_PROXY_COUNTRY_ALIAS[normalized] || normalized
+}
+
+function resolveProxyCountryCandidates(country: string): string[] {
+  const normalized = normalizeProxyCountryCode(country)
+  if (!normalized) return []
+  const candidates = new Set<string>([normalized])
+  for (const [alias, canonical] of Object.entries(YP_PROXY_COUNTRY_ALIAS)) {
+    if (canonical === normalized) {
+      candidates.add(alias)
+    }
+  }
+  return Array.from(candidates)
+}
+
+function normalizeYeahPromosMarketplace(value: unknown): string | null {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return null
+  if (!text.startsWith('amazon.')) return null
+  return text
+}
+
+function resolveYeahPromosMarketplaceCountry(marketplace: string | null): string | null {
+  if (!marketplace) return null
+  return YP_MARKETPLACE_COUNTRY_MAP[marketplace] || null
+}
+
+function normalizeYeahPromosMarketplaceTemplateEntry(value: unknown): YeahPromosMarketplaceTemplate | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const rawUrl = normalizeUrl(
+    String(
+      record.url
+      ?? record.template_url
+      ?? record.templateUrl
+      ?? ''
+    )
+  )
+  if (!rawUrl) return null
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(rawUrl)
+  } catch {
+    return null
+  }
+
+  if (!/^https?:$/i.test(parsedUrl.protocol)) return null
+  if (!/yeahpromos\.com$/i.test(parsedUrl.hostname)) return null
+  if (parsedUrl.pathname !== '/index/offer/products') return null
+
+  const marketplaceFromUrl = normalizeYeahPromosMarketplace(parsedUrl.searchParams.get('market_place') || '')
+  const marketplace = normalizeYeahPromosMarketplace(
+    record.marketplace
+    ?? record.market_place
+    ?? record.marketPlace
+    ?? marketplaceFromUrl
+    ?? ''
+  )
+  if (!marketplace) return null
+
+  const country = normalizeProxyCountryCode(String(
+    record.country
+    ?? record.country_code
+    ?? record.countryCode
+    ?? resolveYeahPromosMarketplaceCountry(marketplace)
+    ?? ''
+  ))
+  if (!country) return null
+
+  if (!parsedUrl.searchParams.has('page')) {
+    parsedUrl.searchParams.set('page', '1')
+  }
+
+  const scope = normalizeYeahPromosMarketplace(
+    String(record.scope ?? marketplace)
+  ) || marketplace
+
+  return {
+    scope,
+    marketplace,
+    country,
+    url: parsedUrl.toString(),
+  }
+}
+
+function cloneDefaultYeahPromosMarketplaceTemplates(): YeahPromosMarketplaceTemplate[] {
+  return DEFAULT_YP_MARKETPLACE_TEMPLATES.map((item) => ({ ...item }))
+}
+
+function resolveYeahPromosMarketplaceTemplates(rawValue: string | null | undefined): YeahPromosMarketplaceTemplate[] {
+  const raw = String(rawValue || '').trim()
+  if (!raw) return cloneDefaultYeahPromosMarketplaceTemplates()
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return cloneDefaultYeahPromosMarketplaceTemplates()
+    }
+
+    const items: YeahPromosMarketplaceTemplate[] = []
+    const seenScopes = new Set<string>()
+    for (const candidate of parsed) {
+      const normalized = normalizeYeahPromosMarketplaceTemplateEntry(candidate)
+      if (!normalized) continue
+      if (seenScopes.has(normalized.scope)) continue
+      seenScopes.add(normalized.scope)
+      items.push(normalized)
+    }
+
+    return items.length > 0
+      ? items
+      : cloneDefaultYeahPromosMarketplaceTemplates()
+  } catch {
+    return cloneDefaultYeahPromosMarketplaceTemplates()
+  }
+}
+
+function buildYeahPromosProductsPageUrl(templateUrl: string, page: number): string {
+  const url = new URL(templateUrl)
+  url.searchParams.set('page', String(Math.max(1, Math.trunc(page))))
+  return url.toString()
+}
+
+function parseYeahPromosProxyCountryUrlMap(rawValue: string | null | undefined): Map<string, string> {
+  const map = new Map<string, string>()
+  const raw = String(rawValue || '').trim()
+  if (!raw) return map
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return map
+    }
+
+    for (const item of parsed as YeahPromosProxyConfigEntry[]) {
+      const country = normalizeProxyCountryCode(String(item?.country || ''))
+      const url = normalizeUrl(String(item?.url || ''))
+      if (!country || !url) continue
+      map.set(country, url)
+    }
+  } catch {
+    return map
+  }
+
+  return map
+}
+
+function resolveYeahPromosProxyProviderUrl(countryProxyMap: Map<string, string>, country: string): string | null {
+  const candidates = resolveProxyCountryCandidates(country)
+  for (const candidate of candidates) {
+    const matched = normalizeUrl(countryProxyMap.get(candidate) || '')
+    if (matched) return matched
+  }
+  return null
+}
+
+function detectYeahPromosHttpIntercept(input: {
+  status: number
+  html: string
+}): { blocked: boolean; reason: string | null } {
+  const status = Number(input.status)
+  const rawHtml = String(input.html || '')
+  const html = rawHtml.toLowerCase()
+
+  if (status === 403) return { blocked: true, reason: 'http_403' }
+  if (status === 429) return { blocked: true, reason: 'http_429' }
+  if (status >= 500 && status <= 599) return { blocked: true, reason: `http_${status}` }
+
+  if (!rawHtml.trim()) {
+    return { blocked: true, reason: 'empty_html' }
+  }
+
+  if (YP_DOM_INTERCEPT_KEYWORDS.some((keyword) => html.includes(keyword))) {
+    return { blocked: true, reason: 'dom_keyword' }
+  }
+
+  const hasProductCards = html.includes('adv-content')
+  const hasNoProductsHint = html.includes('no products found')
+  const hasPageList = html.includes('id="pagelist"') || html.includes("id='pagelist'")
+  if (!hasProductCards && !hasNoProductsHint && !hasPageList) {
+    return { blocked: true, reason: 'dom_abnormal' }
+  }
+
+  return { blocked: false, reason: null }
+}
+
 function normalizeYmdDate(value: unknown): string | null {
   const text = String(value || '').trim()
   if (!text) return null
@@ -1887,6 +2102,7 @@ export async function checkAffiliatePlatformConfig(userId: number, platform: Aff
         'yeahpromos_rate_limit_max_retries',
         'yeahpromos_rate_limit_base_delay_ms',
         'yeahpromos_rate_limit_max_delay_ms',
+        'yeahpromos_marketplace_templates_json',
       ]
 
   const values = await getUserScopedSettingMap(userId, [...requiredKeys, ...optionalKeys])
@@ -2449,38 +2665,42 @@ async function fetchPartnerboostPromotableProducts(
   return result.items
 }
 
-async function getYeahPromosProxyAgent(userId: number): Promise<HttpsProxyAgent<string> | undefined> {
-  try {
-    const setting = await getUserOnlySetting('proxy', 'urls', userId)
-    if (!setting?.value) {
-      console.warn('[yeahpromos] 未配置代理，使用直连')
-      return undefined
-    }
-    const configs = JSON.parse(setting.value) as { country: string; url: string }[]
-    const usConfig = configs.find((c) => c.country === 'US')
-    if (!usConfig?.url) {
-      console.warn('[yeahpromos] 未找到US代理配置，使用直连')
-      return undefined
-    }
-
-    console.log(`[yeahpromos] 开始获取US代理（最多重试3次）...`)
-
-    // 使用fetchProxyIp而不是getProxyIp，确保每次重试都获取新IP
-    // maxRetries=3: 如果健康检查失败，会自动重试获取新的代理IP
-    // skipHealthCheck=false: 启用健康检查，确保代理可用
-    const { fetchProxyIp } = await import('@/lib/proxy/fetch-proxy-ip')
-    const proxy = await fetchProxyIp(usConfig.url, 3, false)
-
-    console.log(`[yeahpromos] ✅ 使用代理: ${proxy.fullAddress}`)
-    return new HttpsProxyAgent(`http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`, {
-      keepAlive: true,
-      timeout: 60000,
-    })
-  } catch (error: any) {
-    console.error(`[yeahpromos] ❌ 获取代理失败（已重试3次），回退直连: ${error?.message || error}`)
-    console.error(`[yeahpromos] 错误详情: ${error?.stack || 'N/A'}`)
-    return undefined
+async function loadYeahPromosMarketplaceTemplates(params: {
+  userId: number
+  preloadedSettings?: Record<string, string>
+}): Promise<YeahPromosMarketplaceTemplate[]> {
+  const preloadedValue = String(
+    params.preloadedSettings?.[YP_MARKETPLACE_TEMPLATES_SETTING_KEY]
+    || ''
+  ).trim()
+  if (preloadedValue) {
+    return resolveYeahPromosMarketplaceTemplates(preloadedValue)
   }
+
+  const setting = await getSetting(
+    'openclaw',
+    YP_MARKETPLACE_TEMPLATES_SETTING_KEY,
+    params.userId
+  )
+  return resolveYeahPromosMarketplaceTemplates(setting?.value || '')
+}
+
+async function loadYeahPromosCountryProxyMap(userId: number): Promise<Map<string, string>> {
+  const proxySetting = await getUserOnlySetting('proxy', 'urls', userId)
+  return parseYeahPromosProxyCountryUrlMap(proxySetting?.value || '')
+}
+
+async function createYeahPromosProxyAgent(params: {
+  proxyProviderUrl: string
+  country: string
+  reason: string
+}): Promise<HttpsProxyAgent<string>> {
+  const proxy = await fetchProxyIp(params.proxyProviderUrl, 3, false)
+  console.log(`[yeahpromos] proxy ${params.country} (${params.reason}): ${proxy.fullAddress}`)
+  return new HttpsProxyAgent(`http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`, {
+    keepAlive: true,
+    timeout: 60000,
+  })
 }
 
 async function fetchYeahPromosAccessProductsCount(params: {
@@ -2598,10 +2818,47 @@ function resolveYeahPromosProductMid(input: {
   return null
 }
 
-function parseYeahPromosProductHtmlPage(html: string): YeahPromosProductPageParseResult {
+function resolveYeahPromosKeyFieldsStatus(input: {
+  brand: string | null
+  asin: string | null
+  priceAmount: number | null
+  commissionRate: number | null
+  promoLink: string | null
+  reviewCount: number | null
+}): {
+  complete: boolean
+  missing_fields: string[]
+  last_checked_at: string
+} {
+  const missingFields: string[] = []
+  if (!normalizeUrl(input.brand)) missingFields.push('brand')
+  if (!normalizeAsin(input.asin)) missingFields.push('asin')
+  if (input.priceAmount === null || !Number.isFinite(input.priceAmount)) missingFields.push('priceAmount')
+  if (input.commissionRate === null || !Number.isFinite(input.commissionRate)) missingFields.push('commissionRate')
+  if (!normalizeUrl(input.promoLink)) missingFields.push('promoLink')
+  if (input.reviewCount === null || !Number.isFinite(input.reviewCount)) missingFields.push('reviewCount')
+
+  return {
+    complete: missingFields.length === 0,
+    missing_fields: missingFields,
+    last_checked_at: new Date().toISOString(),
+  }
+}
+
+function parseYeahPromosProductHtmlPage(
+  html: string,
+  context?: {
+    marketplace?: string | null
+    country?: string | null
+  }
+): YeahPromosProductPageParseResult {
   const $ = loadHtml(html)
-  const selectedMarketplaceCode = normalizeCountryCode(String(
-    $('select[name="market_place"] option:selected').attr('value')
+  const selectedMarketplaceCode = normalizeProxyCountryCode(String(
+    context?.country
+    || resolveYeahPromosMarketplaceCountry(
+      normalizeYeahPromosMarketplace(context?.marketplace || '')
+    )
+    || $('select[name="market_place"] option:selected').attr('value')
     || ''
   ))
   const selectedSiteId = normalizeUrl(String(
@@ -2663,6 +2920,14 @@ function parseYeahPromosProductHtmlPage(html: string): YeahPromosProductPagePars
     const commissionRate = parsePercentage(commissionText)
     const commissionAmount = computeCommissionAmount(priceAmount, commissionRate)
     const allowedCountries = selectedMarketplaceCode ? [selectedMarketplaceCode] : []
+    const keyFieldsStatus = resolveYeahPromosKeyFieldsStatus({
+      brand,
+      asin,
+      priceAmount,
+      commissionRate,
+      promoLink,
+      reviewCount,
+    })
 
     items.push({
       platform: 'yeahpromos',
@@ -2688,6 +2953,8 @@ function parseYeahPromosProductHtmlPage(html: string): YeahPromosProductPagePars
         product_id: applyProductId,
         join_status: joinStatus,
         rating,
+        marketplace: normalizeYeahPromosMarketplace(context?.marketplace || ''),
+        key_fields_status: keyFieldsStatus,
       }),
     })
   }
@@ -2700,17 +2967,57 @@ function parseYeahPromosProductHtmlPage(html: string): YeahPromosProductPagePars
   }
 }
 
+async function fetchYeahPromosProductsHtmlPageWithPlaywright(params: {
+  pageUrl: string
+  sessionCookie: string
+  proxyProviderUrl: string
+  country: string
+}): Promise<string> {
+  const { chromium } = await import('playwright')
+  const proxy = await fetchProxyIp(params.proxyProviderUrl, 3, false)
+  const browser = await chromium.launch({
+    headless: true,
+    proxy: {
+      server: `http://${proxy.host}:${proxy.port}`,
+      username: proxy.username,
+      password: proxy.password,
+    },
+    args: ['--disable-http2', '--disable-quic', '--no-sandbox'],
+    timeout: 60000,
+  })
+
+  try {
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      extraHTTPHeaders: {
+        Cookie: params.sessionCookie,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    })
+    const page = await context.newPage()
+    await page.goto(params.pageUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    const html = await page.content()
+    const redirectedUrl = normalizeUrl(page.url()) || ''
+    const isLoginRedirect = redirectedUrl.includes('/index/login/login')
+      || redirectedUrl.includes('/index/index/login')
+      || /action=\"\/index\/login\/login\"/i.test(html)
+    if (isLoginRedirect) {
+      throw new Error('YeahPromos 登录态已失效，请先在 /products 执行 YP 登录态采集')
+    }
+    return html
+  } finally {
+    await browser.close().catch(() => {})
+  }
+}
+
 async function fetchYeahPromosProductsHtmlPage(params: {
-  siteId: string
+  template: YeahPromosMarketplaceTemplate
   page: number
   sessionCookie: string
   rateLimitRetryOptions: YeahPromosRequestRateLimitOptions
-  proxyAgent?: HttpsProxyAgent<string>
+  proxyProviderUrl: string
 }): Promise<YeahPromosProductPageParseResult> {
-  const url = new URL('https://yeahpromos.com/index/offer/products')
-  url.searchParams.set('is_delete', '0')
-  url.searchParams.set('site_id', params.siteId)
-  url.searchParams.set('page', String(params.page))
+  const pageUrl = buildYeahPromosProductsPageUrl(params.template.url, params.page)
 
   let attempt = 0
   const resolveRetryDelayMs = (retryAttempt: number, message: string): number => {
@@ -2727,12 +3034,15 @@ async function fetchYeahPromosProductsHtmlPage(params: {
     return Math.max(backoffDelayMs, minDelayForTooFastMs)
   }
 
-  const agent = params.proxyAgent
-
   while (true) {
     let response: import('axios').AxiosResponse<string>
     try {
-      response = await axios.get(url.toString(), {
+      const agent = await createYeahPromosProxyAgent({
+        proxyProviderUrl: params.proxyProviderUrl,
+        country: params.template.country,
+        reason: `http:page=${params.page},attempt=${attempt + 1}`,
+      })
+      response = await axios.get(pageUrl, {
         headers: {
           Cookie: params.sessionCookie,
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -2751,7 +3061,9 @@ async function fetchYeahPromosProductsHtmlPage(params: {
       if (isTransient && attempt < params.rateLimitRetryOptions.maxRetries) {
         attempt += 1
         const delayMs = resolveRetryDelayMs(attempt, message)
-        console.warn(`[yeahpromos] transient network(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        console.warn(
+          `[yeahpromos] transient network(scope=${params.template.scope}, page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`
+        )
         await sleep(delayMs)
         continue
       }
@@ -2769,50 +3081,83 @@ async function fetchYeahPromosProductsHtmlPage(params: {
       throw new Error('YeahPromos 登录态已失效，请先在 /products 执行 YP 登录态采集')
     }
 
-    const rateLimitSignal = snippet || `HTTP ${response.status}`
-    if (isYeahPromosRateLimited(null, rateLimitSignal, response.status)) {
-      if (attempt < params.rateLimitRetryOptions.maxRetries) {
-        attempt += 1
-        const delayMs = resolveRetryDelayMs(attempt, rateLimitSignal)
-        console.warn(`[yeahpromos] rate limited(产品页 page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
-        await sleep(delayMs)
-        continue
+    const isOk = response.status >= 200 && response.status < 300
+    const interceptCheck = detectYeahPromosHttpIntercept({
+      status: response.status,
+      html,
+    })
+
+    const shouldTryPlaywright = response.status === 403
+      || response.status === 429
+      || (isOk && interceptCheck.blocked)
+    if (shouldTryPlaywright) {
+      try {
+        const playwrightHtml = await fetchYeahPromosProductsHtmlPageWithPlaywright({
+          pageUrl,
+          sessionCookie: params.sessionCookie,
+          proxyProviderUrl: params.proxyProviderUrl,
+          country: params.template.country,
+        })
+        return parseYeahPromosProductHtmlPage(playwrightHtml, {
+          marketplace: params.template.marketplace,
+          country: params.template.country,
+        })
+      } catch (playwrightError: any) {
+        const message = String(playwrightError?.message || playwrightError)
+        if (attempt < params.rateLimitRetryOptions.maxRetries) {
+          attempt += 1
+          const delayMs = resolveRetryDelayMs(attempt, message)
+          console.warn(
+            `[yeahpromos] playwright fallback failed(scope=${params.template.scope}, page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`
+          )
+          await sleep(delayMs)
+          continue
+        }
+        throw new Error(
+          `YeahPromos 产品页 Playwright 回退失败(scope=${params.template.scope}, page=${params.page}): ${message}`
+        )
       }
-      throw new Error(`YeahPromos 产品页触发频控 (${response.status}): ${snippet || 'Request too fast, please request later!'}`)
     }
 
-    const isOk = response.status >= 200 && response.status < 300
     if (!isOk) {
-      const failureMessage = `YeahPromos 产品页拉取失败 (${response.status}): ${snippet || '请求失败'}`
+      const failureMessage = `YeahPromos 产品页拉取失败(scope=${params.template.scope}, page=${params.page}, status=${response.status}): ${snippet || '请求失败'}`
       if (isTransientHttpStatus(response.status) && attempt < params.rateLimitRetryOptions.maxRetries) {
         attempt += 1
         const delayMs = resolveRetryDelayMs(attempt, failureMessage)
-        console.warn(`[yeahpromos] transient http(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        console.warn(
+          `[yeahpromos] transient http(scope=${params.template.scope}, page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`
+        )
         await sleep(delayMs)
         continue
       }
       throw new Error(failureMessage)
     }
 
-    if (!html.trim()) {
-      const message = `YeahPromos 产品页拉取失败 (${response.status}): Empty response body`
+    if (interceptCheck.blocked) {
+      const message = `YeahPromos 产品页疑似风控(scope=${params.template.scope}, page=${params.page}, reason=${interceptCheck.reason || 'unknown'})`
       if (attempt < params.rateLimitRetryOptions.maxRetries) {
         attempt += 1
         const delayMs = resolveRetryDelayMs(attempt, message)
-        console.warn(`[yeahpromos] empty response(page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`)
+        console.warn(
+          `[yeahpromos] intercept(scope=${params.template.scope}, page=${params.page}), retry ${attempt}/${params.rateLimitRetryOptions.maxRetries} after ${delayMs}ms`
+        )
         await sleep(delayMs)
         continue
       }
       throw new Error(message)
     }
 
-    return parseYeahPromosProductHtmlPage(html)
+    return parseYeahPromosProductHtmlPage(html, {
+      marketplace: params.template.marketplace,
+      country: params.template.country,
+    })
   }
 }
 
 async function fetchYeahPromosPromotableProductsWithMeta(params: {
   userId: number
   startPage?: number
+  startScope?: string
   maxPages?: number
   suppressMaxPagesWarning?: boolean
   onFetchProgress?: (fetchedCount: number) => Promise<void> | void
@@ -2826,17 +3171,34 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     throw new Error('YeahPromos 登录态缺失或已过期，请先在 /products 完成 YP 登录态采集')
   }
 
-  const proxyAgent = await getYeahPromosProxyAgent(params.userId)
+  const templates = await loadYeahPromosMarketplaceTemplates({
+    userId: params.userId,
+    preloadedSettings: check.values,
+  })
+  const countryProxyMap = await loadYeahPromosCountryProxyMap(params.userId)
 
-  try {
-    await fetchYeahPromosAccessProductsCount({
-      userId: params.userId,
-      siteId,
-      sessionCookie,
-      proxyAgent,
-    })
-  } catch (error: any) {
-    console.warn('[yeahpromos] failed to refresh Access Products baseline:', error?.message || error)
+  const baselineTemplate = templates.find(
+    (item) => Boolean(resolveYeahPromosProxyProviderUrl(countryProxyMap, item.country))
+  )
+  if (baselineTemplate && siteId) {
+    try {
+      const baselineProxyUrl = resolveYeahPromosProxyProviderUrl(countryProxyMap, baselineTemplate.country)
+      if (baselineProxyUrl) {
+        const proxyAgent = await createYeahPromosProxyAgent({
+          proxyProviderUrl: baselineProxyUrl,
+          country: baselineTemplate.country,
+          reason: 'refresh-access-products-baseline',
+        })
+        await fetchYeahPromosAccessProductsCount({
+          userId: params.userId,
+          siteId,
+          sessionCookie,
+          proxyAgent,
+        })
+      }
+    } catch (error: any) {
+      console.warn('[yeahpromos] failed to refresh Access Products baseline:', error?.message || error)
+    }
   }
 
   const requestDelayMs = parseIntegerInRange(
@@ -2871,16 +3233,23 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       120000
     ),
   }
+
   const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
   const configuredStartPage = Math.max(1, parseInteger(check.values.yeahpromos_page || '1', 1))
-  let page = Math.max(1, parseInteger(params.startPage, configuredStartPage))
-  let fetchedPages = 0
-  let hasMore = true
-  let pagesSinceLongBreak = 0
-  let nextLongBreakAfterPages = randomIntInRange(
-    YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES,
-    YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES
+  const startScope = normalizeYeahPromosMarketplace(params.startScope || '')
+  const resolvedStartScopeIndex = startScope
+    ? templates.findIndex((item) => item.scope === startScope)
+    : 0
+  let scopeIndex = resolvedStartScopeIndex >= 0 ? resolvedStartScopeIndex : 0
+  let page = Math.max(
+    1,
+    parseInteger(
+      params.startPage,
+      startScope ? 1 : configuredStartPage
+    )
   )
+  let fetchedPages = 0
+  let consecutiveScopeFailureCount = 0
 
   const items: NormalizedAffiliateProduct[] = []
   let lastFetchProgressCount = 0
@@ -2896,45 +3265,70 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     }
   }
 
-  while (hasMore && (maxPages === null || fetchedPages < maxPages)) {
-    await waitForYeahPromosSyncWindowIfNeeded()
+  while (
+    scopeIndex < templates.length
+    && (maxPages === null || fetchedPages < maxPages)
+  ) {
+    const currentTemplate = templates[scopeIndex]
+    const currentPage = page
+    const proxyProviderUrl = resolveYeahPromosProxyProviderUrl(countryProxyMap, currentTemplate.country)
 
-    const parsed = await fetchYeahPromosProductsHtmlPage({
-      siteId,
-      page,
-      sessionCookie,
-      rateLimitRetryOptions,
-      proxyAgent,
-    })
+    if (!proxyProviderUrl) {
+      console.warn(
+        `[yeahpromos] skip scope=${currentTemplate.scope}: missing proxy for country=${currentTemplate.country}`
+      )
+      scopeIndex += 1
+      page = 1
+      consecutiveScopeFailureCount = 0
+      continue
+    }
 
-    items.push(...parsed.items)
-    fetchedPages += 1
-    pagesSinceLongBreak += 1
+    try {
+      const parsed = await fetchYeahPromosProductsHtmlPage({
+        template: currentTemplate,
+        page: currentPage,
+        sessionCookie,
+        rateLimitRetryOptions,
+        proxyProviderUrl,
+      })
+      items.push(...parsed.items)
+      fetchedPages += 1
 
-    const parsedNextPage = parsed.nextPage
-    const hasNextPage = Number.isFinite(parsedNextPage as number) && (parsedNextPage as number) > page
-    hasMore = hasNextPage && !(parsed.noProductsFound && parsed.items.length === 0)
+      const parsedNextPage = parsed.nextPage
+      const hasNextPage = Number.isFinite(parsedNextPage as number) && (parsedNextPage as number) > currentPage
+      const scopeHasMore = hasNextPage && !(parsed.noProductsFound && parsed.items.length === 0)
+      if (scopeHasMore) {
+        page = parsedNextPage as number
+        consecutiveScopeFailureCount = 0
+      } else {
+        scopeIndex += 1
+        page = 1
+        consecutiveScopeFailureCount = 0
+      }
+    } catch (error: any) {
+      fetchedPages += 1
+      consecutiveScopeFailureCount += 1
+      console.warn(
+        `[yeahpromos] skip failed page scope=${currentTemplate.scope}, page=${currentPage}: ${error?.message || error}`
+      )
+      if (consecutiveScopeFailureCount >= MAX_YP_EMPTY_PAGE_STREAK) {
+        console.warn(
+          `[yeahpromos] scope=${currentTemplate.scope} 连续失败 ${consecutiveScopeFailureCount} 次，切换到下一个 scope`
+        )
+        scopeIndex += 1
+        page = 1
+        consecutiveScopeFailureCount = 0
+      } else {
+        page = currentPage + 1
+      }
+    }
 
-    if (fetchedPages === 1 || fetchedPages % 5 === 0 || !hasMore) {
+    const hasMoreCandidates = scopeIndex < templates.length
+    if (fetchedPages === 1 || fetchedPages % 3 === 0 || !hasMoreCandidates) {
       await emitFetchProgress()
     }
 
-    if (!hasMore) {
-      break
-    }
-
-    page = parsedNextPage as number
-
-    if (pagesSinceLongBreak >= nextLongBreakAfterPages) {
-      const longPauseMs = randomIntInRange(YP_PRODUCTS_LONG_BREAK_MIN_MS, YP_PRODUCTS_LONG_BREAK_MAX_MS)
-      console.log(`[yeahpromos] page=${page} reached cooldown checkpoint, sleeping ${longPauseMs}ms`)
-      await sleep(longPauseMs)
-      pagesSinceLongBreak = 0
-      nextLongBreakAfterPages = randomIntInRange(
-        YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES,
-        YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES
-      )
-    } else {
+    if (hasMoreCandidates && (maxPages === null || fetchedPages < maxPages)) {
       const jitterMs = requestDelayJitterMs > 0
         ? randomIntInRange(-requestDelayJitterMs, requestDelayJitterMs)
         : 0
@@ -2945,6 +3339,10 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     }
   }
 
+  const hasMore = scopeIndex < templates.length
+  const nextScope = hasMore ? templates[scopeIndex]?.scope || null : null
+  const nextPage = hasMore ? Math.max(1, page) : 0
+
   if (maxPages !== null && hasMore && fetchedPages >= maxPages && !params.suppressMaxPagesWarning) {
     console.warn(`[yeahpromos] reached page limit (${maxPages}); product results may be truncated`)
   }
@@ -2954,7 +3352,8 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
   return {
     items,
     hasMore,
-    nextPage: page,
+    nextPage,
+    nextScope,
     fetchedPages,
   }
 }
@@ -2962,6 +3361,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
 async function fetchYeahPromosPromotableProducts(params: {
   userId: number
   startPage?: number
+  startScope?: string
   maxPages?: number
   suppressMaxPagesWarning?: boolean
   onFetchProgress?: (fetchedCount: number) => Promise<void> | void
@@ -3730,14 +4130,6 @@ function toSafeNonNegativeInt(value: unknown): number {
   return Math.trunc(parsed)
 }
 
-function resolveBeijingWindowCloseAt(now: Date): Date {
-  const tomorrow = getDateInTimezone(
-    new Date(now.getTime() + 24 * 60 * 60 * 1000),
-    YP_PRODUCTS_ALLOWED_TIMEZONE
-  )
-  return createDateInTimezone(tomorrow, '00:00', YP_PRODUCTS_ALLOWED_TIMEZONE)
-}
-
 function resolveLifecycleStatusFromRowForList(
   row: Pick<AffiliateProduct, 'platform' | 'raw_json' | 'last_seen_at'>
   & { baseline_started_at?: string | null }
@@ -4389,6 +4781,11 @@ export const __testOnly = {
   isYeahPromosRateLimited,
   isYeahPromosTransientError,
   parseYeahPromosProductHtmlPage,
+  buildYeahPromosProductsPageUrl,
+  resolveYeahPromosMarketplaceTemplates,
+  parseYeahPromosProxyCountryUrlMap,
+  resolveYeahPromosProxyProviderUrl,
+  detectYeahPromosHttpIntercept,
   resolveYeahPromosProductMid,
   resolveOfferProductBackfillDecision,
   normalizeNumericRangeBounds,
@@ -5044,6 +5441,7 @@ export async function updateAffiliateProductSyncRun(params: {
   updatedCount?: number
   failedCount?: number
   cursorPage?: number | null
+  cursorScope?: string | null
   processedBatches?: number
   lastHeartbeatAt?: string | null
   errorMessage?: string | null
@@ -5077,6 +5475,10 @@ export async function updateAffiliateProductSyncRun(params: {
   if (params.cursorPage !== undefined) {
     updates.push('cursor_page = ?')
     values.push(params.cursorPage === null ? 0 : params.cursorPage)
+  }
+  if (params.cursorScope !== undefined) {
+    updates.push('cursor_scope = ?')
+    values.push(params.cursorScope || null)
   }
   if (params.processedBatches !== undefined) {
     updates.push('processed_batches = ?')
@@ -5130,6 +5532,7 @@ export async function getAffiliateProductSyncRunById(params: {
   updated_count: number
   failed_count: number
   cursor_page: number
+  cursor_scope: string | null
   processed_batches: number
   last_heartbeat_at: string | null
   error_message: string | null
@@ -5167,6 +5570,7 @@ export async function getAffiliateProductSyncRunById(params: {
     updated_count: Number(row.updated_count || 0),
     failed_count: Number(row.failed_count || 0),
     cursor_page: Number(row.cursor_page || 0),
+    cursor_scope: row.cursor_scope ?? null,
     processed_batches: Number(row.processed_batches || 0),
     last_heartbeat_at: row.last_heartbeat_at ?? null,
     error_message: row.error_message ?? null,
@@ -5194,6 +5598,7 @@ export async function getLatestFailedAffiliateProductSyncRun(params: {
   updated_count: number
   failed_count: number
   cursor_page: number
+  cursor_scope: string | null
   processed_batches: number
   last_heartbeat_at: string | null
   error_message: string | null
@@ -5238,6 +5643,7 @@ export async function getLatestFailedAffiliateProductSyncRun(params: {
     updated_count: Number(row.updated_count || 0),
     failed_count: Number(row.failed_count || 0),
     cursor_page: Number(row.cursor_page || 0),
+    cursor_scope: row.cursor_scope ?? null,
     processed_batches: Number(row.processed_batches || 0),
     last_heartbeat_at: row.last_heartbeat_at ?? null,
     error_message: row.error_message ?? null,
@@ -5369,7 +5775,7 @@ export async function getYeahPromosSyncMonitor(userId: number): Promise<YeahProm
     remainingItems: null,
     avgItemsPerHour: null,
     etaAt: null,
-    windowCloseAt: resolveBeijingWindowCloseAt(new Date()).toISOString(),
+    windowCloseAt: null,
     canFinishInWindow: null,
     statsUpdatedAt: null,
     hourlyStats: [],
@@ -5490,13 +5896,6 @@ export async function getYeahPromosSyncMonitor(userId: number): Promise<YeahProm
     }
   }
 
-  const windowCloseAt = resolveBeijingWindowCloseAt(new Date()).toISOString()
-  const windowCloseMs = Date.parse(windowCloseAt)
-  const etaMs = parseDateToTimestamp(etaAt)
-  const canFinishInWindow = etaMs !== null && Number.isFinite(windowCloseMs)
-    ? etaMs <= windowCloseMs
-    : null
-
   const statsUpdatedAt = hourlyStats.length > 0
     ? (hourlyStats[hourlyStats.length - 1].updatedAt || null)
     : (latestRun.last_heartbeat_at || latestRun.updated_at || null)
@@ -5509,8 +5908,8 @@ export async function getYeahPromosSyncMonitor(userId: number): Promise<YeahProm
     remainingItems,
     avgItemsPerHour,
     etaAt,
-    windowCloseAt,
-    canFinishInWindow,
+    windowCloseAt: null,
+    canFinishInWindow: null,
     statsUpdatedAt,
     hourlyStats,
   }
@@ -5518,6 +5917,7 @@ export async function getYeahPromosSyncMonitor(userId: number): Promise<YeahProm
 
 export type AffiliateProductSyncCheckpoint = {
   cursorPage: number
+  cursorScope?: string | null
   processedBatches: number
   totalFetched: number
   createdCount: number
@@ -5665,6 +6065,7 @@ async function syncPartnerboostPlatformByWindow(params: {
 async function syncYeahPromosPlatformByWindow(params: {
   userId: number
   startPage?: number
+  startScope?: string
   pageWindowSize?: number
   progressEvery?: number
   onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
@@ -5673,6 +6074,9 @@ async function syncYeahPromosPlatformByWindow(params: {
   totalFetched: number
   createdCount: number
   updatedCount: number
+  hasMore: boolean
+  nextCursorPage: number
+  nextCursorScope: string | null
 }> {
   const pageWindowSize = parseIntegerInRange(
     params.pageWindowSize ?? DEFAULT_YP_STREAM_WINDOW_PAGES,
@@ -5682,13 +6086,12 @@ async function syncYeahPromosPlatformByWindow(params: {
   )
 
   let cursorPage = Math.max(1, parseInteger(params.startPage, 1))
-  let hasMore = true
+  let cursorScope = normalizeYeahPromosMarketplace(params.startScope || '')
   let totalFetched = 0
   let createdCount = 0
   let updatedCount = 0
   const failedCount = 0
   let processedBatches = 0
-  const seenMids = new Set<string>()
 
   const emitProgress = async (nextFetched: number): Promise<void> => {
     if (!params.onProgress) return
@@ -5710,6 +6113,7 @@ async function syncYeahPromosPlatformByWindow(params: {
     try {
       await params.onCheckpoint({
         cursorPage,
+        cursorScope,
         processedBatches,
         totalFetched,
         createdCount,
@@ -5724,56 +6128,49 @@ async function syncYeahPromosPlatformByWindow(params: {
   await emitProgress(0)
   await emitCheckpoint()
 
-  while (hasMore) {
-    const windowStartPage = cursorPage
-    const fetchResult = await fetchYeahPromosPromotableProductsWithMeta({
-      userId: params.userId,
-      startPage: windowStartPage,
-      maxPages: pageWindowSize,
-      suppressMaxPagesWarning: true,
-      onFetchProgress: async (fetchedCount) => {
-        await emitProgress(totalFetched + Math.max(0, fetchedCount))
-        await emitCheckpoint()
-      },
-    })
+  const fetchResult = await fetchYeahPromosPromotableProductsWithMeta({
+    userId: params.userId,
+    startPage: cursorPage,
+    startScope: cursorScope || undefined,
+    maxPages: pageWindowSize,
+    suppressMaxPagesWarning: true,
+    onFetchProgress: async (fetchedCount) => {
+      await emitProgress(totalFetched + Math.max(0, fetchedCount))
+      await emitCheckpoint()
+    },
+  })
 
-    const dedupedWindowItems: NormalizedAffiliateProduct[] = []
-    for (const item of fetchResult.items) {
-      const mid = String(item.mid || '').trim()
-      if (!mid || seenMids.has(mid)) continue
-      seenMids.add(mid)
-      dedupedWindowItems.push(item)
+  const dedupedWindowItems = dedupeNormalizedProducts(fetchResult.items)
+
+  const upserted = await upsertAffiliateProducts(
+    params.userId,
+    'yeahpromos',
+    dedupedWindowItems,
+    {
+      progressEvery: params.progressEvery,
     }
-
-    const upserted = await upsertAffiliateProducts(
-      params.userId,
-      'yeahpromos',
-      dedupedWindowItems,
-      {
-        progressEvery: params.progressEvery,
-      }
-    )
-    totalFetched += upserted.totalFetched
-    createdCount += upserted.createdCount
-    updatedCount += upserted.updatedCount
+  )
+  totalFetched += upserted.totalFetched
+  createdCount += upserted.createdCount
+  updatedCount += upserted.updatedCount
+  if (fetchResult.fetchedPages > 0) {
     processedBatches += 1
-
-    const nextPage = fetchResult.nextPage > windowStartPage
-      ? fetchResult.nextPage
-      : windowStartPage + Math.max(1, fetchResult.fetchedPages)
-    cursorPage = nextPage
-    hasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
-
-    await emitProgress(totalFetched)
-    await emitCheckpoint()
-
-    if (fetchResult.fetchedPages <= 0) break
   }
+
+  const hasMore = fetchResult.hasMore
+  cursorPage = hasMore ? Math.max(1, fetchResult.nextPage) : 0
+  cursorScope = hasMore ? (fetchResult.nextScope || null) : null
+
+  await emitProgress(totalFetched)
+  await emitCheckpoint()
 
   return {
     totalFetched,
     createdCount,
     updatedCount,
+    hasMore,
+    nextCursorPage: cursorPage,
+    nextCursorScope: cursorScope,
   }
 }
 
@@ -5783,6 +6180,7 @@ export async function syncAffiliateProducts(params: {
   mode: SyncMode
   productId?: number
   resumeFromPage?: number
+  resumeFromScope?: string
   pageWindowSize?: number
   progressEvery?: number
   onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
@@ -5791,6 +6189,9 @@ export async function syncAffiliateProducts(params: {
   totalFetched: number
   createdCount: number
   updatedCount: number
+  hasMore?: boolean
+  nextCursorPage?: number
+  nextCursorScope?: string | null
 }> {
   let normalizedItems: NormalizedAffiliateProduct[] = []
   const emitFetchProgress = async (fetchedCount: number): Promise<void> => {
@@ -5855,7 +6256,7 @@ export async function syncAffiliateProducts(params: {
     }
   } else {
     if (params.platform === 'partnerboost') {
-      return await syncPartnerboostPlatformByWindow({
+      const result = await syncPartnerboostPlatformByWindow({
         userId: params.userId,
         startPage: params.resumeFromPage,
         pageWindowSize: params.pageWindowSize,
@@ -5863,11 +6264,18 @@ export async function syncAffiliateProducts(params: {
         onProgress: params.onProgress,
         onCheckpoint: params.onCheckpoint,
       })
+      return {
+        ...result,
+        hasMore: false,
+        nextCursorPage: 0,
+        nextCursorScope: null,
+      }
     }
 
     return await syncYeahPromosPlatformByWindow({
       userId: params.userId,
       startPage: params.resumeFromPage,
+      startScope: params.resumeFromScope,
       pageWindowSize: params.pageWindowSize,
       progressEvery: params.progressEvery,
       onProgress: params.onProgress,
@@ -5875,8 +6283,14 @@ export async function syncAffiliateProducts(params: {
     })
   }
 
-  return await upsertAffiliateProducts(params.userId, params.platform, normalizedItems, {
+  const upserted = await upsertAffiliateProducts(params.userId, params.platform, normalizedItems, {
     progressEvery: params.progressEvery,
     onProgress: params.onProgress,
   })
+  return {
+    ...upserted,
+    hasMore: false,
+    nextCursorPage: 0,
+    nextCursorScope: null,
+  }
 }
