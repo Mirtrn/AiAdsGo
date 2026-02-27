@@ -2364,77 +2364,81 @@ export default function ProductsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>YeahPromos 登录态采集</DialogTitle>
-            <DialogDescription>
-              推荐使用浏览器扩展一键回传登录态。书签脚本仍可作为备用方案。
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-h-[85vh] w-[96vw] max-w-4xl overflow-hidden p-0">
+          <div className="flex max-h-[85vh] flex-col p-6">
+            <DialogHeader className="shrink-0">
+              <DialogTitle>YeahPromos 登录态采集</DialogTitle>
+              <DialogDescription>
+                推荐使用浏览器扩展一键回传登录态。书签脚本仍可作为备用方案。
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="space-y-3 text-sm">
-            <div className="rounded-md border bg-slate-50 p-3">
-              <div className="font-medium">扩展采集（推荐）</div>
-              <div>1. 点击“下载扩展包”，解压后得到扩展目录。</div>
-              <div>2. Chrome 打开 chrome://extensions 或 Edge 打开 edge://extensions。</div>
-              <div>3. 打开“开发者模式”后，点“加载已解压的扩展程序”，选择解压后的目录。</div>
-              <div>4. 保持当前 AutoAds /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
-              <div>5. 点击浏览器右上角扩展图标，执行“回传 YeahPromos 登录态”。</div>
-              <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
-            </div>
-
-            <div className="rounded-md border bg-slate-50 p-3">
-              <div className="font-medium">书签脚本采集（备用）</div>
-              <div>1. 点击“复制书签脚本”。</div>
-              <div>2. 打开任意网页，按 Ctrl+Shift+O（Mac: Command+Option+B）进入书签管理器。</div>
-              <div>3. 点右上角“⋮”→“添加新书签”。</div>
-              <div>4. 名称可填“YP登录态回传”，URL 粘贴刚复制的书签脚本（javascript:...）。</div>
-              <div>5. 在 yeahpromos.com 任意页面点击该书签一次。</div>
-              <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
-            </div>
-
-            <div className="rounded-md border p-3">
-              <div className="mb-2 text-xs text-muted-foreground">
-                书签脚本（有效期至 {ypCaptureTokenExpiresAt ? formatSyncRunDateTime(ypCaptureTokenExpiresAt) : '-'})
+            <div className="mt-3 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
+              <div className="rounded-md border bg-slate-50 p-3">
+                <div className="font-medium">扩展采集（推荐）</div>
+                <div>1. 点击“下载扩展包”，解压后得到扩展目录。</div>
+                <div>2. Chrome 打开 chrome://extensions 或 Edge 打开 edge://extensions。</div>
+                <div>3. 打开“开发者模式”后，点“加载已解压的扩展程序”，选择解压后的目录。</div>
+                <div>4. 保持当前 AutoAds /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
+                <div>5. 点击浏览器右上角扩展图标，执行“回传 YeahPromos 登录态”。</div>
+                <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
               </div>
-              <textarea
-                className="min-h-[120px] w-full rounded-md border p-2 text-xs"
-                value={ypCaptureBookmarklet}
-                readOnly
-              />
-            </div>
 
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">当前登录态</div>
-              <div className="mt-1">
-                {ypSessionStatus.hasSession
-                  ? `已就绪（会话 ${ypSessionStatus.maskedPhpSessionId || '-'}，到期 ${ypSessionStatus.expiresAt ? formatSyncRunDateTime(ypSessionStatus.expiresAt) : '-'}）`
-                  : (ypSessionStatus.isExpired ? '已过期，请重新采集' : '未采集')}
+              <details className="rounded-md border bg-slate-50 p-3">
+                <summary className="cursor-pointer font-medium">书签脚本采集（备用，默认折叠）</summary>
+                <div className="mt-2 space-y-1">
+                  <div>1. 点击“复制书签脚本”。</div>
+                  <div>2. 打开任意网页，按 Ctrl+Shift+O（Mac: Command+Option+B）进入书签管理器。</div>
+                  <div>3. 点右上角“⋮”→“添加新书签”。</div>
+                  <div>4. 名称可填“YP登录态回传”，URL 粘贴刚复制的书签脚本（javascript:...）。</div>
+                  <div>5. 在 yeahpromos.com 任意页面点击该书签一次。</div>
+                  <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
+                </div>
+
+                <div className="mt-3 rounded-md border bg-white p-3">
+                  <div className="mb-2 text-xs text-muted-foreground">
+                    书签脚本（有效期至 {ypCaptureTokenExpiresAt ? formatSyncRunDateTime(ypCaptureTokenExpiresAt) : '-'})
+                  </div>
+                  <textarea
+                    className="min-h-[96px] w-full rounded-md border p-2 text-xs"
+                    value={ypCaptureBookmarklet}
+                    readOnly
+                  />
+                </div>
+              </details>
+
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">当前登录态</div>
+                <div className="mt-1">
+                  {ypSessionStatus.hasSession
+                    ? `已就绪（会话 ${ypSessionStatus.maskedPhpSessionId || '-'}，到期 ${ypSessionStatus.expiresAt ? formatSyncRunDateTime(ypSessionStatus.expiresAt) : '-'}）`
+                    : (ypSessionStatus.isExpired ? '已过期，请重新采集' : '未采集')}
+                </div>
               </div>
             </div>
+
+            <DialogFooter className="mt-4 shrink-0 gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  window.open('/downloads/yp-session-capture.zip', '_blank', 'noopener,noreferrer')
+                }}
+              >
+                下载扩展包
+              </Button>
+              <Button variant="outline" onClick={() => void loadYeahPromosSessionStatus()} disabled={ypSessionStatusLoading}>
+                {ypSessionStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                刷新登录态
+              </Button>
+              <Button variant="outline" onClick={handleCopyYeahPromosBookmarklet} disabled={!ypCaptureBookmarklet}>
+                复制书签脚本
+              </Button>
+              <Button onClick={handlePrepareYeahPromosCapture} disabled={ypPreparingCapture}>
+                {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                重新生成脚本
+              </Button>
+            </DialogFooter>
           </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                window.open('/downloads/yp-session-capture.zip', '_blank', 'noopener,noreferrer')
-              }}
-            >
-              下载扩展包
-            </Button>
-            <Button variant="outline" onClick={() => void loadYeahPromosSessionStatus()} disabled={ypSessionStatusLoading}>
-              {ypSessionStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              刷新登录态
-            </Button>
-            <Button variant="outline" onClick={handleCopyYeahPromosBookmarklet} disabled={!ypCaptureBookmarklet}>
-              复制书签脚本
-            </Button>
-            <Button onClick={handlePrepareYeahPromosCapture} disabled={ypPreparingCapture}>
-              {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              重新生成脚本
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
