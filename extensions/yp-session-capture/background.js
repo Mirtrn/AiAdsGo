@@ -12,11 +12,46 @@ function normalizeCookieHeader(cookies) {
     .join('; ')
 }
 
+async function collectYeahPromosCookies() {
+  const queryList = [
+    { url: 'https://yeahpromos.com/' },
+    { url: 'https://www.yeahpromos.com/' },
+    { domain: 'yeahpromos.com' },
+    { domain: 'www.yeahpromos.com' },
+  ]
+
+  const allCookies = []
+  const seen = new Set()
+
+  for (const query of queryList) {
+    let cookies = []
+    try {
+      cookies = await chrome.cookies.getAll(query)
+    } catch {
+      cookies = []
+    }
+
+    for (const cookie of cookies || []) {
+      const name = String(cookie?.name || '').trim()
+      const value = String(cookie?.value || '')
+      const domain = String(cookie?.domain || '').trim().toLowerCase()
+      const path = String(cookie?.path || '/')
+      if (!name) continue
+      const key = `${name}@@${value}@@${domain}@@${path}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      allCookies.push(cookie)
+    }
+  }
+
+  return allCookies
+}
+
 async function getYeahPromosCookieHeader() {
-  const cookies = await chrome.cookies.getAll({ domain: 'yeahpromos.com' })
+  const cookies = await collectYeahPromosCookies()
   const header = normalizeCookieHeader(cookies)
   if (!header) {
-    throw new Error('未读取到 YeahPromos Cookie，请先在 yeahpromos.com 完成登录。')
+    throw new Error('未读取到 YeahPromos Cookie，请先在 yeahpromos.com 或 www.yeahpromos.com 完成登录。')
   }
   return header
 }

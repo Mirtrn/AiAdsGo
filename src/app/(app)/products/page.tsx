@@ -266,6 +266,8 @@ type NumericRangeFilters = {
 type NumericRangeFilterDrafts = Record<keyof NumericRangeFilters, string>
 
 const PARTNERBOOST_MERCHANT_PAGE_URL = 'https://app.partnerboost.com/partner/amazon-offers'
+const YP_CAPTURE_EXTENSION_VERSION = '1.0.1'
+const YP_CAPTURE_EXTENSION_DOWNLOAD_PATH = `/downloads/yp-session-capture-v${YP_CAPTURE_EXTENSION_VERSION}.zip`
 
 const PLATFORM_LABEL: Record<ProductPlatform, string> = {
   yeahpromos: 'YeahPromos',
@@ -2441,7 +2443,7 @@ export default function ProductsPage() {
                 variant="outline"
                 className="shrink-0 whitespace-nowrap"
                 onClick={() => {
-                  window.open('/downloads/yp-session-capture.zip', '_blank', 'noopener,noreferrer')
+                  window.open(YP_CAPTURE_EXTENSION_DOWNLOAD_PATH, '_blank', 'noopener,noreferrer')
                 }}
               >
                 下载扩展包
