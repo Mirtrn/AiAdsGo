@@ -2441,7 +2441,7 @@ export default function ProductsPage() {
             <DialogFooter className="mt-4 shrink-0 gap-2 sm:flex-row sm:flex-nowrap sm:justify-end">
               <Button
                 variant="outline"
-                className="shrink-0 whitespace-nowrap"
+                className="shrink-0 whitespace-nowrap border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
                 onClick={() => {
                   window.open(YP_CAPTURE_EXTENSION_DOWNLOAD_PATH, '_blank', 'noopener,noreferrer')
                 }}
@@ -2450,7 +2450,7 @@ export default function ProductsPage() {
               </Button>
               <Button
                 variant="outline"
-                className="shrink-0 whitespace-nowrap"
+                className="shrink-0 whitespace-nowrap border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
                 onClick={() => void loadYeahPromosSessionStatus()}
                 disabled={ypSessionStatusLoading}
               >

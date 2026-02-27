@@ -27,7 +27,9 @@ async function collectYeahPromosCookies() {
     let cookies = []
     try {
       cookies = await chrome.cookies.getAll(query)
-    } catch {
+      console.log('[YP Debug] query:', JSON.stringify(query), '→ cookies:', cookies.length, cookies.map(c => `${c.name}=${c.value.slice(0, 8)}… (domain=${c.domain}, path=${c.path})`))
+    } catch (err) {
+      console.warn('[YP Debug] query:', JSON.stringify(query), '→ error:', err)
       cookies = []
     }
 
@@ -44,12 +46,14 @@ async function collectYeahPromosCookies() {
     }
   }
 
+  console.log('[YP Debug] collectYeahPromosCookies → total unique cookies:', allCookies.length)
   return allCookies
 }
 
 async function getYeahPromosCookieHeader() {
   const cookies = await collectYeahPromosCookies()
   const header = normalizeCookieHeader(cookies)
+  console.log('[YP Debug] getYeahPromosCookieHeader → header length:', header.length, header ? '(has value)' : '(EMPTY)')
   if (!header) {
     throw new Error('未读取到 YeahPromos Cookie，请先在 yeahpromos.com 或 www.yeahpromos.com 完成登录。')
   }
