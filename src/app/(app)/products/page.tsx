@@ -58,7 +58,6 @@ import { NoDataState, NoResultsState } from '@/components/ui/empty-state'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import {
   ArrowLeft,
-  ArrowUpRight,
   CheckCircle2,
   Clock3,
   XCircle,
@@ -746,7 +745,6 @@ export default function ProductsPage() {
   const [productConfigInitialValues, setProductConfigInitialValues] = useState<Record<ProductConfigKey, string>>(() => createDefaultProductConfigValues())
   const [ypSessionStatusLoading, setYpSessionStatusLoading] = useState(false)
   const [ypSessionStatus, setYpSessionStatus] = useState<YeahPromosSessionStatus>(() => createEmptyYeahPromosSessionStatus())
-  const [ypManualOnly, setYpManualOnly] = useState(true)
   const [ypCaptureDialogOpen, setYpCaptureDialogOpen] = useState(false)
   const [ypPreparingCapture, setYpPreparingCapture] = useState(false)
   const [ypCaptureBookmarklet, setYpCaptureBookmarklet] = useState('')
@@ -983,7 +981,6 @@ export default function ProductsPage() {
       }
 
       setYpSessionStatus(data.session)
-      setYpManualOnly(Boolean(data.manualOnly))
     } catch (error: any) {
       showError('加载失败', error?.message || '加载YP登录态失败')
     } finally {
@@ -1788,36 +1785,26 @@ export default function ProductsPage() {
               <Badge variant="outline">{total}</Badge>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 rounded-md border bg-white px-2 py-1">
-                <Badge variant={ypSessionStatus.hasSession ? 'default' : 'outline'}>
-                  YP登录态
-                  {ypSessionStatusLoading
-                    ? '检测中'
-                    : ypSessionStatus.hasSession
-                      ? '已就绪'
-                      : (ypSessionStatus.isExpired ? '已过期' : '未采集')}
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePrepareYeahPromosCapture}
-                  disabled={ypPreparingCapture}
-                  title="打开YP登录页并生成书签脚本，登录后点击书签自动回传登录态"
-                >
-                  {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
-                  采集YP登录态
-                </Button>
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 py-2">
+              <Badge variant={ypSessionStatus.hasSession ? 'default' : 'outline'}>
+                YP登录态
+                {ypSessionStatusLoading
+                  ? '检测中'
+                  : ypSessionStatus.hasSession
+                    ? '已就绪'
+                    : (ypSessionStatus.isExpired ? '已过期' : '未采集')}
+              </Badge>
+
               <Button
-                variant="destructive"
-                onClick={openClearAllDialog}
-                disabled={clearingAll || total <= 0}
-                title={total > 0 ? '清空当前用户下全部商品数据' : '暂无可清空商品'}
+                variant="outline"
+                onClick={handlePrepareYeahPromosCapture}
+                disabled={ypPreparingCapture}
+                title="打开YP登录页并生成书签脚本，登录后点击书签自动回传登录态"
               >
-                {clearingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
-                一键清空
+                {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+                采集YP登录态
               </Button>
+
               {(['yeahpromos', 'partnerboost'] as const).map((platform) => {
                 const isPlatformSyncing = syncingPlatform?.platform === platform
                 const isLightSyncing = isPlatformSyncing && syncingPlatform?.strategy === 'light'
@@ -1829,7 +1816,7 @@ export default function ProductsPage() {
                       variant="outline"
                       onClick={() => handlePlatformSync(platform, 'light')}
                       disabled={syncingPlatform !== null || isBlockedBySession}
-                      className="rounded-r-none border-r-0"
+                      className="rounded-r-none border-r-0 bg-white"
                       title={isBlockedBySession ? '请先完成YP登录态采集' : undefined}
                     >
                       {isLightSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -1841,7 +1828,7 @@ export default function ProductsPage() {
                           variant="outline"
                           size="icon"
                           disabled={syncingPlatform !== null || isBlockedBySession}
-                          className="h-10 w-10 rounded-l-none"
+                          className="h-10 w-10 rounded-l-none bg-white"
                           aria-label={`选择${PLATFORM_SHORT_LABEL[platform]}同步模式`}
                           title={isBlockedBySession ? '请先完成YP登录态采集' : undefined}
                         >
@@ -1860,13 +1847,25 @@ export default function ProductsPage() {
                   </div>
                 )
               })}
-              {ypManualOnly && (
-                <Badge variant="outline">YP仅手动同步</Badge>
-              )}
-              <Button variant="secondary" onClick={handleToggleProductConfigPanel}>
-                {productConfigOpen ? '收起配置' : '平台配置'}
-                <ArrowUpRight className="ml-2 h-4 w-4" />
-              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary">
+                    更多操作
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem
+                    onClick={openClearAllDialog}
+                    disabled={clearingAll || total <= 0}
+                    className="text-red-600 focus:text-red-600"
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    一键清空
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
