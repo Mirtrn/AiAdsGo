@@ -178,4 +178,68 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
       serviceAccountId: undefined,
     })
   })
+
+  it('retries with next login_customer_id candidate on access error', async () => {
+    dbFns.queryOne.mockResolvedValue({
+      local_campaign_id: 12,
+      google_ads_account_id: 9,
+      status: 'ENABLED',
+      is_deleted: false,
+      customer_id: '1234567890',
+      parent_mcc_id: '9988776655',
+      account_is_active: true,
+      account_is_deleted: false,
+    })
+    oauthFns.getGoogleAdsCredentials.mockResolvedValue({
+      refresh_token: 'refresh-token',
+      login_customer_id: '1122334455',
+    })
+    adsFns.updateGoogleAdsCampaignBudget
+      .mockRejectedValueOnce(
+        new Error(
+          "User doesn't have permission to access customer. Note: If you're accessing a client customer, the manager's customer id must be set in the 'login-customer-id' header."
+        )
+      )
+      .mockResolvedValueOnce(undefined)
+
+    const req = new NextRequest('http://localhost/api/campaigns/23578044853/update-budget', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        budgetAmount: 20,
+        budgetType: 'DAILY',
+      }),
+    })
+
+    const res = await PUT(req, { params: { id: '23578044853' } })
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(adsFns.updateGoogleAdsCampaignBudget).toHaveBeenCalledTimes(2)
+    expect(adsFns.updateGoogleAdsCampaignBudget).toHaveBeenNthCalledWith(1, {
+      customerId: '1234567890',
+      refreshToken: 'refresh-token',
+      campaignId: '23578044853',
+      budgetAmount: 20,
+      budgetType: 'DAILY',
+      accountId: 9,
+      userId: 1,
+      loginCustomerId: '9988776655',
+      authType: 'oauth',
+      serviceAccountId: undefined,
+    })
+    expect(adsFns.updateGoogleAdsCampaignBudget).toHaveBeenNthCalledWith(2, {
+      customerId: '1234567890',
+      refreshToken: 'refresh-token',
+      campaignId: '23578044853',
+      budgetAmount: 20,
+      budgetType: 'DAILY',
+      accountId: 9,
+      userId: 1,
+      loginCustomerId: '1122334455',
+      authType: 'oauth',
+      serviceAccountId: undefined,
+    })
+  })
 })
