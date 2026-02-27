@@ -2364,7 +2364,7 @@ export default function ProductsPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[85vh] w-[96vw] max-w-4xl overflow-hidden p-0">
+        <DialogContent className="max-h-[85vh] w-[96vw] max-w-5xl overflow-hidden p-0">
           <div className="flex max-h-[85vh] flex-col p-6">
             <DialogHeader className="shrink-0">
               <DialogTitle>YeahPromos 登录态采集</DialogTitle>
@@ -2405,6 +2405,25 @@ export default function ProductsPage() {
                     readOnly
                   />
                 </div>
+
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={handleCopyYeahPromosBookmarklet}
+                    disabled={!ypCaptureBookmarklet}
+                  >
+                    复制书签脚本
+                  </Button>
+                  <Button
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={handlePrepareYeahPromosCapture}
+                    disabled={ypPreparingCapture}
+                  >
+                    {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    重新生成脚本
+                  </Button>
+                </div>
               </details>
 
               <div className="rounded-md border p-3">
@@ -2417,25 +2436,24 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            <DialogFooter className="mt-4 shrink-0 gap-2 sm:flex-row sm:justify-end">
+            <DialogFooter className="mt-4 shrink-0 gap-2 sm:flex-row sm:flex-nowrap sm:justify-end">
               <Button
                 variant="outline"
+                className="shrink-0 whitespace-nowrap"
                 onClick={() => {
                   window.open('/downloads/yp-session-capture.zip', '_blank', 'noopener,noreferrer')
                 }}
               >
                 下载扩展包
               </Button>
-              <Button variant="outline" onClick={() => void loadYeahPromosSessionStatus()} disabled={ypSessionStatusLoading}>
+              <Button
+                variant="outline"
+                className="shrink-0 whitespace-nowrap"
+                onClick={() => void loadYeahPromosSessionStatus()}
+                disabled={ypSessionStatusLoading}
+              >
                 {ypSessionStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 刷新登录态
-              </Button>
-              <Button variant="outline" onClick={handleCopyYeahPromosBookmarklet} disabled={!ypCaptureBookmarklet}>
-                复制书签脚本
-              </Button>
-              <Button onClick={handlePrepareYeahPromosCapture} disabled={ypPreparingCapture}>
-                {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                重新生成脚本
               </Button>
             </DialogFooter>
           </div>
