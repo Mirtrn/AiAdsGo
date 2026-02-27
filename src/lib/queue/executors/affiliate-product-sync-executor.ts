@@ -230,7 +230,8 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     throw new Error('任务参数不完整')
   }
 
-  const supportsPlatformResume = data.platform === 'partnerboost' && data.mode === 'platform'
+  const supportsPlatformResume = data.mode === 'platform'
+    && (data.platform === 'partnerboost' || data.platform === 'yeahpromos')
   const toSafeCount = (value: unknown): number => {
     const parsed = Number(value)
     if (!Number.isFinite(parsed) || parsed < 0) return 0

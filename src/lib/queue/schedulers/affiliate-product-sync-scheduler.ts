@@ -17,6 +17,7 @@ import {
   updateAffiliateProductSyncRun,
 } from '../../affiliate-products'
 import { getQueueManagerForTaskType } from '../queue-routing'
+import { isYeahPromosManualSyncOnly } from '../../yeahpromos-session'
 
 const DEFAULT_DELTA_INTERVAL_MINUTES = 6 * 60
 const DEFAULT_FULL_INTERVAL_HOURS = 24
@@ -254,6 +255,11 @@ export class AffiliateProductSyncScheduler {
         await this.upsertUserSystemSetting(userId, recordKey, nowIso)
         return true
       }
+    }
+
+    const ypManualOnly = await isYeahPromosManualSyncOnly(userId)
+    if (ypManualOnly) {
+      return false
     }
 
     const ypConfigCheck = await checkAffiliatePlatformConfig(userId, 'yeahpromos')

@@ -100,6 +100,8 @@ describe('isYeahPromosRateLimited', () => {
   it('detects message-based rate-limit signals', () => {
     expect(__testOnly.isYeahPromosRateLimited(null, 'Too many request')).toBe(true)
     expect(__testOnly.isYeahPromosRateLimited(null, 'rate limit exceeded')).toBe(true)
+    expect(__testOnly.isYeahPromosRateLimited(null, 'Request too fast, please request later!')).toBe(true)
+    expect(__testOnly.isYeahPromosRateLimited(null, '请求过于频繁，请稍后再试')).toBe(true)
   })
 
   it('returns false for normal cases', () => {
@@ -129,5 +131,81 @@ describe('isYeahPromosTransientError', () => {
   it('returns false for normal business errors', () => {
     const error = new Error('YeahPromos 商品拉取失败: 100001')
     expect(__testOnly.isYeahPromosTransientError(error)).toBe(false)
+  })
+})
+
+describe('parseYeahPromosProductHtmlPage', () => {
+  it('parses joined product card with pid link', () => {
+    const html = `
+      <div class="adv-block">
+        <div class="adv-content">
+          <div class="status-joined"><i>Access</i></div>
+          <div class="adv-main">
+            <div class="adv-name" title="Demo Product Name">Demo Product Name</div>
+            <div><span>B012345678</span></div>
+            <div class="row">
+              <div class="col-xs-8"><div class="color-1136">USD 25.99</div></div>
+              <div class="col-xs-4"><div>12.5%</div></div>
+            </div>
+            <div class="row"><div class="col-xs-12"><div class="rating-panel" data-rating="4.8">(12,345)</div></div></div>
+            <div class="row" style="margin-top:5px;">
+              <div class="col-xs-7"><a>Demo Brand</a></div>
+              <div class="col-xs-5">
+                <p class="button-primary adv-btn" onclick="ClipboardJS.copy('https://yeahpromos.com/index/index/openurlproduct?track=track_abc&amp;pid=998877');">Copy</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pageList"><div class="page-num">Page 12</div><ul class="pager"><li><a href="/index/offer/products?page=13">&raquo;</a></li></ul></div>
+    `
+
+    const parsed = __testOnly.parseYeahPromosProductHtmlPage(html)
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.pageNow).toBe(12)
+    expect(parsed.nextPage).toBe(13)
+
+    const item = parsed.items[0]
+    expect(item?.platform).toBe('yeahpromos')
+    expect(item?.mid).toBe('pid_998877')
+    expect(item?.asin).toBe('B012345678')
+    expect(item?.brand).toBe('Demo Brand')
+    expect(item?.productName).toBe('Demo Product Name')
+    expect(item?.promoLink).toContain('pid=998877')
+    expect(item?.commissionRate).toBe(12.5)
+    expect(item?.priceAmount).toBe(25.99)
+    expect(item?.reviewCount).toBe(12345)
+  })
+
+  it('parses apply-only card without promo link', () => {
+    const html = `
+      <div class="adv-block">
+        <div class="adv-content">
+          <div class="adv-main">
+            <div class="adv-name">Apply Product</div>
+            <div><span>B0ABCDE123</span></div>
+            <div class="row">
+              <div class="col-xs-8"><div class="color-1136">USD 49.00</div></div>
+              <div class="col-xs-4"><div>9%</div></div>
+            </div>
+            <div class="row"><div class="col-xs-12"><div class="rating-panel">(1,234)</div></div></div>
+            <div class="row" style="margin-top:5px;">
+              <div class="col-xs-7"><a>Apply Brand</a></div>
+              <div class="col-xs-5"><p class="button-primary apply-product adv-btn" data-product_id="123456">Apply</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pageList"><div class="page-num">Page 1</div><ul class="pager"><li class="disabled"><span>&raquo;</span></li></ul></div>
+    `
+
+    const parsed = __testOnly.parseYeahPromosProductHtmlPage(html)
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.nextPage).toBeNull()
+
+    const item = parsed.items[0]
+    expect(item?.mid).toBe('product_123456')
+    expect(item?.promoLink).toBeNull()
+    expect(item?.asin).toBe('B0ABCDE123')
   })
 })

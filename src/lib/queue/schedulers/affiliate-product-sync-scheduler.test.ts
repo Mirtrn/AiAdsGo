@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createAffiliateProductSyncRun: vi.fn(),
   updateAffiliateProductSyncRun: vi.fn(),
   getQueueManagerForTaskType: vi.fn(),
+  isYeahPromosManualSyncOnly: vi.fn(),
 }))
 
 vi.mock('../../db', () => ({
@@ -20,6 +21,10 @@ vi.mock('../../affiliate-products', () => ({
 
 vi.mock('../queue-routing', () => ({
   getQueueManagerForTaskType: mocks.getQueueManagerForTaskType,
+}))
+
+vi.mock('../../yeahpromos-session', () => ({
+  isYeahPromosManualSyncOnly: mocks.isYeahPromosManualSyncOnly,
 }))
 
 import { AffiliateProductSyncScheduler } from './affiliate-product-sync-scheduler'
@@ -38,6 +43,7 @@ describe('AffiliateProductSyncScheduler YP support', () => {
       missingKeys: [],
       values: {},
     })
+    mocks.isYeahPromosManualSyncOnly.mockResolvedValue(false)
   })
 
   it('schedules YP full sync when PB is not configured and YP is configured', async () => {
@@ -184,6 +190,25 @@ describe('AffiliateProductSyncScheduler YP support', () => {
       'affiliate_yp_last_delta_sync_at',
       expect.any(String)
     )
+  })
+
+  it('skips YP scheduling when manual-only is enabled', async () => {
+    const scheduler = new AffiliateProductSyncScheduler() as any
+
+    vi.spyOn(scheduler, 'hasActiveSyncRun').mockResolvedValue(false)
+    vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
+    mocks.isYeahPromosManualSyncOnly.mockResolvedValue(true)
+
+    mocks.checkAffiliatePlatformConfig.mockResolvedValue({
+      configured: false,
+      missingKeys: ['partnerboost_token'],
+      values: {},
+    })
+
+    const queued = await scheduler.scheduleForUser(11, new Date('2026-02-24T00:00:00.000Z'))
+
+    expect(queued).toBe(false)
+    expect(scheduler.enqueueSyncTask).not.toHaveBeenCalled()
   })
 
   it('skips scheduling when an active run exists', async () => {

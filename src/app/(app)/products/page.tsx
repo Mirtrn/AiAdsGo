@@ -168,6 +168,31 @@ type ProductConfigResponse = {
   error?: string
 }
 
+type YeahPromosSessionStatus = {
+  hasSession: boolean
+  isExpired: boolean
+  capturedAt: string | null
+  expiresAt: string | null
+  maskedPhpSessionId: string | null
+}
+
+type YeahPromosSessionStatusResponse = {
+  success: boolean
+  session?: YeahPromosSessionStatus
+  manualOnly?: boolean
+  error?: string
+}
+
+type YeahPromosCapturePrepareResponse = {
+  success: boolean
+  loginUrl: string
+  productsUrl: string
+  captureUrl: string
+  captureTokenExpiresAt: string
+  bookmarklet: string
+  error?: string
+}
+
 type PlatformStatsItem = {
   total: number
   visibleCount: number
@@ -371,6 +396,16 @@ function createEmptyPlatformStatsMap(): PlatformStatsMap {
   return {
     yeahpromos: createEmptyPlatformStatsItem(),
     partnerboost: createEmptyPlatformStatsItem(),
+  }
+}
+
+function createEmptyYeahPromosSessionStatus(): YeahPromosSessionStatus {
+  return {
+    hasSession: false,
+    isExpired: false,
+    capturedAt: null,
+    expiresAt: null,
+    maskedPhpSessionId: null,
   }
 }
 
@@ -651,6 +686,13 @@ export default function ProductsPage() {
   const [productConfigSaving, setProductConfigSaving] = useState(false)
   const [productConfigValues, setProductConfigValues] = useState<Record<ProductConfigKey, string>>(() => createDefaultProductConfigValues())
   const [productConfigInitialValues, setProductConfigInitialValues] = useState<Record<ProductConfigKey, string>>(() => createDefaultProductConfigValues())
+  const [ypSessionStatusLoading, setYpSessionStatusLoading] = useState(false)
+  const [ypSessionStatus, setYpSessionStatus] = useState<YeahPromosSessionStatus>(() => createEmptyYeahPromosSessionStatus())
+  const [ypManualOnly, setYpManualOnly] = useState(true)
+  const [ypCaptureDialogOpen, setYpCaptureDialogOpen] = useState(false)
+  const [ypPreparingCapture, setYpPreparingCapture] = useState(false)
+  const [ypCaptureBookmarklet, setYpCaptureBookmarklet] = useState('')
+  const [ypCaptureTokenExpiresAt, setYpCaptureTokenExpiresAt] = useState<string | null>(null)
 
   const [batchRows, setBatchRows] = useState<BatchRow[]>([])
   const [offlineProduct, setOfflineProduct] = useState<ProductListItem | null>(null)
@@ -860,6 +902,72 @@ export default function ProductsPage() {
     }
   }
 
+  const loadYeahPromosSessionStatus = async () => {
+    if (ypSessionStatusLoading) return
+    setYpSessionStatusLoading(true)
+    try {
+      const response = await fetch('/api/products/yeahpromos/session/status', {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      const data = await response.json().catch(() => ({})) as YeahPromosSessionStatusResponse
+      if (!response.ok || !data.success || !data.session) {
+        throw new Error(data.error || '加载YP登录态失败')
+      }
+
+      setYpSessionStatus(data.session)
+      setYpManualOnly(Boolean(data.manualOnly))
+    } catch (error: any) {
+      showError('加载失败', error?.message || '加载YP登录态失败')
+    } finally {
+      setYpSessionStatusLoading(false)
+    }
+  }
+
+  const handleCopyYeahPromosBookmarklet = async () => {
+    if (!ypCaptureBookmarklet) return
+    try {
+      await navigator.clipboard.writeText(ypCaptureBookmarklet)
+      showSuccess('复制成功', '书签脚本已复制，请在浏览器书签中粘贴为URL')
+    } catch {
+      showError('复制失败', '请手动复制书签脚本文本')
+    }
+  }
+
+  const handlePrepareYeahPromosCapture = async () => {
+    if (ypPreparingCapture) return
+    setYpPreparingCapture(true)
+    try {
+      const response = await fetch('/api/products/yeahpromos/session/request-capture', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+
+      const data = await response.json().catch(() => ({})) as Partial<YeahPromosCapturePrepareResponse>
+      if (!response.ok || !data.success || !data.bookmarklet || !data.loginUrl) {
+        throw new Error(data.error || '生成YP登录态采集脚本失败')
+      }
+
+      setYpCaptureBookmarklet(data.bookmarklet)
+      setYpCaptureTokenExpiresAt(data.captureTokenExpiresAt || null)
+      setYpCaptureDialogOpen(true)
+      safeOpenExternal(data.loginUrl)
+      showSuccess('请完成登录', '已打开YP登录页。登录后点击书签脚本即可自动回传登录态。')
+    } catch (error: any) {
+      showError('准备失败', error?.message || '生成YP登录态采集脚本失败')
+    } finally {
+      setYpPreparingCapture(false)
+    }
+  }
+
   const loadProductConfig = async (forceRefresh: boolean = false) => {
     if (productConfigLoading) return
     if (productConfigLoaded && !forceRefresh) return
@@ -970,6 +1078,28 @@ export default function ProductsPage() {
     return () => window.clearInterval(timer)
   }, [latestRuns])
 
+  useEffect(() => {
+    loadYeahPromosSessionStatus()
+  }, [])
+
+  useEffect(() => {
+    if (!ypCaptureDialogOpen) return
+
+    const timer = window.setInterval(() => {
+      loadYeahPromosSessionStatus()
+    }, 6000)
+
+    return () => window.clearInterval(timer)
+  }, [ypCaptureDialogOpen])
+
+  useEffect(() => {
+    if (!ypCaptureDialogOpen) return
+    if (!ypSessionStatus.hasSession) return
+
+    showSuccess('登录态已就绪', 'YP 登录态回传成功，现在可以执行 YP 同步')
+    setYpCaptureDialogOpen(false)
+  }, [ypCaptureDialogOpen, ypSessionStatus.hasSession])
+
   const handleSort = (field: string) => {
     const target = field as SortField
     if (sortBy === target) {
@@ -1030,6 +1160,12 @@ export default function ProductsPage() {
         if (data?.code === 'CONFIG_REQUIRED') {
           showError('请先配置平台', data?.error || '请先完成联盟平台配置')
           openProductConfigPanel(true)
+          return
+        }
+        if (data?.code === 'YP_SESSION_REQUIRED') {
+          showError('请先采集登录态', data?.error || '请先完成 YeahPromos 登录态采集')
+          setYpCaptureDialogOpen(true)
+          void loadYeahPromosSessionStatus()
           return
         }
         throw new Error(data?.error || '提交同步任务失败')
@@ -1590,6 +1726,26 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-md border bg-white px-2 py-1">
+                <Badge variant={ypSessionStatus.hasSession ? 'default' : 'outline'}>
+                  YP登录态
+                  {ypSessionStatusLoading
+                    ? '检测中'
+                    : ypSessionStatus.hasSession
+                      ? '已就绪'
+                      : (ypSessionStatus.isExpired ? '已过期' : '未采集')}
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrepareYeahPromosCapture}
+                  disabled={ypPreparingCapture}
+                  title="打开YP登录页并生成书签脚本，登录后点击书签自动回传登录态"
+                >
+                  {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+                  采集YP登录态
+                </Button>
+              </div>
               <Button
                 variant="destructive"
                 onClick={openClearAllDialog}
@@ -1603,13 +1759,15 @@ export default function ProductsPage() {
                 const isPlatformSyncing = syncingPlatform?.platform === platform
                 const isLightSyncing = isPlatformSyncing && syncingPlatform?.strategy === 'light'
                 const isFullSyncing = isPlatformSyncing && syncingPlatform?.strategy === 'full'
+                const isBlockedBySession = platform === 'yeahpromos' && !ypSessionStatus.hasSession
                 return (
                   <div key={platform} className="inline-flex">
                     <Button
                       variant="outline"
                       onClick={() => handlePlatformSync(platform, 'light')}
-                      disabled={syncingPlatform !== null}
+                      disabled={syncingPlatform !== null || isBlockedBySession}
                       className="rounded-r-none border-r-0"
+                      title={isBlockedBySession ? '请先完成YP登录态采集' : undefined}
                     >
                       {isLightSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                       同步 {PLATFORM_SHORT_LABEL[platform]}
@@ -1619,9 +1777,10 @@ export default function ProductsPage() {
                         <Button
                           variant="outline"
                           size="icon"
-                          disabled={syncingPlatform !== null}
+                          disabled={syncingPlatform !== null || isBlockedBySession}
                           className="h-10 w-10 rounded-l-none"
                           aria-label={`选择${PLATFORM_SHORT_LABEL[platform]}同步模式`}
+                          title={isBlockedBySession ? '请先完成YP登录态采集' : undefined}
                         >
                           {isFullSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
@@ -1638,6 +1797,9 @@ export default function ProductsPage() {
                   </div>
                 )
               })}
+              {ypManualOnly && (
+                <Badge variant="outline">YP仅手动同步</Badge>
+              )}
               <Button variant="secondary" onClick={handleToggleProductConfigPanel}>
                 {productConfigOpen ? '收起配置' : '平台配置'}
                 <ArrowUpRight className="ml-2 h-4 w-4" />
@@ -2002,7 +2164,8 @@ export default function ProductsPage() {
                       <Button
                         variant="outline"
                         onClick={() => handlePlatformSync('yeahpromos', 'light')}
-                        disabled={syncingPlatform !== null}
+                        disabled={syncingPlatform !== null || !ypSessionStatus.hasSession}
+                        title={!ypSessionStatus.hasSession ? '请先完成YP登录态采集' : undefined}
                       >
                         {syncingPlatform?.platform === 'yeahpromos' && syncingPlatform.strategy === 'light' ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2041,6 +2204,70 @@ export default function ProductsPage() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog
+        open={ypCaptureDialogOpen}
+        onOpenChange={(open) => {
+          setYpCaptureDialogOpen(open)
+          if (!open) {
+            setYpCaptureBookmarklet('')
+            setYpCaptureTokenExpiresAt(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>YeahPromos 登录态采集</DialogTitle>
+            <DialogDescription>
+              已切换为手动同步模式。请先在新标签页完成 YP 登录，再点击书签脚本自动回传登录态。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div className="rounded-md border bg-slate-50 p-3">
+              <div className="font-medium">操作步骤</div>
+              <div>1. 已自动打开 YP 登录页，先完成账号登录。</div>
+              <div>2. 点击“复制书签脚本”，在浏览器新建书签，将 URL 粘贴为脚本内容。</div>
+              <div>3. 登录后在 YP 页面点击该书签，系统将自动回传登录态。</div>
+              <div>4. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
+            </div>
+
+            <div className="rounded-md border p-3">
+              <div className="mb-2 text-xs text-muted-foreground">
+                书签脚本（有效期至 {ypCaptureTokenExpiresAt ? formatSyncRunDateTime(ypCaptureTokenExpiresAt) : '-'})
+              </div>
+              <textarea
+                className="min-h-[120px] w-full rounded-md border p-2 text-xs"
+                value={ypCaptureBookmarklet}
+                readOnly
+              />
+            </div>
+
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">当前登录态</div>
+              <div className="mt-1">
+                {ypSessionStatus.hasSession
+                  ? `已就绪（会话 ${ypSessionStatus.maskedPhpSessionId || '-'}，到期 ${ypSessionStatus.expiresAt ? formatSyncRunDateTime(ypSessionStatus.expiresAt) : '-'}）`
+                  : (ypSessionStatus.isExpired ? '已过期，请重新采集' : '未采集')}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => void loadYeahPromosSessionStatus()} disabled={ypSessionStatusLoading}>
+              {ypSessionStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              刷新登录态
+            </Button>
+            <Button variant="outline" onClick={handleCopyYeahPromosBookmarklet} disabled={!ypCaptureBookmarklet}>
+              复制书签脚本
+            </Button>
+            <Button onClick={handlePrepareYeahPromosCapture} disabled={ypPreparingCapture}>
+              {ypPreparingCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              重新生成脚本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={createOfferDialogOpen}

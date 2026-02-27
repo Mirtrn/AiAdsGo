@@ -3,12 +3,15 @@ import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { getInsertedId, toBool } from '@/lib/db-helpers'
 import { getUserOnlySetting } from '@/lib/settings'
 import { createOfferExtractionTaskForExistingOffer } from '@/lib/offer-extraction-task'
+import { load as loadHtml } from 'cheerio'
+import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils'
 import {
   buildProductSummaryCacheHash,
   getCachedProductSummary,
   setCachedProductSummary,
   type ProductSummaryCachePayload,
 } from '@/lib/products-cache'
+import { getYeahPromosSessionCookieForSync } from '@/lib/yeahpromos-session'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single' | 'delta'
@@ -294,16 +297,30 @@ const DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS = 800
 const DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS = 12000
 const DEFAULT_PB_STREAM_WINDOW_PAGES = 10
 const MAX_PB_STREAM_WINDOW_PAGES = 200
+const DEFAULT_YP_STREAM_WINDOW_PAGES = 25
+const MAX_YP_STREAM_WINDOW_PAGES = 300
 const DEFAULT_UPSERT_BATCH_SIZE_POSTGRES = 800
 const DEFAULT_UPSERT_BATCH_SIZE_SQLITE = 40
 const DEFAULT_YP_REQUEST_DELAY_MS = 120
 const MAX_YP_REQUEST_DELAY_MS = 5000
-const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 3
-const DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS = 600
-const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 10000
+const DEFAULT_YP_RATE_LIMIT_MAX_RETRIES = 5
+const DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS = 1200
+const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 30000
 const DEFAULT_YP_DELTA_MAX_PAGES = 20
-const MAX_YP_SYNC_MAX_PAGES = 1000
+const MAX_YP_SYNC_MAX_PAGES = 50000
 const MAX_YP_EMPTY_PAGE_STREAK = 3
+const DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS = 4500
+const MIN_YP_PRODUCTS_REQUEST_DELAY_MS = 1500
+const MAX_YP_PRODUCTS_REQUEST_DELAY_MS = 15000
+const DEFAULT_YP_PRODUCTS_DELAY_JITTER_MS = 1200
+const MAX_YP_PRODUCTS_DELAY_JITTER_MS = 4000
+const YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES = 80
+const YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES = 120
+const YP_PRODUCTS_LONG_BREAK_MIN_MS = 30000
+const YP_PRODUCTS_LONG_BREAK_MAX_MS = 90000
+const YP_PRODUCTS_ALLOWED_TIMEZONE = 'Asia/Shanghai'
+const YP_PRODUCTS_ALLOWED_HOUR_START = 6
+const YP_PRODUCTS_ALLOWED_HOUR_END = 24
 
 type PartnerboostProduct = {
   product_id?: string
@@ -448,6 +465,20 @@ type YeahPromosTransactionMetric = {
   sampleCount: number
 }
 
+type YeahPromosProductPageParseResult = {
+  items: NormalizedAffiliateProduct[]
+  pageNow: number | null
+  nextPage: number | null
+  noProductsFound: boolean
+}
+
+type YeahPromosProductsFetchResult = {
+  items: NormalizedAffiliateProduct[]
+  hasMore: boolean
+  nextPage: number
+  fetchedPages: number
+}
+
 type ParsedYeahPromosCommission = {
   mode: 'rate' | 'amount'
   rate: number | null
@@ -546,6 +577,55 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function randomIntInRange(min: number, max: number): number {
+  const normalizedMin = Math.trunc(Math.min(min, max))
+  const normalizedMax = Math.trunc(Math.max(min, max))
+  if (normalizedMax <= normalizedMin) return normalizedMin
+  return normalizedMin + Math.floor(Math.random() * (normalizedMax - normalizedMin + 1))
+}
+
+function isWithinYeahPromosAllowedWindow(now: Date): boolean {
+  const hour = getHourInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
+  return hour >= YP_PRODUCTS_ALLOWED_HOUR_START && hour < YP_PRODUCTS_ALLOWED_HOUR_END
+}
+
+function resolveNextYeahPromosWindowStart(now: Date): Date {
+  const nowHour = getHourInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
+  if (nowHour < YP_PRODUCTS_ALLOWED_HOUR_START) {
+    const date = getDateInTimezone(now, YP_PRODUCTS_ALLOWED_TIMEZONE)
+    return createDateInTimezone(
+      date,
+      `${String(YP_PRODUCTS_ALLOWED_HOUR_START).padStart(2, '0')}:00`,
+      YP_PRODUCTS_ALLOWED_TIMEZONE
+    )
+  }
+
+  const tomorrowDate = getDateInTimezone(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    YP_PRODUCTS_ALLOWED_TIMEZONE
+  )
+  return createDateInTimezone(
+    tomorrowDate,
+    `${String(YP_PRODUCTS_ALLOWED_HOUR_START).padStart(2, '0')}:00`,
+    YP_PRODUCTS_ALLOWED_TIMEZONE
+  )
+}
+
+async function waitForYeahPromosSyncWindowIfNeeded(): Promise<void> {
+  const now = new Date()
+  if (isWithinYeahPromosAllowedWindow(now)) return
+
+  const nextStart = resolveNextYeahPromosWindowStart(now)
+  const waitMs = Math.max(0, nextStart.getTime() - now.getTime())
+  if (waitMs <= 0) return
+
+  console.log(
+    `[yeahpromos] 当前不在抓取时段（北京时间 ${YP_PRODUCTS_ALLOWED_HOUR_START}:00-${YP_PRODUCTS_ALLOWED_HOUR_END}:00），` +
+    `暂停 ${Math.round(waitMs / 1000)} 秒至 ${nextStart.toISOString()} 后继续`
+  )
+  await sleep(waitMs)
+}
+
 function calculateExponentialBackoffDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
   if (attempt <= 0) return 0
   const delay = baseDelayMs * Math.pow(2, attempt - 1)
@@ -641,12 +721,25 @@ function isPartnerboostTransientError(error: unknown): boolean {
   return isTransientNetworkErrorMessage(payloadStatusMessage)
 }
 
+function isYeahPromosRequestTooFastMessage(message: string): boolean {
+  const normalizedMessage = message.toLowerCase()
+  return normalizedMessage.includes('request too fast')
+    || normalizedMessage.includes('request too frequent')
+    || normalizedMessage.includes('please request later')
+    || normalizedMessage.includes('too frequent')
+    || normalizedMessage.includes('请求过于频繁')
+    || normalizedMessage.includes('请求太快')
+    || normalizedMessage.includes('请稍后再试')
+}
+
 function isYeahPromosRateLimited(code: number | null, message: string, responseStatus?: number): boolean {
   if (responseStatus === 429) return true
 
   if (code !== null) {
     if (code === 429 || code === 100429 || code === 200429) return true
   }
+
+  if (isYeahPromosRequestTooFastMessage(message)) return true
 
   const normalizedMessage = message.toLowerCase()
   return normalizedMessage.includes('too many request')
@@ -1850,6 +1943,21 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
   options: YeahPromosRequestRateLimitOptions
 ): Promise<T> {
   let attempt = 0
+  const resolveRetryDelayMs = (retryAttempt: number, errorMessage: string): number => {
+    const backoffDelayMs = calculateExponentialBackoffDelay(
+      retryAttempt,
+      options.baseDelayMs,
+      options.maxDelayMs
+    )
+
+    if (!isYeahPromosRequestTooFastMessage(errorMessage)) {
+      return backoffDelayMs
+    }
+
+    const minDelayForTooFastMs = Math.min(options.maxDelayMs, 2000 * retryAttempt)
+    return Math.max(backoffDelayMs, minDelayForTooFastMs)
+  }
+
   while (true) {
     let responseStatus: number | undefined
     try {
@@ -1859,7 +1967,7 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
 
       if (isYeahPromosRateLimited(code, message, responseStatus) && attempt < options.maxRetries) {
         attempt += 1
-        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        const delayMs = resolveRetryDelayMs(attempt, message)
         console.warn(`[yeahpromos] rate limited(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
         await sleep(delayMs)
         continue
@@ -1875,7 +1983,7 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
 
       if ((isRateLimited || isTransient) && attempt < options.maxRetries) {
         attempt += 1
-        const delayMs = calculateExponentialBackoffDelay(attempt, options.baseDelayMs, options.maxDelayMs)
+        const delayMs = resolveRetryDelayMs(attempt, message)
         const retryReason = isRateLimited ? 'rate limited' : 'transient error'
         console.warn(`[yeahpromos] ${retryReason}(${errorPrefix}), retry ${attempt}/${options.maxRetries} after ${delayMs}ms`)
         await sleep(delayMs)
@@ -2285,310 +2393,329 @@ async function fetchPartnerboostPromotableProducts(
   return result.items
 }
 
-async function fetchYeahPromosPromotableProducts(params: {
+function extractYeahPromosPageNumberFromHref(href: string | null | undefined): number | null {
+  const rawHref = normalizeUrl(href)
+  if (!rawHref) return null
+
+  try {
+    const url = new URL(rawHref, 'https://yeahpromos.com')
+    const page = parseInteger(url.searchParams.get('page') || '', NaN)
+    if (!Number.isFinite(page) || page <= 0) return null
+    return page
+  } catch {
+    return null
+  }
+}
+
+function resolveYeahPromosPromoIdentifiers(promoLink: string | null): { pid: string | null; track: string | null } {
+  const rawPromoLink = normalizeUrl(promoLink)
+  if (!rawPromoLink) {
+    return { pid: null, track: null }
+  }
+
+  try {
+    const url = new URL(rawPromoLink, 'https://yeahpromos.com')
+    const pid = normalizeUrl(url.searchParams.get('pid'))
+    const track = normalizeUrl(url.searchParams.get('track'))
+    return { pid, track }
+  } catch {
+    const pidMatch = rawPromoLink.match(/[?&]pid=([^&#]+)/i)
+    const trackMatch = rawPromoLink.match(/[?&]track=([^&#]+)/i)
+    return {
+      pid: normalizeUrl(pidMatch?.[1] || null),
+      track: normalizeUrl(trackMatch?.[1] || null),
+    }
+  }
+}
+
+function resolveYeahPromosProductMid(input: {
+  pid: string | null
+  applyProductId: string | null
+  track: string | null
+  asin: string | null
+}): string | null {
+  if (input.pid) return `pid_${input.pid}`
+  if (input.applyProductId) return `product_${input.applyProductId}`
+  if (input.asin) return `asin_${input.asin}`
+  if (input.track) return `track_${input.track}`
+  return null
+}
+
+function parseYeahPromosProductHtmlPage(html: string): YeahPromosProductPageParseResult {
+  const $ = loadHtml(html)
+  const selectedMarketplaceCode = normalizeCountryCode(String(
+    $('select[name="market_place"] option:selected').attr('value')
+    || ''
+  ))
+  const selectedSiteId = normalizeUrl(String(
+    $('select[name="site"] option:selected').attr('value')
+    || ''
+  ))
+
+  const noProductsFound = /No products found/i.test($.text())
+  const pageNowText = normalizeUrl($('#pageList .page-num').first().text())
+  const pageNowMatch = pageNowText?.match(/Page\s+(\d+)/i)
+  const parsedPageNow = pageNowMatch?.[1]
+    ? parseInteger(pageNowMatch[1], NaN)
+    : null
+
+  const nextPageHref = $('#pageList .pager li').last().find('a').attr('href')
+  const parsedNextPage = extractYeahPromosPageNumberFromHref(nextPageHref)
+  const nextPage = parsedNextPage
+    && (!parsedPageNow || parsedNextPage > parsedPageNow)
+    ? parsedNextPage
+    : null
+
+  const items: NormalizedAffiliateProduct[] = []
+  for (const element of $('.adv-block .adv-content').toArray()) {
+    const block = $(element)
+    const body = block.find('.adv-main').first()
+    if (!body.length) continue
+
+    const productName = normalizeUrl(body.find('.adv-name').first().text())
+    const asin = normalizeAsin(body.find('span').first().text())
+    const brand = normalizeUrl(body.find('.col-xs-7 a').first().text())
+    const priceText = normalizeUrl(body.find('.color-1136').first().text())
+    const commissionText = normalizeUrl(body.find('.row').first().find('.col-xs-4 div').first().text())
+    const ratingPanel = body.find('.rating-panel').first()
+    const reviewCount = parseReviewCount(ratingPanel.text())
+    const rating = parsePriceAmount(ratingPanel.attr('data-rating'))
+    const joinStatus = normalizeUrl(block.find('.status-joined').first().text())
+    const applyProductId = normalizeUrl(body.find('.apply-product').first().attr('data-product_id'))
+
+    const copyOnclick = String(
+      body.find('.adv-btn[onclick*="ClipboardJS.copy"]').first().attr('onclick')
+      || ''
+    )
+    const promoMatch = copyOnclick.match(/ClipboardJS\.copy\('([^']+)'\)/)
+    const promoLink = normalizeUrl((promoMatch?.[1] || '').replace(/&amp;/g, '&'))
+    const promoMeta = resolveYeahPromosPromoIdentifiers(promoLink)
+
+    const mid = resolveYeahPromosProductMid({
+      pid: promoMeta.pid,
+      applyProductId,
+      track: promoMeta.track,
+      asin,
+    })
+    if (!mid) continue
+
+    const priceAmount = parsePriceAmount(priceText)
+    const priceCurrency = normalizeCurrencyUnit(
+      String(priceText || '').split(/\s+/g)[0]
+    ) || extractCurrencyUnitFromText(priceText)
+    const commissionRate = parsePercentage(commissionText)
+    const commissionAmount = computeCommissionAmount(priceAmount, commissionRate)
+    const allowedCountries = selectedMarketplaceCode ? [selectedMarketplaceCode] : []
+
+    items.push({
+      platform: 'yeahpromos',
+      mid,
+      asin,
+      brand,
+      productName,
+      productUrl: null,
+      promoLink,
+      shortPromoLink: null,
+      allowedCountries,
+      priceAmount,
+      priceCurrency,
+      commissionRate,
+      commissionAmount,
+      reviewCount,
+      rawJson: toJsonString({
+        source: 'yeahpromos_offer_products',
+        page_now: parsedPageNow,
+        site_id: selectedSiteId,
+        pid: promoMeta.pid,
+        track: promoMeta.track,
+        product_id: applyProductId,
+        join_status: joinStatus,
+        rating,
+      }),
+    })
+  }
+
+  return {
+    items,
+    pageNow: Number.isFinite(parsedPageNow as number) ? (parsedPageNow as number) : null,
+    nextPage,
+    noProductsFound,
+  }
+}
+
+async function fetchYeahPromosProductsHtmlPage(params: {
+  siteId: string
+  page: number
+  sessionCookie: string
+}): Promise<YeahPromosProductPageParseResult> {
+  const url = new URL('https://yeahpromos.com/index/offer/products')
+  url.searchParams.set('is_delete', '0')
+  url.searchParams.set('site_id', params.siteId)
+  url.searchParams.set('page', String(params.page))
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Cookie: params.sessionCookie,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    },
+  })
+  const html = await response.text().catch(() => '')
+  const snippet = html.replace(/\s+/g, ' ').trim().slice(0, 220)
+
+  if (!response.ok) {
+    throw new Error(`YeahPromos 产品页拉取失败 (${response.status}): ${snippet || '请求失败'}`)
+  }
+
+  const redirectedUrl = normalizeUrl(response.url) || ''
+  const isLoginRedirect = redirectedUrl.includes('/index/login/login')
+    || redirectedUrl.includes('/index/index/login')
+    || /action=\"\/index\/login\/login\"/i.test(html)
+  if (isLoginRedirect) {
+    throw new Error('YeahPromos 登录态已失效，请先在 /products 执行 YP 登录态采集')
+  }
+
+  return parseYeahPromosProductHtmlPage(html)
+}
+
+async function fetchYeahPromosPromotableProductsWithMeta(params: {
   userId: number
+  startPage?: number
   maxPages?: number
+  suppressMaxPagesWarning?: boolean
   onFetchProgress?: (fetchedCount: number) => Promise<void> | void
-}): Promise<NormalizedAffiliateProduct[]> {
+}): Promise<YeahPromosProductsFetchResult> {
   const check = await checkAffiliatePlatformConfig(params.userId, 'yeahpromos')
   ensurePlatformConfigured(check, 'yeahpromos')
 
-  const token = check.values.yeahpromos_token
   const siteId = check.values.yeahpromos_site_id
-  const limit = Number(check.values.yeahpromos_limit || '1000') || 1000
-  const requestDelayMs = parseIntegerInRange(
-    check.values.yeahpromos_request_delay_ms || String(DEFAULT_YP_REQUEST_DELAY_MS),
-    DEFAULT_YP_REQUEST_DELAY_MS,
-    0,
-    MAX_YP_REQUEST_DELAY_MS
-  )
-  const rateLimitRetryOptions: YeahPromosRequestRateLimitOptions = {
-    maxRetries: parseIntegerInRange(
-      check.values.yeahpromos_rate_limit_max_retries || String(DEFAULT_YP_RATE_LIMIT_MAX_RETRIES),
-      DEFAULT_YP_RATE_LIMIT_MAX_RETRIES,
-      0,
-      10
-    ),
-    baseDelayMs: parseIntegerInRange(
-      check.values.yeahpromos_rate_limit_base_delay_ms || String(DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS),
-      DEFAULT_YP_RATE_LIMIT_BASE_DELAY_MS,
-      100,
-      60000
-    ),
-    maxDelayMs: parseIntegerInRange(
-      check.values.yeahpromos_rate_limit_max_delay_ms || String(DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS),
-      DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS,
-      500,
-      120000
-    ),
+  const sessionCookie = await getYeahPromosSessionCookieForSync(params.userId)
+  if (!sessionCookie) {
+    throw new Error('YeahPromos 登录态缺失或已过期，请先在 /products 完成 YP 登录态采集')
   }
-  const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
-  const startPage = Number(check.values.yeahpromos_page || '1') || 1
-  let page = startPage
-  let pageTotal = page
-  let emptyMerchantPageStreak = 0
 
-  const merchants: YeahPromosMerchant[] = []
-  let merchantPageCount = 0
+  const requestDelayMs = parseIntegerInRange(
+    check.values.yeahpromos_request_delay_ms || String(DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS),
+    DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS,
+    MIN_YP_PRODUCTS_REQUEST_DELAY_MS,
+    MAX_YP_PRODUCTS_REQUEST_DELAY_MS
+  )
+  const requestDelayJitterMs = parseIntegerInRange(
+    String(DEFAULT_YP_PRODUCTS_DELAY_JITTER_MS),
+    DEFAULT_YP_PRODUCTS_DELAY_JITTER_MS,
+    0,
+    MAX_YP_PRODUCTS_DELAY_JITTER_MS
+  )
+  const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
+  const configuredStartPage = Math.max(1, parseInteger(check.values.yeahpromos_page || '1', 1))
+  let page = Math.max(1, parseInteger(params.startPage, configuredStartPage))
+  let fetchedPages = 0
+  let hasMore = true
+  let pagesSinceLongBreak = 0
+  let nextLongBreakAfterPages = randomIntInRange(
+    YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES,
+    YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES
+  )
+
+  const items: NormalizedAffiliateProduct[] = []
   let lastFetchProgressCount = 0
 
   const emitFetchProgress = async (force: boolean = false): Promise<void> => {
     if (!params.onFetchProgress) return
-    if (!force && merchants.length === lastFetchProgressCount) return
-    lastFetchProgressCount = merchants.length
+    if (!force && items.length === lastFetchProgressCount) return
+    lastFetchProgressCount = items.length
     try {
-      await params.onFetchProgress(merchants.length)
+      await params.onFetchProgress(items.length)
     } catch (error: any) {
       console.warn('[yeahpromos] onFetchProgress callback failed:', error?.message || error)
     }
   }
 
-  while (page <= pageTotal && (maxPages === null || page - startPage < maxPages)) {
-    const url = new URL('https://yeahpromos.com/index/getadvert/getadvert')
-    url.searchParams.set('site_id', siteId)
-    url.searchParams.set('page', String(page))
-    url.searchParams.set('limit', String(limit))
+  while (hasMore && (maxPages === null || fetchedPages < maxPages)) {
+    await waitForYeahPromosSyncWindowIfNeeded()
 
-    const payload = await fetchYeahPromosJsonWithRateLimitRetry<YeahPromosResponse>(
-      url.toString(),
-      {
-        method: 'GET',
-        headers: {
-          token,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      },
-      'YeahPromos 商品拉取失败',
-      rateLimitRetryOptions
-    )
+    const parsed = await fetchYeahPromosProductsHtmlPage({
+      siteId,
+      page,
+      sessionCookie,
+    })
 
-    const codeRaw = payload.Code ?? payload.code
-    const code = normalizeYeahPromosResultCode(codeRaw)
+    items.push(...parsed.items)
+    fetchedPages += 1
+    pagesSinceLongBreak += 1
 
-    if (codeRaw !== undefined && codeRaw !== null && codeRaw !== '' && code === null) {
-      throw new Error(`YeahPromos 商品拉取失败: Invalid code ${String(codeRaw)}`)
-    }
+    const parsedNextPage = parsed.nextPage
+    const hasNextPage = Number.isFinite(parsedNextPage as number) && (parsedNextPage as number) > page
+    hasMore = hasNextPage && !(parsed.noProductsFound && parsed.items.length === 0)
 
-    if (code !== null && code !== 100000) {
-      throw new Error(`YeahPromos 商品拉取失败: ${code}`)
-    }
-
-    const extracted = extractYeahPromosPayload(payload)
-    merchants.push(...extracted.merchants)
-    merchantPageCount += 1
-
-    if (merchantPageCount === 1 || merchantPageCount % 5 === 0 || page >= pageTotal) {
+    if (fetchedPages === 1 || fetchedPages % 5 === 0 || !hasMore) {
       await emitFetchProgress()
     }
 
-    const nextPageTotal = Number(extracted.pageTotal ?? page) || page
-    const hasMorePages = page < nextPageTotal
-    if (hasMorePages && extracted.merchants.length === 0) {
-      emptyMerchantPageStreak += 1
-      if (emptyMerchantPageStreak >= MAX_YP_EMPTY_PAGE_STREAK) {
-        console.warn(
-          `[yeahpromos] received ${emptyMerchantPageStreak} consecutive empty pages while page_total indicates more data; stopping early to avoid infinite pagination`
-        )
-        pageTotal = page
-      } else {
-        pageTotal = nextPageTotal
-      }
-    } else {
-      emptyMerchantPageStreak = 0
-      pageTotal = nextPageTotal
+    if (!hasMore) {
+      break
     }
 
-    page += 1
+    page = parsedNextPage as number
 
-    if (page <= pageTotal && requestDelayMs > 0) {
-      await sleep(requestDelayMs)
+    if (pagesSinceLongBreak >= nextLongBreakAfterPages) {
+      const longPauseMs = randomIntInRange(YP_PRODUCTS_LONG_BREAK_MIN_MS, YP_PRODUCTS_LONG_BREAK_MAX_MS)
+      console.log(`[yeahpromos] page=${page} reached cooldown checkpoint, sleeping ${longPauseMs}ms`)
+      await sleep(longPauseMs)
+      pagesSinceLongBreak = 0
+      nextLongBreakAfterPages = randomIntInRange(
+        YP_PRODUCTS_LONG_BREAK_EVERY_MIN_PAGES,
+        YP_PRODUCTS_LONG_BREAK_EVERY_MAX_PAGES
+      )
+    } else {
+      const jitterMs = requestDelayJitterMs > 0
+        ? randomIntInRange(-requestDelayJitterMs, requestDelayJitterMs)
+        : 0
+      const effectiveDelayMs = Math.max(0, requestDelayMs + jitterMs)
+      if (effectiveDelayMs > 0) {
+        await sleep(effectiveDelayMs)
+      }
     }
   }
 
-  if (maxPages !== null && page <= pageTotal && page - startPage >= maxPages) {
-    console.warn(`[yeahpromos] reached page limit (${maxPages}) while page_total=${pageTotal}; product results may be truncated`)
+  if (maxPages !== null && hasMore && fetchedPages >= maxPages && !params.suppressMaxPagesWarning) {
+    console.warn(`[yeahpromos] reached page limit (${maxPages}); product results may be truncated`)
   }
 
   await emitFetchProgress(true)
 
-  const configuredStartDate = normalizeYmdDate(check.values.yeahpromos_start_date)
-  const configuredEndDate = normalizeYmdDate(check.values.yeahpromos_end_date)
-  const now = new Date()
-  const defaultEndDate = formatYmdDate(now)
-  const defaultStartDate = formatYmdDate(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000))
-  const startDate = configuredStartDate || defaultStartDate
-  const endDate = configuredEndDate || defaultEndDate
-  const isAmazon = String(check.values.yeahpromos_is_amazon || '').trim() === '1' ? '1' : null
-
-  const transactionMetrics = new Map<string, YeahPromosTransactionMetric>()
-
-  try {
-    let orderPage = startPage
-    let orderPageTotal = orderPage
-    let emptyOrderPageStreak = 0
-
-    while (orderPage <= orderPageTotal && (maxPages === null || orderPage - startPage < maxPages)) {
-      const url = new URL('https://yeahpromos.com/index/Getorder/getorder')
-      url.searchParams.set('site_id', siteId)
-      url.searchParams.set('startDate', startDate)
-      url.searchParams.set('endDate', endDate)
-      url.searchParams.set('page', String(orderPage))
-      url.searchParams.set('limit', String(limit))
-      if (isAmazon) {
-        url.searchParams.set('is_amazon', isAmazon)
-      }
-
-      const payload = await fetchYeahPromosJsonWithRateLimitRetry<YeahPromosTransactionsResponse>(
-        url.toString(),
-        {
-          method: 'GET',
-          headers: {
-            token,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        },
-        'YeahPromos 交易拉取失败',
-        rateLimitRetryOptions
-      )
-
-      const codeRaw = payload.Code ?? payload.code
-      const code = normalizeYeahPromosResultCode(codeRaw)
-
-      if (codeRaw !== undefined && codeRaw !== null && codeRaw !== '' && code === null) {
-        throw new Error(`YeahPromos 交易拉取失败: Invalid code ${String(codeRaw)}`)
-      }
-
-      if (code !== null && code !== 100000) {
-        throw new Error(`YeahPromos 交易拉取失败: ${code}`)
-      }
-
-      const extracted = extractYeahPromosTransactionsPayload(payload)
-      for (const row of extracted.transactions) {
-        const mid = String(row.advert_id || '').trim()
-        if (!mid) continue
-
-        const amount = parsePriceAmount(row.amount)
-        const saleCommission = parsePriceAmount(row.sale_comm)
-        if (amount === null && saleCommission === null) continue
-
-        const previous = transactionMetrics.get(mid) || {
-          priceAmount: null,
-          commissionAmount: null,
-          commissionRate: null,
-          sampleCount: 0,
-        }
-
-        const nextSampleCount = previous.sampleCount + 1
-        const nextPriceAmount = amount === null
-          ? previous.priceAmount
-          : previous.priceAmount === null
-            ? amount
-            : roundTo2(((previous.priceAmount * previous.sampleCount) + amount) / nextSampleCount)
-
-        const nextCommissionAmount = saleCommission === null
-          ? previous.commissionAmount
-          : previous.commissionAmount === null
-            ? saleCommission
-            : roundTo2(((previous.commissionAmount * previous.sampleCount) + saleCommission) / nextSampleCount)
-
-        const inferredRate = nextPriceAmount !== null && nextPriceAmount > 0 && nextCommissionAmount !== null
-          ? roundTo2((nextCommissionAmount / nextPriceAmount) * 100)
-          : previous.commissionRate
-
-        transactionMetrics.set(mid, {
-          priceAmount: nextPriceAmount,
-          commissionAmount: nextCommissionAmount,
-          commissionRate: inferredRate,
-          sampleCount: nextSampleCount,
-        })
-      }
-
-      const nextOrderPageTotal = Number(extracted.pageTotal ?? orderPage) || orderPage
-      const hasMoreOrderPages = orderPage < nextOrderPageTotal
-      if (hasMoreOrderPages && extracted.transactions.length === 0) {
-        emptyOrderPageStreak += 1
-        if (emptyOrderPageStreak >= MAX_YP_EMPTY_PAGE_STREAK) {
-          console.warn(
-            `[yeahpromos] received ${emptyOrderPageStreak} consecutive empty order pages while page_total indicates more data; stopping order pagination early`
-          )
-          orderPageTotal = orderPage
-        } else {
-          orderPageTotal = nextOrderPageTotal
-        }
-      } else {
-        emptyOrderPageStreak = 0
-        orderPageTotal = nextOrderPageTotal
-      }
-
-      orderPage += 1
-
-      if (orderPage <= orderPageTotal && requestDelayMs > 0) {
-        await sleep(requestDelayMs)
-      }
-    }
-
-    if (maxPages !== null && orderPage <= orderPageTotal && orderPage - startPage >= maxPages) {
-      console.warn(`[yeahpromos] reached order page limit (${maxPages}) while page_total=${orderPageTotal}; transaction enrichment may be partial`)
-    }
-  } catch (error: any) {
-    console.warn(`[affiliate-products] YeahPromos 交易数据补充失败，继续使用商家接口数据: ${error?.message || error}`)
+  return {
+    items,
+    hasMore,
+    nextPage: page,
+    fetchedPages,
   }
+}
 
-  const normalized: NormalizedAffiliateProduct[] = []
-  for (const item of merchants) {
-    const mid = String(item.mid || '').trim()
-    if (!mid) continue
-
-    const promoLink = normalizeUrl(item.tracking_url)
-    if (!promoLink) continue
-
-    const advertStatus = String(item.advert_status ?? '').trim()
-    if (advertStatus && advertStatus !== '1') continue
-
-    const parsedCommission = parseYeahPromosMerchantCommission(item.avg_payout, item.payout_unit)
-    const txMetric = transactionMetrics.get(mid)
-    const commissionRate = parsedCommission.rate ?? txMetric?.commissionRate ?? null
-    const priceAmount = txMetric?.priceAmount ?? null
-    const commissionAmount = txMetric?.commissionAmount
-      ?? parsedCommission.amount
-      ?? computeCommissionAmount(priceAmount, commissionRate)
-    const allowedCountries = normalizeCountries(item.country)
-    const reviewCount = parseReviewCount(
-      item.review_count
-      ?? item.reviewCount
-      ?? item.reviews
-      ?? item.rating_count
-      ?? item.ratings_total
-    )
-
-    normalized.push({
-      platform: 'yeahpromos',
-      mid,
-      asin: null,
-      brand: normalizeUrl(item.merchant_name),
-      productName: normalizeUrl(item.merchant_name),
-      productUrl: normalizeUrl(item.url || item.site_url),
-      promoLink,
-      shortPromoLink: null,
-      allowedCountries,
-      priceAmount,
-      priceCurrency: null,
-      commissionRate,
-      commissionAmount,
-      reviewCount,
-      rawJson: toJsonString(txMetric ? { ...item, transaction_metric: txMetric } : item),
-    })
-  }
-
-  return normalized
+async function fetchYeahPromosPromotableProducts(params: {
+  userId: number
+  startPage?: number
+  maxPages?: number
+  suppressMaxPagesWarning?: boolean
+  onFetchProgress?: (fetchedCount: number) => Promise<void> | void
+}): Promise<NormalizedAffiliateProduct[]> {
+  const result = await fetchYeahPromosPromotableProductsWithMeta(params)
+  return result.items
 }
 
 function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): NormalizedAffiliateProduct[] {
   const deduped = new Map<string, NormalizedAffiliateProduct>()
   for (const item of items) {
-    if (!item.mid || !item.promoLink) continue
+    if (!item.mid) continue
     const key = `${item.platform}:${item.mid}`
-    if (!deduped.has(key)) {
+    const existing = deduped.get(key)
+    if (!existing) {
+      deduped.set(key, item)
+      continue
+    }
+
+    if (!existing.promoLink && item.promoLink) {
       deduped.set(key, item)
     }
   }
@@ -3970,6 +4097,8 @@ export const __testOnly = {
   isPartnerboostRateLimitError,
   isYeahPromosRateLimited,
   isYeahPromosTransientError,
+  parseYeahPromosProductHtmlPage,
+  resolveYeahPromosProductMid,
   resolveOfferProductBackfillDecision,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
@@ -4994,6 +5123,121 @@ async function syncPartnerboostPlatformByWindow(params: {
   }
 }
 
+async function syncYeahPromosPlatformByWindow(params: {
+  userId: number
+  startPage?: number
+  pageWindowSize?: number
+  progressEvery?: number
+  onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
+  onCheckpoint?: (checkpoint: AffiliateProductSyncCheckpoint) => Promise<void> | void
+}): Promise<{
+  totalFetched: number
+  createdCount: number
+  updatedCount: number
+}> {
+  const pageWindowSize = parseIntegerInRange(
+    params.pageWindowSize ?? DEFAULT_YP_STREAM_WINDOW_PAGES,
+    DEFAULT_YP_STREAM_WINDOW_PAGES,
+    1,
+    MAX_YP_STREAM_WINDOW_PAGES
+  )
+
+  let cursorPage = Math.max(1, parseInteger(params.startPage, 1))
+  let hasMore = true
+  let totalFetched = 0
+  let createdCount = 0
+  let updatedCount = 0
+  const failedCount = 0
+  let processedBatches = 0
+  const seenMids = new Set<string>()
+
+  const emitProgress = async (nextFetched: number): Promise<void> => {
+    if (!params.onProgress) return
+    try {
+      await params.onProgress({
+        totalFetched: Math.max(0, nextFetched),
+        processedCount: createdCount + updatedCount + failedCount,
+        createdCount,
+        updatedCount,
+        failedCount,
+      })
+    } catch (error: any) {
+      console.warn('[affiliate-products] YP stream onProgress callback failed:', error?.message || error)
+    }
+  }
+
+  const emitCheckpoint = async (): Promise<void> => {
+    if (!params.onCheckpoint) return
+    try {
+      await params.onCheckpoint({
+        cursorPage,
+        processedBatches,
+        totalFetched,
+        createdCount,
+        updatedCount,
+        failedCount,
+      })
+    } catch (error: any) {
+      console.warn('[affiliate-products] YP stream onCheckpoint callback failed:', error?.message || error)
+    }
+  }
+
+  await emitProgress(0)
+  await emitCheckpoint()
+
+  while (hasMore) {
+    const windowStartPage = cursorPage
+    const fetchResult = await fetchYeahPromosPromotableProductsWithMeta({
+      userId: params.userId,
+      startPage: windowStartPage,
+      maxPages: pageWindowSize,
+      suppressMaxPagesWarning: true,
+      onFetchProgress: async (fetchedCount) => {
+        await emitProgress(totalFetched + Math.max(0, fetchedCount))
+        await emitCheckpoint()
+      },
+    })
+
+    const dedupedWindowItems: NormalizedAffiliateProduct[] = []
+    for (const item of fetchResult.items) {
+      const mid = String(item.mid || '').trim()
+      if (!mid || seenMids.has(mid)) continue
+      seenMids.add(mid)
+      dedupedWindowItems.push(item)
+    }
+
+    const upserted = await upsertAffiliateProducts(
+      params.userId,
+      'yeahpromos',
+      dedupedWindowItems,
+      {
+        progressEvery: params.progressEvery,
+      }
+    )
+    totalFetched += upserted.totalFetched
+    createdCount += upserted.createdCount
+    updatedCount += upserted.updatedCount
+    processedBatches += 1
+
+    const nextPage = fetchResult.nextPage > windowStartPage
+      ? fetchResult.nextPage
+      : windowStartPage + Math.max(1, fetchResult.fetchedPages)
+    cursorPage = nextPage
+    hasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
+
+    await emitProgress(totalFetched)
+    await emitCheckpoint()
+
+    if (fetchResult.fetchedPages <= 0) break
+  }
+
+  return {
+    totalFetched,
+    createdCount,
+    updatedCount,
+  }
+}
+
 export async function syncAffiliateProducts(params: {
   userId: number
   platform: AffiliatePlatform
@@ -5080,12 +5324,16 @@ export async function syncAffiliateProducts(params: {
         onProgress: params.onProgress,
         onCheckpoint: params.onCheckpoint,
       })
-    } else {
-      normalizedItems = await fetchYeahPromosPromotableProducts({
-        userId: params.userId,
-        onFetchProgress: emitFetchProgress,
-      })
     }
+
+    return await syncYeahPromosPlatformByWindow({
+      userId: params.userId,
+      startPage: params.resumeFromPage,
+      pageWindowSize: params.pageWindowSize,
+      progressEvery: params.progressEvery,
+      onProgress: params.onProgress,
+      onCheckpoint: params.onCheckpoint,
+    })
   }
 
   return await upsertAffiliateProducts(params.userId, params.platform, normalizedItems, {

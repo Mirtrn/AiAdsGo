@@ -8,6 +8,7 @@ import {
 } from '@/lib/affiliate-products'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
+import { getYeahPromosSessionState } from '@/lib/yeahpromos-session'
 
 type RouteParams = {
   platform: string
@@ -62,6 +63,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     const configCheck = await checkAffiliatePlatformConfig(userId, platform)
     if (!configCheck.configured) {
       throw new ConfigRequiredError(platform, configCheck.missingKeys)
+    }
+
+    if (platform === 'yeahpromos') {
+      const session = await getYeahPromosSessionState(userId)
+      if (!session.hasSession) {
+        return NextResponse.json(
+          {
+            error: session.isExpired
+              ? 'YeahPromos 登录态已过期，请在商品页重新完成手动登录态采集'
+              : '请先在商品页完成 YeahPromos 手动登录态采集',
+            code: 'YP_SESSION_REQUIRED',
+            redirect: '/products',
+          },
+          { status: 400 }
+        )
+      }
     }
 
     const runId = await createAffiliateProductSyncRun({
