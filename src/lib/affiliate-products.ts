@@ -2452,18 +2452,33 @@ async function fetchPartnerboostPromotableProducts(
 async function getYeahPromosProxyAgent(userId: number): Promise<HttpsProxyAgent<string> | undefined> {
   try {
     const setting = await getUserOnlySetting('proxy', 'urls', userId)
-    if (!setting?.value) return undefined
+    if (!setting?.value) {
+      console.warn('[yeahpromos] 未配置代理，使用直连')
+      return undefined
+    }
     const configs = JSON.parse(setting.value) as { country: string; url: string }[]
     const usConfig = configs.find((c) => c.country === 'US')
-    if (!usConfig?.url) return undefined
-    const proxy = await getProxyIp(usConfig.url)
-    console.log(`[yeahpromos] 使用代理: ${proxy.fullAddress}`)
+    if (!usConfig?.url) {
+      console.warn('[yeahpromos] 未找到US代理配置，使用直连')
+      return undefined
+    }
+
+    console.log(`[yeahpromos] 开始获取US代理（最多重试3次）...`)
+
+    // 使用fetchProxyIp而不是getProxyIp，确保每次重试都获取新IP
+    // maxRetries=3: 如果健康检查失败，会自动重试获取新的代理IP
+    // skipHealthCheck=false: 启用健康检查，确保代理可用
+    const { fetchProxyIp } = await import('@/lib/proxy/fetch-proxy-ip')
+    const proxy = await fetchProxyIp(usConfig.url, 3, false)
+
+    console.log(`[yeahpromos] ✅ 使用代理: ${proxy.fullAddress}`)
     return new HttpsProxyAgent(`http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`, {
       keepAlive: true,
       timeout: 60000,
     })
   } catch (error: any) {
-    console.warn(`[yeahpromos] 获取代理失败，回退直连: ${error?.message || error}`)
+    console.error(`[yeahpromos] ❌ 获取代理失败（已重试3次），回退直连: ${error?.message || error}`)
+    console.error(`[yeahpromos] 错误详情: ${error?.stack || 'N/A'}`)
     return undefined
   }
 }
