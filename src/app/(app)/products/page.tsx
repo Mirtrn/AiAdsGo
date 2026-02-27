@@ -1020,7 +1020,7 @@ export default function ProductsPage() {
       setYpCaptureTokenExpiresAt(data.captureTokenExpiresAt || null)
       setYpCaptureDialogOpen(true)
       safeOpenExternal(data.loginUrl)
-      showSuccess('请完成登录', '已打开YP登录页。登录后点击书签脚本即可自动回传登录态。')
+      showSuccess('请完成登录', '已打开YP登录页。登录后请优先使用浏览器扩展回传登录态；书签脚本可在弹窗中按备用流程执行。')
     } catch (error: any) {
       showError('准备失败', error?.message || '生成YP登录态采集脚本失败')
     } finally {
