@@ -1192,6 +1192,7 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
   const hasAmbiguousBareCommissionText = isAmbiguousBareNumericCommissionText(commissionText)
 
   let incomingCommissionRate: number | null = null
+  let incomingIsAmountMode = false
   if (commissionText) {
     const parsedCommission = parseCommissionPayoutValue(commissionText, {
       targetCountry,
@@ -1199,13 +1200,15 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
     if (parsedCommission?.mode === 'percent') {
       incomingCommissionRate = parsedCommission.displayRate
     } else if (parsedCommission?.mode === 'amount') {
-      return { body: params.body, hydrated: false }
+      // AI 可能错误地将百分比佣金计算为绝对金额（如 10.5% × $549.99 = $57.75），
+      // 不要直接退出，继续查找飞书原始消息中的佣金比例进行纠正
+      incomingIsAmountMode = true
     } else if (hasCommissionInput && !hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }
 
-  if (incomingCommissionRate === null) {
+  if (incomingCommissionRate === null && !incomingIsAmountMode) {
     const structuredType = toTrimmedString(payload.commission_type ?? payload.commissionType)?.toLowerCase()
     const structuredValue = toTrimmedString(payload.commission_value ?? payload.commissionValue)
     if (structuredType === 'percent' && structuredValue) {
@@ -1213,6 +1216,9 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
       if (Number.isFinite(parsedValue) && parsedValue > 0) {
         incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
       }
+    } else if (structuredType === 'amount') {
+      // 同上：AI 可能错误地将百分比佣金转换为绝对金额，继续查找原始消息
+      incomingIsAmountMode = true
     } else if (structuredType) {
       return { body: params.body, hydrated: false }
     } else if (hasCommissionInput && !hasAmbiguousBareCommissionText) {
@@ -1254,8 +1260,11 @@ async function hydrateOfferExtractCommissionByMessageContext(params: {
   }
 
   if (process.env.NODE_ENV !== 'test') {
+    const incomingLabel = incomingIsAmountMode
+      ? `${commissionText}(amount)`
+      : incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`
     console.warn(
-      `[OpenClawCommand] 从飞书原始消息回填佣金比例: offer.extract ${affiliateLink} ${incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
+      `[OpenClawCommand] 从飞书原始消息回填佣金比例: offer.extract ${affiliateLink} ${incomingLabel} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
     )
   }
 
@@ -1334,6 +1343,7 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
   const hasAmbiguousBareCommissionText = isAmbiguousBareNumericCommissionText(commissionText)
 
   let incomingCommissionRate: number | null = null
+  let incomingIsAmountMode = false
   if (commissionText) {
     const parsedCommission = parseCommissionPayoutValue(commissionText, {
       targetCountry,
@@ -1341,13 +1351,14 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
     if (parsedCommission?.mode === 'percent') {
       incomingCommissionRate = parsedCommission.displayRate
     } else if (parsedCommission?.mode === 'amount') {
-      return { body: params.body, hydrated: false }
+      // AI 可能错误地将百分比佣金计算为绝对金额，继续查找飞书原始消息进行纠正
+      incomingIsAmountMode = true
     } else if (!hasAmbiguousBareCommissionText) {
       return { body: params.body, hydrated: false }
     }
   }
 
-  if (incomingCommissionRate === null) {
+  if (incomingCommissionRate === null && !incomingIsAmountMode) {
     const structuredType = toTrimmedString(payload.commission_type ?? payload.commissionType)?.toLowerCase()
     const structuredValue = toTrimmedString(payload.commission_value ?? payload.commissionValue)
     if (structuredType === 'percent' && structuredValue) {
@@ -1355,6 +1366,8 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
       if (Number.isFinite(parsedValue) && parsedValue > 0) {
         incomingCommissionRate = parsedValue <= 1 ? parsedValue * 100 : parsedValue
       }
+    } else if (structuredType === 'amount') {
+      incomingIsAmountMode = true
     } else if (structuredType) {
       return { body: params.body, hydrated: false }
     } else if (!hasAmbiguousBareCommissionText) {
@@ -1370,9 +1383,12 @@ async function hydrateOfferUpdateCommissionByMessageContext(params: {
     return { body: params.body, hydrated: false }
   }
 
-  if (process.env.NODE_ENV !== 'test' && (incomingCommissionRate === null || Math.abs(incomingCommissionRate - matched.commissionRate) > 0.05)) {
+  if (process.env.NODE_ENV !== 'test' && (incomingCommissionRate === null || incomingIsAmountMode || Math.abs(incomingCommissionRate - matched.commissionRate) > 0.05)) {
+    const incomingLabel = incomingIsAmountMode
+      ? `${commissionText}(amount)`
+      : incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`
     console.warn(
-      `[OpenClawCommand] 从飞书原始消息纠正佣金比例: offer.update offerId=${offerId} ${incomingCommissionRate === null ? '-' : `${formatCompactNumber(incomingCommissionRate)}%`} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
+      `[OpenClawCommand] 从飞书原始消息纠正佣金比例: offer.update offerId=${offerId} ${incomingLabel} -> ${formatCompactNumber(matched.commissionRate)}% (parentRequestId=${params.parentRequestId})`
     )
   }
 

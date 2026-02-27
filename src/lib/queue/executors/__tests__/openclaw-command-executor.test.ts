@@ -458,7 +458,89 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
-  it('corrects offer.update commission from feishu message context', async () => {
+  it('corrects amount-style commission back to percent when feishu message has percentage', async () => {
+    const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=3ee0ff3ca7d17921&pid=485084'
+    const parentRequestId = 'om_x100b55228ca8f0acc3274c1b0e0fac9'
+    const db = {
+      type: 'postgres',
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+      query: vi.fn().mockResolvedValue([]),
+      queryOne: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM openclaw_command_runs') && sql.includes('LIMIT 1')) {
+          return {
+            id: 'run-offer-amount-to-percent-1',
+            user_id: 1,
+            channel: 'feishu',
+            sender_id: 'ou_test',
+            parent_request_id: parentRequestId,
+            request_method: 'POST',
+            request_path: '/api/offers/extract',
+            request_query_json: null,
+            request_body_json: JSON.stringify({
+              affiliate_link: affiliateLink,
+              target_country: 'US',
+              brand_name: 'PetSafe',
+              product_price: '$549.99',
+              commission_payout: '$57.75',
+              commission_type: 'amount',
+              commission_value: '57.75',
+              commission_currency: 'USD',
+              page_type: 'product',
+              skipCache: true,
+              skipWarmup: false,
+            }),
+            risk_level: 'medium',
+            status: 'queued',
+            confirm_required: false,
+          }
+        }
+
+        if (sql.includes('FROM openclaw_feishu_chat_health_logs')) {
+          return {
+            message_text: [
+              '联盟平台 MID 品牌 ASIN 投放国家 商品价格 佣金比例 推广链接',
+              `YeahPromos 362292 PetSafe B0DTHVL2DW US $549.99 10.50% ${affiliateLink}`,
+            ].join('\n'),
+          }
+        }
+
+        if (sql.includes('FROM openclaw_command_confirms')) {
+          return { status: 'not_required' }
+        }
+
+        return null
+      }),
+    }
+
+    mocks.getDatabase.mockResolvedValue(db)
+    mocks.fetchAutoadsAsUser.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, taskId: 'task-offer-amount-to-percent-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const result = await executeOpenclawCommandTask(createTask('run-offer-amount-to-percent-1'))
+    expect(result.success).toBe(true)
+
+    expect(mocks.fetchAutoadsAsUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/api/offers/extract',
+        method: 'POST',
+        body: expect.objectContaining({
+          commission_payout: '10.5%',
+          commission_type: 'percent',
+          commission_value: '10.5',
+        }),
+      })
+    )
+
+    // commission_currency should be removed for percent mode
+    const calledBody = mocks.fetchAutoadsAsUser.mock.calls[0][0].body
+    expect(calledBody.commission_currency).toBeUndefined()
+  })
+
+  it('corrects offer.update amount-style commission from feishu message context', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=5c127e3c2c6ab88e&pid=408015'
     const parentRequestId = 'om_x100b56d9b760c8a8b2675b2dc187931'
     const db = {
