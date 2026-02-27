@@ -266,7 +266,7 @@ type NumericRangeFilters = {
 type NumericRangeFilterDrafts = Record<keyof NumericRangeFilters, string>
 
 const PARTNERBOOST_MERCHANT_PAGE_URL = 'https://app.partnerboost.com/partner/amazon-offers'
-const YP_CAPTURE_EXTENSION_VERSION = '1.0.1'
+const YP_CAPTURE_EXTENSION_VERSION = '1.0.2'
 const YP_CAPTURE_EXTENSION_DOWNLOAD_PATH = `/downloads/yp-session-capture-v${YP_CAPTURE_EXTENSION_VERSION}.zip`
 
 const PLATFORM_LABEL: Record<ProductPlatform, string> = {
