@@ -2368,20 +2368,29 @@ export default function ProductsPage() {
           <DialogHeader>
             <DialogTitle>YeahPromos 登录态采集</DialogTitle>
             <DialogDescription>
-              已切换为手动同步模式。请先在新标签页完成 YP 登录，再点击书签脚本自动回传登录态。
+              推荐使用浏览器扩展一键回传登录态。书签脚本仍可作为备用方案。
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 text-sm">
             <div className="rounded-md border bg-slate-50 p-3">
-              <div className="font-medium">操作步骤</div>
-              <div>1. 已自动打开 YP 登录页，先完成账号登录。</div>
-              <div>2. 点击“复制书签脚本”。</div>
-              <div>3. 打开任意网页，按 Ctrl+Shift+O（Mac: Command+Option+B）进入书签管理器。</div>
-              <div>4. 点右上角“⋮”→“添加新书签”。</div>
-              <div>5. 名称可填“YP登录态回传”，URL 粘贴刚复制的书签脚本（javascript:...）。</div>
-              <div>6. 回到 yeahpromos.com 的任意页面，点击该书签一次。</div>
-              <div>7. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
+              <div className="font-medium">扩展采集（推荐）</div>
+              <div>1. 点击“下载扩展包”，解压后得到扩展目录。</div>
+              <div>2. Chrome 打开 chrome://extensions 或 Edge 打开 edge://extensions。</div>
+              <div>3. 打开“开发者模式”后，点“加载已解压的扩展程序”，选择解压后的目录。</div>
+              <div>4. 保持当前 AutoAds /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
+              <div>5. 点击浏览器右上角扩展图标，执行“回传 YeahPromos 登录态”。</div>
+              <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
+            </div>
+
+            <div className="rounded-md border bg-slate-50 p-3">
+              <div className="font-medium">书签脚本采集（备用）</div>
+              <div>1. 点击“复制书签脚本”。</div>
+              <div>2. 打开任意网页，按 Ctrl+Shift+O（Mac: Command+Option+B）进入书签管理器。</div>
+              <div>3. 点右上角“⋮”→“添加新书签”。</div>
+              <div>4. 名称可填“YP登录态回传”，URL 粘贴刚复制的书签脚本（javascript:...）。</div>
+              <div>5. 在 yeahpromos.com 任意页面点击该书签一次。</div>
+              <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
             </div>
 
             <div className="rounded-md border p-3">
@@ -2406,6 +2415,14 @@ export default function ProductsPage() {
           </div>
 
           <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                window.open('/downloads/yp-session-capture.zip', '_blank', 'noopener,noreferrer')
+              }}
+            >
+              下载扩展包
+            </Button>
             <Button variant="outline" onClick={() => void loadYeahPromosSessionStatus()} disabled={ypSessionStatusLoading}>
               {ypSessionStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               刷新登录态
