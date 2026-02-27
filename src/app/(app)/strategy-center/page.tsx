@@ -1647,13 +1647,15 @@ export default function StrategyCenterPage() {
                 </TableHeader>
                 <TableBody>
                   {recommendationsDisplay.map((item, index) => {
-                    const statusBadge = resolveRecommendationStatusBadge(item.status)
+                    const isQueued = isStrategyRecommendationQueued(item)
+                    const statusBadge = isQueued
+                      ? { label: '排队中', variant: 'secondary' as const }
+                      : resolveRecommendationStatusBadge(item.status)
                     const isExecuting = executingId === item.id
                     const isDismissing = dismissingId === item.id
                     const isSelectable = item.status !== 'executed'
                     const isChecked = selectedRecommendationSet.has(item.id)
                     const analysisNote = item.data?.analysisNote || item.reason || item.summary || '-'
-                    const isQueued = isStrategyRecommendationQueued(item)
                     const postReviewText = resolvePostReviewStatusText(
                       item.data?.postReviewStatus || item.executionResult?.postReview?.status || null
                     )
@@ -1822,7 +1824,7 @@ export default function StrategyCenterPage() {
                           {isQueued && (
                             <div className="text-xs text-amber-600">排队执行中</div>
                           )}
-                          {item.status === 'failed' && item.executionResult?.error && (
+                          {item.status === 'failed' && !isQueued && item.executionResult?.error && (
                             <div className="text-xs text-red-600" title={String(item.executionResult.error)}>
                               失败原因：{String(item.executionResult.error)}
                             </div>

@@ -3169,6 +3169,9 @@ export async function markStrategyRecommendationQueued(params: {
   const existingExecutionResult = parseExecutionResultObject(recommendation.executionResult)
   const nextExecutionResult = {
     ...existingExecutionResult,
+    // 重新入队时清理上一次失败态，避免前端继续展示旧错误。
+    error: null,
+    failedAt: null,
     queued: true,
     queueTaskId: params.taskId,
     queueTaskStatus: String(params.taskStatus || 'pending'),
@@ -3189,7 +3192,8 @@ export async function markStrategyRecommendationQueued(params: {
   await db.exec(
     `
       UPDATE strategy_center_recommendations
-      SET execution_result_json = ?,
+      SET status = 'pending',
+          execution_result_json = ?,
           updated_at = ${nowFunc}
       WHERE id = ?
         AND user_id = ?

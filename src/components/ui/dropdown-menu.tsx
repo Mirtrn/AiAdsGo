@@ -1,27 +1,33 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
+import { Slot } from "@radix-ui/react-slot"
 import { cn } from "@/lib/utils"
 
 const DropdownMenuContext = React.createContext<{
     open: boolean;
     setOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    containerRef: React.RefObject<HTMLDivElement | null>;
+    containerRef: React.MutableRefObject<HTMLDivElement | null>;
+    contentRef: React.MutableRefObject<HTMLDivElement | null>;
 }>({
     open: false,
     setOpen: () => { },
     containerRef: { current: null },
+    contentRef: { current: null },
 });
 
 const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     const [open, setOpen] = React.useState(false);
     const containerRef = React.useRef<HTMLDivElement>(null);
+    const contentRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setOpen(false);
-            }
+            const target = event.target as Node;
+            if (containerRef.current?.contains(target)) return;
+            if (contentRef.current?.contains(target)) return;
+            setOpen(false);
         };
 
         document.addEventListener("mousedown", handleClickOutside);
@@ -31,15 +37,13 @@ const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     return (
-        <DropdownMenuContext.Provider value={{ open, setOpen, containerRef }}>
+        <DropdownMenuContext.Provider value={{ open, setOpen, containerRef, contentRef }}>
             <div className="relative inline-block text-left" ref={containerRef}>
                 {children}
             </div>
         </DropdownMenuContext.Provider>
     );
 };
-
-import { Slot } from "@radix-ui/react-slot"
 
 const DropdownMenuTrigger = React.forwardRef<
     HTMLButtonElement,
@@ -70,53 +74,71 @@ const DropdownMenuContent = React.forwardRef<
         sideOffset?: number;
     }
 >(({ className, align = "center", side, sideOffset = 8, style, ...props }, forwardedRef) => {
-    const { open, containerRef } = React.useContext(DropdownMenuContext);
-    const contentRef = React.useRef<HTMLDivElement | null>(null);
-    const [resolvedSide, setResolvedSide] = React.useState<"top" | "bottom">(side ?? "bottom");
+    const { open, containerRef, contentRef } = React.useContext(DropdownMenuContext);
+    const [layout, setLayout] = React.useState<{
+        top: number;
+        left: number;
+        side: "top" | "bottom";
+    } | null>(null);
 
-    const alignmentClasses = {
-        start: "left-0",
-        end: "right-0",
-        center: "left-1/2 -translate-x-1/2",
-    };
-
-    React.useLayoutEffect(() => {
-        if (!open) return;
-
-        if (side) {
-            setResolvedSide(side);
-            return;
-        }
-
+    const syncPosition = React.useCallback(() => {
         const anchorEl = containerRef.current;
         const menuEl = contentRef.current;
         if (!anchorEl || !menuEl) return;
 
         const anchorRect = anchorEl.getBoundingClientRect();
         const menuRect = menuEl.getBoundingClientRect();
-
         const viewportPadding = 8;
+
         const spaceBelow = window.innerHeight - anchorRect.bottom - viewportPadding;
         const spaceAbove = anchorRect.top - viewportPadding;
+        const resolvedSide = side
+            ? side
+            : (spaceBelow < menuRect.height && spaceAbove > spaceBelow ? "top" : "bottom");
 
-        // 底部空间不足时，自动向上展开，避免被分页/视口底部遮挡
-        if (spaceBelow < menuRect.height && spaceAbove > spaceBelow) {
-            setResolvedSide("top");
+        let top = resolvedSide === "top"
+            ? anchorRect.top - menuRect.height - sideOffset
+            : anchorRect.bottom + sideOffset;
+
+        let left = 0;
+        if (align === "start") {
+            left = anchorRect.left;
+        } else if (align === "end") {
+            left = anchorRect.right - menuRect.width;
         } else {
-            setResolvedSide("bottom");
+            left = anchorRect.left + (anchorRect.width - menuRect.width) / 2;
         }
-    }, [containerRef, open, side]);
 
-    const sideClasses = resolvedSide === "top" ? "bottom-full" : "top-full";
-    const resolvedStyle: React.CSSProperties = {
-        ...style,
-        marginTop: resolvedSide === "bottom" ? (style?.marginTop ?? sideOffset) : style?.marginTop,
-        marginBottom: resolvedSide === "top" ? (style?.marginBottom ?? sideOffset) : style?.marginBottom,
-    };
+        left = Math.max(viewportPadding, Math.min(left, window.innerWidth - menuRect.width - viewportPadding));
+        top = Math.max(viewportPadding, Math.min(top, window.innerHeight - menuRect.height - viewportPadding));
+
+        setLayout({ top, left, side: resolvedSide });
+    }, [align, containerRef, contentRef, side, sideOffset]);
+
+    React.useLayoutEffect(() => {
+        if (!open) {
+            setLayout(null);
+            return;
+        }
+
+        syncPosition();
+
+        const handleViewportChange = () => {
+            syncPosition();
+        };
+
+        window.addEventListener("resize", handleViewportChange);
+        window.addEventListener("scroll", handleViewportChange, true);
+        return () => {
+            window.removeEventListener("resize", handleViewportChange);
+            window.removeEventListener("scroll", handleViewportChange, true);
+        };
+    }, [open, syncPosition]);
 
     if (!open) return null;
+    if (typeof document === "undefined") return null;
 
-    return (
+    const contentNode = (
         <div
             ref={(node) => {
                 contentRef.current = node;
@@ -126,16 +148,23 @@ const DropdownMenuContent = React.forwardRef<
                     (forwardedRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
                 }
             }}
+            data-state={open ? "open" : "closed"}
+            data-side={layout?.side || side || "bottom"}
             className={cn(
-                "absolute z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-                sideClasses,
-                alignmentClasses[align],
+                "fixed z-[1000] min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                 className
             )}
-            style={resolvedStyle}
+            style={{
+                top: layout?.top ?? -9999,
+                left: layout?.left ?? -9999,
+                visibility: layout ? "visible" : "hidden",
+                ...style,
+            }}
             {...props}
         />
     );
+
+    return createPortal(contentNode, document.body);
 });
 DropdownMenuContent.displayName = "DropdownMenuContent";
 
