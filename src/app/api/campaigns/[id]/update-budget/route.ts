@@ -3,6 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignBudget } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { resolveLoginCustomerId } from '@/lib/google-ads-login-customer'
 
 function normalizeGoogleCampaignId(value: unknown): string | null {
   const text = String(value || '').trim()
@@ -142,13 +143,21 @@ export async function PUT(
 
     const { authType, serviceAccountId } = await getUserAuthType(userId)
     let refreshToken = ''
+    let oauthLoginCustomerId: string | undefined
     if (authType === 'oauth') {
       const oauthCredentials = await getGoogleAdsCredentials(userId)
       if (!oauthCredentials?.refresh_token) {
         return NextResponse.json({ error: 'Google Ads OAuth refresh_token 不存在或已过期' }, { status: 400 })
       }
       refreshToken = oauthCredentials.refresh_token
+      oauthLoginCustomerId = oauthCredentials.login_customer_id
     }
+
+    const loginCustomerId = resolveLoginCustomerId({
+      authType,
+      accountParentMccId: linked.parent_mcc_id,
+      oauthLoginCustomerId,
+    })
 
     await updateGoogleAdsCampaignBudget({
       customerId: String(linked.customer_id),
@@ -158,7 +167,7 @@ export async function PUT(
       budgetType,
       accountId: Number(linked.google_ads_account_id),
       userId,
-      loginCustomerId: linked.parent_mcc_id ? String(linked.parent_mcc_id) : undefined,
+      loginCustomerId,
       authType,
       serviceAccountId,
     })

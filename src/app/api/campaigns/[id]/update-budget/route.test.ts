@@ -134,4 +134,48 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
     })
     expect(dbFns.exec).toHaveBeenCalled()
   })
+
+  it('falls back to oauth login_customer_id when parent_mcc_id is missing', async () => {
+    dbFns.queryOne.mockResolvedValue({
+      local_campaign_id: 12,
+      google_ads_account_id: 9,
+      status: 'ENABLED',
+      is_deleted: false,
+      customer_id: '1234567890',
+      parent_mcc_id: null,
+      account_is_active: true,
+      account_is_deleted: false,
+    })
+    oauthFns.getGoogleAdsCredentials.mockResolvedValue({
+      refresh_token: 'refresh-token',
+      login_customer_id: '1122334455',
+    })
+
+    const req = new NextRequest('http://localhost/api/campaigns/23578044853/update-budget', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        budgetAmount: 20,
+        budgetType: 'DAILY',
+      }),
+    })
+
+    const res = await PUT(req, { params: { id: '23578044853' } })
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(adsFns.updateGoogleAdsCampaignBudget).toHaveBeenCalledWith({
+      customerId: '1234567890',
+      refreshToken: 'refresh-token',
+      campaignId: '23578044853',
+      budgetAmount: 20,
+      budgetType: 'DAILY',
+      accountId: 9,
+      userId: 1,
+      loginCustomerId: '1122334455',
+      authType: 'oauth',
+      serviceAccountId: undefined,
+    })
+  })
 })
