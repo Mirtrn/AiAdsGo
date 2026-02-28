@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CREATIVE_BRAND_KEYWORD_RESERVE,
   CREATIVE_KEYWORD_MAX_COUNT,
+  CREATIVE_KEYWORD_MAX_WORDS,
   selectCreativeKeywords,
 } from '../creative-keyword-selection'
 
@@ -72,5 +73,22 @@ describe('creative-keyword-selection', () => {
 
     expect(result.keywordsWithVolume).toHaveLength(1)
     expect(result.keywordsWithVolume[0].source).toBe('KEYWORD_POOL')
+  })
+
+  it('drops keywords exceeding global max word count', () => {
+    const tooLongKeyword = 'ninja bn401 nutri pro compact personal blender auto iq technology 1100 peak watts for frozen drinks smoothies sauces'
+    const result = selectCreativeKeywords({
+      keywordsWithVolume: [
+        { keyword: tooLongKeyword, searchVolume: 120000, source: 'KEYWORD_POOL', matchType: 'EXACT' },
+        { keyword: 'lampick hair dryer', searchVolume: 4000, source: 'KEYWORD_POOL', matchType: 'PHRASE' },
+      ],
+      brandName: 'Lampick',
+    })
+
+    expect(result.keywords).toContain('lampick hair dryer')
+    expect(result.keywords).not.toContain(tooLongKeyword)
+    expect(
+      result.keywords.every(keyword => keyword.trim().split(/\s+/).filter(Boolean).length <= CREATIVE_KEYWORD_MAX_WORDS)
+    ).toBe(true)
   })
 })

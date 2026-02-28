@@ -339,11 +339,8 @@ export async function executeAdCreativeGeneration(
             }
           })
           .filter((v): v is NonNullable<typeof v> => v !== null)
-        const keywordLimit = selectedBucket === 'D' ? bucketKeywordsWithVolume.length : 30
-        const limitedBucketKeywords = bucketKeywordsWithVolume.slice(0, keywordLimit)
-
-        creative.keywords = limitedBucketKeywords.map((kw: any) => kw.keyword)
-        creative.keywordsWithVolume = limitedBucketKeywords
+        creative.keywords = bucketKeywordsWithVolume.map((kw: any) => kw.keyword)
+        creative.keywordsWithVolume = bucketKeywordsWithVolume
       }
 
       if (selectedBucket) {

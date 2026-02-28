@@ -3,6 +3,7 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 
 export const CREATIVE_KEYWORD_MAX_COUNT = 50
 export const CREATIVE_BRAND_KEYWORD_RESERVE = 10
+export const CREATIVE_KEYWORD_MAX_WORDS = 5
 
 type CreativeBucket = 'A' | 'B' | 'C' | 'D' | 'S'
 
@@ -25,6 +26,7 @@ export interface SelectCreativeKeywordsInput {
   bucket?: CreativeBucket | null
   maxKeywords?: number
   brandReserve?: number
+  maxWords?: number
 }
 
 export interface SelectCreativeKeywordsOutput {
@@ -106,7 +108,7 @@ function compareRankedCandidates(a: RankedCandidate, b: RankedCandidate): number
   return a.originalIndex - b.originalIndex
 }
 
-function toRankedCandidates(input: SelectCreativeKeywordsInput): RankedCandidate[] {
+function toRankedCandidates(input: SelectCreativeKeywordsInput, maxWords: number): RankedCandidate[] {
   const normalizedBrand = normalizeGoogleAdsKeyword(input.brandName || '')
   const pureBrandKeywords =
     normalizedBrand && normalizedBrand !== 'unknown'
@@ -153,6 +155,8 @@ function toRankedCandidates(input: SelectCreativeKeywordsInput): RankedCandidate
 
     const normalized = normalizeGoogleAdsKeyword(keyword)
     if (!normalized) continue
+    const wordCount = normalized.split(/\s+/).filter(Boolean).length || 1
+    if (wordCount > maxWords) continue
 
     const isBrand = pureBrandKeywords.length > 0
       ? containsPureBrand(keyword, pureBrandKeywords)
@@ -171,7 +175,7 @@ function toRankedCandidates(input: SelectCreativeKeywordsInput): RankedCandidate
       sourceRank: normalizeSourceRank(candidate.source),
       matchTypeRank: normalizeMatchTypeRank(candidate.matchType),
       intentRank: computeIntentRank(keyword, input.bucket, isBrand),
-      wordCount: normalized.split(/\s+/).filter(Boolean).length || 1,
+      wordCount,
       searchVolume: Number(candidate.searchVolume || 0) || 0,
     }
 
@@ -195,7 +199,12 @@ export function selectCreativeKeywords(input: SelectCreativeKeywordsInput): Sele
     ? Math.max(0, Math.floor(brandReserveInput))
     : CREATIVE_BRAND_KEYWORD_RESERVE
 
-  const rankedCandidates = toRankedCandidates(input)
+  const maxWordsInput = Number(input.maxWords)
+  const maxWords = Number.isFinite(maxWordsInput)
+    ? Math.max(1, Math.floor(maxWordsInput))
+    : CREATIVE_KEYWORD_MAX_WORDS
+
+  const rankedCandidates = toRankedCandidates(input, maxWords)
   if (rankedCandidates.length === 0) {
     return {
       keywords: [],
