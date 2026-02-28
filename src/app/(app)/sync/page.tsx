@@ -47,6 +47,7 @@ export default function SyncManagementPage() {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [logs, setLogs] = useState<SyncLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [logsRefreshing, setLogsRefreshing] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
 
@@ -61,7 +62,7 @@ export default function SyncManagementPage() {
 
     const interval = setInterval(() => {
       fetchStatus()
-      fetchLogs()
+      fetchLogs({ silent: true })
     }, 10000)
 
     return () => clearInterval(interval)
@@ -85,9 +86,14 @@ export default function SyncManagementPage() {
     }
   }
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
     try {
-      setLoading(true)
+      if (silent) {
+        setLogsRefreshing(true)
+      } else {
+        setLoading(true)
+      }
       const result = await fetchWithRetry('/api/sync/logs?limit=20', {
         credentials: 'include',
       }, {
@@ -102,7 +108,11 @@ export default function SyncManagementPage() {
     } catch (err: any) {
       console.error('Fetch logs error:', err)
     } finally {
-      setLoading(false)
+      if (silent) {
+        setLogsRefreshing(false)
+      } else {
+        setLoading(false)
+      }
     }
   }
 
@@ -130,7 +140,7 @@ export default function SyncManagementPage() {
       // 刷新状态和日志
       setTimeout(() => {
         fetchStatus()
-        fetchLogs()
+        fetchLogs({ silent: true })
       }, 1000)
     } catch (err: any) {
       showError('同步失败', '同步时发生未知错误')
@@ -297,7 +307,15 @@ export default function SyncManagementPage() {
         {/* 同步历史日志 */}
         <Card>
           <CardContent className="pt-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">同步历史</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">同步历史</h2>
+              {logsRefreshing && (
+                <span className="inline-flex items-center text-xs text-gray-500">
+                  <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  后台更新中
+                </span>
+              )}
+            </div>
 
             {loading ? (
               <div className="text-center py-8">

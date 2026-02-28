@@ -188,6 +188,7 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [filteredCampaigns, setFilteredCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [summary, setSummary] = useState<PerformanceSummary | null>(null)
 
@@ -211,6 +212,7 @@ export default function CampaignsPage() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const filterKeyRef = useRef<string>('')
+  const silentRefreshCountRef = useRef(0)
 
   // Trend data states
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
@@ -440,7 +442,7 @@ export default function CampaignsPage() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.hidden) return
-      fetchCampaigns()
+      fetchCampaigns(undefined, { silent: true })
       fetchTrends()
     }, 60_000)
 
@@ -585,9 +587,15 @@ export default function CampaignsPage() {
     return params
   }
 
-  const fetchCampaigns = async (currencyOverride?: string) => {
-    try {
+  const fetchCampaigns = async (currencyOverride?: string, options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (silent) {
+      silentRefreshCountRef.current += 1
+      setBackgroundRefreshing(true)
+    } else {
       setLoading(true)
+    }
+    try {
       const response = await fetch(`/api/campaigns/performance?${buildDateRangeParams(currencyOverride).toString()}`, {
         credentials: 'include',
       })
@@ -617,7 +625,14 @@ export default function CampaignsPage() {
     } catch (err: any) {
       setError(err.message || '加载失败')
     } finally {
-      setLoading(false)
+      if (silent) {
+        silentRefreshCountRef.current = Math.max(0, silentRefreshCountRef.current - 1)
+        if (silentRefreshCountRef.current === 0) {
+          setBackgroundRefreshing(false)
+        }
+      } else {
+        setLoading(false)
+      }
     }
   }
 
@@ -1584,6 +1599,12 @@ export default function CampaignsPage() {
               <Badge variant="outline" className="text-sm">
                 {visibleCampaignCount}
               </Badge>
+              {backgroundRefreshing && (
+                <span className="inline-flex items-center text-xs text-gray-500">
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  后台更新中
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               {/* 批量删除按钮 - 多选后显示，仅已移除可删除 */}

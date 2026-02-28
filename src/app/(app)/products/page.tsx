@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Card,
@@ -698,6 +698,8 @@ function isNumericRangeFiltersEqual(a: NumericRangeFilters, b: NumericRangeFilte
 export default function ProductsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
+  const silentRefreshCountRef = useRef(0)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [platformStats, setPlatformStats] = useState<PlatformStatsMap>(() => createEmptyPlatformStatsMap())
@@ -874,8 +876,18 @@ export default function ProductsPage() {
     return () => window.clearTimeout(timer)
   }, [numericRangeDrafts, numericRangeFilters])
 
-  const fetchProducts = async (forceNoCache: boolean = false) => {
-    setLoading(true)
+  const fetchProducts = async (options: {
+    forceNoCache?: boolean
+    silent?: boolean
+    suppressErrorToast?: boolean
+  } = {}) => {
+    const { forceNoCache = false, silent = false, suppressErrorToast = false } = options
+    if (silent) {
+      silentRefreshCountRef.current += 1
+      setBackgroundRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
       const params = new URLSearchParams()
       params.set('page', String(page))
@@ -935,9 +947,18 @@ export default function ProductsPage() {
         return next
       })
     } catch (error: any) {
-      showError('加载失败', error?.message || '加载商品列表失败')
+      if (!suppressErrorToast) {
+        showError('加载失败', error?.message || '加载商品列表失败')
+      }
     } finally {
-      setLoading(false)
+      if (silent) {
+        silentRefreshCountRef.current = Math.max(0, silentRefreshCountRef.current - 1)
+        if (silentRefreshCountRef.current === 0) {
+          setBackgroundRefreshing(false)
+        }
+      } else {
+        setLoading(false)
+      }
     }
   }
 
@@ -1130,7 +1151,7 @@ export default function ProductsPage() {
 
     const timer = window.setInterval(() => {
       fetchSyncRuns()
-      fetchProducts(true)
+      fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true })
     }, 8000)
 
     return () => window.clearInterval(timer)
@@ -1232,7 +1253,7 @@ export default function ProductsPage() {
       const strategyLabel = resolvedStrategy === 'light' ? '轻量同步' : '全量同步'
       showSuccess('任务已提交', `${PLATFORM_LABEL[platform]} ${strategyLabel}已加入队列`)
       setTimeout(() => {
-        fetchProducts(true)
+        fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true })
         fetchSyncRuns()
       }, 1200)
     } catch (error: any) {
@@ -1262,7 +1283,7 @@ export default function ProductsPage() {
 
       showSuccess('任务已提交', '单商品同步已加入队列')
       setTimeout(() => {
-        fetchProducts(true)
+        fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true })
         fetchSyncRuns()
       }, 1000)
     } catch (error: any) {
@@ -1292,7 +1313,7 @@ export default function ProductsPage() {
       } else {
         showSuccess('创建成功', `Offer #${data.offerId} 已创建`)
       }
-      fetchProducts(true)
+      fetchProducts({ forceNoCache: true, silent: true })
       return true
     } catch (error: any) {
       showError('创建失败', error?.message || '创建Offer失败')
@@ -1346,7 +1367,7 @@ export default function ProductsPage() {
         next.delete(offlineProduct.id)
         return next
       })
-      fetchProducts(true)
+      fetchProducts({ forceNoCache: true, silent: true })
     } catch (error: any) {
       showError('手动下线失败', error?.message || '手动下线商品失败')
     } finally {
@@ -1395,7 +1416,7 @@ export default function ProductsPage() {
 
       setSelectedProductIds(failedIds)
       setBatchOfflineDialogOpen(false)
-      fetchProducts(true)
+      fetchProducts({ forceNoCache: true, silent: true })
     } catch (error: any) {
       showError('批量手动下线失败', error?.message || '批量手动下线商品失败')
     } finally {
@@ -1449,7 +1470,7 @@ export default function ProductsPage() {
       setClearAllConfirmOpen(false)
       setSelectedProductIds(new Set())
       setPage(1)
-      await fetchProducts(true)
+      await fetchProducts({ forceNoCache: true })
       await fetchSyncRuns()
     } catch (error: any) {
       showError('清空失败', error?.message || '清空商品失败')
@@ -1501,7 +1522,7 @@ export default function ProductsPage() {
       )
       setBatchDialogOpen(false)
       setSelectedProductIds(new Set())
-      fetchProducts(true)
+      fetchProducts({ forceNoCache: true, silent: true })
     } catch (error: any) {
       showError('批量创建失败', error?.message || '批量创建Offer失败')
     } finally {
@@ -2111,8 +2132,14 @@ export default function ProductsPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">商品列表</CardTitle>
-            <CardDescription>
-              共 {total} 个商品，支持排序、单商品同步、创建 Offer、手动下线商品和批量操作
+            <CardDescription className="flex flex-wrap items-center gap-2">
+              <span>共 {total} 个商品，支持排序、单商品同步、创建 Offer、手动下线商品和批量操作</span>
+              {backgroundRefreshing && (
+                <span className="inline-flex items-center text-xs text-muted-foreground">
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  后台更新中
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
