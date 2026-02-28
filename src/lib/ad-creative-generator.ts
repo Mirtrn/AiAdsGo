@@ -2019,6 +2019,54 @@ function tokenizeSupplementCandidate(raw: string): string[] {
     .filter(Boolean)
 }
 
+function composeTitleAboutSupplementKeyword(rawKeyword: string, brandName: string): string | null {
+  const cleaned = normalizeSupplementCandidate(rawKeyword)
+  if (!cleaned) return null
+
+  const normalizedBrand = normalizeGoogleAdsKeyword(normalizeSupplementCandidate(brandName || ''))
+  if (!normalizedBrand || normalizedBrand === 'unknown') {
+    return cleaned
+  }
+
+  const brandTokens = normalizedBrand.split(/\s+/).filter(Boolean)
+  if (brandTokens.length === 0) {
+    return cleaned
+  }
+
+  const candidateTokens = tokenizeSupplementCandidate(cleaned)
+  if (candidateTokens.length === 0) return null
+
+  const lowerTokens = candidateTokens.map(token => token.toLowerCase())
+  const withoutBrandTokens: string[] = []
+
+  for (let i = 0; i < lowerTokens.length;) {
+    let matchesBrand = true
+    for (let j = 0; j < brandTokens.length; j += 1) {
+      if (lowerTokens[i + j] !== brandTokens[j]) {
+        matchesBrand = false
+        break
+      }
+    }
+
+    if (matchesBrand) {
+      i += brandTokens.length
+      continue
+    }
+
+    withoutBrandTokens.push(lowerTokens[i])
+    i += 1
+  }
+
+  const recomposedCandidate = withoutBrandTokens.join(' ').trim()
+  const combined = recomposedCandidate ? `${normalizedBrand} ${recomposedCandidate}` : normalizedBrand
+  const combinedTokens = tokenizeSupplementCandidate(combined)
+  if (combinedTokens.length < 2 || combinedTokens.length > 5) {
+    return null
+  }
+
+  return combinedTokens.join(' ')
+}
+
 function isStructuredSupplementKeyword(keyword: string, targetLanguage: string): boolean {
   const cleaned = normalizeSupplementCandidate(keyword)
   if (!cleaned) return false
@@ -2420,8 +2468,6 @@ export async function applyKeywordSupplementationOnce(
   const tryAdd = (rawKeyword: string, source: 'keyword_pool' | 'title_about') => {
     if (maxAddCount <= 0 || added.length >= maxAddCount) return
     const cleaned = normalizeSupplementCandidate(rawKeyword)
-    const normalized = normalizeGoogleAdsKeyword(cleaned)
-    if (!normalized || seen.has(normalized)) return
     if (!isStructuredSupplementKeyword(cleaned, input.targetLanguage)) return
     const intent = classifyKeywordIntent(cleaned, { language: input.targetLanguage })
     if (intent.hardNegative) return
@@ -2433,13 +2479,21 @@ export async function applyKeywordSupplementationOnce(
       if (!hasContextOverlap) return
     }
 
+    const finalKeyword = source === 'title_about'
+      ? composeTitleAboutSupplementKeyword(cleaned, input.brandName)
+      : cleaned
+    if (!finalKeyword) return
+
+    const normalized = normalizeGoogleAdsKeyword(finalKeyword)
+    if (!normalized || seen.has(normalized)) return
+
     seen.add(normalized)
-    added.push({ keyword: cleaned, source })
+    added.push({ keyword: finalKeyword, source })
     supplementWithVolume.push({
-      keyword: cleaned,
+      keyword: finalKeyword,
       searchVolume: 0,
       source: source === 'keyword_pool' ? 'KEYWORD_POOL' : 'AI_GENERATED',
-      matchType: shouldUseExactMatch(cleaned, pureBrandKeywords) ? 'EXACT' : 'PHRASE',
+      matchType: shouldUseExactMatch(finalKeyword, pureBrandKeywords) ? 'EXACT' : 'PHRASE',
     })
   }
 

@@ -145,4 +145,91 @@ describe('ad-creative-generator keyword supplementation', () => {
     expect(addedLower).not.toContain('wide use')
     expect(addedLower.some(k => k.includes('brushless') || k.includes('drill'))).toBe(true)
   })
+
+  it('prefixes title/about supplements with brand and avoids duplicate brand tokens', async () => {
+    const baseKeywords = makeKeywords(9, 'laser level guide')
+
+    const result = await applyKeywordSupplementationOnce({
+      offer: {
+        id: 3925,
+        scraped_data: {
+          rawProductTitle: 'Dovoh Laser Level Calibration Tool',
+          rawAboutThisItem: ['Dovoh laser level for indoor alignment'],
+        },
+      },
+      userId: 1,
+      brandName: 'Dovoh',
+      targetLanguage: 'English',
+      keywordsWithVolume: baseKeywords,
+    })
+
+    const titleAboutAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'title_about')
+    expect(titleAboutAdded.length).toBeGreaterThan(0)
+    expect(titleAboutAdded.every(k => k.keyword.startsWith('dovoh '))).toBe(true)
+    expect(titleAboutAdded.every(k => !k.keyword.includes('dovoh dovoh'))).toBe(true)
+    expect(titleAboutAdded.every(k => k.keyword.split(/\s+/).filter(Boolean).length <= 5)).toBe(true)
+  })
+
+  it('drops title/about supplements when branded combination exceeds 5 words', async () => {
+    const baseKeywords = makeKeywords(9, 'laser level guide')
+
+    const result = await applyKeywordSupplementationOnce({
+      offer: {
+        id: 3925,
+        scraped_data: {
+          rawProductTitle: 'laser level kit',
+          rawAboutThisItem: ['magnetic base for wall alignment'],
+        },
+      },
+      userId: 1,
+      brandName: 'dovoh precision tools official',
+      targetLanguage: 'English',
+      keywordsWithVolume: baseKeywords,
+    })
+
+    const titleAboutAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'title_about')
+    expect(result.keywordSupplementation.triggered).toBe(true)
+    expect(titleAboutAdded).toHaveLength(0)
+    expect(result.keywordsWithVolume).toHaveLength(9)
+  })
+
+  it('keeps keyword_pool supplements unchanged (no forced brand prefix)', async () => {
+    const baseKeywords = makeKeywords(9, 'laser level guide')
+
+    const result = await applyKeywordSupplementationOnce({
+      offer: { id: 3925, scraped_data: { rawProductTitle: '', rawAboutThisItem: [] } },
+      userId: 1,
+      brandName: 'Dovoh',
+      targetLanguage: 'English',
+      keywordsWithVolume: baseKeywords,
+      poolCandidates: ['laser level stand'],
+    })
+
+    const poolAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'keyword_pool')
+    expect(poolAdded).toHaveLength(1)
+    expect(poolAdded[0].keyword).toBe('laser level stand')
+    expect(poolAdded[0].keyword.startsWith('dovoh ')).toBe(false)
+  })
+
+  it('falls back to original title/about behavior when brand is Unknown', async () => {
+    const baseKeywords = makeKeywords(9, 'laser level guide')
+
+    const result = await applyKeywordSupplementationOnce({
+      offer: {
+        id: 3925,
+        scraped_data: {
+          rawProductTitle: 'Laser Level Kit',
+          rawAboutThisItem: ['Magnetic base for wall alignment'],
+        },
+      },
+      userId: 1,
+      brandName: 'Unknown',
+      targetLanguage: 'English',
+      keywordsWithVolume: baseKeywords,
+    })
+
+    const titleAboutAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'title_about')
+    expect(titleAboutAdded.length).toBeGreaterThan(0)
+    expect(titleAboutAdded.every(k => !k.keyword.startsWith('unknown '))).toBe(true)
+  })
 })
