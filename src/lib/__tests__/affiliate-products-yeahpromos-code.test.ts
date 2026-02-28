@@ -181,6 +181,69 @@ describe('parseYeahPromosProductHtmlPage', () => {
     expect(rawJson?.key_fields_status?.missing_fields || []).toEqual([])
   })
 
+  it('parses promo link from ClipboardJS.copy with double quotes', () => {
+    const html = `
+      <div class="adv-block">
+        <div class="adv-content">
+          <div class="adv-main">
+            <div class="adv-name">Quoted Promo Product</div>
+            <div><span>B0QUOTED12</span></div>
+            <div class="row">
+              <div class="col-xs-8"><div class="color-1136">USD 19.99</div></div>
+              <div class="col-xs-4"><div>10%</div></div>
+            </div>
+            <div class="row"><div class="col-xs-12"><div class="rating-panel">(2,468)</div></div></div>
+            <div class="row">
+              <div class="col-xs-7"><a>Quote Brand</a></div>
+              <div class="col-xs-5">
+                <p class="button-primary adv-btn" onclick='ClipboardJS.copy("https://yeahpromos.com/index/index/openurlproduct?track=double_q&amp;pid=556677");'>Copy</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pageList"><div class="page-num">Page 2</div></div>
+    `
+
+    const parsed = __testOnly.parseYeahPromosProductHtmlPage(html)
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.items[0]?.mid).toBe('pid_556677')
+    expect(parsed.items[0]?.promoLink).toContain('track=double_q')
+    expect(parsed.items[0]?.promoLink).toContain('pid=556677')
+  })
+
+  it('parses promo link from data-clipboard-text when onclick is missing', () => {
+    const html = `
+      <div class="adv-block">
+        <div class="adv-content">
+          <div class="adv-main">
+            <div class="adv-name">Data Attr Promo Product</div>
+            <div><span>B0DATATEXT1</span></div>
+            <div class="row">
+              <div class="col-xs-8"><div class="color-1136">USD 89.00</div></div>
+              <div class="col-xs-4"><div>13.5%</div></div>
+            </div>
+            <div class="row"><div class="col-xs-12"><div class="rating-panel">(987)</div></div></div>
+            <div class="row">
+              <div class="col-xs-7"><a>Data Brand</a></div>
+              <div class="col-xs-5">
+                <p class="button-primary adv-btn" data-clipboard-text="/index/index/openurlproduct?track=data_attr&amp;pid=889900">Copy</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pageList"><div class="page-num">Page 3</div></div>
+    `
+
+    const parsed = __testOnly.parseYeahPromosProductHtmlPage(html)
+    expect(parsed.items).toHaveLength(1)
+    expect(parsed.items[0]?.mid).toBe('pid_889900')
+    expect(parsed.items[0]?.promoLink).toContain('https://yeahpromos.com/index/index/openurlproduct?')
+    expect(parsed.items[0]?.promoLink).toContain('track=data_attr')
+    expect(parsed.items[0]?.promoLink).toContain('pid=889900')
+  })
+
   it('parses apply-only card without promo link', () => {
     const html = `
       <div class="adv-block">

@@ -2805,6 +2805,89 @@ function resolveYeahPromosPromoIdentifiers(promoLink: string | null): { pid: str
   }
 }
 
+const YEAHPROMOS_PROMO_PATH_PATTERN = /\/index\/index\/openurl(?:product)?\?/i
+
+function decodeHtmlEntitiesForUrl(input: string): string {
+  return String(input || '')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#39;/g, '\'')
+    .replace(/&#x27;/gi, '\'')
+    .replace(/&#x2f;/gi, '/')
+}
+
+function normalizeYeahPromosPromoUrl(raw: string | null | undefined): string | null {
+  const decoded = normalizeUrl(decodeHtmlEntitiesForUrl(String(raw || '')))
+  if (!decoded) return null
+
+  try {
+    if (/^https?:\/\//i.test(decoded)) {
+      return normalizeUrl(decoded)
+    }
+    if (decoded.startsWith('/')) {
+      return normalizeUrl(new URL(decoded, 'https://yeahpromos.com').toString())
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function extractYeahPromosPromoLinkFromText(rawText: string | null | undefined): string | null {
+  const text = decodeHtmlEntitiesForUrl(String(rawText || ''))
+  if (!text) return null
+
+  const patterns: RegExp[] = [
+    /ClipboardJS\.copy\(\s*(['"`])([^'"`]+)\1\s*\)/i,
+    /copy\(\s*(['"`])([^'"`]+)\1\s*\)/i,
+    /(['"`])((?:https?:\/\/|\/index\/index\/openurl(?:product)?\?)[^'"`\s<>]+)\1/i,
+    /(https?:\/\/yeahpromos\.com\/index\/index\/openurl(?:product)?\?[^'"`\s<>]+)/i,
+    /(\/index\/index\/openurl(?:product)?\?[^'"`\s<>]+)/i,
+    /(https?:\/\/[^'"`\s<>]+)/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    const candidate = match?.[2] || match?.[1]
+    const normalized = normalizeYeahPromosPromoUrl(candidate)
+    if (normalized) return normalized
+  }
+
+  return null
+}
+
+function resolveYeahPromosPromoLinkFromCard(params: {
+  candidateTexts: Array<string | null | undefined>
+  cardHtml: string
+}): string | null {
+  for (const candidateText of params.candidateTexts) {
+    const extracted = extractYeahPromosPromoLinkFromText(candidateText)
+    if (extracted) return extracted
+  }
+
+  const cardHtml = decodeHtmlEntitiesForUrl(params.cardHtml || '')
+  if (!cardHtml) return null
+
+  const absoluteMatches = cardHtml.match(/https?:\/\/[^'"`\s<>]+/ig) || []
+  for (const candidate of absoluteMatches) {
+    if (!YEAHPROMOS_PROMO_PATH_PATTERN.test(candidate)) continue
+    const normalized = normalizeYeahPromosPromoUrl(candidate)
+    if (normalized) return normalized
+  }
+
+  const relativeMatches = cardHtml.match(/\/index\/index\/openurl(?:product)?\?[^'"`\s<>]+/ig) || []
+  for (const candidate of relativeMatches) {
+    const normalized = normalizeYeahPromosPromoUrl(candidate)
+    if (normalized) return normalized
+  }
+
+  return null
+}
+
 function resolveYeahPromosProductMid(input: {
   pid: string | null
   applyProductId: string | null
@@ -2896,13 +2979,18 @@ function parseYeahPromosProductHtmlPage(
     const rating = parsePriceAmount(ratingPanel.attr('data-rating'))
     const joinStatus = normalizeUrl(block.find('.status-joined').first().text())
     const applyProductId = normalizeUrl(body.find('.apply-product').first().attr('data-product_id'))
-
-    const copyOnclick = String(
-      body.find('.adv-btn[onclick*="ClipboardJS.copy"]').first().attr('onclick')
-      || ''
-    )
-    const promoMatch = copyOnclick.match(/ClipboardJS\.copy\('([^']+)'\)/)
-    const promoLink = normalizeUrl((promoMatch?.[1] || '').replace(/&amp;/g, '&'))
+    const promoLink = resolveYeahPromosPromoLinkFromCard({
+      candidateTexts: [
+        body.find('.adv-btn[onclick*="ClipboardJS.copy"]').first().attr('onclick'),
+        body.find('.adv-btn[onclick*="copy"]').first().attr('onclick'),
+        body.find('.adv-btn[data-clipboard-text]').first().attr('data-clipboard-text'),
+        body.find('[data-clipboard-text]').first().attr('data-clipboard-text'),
+        body.find('[data-copy-url]').first().attr('data-copy-url'),
+        body.find('a[href*="/index/index/openurlproduct"]').first().attr('href'),
+        body.find('a[href*="/index/index/openurl"]').first().attr('href'),
+      ],
+      cardHtml: block.html() || '',
+    })
     const promoMeta = resolveYeahPromosPromoIdentifiers(promoLink)
 
     const mid = resolveYeahPromosProductMid({
