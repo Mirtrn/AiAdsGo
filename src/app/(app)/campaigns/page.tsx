@@ -196,7 +196,6 @@ export default function CampaignsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<CampaignsTimeRange>('7')
   const [isTrendCustomDateRangeOpen, setIsTrendCustomDateRangeOpen] = useState(false)
-  const [isFilterCustomDateRangeOpen, setIsFilterCustomDateRangeOpen] = useState(false)
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
@@ -363,14 +362,8 @@ export default function CampaignsPage() {
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
 
-  const openCustomDateRange = (source: 'trends' | 'filters', open: boolean) => {
-    if (source === 'trends') {
-      setIsTrendCustomDateRangeOpen(open)
-      if (open) setIsFilterCustomDateRangeOpen(false)
-    } else {
-      setIsFilterCustomDateRangeOpen(open)
-      if (open) setIsTrendCustomDateRangeOpen(false)
-    }
+  const openTrendCustomDateRange = (open: boolean) => {
+    setIsTrendCustomDateRangeOpen(open)
 
     if (!open) return
 
@@ -405,7 +398,6 @@ export default function CampaignsPage() {
     })
     setTimeRange('custom')
     setIsTrendCustomDateRangeOpen(false)
-    setIsFilterCustomDateRangeOpen(false)
   }
 
   const selectPresetTimeRange = (days: Exclude<CampaignsTimeRange, 'custom'>) => {
@@ -1813,7 +1805,7 @@ export default function CampaignsPage() {
                 ))}
                 <DropdownMenu
                   open={isTrendCustomDateRangeOpen}
-                  onOpenChange={(open) => openCustomDateRange('trends', open)}
+                  onOpenChange={openTrendCustomDateRange}
                 >
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -2002,9 +1994,9 @@ export default function CampaignsPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {/* Search */}
-              <div className="relative">
+              <div className="relative w-full md:flex-1 md:min-w-[300px]">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   placeholder="搜索广告系列名称或ID..."
@@ -2014,103 +2006,40 @@ export default function CampaignsPage() {
                 />
               </div>
 
-              {/* Time Range Filter */}
-              <div className="flex items-center gap-1 border border-gray-200 rounded-md p-1 bg-white">
-                {(['7', '14', '30'] as const).map((days) => (
-                  <Button
-                    key={days}
-                    type="button"
-                    size="sm"
-                    variant={timeRange === days ? 'default' : 'ghost'}
-                    className="h-8 px-2 text-xs"
-                    onClick={() => selectPresetTimeRange(days)}
-                  >
-                    {days}天
-                  </Button>
-                ))}
-                <DropdownMenu
-                  open={isFilterCustomDateRangeOpen}
-                  onOpenChange={(open) => openCustomDateRange('filters', open)}
-                >
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                      className="h-8 px-2 text-xs max-w-[140px]"
-                    >
-                      <CalendarDays className="w-3.5 h-3.5 mr-1" />
-                      <span className="truncate">{customRangeLabel}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-72 p-3">
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">开始日期</p>
-                        <Input
-                          type="date"
-                          value={customStartDate}
-                          onChange={(e) => setCustomStartDate(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">结束日期</p>
-                        <Input
-                          type="date"
-                          value={customEndDate}
-                          onChange={(e) => setCustomEndDate(e.target.value)}
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
-                      {customStartDate && customEndDate && customStartDate > customEndDate && (
-                        <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
-                      )}
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        onClick={applyCustomDateRange}
-                        disabled={!canApplyCustomRange}
-                      >
-                        应用时间范围
-                      </Button>
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              {/* Status Filter */}
+              <div className="w-full sm:w-[220px] md:w-[200px]">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="投放状态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">所有投放状态</SelectItem>
+                    <SelectItem value="ENABLED">{getCampaignStatusLabel('ENABLED')}</SelectItem>
+                    <SelectItem value="PAUSED">{getCampaignStatusLabel('PAUSED')}</SelectItem>
+                    <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              {/* Status Filter */}
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="投放状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">所有投放状态</SelectItem>
-                  <SelectItem value="ENABLED">{getCampaignStatusLabel('ENABLED')}</SelectItem>
-                  <SelectItem value="PAUSED">{getCampaignStatusLabel('PAUSED')}</SelectItem>
-                  <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
+                <Checkbox
+                  id="show-deleted-campaigns"
+                  checked={showDeletedCampaigns}
+                  onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
+                  aria-label="显示历史广告系列（含已删除）"
+                />
+                <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
+                  显示历史（含已删除）
+                </label>
+              </div>
 
-              <div className="col-span-2 sm:col-span-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
-                  <Checkbox
-                    id="show-deleted-campaigns"
-                    checked={showDeletedCampaigns}
-                    onCheckedChange={(checked) => setShowDeletedCampaigns(Boolean(checked))}
-                    aria-label="显示历史广告系列（含已删除）"
-                  />
-                  <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
-                    显示历史（含已删除）
-                  </label>
-                </div>
-                <div className="flex items-center px-3 py-2 border border-gray-200 rounded-md bg-gray-50 sm:ml-auto">
-                  <span className="text-xs text-gray-500 whitespace-nowrap mr-2">
-                    数据同步时间（北京时间）
-                  </span>
-                  <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
-                    {latestCampaignSyncLabel}
-                  </span>
-                </div>
+              <div className="flex items-center px-3 py-2 border border-gray-200 rounded-md bg-gray-50 md:ml-auto">
+                <span className="text-xs text-gray-500 whitespace-nowrap mr-2">
+                  数据同步时间（北京时间）
+                </span>
+                <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                  {latestCampaignSyncLabel}
+                </span>
               </div>
             </div>
           </CardContent>
