@@ -21,6 +21,8 @@ import {
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import { filterKeywordQuality } from '@/lib/keyword-quality-filter'
+import { getMinContextTokenMatchesForKeywordQualityFilter } from '@/lib/keyword-context-filter'
 // 🆕 v4.10: 关键词池集成
 import {
   getOrCreateKeywordPool,
@@ -67,6 +69,142 @@ function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean 
   if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true
   if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false
   return fallback
+}
+
+function resolveOfferPageTypeForKeywordContext(offer: {
+  page_type?: string | null
+  scraped_data?: string | null
+}): 'store' | 'product' {
+  const explicit = String(offer.page_type || '').trim().toLowerCase()
+  if (explicit === 'store') return 'store'
+  if (explicit === 'product') return 'product'
+
+  if (offer.scraped_data) {
+    try {
+      const parsed = JSON.parse(offer.scraped_data)
+      const pageType = String((parsed as any)?.pageType || '').trim().toLowerCase()
+      if (pageType === 'store' || pageType === 'product') return pageType
+
+      const productsLen = Array.isArray((parsed as any)?.products) ? (parsed as any).products.length : 0
+      const hasStoreName = typeof (parsed as any)?.storeName === 'string' && (parsed as any).storeName.trim().length > 0
+      const hasDeep = Boolean((parsed as any)?.deepScrapeResults)
+      if (hasStoreName || hasDeep || productsLen >= 2) return 'store'
+    } catch {
+      // Ignore invalid scraped_data JSON
+    }
+  }
+
+  return 'product'
+}
+
+function extractCategorySignalsForKeywordContext(scrapedData: string | null | undefined): string[] {
+  if (!scrapedData) return []
+
+  try {
+    const parsed = JSON.parse(scrapedData)
+    if (!parsed || typeof parsed !== 'object') return []
+
+    const candidates: string[] = []
+    const push = (value: unknown) => {
+      if (typeof value !== 'string') return
+      const trimmed = value.trim()
+      if (trimmed) candidates.push(trimmed)
+    }
+
+    push((parsed as any).productCategory)
+    push((parsed as any).category)
+
+    const primaryCategories = (parsed as any)?.productCategories?.primaryCategories
+    if (Array.isArray(primaryCategories)) {
+      for (const item of primaryCategories) {
+        push(item?.name)
+      }
+    }
+
+    const breadcrumbs = (parsed as any)?.breadcrumbs
+    if (Array.isArray(breadcrumbs)) {
+      for (const item of breadcrumbs) {
+        push(item)
+      }
+    }
+
+    return Array.from(new Set(candidates))
+  } catch {
+    return []
+  }
+}
+
+function normalizeCreativeKeywordsWithVolume(
+  keywordsWithVolume: any[],
+  fallbackSource: string
+): PoolKeywordData[] {
+  return keywordsWithVolume
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const keyword = String((item as any).keyword || '').trim()
+      if (!keyword) return null
+
+      return {
+        ...item,
+        keyword,
+        searchVolume: typeof (item as any).searchVolume === 'number'
+          ? (item as any).searchVolume
+          : Number((item as any).searchVolume) || 0,
+        source: String((item as any).source || fallbackSource || 'KEYWORD_POOL').trim() || 'KEYWORD_POOL',
+        matchType: ((item as any).matchType || 'PHRASE') as 'EXACT' | 'PHRASE' | 'BROAD',
+      } as PoolKeywordData
+    })
+    .filter((item): item is PoolKeywordData => item !== null)
+}
+
+function filterCreativeKeywordsByOfferContext(params: {
+  offer: {
+    brand?: string | null
+    category?: string | null
+    product_name?: string | null
+    target_country?: string | null
+    target_language?: string | null
+    final_url?: string | null
+    url?: string | null
+    page_type?: string | null
+    scraped_data?: string | null
+  }
+  keywordsWithVolume: PoolKeywordData[]
+  scopeLabel: string
+}): PoolKeywordData[] {
+  const { offer, keywordsWithVolume, scopeLabel } = params
+  if (keywordsWithVolume.length === 0) return keywordsWithVolume
+
+  const pageType = resolveOfferPageTypeForKeywordContext(offer)
+  const minContextTokenMatches = getMinContextTokenMatchesForKeywordQualityFilter({ pageType })
+  const categorySignals = extractCategorySignalsForKeywordContext(offer.scraped_data || null)
+  const categoryContext = [offer.category, ...categorySignals]
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+
+  const qualityFiltered = filterKeywordQuality(keywordsWithVolume, {
+    brandName: offer.brand || '',
+    category: categoryContext || undefined,
+    productName: offer.product_name || undefined,
+    targetCountry: offer.target_country || undefined,
+    targetLanguage: offer.target_language || undefined,
+    productUrl: offer.final_url || offer.url || undefined,
+    minWordCount: 1,
+    maxWordCount: 5,
+    mustContainBrand: false,
+    minContextTokenMatches,
+  })
+
+  if (qualityFiltered.removed.length > 0) {
+    const contextRemoved = qualityFiltered.removed.filter(item => item.reason.includes('与商品无关')).length
+    console.log(
+      `🧹 创意关键词过滤(${scopeLabel}): ${keywordsWithVolume.length} → ${qualityFiltered.filtered.length} ` +
+      `(移除 ${qualityFiltered.removed.length}，其中上下文不相关 ${contextRemoved})`
+    )
+  }
+
+  return qualityFiltered.filtered
 }
 
 /**
@@ -386,6 +524,34 @@ export async function executeAdCreativeGeneration(
           console.warn(`⚠️ 关键词补充失败（继续执行）: ${supplementError?.message || supplementError}`)
         }
       }
+
+      const creativeKeywordCandidates = normalizeCreativeKeywordsWithVolume(
+        Array.isArray(creative.keywordsWithVolume)
+          ? creative.keywordsWithVolume
+          : (creative.keywords || []).map((keyword: string) => ({
+              keyword,
+              searchVolume: 0,
+              matchType: 'PHRASE' as const,
+              source: 'AI_GENERATED' as const
+            })),
+        selectedBucket ? 'KEYWORD_POOL' : 'AI_GENERATED'
+      )
+
+      const contextFilteredCandidates = filterCreativeKeywordsByOfferContext({
+        offer,
+        keywordsWithVolume: creativeKeywordCandidates,
+        scopeLabel: selectedBucket ? `桶${selectedBucket}` : '默认'
+      })
+
+      const keywordsForSelection = contextFilteredCandidates.length > 0
+        ? contextFilteredCandidates
+        : creativeKeywordCandidates
+      if (creativeKeywordCandidates.length > 0 && contextFilteredCandidates.length === 0) {
+        console.warn('⚠️ 创意关键词上下文过滤后为空，回退原候选关键词')
+      }
+
+      creative.keywordsWithVolume = keywordsForSelection as any
+      creative.keywords = keywordsForSelection.map(item => item.keyword)
 
       const prioritizedKeywords = selectCreativeKeywords({
         keywords: creative.keywords,

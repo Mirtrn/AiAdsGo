@@ -412,6 +412,58 @@ function pushUniqueKeyword(list: string[], keyword: string): void {
   if (!exists) list.push(keyword)
 }
 
+function buildGlobalCoreQualityFilterContext(offer: Offer): {
+  categoryContext?: string
+  minContextTokenMatches: number
+} {
+  const pageType = resolveOfferPageType(offer)
+  const categorySignals = extractCategorySignalsFromScrapedData(offer.scraped_data)
+  const categoryContext = [offer.category, ...categorySignals]
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+
+  return {
+    categoryContext: categoryContext || undefined,
+    minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
+      pageType
+    })
+  }
+}
+
+function filterGlobalCoreKeywordsByOfferContext(params: {
+  offer: Offer
+  keywords: PoolKeywordData[]
+  scope: 'product' | 'store'
+}): PoolKeywordData[] {
+  const { offer, keywords, scope } = params
+  if (keywords.length === 0) return keywords
+
+  const { categoryContext, minContextTokenMatches } = buildGlobalCoreQualityFilterContext(offer)
+  const qualityFiltered = filterKeywordQuality(keywords, {
+    brandName: offer.brand,
+    category: categoryContext,
+    productName: offer.product_name || undefined,
+    targetCountry: offer.target_country || undefined,
+    targetLanguage: offer.target_language || undefined,
+    productUrl: offer.final_url || offer.url || undefined,
+    minWordCount: 1,
+    maxWordCount: 8,
+    mustContainBrand: false,
+    minContextTokenMatches,
+  })
+
+  if (qualityFiltered.removed.length > 0) {
+    const contextRemoved = qualityFiltered.removed.filter(item => item.reason.includes('与商品无关')).length
+    console.log(
+      `🧹 GLOBAL_CORE(${scope}) 相关性过滤: ${keywords.length} → ${qualityFiltered.filtered.length} ` +
+      `(移除 ${qualityFiltered.removed.length}，其中上下文不相关 ${contextRemoved})`
+    )
+  }
+
+  return qualityFiltered.filtered
+}
+
 async function injectGlobalCoreKeywordsForProduct(params: {
   offer: Offer
   userId: number
@@ -454,22 +506,37 @@ async function injectGlobalCoreKeywordsForProduct(params: {
   ])
 
   const addedKeywords: PoolKeywordData[] = []
+  const coreCandidates: PoolKeywordData[] = []
+  const candidateNormSet = new Set<string>()
 
   for (const core of coreKeywords) {
     const keywordText = core.keywordDisplay?.trim() || core.keywordNorm
     if (!keywordText) continue
     const keywordNorm = normalizeGoogleAdsKeyword(keywordText)
     if (!keywordNorm || isInvalidKeyword(keywordNorm)) continue
-    if (existingSet.has(keywordNorm)) continue
+    if (candidateNormSet.has(keywordNorm)) continue
+    candidateNormSet.add(keywordNorm)
 
-    const newKeyword: PoolKeywordData = {
+    coreCandidates.push({
       keyword: keywordText,
       searchVolume: Number(core.searchVolume || 0),
       source: 'GLOBAL_CORE',
       matchType: 'PHRASE',
-    }
+    })
+  }
 
-    const bucket = selectBucketForProduct(keywordText)
+  const filteredCoreCandidates = filterGlobalCoreKeywordsByOfferContext({
+    offer,
+    keywords: coreCandidates,
+    scope: 'product',
+  })
+
+  for (const newKeyword of filteredCoreCandidates) {
+    const keywordNorm = normalizeGoogleAdsKeyword(newKeyword.keyword)
+    if (!keywordNorm) continue
+    if (existingSet.has(keywordNorm)) continue
+
+    const bucket = selectBucketForProduct(newKeyword.keyword)
     if (bucket === 'A') bucketAData.push(newKeyword)
     else if (bucket === 'D') bucketDData.push(newKeyword)
     else if (bucket === 'C') bucketCData.push(newKeyword)
@@ -548,37 +615,52 @@ async function injectGlobalCoreKeywordsForStore(params: {
   ])
 
   const addedKeywords: PoolKeywordData[] = []
+  const coreCandidates: PoolKeywordData[] = []
+  const candidateNormSet = new Set<string>()
 
   for (const core of coreKeywords) {
     const keywordText = core.keywordDisplay?.trim() || core.keywordNorm
     if (!keywordText) continue
     const keywordNorm = normalizeGoogleAdsKeyword(keywordText)
     if (!keywordNorm || isInvalidKeyword(keywordNorm)) continue
-    if (existingSet.has(keywordNorm)) continue
+    if (candidateNormSet.has(keywordNorm)) continue
+    candidateNormSet.add(keywordNorm)
 
-    const newKeyword: PoolKeywordData = {
+    coreCandidates.push({
       keyword: keywordText,
       searchVolume: Number(core.searchVolume || 0),
       source: 'GLOBAL_CORE',
       matchType: 'PHRASE',
-    }
+    })
+  }
 
-    const bucket = selectBucketForStore(keywordText)
+  const filteredCoreCandidates = filterGlobalCoreKeywordsByOfferContext({
+    offer,
+    keywords: coreCandidates,
+    scope: 'store',
+  })
+
+  for (const newKeyword of filteredCoreCandidates) {
+    const keywordNorm = normalizeGoogleAdsKeyword(newKeyword.keyword)
+    if (!keywordNorm) continue
+    if (existingSet.has(keywordNorm)) continue
+
+    const bucket = selectBucketForStore(newKeyword.keyword)
     if (bucket === 'S') {
       bucketSData.push(newKeyword)
-      pushUniqueKeyword(storeBuckets.bucketS.keywords, keywordText)
+      pushUniqueKeyword(storeBuckets.bucketS.keywords, newKeyword.keyword)
     } else if (bucket === 'D') {
       bucketDData.push(newKeyword)
-      pushUniqueKeyword(storeBuckets.bucketD.keywords, keywordText)
+      pushUniqueKeyword(storeBuckets.bucketD.keywords, newKeyword.keyword)
     } else if (bucket === 'C') {
       bucketCData.push(newKeyword)
-      pushUniqueKeyword(storeBuckets.bucketC.keywords, keywordText)
+      pushUniqueKeyword(storeBuckets.bucketC.keywords, newKeyword.keyword)
     } else if (bucket === 'A') {
       bucketAData.push(newKeyword)
-      pushUniqueKeyword(storeBuckets.bucketA.keywords, keywordText)
+      pushUniqueKeyword(storeBuckets.bucketA.keywords, newKeyword.keyword)
     } else {
       bucketBData.push(newKeyword)
-      pushUniqueKeyword(storeBuckets.bucketB.keywords, keywordText)
+      pushUniqueKeyword(storeBuckets.bucketB.keywords, newKeyword.keyword)
     }
 
     existingSet.add(keywordNorm)

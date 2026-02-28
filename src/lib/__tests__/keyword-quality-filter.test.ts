@@ -253,5 +253,33 @@ describe('keyword-quality-filter', () => {
       ])
       expect(result.removed).toHaveLength(0)
     })
+
+    it('should remove cross-category terms even when non-brand keywords are allowed', () => {
+      const input = [
+        { keyword: 'lampick', searchVolume: 50, source: 'KEYWORD_POOL' as const },
+        { keyword: 'hair dryer', searchVolume: 90500, source: 'KEYWORD_POOL' as const },
+        { keyword: 'best blow dryer', searchVolume: 6600, source: 'KEYWORD_POOL' as const },
+        { keyword: 'cheap blender', searchVolume: 74000, source: 'KEYWORD_POOL' as const },
+        { keyword: 'smoothie blender', searchVolume: 12100, source: 'KEYWORD_POOL' as const },
+      ]
+
+      const result = filterKeywordQuality(input, {
+        brandName: 'Lampick',
+        category: 'Hair Dryers',
+        productName: 'Lampick Ionic Hair Dryer',
+        mustContainBrand: false,
+        minContextTokenMatches: 1,
+      })
+
+      expect(result.filtered.map(k => k.keyword)).toEqual([
+        'lampick',
+        'hair dryer',
+        'best blow dryer',
+      ])
+      expect(result.removed.map(r => r.keyword.keyword)).toEqual([
+        'cheap blender',
+        'smoothie blender',
+      ])
+    })
   })
 })
