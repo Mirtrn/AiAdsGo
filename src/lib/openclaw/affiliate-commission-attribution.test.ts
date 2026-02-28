@@ -624,6 +624,72 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(failureInsertCalls).toHaveLength(0)
   })
 
+  it('falls back to historical campaign mapping via partnerboost norm_id when product/offer mapping misses', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH historical') && sql.includes('source_norm_id')) {
+        return [
+          {
+            platform: 'partnerboost',
+            source_order_id: null,
+            source_mid: 'legacy-mid-random',
+            source_asin: 'B0OLD00001',
+            source_norm_id: 'pb_norm_777',
+            offer_id: 2007,
+            campaign_id: 3007,
+            commission: 18,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 7.99,
+          sourceOrderId: 'order-norm-fallback-1',
+          sourceMid: 'pb-mid-new-unmapped',
+          sourceAsin: 'B0MISS00099',
+          raw: {
+            estCommission: 7.99,
+            norm_id: 'pb_norm_777',
+          },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 7.99,
+      attributedCommission: 7.99,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 1,
+    })
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(1)
+    const attributionParams = attributionInsertCalls[0]?.[1] as any[]
+    expect(attributionParams?.[6]).toBe(2007)
+    expect(attributionParams?.[7]).toBe(3007)
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(0)
+  })
+
   it('does not fallback to unrelated active campaign when no reliable mapping is available', async () => {
     const today = formatLocalYmd(new Date())
 
@@ -672,7 +738,7 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     )
     expect(failureInsertCalls).toHaveLength(1)
     const failureParams = failureInsertCalls[0]?.[1] as any[]
-    expect(failureParams?.[10]).toBe('product_mapping_miss')
+    expect(failureParams?.[10]).toBe('pending_product_mapping_miss')
   })
 
   it('keeps unmatched commission unattributed when no offer match exists', async () => {
@@ -699,6 +765,44 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
 
     expect(result).toEqual({
       reportDate: today,
+      totalCommission: 10,
+      attributedCommission: 0,
+      unattributedCommission: 10,
+      attributedOffers: 0,
+      attributedCampaigns: 0,
+      writtenRows: 0,
+    })
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(1)
+    const failureParams = failureInsertCalls[0]?.[1] as any[]
+    expect(failureParams?.[10]).toBe('pending_product_mapping_miss')
+  })
+
+  it('stores final failure reason after pending grace window', async () => {
+    query.mockImplementation(async () => [])
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: '2000-01-01',
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: '2000-01-01',
+          commission: 10,
+          sourceOrderId: 'order-historical-unmatched-1',
+          sourceAsin: 'B0ZZZZZZZZ',
+          raw: { estCommission: 10 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: '2000-01-01',
       totalCommission: 10,
       attributedCommission: 0,
       unattributedCommission: 10,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 
 function formatAsYmd(value: unknown): string | null {
   if (value === null || value === undefined) return null
@@ -86,10 +87,6 @@ type Agg = {
   clicks: number
   cost: number
 }
-
-// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
-// Counting them again from failure audit rows would double-count commission.
-const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
 
 /**
  * GET /api/campaigns/performance
@@ -512,11 +509,12 @@ export async function GET(request: NextRequest) {
       end: string
       currency?: string
     }): Promise<number> => {
+      const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
       const hasCurrencyFilter = Boolean(params.currency)
       try {
         const queryParams = hasCurrencyFilter
-          ? [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE, String(params.currency)]
-          : [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+          ? [userId, params.start, params.end, ...unattributedFailureFilter.values, String(params.currency)]
+          : [userId, params.start, params.end, ...unattributedFailureFilter.values]
         const row = await db.queryOne<{ total_commission: number }>(
           `
             SELECT COALESCE(SUM(commission_amount), 0) AS total_commission
@@ -524,7 +522,7 @@ export async function GET(request: NextRequest) {
             WHERE user_id = ?
               AND report_date >= ?
               AND report_date <= ?
-              AND COALESCE(reason_code, '') <> ?
+              AND ${unattributedFailureFilter.sql}
               ${hasCurrencyFilter ? 'AND COALESCE(currency, \'USD\') = ?' : ''}
           `,
           queryParams

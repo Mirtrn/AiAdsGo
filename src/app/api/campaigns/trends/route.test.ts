@@ -108,7 +108,7 @@ describe('GET /api/campaigns/trends', () => {
     expect(data.trends.find((row: any) => row.date === '2026-02-24')?.roas).toBe(0.6)
   })
 
-  it('applies currency filter and excludes campaign_mapping_miss failures from unattributed totals', async () => {
+  it('applies currency filter and excludes in-window pending/campaign-miss failures from unattributed totals', async () => {
     const query = vi.fn(async (sql: string, params: any[]) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
         return [
@@ -126,8 +126,15 @@ describe('GET /api/campaigns/trends', () => {
       }
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
         expect(sql).toContain("COALESCE(reason_code, '') <> ?")
-        expect(params?.[3]).toBe('campaign_mapping_miss')
-        expect(params?.[4]).toBe('CNY')
+        expect(sql).toContain("COALESCE(reason_code, '') NOT IN")
+        expect(params).toEqual(
+          expect.arrayContaining([
+            'campaign_mapping_miss',
+            'pending_product_mapping_miss',
+            'pending_offer_mapping_miss',
+          ])
+        )
+        expect(params?.[params.length - 1]).toBe('CNY')
         return [{ date: '2026-02-24', commission: 2 }]
       }
       throw new Error(`unexpected sql: ${sql}`)

@@ -3,6 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
 import { withPerformanceMonitoring } from '@/lib/api-performance'
+import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 
 /**
  * KPI数据响应
@@ -47,10 +48,6 @@ interface KPIData {
     previous: { start: string; end: string }
   }
 }
-
-// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
-// Counting them again from failure audit rows would double-count commission.
-const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
 
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
@@ -273,6 +270,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         start: string
         end: string
       }): Promise<number> => {
+        const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
         try {
           const row = await db.queryOne<{ total_commission: number }>(
             `
@@ -281,9 +279,9 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
               WHERE user_id = ?
                 AND report_date >= ?
                 AND report_date <= ?
-                AND COALESCE(reason_code, '') <> ?
+                AND ${unattributedFailureFilter.sql}
             `,
-            [userId, params.start, params.end, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+            [userId, params.start, params.end, ...unattributedFailureFilter.values]
           )
 
           return Number(row?.total_commission) || 0

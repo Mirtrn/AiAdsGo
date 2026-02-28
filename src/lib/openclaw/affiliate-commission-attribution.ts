@@ -1,5 +1,10 @@
 import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import {
+  resolveAffiliateAttributionFailureReasonCode,
+  type AffiliateAttributionBaseFailureReasonCode,
+  type AffiliateAttributionFailureReasonCode,
+} from '@/lib/openclaw/affiliate-attribution-failures'
 
 export type AffiliatePlatform = 'partnerboost' | 'yeahpromos'
 
@@ -48,12 +53,6 @@ type AttributionRow = {
   rawPayload: unknown
 }
 
-type AttributionFailureReasonCode =
-  | 'missing_identifier'
-  | 'product_mapping_miss'
-  | 'offer_mapping_miss'
-  | 'campaign_mapping_miss'
-
 type AttributionFailureRow = {
   userId: number
   reportDate: string
@@ -65,7 +64,7 @@ type AttributionFailureRow = {
   offerId: number | null
   commissionAmount: number
   currency: string
-  reasonCode: AttributionFailureReasonCode
+  reasonCode: AffiliateAttributionFailureReasonCode
   reasonDetail: string | null
   rawPayload: unknown
 }
@@ -86,6 +85,7 @@ type HistoricalCampaignMappingRow = {
   source_order_id: string | null
   source_mid: string | null
   source_asin: string | null
+  source_norm_id: string | null
   offer_id: number | null
   campaign_id: number
   commission: number
@@ -95,7 +95,22 @@ type HistoricalCampaignFallbackMaps = {
   byOrderId: Map<string, CampaignTarget[]>
   byMid: Map<string, CampaignTarget[]>
   byAsin: Map<string, CampaignTarget[]>
+  byNormId: Map<string, CampaignTarget[]>
   byOfferId: Map<number, CampaignTarget[]>
+}
+
+type NormalizedCommissionEntry = {
+  platform: AffiliatePlatform
+  reportDate: string
+  commission: number
+  currency: string
+  sourceOrderId: string | null
+  sourceMid: string | null
+  sourceAsin: string | null
+  sourceLink: string | null
+  sourceLinkId: string | null
+  sourceNormId: string | null
+  raw: unknown
 }
 
 function roundTo(value: number, decimals = 4): number {
@@ -123,6 +138,44 @@ function normalizeMidForPlatform(platform: AffiliatePlatform, value: unknown): s
   const text = normalizeText(value)
   if (!text) return null
   return platform === 'partnerboost' ? text.toLowerCase() : text
+}
+
+function normalizePartnerboostNormId(value: unknown): string | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  return text.toLowerCase()
+}
+
+function getObjectFieldByAliases(input: unknown, aliases: string[]): unknown {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+
+  for (const alias of aliases) {
+    const value = record[alias]
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value
+  }
+
+  const normalizedMap = new Map<string, unknown>()
+  for (const [key, value] of Object.entries(record)) {
+    if (value === null || value === undefined || String(value).trim() === '') continue
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (!normalizedKey || normalizedMap.has(normalizedKey)) continue
+    normalizedMap.set(normalizedKey, value)
+  }
+
+  for (const alias of aliases) {
+    const normalizedAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const value = normalizedMap.get(normalizedAlias)
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value
+  }
+
+  return undefined
+}
+
+function extractPartnerboostNormIdFromRaw(raw: unknown): string | null {
+  return normalizePartnerboostNormId(
+    getObjectFieldByAliases(raw, ['norm_id', 'normId', 'normid'])
+  )
 }
 
 function extractAsinFromUrlLike(value: unknown): string | null {
@@ -402,6 +455,7 @@ function buildFailureReasonDetail(params: {
   sourceMid: string | null
   sourceAsin: string | null
   sourceLinkId: string | null
+  sourceNormId?: string | null
   offerId?: number | null
 }): string {
   const segments = [
@@ -409,6 +463,7 @@ function buildFailureReasonDetail(params: {
     `sourceMid=${params.sourceMid || '-'}`,
     `sourceAsin=${params.sourceAsin || '-'}`,
     `sourceLinkId=${params.sourceLinkId || '-'}`,
+    `sourceNormId=${params.sourceNormId || '-'}`,
   ]
 
   if (Number.isFinite(Number(params.offerId))) {
@@ -820,33 +875,51 @@ async function queryHistoricalCampaignFallbackMaps(params: {
     byOrderId: new Map<string, CampaignTarget[]>(),
     byMid: new Map<string, CampaignTarget[]>(),
     byAsin: new Map<string, CampaignTarget[]>(),
+    byNormId: new Map<string, CampaignTarget[]>(),
     byOfferId: new Map<number, CampaignTarget[]>(),
   }
 
   const db = await getDatabase()
   const lookbackDays = Math.max(1, Math.min(180, Number(params.lookbackDays) || 60))
   const startDate = shiftYmd(params.reportDate, -lookbackDays)
+  const sourceNormIdExpr = db.type === 'postgres'
+    ? `NULLIF(LOWER(TRIM(COALESCE(raw_payload->>'norm_id', raw_payload->>'normId', raw_payload->>'normid'))), '')`
+    : `NULLIF(LOWER(TRIM(COALESCE(json_extract(raw_payload, '$.norm_id'), json_extract(raw_payload, '$.normId'), json_extract(raw_payload, '$.normid')))), '')`
 
   const rows = await db.query<HistoricalCampaignMappingRow>(
     `
+      WITH historical AS (
+        SELECT
+          platform,
+          source_order_id,
+          source_mid,
+          source_asin,
+          offer_id,
+          campaign_id,
+          ${sourceNormIdExpr} AS source_norm_id,
+          commission_amount
+        FROM affiliate_commission_attributions
+        WHERE user_id = ?
+          AND report_date >= ?
+          AND report_date < ?
+          AND campaign_id IS NOT NULL
+      )
       SELECT
         platform,
         source_order_id,
         source_mid,
         source_asin,
+        source_norm_id,
         offer_id,
         campaign_id,
         COALESCE(SUM(commission_amount), 0) AS commission
-      FROM affiliate_commission_attributions
-      WHERE user_id = ?
-        AND report_date >= ?
-        AND report_date < ?
-        AND campaign_id IS NOT NULL
+      FROM historical
       GROUP BY
         platform,
         source_order_id,
         source_mid,
         source_asin,
+        source_norm_id,
         offer_id,
         campaign_id
     `,
@@ -872,10 +945,14 @@ async function queryHistoricalCampaignFallbackMaps(params: {
     const orderId = normalizeOrderId(row.source_order_id)
     const mid = normalizeMidForPlatform(platform, row.source_mid)
     const asin = normalizeAsin(row.source_asin)
+    const sourceNormId = platform === 'partnerboost'
+      ? normalizePartnerboostNormId(row.source_norm_id)
+      : null
 
     pushTargetsByStringKey(result.byOrderId, orderId, [target])
     pushTargetsByStringKey(result.byMid, mid ? `${platform}|mid|${mid}` : null, [target])
     pushTargetsByStringKey(result.byAsin, asin ? `${platform}|asin|${asin}` : null, [target])
+    pushTargetsByStringKey(result.byNormId, sourceNormId ? `${platform}|norm|${sourceNormId}` : null, [target])
     pushTargetsByOfferId(result.byOfferId, offerId, [target])
   }
 
@@ -891,7 +968,7 @@ export async function persistAffiliateCommissionAttributions(params: {
 }): Promise<AffiliateCommissionAttributionResult> {
   const db = await getDatabase()
 
-  const normalizedEntries = params.entries
+  const normalizedEntries: NormalizedCommissionEntry[] = params.entries
     .map((entry) => {
       const commission = roundTo(Number(entry.commission) || 0)
       if (commission <= 0) return null
@@ -905,6 +982,9 @@ export async function persistAffiliateCommissionAttributions(params: {
             sourceMid,
           })
         : null
+      const sourceNormId = entry.platform === 'partnerboost'
+        ? extractPartnerboostNormIdFromRaw(entry.raw)
+        : null
 
       return {
         platform: entry.platform,
@@ -916,10 +996,11 @@ export async function persistAffiliateCommissionAttributions(params: {
         sourceAsin: normalizeAsin(entry.sourceAsin),
         sourceLink,
         sourceLinkId,
+        sourceNormId,
         raw: entry.raw,
       }
     })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .filter((entry): entry is NormalizedCommissionEntry => Boolean(entry))
 
   const totalCommission = roundTo(
     normalizedEntries.reduce((sum, entry) => sum + entry.commission, 0)
@@ -1125,6 +1206,7 @@ export async function persistAffiliateCommissionAttributions(params: {
     byOrderId: new Map<string, CampaignTarget[]>(),
     byMid: new Map<string, CampaignTarget[]>(),
     byAsin: new Map<string, CampaignTarget[]>(),
+    byNormId: new Map<string, CampaignTarget[]>(),
     byOfferId: new Map<number, CampaignTarget[]>(),
   }
   let attributedCommission = 0
@@ -1190,10 +1272,14 @@ export async function persistAffiliateCommissionAttributions(params: {
     const orderId = normalizeOrderId(entry.sourceOrderId)
     const mid = entry.sourceMid ? `${entry.platform}|mid|${entry.sourceMid}` : null
     const asin = entry.sourceAsin ? `${entry.platform}|asin|${entry.sourceAsin}` : null
+    const normId = entry.platform === 'partnerboost' && entry.sourceNormId
+      ? `${entry.platform}|norm|${entry.sourceNormId}`
+      : null
 
     pushTargetsByStringKey(runtimeFallbackMaps.byOrderId, orderId, targets)
     pushTargetsByStringKey(runtimeFallbackMaps.byMid, mid, targets)
     pushTargetsByStringKey(runtimeFallbackMaps.byAsin, asin, targets)
+    pushTargetsByStringKey(runtimeFallbackMaps.byNormId, normId, targets)
 
     for (const target of targets) {
       pushTargetsByOfferId(runtimeFallbackMaps.byOfferId, target.offerId, [target])
@@ -1251,6 +1337,15 @@ export async function persistAffiliateCommissionAttributions(params: {
 
       const historicalByMid = getDeterministicTargets(historicalFallbackMaps.byMid.get(key))
       if (historicalByMid && historicalByMid.length > 0) return historicalByMid
+    }
+
+    if (entry.platform === 'partnerboost' && entry.sourceNormId) {
+      const key = `${entry.platform}|norm|${entry.sourceNormId}`
+      const runtimeByNormId = getDeterministicTargets(runtimeFallbackMaps.byNormId.get(key))
+      if (runtimeByNormId && runtimeByNormId.length > 0) return runtimeByNormId
+
+      const historicalByNormId = getDeterministicTargets(historicalFallbackMaps.byNormId.get(key))
+      if (historicalByNormId && historicalByNormId.length > 0) return historicalByNormId
     }
 
     if (entry.sourceAsin) {
@@ -1369,9 +1464,13 @@ export async function persistAffiliateCommissionAttributions(params: {
         || entry.sourceLink
       )
 
-      const reasonCode: AttributionFailureReasonCode = !hasAnyIdentifier
+      const baseReasonCode: AffiliateAttributionBaseFailureReasonCode = !hasAnyIdentifier
         ? 'missing_identifier'
         : (matchedProductIds.size === 0 ? 'product_mapping_miss' : 'offer_mapping_miss')
+      const reasonCode = resolveAffiliateAttributionFailureReasonCode({
+        baseReasonCode,
+        reportDate: params.reportDate,
+      })
 
       failureRows.push({
         userId: params.userId,
@@ -1390,6 +1489,7 @@ export async function persistAffiliateCommissionAttributions(params: {
           sourceMid: entry.sourceMid,
           sourceAsin: entry.sourceAsin,
           sourceLinkId: entry.sourceLinkId,
+          sourceNormId: entry.sourceNormId,
         }),
         rawPayload: entry.raw ?? null,
       })
@@ -1444,6 +1544,7 @@ export async function persistAffiliateCommissionAttributions(params: {
             sourceMid: entry.sourceMid,
             sourceAsin: entry.sourceAsin,
             sourceLinkId: entry.sourceLinkId,
+            sourceNormId: entry.sourceNormId,
             offerId,
           }),
           rawPayload: entry.raw ?? null,

@@ -56,7 +56,7 @@ describe('GET /api/dashboard/kpis', () => {
     expect(res.status).toBe(401)
   })
 
-  it('excludes campaign_mapping_miss failures when calculating commission totals', async () => {
+  it('excludes in-window pending/campaign-miss failures when calculating commission totals', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('SELECT DISTINCT currency') && sql.includes('FROM campaign_performance')) {
         return [{ currency: 'USD' }]
@@ -88,7 +88,14 @@ describe('GET /api/dashboard/kpis', () => {
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
         expect(sql).toContain("COALESCE(reason_code, '') <> ?")
-        expect(params?.[3]).toBe('campaign_mapping_miss')
+        expect(sql).toContain("COALESCE(reason_code, '') NOT IN")
+        expect(params).toEqual(
+          expect.arrayContaining([
+            'campaign_mapping_miss',
+            'pending_product_mapping_miss',
+            'pending_offer_mapping_miss',
+          ])
+        )
         unattributedCallCount += 1
         if (unattributedCallCount === 1) {
           return { total_commission: 2 }

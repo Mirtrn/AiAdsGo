@@ -8,6 +8,7 @@ import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/open
 import { getStrategyRecommendations, type StrategyRecommendation } from '@/lib/openclaw/strategy-recommendations'
 import { toDbJsonObjectField } from '@/lib/json-field'
 import { createRiskAlert } from '@/lib/risk-alerts'
+import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 
 type DailyReportPayload = {
   date: string
@@ -279,9 +280,6 @@ type ReportCampaignBreakdownRow = {
 }
 
 const COMMISSION_EPSILON = 0.0001
-// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
-// Counting them again from failure audit rows would double-count commission.
-const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
 const REPORT_TREND_DAYS = 30
 const RECONCILIATION_GAP_ALERT_EPSILON = 0.01
 const RECONCILIATION_CRITICAL_GAP_AMOUNT = 20
@@ -380,8 +378,12 @@ function formatAffiliateFailureReasonLabel(reasonCode: string): string {
       return '缺少匹配标识'
     case 'product_mapping_miss':
       return '商品映射缺失'
+    case 'pending_product_mapping_miss':
+      return '商品映射待补齐'
     case 'offer_mapping_miss':
       return 'Offer映射缺失'
+    case 'pending_offer_mapping_miss':
+      return 'Offer映射待补齐'
     case 'campaign_mapping_miss':
       return '无活动Campaign'
     default:
@@ -394,6 +396,7 @@ async function queryAffiliateAttributionFailureSummary(params: {
   userId: number
   reportDate: string
 }): Promise<{ totalRows: number; totalCommission: number; topReasons: AffiliateReconciliationTopReason[] }> {
+  const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
   try {
     const rows = await params.db.query<AttributionFailureSummaryRow>(
       `
@@ -404,11 +407,11 @@ async function queryAffiliateAttributionFailureSummary(params: {
         FROM openclaw_affiliate_attribution_failures
         WHERE user_id = ?
           AND report_date = ?
-          AND COALESCE(reason_code, '') <> ?
+          AND ${unattributedFailureFilter.sql}
         GROUP BY reason_code
         ORDER BY reason_count DESC, commission DESC
       `,
-      [params.userId, params.reportDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+      [params.userId, params.reportDate, ...unattributedFailureFilter.values]
     )
 
     const topReasons = rows.map((row) => ({
@@ -622,6 +625,7 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
   startDate: string
   endDate: string
 }): Promise<AffiliateCommissionRevenue> {
+  const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
   const queryUnattributedFailureByDateRange = async (): Promise<{
     platformRows: PlatformCommissionSummaryRow[]
     totalCommission: number
@@ -640,11 +644,11 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
             WHERE user_id = ?
               AND report_date >= ?
               AND report_date <= ?
-              AND COALESCE(reason_code, '') <> ?
+              AND ${unattributedFailureFilter.sql}
             GROUP BY platform, currency
             ORDER BY total_commission DESC
           `,
-          [params.userId, params.startDate, params.endDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+          [params.userId, params.startDate, params.endDate, ...unattributedFailureFilter.values]
         ),
         params.db.queryOne<UnattributedFailureSummaryRangeRow>(
           `
@@ -655,9 +659,9 @@ async function buildAffiliateRevenueSummaryByDateRange(params: {
             WHERE user_id = ?
               AND report_date >= ?
               AND report_date <= ?
-              AND COALESCE(reason_code, '') <> ?
+              AND ${unattributedFailureFilter.sql}
           `,
-          [params.userId, params.startDate, params.endDate, EXCLUDED_UNATTRIBUTED_REASON_CODE]
+          [params.userId, params.startDate, params.endDate, ...unattributedFailureFilter.values]
         ),
       ])
 

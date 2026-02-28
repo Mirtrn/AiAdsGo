@@ -3545,12 +3545,16 @@ async function getPartnerboostDeltaSyncSettings(userId: number): Promise<{
 
 async function listActivePartnerboostAsins(userId: number, activeDays: number): Promise<string[]> {
   const db = await getDatabase()
+  const recentDays = Math.max(1, activeDays)
   const isBlacklistedCondition = db.type === 'postgres'
     ? 'p.is_blacklisted = FALSE'
     : 'p.is_blacklisted = 0'
   const recentUpdatedCondition = db.type === 'postgres'
-    ? `p.updated_at >= CURRENT_TIMESTAMP - INTERVAL '${Math.max(1, activeDays)} days'`
-    : `p.updated_at >= datetime('now', '-${Math.max(1, activeDays)} days')`
+    ? `p.updated_at >= CURRENT_TIMESTAMP - INTERVAL '${recentDays} days'`
+    : `p.updated_at >= datetime('now', '-${recentDays} days')`
+  const recentReportDateCondition = db.type === 'postgres'
+    ? `report_date >= CURRENT_DATE - INTERVAL '${Math.max(0, recentDays - 1)} days'`
+    : `report_date >= date('now', '-${Math.max(0, recentDays - 1)} days')`
 
   const rows = await db.query<{ asin: string | null }>(
     `
@@ -3576,9 +3580,30 @@ async function listActivePartnerboostAsins(userId: number, activeDays: number): 
     [userId]
   )
 
+  const recentOrderRows = await db.query<{ asin: string | null }>(
+    `
+      SELECT DISTINCT source_asin AS asin
+      FROM affiliate_commission_attributions
+      WHERE user_id = ?
+        AND platform = 'partnerboost'
+        AND source_asin IS NOT NULL
+        AND TRIM(source_asin) <> ''
+        AND ${recentReportDateCondition}
+      UNION
+      SELECT DISTINCT source_asin AS asin
+      FROM openclaw_affiliate_attribution_failures
+      WHERE user_id = ?
+        AND platform = 'partnerboost'
+        AND source_asin IS NOT NULL
+        AND TRIM(source_asin) <> ''
+        AND ${recentReportDateCondition}
+    `,
+    [userId, userId]
+  )
+
   const asins: string[] = []
   const seen = new Set<string>()
-  for (const row of rows) {
+  for (const row of [...rows, ...recentOrderRows]) {
     const asin = normalizeAsin(row.asin)
     if (!asin || seen.has(asin)) continue
     seen.add(asin)

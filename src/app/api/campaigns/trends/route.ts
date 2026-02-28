@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 
 function normalizeCurrency(value: unknown): string {
   const normalized = String(value ?? '').trim().toUpperCase()
@@ -44,10 +45,6 @@ function diffDaysInclusive(startYmd: string, endYmd: string): number {
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
-
-// campaign_mapping_miss rows are already written into affiliate_commission_attributions (offer-level fallback).
-// Counting them again from failure audit rows would double-count commission.
-const EXCLUDED_UNATTRIBUTED_REASON_CODE = 'campaign_mapping_miss'
 
 function normalizeDateKey(value: unknown): string {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -185,6 +182,7 @@ export async function GET(request: NextRequest) {
     )
 
     const queryUnattributedCommissionTrends = async (): Promise<any[]> => {
+      const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
       try {
         return await db.query<any>(
           `
@@ -195,12 +193,12 @@ export async function GET(request: NextRequest) {
           WHERE user_id = ?
             AND report_date >= ?
             AND report_date <= ?
-            AND COALESCE(reason_code, '') <> ?
+            AND ${unattributedFailureFilter.sql}
             AND COALESCE(currency, 'USD') = ?
           GROUP BY report_date
           ORDER BY report_date ASC
           `,
-          [userId, startDateStr, endDateStr, EXCLUDED_UNATTRIBUTED_REASON_CODE, reportingCurrency]
+          [userId, startDateStr, endDateStr, ...unattributedFailureFilter.values, reportingCurrency]
         )
       } catch (error: any) {
         const message = String(error?.message || '')

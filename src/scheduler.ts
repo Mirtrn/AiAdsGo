@@ -417,14 +417,19 @@ async function openclawDailyReportTask() {
 /**
  * 任务6.1: OpenClaw 联盟成交/佣金快照刷新
  * 频率：每小时执行一次（按用户配置的 interval 过滤）
- * 范围：默认刷新最近7天（含当天），可通过 OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS 配置
+ * 范围：默认刷新最近7天（含当天）；若设置了更长 pending 宽限期，会自动扩展窗口；也可通过 OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS 配置
  */
 async function openclawAffiliateRevenueSnapshotTask() {
   log('🧾 开始刷新 OpenClaw 联盟成交/佣金快照...')
 
   const db = await getDatabase()
   const reportTimeZone = 'Asia/Shanghai'
-  const lookbackDays = Math.max(7, parsePositiveInt(process.env.OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS, 7))
+  const pendingGraceDays = Math.max(1, parsePositiveInt(process.env.OPENCLAW_AFFILIATE_ATTRIBUTION_PENDING_DAYS, 7))
+  const lookbackDays = Math.max(
+    7,
+    pendingGraceDays,
+    parsePositiveInt(process.env.OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS, 7)
+  )
   const reportDates = buildAffiliateLookbackDates(lookbackDays, reportTimeZone)
   const firstReportDate = reportDates[0]
   const latestReportDate = reportDates[reportDates.length - 1]
