@@ -11,6 +11,11 @@ import type { Task } from '../types'
 import { applyKeywordSupplementationOnce, generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative } from '@/lib/ad-creative'
 import {
+  CREATIVE_BRAND_KEYWORD_RESERVE,
+  CREATIVE_KEYWORD_MAX_COUNT,
+  selectCreativeKeywords,
+} from '@/lib/creative-keyword-selection'
+import {
   evaluateCreativeAdStrength
 } from '@/lib/scoring'
 import { findOfferById } from '@/lib/offers'
@@ -299,9 +304,9 @@ export async function executeAdCreativeGeneration(
         }
       }
 
-      // 🔧 修复(2026-01-21): 强制将创意关键词同步为桶关键词
+      // 🔧 强制将创意关键词同步为桶关键词来源
       // 背景：generateAdCreative 内部会对关键词做多轮过滤，极端情况下会导致仅保留 1-3 个关键词
-      // 但 KISS-3 类型创意必须使用关键词池桶的完整关键词集合，确保投放配置稳定一致
+      // 但 KISS-3 类型创意必须基于关键词池桶集合，再由统一优先级规则裁剪到全局上限
       const generatedKeywordsForExclusion: string[] = Array.isArray(creative.keywords)
         ? creative.keywords.slice()
         : []
@@ -372,6 +377,17 @@ export async function executeAdCreativeGeneration(
           console.warn(`⚠️ 关键词补充失败（继续执行）: ${supplementError?.message || supplementError}`)
         }
       }
+
+      const prioritizedKeywords = selectCreativeKeywords({
+        keywords: creative.keywords,
+        keywordsWithVolume: creative.keywordsWithVolume as any,
+        brandName: offer.brand || '',
+        bucket: (selectedBucket || null) as any,
+        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+      })
+      creative.keywords = prioritizedKeywords.keywords
+      creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
       // 更新进度：评估中
       const evaluationMessageBase = `第${attempts}次生成: 评估创意质量...`

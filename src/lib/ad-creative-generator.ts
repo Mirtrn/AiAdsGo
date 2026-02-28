@@ -2019,7 +2019,7 @@ function tokenizeSupplementCandidate(raw: string): string[] {
     .filter(Boolean)
 }
 
-function composeTitleAboutSupplementKeyword(rawKeyword: string, brandName: string): string | null {
+function composeBrandedSupplementKeyword(rawKeyword: string, brandName: string): string | null {
   const cleaned = normalizeSupplementCandidate(rawKeyword)
   if (!cleaned) return null
 
@@ -2479,9 +2479,7 @@ export async function applyKeywordSupplementationOnce(
       if (!hasContextOverlap) return
     }
 
-    const finalKeyword = source === 'title_about'
-      ? composeTitleAboutSupplementKeyword(cleaned, input.brandName)
-      : cleaned
+    const finalKeyword = composeBrandedSupplementKeyword(cleaned, input.brandName)
     if (!finalKeyword) return
 
     const normalized = normalizeGoogleAdsKeyword(finalKeyword)

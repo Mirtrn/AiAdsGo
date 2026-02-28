@@ -8,6 +8,11 @@ import {
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
 import {
+  CREATIVE_BRAND_KEYWORD_RESERVE,
+  CREATIVE_KEYWORD_MAX_COUNT,
+  selectCreativeKeywords,
+} from '@/lib/creative-keyword-selection'
+import {
   getOrCreateKeywordPool,
   getKeywordPoolByOfferId,
   getBucketInfo,
@@ -338,14 +343,8 @@ async function generateCreativeWithBucket(
         deferKeywordSupplementation: true
       })
 
-      // 确保创意关键词与桶关键词一致
-      const keywordLimit = bucket === 'D' ? keywordStrings.length : 30
-      creative.keywords = keywordStrings.slice(0, keywordLimit)
-
-      // 🔧 修复(2026-01-19): 同步更新 keywordsWithVolume，确保与 keywords 一致
-      // 问题原因：generateAdCreative 返回的 keywordsWithVolume 可能只有1-3个关键词（经过多重过滤）
-      // 但我们需要使用完整的桶关键词
-      creative.keywordsWithVolume = bucketInfo.keywords.slice(0, keywordLimit).map(kw => ({
+      // 🔧 同步创意关键词为桶关键词，再走统一优先级裁剪（最多50）
+      creative.keywordsWithVolume = bucketInfo.keywords.map(kw => ({
         keyword: typeof kw === 'string' ? kw : kw.keyword,
         searchVolume: typeof kw === 'string' ? 0 : (kw.searchVolume || 0),
         competition: typeof kw === 'string' ? undefined : kw.competition,
@@ -353,6 +352,7 @@ async function generateCreativeWithBucket(
         matchType: 'PHRASE' as const,
         source: 'KEYWORD_POOL' as const
       }))
+      creative.keywords = creative.keywordsWithVolume.map(item => item.keyword)
 
       const supplemented = await applyKeywordSupplementationOnce({
         offer,
@@ -365,6 +365,17 @@ async function generateCreativeWithBucket(
       creative.keywords = supplemented.keywords
       creative.keywordsWithVolume = supplemented.keywordsWithVolume
       creative.keywordSupplementation = supplemented.keywordSupplementation
+
+      const prioritizedKeywords = selectCreativeKeywords({
+        keywords: creative.keywords,
+        keywordsWithVolume: creative.keywordsWithVolume as any,
+        brandName: offer.brand || '',
+        bucket,
+        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+      })
+      creative.keywords = prioritizedKeywords.keywords
+      creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
       // 评估 Ad Strength
       const headlinesWithMetadata = creative.headlinesWithMetadata || creative.headlines.map(text => ({

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
+import {
+  CREATIVE_BRAND_KEYWORD_RESERVE,
+  CREATIVE_KEYWORD_MAX_COUNT,
+  selectCreativeKeywords,
+} from '@/lib/creative-keyword-selection'
 import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
   evaluateCreativeAdStrength,
@@ -128,6 +133,16 @@ export async function POST(
           searchTermFeedbackHints
         }
       )
+
+      const prioritizedKeywords = selectCreativeKeywords({
+        keywords: creative.keywords,
+        keywordsWithVolume: creative.keywordsWithVolume as any,
+        brandName: offer.brand || '',
+        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+      })
+      creative.keywords = prioritizedKeywords.keywords
+      creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
       // 2. 检查是否有带metadata的资产
       const hasMetadata = creative.headlinesWithMetadata && creative.descriptionsWithMetadata

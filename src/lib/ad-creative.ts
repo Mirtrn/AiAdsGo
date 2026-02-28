@@ -2,6 +2,11 @@ import { getDatabase } from './db'
 import { getInsertedId, nowFunc } from './db-helpers'
 import { GEMINI_ACTIVE_MODEL } from './gemini-models'
 import {
+  CREATIVE_BRAND_KEYWORD_RESERVE,
+  CREATIVE_KEYWORD_MAX_COUNT,
+  selectCreativeKeywords,
+} from './creative-keyword-selection'
+import {
   getSearchTermAutoNegativeConfigFromEnv,
   getSearchTermAutoPositiveConfigFromEnv,
   runSearchTermAutoNegatives,
@@ -338,6 +343,23 @@ export async function createAdCreative(
     data.final_url
   )
 
+  const offerBrandRow = await db.queryOne<{ brand: string | null }>(
+    'SELECT brand FROM offers WHERE id = ? AND user_id = ?',
+    [offerId, userId]
+  )
+  const offerBrand = String(offerBrandRow?.brand || '').trim()
+
+  const selectedKeywords = selectCreativeKeywords({
+    keywords: normalizedKeywords,
+    keywordsWithVolume: normalizedKeywordsWithVolume,
+    brandName: offerBrand,
+    bucket: data.keyword_bucket || null,
+    maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+    brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+  })
+  const finalKeywords = selectedKeywords.keywords
+  const finalKeywordsWithVolume = selectedKeywords.keywordsWithVolume as KeywordWithVolume[]
+
   // 如果外部传入了score，优先使用（来自Ad Strength评估）
   // 否则使用旧的评分算法计算（向后兼容）
   const scoreResult = data.score && data.score_breakdown
@@ -363,8 +385,8 @@ export async function createAdCreative(
     userId,
     JSON.stringify(normalizedHeadlines),
     JSON.stringify(normalizedDescriptions),
-    JSON.stringify(normalizedKeywords),
-    normalizedKeywordsWithVolume ? JSON.stringify(normalizedKeywordsWithVolume) : null,
+    JSON.stringify(finalKeywords),
+    finalKeywordsWithVolume.length > 0 ? JSON.stringify(finalKeywordsWithVolume) : null,
     normalizedNegativeKeywords.length > 0 ? JSON.stringify(normalizedNegativeKeywords) : null,  // 🎯 新增：保存否定关键词
     normalizedCallouts ? JSON.stringify(normalizedCallouts) : null,
     normalizedSitelinks ? JSON.stringify(normalizedSitelinks) : null,

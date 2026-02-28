@@ -7,6 +7,11 @@ import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
+  CREATIVE_BRAND_KEYWORD_RESERVE,
+  CREATIVE_KEYWORD_MAX_COUNT,
+  selectCreativeKeywords,
+} from '@/lib/creative-keyword-selection'
+import {
   evaluateCreativeAdStrength,
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
@@ -231,6 +236,17 @@ export async function POST(
 
       // 批量评估Ad Strength并保存到数据库（门禁未通过仅告警，不阻断）
       const batchResults = await Promise.all(generatedDataList.map(async (generatedData, index) => {
+        const prioritizedKeywords = selectCreativeKeywords({
+          keywords: generatedData.keywords,
+          keywordsWithVolume: generatedData.keywordsWithVolume as any,
+          brandName: offer.brand || '',
+          bucket,
+          maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+          brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+        })
+        generatedData.keywords = prioritizedKeywords.keywords
+        generatedData.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
+
         // 确保有metadata，否则构造基础格式
         const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
           text,
@@ -335,7 +351,7 @@ export async function POST(
         bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
       })
 
-      // ✅ D桶要求全量覆盖：强制使用全部合格关键词
+      // ✅ D桶关键词优先：先同步桶关键词，再由统一优先级规则裁剪到全局上限
       if (bucket === 'D') {
         let poolCandidates: string[] = []
         try {
@@ -391,6 +407,17 @@ export async function POST(
           console.warn(`⚠️ D桶补词失败: ${error?.message || error}`)
         }
       }
+
+      const prioritizedKeywords = selectCreativeKeywords({
+        keywords: generatedData.keywords,
+        keywordsWithVolume: generatedData.keywordsWithVolume as any,
+        brandName: offer.brand || '',
+        bucket,
+        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+      })
+      generatedData.keywords = prioritizedKeywords.keywords
+      generatedData.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
       // 确保有metadata，否则构造基础格式
       const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({

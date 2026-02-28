@@ -193,7 +193,7 @@ describe('ad-creative-generator keyword supplementation', () => {
     expect(result.keywordsWithVolume).toHaveLength(9)
   })
 
-  it('keeps keyword_pool supplements unchanged (no forced brand prefix)', async () => {
+  it('prefixes keyword_pool supplements with brand and keeps total words <= 5', async () => {
     const baseKeywords = makeKeywords(9, 'laser level guide')
 
     const result = await applyKeywordSupplementationOnce({
@@ -207,8 +207,26 @@ describe('ad-creative-generator keyword supplementation', () => {
 
     const poolAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'keyword_pool')
     expect(poolAdded).toHaveLength(1)
-    expect(poolAdded[0].keyword).toBe('laser level stand')
-    expect(poolAdded[0].keyword.startsWith('dovoh ')).toBe(false)
+    expect(poolAdded[0].keyword).toBe('dovoh laser level stand')
+    expect(poolAdded[0].keyword.startsWith('dovoh ')).toBe(true)
+    expect(poolAdded[0].keyword.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(5)
+  })
+
+  it('drops keyword_pool supplements when branded combination exceeds 5 words', async () => {
+    const baseKeywords = makeKeywords(9, 'laser level guide')
+
+    const result = await applyKeywordSupplementationOnce({
+      offer: { id: 3925, scraped_data: { rawProductTitle: '', rawAboutThisItem: [] } },
+      userId: 1,
+      brandName: 'Dovoh',
+      targetLanguage: 'English',
+      keywordsWithVolume: baseKeywords,
+      poolCandidates: ['best laser level on amazon'],
+    })
+
+    const poolAdded = result.keywordSupplementation.addedKeywords.filter(k => k.source === 'keyword_pool')
+    expect(poolAdded).toHaveLength(0)
+    expect(result.keywordsWithVolume).toHaveLength(9)
   })
 
   it('falls back to original title/about behavior when brand is Unknown', async () => {
