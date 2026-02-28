@@ -61,6 +61,14 @@ function parsePositiveIntEnv(value: string | undefined, fallback: number): numbe
   return parsed
 }
 
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return fallback
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false
+  return fallback
+}
+
 /**
  * 广告创意生成任务数据接口
  */
@@ -91,6 +99,10 @@ export async function executeAdCreativeGeneration(
   const creativeTaskHeartbeatMs = parsePositiveIntEnv(
     process.env.CREATIVE_TASK_HEARTBEAT_MS,
     15000
+  )
+  const creativeKeywordBrandOnly = parseBooleanEnv(
+    process.env.CREATIVE_KEYWORD_BRAND_ONLY,
+    false
   )
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
@@ -382,6 +394,8 @@ export async function executeAdCreativeGeneration(
         bucket: (selectedBucket || null) as any,
         maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
         brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+        minBrandKeywords: CREATIVE_BRAND_KEYWORD_RESERVE,
+        brandOnly: creativeKeywordBrandOnly,
       })
       creative.keywords = prioritizedKeywords.keywords
       creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any

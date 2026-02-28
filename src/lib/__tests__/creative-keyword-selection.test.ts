@@ -91,4 +91,55 @@ describe('creative-keyword-selection', () => {
       result.keywords.every(keyword => keyword.trim().split(/\s+/).filter(Boolean).length <= CREATIVE_KEYWORD_MAX_WORDS)
     ).toBe(true)
   })
+
+  it('enforces at least 10 branded keywords by synthesizing from non-brand candidates', () => {
+    const brandedSeed = [{
+      keyword: 'lampick hair dryer',
+      searchVolume: 5000,
+      source: 'KEYWORD_POOL',
+      matchType: 'PHRASE' as const,
+    }]
+    const nonBrandKeywords = Array.from({ length: 30 }, (_, index) => ({
+      keyword: `hair dryer ${index + 1}`,
+      searchVolume: 3000 - index,
+      source: 'KEYWORD_POOL',
+      matchType: 'PHRASE' as const,
+    }))
+
+    const result = selectCreativeKeywords({
+      keywordsWithVolume: [...brandedSeed, ...nonBrandKeywords],
+      brandName: 'Lampick',
+      maxKeywords: 30,
+      minBrandKeywords: 10,
+    })
+
+    const brandedCount = result.keywords.filter(keyword => keyword.toLowerCase().includes('lampick')).length
+    expect(brandedCount).toBeGreaterThanOrEqual(10)
+    expect(
+      result.keywords.every(keyword => keyword.trim().split(/\s+/).filter(Boolean).length <= CREATIVE_KEYWORD_MAX_WORDS)
+    ).toBe(true)
+  })
+
+  it('supports brand-only mode and emits only branded keywords', () => {
+    const brandKeywords = [
+      { keyword: 'lampick hair dryer', searchVolume: 5000, source: 'KEYWORD_POOL', matchType: 'PHRASE' as const },
+      { keyword: 'lampick ionic dryer', searchVolume: 4200, source: 'KEYWORD_POOL', matchType: 'PHRASE' as const },
+    ]
+    const nonBrandKeywords = Array.from({ length: 20 }, (_, index) => ({
+      keyword: `hair dryer ${index + 1}`,
+      searchVolume: 3500 - index,
+      source: 'KEYWORD_POOL',
+      matchType: 'PHRASE' as const,
+    }))
+
+    const result = selectCreativeKeywords({
+      keywordsWithVolume: [...brandKeywords, ...nonBrandKeywords],
+      brandName: 'Lampick',
+      maxKeywords: 12,
+      brandOnly: true,
+    })
+
+    expect(result.keywordsWithVolume).toHaveLength(12)
+    expect(result.keywords.every(keyword => keyword.toLowerCase().includes('lampick'))).toBe(true)
+  })
 })

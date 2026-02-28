@@ -348,6 +348,8 @@ export async function createAdCreative(
     [offerId, userId]
   )
   const offerBrand = String(offerBrandRow?.brand || '').trim()
+  const creativeKeywordBrandOnly = ['1', 'true', 'yes', 'y', 'on']
+    .includes(String(process.env.CREATIVE_KEYWORD_BRAND_ONLY || '').trim().toLowerCase())
 
   const selectedKeywords = selectCreativeKeywords({
     keywords: normalizedKeywords,
@@ -356,6 +358,8 @@ export async function createAdCreative(
     bucket: data.keyword_bucket || null,
     maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
     brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+    minBrandKeywords: CREATIVE_BRAND_KEYWORD_RESERVE,
+    brandOnly: creativeKeywordBrandOnly,
   })
   const finalKeywords = selectedKeywords.keywords
   const finalKeywordsWithVolume = selectedKeywords.keywordsWithVolume as KeywordWithVolume[]

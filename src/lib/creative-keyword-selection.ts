@@ -26,6 +26,8 @@ export interface SelectCreativeKeywordsInput {
   bucket?: CreativeBucket | null
   maxKeywords?: number
   brandReserve?: number
+  minBrandKeywords?: number
+  brandOnly?: boolean
   maxWords?: number
 }
 
@@ -106,6 +108,99 @@ function compareRankedCandidates(a: RankedCandidate, b: RankedCandidate): number
   if (a.wordCount !== b.wordCount) return a.wordCount - b.wordCount
   if (a.keyword.length !== b.keyword.length) return a.keyword.length - b.keyword.length
   return a.originalIndex - b.originalIndex
+}
+
+function composeBrandedKeyword(keyword: string, normalizedBrand: string, maxWords: number): string | null {
+  const brandTokens = normalizedBrand.split(/\s+/).filter(Boolean)
+  if (brandTokens.length === 0) return null
+
+  const normalizedKeyword = normalizeGoogleAdsKeyword(keyword)
+  if (!normalizedKeyword) return null
+  const keywordTokens = normalizedKeyword.split(/\s+/).filter(Boolean)
+  if (keywordTokens.length === 0) return null
+
+  const remainder: string[] = []
+  for (let i = 0; i < keywordTokens.length;) {
+    let matchesBrand = true
+    for (let j = 0; j < brandTokens.length; j += 1) {
+      if (keywordTokens[i + j] !== brandTokens[j]) {
+        matchesBrand = false
+        break
+      }
+    }
+
+    if (matchesBrand) {
+      i += brandTokens.length
+      continue
+    }
+
+    remainder.push(keywordTokens[i])
+    i += 1
+  }
+
+  const combinedTokens = [...brandTokens, ...remainder]
+  if (combinedTokens.length < 2 || combinedTokens.length > maxWords) return null
+  return combinedTokens.join(' ')
+}
+
+function ensureBrandCoverage(
+  candidates: RankedCandidate[],
+  input: SelectCreativeKeywordsInput,
+  maxWords: number,
+  targetBrandCount: number
+): RankedCandidate[] {
+  if (targetBrandCount <= 0) return candidates
+
+  const normalizedBrand = normalizeGoogleAdsKeyword(input.brandName || '')
+  if (!normalizedBrand || normalizedBrand === 'unknown') return candidates
+
+  const pureBrandKeywords = getPureBrandKeywords(normalizedBrand)
+  if (pureBrandKeywords.length === 0) return candidates
+
+  const existing = new Set(candidates.map(candidate => candidate.normalized))
+  const existingBrandCount = candidates.filter(candidate => candidate.isBrand).length
+  if (existingBrandCount >= targetBrandCount) return candidates
+
+  const nonBrandCandidates = candidates
+    .filter(candidate => !candidate.isBrand)
+    .sort(compareRankedCandidates)
+
+  const augmented: RankedCandidate[] = [...candidates]
+  let nextIndex = candidates.reduce((max, candidate) => Math.max(max, candidate.originalIndex), -1) + 1
+  let brandCount = existingBrandCount
+
+  for (const candidate of nonBrandCandidates) {
+    if (brandCount >= targetBrandCount) break
+
+    const brandedKeyword = composeBrandedKeyword(candidate.keyword, normalizedBrand, maxWords)
+    if (!brandedKeyword) continue
+
+    const normalized = normalizeGoogleAdsKeyword(brandedKeyword)
+    if (!normalized || existing.has(normalized)) continue
+
+    const wordCount = normalized.split(/\s+/).filter(Boolean).length || 1
+    if (wordCount > maxWords) continue
+
+    const isBrand = containsPureBrand(brandedKeyword, pureBrandKeywords)
+    if (!isBrand) continue
+
+    const augmentedCandidate: RankedCandidate = {
+      ...candidate,
+      keyword: brandedKeyword,
+      normalized,
+      originalIndex: nextIndex,
+      isBrand: true,
+      isPureBrand: isPureBrandKeyword(brandedKeyword, pureBrandKeywords),
+      intentRank: computeIntentRank(brandedKeyword, input.bucket, true),
+      wordCount,
+    }
+    nextIndex += 1
+    brandCount += 1
+    existing.add(normalized)
+    augmented.push(augmentedCandidate)
+  }
+
+  return augmented
 }
 
 function toRankedCandidates(input: SelectCreativeKeywordsInput, maxWords: number): RankedCandidate[] {
@@ -198,13 +293,27 @@ export function selectCreativeKeywords(input: SelectCreativeKeywordsInput): Sele
   const brandReserve = Number.isFinite(brandReserveInput)
     ? Math.max(0, Math.floor(brandReserveInput))
     : CREATIVE_BRAND_KEYWORD_RESERVE
+  const minBrandKeywordsInput = Number(input.minBrandKeywords)
+  const minBrandKeywords = Number.isFinite(minBrandKeywordsInput)
+    ? Math.max(0, Math.floor(minBrandKeywordsInput))
+    : CREATIVE_BRAND_KEYWORD_RESERVE
+  const requestedBrandOnly = Boolean(input.brandOnly)
 
   const maxWordsInput = Number(input.maxWords)
   const maxWords = Number.isFinite(maxWordsInput)
     ? Math.max(1, Math.floor(maxWordsInput))
     : CREATIVE_KEYWORD_MAX_WORDS
 
-  const rankedCandidates = toRankedCandidates(input, maxWords)
+  const requiredBrandCount = requestedBrandOnly
+    ? maxKeywords
+    : Math.min(maxKeywords, minBrandKeywords)
+
+  const rankedCandidates = ensureBrandCoverage(
+    toRankedCandidates(input, maxWords),
+    input,
+    maxWords,
+    requiredBrandCount
+  )
   if (rankedCandidates.length === 0) {
     return {
       keywords: [],
@@ -218,17 +327,35 @@ export function selectCreativeKeywords(input: SelectCreativeKeywordsInput): Sele
   const brandCandidates = rankedCandidates
     .filter(candidate => candidate.isBrand)
     .sort(compareRankedCandidates)
-  const reservedBrandCount = Math.min(maxKeywords, brandReserve)
-  for (const candidate of brandCandidates) {
-    if (selected.size >= reservedBrandCount) break
-    selected.set(candidate.normalized, candidate)
+  const enforceBrandOnly = requestedBrandOnly && brandCandidates.length > 0
+
+  if (enforceBrandOnly) {
+    for (const candidate of brandCandidates) {
+      if (selected.size >= maxKeywords) break
+      selected.set(candidate.normalized, candidate)
+    }
+  } else {
+    for (const candidate of brandCandidates) {
+      if (selected.size >= requiredBrandCount) break
+      selected.set(candidate.normalized, candidate)
+    }
+
+    const reservedBrandCount = Math.min(maxKeywords, Math.max(requiredBrandCount, brandReserve))
+    for (const candidate of brandCandidates) {
+      if (selected.size >= reservedBrandCount) break
+      if (!selected.has(candidate.normalized)) {
+        selected.set(candidate.normalized, candidate)
+      }
+    }
   }
 
-  const allCandidates = [...rankedCandidates].sort(compareRankedCandidates)
-  for (const candidate of allCandidates) {
-    if (selected.size >= maxKeywords) break
-    if (!selected.has(candidate.normalized)) {
-      selected.set(candidate.normalized, candidate)
+  if (!enforceBrandOnly) {
+    const allCandidates = [...rankedCandidates].sort(compareRankedCandidates)
+    for (const candidate of allCandidates) {
+      if (selected.size >= maxKeywords) break
+      if (!selected.has(candidate.normalized)) {
+        selected.set(candidate.normalized, candidate)
+      }
     }
   }
 
