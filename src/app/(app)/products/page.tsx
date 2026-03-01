@@ -601,6 +601,17 @@ function formatSyncRunDateTime(value: string | null): string {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
+function formatMonthDayTime(value: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${month}-${day} ${hour}:${minute}`
+}
+
 function formatHourBucket(value: string | null): string {
   if (!value) return '-'
   const date = new Date(value)
@@ -1805,14 +1816,21 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 rounded-md border border-gray-200 bg-gray-50 px-2 py-2">
-              <Badge variant={ypSessionStatus.hasSession ? 'default' : 'outline'}>
-                YP登录态
-                {ypSessionStatusLoading
-                  ? '检测中'
-                  : ypSessionStatus.hasSession
-                    ? '已就绪'
-                    : (ypSessionStatus.isExpired ? '已过期' : '未采集')}
-              </Badge>
+              <div className="flex flex-col items-start gap-1">
+                <Badge variant={ypSessionStatus.hasSession ? 'default' : 'outline'}>
+                  YP登录态
+                  {ypSessionStatusLoading
+                    ? '检测中'
+                    : ypSessionStatus.hasSession
+                      ? '已就绪'
+                      : (ypSessionStatus.isExpired ? '已过期' : '未采集')}
+                </Badge>
+                {(!ypSessionStatusLoading && ypSessionStatus.hasSession) && (
+                  <div className="pl-1 text-[11px] leading-none text-muted-foreground">
+                    过期时间：{formatMonthDayTime(ypSessionStatus.expiresAt)}
+                  </div>
+                )}
+              </div>
 
               <Button
                 variant="outline"
@@ -2445,7 +2463,7 @@ export default function ProductsPage() {
                 <div className="text-xs text-muted-foreground">当前登录态</div>
                 <div className="mt-1">
                   {ypSessionStatus.hasSession
-                    ? `已就绪（会话 ${ypSessionStatus.maskedPhpSessionId || '-'}，到期 ${ypSessionStatus.expiresAt ? formatSyncRunDateTime(ypSessionStatus.expiresAt) : '-'}）`
+                    ? `已就绪（会话 ${ypSessionStatus.maskedPhpSessionId || '-'}，到期 ${ypSessionStatus.expiresAt ? formatMonthDayTime(ypSessionStatus.expiresAt) : '-'}）`
                     : (ypSessionStatus.isExpired ? '已过期，请重新采集' : '未采集')}
                 </div>
               </div>
