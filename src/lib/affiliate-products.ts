@@ -146,6 +146,8 @@ export type ProductListOptions = {
   createdAtTo?: string
   status?: AffiliateProductStatusFilter
   skipItems?: boolean
+  skipInvalidSummary?: boolean
+  fastSummary?: boolean
 }
 
 export type PlatformProductStats = {
@@ -4158,9 +4160,7 @@ function appendDateRangeWhere(params: {
   }
 }
 
-function buildConfirmedInvalidSql(): string {
-  const rawJsonSql = `LOWER(COALESCE(p.raw_json, ''))`
-
+function buildConfirmedInvalidSql(rawJsonSql: string = `LOWER(COALESCE(p.raw_json, ''))`): string {
   return `
     (
       ${rawJsonSql} LIKE '%"advert_status":0%'
@@ -4271,6 +4271,8 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const page = Math.max(1, options.page || 1)
   const pageSize = Math.min(100, Math.max(10, options.pageSize || 20))
   const skipItems = options.skipItems === true
+  const skipInvalidSummary = options.skipInvalidSummary === true
+  const fastSummary = options.fastSummary === true
   const offset = (page - 1) * pageSize
   const sortBy = options.sortBy || 'serial'
   const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc'
@@ -4578,6 +4580,27 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     }
 
     platformStats = finalizePlatformStats(platformStatsAccumulator)
+  } else if (fastSummary) {
+    if (cachedSummary) {
+      productsWithLinkCount = Number(cachedSummary.productsWithLinkCount || 0)
+      activeProductsCount = Number(cachedSummary.activeProductsCount || 0)
+      invalidProductsCount = Number(cachedSummary.invalidProductsCount || 0)
+      syncMissingProductsCount = Number(cachedSummary.syncMissingProductsCount || 0)
+      unknownProductsCount = Number(cachedSummary.unknownProductsCount || 0)
+      blacklistedCount = Number(cachedSummary.blacklistedCount || 0)
+    }
+
+    const totalRow = await db.queryOne<{ total_count: number }>(
+      `
+        ${fullSyncBaselineCteSql}
+        SELECT COUNT(*) AS total_count
+        FROM affiliate_products p
+        LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+        WHERE ${filteredWhereSql}
+      `,
+      [userId, ...filteredWhereParams]
+    )
+    total = Number(totalRow?.total_count || 0)
   } else {
     const summaryRow = await db.queryOne<{
       total_count: number
@@ -4661,7 +4684,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     let invalidUnknownOverlapCount = 0
     const hasYeahpromosCandidates = platformStatsAccumulator.yeahpromos.total > 0
 
-    if (hasYeahpromosCandidates) {
+    if (hasYeahpromosCandidates && !skipInvalidSummary) {
       const invalidSummaryRow = await db.queryOne<{
         invalid_products_count: number
         invalid_active_overlap_count: number
@@ -4669,17 +4692,28 @@ export async function listAffiliateProducts(userId: number, options: ProductList
         invalid_unknown_overlap_count: number
       }>(
         `
-          ${fullSyncBaselineCteSql}
+          ${fullSyncBaselineCteSql},
+          yp_invalid_candidates AS MATERIALIZED (
+            SELECT
+              p.last_seen_at,
+              LOWER(COALESCE(p.raw_json, '')) AS raw_json_lower
+            FROM affiliate_products p
+            WHERE ${baseWhereSql}
+              AND p.platform = 'yeahpromos'
+          )
           SELECT
             COUNT(*) AS invalid_products_count,
-            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
-            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND yp.last_seen_at IS NOT NULL AND yp.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (yp.last_seen_at IS NULL OR yp.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
             SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS invalid_unknown_overlap_count
-          FROM affiliate_products p
-          LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
-          WHERE ${baseWhereSql}
-            AND p.platform = 'yeahpromos'
-            AND ${confirmedInvalidSql}
+          FROM yp_invalid_candidates yp
+          LEFT JOIN (
+            SELECT baseline_started_at
+            FROM latest_platform_full_sync
+            WHERE platform = 'yeahpromos'
+            LIMIT 1
+          ) baseline ON TRUE
+          WHERE ${buildConfirmedInvalidSql('yp.raw_json_lower')}
         `,
         [userId, ...whereParams]
       )

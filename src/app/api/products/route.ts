@@ -161,6 +161,10 @@ export async function GET(request: NextRequest) {
       commissionAmountMax: commissionAmountMax ?? undefined,
       createdAtFrom: createdAtFrom ?? undefined,
       createdAtTo: createdAtTo ?? undefined,
+      // 列表接口优先保证首屏速度；invalid 汇总由 /api/products/summary 完整计算。
+      skipInvalidSummary: true,
+      // summary 缓存未命中时，仅计算总数，避免列表接口被重统计阻塞。
+      fastSummary: true,
     })
 
     const responsePayload = {

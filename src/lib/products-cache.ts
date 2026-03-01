@@ -3,7 +3,7 @@ import { REDIS_PREFIX_CONFIG } from '@/lib/config'
 import { getRedisClient } from '@/lib/redis'
 
 const LIST_TTL_SECONDS = 300
-const SUMMARY_TTL_SECONDS = 30
+const SUMMARY_TTL_SECONDS = 300
 const LIST_INDEX_TTL_SECONDS = 24 * 60 * 60
 const LAST_QUERY_TTL_SECONDS = 24 * 60 * 60
 const MAX_INVALIDATE_SCAN_ROUNDS = 20
