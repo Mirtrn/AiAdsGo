@@ -15,6 +15,10 @@ const gatewayFns = vi.hoisted(() => ({
   requestOpenclawGatewayRestart: vi.fn(),
 }))
 
+const auditFns = vi.hoisted(() => ({
+  auditOpenclawAiAuthOverrides: vi.fn(),
+}))
+
 vi.mock('@/lib/openclaw/request-auth', () => ({
   verifyOpenclawSessionAuth: authFns.verifyOpenclawSessionAuth,
 }))
@@ -26,6 +30,10 @@ vi.mock('@/lib/openclaw/config', () => ({
 vi.mock('@/lib/openclaw/gateway-ws', () => ({
   getOpenclawGatewaySnapshot: gatewayFns.getOpenclawGatewaySnapshot,
   requestOpenclawGatewayRestart: gatewayFns.requestOpenclawGatewayRestart,
+}))
+
+vi.mock('@/lib/openclaw/ai-auth-audit', () => ({
+  auditOpenclawAiAuthOverrides: auditFns.auditOpenclawAiAuthOverrides,
 }))
 
 describe('POST /api/openclaw/gateway/reload', () => {
@@ -49,6 +57,7 @@ describe('POST /api/openclaw/gateway/reload', () => {
       restart: { ok: true },
       path: '/tmp/openclaw.json',
     })
+    auditFns.auditOpenclawAiAuthOverrides.mockReturnValue([])
   })
 
   it('returns auth error when unauthenticated', async () => {
@@ -155,5 +164,45 @@ describe('POST /api/openclaw/gateway/reload', () => {
     expect(payload.error).toContain('sync failed')
     expect(gatewayFns.requestOpenclawGatewayRestart).not.toHaveBeenCalled()
     expect(gatewayFns.getOpenclawGatewaySnapshot).not.toHaveBeenCalled()
+  })
+
+  it('includes AI auth override warnings in reload payload', async () => {
+    configFns.syncOpenclawConfig.mockResolvedValue({
+      configPath: '/tmp/.openclaw/openclaw.json',
+      config: {
+        models: {
+          providers: {
+            openai: { apiKey: 'sk-live' },
+          },
+        },
+      },
+    })
+    auditFns.auditOpenclawAiAuthOverrides.mockReturnValue([
+      {
+        providerId: 'openai',
+        source: 'auth-profile',
+        sourceLabel: 'auth-profiles: openai:default',
+        profileIds: ['openai:default'],
+        message: 'Provider "openai" 当前优先使用 auth-profiles，Providers JSON 里的 apiKey 不会生效。',
+        suggestion: '请清理 /tmp/.openclaw/agents/main/agent/auth-profiles.json 中该 provider 的 profile 后再热加载。',
+      },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/gateway/reload', {
+      method: 'POST',
+    })
+    const res = await POST(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.aiAuthOverrideWarnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'openai',
+          source: 'auth-profile',
+        }),
+      ])
+    )
   })
 })

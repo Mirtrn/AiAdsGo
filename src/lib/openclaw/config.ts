@@ -4,6 +4,7 @@ import { getSettingsByCategory } from '@/lib/settings'
 import { getOpenclawGatewayToken } from '@/lib/openclaw/auth'
 import { collectUserFeishuAccounts } from '@/lib/openclaw/feishu-accounts'
 import { parseAiModelsJson } from '@/lib/openclaw/ai-models'
+import { syncOpenclawManagedAiAuthProfiles } from '@/lib/openclaw/ai-auth-audit'
 import { ensureOpenclawWorkspaceBootstrap } from '@/lib/openclaw/workspace-bootstrap'
 
 type SyncOpenclawConfigOptions = {
@@ -661,6 +662,20 @@ export async function syncOpenclawConfig(options: SyncOpenclawConfigOptions = {}
 
   const configJson = JSON.stringify(config, null, 2)
   fs.writeFileSync(configPath, configJson, 'utf-8')
+
+  try {
+    const managedAuthSync = syncOpenclawManagedAiAuthProfiles({
+      config,
+      configPath,
+    })
+    if (managedAuthSync.updated) {
+      console.log(
+        `🔐 OpenClaw AI 凭据已同步到 auth-profiles -> ${managedAuthSync.authProfilesPath}`
+      )
+    }
+  } catch (error) {
+    console.error('❌ OpenClaw AI 凭据同步到 auth-profiles 失败:', error)
+  }
 
   console.log(
     `✅ OpenClaw 配置已同步 (${options.reason || 'manual'}) -> ${configPath}`

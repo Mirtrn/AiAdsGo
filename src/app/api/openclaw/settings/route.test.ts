@@ -16,6 +16,10 @@ const syncFns = vi.hoisted(() => ({
   syncOpenclawConfig: vi.fn(),
 }))
 
+const auditFns = vi.hoisted(() => ({
+  auditOpenclawAiAuthOverrides: vi.fn(),
+}))
+
 vi.mock('@/lib/openclaw/request-auth', () => ({
   verifyOpenclawSessionAuth: authFns.verifyOpenclawSessionAuth,
 }))
@@ -28,6 +32,10 @@ vi.mock('@/lib/settings', () => ({
 
 vi.mock('@/lib/openclaw/config', () => ({
   syncOpenclawConfig: syncFns.syncOpenclawConfig,
+}))
+
+vi.mock('@/lib/openclaw/ai-auth-audit', () => ({
+  auditOpenclawAiAuthOverrides: auditFns.auditOpenclawAiAuthOverrides,
 }))
 
 describe('openclaw settings route AI global permissions', () => {
@@ -45,6 +53,7 @@ describe('openclaw settings route AI global permissions', () => {
     ])
     settingsFns.updateSettings.mockResolvedValue(undefined)
     syncFns.syncOpenclawConfig.mockResolvedValue(undefined)
+    auditFns.auditOpenclawAiAuthOverrides.mockReturnValue([])
   })
 
   it('GET merges user settings and global AI settings', async () => {
@@ -154,6 +163,61 @@ describe('openclaw settings route AI global permissions', () => {
       { category: 'openclaw', key: 'openclaw_models_mode', value: 'merge' },
     ])
     expect(syncFns.syncOpenclawConfig).toHaveBeenCalledWith({ reason: 'openclaw-global-ai-settings' })
+  })
+
+  it('returns AI auth override warnings when providers key is shadowed', async () => {
+    authFns.verifyOpenclawSessionAuth.mockResolvedValue({
+      authenticated: true,
+      status: 200,
+      user: { userId: 1, role: 'admin' },
+    })
+
+    syncFns.syncOpenclawConfig.mockResolvedValue({
+      configPath: '/tmp/.openclaw/openclaw.json',
+      config: {
+        models: {
+          providers: {
+            openai: { apiKey: 'sk-live' },
+          },
+        },
+      },
+    })
+    auditFns.auditOpenclawAiAuthOverrides.mockReturnValue([
+      {
+        providerId: 'openai',
+        source: 'env',
+        sourceLabel: 'env: OPENAI_API_KEY',
+        envVar: 'OPENAI_API_KEY',
+        message: 'Provider "openai" 当前优先使用环境变量 OPENAI_API_KEY，Providers JSON 里的 apiKey 不会生效。',
+        suggestion: '请移除或更新环境变量 OPENAI_API_KEY 后再热加载。',
+      },
+    ])
+
+    const req = new NextRequest('http://localhost/api/openclaw/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'global',
+        updates: [
+          { key: 'ai_models_json', value: '{"providers":{"openai":{"models":["gpt-5"],"apiKey":"sk-live"}}}' },
+        ],
+      }),
+    })
+
+    const res = await PUT(req)
+    const payload = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(payload.success).toBe(true)
+    expect(payload.aiAuthOverrideWarnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'openai',
+          source: 'env',
+        }),
+      ])
+    )
+    expect(auditFns.auditOpenclawAiAuthOverrides).toHaveBeenCalledTimes(1)
   })
 
   it('skips missing template keys instead of throwing 500', async () => {

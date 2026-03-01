@@ -3,6 +3,7 @@ import { z } from 'zod'
 import cron from 'node-cron'
 import { getSettingsByCategory, getUserOnlySettingsByCategory, updateSettings } from '@/lib/settings'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
+import { auditOpenclawAiAuthOverrides } from '@/lib/openclaw/ai-auth-audit'
 
 const GLOBAL_AI_KEYS = new Set([
   'ai_models_json',
@@ -250,6 +251,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const appliedUpdates = [...filteredGlobalUpdates, ...filteredUserUpdates]
+  let aiAuthOverrideWarnings: ReturnType<typeof auditOpenclawAiAuthOverrides> = []
   if (appliedUpdates.length > 0) {
     try {
       const { syncOpenclawConfig } = await import('@/lib/openclaw/config')
@@ -261,11 +263,18 @@ export async function PUT(request: NextRequest) {
           ? 'openclaw-user-settings'
           : 'openclaw-user-settings-nonsync'
 
-      await syncOpenclawConfig(
+      const syncResult = await syncOpenclawConfig(
         hasGlobalSync
           ? { reason }
           : { reason, actorUserId: auth.user.userId }
       )
+
+      if (hasGlobalSync) {
+        aiAuthOverrideWarnings = auditOpenclawAiAuthOverrides({
+          config: syncResult?.config,
+          configPath: syncResult?.configPath,
+        })
+      }
     } catch (error) {
       console.error('❌ OpenClaw配置同步失败:', error)
     }
@@ -274,5 +283,6 @@ export async function PUT(request: NextRequest) {
   return NextResponse.json({
     success: true,
     skippedKeys,
+    aiAuthOverrideWarnings,
   })
 }

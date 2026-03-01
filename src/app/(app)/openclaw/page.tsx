@@ -229,6 +229,32 @@ type GatewayStatusResponse = {
   error?: string
 }
 
+type OpenclawAiAuthOverrideWarning = {
+  providerId: string
+  source: 'auth-profile' | 'env'
+  sourceLabel?: string
+  profileIds?: string[]
+  authProfilesPath?: string
+  envVar?: string
+  message: string
+  suggestion?: string
+}
+
+type OpenclawSettingsSaveResponse = {
+  success?: boolean
+  skippedKeys?: string[]
+  aiAuthOverrideWarnings?: OpenclawAiAuthOverrideWarning[]
+  error?: string
+}
+
+type OpenclawGatewayReloadResponse = {
+  success?: boolean
+  message?: string
+  gatewayStatus?: GatewayStatusResponse
+  aiAuthOverrideWarnings?: OpenclawAiAuthOverrideWarning[]
+  error?: string
+}
+
 type GatewaySkillRow = {
   skill: any
   missingItems: string[]
@@ -1155,6 +1181,20 @@ export default function OpenClawPage() {
     [strategyConfirmDialog?.tone, resolveStrategyConfirmToneClasses]
   )
 
+  const showAiAuthOverrideWarnings = useCallback((warnings: OpenclawAiAuthOverrideWarning[] | undefined) => {
+    if (!warnings || warnings.length === 0) {
+      return
+    }
+
+    const first = warnings[0]
+    const extraCount = warnings.length - 1
+    const suffix = extraCount > 0 ? `，另有 ${extraCount} 个 provider 同样被覆盖` : ''
+    toast.warning(`${first.message}${suffix}`)
+    if (first.suggestion) {
+      toast.message(first.suggestion)
+    }
+  }, [])
+
   const closeStrategyConfirmDialog = useCallback((accepted: boolean) => {
     const resolver = strategyConfirmResolverRef.current
     strategyConfirmResolverRef.current = null
@@ -1619,7 +1659,7 @@ export default function OpenClawPage() {
         method: 'POST',
         credentials: 'include',
       })
-      const payload = await response.json().catch(() => null)
+      const payload = (await response.json().catch(() => null)) as OpenclawGatewayReloadResponse | null
       if (!response.ok) {
         throw new Error(payload?.error || '配置热加载失败')
       }
@@ -1632,6 +1672,7 @@ export default function OpenClawPage() {
       }
 
       toast.success(payload?.message || '配置已同步并触发 Gateway 热加载')
+      showAiAuthOverrideWarnings(payload?.aiAuthOverrideWarnings)
     } catch (error: any) {
       toast.error(error?.message || '配置热加载失败')
     } finally {
@@ -1712,10 +1753,10 @@ export default function OpenClawPage() {
         credentials: 'include',
         body: JSON.stringify({ scope, updates }),
       })
+      const payload = (await response.json().catch(() => null)) as OpenclawSettingsSaveResponse | null
 
       if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({}))
-        throw new Error(errorJson.error || '保存失败')
+        throw new Error(payload?.error || '保存失败')
       }
 
       setSavedUserValues((prev) => {
@@ -1727,6 +1768,7 @@ export default function OpenClawPage() {
       })
 
       toast.success(successMessage || '用户配置已保存')
+      showAiAuthOverrideWarnings(payload?.aiAuthOverrideWarnings)
     } catch (error: any) {
       toast.error(error?.message || '保存失败')
     } finally {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyOpenclawSessionAuth } from '@/lib/openclaw/request-auth'
 import { syncOpenclawConfig } from '@/lib/openclaw/config'
 import { getOpenclawGatewaySnapshot, requestOpenclawGatewayRestart } from '@/lib/openclaw/gateway-ws'
+import { auditOpenclawAiAuthOverrides } from '@/lib/openclaw/ai-auth-audit'
 
 type GatewayStatusPayload = {
   success: boolean
@@ -22,13 +23,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '仅管理员可执行配置热加载' }, { status: 403 })
   }
 
+  let syncResult: Awaited<ReturnType<typeof syncOpenclawConfig>> | undefined
   try {
-    await syncOpenclawConfig({ reason: 'openclaw-manual-hot-reload' })
+    syncResult = await syncOpenclawConfig({ reason: 'openclaw-manual-hot-reload' })
   } catch (error: any) {
     const message = error?.message || 'OpenClaw 配置同步失败'
     console.error('[openclaw] manual config hot reload sync failed:', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
+
+  const aiAuthOverrideWarnings = auditOpenclawAiAuthOverrides({
+    config: syncResult?.config,
+    configPath: syncResult?.configPath,
+  })
 
   let restartResult: any = null
   let restartError: string | null = null
@@ -66,5 +73,6 @@ export async function POST(request: NextRequest) {
       : gatewayStatus.success
         ? '配置已同步并触发 Gateway 重启'
         : '配置已同步并触发 Gateway 重启，Gateway 状态暂不可用',
+    aiAuthOverrideWarnings,
   })
 }
