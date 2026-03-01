@@ -117,6 +117,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
           cursorPage,
           cursorScope,
           processedBatches,
+          // 续跑场景沿用原失败任务的 started_at，确保状态基线覆盖整条续跑链路
+          startedAt: latestFailedRun.started_at || null,
           lastHeartbeatAt: null,
           errorMessage: null,
           completedAt: null,

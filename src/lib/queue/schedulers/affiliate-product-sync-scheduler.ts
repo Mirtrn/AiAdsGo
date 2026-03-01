@@ -377,6 +377,8 @@ export class AffiliateProductSyncScheduler {
           cursorPage,
           cursorScope,
           processedBatches,
+          // 续跑场景沿用原失败任务的 started_at，避免后续状态基线偏移导致误判 sync_missing
+          startedAt: latestFailedRun.started_at || null,
           lastHeartbeatAt: null,
           errorMessage: null,
           completedAt: null,

@@ -3401,14 +3401,15 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
         `[yeahpromos] skip failed page scope=${currentTemplate.scope}, page=${currentPage}: ${error?.message || error}`
       )
       if (consecutiveScopeFailureCount >= MAX_YP_EMPTY_PAGE_STREAK) {
-        console.warn(
-          `[yeahpromos] scope=${currentTemplate.scope} 连续失败 ${consecutiveScopeFailureCount} 次，切换到下一个 scope`
+        const reason = error?.message || error
+        // 避免静默跳过整个 scope 导致“completed 但漏抓大量页面”。
+        // 连续失败达到阈值时直接抛错，让任务进入 failed 并由续跑逻辑从当前 cursor 重试。
+        throw new Error(
+          `YeahPromos scope=${currentTemplate.scope} page=${currentPage} 连续失败 ${consecutiveScopeFailureCount} 次，已中止同步以避免漏抓。最后错误: ${reason}`
         )
-        scopeIndex += 1
-        page = 1
-        consecutiveScopeFailureCount = 0
       } else {
-        page = currentPage + 1
+        // 失败时保持当前页，下一轮更换代理后重试同一页，避免跳页漏抓。
+        page = currentPage
       }
     }
 
