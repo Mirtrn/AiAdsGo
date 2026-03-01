@@ -153,6 +153,27 @@ type ProductListResponse = {
   pageSize: number
 }
 
+type ProductSummaryResponse = {
+  success: boolean
+  total: number
+  productsWithLinkCount: number
+  activeProductsCount: number
+  invalidProductsCount: number
+  syncMissingProductsCount: number
+  unknownProductsCount: number
+  blacklistedCount: number
+  platformStats?: Record<ProductPlatform, {
+    total: number
+    visibleCount: number
+    productsWithLinkCount: number
+    activeProductsCount: number
+    invalidProductsCount: number
+    syncMissingProductsCount: number
+    unknownProductsCount: number
+    blacklistedCount: number
+  }>
+}
+
 type ProductConfigSettingItem = {
   key: string
   value: string | null
@@ -973,6 +994,55 @@ export default function ProductsPage() {
     }
   }
 
+  const fetchProductSummary = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (searchQuery) params.set('search', searchQuery)
+      if (midQuery) params.set('mid', midQuery)
+      if (platformFilter !== 'all') params.set('platform', platformFilter)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (createdAtFrom) params.set('createdAtFrom', createdAtFrom)
+      if (createdAtTo) params.set('createdAtTo', createdAtTo)
+
+      const numericRangeParams: Array<[string, number | null]> = [
+        ['reviewCountMin', numericRangeFilters.reviewCountMin],
+        ['reviewCountMax', numericRangeFilters.reviewCountMax],
+        ['priceAmountMin', numericRangeFilters.priceAmountMin],
+        ['priceAmountMax', numericRangeFilters.priceAmountMax],
+        ['commissionRateMin', numericRangeFilters.commissionRateMin],
+        ['commissionRateMax', numericRangeFilters.commissionRateMax],
+        ['commissionAmountMin', numericRangeFilters.commissionAmountMin],
+        ['commissionAmountMax', numericRangeFilters.commissionAmountMax],
+      ]
+      for (const [key, value] of numericRangeParams) {
+        if (value === null) continue
+        params.set(key, String(value))
+      }
+
+      const response = await fetch(`/api/products/summary?${params.toString()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      if (!response.ok) {
+        return
+      }
+
+      const data = await response.json() as ProductSummaryResponse
+      if (!data.success) {
+        return
+      }
+
+      setTotal(data.total || 0)
+      setPlatformStats(normalizePlatformStatsMap(data.platformStats))
+    } catch {
+      // ignore summary fetch failures (list API remains source of truth)
+    }
+  }
+
   const fetchSyncRuns = async () => {
     try {
       const response = await fetch('/api/products/sync-runs?limit=20', {
@@ -1149,6 +1219,7 @@ export default function ProductsPage() {
   }
 
   useEffect(() => {
+    fetchProductSummary()
     fetchProducts()
     fetchSyncRuns()
     if (productConfigOpen) {

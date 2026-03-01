@@ -145,6 +145,7 @@ export type ProductListOptions = {
   createdAtFrom?: string
   createdAtTo?: string
   status?: AffiliateProductStatusFilter
+  skipItems?: boolean
 }
 
 export type PlatformProductStats = {
@@ -4268,6 +4269,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const db = await getDatabase()
   const page = Math.max(1, options.page || 1)
   const pageSize = Math.min(100, Math.max(10, options.pageSize || 20))
+  const skipItems = options.skipItems === true
   const offset = (page - 1) * pageSize
   const sortBy = options.sortBy || 'serial'
   const sortOrder = options.sortOrder === 'asc' ? 'asc' : 'desc'
@@ -4456,56 +4458,57 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     ? 'NULL AS product_status'
     : `${productStatusSql} AS product_status`
 
-  const rowsPromise = db.query<(
-    AffiliateProduct
-    & {
-      related_offer_count?: number
-      active_offer_count?: number
-      historical_offer_count?: number
-      product_status?: AffiliateProductLifecycleStatus
-      baseline_started_at?: string | null
-    }
-  )>(
-    `
-      ${fullSyncBaselineCteSql}
-      SELECT
-        p.*,
-        ${productStatusSelectSql},
-        baseline.baseline_started_at AS baseline_started_at,
-        COALESCE(link_counts.active_offer_count, 0) AS active_offer_count,
-        COALESCE(link_counts.historical_offer_count, 0) AS historical_offer_count,
-        COALESCE(link_counts.historical_offer_count, 0) AS related_offer_count
-      FROM affiliate_products p
-      LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
-      LEFT JOIN (
+  type ProductRowWithDerived = AffiliateProduct & {
+    related_offer_count?: number
+    active_offer_count?: number
+    historical_offer_count?: number
+    product_status?: AffiliateProductLifecycleStatus
+    baseline_started_at?: string | null
+  }
+
+  const rowsPromise: Promise<ProductRowWithDerived[]> = skipItems
+    ? Promise.resolve([])
+    : db.query<ProductRowWithDerived>(
+      `
+        ${fullSyncBaselineCteSql}
         SELECT
-          link.product_id,
-          COUNT(DISTINCT CASE
-            WHEN c.status = 'ENABLED' AND COALESCE(c.is_deleted, FALSE) = FALSE THEN link.offer_id
-            ELSE NULL
-          END) AS active_offer_count,
-          COUNT(DISTINCT CASE
-            WHEN COALESCE(c.google_campaign_id, '') <> '' THEN link.offer_id
-            ELSE NULL
-          END) AS historical_offer_count
-        FROM affiliate_product_offer_links link
-        INNER JOIN offers o
-          ON o.user_id = link.user_id
-          AND o.id = link.offer_id
-          AND ${offerNotDeletedCondition}
-        LEFT JOIN campaigns c
-          ON c.user_id = link.user_id
-          AND c.offer_id = link.offer_id
-        WHERE link.user_id = ?
-        GROUP BY link.product_id
-      ) link_counts ON link_counts.product_id = p.id
-      WHERE ${filteredWhereSql}
-      ORDER BY ${orderBySql}
-      LIMIT ?
-      OFFSET ?
-    `,
-    [userId, userId, ...filteredWhereParams, pageSize, offset]
-  )
+          p.*,
+          ${productStatusSelectSql},
+          baseline.baseline_started_at AS baseline_started_at,
+          COALESCE(link_counts.active_offer_count, 0) AS active_offer_count,
+          COALESCE(link_counts.historical_offer_count, 0) AS historical_offer_count,
+          COALESCE(link_counts.historical_offer_count, 0) AS related_offer_count
+        FROM affiliate_products p
+        LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+        LEFT JOIN (
+          SELECT
+            link.product_id,
+            COUNT(DISTINCT CASE
+              WHEN c.status = 'ENABLED' AND COALESCE(c.is_deleted, FALSE) = FALSE THEN link.offer_id
+              ELSE NULL
+            END) AS active_offer_count,
+            COUNT(DISTINCT CASE
+              WHEN COALESCE(c.google_campaign_id, '') <> '' THEN link.offer_id
+              ELSE NULL
+            END) AS historical_offer_count
+          FROM affiliate_product_offer_links link
+          INNER JOIN offers o
+            ON o.user_id = link.user_id
+            AND o.id = link.offer_id
+            AND ${offerNotDeletedCondition}
+          LEFT JOIN campaigns c
+            ON c.user_id = link.user_id
+            AND c.offer_id = link.offer_id
+          WHERE link.user_id = ?
+          GROUP BY link.product_id
+        ) link_counts ON link_counts.product_id = p.id
+        WHERE ${filteredWhereSql}
+        ORDER BY ${orderBySql}
+        LIMIT ?
+        OFFSET ?
+      `,
+      [userId, userId, ...filteredWhereParams, pageSize, offset]
+    )
   const summaryCachePayload: ProductSummaryCachePayload = {
     search,
     mid,
@@ -4732,21 +4735,25 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   }
 
   const rows = await rowsPromise
-  await hydratePartnerboostShortLinksForRows({
-    db,
-    userId,
-    rows,
-  })
+  if (!skipItems) {
+    await hydratePartnerboostShortLinksForRows({
+      db,
+      userId,
+      rows,
+    })
+  }
 
-  const items = rows.map((row, index) => {
-    const rowForMapping = statusFilter === 'all'
-      ? {
-          ...row,
-          product_status: resolveLifecycleStatusFromRowForList(row),
-        }
-      : row
-    return mapAffiliateProductRow(rowForMapping, offset + index + 1)
-  })
+  const items = skipItems
+    ? []
+    : rows.map((row, index) => {
+      const rowForMapping = statusFilter === 'all'
+        ? {
+            ...row,
+            product_status: resolveLifecycleStatusFromRowForList(row),
+          }
+        : row
+      return mapAffiliateProductRow(rowForMapping, offset + index + 1)
+    })
 
   return {
     items,
