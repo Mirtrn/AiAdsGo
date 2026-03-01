@@ -3,8 +3,10 @@ import {
   ConfigRequiredError,
   checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun,
+  getLatestFailedAffiliateProductSyncRun,
   normalizeAffiliatePlatform,
   type SyncMode,
+  updateAffiliateProductSyncRun,
 } from '@/lib/affiliate-products'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import { isProductManagementEnabledForUser } from '@/lib/openclaw/request-auth'
@@ -89,6 +91,40 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       status: 'queued',
     })
 
+    let resumedFromRunId: number | null = null
+    if (mode === 'platform') {
+      const latestFailedRun = await getLatestFailedAffiliateProductSyncRun({
+        userId,
+        platform,
+        mode: 'platform',
+        excludeRunId: runId,
+      })
+
+      if (latestFailedRun && latestFailedRun.cursor_page > 0) {
+        const totalItems = Math.max(0, Number(latestFailedRun.total_items || 0))
+        const createdCount = Math.max(0, Number(latestFailedRun.created_count || 0))
+        const updatedCount = Math.max(0, Number(latestFailedRun.updated_count || 0))
+        const processedBatches = Math.max(0, Number(latestFailedRun.processed_batches || 0))
+        const cursorPage = Math.max(1, Number(latestFailedRun.cursor_page || 1))
+        const cursorScope = String(latestFailedRun.cursor_scope || '').trim() || null
+
+        await updateAffiliateProductSyncRun({
+          runId,
+          totalItems,
+          createdCount,
+          updatedCount,
+          failedCount: 0,
+          cursorPage,
+          cursorScope,
+          processedBatches,
+          lastHeartbeatAt: null,
+          errorMessage: null,
+          completedAt: null,
+        })
+        resumedFromRunId = latestFailedRun.id
+      }
+    }
+
     const queue = getQueueManagerForTaskType('affiliate-product-sync')
     const taskId = await queue.enqueue(
       'affiliate-product-sync',
@@ -110,6 +146,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     return NextResponse.json({
       success: true,
       runId,
+      resumedFromRunId,
       taskId,
       message: '商品同步任务已提交',
     })

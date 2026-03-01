@@ -13,6 +13,7 @@ import { getDatabase } from '../../db'
 import {
   checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun,
+  getLatestFailedAffiliateProductSyncRun,
   type SyncMode,
   updateAffiliateProductSyncRun,
 } from '../../affiliate-products'
@@ -350,6 +351,42 @@ export class AffiliateProductSyncScheduler {
       triggerSource: 'schedule',
       status: 'queued',
     })
+
+    if (params.mode === 'platform') {
+      const latestFailedRun = await getLatestFailedAffiliateProductSyncRun({
+        userId: params.userId,
+        platform: params.platform,
+        mode: 'platform',
+        excludeRunId: runId,
+      })
+
+      if (latestFailedRun && latestFailedRun.cursor_page > 0) {
+        const totalItems = Math.max(0, Number(latestFailedRun.total_items || 0))
+        const createdCount = Math.max(0, Number(latestFailedRun.created_count || 0))
+        const updatedCount = Math.max(0, Number(latestFailedRun.updated_count || 0))
+        const processedBatches = Math.max(0, Number(latestFailedRun.processed_batches || 0))
+        const cursorPage = Math.max(1, Number(latestFailedRun.cursor_page || 1))
+        const cursorScope = String(latestFailedRun.cursor_scope || '').trim() || null
+
+        await updateAffiliateProductSyncRun({
+          runId,
+          totalItems,
+          createdCount,
+          updatedCount,
+          failedCount: 0,
+          cursorPage,
+          cursorScope,
+          processedBatches,
+          lastHeartbeatAt: null,
+          errorMessage: null,
+          completedAt: null,
+        })
+
+        console.log(
+          `[affiliate-product-sync-scheduler] 续跑失败任务: user=${params.userId}, platform=${params.platform}, run=${runId}, resumeFrom=${latestFailedRun.id}, cursor=${cursorScope || 'default'}:${cursorPage}`
+        )
+      }
+    }
 
     try {
       const queue = getQueueManagerForTaskType('affiliate-product-sync')

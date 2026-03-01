@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getDatabase: vi.fn(),
   checkAffiliatePlatformConfig: vi.fn(),
   createAffiliateProductSyncRun: vi.fn(),
+  getLatestFailedAffiliateProductSyncRun: vi.fn(),
   updateAffiliateProductSyncRun: vi.fn(),
   getQueueManagerForTaskType: vi.fn(),
   isYeahPromosManualSyncOnly: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('../../db', () => ({
 vi.mock('../../affiliate-products', () => ({
   checkAffiliatePlatformConfig: mocks.checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun: mocks.createAffiliateProductSyncRun,
+  getLatestFailedAffiliateProductSyncRun: mocks.getLatestFailedAffiliateProductSyncRun,
   updateAffiliateProductSyncRun: mocks.updateAffiliateProductSyncRun,
 }))
 
@@ -43,6 +45,7 @@ describe('AffiliateProductSyncScheduler YP support', () => {
       missingKeys: [],
       values: {},
     })
+    mocks.getLatestFailedAffiliateProductSyncRun.mockResolvedValue(null)
     mocks.isYeahPromosManualSyncOnly.mockResolvedValue(false)
   })
 
@@ -324,5 +327,77 @@ describe('AffiliateProductSyncScheduler YP support', () => {
         mode: 'delta',
       })
     )
+  })
+
+  it('seeds new platform run from latest failed cursor before enqueue', async () => {
+    const scheduler = new AffiliateProductSyncScheduler() as any
+
+    mocks.createAffiliateProductSyncRun.mockResolvedValue(1201)
+    mocks.getLatestFailedAffiliateProductSyncRun.mockResolvedValue({
+      id: 1199,
+      user_id: 1,
+      platform: 'yeahpromos',
+      mode: 'platform',
+      status: 'failed',
+      trigger_source: 'manual',
+      total_items: 54600,
+      created_count: 53843,
+      updated_count: 757,
+      failed_count: 1,
+      cursor_page: 64,
+      cursor_scope: 'amazon.de',
+      processed_batches: 478,
+      last_heartbeat_at: null,
+      error_message: 'session expired',
+      started_at: null,
+      completed_at: null,
+      created_at: '2026-02-28T00:00:00.000Z',
+      updated_at: '2026-02-28T00:00:00.000Z',
+    })
+
+    const enqueueMock = vi.fn().mockResolvedValue('task-1201')
+    mocks.getQueueManagerForTaskType.mockReturnValue({
+      enqueue: enqueueMock,
+    })
+
+    await scheduler.enqueueSyncTask({
+      userId: 1,
+      platform: 'yeahpromos',
+      mode: 'platform',
+      nowIso: '2026-03-01T00:00:00.000Z',
+    })
+
+    expect(mocks.updateAffiliateProductSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 1201,
+        totalItems: 54600,
+        createdCount: 53843,
+        updatedCount: 757,
+        cursorPage: 64,
+        cursorScope: 'amazon.de',
+        processedBatches: 478,
+      })
+    )
+    expect(enqueueMock).toHaveBeenCalled()
+  })
+
+  it('does not try failed-run resume for delta mode', async () => {
+    const scheduler = new AffiliateProductSyncScheduler() as any
+
+    mocks.createAffiliateProductSyncRun.mockResolvedValue(1301)
+    const enqueueMock = vi.fn().mockResolvedValue('task-1301')
+    mocks.getQueueManagerForTaskType.mockReturnValue({
+      enqueue: enqueueMock,
+    })
+
+    await scheduler.enqueueSyncTask({
+      userId: 1,
+      platform: 'yeahpromos',
+      mode: 'delta',
+      nowIso: '2026-03-01T00:00:00.000Z',
+    })
+
+    expect(mocks.getLatestFailedAffiliateProductSyncRun).not.toHaveBeenCalled()
+    expect(enqueueMock).toHaveBeenCalled()
   })
 })
