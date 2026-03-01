@@ -27,7 +27,8 @@ import {
   generateFilterReport,
   containsPureBrand,
   getPureBrandKeywords,
-  isPureBrandKeyword as isPureBrandKeywordInternal
+  isPureBrandKeyword as isPureBrandKeywordInternal,
+  calculateSearchVolumeThreshold,
 } from './keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
@@ -380,7 +381,227 @@ const GLOBAL_CORE_REVIEW_PATTERNS = /\b(review|rating|testimonial|feedback|comme
 const GLOBAL_CORE_TRUST_PATTERNS =
   /\b(review|reviews|rating|ratings|testimonial|testimonials|feedback|support|customer\s*service|warranty|guarantee|refund|return|secure|security|privacy|trusted|trust)\b/i
 const GLOBAL_CORE_GEO_PATTERNS = /\b(locations?|near\s+me|delivery|shipping|local|store\s+finder)\b/i
+const GLOBAL_CORE_TRANSACTIONAL_PATTERNS =
+  /\b(buy|best|price|sale|deal|discount|coupon|promo|offer|shop|official|professional)\b/i
 const GLOBAL_CORE_SEARCH_VOLUME_TTL_DAYS = 30
+const GLOBAL_CORE_BRAND_PREFIX_MIN_VOLUME = 100
+
+const GLOBAL_CORE_NON_ANCHOR_TOKENS = new Set([
+  'best', 'buy', 'sale', 'deal', 'discount', 'coupon', 'promo', 'offer', 'price', 'cost', 'cheap',
+  'affordable', 'official', 'shop', 'store', 'online', 'home', 'kitchen', 'professional', 'high',
+  'speed', 'small', 'mini', 'portable', 'personal', 'top', 'new', 'quality', 'premium', 'amazon',
+  'for', 'with', 'and', 'the', 'a', 'an',
+])
+
+function normalizeGlobalCoreToken(token: string): string {
+  const raw = String(token || '').toLowerCase().trim()
+  if (!raw) return ''
+  if (raw.endsWith('ies') && raw.length > 4) return `${raw.slice(0, -3)}y`
+  if (raw.endsWith('es') && raw.length > 4) return raw.slice(0, -2)
+  if (raw.endsWith('s') && raw.length > 3 && !raw.endsWith('ss')) return raw.slice(0, -1)
+  return raw
+}
+
+function tokenizeGlobalCore(text: string): string[] {
+  const normalized = normalizeGoogleAdsKeyword(text)
+  if (!normalized) return []
+  return normalized
+    .split(/\s+/)
+    .map(normalizeGlobalCoreToken)
+    .filter(Boolean)
+}
+
+function buildGlobalCoreAnchorTokens(offer: Offer): Set<string> {
+  const brandTokens = new Set(
+    getPureBrandKeywords(offer.brand || '')
+      .flatMap(item => tokenizeGlobalCore(item))
+  )
+  const categorySignals = extractCategorySignalsFromScrapedData(offer.scraped_data)
+  const sourceTexts = [
+    String(offer.category || ''),
+    String(offer.product_name || ''),
+    ...categorySignals,
+  ]
+  const tokens = new Set<string>()
+  for (const text of sourceTexts) {
+    for (const token of tokenizeGlobalCore(text)) {
+      if (token.length < 3) continue
+      if (brandTokens.has(token)) continue
+      if (GLOBAL_CORE_NON_ANCHOR_TOKENS.has(token)) continue
+      tokens.add(token)
+    }
+  }
+  return tokens
+}
+
+function keywordHitsGlobalCoreAnchors(keyword: string, anchorTokens: Set<string>): boolean {
+  if (anchorTokens.size === 0) return true
+  const tokens = tokenizeGlobalCore(keyword)
+  return tokens.some(token => anchorTokens.has(token))
+}
+
+function isHighIntentGlobalCoreKeyword(keyword: string): boolean {
+  if (!keyword) return false
+  if (
+    GLOBAL_CORE_TRANSACTIONAL_PATTERNS.test(keyword)
+    || GLOBAL_CORE_PROMO_PRICE_PATTERNS.test(keyword)
+    || GLOBAL_CORE_MODEL_PATTERNS.test(keyword)
+    || GLOBAL_CORE_TRUST_PATTERNS.test(keyword)
+    || GLOBAL_CORE_REVIEW_PATTERNS.test(keyword)
+  ) {
+    return true
+  }
+  // 对于词组型关键词（>=2词）视为可投放意图，后续仍会受“高搜索量+品类锚点”双门禁约束。
+  return tokenizeGlobalCore(keyword).length >= 2
+}
+
+function composeGlobalCoreBrandedKeyword(keyword: string, brandName: string, maxWords: number = 5): string | null {
+  const normalizedBrand = normalizeGoogleAdsKeyword(brandName)
+  const normalizedKeyword = normalizeGoogleAdsKeyword(keyword)
+  if (!normalizedBrand || !normalizedKeyword) return null
+
+  const brandTokens = normalizedBrand.split(/\s+/).filter(Boolean)
+  const keywordTokens = normalizedKeyword.split(/\s+/).filter(Boolean)
+  if (brandTokens.length === 0 || keywordTokens.length === 0) return null
+
+  const remainder: string[] = []
+  for (let i = 0; i < keywordTokens.length;) {
+    let matchesBrand = true
+    for (let j = 0; j < brandTokens.length; j += 1) {
+      if (keywordTokens[i + j] !== brandTokens[j]) {
+        matchesBrand = false
+        break
+      }
+    }
+
+    if (matchesBrand) {
+      i += brandTokens.length
+      continue
+    }
+
+    remainder.push(keywordTokens[i])
+    i += 1
+  }
+
+  const combined = [...brandTokens, ...remainder]
+  if (combined.length < 2 || combined.length > maxWords) return null
+  return combined.join(' ')
+}
+
+function adaptGlobalCoreKeywordsWithBrandPrefix(params: {
+  offer: Offer
+  keywords: PoolKeywordData[]
+  enforceBrandContainment: boolean
+}): {
+  keywords: PoolKeywordData[]
+  stats: {
+    nonBrandInput: number
+    brandedFromNonBrand: number
+    droppedLowVolume: number
+    droppedLowIntent: number
+    droppedNoAnchor: number
+    droppedComposeFailed: number
+    droppedDuplicate: number
+    highVolumeThreshold: number
+  }
+} {
+  const { offer, keywords, enforceBrandContainment } = params
+  const pureBrandKeywords = getPureBrandKeywords(offer.brand || '')
+  const anchorTokens = buildGlobalCoreAnchorTokens(offer)
+  const canonicalBrand = normalizeGoogleAdsKeyword(offer.brand || '')
+
+  const nonBrandCandidates = keywords.filter(item => !containsPureBrand(item.keyword, pureBrandKeywords))
+  const positiveVolumes = nonBrandCandidates
+    .map(item => Number(item.searchVolume || 0))
+    .filter(volume => volume > 0)
+  const dynamicThreshold = positiveVolumes.length > 0
+    ? Math.max(GLOBAL_CORE_BRAND_PREFIX_MIN_VOLUME, calculateSearchVolumeThreshold(positiveVolumes, GLOBAL_CORE_BRAND_PREFIX_MIN_VOLUME))
+    : Number.POSITIVE_INFINITY
+
+  const seenNorm = new Set<string>()
+  const adapted: PoolKeywordData[] = []
+  let brandedFromNonBrand = 0
+  let droppedLowVolume = 0
+  let droppedLowIntent = 0
+  let droppedNoAnchor = 0
+  let droppedComposeFailed = 0
+  let droppedDuplicate = 0
+
+  for (const item of keywords) {
+    const originalNorm = normalizeGoogleAdsKeyword(item.keyword)
+    if (!originalNorm) continue
+    const hasBrand = containsPureBrand(item.keyword, pureBrandKeywords)
+
+    const pushIfUnique = (next: PoolKeywordData): boolean => {
+      const norm = normalizeGoogleAdsKeyword(next.keyword)
+      if (!norm) return false
+      if (seenNorm.has(norm)) return false
+      seenNorm.add(norm)
+      adapted.push(next)
+      return true
+    }
+
+    // 品牌词直接保留（仍受后续严格过滤）
+    if (hasBrand) {
+      if (!pushIfUnique(item)) droppedDuplicate += 1
+      continue
+    }
+
+    if (!enforceBrandContainment || !canonicalBrand || pureBrandKeywords.length === 0) {
+      if (!pushIfUnique(item)) droppedDuplicate += 1
+      continue
+    }
+
+    const volume = Number(item.searchVolume || 0)
+    if (!(volume >= dynamicThreshold)) {
+      droppedLowVolume += 1
+      continue
+    }
+
+    if (!isHighIntentGlobalCoreKeyword(item.keyword)) {
+      droppedLowIntent += 1
+      continue
+    }
+
+    if (!keywordHitsGlobalCoreAnchors(item.keyword, anchorTokens)) {
+      droppedNoAnchor += 1
+      continue
+    }
+
+    const branded = composeGlobalCoreBrandedKeyword(item.keyword, canonicalBrand, 5)
+    if (!branded) {
+      droppedComposeFailed += 1
+      continue
+    }
+
+    const next: PoolKeywordData = {
+      ...item,
+      keyword: branded,
+      source: 'GLOBAL_CORE_BRANDED',
+      matchType: 'PHRASE',
+    }
+
+    if (pushIfUnique(next)) {
+      brandedFromNonBrand += 1
+    } else {
+      droppedDuplicate += 1
+    }
+  }
+
+  return {
+    keywords: adapted,
+    stats: {
+      nonBrandInput: nonBrandCandidates.length,
+      brandedFromNonBrand,
+      droppedLowVolume,
+      droppedLowIntent,
+      droppedNoAnchor,
+      droppedComposeFailed,
+      droppedDuplicate,
+      highVolumeThreshold: Number.isFinite(dynamicThreshold) ? dynamicThreshold : -1,
+    }
+  }
+}
 
 function buildExistingKeywordNormSet(lists: PoolKeywordData[][]): Set<string> {
   const set = new Set<string>()
@@ -440,7 +661,12 @@ function filterGlobalCoreKeywordsByOfferContext(params: {
   if (keywords.length === 0) return keywords
 
   const { categoryContext, minContextTokenMatches } = buildGlobalCoreQualityFilterContext(offer)
-  const qualityFiltered = filterKeywordQuality(keywords, {
+  const enforceBrandContainment = String(offer.brand || '').trim().length > 0
+  // GLOBAL_CORE 是跨Offer聚合词源，必须启用品类相关性门禁，避免跨品类词污染创意关键词。
+  const effectiveMinContextTokenMatches = Math.max(1, minContextTokenMatches)
+
+  // 第1层：先做相关性预过滤（允许非品牌候选进入后续“品牌前置改写”）
+  const preFiltered = filterKeywordQuality(keywords, {
     brandName: offer.brand,
     category: categoryContext,
     productName: offer.product_name || undefined,
@@ -450,18 +676,42 @@ function filterGlobalCoreKeywordsByOfferContext(params: {
     minWordCount: 1,
     maxWordCount: 8,
     mustContainBrand: false,
-    minContextTokenMatches,
+    minContextTokenMatches: effectiveMinContextTokenMatches,
   })
 
-  if (qualityFiltered.removed.length > 0) {
-    const contextRemoved = qualityFiltered.removed.filter(item => item.reason.includes('与商品无关')).length
+  // 第2层：把“高意图+高搜索量”的非品牌词改写为品牌前置词（参考 title/about 补词机制）
+  const adapted = adaptGlobalCoreKeywordsWithBrandPrefix({
+    offer,
+    keywords: preFiltered.filtered,
+    enforceBrandContainment,
+  })
+
+  // 第3层：严格收口（最终进入创意的 GLOBAL_CORE 词必须含品牌词）
+  const strictFiltered = filterKeywordQuality(adapted.keywords, {
+    brandName: offer.brand,
+    category: categoryContext,
+    productName: offer.product_name || undefined,
+    targetCountry: offer.target_country || undefined,
+    targetLanguage: offer.target_language || undefined,
+    productUrl: offer.final_url || offer.url || undefined,
+    minWordCount: 1,
+    maxWordCount: 8,
+    mustContainBrand: enforceBrandContainment,
+    minContextTokenMatches: effectiveMinContextTokenMatches,
+  })
+
+  if (preFiltered.removed.length > 0 || strictFiltered.removed.length > 0 || adapted.stats.brandedFromNonBrand > 0) {
+    const contextRemoved = strictFiltered.removed.filter(item => item.reason.includes('与商品无关')).length
+    const brandRemoved = strictFiltered.removed.filter(item => item.reason.includes('不含纯品牌词')).length
+    const preContextRemoved = preFiltered.removed.filter(item => item.reason.includes('与商品无关')).length
     console.log(
-      `🧹 GLOBAL_CORE(${scope}) 相关性过滤: ${keywords.length} → ${qualityFiltered.filtered.length} ` +
-      `(移除 ${qualityFiltered.removed.length}，其中上下文不相关 ${contextRemoved})`
+      `🧹 GLOBAL_CORE(${scope}) 过滤链路: ${keywords.length} → 预过滤${preFiltered.filtered.length} → 改写${adapted.keywords.length} → 收口${strictFiltered.filtered.length} ` +
+      `(预过滤移除 ${preFiltered.removed.length}/上下文${preContextRemoved}; 改写 ${adapted.stats.brandedFromNonBrand} 条, 高量阈值 ${adapted.stats.highVolumeThreshold === -1 ? 'N/A' : adapted.stats.highVolumeThreshold}; ` +
+      `收口移除 ${strictFiltered.removed.length}/无品牌${brandRemoved}/上下文${contextRemoved})`
     )
   }
 
-  return qualityFiltered.filtered
+  return strictFiltered.filtered
 }
 
 async function injectGlobalCoreKeywordsForProduct(params: {
