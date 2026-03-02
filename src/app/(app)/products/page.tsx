@@ -2245,9 +2245,9 @@ export default function ProductsPage() {
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>同一 ASIN 可能对应多个推广条目（不同链接/佣金/策略），列表按推广条目展示。同步未命中不会自动计入失效或执行手动下线。</span>
             </div>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-1 flex-wrap items-center gap-2">
-                <div className="relative w-full max-w-md">
+            <div className="space-y-3">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_180px_138px_138px_132px] lg:items-center">
+                <div className="relative w-full">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={searchText}
@@ -2260,13 +2260,13 @@ export default function ProductsPage() {
                   value={midText}
                   onChange={(event) => setMidText(event.target.value)}
                   placeholder="MID筛选（商家ID）"
-                  className="w-[180px]"
+                  className="w-full lg:w-[180px]"
                 />
                 <Select value={platformFilter} onValueChange={(value) => {
                   setPlatformFilter(value as typeof platformFilter)
                   setPage(1)
                 }}>
-                  <SelectTrigger className="w-[138px]">
+                  <SelectTrigger className="w-full lg:w-[138px]">
                     <SelectValue placeholder="联盟平台" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2279,7 +2279,7 @@ export default function ProductsPage() {
                   setStatusFilter(value as ProductStatusFilter)
                   setPage(1)
                 }}>
-                  <SelectTrigger className="w-[138px]">
+                  <SelectTrigger className="w-full lg:w-[138px]">
                     <SelectValue placeholder="状态" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2294,7 +2294,7 @@ export default function ProductsPage() {
                   setTargetCountryFilter(value)
                   setPage(1)
                 }}>
-                  <SelectTrigger className="w-[132px]">
+                  <SelectTrigger className="w-full lg:w-[132px]">
                     <SelectValue placeholder="投放国家" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2308,7 +2308,7 @@ export default function ProductsPage() {
                 </Select>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 {hasFilters && (
                   <Button
                     variant="ghost"
