@@ -18,6 +18,13 @@ type RouteParams = {
 
 type SyncStrategy = 'light' | 'full'
 
+function parseBooleanFlag(value: unknown, defaultValue: boolean = false): boolean {
+  if (typeof value === 'boolean') return value
+  const text = String(value ?? '').trim().toLowerCase()
+  if (!text) return defaultValue
+  return text === '1' || text === 'true' || text === 'yes' || text === 'on'
+}
+
 function resolveSyncMode(params: {
   platform: 'partnerboost' | 'yeahpromos'
   strategy?: string
@@ -61,6 +68,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       platform,
       strategy: body?.strategy,
     })
+    // 默认从头跑，避免手动全量误续跑历史失败游标（例如旧 run 卡在坏页）。
+    const resumeFailedRun = parseBooleanFlag(body?.resumeFailedRun, false)
 
     const configCheck = await checkAffiliatePlatformConfig(userId, platform)
     if (!configCheck.configured) {
@@ -92,7 +101,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
     })
 
     let resumedFromRunId: number | null = null
-    if (mode === 'platform') {
+    if (mode === 'platform' && resumeFailedRun) {
       const latestFailedRun = await getLatestFailedAffiliateProductSyncRun({
         userId,
         platform,
@@ -149,6 +158,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       success: true,
       runId,
       resumedFromRunId,
+      resumeFailedRun,
       taskId,
       message: '商品同步任务已提交',
     })
