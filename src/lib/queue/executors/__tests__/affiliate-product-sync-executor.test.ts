@@ -147,6 +147,7 @@ describe('affiliate-product-sync executor resume behavior', () => {
       updated_count: 31880,
       failed_count: 0,
       cursor_page: 321,
+      cursor_scope: 'DE',
       processed_batches: 32,
       started_at: '2026-02-21T10:00:00.000Z',
       completed_at: null,
@@ -161,6 +162,7 @@ describe('affiliate-product-sync executor resume behavior', () => {
         platform: 'partnerboost',
         mode: 'platform',
         resumeFromPage: 321,
+        resumeFromScope: 'DE',
       })
     )
   })

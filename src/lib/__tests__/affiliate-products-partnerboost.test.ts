@@ -202,6 +202,67 @@ describe('resolvePartnerboostCountryCode', () => {
   })
 })
 
+describe('resolvePartnerboostFullSyncCountrySequence', () => {
+  it('uses the expected full-sync country order', () => {
+    expect(__testOnly.resolvePartnerboostFullSyncCountrySequence()).toEqual([
+      'US',
+      'MX',
+      'CA',
+      'DE',
+      'UK',
+      'ES',
+      'FR',
+      'IT',
+    ])
+  })
+})
+
+describe('dedupeNormalizedProducts', () => {
+  it('merges allowed countries for duplicate partnerboost mids', () => {
+    const deduped = __testOnly.dedupeNormalizedProducts([
+      {
+        platform: 'partnerboost',
+        mid: 'p1',
+        asin: 'B000000001',
+        brand: 'Brand',
+        productName: 'Demo',
+        productUrl: 'https://example.com/p1',
+        promoLink: null,
+        shortPromoLink: null,
+        allowedCountries: ['US'],
+        priceAmount: 12,
+        priceCurrency: 'USD',
+        commissionRate: 10,
+        commissionAmount: 1.2,
+        reviewCount: 100,
+        rawJson: '{"country":"US"}',
+      },
+      {
+        platform: 'partnerboost',
+        mid: 'p1',
+        asin: 'B000000001',
+        brand: 'Brand',
+        productName: 'Demo',
+        productUrl: 'https://example.com/p1',
+        promoLink: 'https://pboost.me/p1',
+        shortPromoLink: 'https://pboost.me/p1',
+        allowedCountries: ['DE'],
+        priceAmount: 12,
+        priceCurrency: 'USD',
+        commissionRate: 10,
+        commissionAmount: 1.2,
+        reviewCount: 100,
+        rawJson: '{"country":"DE"}',
+      },
+    ])
+
+    expect(deduped).toHaveLength(1)
+    expect(deduped[0].allowedCountries.sort()).toEqual(['DE', 'US'])
+    expect(deduped[0].promoLink).toBe('https://pboost.me/p1')
+    expect(deduped[0].shortPromoLink).toBe('https://pboost.me/p1')
+  })
+})
+
 describe('detectAffiliateLandingPageType', () => {
   it('returns amazon_product when asin exists', () => {
     expect(detectAffiliateLandingPageType({ asin: 'B0ABC12345' })).toBe('amazon_product')

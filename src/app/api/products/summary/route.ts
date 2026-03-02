@@ -29,6 +29,13 @@ function parseDateFilter(searchParams: URLSearchParams, key: string): string | n
   return raw
 }
 
+function parseCountryFilter(searchParams: URLSearchParams, key: string): string {
+  const raw = (searchParams.get(key) || '').trim().toUpperCase()
+  if (!raw || raw === 'ALL') return 'all'
+  if (!/^[A-Z]{2,3}$/.test(raw)) return 'all'
+  return raw
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userIdRaw = request.headers.get('x-user-id')
@@ -49,6 +56,7 @@ export async function GET(request: NextRequest) {
     const search = (searchParams.get('search') || '').trim()
     const mid = (searchParams.get('mid') || '').trim()
     const platform = normalizeAffiliatePlatform(searchParams.get('platform')) || 'all'
+    const targetCountry = parseCountryFilter(searchParams, 'targetCountry')
     const status = normalizeAffiliateProductStatusFilter(searchParams.get('status'))
 
     const reviewCountMin = parseNumericFilter(searchParams, 'reviewCountMin')
@@ -68,6 +76,7 @@ export async function GET(request: NextRequest) {
       search,
       mid,
       platform,
+      targetCountry: targetCountry === 'all' ? undefined : targetCountry,
       status,
       reviewCountMin: reviewCountMin ?? undefined,
       reviewCountMax: reviewCountMax ?? undefined,
@@ -80,6 +89,8 @@ export async function GET(request: NextRequest) {
       createdAtFrom: createdAtFrom ?? undefined,
       createdAtTo: createdAtTo ?? undefined,
       skipItems: true,
+      // summary 仅用于页面头部统计，优先快速返回，避免重统计阻塞首屏体验。
+      fastSummary: true,
     })
 
     return NextResponse.json({

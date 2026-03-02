@@ -298,6 +298,8 @@ const PLATFORM_SHORT_LABEL: Record<ProductPlatform, string> = {
   partnerboost: 'PB',
 }
 
+const PRODUCT_TARGET_COUNTRY_FILTER_OPTIONS = ['US', 'MX', 'CA', 'DE', 'UK', 'ES', 'FR', 'IT'] as const
+
 const PLATFORM_CARD_ACCENT_CLASS: Record<ProductPlatform, string> = {
   yeahpromos: 'text-indigo-600',
   partnerboost: 'text-emerald-600',
@@ -743,6 +745,7 @@ export default function ProductsPage() {
   const [midQuery, setMidQuery] = useState('')
   const [platformFilter, setPlatformFilter] = useState<'all' | ProductPlatform>('all')
   const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('all')
+  const [targetCountryFilter, setTargetCountryFilter] = useState('all')
   const [numericRangeDrafts, setNumericRangeDrafts] = useState<NumericRangeFilterDrafts>({
     ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS,
   })
@@ -804,6 +807,7 @@ export default function ProductsPage() {
     || midQuery.length > 0
     || platformFilter !== 'all'
     || statusFilter !== 'all'
+    || targetCountryFilter !== 'all'
     || createdAtFrom.length > 0
     || createdAtTo.length > 0
     || Object.values(numericRangeFilters).some((value) => value !== null)
@@ -930,6 +934,7 @@ export default function ProductsPage() {
       if (midQuery) params.set('mid', midQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (targetCountryFilter !== 'all') params.set('targetCountry', targetCountryFilter)
       if (createdAtFrom) params.set('createdAtFrom', createdAtFrom)
       if (createdAtTo) params.set('createdAtTo', createdAtTo)
 
@@ -1001,6 +1006,7 @@ export default function ProductsPage() {
       if (midQuery) params.set('mid', midQuery)
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (targetCountryFilter !== 'all') params.set('targetCountry', targetCountryFilter)
       if (createdAtFrom) params.set('createdAtFrom', createdAtFrom)
       if (createdAtTo) params.set('createdAtTo', createdAtTo)
 
@@ -1219,13 +1225,16 @@ export default function ProductsPage() {
   }
 
   useEffect(() => {
-    fetchProductSummary()
     fetchProducts()
     fetchSyncRuns()
     if (productConfigOpen) {
       void loadProductConfig()
     }
-  }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, numericRangeFilters, createdAtFrom, createdAtTo, sortBy, sortOrder])
+  }, [page, pageSize, searchQuery, midQuery, platformFilter, statusFilter, targetCountryFilter, numericRangeFilters, createdAtFrom, createdAtTo, sortBy, sortOrder])
+
+  useEffect(() => {
+    fetchProductSummary()
+  }, [searchQuery, midQuery, platformFilter, statusFilter, targetCountryFilter, numericRangeFilters, createdAtFrom, createdAtTo])
 
   useEffect(() => {
     const hasActiveRuns = latestRuns.some((run) => run.status === 'queued' || run.status === 'running')
@@ -2237,7 +2246,7 @@ export default function ProductsPage() {
               <span>同一 ASIN 可能对应多个推广条目（不同链接/佣金/策略），列表按推广条目展示。同步未命中不会自动计入失效或执行手动下线。</span>
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-1 items-center gap-2">
+              <div className="flex flex-1 flex-wrap items-center gap-2">
                 <div className="relative w-full max-w-md">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -2257,7 +2266,7 @@ export default function ProductsPage() {
                   setPlatformFilter(value as typeof platformFilter)
                   setPage(1)
                 }}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-[138px]">
                     <SelectValue placeholder="联盟平台" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2270,7 +2279,7 @@ export default function ProductsPage() {
                   setStatusFilter(value as ProductStatusFilter)
                   setPage(1)
                 }}>
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-[138px]">
                     <SelectValue placeholder="状态" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2279,6 +2288,22 @@ export default function ProductsPage() {
                     <SelectItem value="invalid">已失效(平台确认)</SelectItem>
                     <SelectItem value="sync_missing">同步未命中</SelectItem>
                     <SelectItem value="unknown">状态未知</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={targetCountryFilter} onValueChange={(value) => {
+                  setTargetCountryFilter(value)
+                  setPage(1)
+                }}>
+                  <SelectTrigger className="w-[132px]">
+                    <SelectValue placeholder="投放国家" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部国家</SelectItem>
+                    {PRODUCT_TARGET_COUNTRY_FILTER_OPTIONS.map((countryCode) => (
+                      <SelectItem key={countryCode} value={countryCode}>
+                        {countryCode}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2294,6 +2319,7 @@ export default function ProductsPage() {
                       setMidQuery('')
                       setPlatformFilter('all')
                       setStatusFilter('all')
+                      setTargetCountryFilter('all')
                       setCreatedAtFrom('')
                       setCreatedAtTo('')
                       setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })

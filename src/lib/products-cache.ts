@@ -45,6 +45,7 @@ export type ProductListCachePayload = {
   pageSize: number
   search: string
   mid?: string
+  targetCountry: string
   sortBy: string
   sortOrder: string
   platform: string
@@ -69,6 +70,7 @@ export type ProductSummaryCachePayload = {
   search: string
   mid: string
   platform: string
+  targetCountry: string
   status: string
   reviewCountMin: number | null
   reviewCountMax: number | null
@@ -132,6 +134,10 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
   const mid = typeof obj.mid === 'string' ? obj.mid : ''
   const sortBy = typeof obj.sortBy === 'string' ? obj.sortBy : ''
   const sortOrder = typeof obj.sortOrder === 'string' ? obj.sortOrder.toLowerCase() : ''
+  const rawTargetCountry = typeof obj.targetCountry === 'string'
+    ? obj.targetCountry.trim().toUpperCase()
+    : ''
+  const targetCountry = /^[A-Z]{2,3}$/.test(rawTargetCountry) ? rawTargetCountry : 'all'
   const platform = typeof obj.platform === 'string' ? obj.platform : ''
   const statusRaw = typeof obj.status === 'string' ? obj.status.toLowerCase() : 'all'
   const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'sync_missing' || statusRaw === 'unknown'
@@ -166,6 +172,7 @@ function normalizeProductListCachePayload(input: unknown): ProductListCachePaylo
     mid,
     sortBy,
     sortOrder,
+    targetCountry,
     platform,
     status,
     reviewCountMin: parseNumericBound(obj.reviewCountMin),

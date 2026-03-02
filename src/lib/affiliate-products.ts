@@ -131,6 +131,7 @@ export type ProductListOptions = {
   pageSize?: number
   search?: string
   mid?: string
+  targetCountry?: string
   platform?: AffiliatePlatform | 'all'
   sortBy?: ProductSortField
   sortOrder?: ProductSortOrder
@@ -300,6 +301,7 @@ const MAX_PB_REQUEST_DELAY_MS = 5000
 const DEFAULT_PB_RATE_LIMIT_MAX_RETRIES = 4
 const DEFAULT_PB_RATE_LIMIT_BASE_DELAY_MS = 800
 const DEFAULT_PB_RATE_LIMIT_MAX_DELAY_MS = 12000
+const DEFAULT_PB_FULL_SYNC_COUNTRY_SEQUENCE = ['US', 'MX', 'CA', 'DE', 'UK', 'ES', 'FR', 'IT'] as const
 const DEFAULT_PB_STREAM_WINDOW_PAGES = 10
 const MAX_PB_STREAM_WINDOW_PAGES = 200
 const DEFAULT_YP_STREAM_WINDOW_PAGES = 3
@@ -322,6 +324,10 @@ const MAX_YP_PRODUCTS_DELAY_JITTER_MS = 4000
 const YP_MARKETPLACE_TEMPLATES_SETTING_KEY = 'yeahpromos_marketplace_templates_json'
 const YP_PROXY_COUNTRY_ALIAS: Record<string, string> = {
   UK: 'GB',
+}
+const PRODUCT_COUNTRY_FILTER_ALIAS_MAP: Record<string, string[]> = {
+  UK: ['GB'],
+  GB: ['UK'],
 }
 const YP_DOM_INTERCEPT_KEYWORDS = [
   'request too fast',
@@ -396,6 +402,8 @@ type PartnerboostPromotableFetchParams = {
   asins?: string[]
   maxPages?: number
   startPage?: number
+  countryCodeOverride?: string
+  linkCountryCodeOverride?: string
   suppressMaxPagesWarning?: boolean
   onFetchProgress?: (fetchedCount: number) => Promise<void> | void
 }
@@ -873,6 +881,24 @@ export function resolvePartnerboostCountryCode(value: unknown, fallback: unknown
   if (backup) return backup
 
   return DEFAULT_PB_COUNTRY_CODE
+}
+
+function resolvePartnerboostFullSyncCountrySequence(): string[] {
+  const deduped: string[] = []
+  const seen = new Set<string>()
+
+  for (const country of DEFAULT_PB_FULL_SYNC_COUNTRY_SEQUENCE) {
+    const normalized = normalizeCountryCode(country)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    deduped.push(normalized)
+  }
+
+  if (deduped.length === 0) {
+    return [DEFAULT_PB_COUNTRY_CODE]
+  }
+
+  return deduped
 }
 
 function assertPartnerboostAsinRequestLimit(asins: string[]): void {
@@ -1394,6 +1420,27 @@ function normalizeCountryCode(value: string): string | null {
   if (!code) return null
   if (code.length === 2 || code.length === 3) return code
   return code
+}
+
+function normalizeProductTargetCountryFilter(value: unknown): string | null {
+  const normalized = normalizeCountryCode(String(value || ''))
+  if (!normalized || normalized === 'ALL') return null
+  if (!/^[A-Z]{2,3}$/.test(normalized)) return null
+  return normalized
+}
+
+function resolveProductCountryFilterCandidates(value: unknown): string[] {
+  const normalized = normalizeProductTargetCountryFilter(value)
+  if (!normalized) return []
+
+  const deduped = new Set<string>([normalized])
+  for (const alias of PRODUCT_COUNTRY_FILTER_ALIAS_MAP[normalized] || []) {
+    const aliasCode = normalizeCountryCode(alias)
+    if (!aliasCode) continue
+    deduped.add(aliasCode)
+  }
+
+  return Array.from(deduped)
 }
 
 function normalizeCountries(input: unknown): string[] {
@@ -2285,7 +2332,10 @@ async function fetchPartnerboostPromotableProductsWithMeta(
   const configuredStartPage = Math.max(1, parseInteger(check.values.partnerboost_products_page || '1', 1))
   const startPage = Math.max(1, parseInteger(params.startPage, configuredStartPage))
   const defaultFilter = parseInteger(check.values.partnerboost_products_default_filter || '0', 0)
-  const countryCode = resolvePartnerboostCountryCode(check.values.partnerboost_products_country_code)
+  const countryCode = resolvePartnerboostCountryCode(
+    params.countryCodeOverride,
+    check.values.partnerboost_products_country_code
+  )
   const brandId = (check.values.partnerboost_products_brand_id || '').trim() || null
   const sort = check.values.partnerboost_products_sort || ''
   const relationship = parseInteger(check.values.partnerboost_products_relationship || '1', 1)
@@ -2336,7 +2386,10 @@ async function fetchPartnerboostPromotableProductsWithMeta(
     .map((asin) => normalizeAsin(asin))
     .filter((asin): asin is string => Boolean(asin))
   assertPartnerboostAsinRequestLimit(allAsins)
-  const linkCountryCode = resolvePartnerboostCountryCode(check.values.partnerboost_link_country_code, countryCode)
+  const linkCountryCode = resolvePartnerboostCountryCode(
+    params.linkCountryCodeOverride ?? check.values.partnerboost_link_country_code,
+    countryCode
+  )
   const uid = check.values.partnerboost_link_uid || ''
   const returnPartnerboostLink = parseInteger(check.values.partnerboost_link_return_partnerboost_link || '1', 1)
   const isAsinTargetedSync = allAsins.length > 0
@@ -3469,13 +3522,36 @@ function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): Normaliz
     const key = `${item.platform}:${item.mid}`
     const existing = deduped.get(key)
     if (!existing) {
-      deduped.set(key, item)
+      deduped.set(key, {
+        ...item,
+        allowedCountries: normalizeCountries(item.allowedCountries),
+      })
       continue
     }
 
-    if (!existing.promoLink && item.promoLink) {
-      deduped.set(key, item)
+    const mergedAllowedCountries = normalizeCountries([
+      ...existing.allowedCountries,
+      ...item.allowedCountries,
+    ])
+
+    const merged: NormalizedAffiliateProduct = {
+      ...existing,
+      asin: existing.asin || item.asin,
+      brand: existing.brand || item.brand,
+      productName: existing.productName || item.productName,
+      productUrl: existing.productUrl || item.productUrl,
+      promoLink: existing.promoLink || item.promoLink,
+      shortPromoLink: existing.shortPromoLink || item.shortPromoLink,
+      allowedCountries: mergedAllowedCountries,
+      priceAmount: existing.priceAmount ?? item.priceAmount,
+      priceCurrency: existing.priceCurrency || item.priceCurrency,
+      commissionRate: existing.commissionRate ?? item.commissionRate,
+      commissionAmount: existing.commissionAmount ?? item.commissionAmount,
+      reviewCount: existing.reviewCount ?? item.reviewCount,
+      rawJson: existing.rawJson || item.rawJson,
     }
+
+    deduped.set(key, merged)
   }
   return Array.from(deduped.values())
 }
@@ -4402,6 +4478,17 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     )
   }
 
+  const targetCountryCandidates = resolveProductCountryFilterCandidates(options.targetCountry)
+  if (targetCountryCandidates.length > 0) {
+    const countryLikeConditions = targetCountryCandidates
+      .map(() => `LOWER(COALESCE(p.allowed_countries_json, '')) LIKE ?`)
+      .join(' OR ')
+    whereConditions.push(`(${countryLikeConditions})`)
+    for (const countryCode of targetCountryCandidates) {
+      whereParams.push(`%\"${countryCode.toLowerCase()}\"%`)
+    }
+  }
+
   appendNumericRangeWhere({
     whereConditions,
     whereParams,
@@ -4516,6 +4603,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     search,
     mid,
     platform: platform || 'all',
+    targetCountry: normalizeProductTargetCountryFilter(options.targetCountry) || 'all',
     status: statusFilter,
     reviewCountMin: options.reviewCountMin ?? null,
     reviewCountMax: options.reviewCountMax ?? null,
@@ -4590,17 +4678,83 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       blacklistedCount = Number(cachedSummary.blacklistedCount || 0)
     }
 
-    const totalRow = await db.queryOne<{ total_count: number }>(
+    const basePlatformRows = await db.query<{
+      platform: string
+      total_count: number
+    }>(
       `
-        ${fullSyncBaselineCteSql}
-        SELECT COUNT(*) AS total_count
+        SELECT
+          p.platform AS platform,
+          COUNT(*) AS total_count
         FROM affiliate_products p
-        LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
-        WHERE ${filteredWhereSql}
+        WHERE ${baseWhereSql}
+        GROUP BY p.platform
       `,
-      [userId, ...filteredWhereParams]
+      [...whereParams]
     )
-    total = Number(totalRow?.total_count || 0)
+
+    for (const row of basePlatformRows) {
+      const platformKey = normalizeAffiliatePlatform(row.platform)
+      if (!platformKey) continue
+      platformStatsAccumulator[platformKey].total = toSafeCount(row.total_count)
+    }
+
+    if (statusFilter === 'all') {
+      total = Object.values(platformStatsAccumulator).reduce((sum, item) => sum + item.total, 0)
+      platformStats = finalizePlatformStats(platformStatsAccumulator)
+    } else {
+      const fastVisibleRows = await db.query<{
+        platform: string
+        visible_count: number
+      }>(
+        `
+          ${fullSyncBaselineCteSql}
+          SELECT
+            p.platform AS platform,
+            COUNT(*) AS visible_count
+          FROM affiliate_products p
+          LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+          WHERE ${filteredWhereSql}
+          GROUP BY p.platform
+        `,
+        [userId, ...filteredWhereParams]
+      )
+
+      let visibleTotal = 0
+      for (const row of fastVisibleRows) {
+        const platformKey = normalizeAffiliatePlatform(row.platform)
+        if (!platformKey) continue
+        const visibleCount = toSafeCount(row.visible_count)
+        visibleTotal += visibleCount
+
+        if (statusFilter === 'active') {
+          platformStatsAccumulator[platformKey].activeProductsCount = visibleCount
+          continue
+        }
+        if (statusFilter === 'invalid') {
+          platformStatsAccumulator[platformKey].invalidProductsCount = visibleCount
+          continue
+        }
+        if (statusFilter === 'sync_missing') {
+          platformStatsAccumulator[platformKey].syncMissingProductsCount = visibleCount
+          continue
+        }
+        platformStatsAccumulator[platformKey].unknownProductsCount = visibleCount
+      }
+
+      total = visibleTotal
+      if (statusFilter === 'active') {
+        activeProductsCount = visibleTotal
+      } else if (statusFilter === 'invalid') {
+        invalidProductsCount = visibleTotal
+      } else if (statusFilter === 'sync_missing') {
+        syncMissingProductsCount = visibleTotal
+      } else if (statusFilter === 'unknown') {
+        unknownProductsCount = visibleTotal
+      }
+
+      platformStats = finalizePlatformStats(platformStatsAccumulator)
+    }
   } else {
     const summaryRow = await db.queryOne<{
       total_count: number
@@ -4928,6 +5082,7 @@ export const __testOnly = {
   assertPartnerboostAsinRequestLimit,
   calculateExponentialBackoffDelay,
   buildComparableUrlTokens,
+  dedupeNormalizedProducts,
   extractAsinFromUrlLike,
   extractPartnerboostLinkId,
   isPartnerboostTransientError,
@@ -4943,6 +5098,7 @@ export const __testOnly = {
   detectYeahPromosHttpIntercept,
   resolveYeahPromosProductMid,
   resolveOfferProductBackfillDecision,
+  resolvePartnerboostFullSyncCountrySequence,
   normalizeNumericRangeBounds,
   mapAffiliateProductRow,
   resolveSyncMaxPages,
@@ -5786,6 +5942,26 @@ export async function getLatestFailedAffiliateProductSyncRun(params: {
 
   if (!row) return null
 
+  // 仅当“最近一次终态”仍是 failed 时才允许续跑。
+  // 如果失败游标之后已有 completed 任务，说明链路已经成功跑通，
+  // 再继续续跑旧失败游标会导致手动全量误从历史断点启动。
+  const newerCompleted = await db.queryOne<{ id: number }>(
+    `
+      SELECT id
+      FROM affiliate_product_sync_runs
+      WHERE user_id = ?
+        AND platform = ?
+        AND mode = ?
+        AND status = 'completed'
+        AND id > ?
+      LIMIT 1
+    `,
+    [params.userId, params.platform, params.mode, Number(row.id)]
+  )
+  if (newerCompleted?.id) {
+    return null
+  }
+
   return {
     id: Number(row.id),
     user_id: Number(row.user_id),
@@ -6105,6 +6281,7 @@ export type YeahPromosSyncMonitor = {
 async function syncPartnerboostPlatformByWindow(params: {
   userId: number
   startPage?: number
+  startScope?: string
   pageWindowSize?: number
   progressEvery?: number
   onProgress?: (progress: AffiliateProductSyncProgress) => Promise<void> | void
@@ -6121,14 +6298,23 @@ async function syncPartnerboostPlatformByWindow(params: {
     MAX_PB_STREAM_WINDOW_PAGES
   )
 
+  const countrySequence = resolvePartnerboostFullSyncCountrySequence()
+  const normalizedStartScope = normalizeCountryCode(String(params.startScope || ''))
+  let scopeIndex = normalizedStartScope
+    ? countrySequence.indexOf(normalizedStartScope)
+    : 0
+  if (scopeIndex < 0) {
+    scopeIndex = 0
+  }
+
   let cursorPage = Math.max(1, parseInteger(params.startPage, 1))
-  let hasMore = true
+  let cursorScope: string | null = countrySequence[scopeIndex] || null
   let totalFetched = 0
   let createdCount = 0
   let updatedCount = 0
   const failedCount = 0
   let processedBatches = 0
-  const seenMids = new Set<string>()
+  const seenMidAllowedCountries = new Map<string, Set<string>>()
 
   const emitProgress = async (nextFetched: number): Promise<void> => {
     if (!params.onProgress) return
@@ -6150,6 +6336,7 @@ async function syncPartnerboostPlatformByWindow(params: {
     try {
       await params.onCheckpoint({
         cursorPage,
+        cursorScope,
         processedBatches,
         totalFetched,
         createdCount,
@@ -6164,11 +6351,15 @@ async function syncPartnerboostPlatformByWindow(params: {
   await emitProgress(0)
   await emitCheckpoint()
 
-  while (hasMore) {
+  while (scopeIndex < countrySequence.length) {
+    const currentCountry = countrySequence[scopeIndex]
+    cursorScope = currentCountry
     const windowStartPage = cursorPage
     const fetchResult = await fetchPartnerboostPromotableProductsWithMeta({
       userId: params.userId,
       startPage: windowStartPage,
+      countryCodeOverride: currentCountry,
+      linkCountryCodeOverride: currentCountry,
       maxPages: pageWindowSize,
       suppressMaxPagesWarning: true,
       onFetchProgress: async (fetchedCount) => {
@@ -6177,18 +6368,28 @@ async function syncPartnerboostPlatformByWindow(params: {
       },
     })
 
-    const dedupedWindowItems: NormalizedAffiliateProduct[] = []
+    const scopedWindowItems: NormalizedAffiliateProduct[] = []
     for (const item of fetchResult.items) {
       const mid = String(item.mid || '').trim()
-      if (!mid || seenMids.has(mid)) continue
-      seenMids.add(mid)
-      dedupedWindowItems.push(item)
+      if (!mid) continue
+
+      const allowedCountries = normalizeCountries(item.allowedCountries)
+      const existingCountries = seenMidAllowedCountries.get(mid) || new Set<string>()
+      for (const country of allowedCountries) {
+        existingCountries.add(country)
+      }
+      seenMidAllowedCountries.set(mid, existingCountries)
+
+      scopedWindowItems.push({
+        ...item,
+        allowedCountries: Array.from(existingCountries),
+      })
     }
 
     const upserted = await upsertAffiliateProducts(
       params.userId,
       'partnerboost',
-      dedupedWindowItems,
+      scopedWindowItems,
       {
         progressEvery: params.progressEvery,
       }
@@ -6201,13 +6402,24 @@ async function syncPartnerboostPlatformByWindow(params: {
     const nextPage = fetchResult.nextPage > windowStartPage
       ? fetchResult.nextPage
       : windowStartPage + Math.max(1, fetchResult.fetchedPages)
-    cursorPage = nextPage
-    hasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
+    const scopeHasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
+    if (scopeHasMore) {
+      cursorPage = nextPage
+      cursorScope = currentCountry
+    } else {
+      scopeIndex += 1
+      cursorPage = 1
+      cursorScope = scopeIndex < countrySequence.length
+        ? countrySequence[scopeIndex]
+        : null
+    }
 
     await emitProgress(totalFetched)
     await emitCheckpoint()
 
-    if (fetchResult.fetchedPages <= 0) break
+    if (fetchResult.fetchedPages <= 0 && !scopeHasMore) {
+      continue
+    }
   }
 
   return {
@@ -6414,6 +6626,7 @@ export async function syncAffiliateProducts(params: {
       const result = await syncPartnerboostPlatformByWindow({
         userId: params.userId,
         startPage: params.resumeFromPage,
+        startScope: params.resumeFromScope,
         pageWindowSize: params.pageWindowSize,
         progressEvery: params.progressEvery,
         onProgress: params.onProgress,

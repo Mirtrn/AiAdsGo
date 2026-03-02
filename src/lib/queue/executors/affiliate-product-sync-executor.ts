@@ -39,6 +39,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   pageSize: number
   search: string
   mid: string
+  targetCountry: string
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all'
@@ -58,6 +59,7 @@ const DEFAULT_CACHE_WARM_PARAMS: {
   pageSize: 20,
   search: '',
   mid: '',
+  targetCountry: 'all',
   sortBy: 'serial',
   sortOrder: 'desc',
   platform: 'all',
@@ -95,6 +97,7 @@ type CacheWarmParams = {
   pageSize: number
   search: string
   mid: string
+  targetCountry: string
   sortBy: ProductSortField
   sortOrder: ProductSortOrder
   platform: 'all' | AffiliatePlatform
@@ -149,6 +152,8 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
   const status = statusRaw === 'active' || statusRaw === 'invalid' || statusRaw === 'sync_missing' || statusRaw === 'unknown'
     ? statusRaw
     : 'all'
+  const rawTargetCountry = String(payload.targetCountry || '').trim().toUpperCase()
+  const targetCountry = /^[A-Z]{2,3}$/.test(rawTargetCountry) ? rawTargetCountry : 'all'
   const createdAtFrom = normalizeOptionalDate(payload.createdAtFrom)
   const createdAtTo = normalizeOptionalDate(payload.createdAtTo)
   const normalizedDateRange = createdAtFrom && createdAtTo && createdAtFrom > createdAtTo
@@ -160,6 +165,7 @@ function normalizeWarmParams(payload: ProductListCachePayload): CacheWarmParams 
     pageSize,
     search,
     mid,
+    targetCountry,
     sortBy,
     sortOrder,
     platform,
@@ -181,6 +187,7 @@ async function warmProductListCacheByParams(userId: number, params: CacheWarmPar
   const listResult = await listAffiliateProducts(userId, {
     ...params,
     mid: params.mid,
+    targetCountry: params.targetCountry === 'all' ? undefined : params.targetCountry,
     reviewCountMin: params.reviewCountMin ?? undefined,
     reviewCountMax: params.reviewCountMax ?? undefined,
     priceAmountMin: params.priceAmountMin ?? undefined,

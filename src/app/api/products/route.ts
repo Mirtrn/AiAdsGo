@@ -54,6 +54,13 @@ function parseDateFilter(searchParams: URLSearchParams, key: string): string | n
   return raw
 }
 
+function parseCountryFilter(searchParams: URLSearchParams, key: string): string {
+  const raw = (searchParams.get(key) || '').trim().toUpperCase()
+  if (!raw || raw === 'ALL') return 'all'
+  if (!/^[A-Z]{2,3}$/.test(raw)) return 'all'
+  return raw
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userIdRaw = request.headers.get('x-user-id')
@@ -81,6 +88,7 @@ export async function GET(request: NextRequest) {
       ? 'asc'
       : 'desc' as ProductSortOrder
     const platform = normalizeAffiliatePlatform(searchParams.get('platform')) || 'all'
+    const targetCountry = parseCountryFilter(searchParams, 'targetCountry')
     const status = normalizeAffiliateProductStatusFilter(searchParams.get('status'))
 
     const reviewCountMin = parseNumericFilter(searchParams, 'reviewCountMin')
@@ -104,6 +112,7 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      targetCountry,
       status,
       reviewCountMin,
       reviewCountMax,
@@ -150,6 +159,7 @@ export async function GET(request: NextRequest) {
       sortBy,
       sortOrder,
       platform,
+      targetCountry: targetCountry === 'all' ? undefined : targetCountry,
       status,
       reviewCountMin: reviewCountMin ?? undefined,
       reviewCountMax: reviewCountMax ?? undefined,
