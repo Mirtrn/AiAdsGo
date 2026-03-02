@@ -116,7 +116,6 @@ function extractOfferIdFromOfferUpdatePath(path: string): number | null {
 type OfferExtractCommissionSourceMatchType =
   | 'exact_link'
   | 'yeahpromos_pid'
-  | 'yeahpromos_track'
   | 'partnerboost_link_id'
 
 function normalizeUrlForComparison(value: unknown): string | null {
@@ -847,7 +846,6 @@ async function queryOfferExtractCommissionSourceMatch(params: {
 
   const normalizedAffiliateLink = normalizeUrlForComparison(affiliateLink)
   const yesPromosPid = extractYeahPromosPidFromLink(affiliateLink)
-  const yesPromosTrack = extractYeahPromosTrackFromLink(affiliateLink)
   const partnerboostLinkId = extractPartnerboostLinkIdFromLink(affiliateLink)
   const matchClauses: string[] = []
   const matchParams: Array<number | string> = [params.userId]
@@ -860,12 +858,6 @@ async function queryOfferExtractCommissionSourceMatch(params: {
 
   if (yesPromosPid) {
     const pattern = `%pid=${yesPromosPid}%`
-    matchClauses.push("(platform = 'yeahpromos' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
-    matchParams.push(pattern, pattern)
-  }
-
-  if (yesPromosTrack) {
-    const pattern = `%track=${yesPromosTrack}%`
     matchClauses.push("(platform = 'yeahpromos' AND (promo_link LIKE ? OR short_promo_link LIKE ?))")
     matchParams.push(pattern, pattern)
   }
@@ -967,14 +959,6 @@ async function queryOfferExtractCommissionSourceMatch(params: {
       }
     }
 
-    if (yesPromosTrack && rowPlatform === 'yeahpromos' && score < 180) {
-      const hasTrackMatch = rowLinks.some((candidate) => extractYeahPromosTrackFromLink(candidate) === yesPromosTrack)
-      if (hasTrackMatch) {
-        matchedBy = 'yeahpromos_track'
-        score = 180
-      }
-    }
-
     if (partnerboostLinkId && score < 200) {
       const hasPartnerboostLinkIdMatch = rowLinks.some(
         (candidate) => extractPartnerboostLinkIdFromLink(candidate) === partnerboostLinkId
@@ -1004,23 +988,6 @@ async function queryOfferExtractCommissionSourceMatch(params: {
 
   if (!bestMatch) {
     return null
-  }
-
-  if (bestMatch.matchedBy === 'yeahpromos_track') {
-    const sameScoreTrackCandidates = candidates.filter(
-      (item) => item.matchedBy === 'yeahpromos_track' && item.score === bestMatch.score
-    )
-    const hasDivergentRate = sameScoreTrackCandidates.some(
-      (item) => Math.abs(item.commissionRate - bestMatch.commissionRate) > 0.05
-    )
-    if (hasDivergentRate) {
-      if (process.env.NODE_ENV !== 'test') {
-        console.warn(
-          `[OpenClawCommand] 来源纠偏跳过：yeahpromos track=${yesPromosTrack || '-'} 存在多个佣金候选(${sameScoreTrackCandidates.map((item) => item.commissionRate).join(', ')})`
-        )
-      }
-      return null
-    }
   }
 
   return {
@@ -1907,16 +1874,6 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
-    const offerExtractByMessageHydrated = await hydrateOfferExtractCommissionByMessageContext({
-      db,
-      userId: data.userId,
-      parentRequestId: toTrimmedString(run.parent_request_id),
-      method: run.request_method,
-      path: run.request_path,
-      body: requestBody,
-    })
-    requestBody = offerExtractByMessageHydrated.body
-
     const offerUpdateByMessageHydrated = await hydrateOfferUpdateCommissionByMessageContext({
       db,
       userId: data.userId,
@@ -1926,22 +1883,6 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
       body: requestBody,
     })
     requestBody = offerUpdateByMessageHydrated.body
-
-    const offerExtractBySourceHydrated = await hydrateOfferExtractCommissionBySource({
-      db,
-      userId: data.userId,
-      method: run.request_method,
-      path: run.request_path,
-      body: requestBody,
-    })
-    requestBody = offerExtractBySourceHydrated.body
-
-    const offerExtractCommissionHarmonized = harmonizeOfferExtractCommissionPayload({
-      method: run.request_method,
-      path: run.request_path,
-      body: requestBody,
-    })
-    requestBody = offerExtractCommissionHarmonized.body
 
     const publishHydrated = await hydrateCampaignPublishRequestBody({
       db,
@@ -1955,10 +1896,7 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
 
     if (
       (
-        offerExtractByMessageHydrated.hydrated
-        || offerUpdateByMessageHydrated.hydrated
-        || offerExtractBySourceHydrated.hydrated
-        || offerExtractCommissionHarmonized.hydrated
+        offerUpdateByMessageHydrated.hydrated
         || publishHydrated.hydrated
       )
       && requestBodyForAudit !== run.request_body_json

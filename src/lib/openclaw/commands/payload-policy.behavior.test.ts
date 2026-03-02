@@ -156,19 +156,30 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
-  it('rejects ambiguous bare numeric commission_payout for offer extract', () => {
-    expect(() =>
-      normalizeOpenclawCommandPayload({
-        method: 'POST',
-        path: '/api/offers/extract',
-        body: {
-          affiliate_link: 'https://example.com/aff',
-          target_country: 'US',
-          product_price: '399',
-          commission_payout: '74.81',
-        },
-      })
-    ).toThrow('commission_payout 缺少单位')
+  it('treats bare numeric commission_payout as amount for offer extract', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '399',
+        commission_payout: '74.81',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$399',
+      commission_payout: '$74.81',
+      commission_type: 'amount',
+      commission_value: '74.81',
+      commission_currency: 'USD',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
   })
 
   it('preserves explicit currency commission amount for offer extract', () => {
@@ -222,55 +233,86 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
-  it('rejects offer extract payload when commission_rate and commission_payout are inconsistent', () => {
-    expect(() =>
-      normalizeOpenclawCommandPayload({
-        method: 'POST',
-        path: '/api/offers/extract',
-        body: {
-          affiliate_link: 'https://example.com/aff',
-          target_country: 'US',
-          product_price: '$129.99',
-          commission_payout: '16.57%',
-          commission_rate: '12.75',
-        },
-      })
-    ).toThrow('inconsistent commission_rate and commission_payout')
+  it('ignores commission_rate mismatch and follows percent-form commission_payout for offer extract', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$129.99',
+        commission_payout: '16.57%',
+        commission_rate: '12.75',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$129.99',
+      commission_payout: '16.57%',
+      commission_type: 'percent',
+      commission_value: '16.57',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
   })
 
-  it('rejects offer extract stream payload when commission_rate and commission_payout are inconsistent', () => {
-    expect(() =>
-      normalizeOpenclawCommandPayload({
-        method: 'POST',
-        path: '/api/offers/extract/stream',
-        body: {
-          affiliate_link: 'https://example.com/aff',
-          target_country: 'US',
-          product_price: '$299.99',
-          commission_payout: '22.5%',
-          commission_rate: '7.5',
-        },
-      })
-    ).toThrow('inconsistent commission_rate and commission_payout')
+  it('ignores commission_rate mismatch and follows percent-form commission_payout for offer extract stream', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract/stream',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$299.99',
+        commission_payout: '22.5%',
+        commission_rate: '7.5',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$299.99',
+      commission_payout: '22.5%',
+      commission_type: 'percent',
+      commission_value: '22.5',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
   })
 
-  it('rejects commission_rate with amount-style commission_payout', () => {
-    expect(() =>
-      normalizeOpenclawCommandPayload({
-        method: 'POST',
-        path: '/api/offers/extract',
-        body: {
-          affiliate_link: 'https://example.com/aff',
-          target_country: 'US',
-          product_price: '$299.99',
-          commission_rate: '7.5',
-          commission_payout: '$22.50',
-        },
-      })
-    ).toThrow('commission_rate(比例) 与 commission_payout(金额)语义冲突')
+  it('treats amount-form commission_payout as amount even when commission_rate is provided', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$299.99',
+        commission_rate: '7.5',
+        commission_payout: '$22.50',
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$299.99',
+      commission_payout: '$22.5',
+      commission_type: 'amount',
+      commission_value: '22.5',
+      commission_currency: 'USD',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
   })
 
-  it('accepts consistent commission_rate and commission_payout', () => {
+  it('drops commission_rate and keeps percent commission_payout', () => {
     const { body } = normalizeOpenclawCommandPayload({
       method: 'POST',
       path: '/api/offers/extract',
@@ -296,48 +338,34 @@ describe('openclaw command payload policy behavior', () => {
     })
   })
 
-  it('rejects bare numeric commission_payout even when commission_rate is provided', () => {
-    expect(() =>
-      normalizeOpenclawCommandPayload({
-        method: 'POST',
-        path: '/api/offers/extract',
-        body: {
-          affiliate_link: 'https://example.com/aff',
-          target_country: 'US',
-          product_price: '$129.99',
-          commission_rate: '12.75',
-          commission_payout: '12.75',
-        },
-      })
-    ).toThrow('commission_payout 必须是百分比')
-  })
-
-  it('treats decimal commission_rate as ratio and converts to percent', () => {
+  it('treats bare numeric commission_payout as amount even when commission_rate is provided', () => {
     const { body } = normalizeOpenclawCommandPayload({
       method: 'POST',
       path: '/api/offers/extract',
       body: {
         affiliate_link: 'https://example.com/aff',
         target_country: 'US',
-        product_price: '$22.99',
-        commission_rate: 0.225,
+        product_price: '$129.99',
+        commission_rate: '12.75',
+        commission_payout: '12.75',
       },
     })
 
     expect(body).toEqual({
       affiliate_link: 'https://example.com/aff',
       target_country: 'US',
-      product_price: '$22.99',
-      commission_payout: '22.5%',
-      commission_type: 'percent',
-      commission_value: '22.5',
+      product_price: '$129.99',
+      commission_payout: '$12.75',
+      commission_type: 'amount',
+      commission_value: '12.75',
+      commission_currency: 'USD',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,
     })
   })
 
-  it('treats decimal commission_payout as ratio when no explicit rate is provided', () => {
+  it('treats commission_rate without percent as amount when commission_payout is missing', () => {
     const { body } = normalizeOpenclawCommandPayload({
       method: 'POST',
       path: '/api/offers/extract',
@@ -345,7 +373,7 @@ describe('openclaw command payload policy behavior', () => {
         affiliate_link: 'https://example.com/aff',
         target_country: 'US',
         product_price: '$22.99',
-        commission_payout: 0.1875,
+        commission_rate: 22.5,
       },
     })
 
@@ -353,9 +381,36 @@ describe('openclaw command payload policy behavior', () => {
       affiliate_link: 'https://example.com/aff',
       target_country: 'US',
       product_price: '$22.99',
-      commission_payout: '18.75%',
-      commission_type: 'percent',
+      commission_payout: '$22.5',
+      commission_type: 'amount',
+      commission_value: '22.5',
+      commission_currency: 'USD',
+      page_type: 'product',
+      skipCache: false,
+      skipWarmup: false,
+    })
+  })
+
+  it('treats bare numeric commission_payout as amount when no explicit rate is provided', () => {
+    const { body } = normalizeOpenclawCommandPayload({
+      method: 'POST',
+      path: '/api/offers/extract',
+      body: {
+        affiliate_link: 'https://example.com/aff',
+        target_country: 'US',
+        product_price: '$22.99',
+        commission_payout: 18.75,
+      },
+    })
+
+    expect(body).toEqual({
+      affiliate_link: 'https://example.com/aff',
+      target_country: 'US',
+      product_price: '$22.99',
+      commission_payout: '$18.75',
+      commission_type: 'amount',
       commission_value: '18.75',
+      commission_currency: 'USD',
       page_type: 'product',
       skipCache: false,
       skipWarmup: false,

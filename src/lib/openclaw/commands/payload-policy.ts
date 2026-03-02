@@ -3,6 +3,11 @@ import {
   normalizeClickFarmTaskRequestBody,
   normalizeOfferExtractRequestBody,
 } from '@/lib/autoads-request-normalizers'
+import {
+  getCurrencyCodeByCountry,
+  getCurrencySymbolByCode,
+  parseMoneyValue,
+} from '@/lib/offer-monetization'
 
 type PlainObject = Record<string, any>
 
@@ -101,141 +106,89 @@ function getAliasesForCanonicalKey(aliasMap: Readonly<Record<string, string>>, k
   return Object.keys(aliasMap).filter((alias) => aliasMap[alias] === key)
 }
 
-function formatCompactRatePercent(value: number): string {
+function formatCompactNumber(value: number): string {
   const rounded = Math.round(value * 10000) / 10000
   if (Number.isInteger(rounded)) return String(rounded)
   return rounded.toFixed(4).replace(/\.?0+$/, '')
 }
 
-function parseCommissionRateAsPercentValue(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined
-  const raw = String(value).trim()
-  if (!raw) return undefined
-
-  const withoutPercent = raw.endsWith('%') ? raw.slice(0, -1).trim() : raw
-  if (!withoutPercent) return undefined
-
-  const parsed = Number(withoutPercent)
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
-
-  // OpenClaw occasionally emits decimal ratios (0.225) for commission_rate.
-  // Convert ratio -> percent so downstream normalization remains consistent.
-  const normalizedPercent = parsed <= 1 ? parsed * 100 : parsed
-  return formatCompactRatePercent(normalizedPercent)
-}
-
-function hasExplicitCommissionValue(value: unknown): boolean {
-  if (value === undefined || value === null) return false
-  return String(value).trim().length > 0
-}
-
-function isMonetaryCommissionText(value: unknown): boolean {
-  if (!hasExplicitCommissionValue(value)) return false
-  const raw = String(value).trim()
-  return /[¥€£$₹₩฿₫₱₽₺$]|[A-Za-z]{2,}/.test(raw)
-}
-
-function parseCommissionPayoutAsPercentValue(
-  value: unknown
-): string | undefined {
-  if (!hasExplicitCommissionValue(value)) return undefined
-
-  const raw = String(value).trim()
-  if (!raw) return undefined
-  if (isMonetaryCommissionText(raw)) return undefined
-
-  const parsedPercent = parseCommissionRateAsPercentValue(raw)
-  if (parsedPercent === undefined) return undefined
-
-  if (raw.includes('%')) {
-    return parsedPercent
+function getFirstNonEmptyText(values: unknown[]): string | null {
+  for (const value of values) {
+    if (value === undefined || value === null) continue
+    const normalized = String(value).trim()
+    if (normalized.length > 0) return normalized
   }
-
-  const numeric = Number(raw)
-  if (!Number.isFinite(numeric) || numeric <= 0) return undefined
-
-  // 仅对 0~1 的裸数字按“比例”解释（如 0.225 => 22.5%）
-  if (numeric <= 1) {
-    return parsedPercent
-  }
-
-  // >1 的裸数字（如 7.5 / 31.32）存在“百分比/金额”歧义，默认拒绝。
-  return undefined
+  return null
 }
 
-function isCommissionPercentMismatch(a: string, b: string, tolerance = 0.05): boolean {
-  const aValue = Number(a)
-  const bValue = Number(b)
-  if (!Number.isFinite(aValue) || !Number.isFinite(bValue)) return true
-  return Math.abs(aValue - bValue) > tolerance
+function parsePercentText(value: string): number | null {
+  if (!value.includes('%')) return null
+  const matched = value.match(/(\d+(?:\.\d+)?)/)
+  if (!matched?.[1]) return null
+  const parsed = Number(matched[1])
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return parsed
 }
 
-function normalizeOfferExtractCommissionInputStrict(params: {
+function normalizeOfferExtractCommissionInputByInputShape(params: {
   sourceBody: PlainObject
   method: string
   path: string
 }): PlainObject {
   const { sourceBody, method, path } = params
-  const commissionRateRaw = sourceBody.commission_rate ?? sourceBody.commissionRate
-  const commissionPayoutRaw = sourceBody.commission_payout ?? sourceBody.commissionPayout
-  const commissionRatePercent = parseCommissionRateAsPercentValue(commissionRateRaw)
-  const commissionPayoutPercent = parseCommissionPayoutAsPercentValue(commissionPayoutRaw)
-  const commissionPayoutIsAmount = isMonetaryCommissionText(commissionPayoutRaw)
-
-  if (commissionRatePercent !== undefined) {
-    if (hasExplicitCommissionValue(commissionPayoutRaw)) {
-      if (commissionPayoutIsAmount) {
-        throw new Error(
-          `Invalid payload: ${method} ${path} commission_rate(比例) 与 commission_payout(金额)语义冲突，请统一为比例值`
-        )
-      }
-      if (commissionPayoutPercent === undefined) {
-        throw new Error(
-          `Invalid payload: ${method} ${path} commission_payout 必须是百分比（如 7.5%）`
-        )
-      }
-      if (isCommissionPercentMismatch(commissionRatePercent, commissionPayoutPercent)) {
-        throw new Error(
-          `Invalid payload: inconsistent commission_rate and commission_payout for ${method} ${path}`
-        )
-      }
-    }
-
-    return {
-      ...sourceBody,
-      commission_rate: commissionRatePercent,
-      commission_payout: `${commissionRatePercent}%`,
-    }
+  const targetCountry = String(sourceBody.target_country ?? sourceBody.targetCountry ?? 'US').trim() || 'US'
+  const commissionRaw = getFirstNonEmptyText([
+    sourceBody.commission_payout,
+    sourceBody.commissionPayout,
+    sourceBody.commission_value,
+    sourceBody.commissionValue,
+    sourceBody.commission_rate,
+    sourceBody.commissionRate,
+  ])
+  if (!commissionRaw) {
+    const nextBody = { ...sourceBody }
+    delete nextBody.commission_rate
+    delete nextBody.commissionRate
+    return nextBody
   }
 
-  if (hasExplicitCommissionValue(commissionPayoutRaw)) {
-    if (commissionPayoutIsAmount) {
-      return sourceBody
-    }
-    if (commissionPayoutPercent === undefined) {
-      const payoutRaw = String(commissionPayoutRaw).trim()
-      const payoutNumeric = Number(payoutRaw)
-      const looksAmbiguousBareNumeric = payoutRaw.length > 0
-        && !payoutRaw.includes('%')
-        && Number.isFinite(payoutNumeric)
-        && payoutNumeric > 1
-      if (looksAmbiguousBareNumeric) {
-        throw new Error(
-          `Invalid payload: ${method} ${path} commission_payout 缺少单位（比例请使用 7.5%，金额请使用 $7.5 或 USD 7.5）`
-        )
-      }
-      throw new Error(
-        `Invalid payload: ${method} ${path} commission_payout 格式非法（比例请使用 7.5%）`
-      )
-    }
-    return {
-      ...sourceBody,
-      commission_rate: commissionPayoutPercent,
-      commission_payout: `${commissionPayoutPercent}%`,
-    }
+  const nextBody: PlainObject = {
+    ...sourceBody,
   }
 
-  return sourceBody
+  const percentValue = parsePercentText(commissionRaw)
+  if (percentValue !== null) {
+    const normalizedRate = formatCompactNumber(percentValue)
+    nextBody.commission_payout = `${normalizedRate}%`
+    nextBody.commission_type = 'percent'
+    nextBody.commission_value = normalizedRate
+    delete nextBody.commission_currency
+    delete nextBody.commissionCurrency
+    delete nextBody.commission_rate
+    delete nextBody.commissionRate
+    return nextBody
+  }
+
+  const defaultCurrency = getCurrencyCodeByCountry(targetCountry)
+  const parsedAmount = parseMoneyValue(commissionRaw, {
+    targetCountry,
+    defaultCurrency,
+  })
+  if (!parsedAmount || parsedAmount.amount <= 0) {
+    throw new Error(
+      `Invalid payload: ${method} ${path} commission value format is invalid`
+    )
+  }
+
+  const amountText = formatCompactNumber(parsedAmount.amount)
+  const currency = parsedAmount.currency || defaultCurrency
+  nextBody.commission_payout = `${getCurrencySymbolByCode(currency)}${amountText}`
+  nextBody.commission_type = 'amount'
+  nextBody.commission_value = amountText
+  nextBody.commission_currency = currency
+  delete nextBody.commission_rate
+  delete nextBody.commissionRate
+  return nextBody
 }
 
 const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
@@ -341,13 +294,13 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalizedSourceBody = normalizeOfferExtractCommissionInputStrict({
+      const normalizedSourceBody = normalizeOfferExtractCommissionInputByInputShape({
         sourceBody,
         method: 'POST',
         path: '/api/offers/extract',
       })
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
-        numericCommissionMode: 'percent',
+        numericCommissionMode: 'amount',
       })
       if (normalized) {
         delete normalized.commission_rate
@@ -393,13 +346,13 @@ const PAYLOAD_POLICIES: RoutePayloadPolicy[] = [
       skip_warmup: 'skipWarmup',
     },
     normalize: ({ sourceBody, normalizedBody }) => {
-      const normalizedSourceBody = normalizeOfferExtractCommissionInputStrict({
+      const normalizedSourceBody = normalizeOfferExtractCommissionInputByInputShape({
         sourceBody,
         method: 'POST',
         path: '/api/offers/extract/stream',
       })
       const normalized = normalizeOfferExtractRequestBody(normalizedSourceBody, {
-        numericCommissionMode: 'percent',
+        numericCommissionMode: 'amount',
       })
       if (normalized) {
         delete normalized.commission_rate
