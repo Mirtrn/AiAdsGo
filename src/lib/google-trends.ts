@@ -164,7 +164,7 @@ export async function getTrendsKeywords(
         lowTopPageBid: 0,
         highTopPageBid: 0,
         source: 'TRENDS',
-        matchType: 'BROAD'
+        matchType: 'PHRASE'
       })
     }
   }

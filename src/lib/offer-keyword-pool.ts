@@ -1240,6 +1240,13 @@ export function isPureBrandKeyword(keyword: string, brandName: string): boolean 
   return isPureBrandKeywordInternal(keyword, pureBrandKeywords)
 }
 
+function inferDefaultKeywordMatchType(
+  keyword: string,
+  pureBrandKeywords: string[]
+): 'EXACT' | 'PHRASE' {
+  return isPureBrandKeywordInternal(keyword, pureBrandKeywords) ? 'EXACT' : 'PHRASE'
+}
+
 /**
  * 分离纯品牌词和非品牌词
  *
@@ -3028,7 +3035,7 @@ function parseKeywordArray(data: unknown): PoolKeywordData[] {
       keyword: kw,
       searchVolume: 0,
       source: 'LEGACY',
-      matchType: 'BROAD'
+      matchType: 'PHRASE'
     }))
 }
 
@@ -3137,6 +3144,7 @@ export async function generateOfferKeywordPool(
   if (!offer) {
     throw new Error(`Offer #${offerId} 不存在`)
   }
+  const pureBrandKeywordsForOffer = getPureBrandKeywords(offer.brand || '')
   const pageType = resolveOfferPageType(offer)
   let allowPlannerNonBrand = false
   const plannerMinSearchVolume = pageType === 'store' ? DEFAULTS.minSearchVolume : undefined
@@ -3209,7 +3217,7 @@ export async function generateOfferKeywordPool(
         lowTopPageBid: v.lowTopPageBid,
         highTopPageBid: v.highTopPageBid,
         source: 'PROVIDED',
-        matchType: 'BROAD'
+        matchType: inferDefaultKeywordMatchType(v.keyword, pureBrandKeywordsForOffer)
       }))
 
       const withVolume = initialKeywords.filter(kw => kw.searchVolume > 0).length
@@ -3221,7 +3229,7 @@ export async function generateOfferKeywordPool(
         keyword: kw,
         searchVolume: 0,
         source: 'PROVIDED',
-        matchType: 'BROAD'
+        matchType: inferDefaultKeywordMatchType(kw, pureBrandKeywordsForOffer)
       }))
     }
   } else {
@@ -3827,7 +3835,26 @@ async function extractKeywordsFromOffer(
   progress?: KeywordPoolProgressReporter
 ): Promise<PoolKeywordData[]> {
   const db = await getDatabase()
+  const offerBrandRow = await db.queryOne<{ brand: string | null }>(
+    'SELECT brand FROM offers WHERE id = ? AND user_id = ?',
+    [offerId, userId]
+  )
+  const pureBrandKeywords = getPureBrandKeywords(offerBrandRow?.brand || '')
   const keywordMap = new Map<string, PoolKeywordData>()
+
+  const normalizeKeywordMatchType = (
+    rawMatchType: unknown,
+    keyword: string
+  ): 'EXACT' | 'PHRASE' | 'BROAD' => {
+    const normalized =
+      typeof rawMatchType === 'string'
+        ? rawMatchType.trim().toUpperCase()
+        : ''
+    if (normalized === 'EXACT' || normalized === 'PHRASE' || normalized === 'BROAD') {
+      return normalized as 'EXACT' | 'PHRASE' | 'BROAD'
+    }
+    return inferDefaultKeywordMatchType(keyword, pureBrandKeywords)
+  }
 
   const addKeywordData = (kw: PoolKeywordData) => {
     const keyword = kw?.keyword?.trim()
@@ -3848,7 +3875,7 @@ async function extractKeywordsFromOffer(
       keyword: normalized,
       searchVolume: 0,
       source,
-      matchType: 'BROAD'
+      matchType: inferDefaultKeywordMatchType(normalized, pureBrandKeywords)
     })
   }
 
@@ -3888,7 +3915,7 @@ async function extractKeywordsFromOffer(
             lowTopPageBid: typeof (item as any).lowTopPageBid === 'number' ? (item as any).lowTopPageBid : undefined,
             highTopPageBid: typeof (item as any).highTopPageBid === 'number' ? (item as any).highTopPageBid : undefined,
             source,
-            matchType: (item as any).matchType || 'BROAD'
+            matchType: normalizeKeywordMatchType((item as any).matchType, keyword)
           })
         }
       }
@@ -3920,7 +3947,10 @@ async function extractKeywordsFromOffer(
                 lowTopPageBid: typeof kw === 'object' ? kw.lowTopPageBid : undefined,
                 highTopPageBid: typeof kw === 'object' ? kw.highTopPageBid : undefined,
                 source: 'CREATIVE',
-                matchType: typeof kw === 'object' ? kw.matchType : 'BROAD'
+                matchType: normalizeKeywordMatchType(
+                  typeof kw === 'object' ? kw.matchType : undefined,
+                  kwStr
+                )
               })
             }
           })
@@ -4078,7 +4108,7 @@ function normalizeKeywordItem(item: KeywordItem): PoolKeywordData | null {
       keyword,
       searchVolume: 0,
       source: 'LEGACY',
-      matchType: 'BROAD'
+      matchType: 'PHRASE'
     }
   }
   if (!item || typeof item !== 'object') return null

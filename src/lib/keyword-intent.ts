@@ -329,7 +329,7 @@ export function recommendMatchTypeForKeyword(params: {
     return 'PHRASE'
   }
 
-  return 'BROAD'
+  return 'PHRASE'
 }
 
 export function isHardNegativeIntent(intent: KeywordIntent): boolean {

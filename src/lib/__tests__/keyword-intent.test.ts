@@ -67,14 +67,14 @@ describe('keyword-intent', () => {
     expect(commercial).toBe('PHRASE')
   })
 
-  it('recommends broad for generic other intent keywords', () => {
+  it('recommends phrase for generic other intent keywords', () => {
     const matchType = recommendMatchTypeForKeyword({
       keyword: 'wireless outdoor camera',
       brandName: 'Eufy',
       intent: 'OTHER',
     })
 
-    expect(matchType).toBe('BROAD')
+    expect(matchType).toBe('PHRASE')
   })
 
   it('supports transactional intent classification for spanish language', () => {

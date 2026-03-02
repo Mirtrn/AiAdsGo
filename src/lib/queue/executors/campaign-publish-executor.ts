@@ -609,7 +609,7 @@ export async function executeCampaignPublish(
         return mappedType
       }
 
-      // 3. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
+      // 3. 智能分配：品牌词EXACT，其余默认PHRASE（收敛优先）
       const keywordLower = keyword.toLowerCase()
       const brandLower = brandName?.toLowerCase() || ''
       const brandPrefix = brandLower.substring(0, 3)
@@ -619,14 +619,10 @@ export async function executeCampaignPublish(
       const isBrandKeyword = keywordLower === brandLower ||
                              keywordLower.startsWith(brandLower + ' ') ||
                              hasBrandPrefix
-      const wordCount = keyword.split(' ').length
-
       if (isBrandKeyword) {
         return 'EXACT'
-      } else if (wordCount >= 3) {
-        return 'PHRASE'
       } else {
-        return 'BROAD'
+        return 'PHRASE'
       }
     }
 

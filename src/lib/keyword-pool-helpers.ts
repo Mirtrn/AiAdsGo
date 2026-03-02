@@ -70,6 +70,13 @@ function buildBrandLikePattern(brand: string): string | null {
   return `%${tokens.join('%')}%`
 }
 
+function inferBrandAwareMatchType(
+  keyword: string,
+  pureBrandKeywords: string[]
+): 'EXACT' | 'PHRASE' {
+  return isPureBrandKeyword(keyword, pureBrandKeywords) ? 'EXACT' : 'PHRASE'
+}
+
 async function getGlobalKeywordCandidates(params: {
   brandName: string
   targetCountry: string
@@ -411,7 +418,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         keyword,
         searchVolume: 0,
         source: 'PROVIDED',
-        matchType: 'BROAD',
+        matchType: inferBrandAwareMatchType(keyword, pureBrandKeywords),
         isPureBrand: true,
       }))
     }
@@ -952,6 +959,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         const canonical = normalizeGoogleAdsKeyword(text)
         if (!canonical) continue
         if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -962,7 +970,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             lowTopPageBid: 0,
             highTopPageBid: 0,
             source: 'GOOGLE_SUGGEST',
-            matchType: 'BROAD',
+            matchType,
             isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }
@@ -1003,6 +1011,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
         if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -1013,7 +1022,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             lowTopPageBid: 0,
             highTopPageBid: 0,
             source: 'ENHANCED_EXTRACT',
-            matchType: 'BROAD',
+            matchType,
             isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }
@@ -1044,6 +1053,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
         if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
           allKeywords.set(canonical, {
@@ -1054,7 +1064,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
             lowTopPageBid: kw.lowTopPageBid || 0,
             highTopPageBid: kw.highTopPageBid || 0,
             source: 'GOOGLE_TRENDS',
-            matchType: 'BROAD',
+            matchType,
             isPureBrand: isPureBrandKeyword(canonical, pureBrandKeywords)
           })
         }

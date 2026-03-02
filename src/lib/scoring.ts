@@ -114,7 +114,7 @@ export async function calculateLaunchScore(
     // 🎯 准备关键词搜索量文本（包含matchType信息）
     const keywordsWithVolumeText = keywordsWithVolume.length > 0
       ? keywordsWithVolume.slice(0, 15).map((kw: any) => {
-          const matchType = kw.matchType || 'BROAD'
+          const matchType = kw.matchType || 'PHRASE'
           return `- ${kw.keyword} (${matchType}): ${kw.searchVolume || 0}/月, 竞争度:${kw.competition || '未知'}`
         }).join('\n')
       : '暂无关键词搜索量数据'
@@ -132,7 +132,7 @@ export async function calculateLaunchScore(
     // 🎯 计算匹配类型分布
     const matchTypes: Record<string, number> = {}
     keywordsWithVolume.forEach((kw: any) => {
-      const type = kw.matchType || 'BROAD'  // ❌ 问题：如果matchType为空，默认设为'BROAD'
+      const type = kw.matchType || 'PHRASE'  // 缺失matchType时按PHRASE统计，避免误判为BROAD
       matchTypes[type] = (matchTypes[type] || 0) + 1
     })
     const matchTypeDistribution = Object.entries(matchTypes)

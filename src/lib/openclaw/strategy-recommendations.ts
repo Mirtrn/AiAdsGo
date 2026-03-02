@@ -4006,7 +4006,7 @@ async function executeRecommendationAction(params: {
         })),
         oldKeywords: matchTypePlan.map((item) => ({
           text: String(item.text || '').trim(),
-          matchType: String(item.currentMatchType || 'BROAD').toUpperCase(),
+          matchType: String(item.currentMatchType || 'PHRASE').toUpperCase(),
         })),
         replaceMode: String(data.matchTypeReplaceMode || 'pause_existing'),
       },

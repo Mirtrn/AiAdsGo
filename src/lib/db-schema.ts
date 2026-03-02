@@ -306,7 +306,7 @@ export const TABLES: TableDef[] = [
       { name: 'ad_group_id', type: 'INTEGER', notNull: true, references: { table: 'ad_groups', column: 'id', onDelete: 'CASCADE' } },
       { name: 'keyword_id', type: 'TEXT', unique: true },
       { name: 'keyword_text', type: 'TEXT', notNull: true },
-      { name: 'match_type', type: 'TEXT', notNull: true, default: 'BROAD' },
+      { name: 'match_type', type: 'TEXT', notNull: true, default: 'PHRASE' },
       { name: 'status', type: 'TEXT', notNull: true, default: 'PAUSED' },
       { name: 'cpc_bid_micros', type: 'BIGINT' },
       { name: 'final_url', type: 'TEXT' },

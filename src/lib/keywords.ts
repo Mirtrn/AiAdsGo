@@ -54,7 +54,7 @@ export async function createKeyword(input: CreateKeywordInput): Promise<Keyword>
       input.userId,
       input.adGroupId,
       input.keywordText,
-      input.matchType || 'BROAD',
+      input.matchType || 'PHRASE',
       input.status || 'PAUSED',
       input.cpcBidMicros || null,
       input.finalUrl || null,

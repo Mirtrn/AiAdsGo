@@ -1097,8 +1097,8 @@ export function assignMatchTypes(
       return { ...kw, matchType: 'PHRASE' as const }
     }
 
-    // 长尾词 → BROAD
-    return { ...kw, matchType: 'BROAD' as const }
+    // 长尾词 → PHRASE（默认收敛，避免意外放量）
+    return { ...kw, matchType: 'PHRASE' as const }
   })
 }
 
@@ -1869,7 +1869,7 @@ export async function getKeywordVolumesForExisting(params: {
       } else if (vol.keyword.split(/\s+/).length <= 3) {
         matchType = 'PHRASE'  // 短词用词组匹配
       } else {
-        matchType = 'BROAD'  // 长尾词用广泛匹配
+        matchType = 'PHRASE'  // 长尾词默认词组匹配，避免兜底放量
       }
 
       return {

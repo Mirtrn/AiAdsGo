@@ -2710,7 +2710,7 @@ async function mergeExtractedKeywordsWithSingleExit(
         } else if (wordCount >= 3) {
           matchType = 'PHRASE'
         } else {
-          matchType = 'BROAD'
+          matchType = 'PHRASE'
         }
 
         mergedKeywordsWithVolume.push({
