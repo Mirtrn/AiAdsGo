@@ -309,7 +309,7 @@ describe('openclaw command executor click-farm guard', () => {
     )
   })
 
-  it('does not hydrate missing offer.extract commission from feishu message context', async () => {
+  it('hydrates missing offer.extract commission from feishu message context', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=fc03db0d2f9009e7&pid=1044718'
     const parentRequestId = 'om_x100b56df905d20a4b3dda1c847084b4'
     const db = {
@@ -370,12 +370,12 @@ describe('openclaw command executor click-farm guard', () => {
     expect(result.success).toBe(true)
 
     const calledBody = mocks.fetchAutoadsAsUser.mock.calls[0][0].body
-    expect(calledBody.commission_payout).toBeUndefined()
-    expect(calledBody.commission_type).toBeUndefined()
-    expect(calledBody.commission_value).toBeUndefined()
+    expect(calledBody.commission_payout).toBe('15%')
+    expect(calledBody.commission_type).toBe('percent')
+    expect(calledBody.commission_value).toBe('15')
   })
 
-  it('does not correct mismatched offer.extract commission from feishu message context', async () => {
+  it('corrects mismatched offer.extract commission from feishu message context', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=5c127e3c2c6ab88e&pid=408015'
     const parentRequestId = 'om_x100b56d9b760c8a8b2675b2dc187931'
     const db = {
@@ -443,15 +443,15 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '15%',
+          commission_payout: '9%',
           commission_type: 'percent',
-          commission_value: '15',
+          commission_value: '9',
         }),
       })
     )
   })
 
-  it('does not override offer.extract commission from message or source context', async () => {
+  it('overrides offer.extract commission with message-context value when mismatched', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=ebb4d552075a7ef5&pid=732114'
     const parentRequestId = 'om_test_source_override_guard'
     const db = {
@@ -535,15 +535,15 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '15%',
+          commission_payout: '30%',
           commission_type: 'percent',
-          commission_value: '15',
+          commission_value: '30',
         }),
       })
     )
   })
 
-  it('does not convert amount-style offer.extract commission from feishu message percentage', async () => {
+  it('converts amount-style offer.extract commission to message-context percentage', async () => {
     const affiliateLink = 'https://yeahpromos.com/index/index/openurlproduct?track=3ee0ff3ca7d17921&pid=485084'
     const parentRequestId = 'om_x100b55228ca8f0acc3274c1b0e0fac9'
     const db = {
@@ -613,17 +613,16 @@ describe('openclaw command executor click-farm guard', () => {
         path: '/api/offers/extract',
         method: 'POST',
         body: expect.objectContaining({
-          commission_payout: '$57.75',
-          commission_type: 'amount',
-          commission_value: '57.75',
-          commission_currency: 'USD',
+          commission_payout: '10.5%',
+          commission_type: 'percent',
+          commission_value: '10.5',
         }),
       })
     )
 
-    // amount mode should keep currency
+    // converted to percent mode should clear currency
     const calledBody = mocks.fetchAutoadsAsUser.mock.calls[0][0].body
-    expect(calledBody.commission_currency).toBe('USD')
+    expect(calledBody.commission_currency).toBeUndefined()
   })
 
   it('corrects offer.update amount-style commission from feishu message context', async () => {

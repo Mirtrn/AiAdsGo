@@ -475,7 +475,22 @@ function parseLegacyCommission(
         commissionPayout: `${formatCompactNumber(ratioDisplayRate)}%`,
       }
     }
-    throw new Error('commission_payout 缺少单位（比例请使用 7.5%，金额请使用 $7.5 或 USD 7.5）')
+
+    const parsedMoney = parseMoneyValue(raw, {
+      targetCountry,
+      defaultCurrency: getCurrencyCodeByCountry(targetCountry),
+    })
+    if (!parsedMoney || parsedMoney.amount <= 0) {
+      throw new Error('commission_payout 金额格式非法')
+    }
+
+    const normalizedAmount = formatCompactNumber(parsedMoney.amount)
+    return {
+      commissionType: 'amount',
+      commissionValue: normalizedAmount,
+      commissionCurrency: parsedMoney.currency,
+      commissionPayout: `${getCurrencySymbolByCode(parsedMoney.currency)}${normalizedAmount}`,
+    }
   }
 
   const normalizedPercent = normalizeOfferCommissionPayoutInput(raw, targetCountry, {
@@ -593,7 +608,17 @@ export function parseCommissionPayoutValue(
 
   const parsedNumeric = parseNumberish(raw)
   if (parsedNumeric === null || parsedNumeric <= 0) return null
-  if (parsedNumeric > 1) return null
+  if (parsedNumeric > 1) {
+    const fallbackCurrency = normalizeCurrencyCode(
+      options?.fallbackCurrency || getCurrencyCodeByCountry(options?.targetCountry)
+    )
+    return {
+      mode: 'amount',
+      amount: parsedNumeric,
+      currency: fallbackCurrency,
+      explicitCurrency: false,
+    }
+  }
 
   return {
     mode: 'percent',

@@ -1874,10 +1874,22 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
   }
 
   try {
+    const parentRequestId = toTrimmedString(run.parent_request_id)
+
+    const offerExtractByMessageHydrated = await hydrateOfferExtractCommissionByMessageContext({
+      db,
+      userId: data.userId,
+      parentRequestId,
+      method: run.request_method,
+      path: run.request_path,
+      body: requestBody,
+    })
+    requestBody = offerExtractByMessageHydrated.body
+
     const offerUpdateByMessageHydrated = await hydrateOfferUpdateCommissionByMessageContext({
       db,
       userId: data.userId,
-      parentRequestId: toTrimmedString(run.parent_request_id),
+      parentRequestId,
       method: run.request_method,
       path: run.request_path,
       body: requestBody,
@@ -1896,7 +1908,8 @@ export async function executeOpenclawCommandTask(task: Task<OpenclawCommandTaskD
 
     if (
       (
-        offerUpdateByMessageHydrated.hydrated
+        offerExtractByMessageHydrated.hydrated
+        || offerUpdateByMessageHydrated.hydrated
         || publishHydrated.hydrated
       )
       && requestBodyForAudit !== run.request_body_json

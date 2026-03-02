@@ -49,7 +49,12 @@ describe('offer monetization helpers', () => {
       displayRate: 12.5,
     })
 
-    expect(parseCommissionPayoutValue('12.5', { targetCountry: 'US' })).toBeNull()
+    expect(parseCommissionPayoutValue('12.5', { targetCountry: 'US' })).toEqual({
+      mode: 'amount',
+      amount: 12.5,
+      currency: 'USD',
+      explicitCurrency: false,
+    })
   })
 
   it('normalizes structured commission input and validates conflicts', () => {
@@ -86,10 +91,15 @@ describe('offer monetization helpers', () => {
       commissionPayout: '11.25%',
     })
 
-    expect(() => normalizeOfferCommissionInput({
+    expect(normalizeOfferCommissionInput({
       targetCountry: 'US',
       commissionPayout: '11.25',
-    })).toThrow('缺少单位')
+    })).toEqual({
+      commissionType: 'amount',
+      commissionValue: '11.25',
+      commissionCurrency: 'USD',
+      commissionPayout: '$11.25',
+    })
 
     expect(() => normalizeOfferCommissionInput({
       targetCountry: 'US',

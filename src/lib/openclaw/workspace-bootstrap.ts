@@ -125,6 +125,7 @@ ${OVERLAY_HEADING}
 - 禁止使用 Node.js 自行拼接 HTTP 调用；统一使用受控的 shell/curl 模板并遵守 action matrix。
 - 仅允许调用“用户在 Web 端手动可操作”的正统 AutoAds 业务接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
+- 当用户消息包含“商品价格/佣金比例/推广链接”表格时，逐条创建 Offer 必须显式传入 \`product_price\` 与 \`commission_payout\`（并同步 \`commission_type\`/\`commission_value\`），禁止省略。
 - 创意生成必须走 A/B/D 业务链路（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。
 - 长耗时任务（Offer 提取、创意生成）优先使用 stream 接口持续订阅；无法使用 stream 时必须使用状态长轮询参数（waitForUpdate=1 + lastUpdatedAt + timeoutMs），并将轮询间隔严格限制在 2-8 秒（遵循 recommendedPollIntervalMs，低于 2 秒按 2 秒、高于 8 秒按 8 秒），禁止固定高频轮询或分钟级稀疏轮询。
 - 同一条用户消息若包含多个 Offer/ASIN/推广链接，必须对每个 Offer 执行完整闭环（提取 -> A/B/D -> 选优 -> 发布 -> 补点击）；禁止仅完成部分后直接结案。
@@ -170,6 +171,7 @@ function buildSoulManagedSection(actorUserId?: number): string {
 - 禁止使用 Node.js 手写 API 调用脚本，统一按 action matrix 的 curl 模板执行。
 - 必须使用 Web 端正统业务流程接口，禁止内部/历史旁路接口。
 - Offer 创建仅可使用 \`POST /api/offers/extract\` 或 \`POST /api/offers/extract/stream\`，禁止使用已下线的 \`POST /api/offers\`。
+- 当用户消息包含“商品价格/佣金比例/推广链接”表格时，逐条创建 Offer 必须显式传入 \`product_price\` 与 \`commission_payout\`（并同步 \`commission_type\`/\`commission_value\`），禁止省略。
 - 创意生成必须遵循 A/B/D 类型，不可绕过到旧创意接口。
 - 长耗时任务优先使用 stream 接口；无法使用 stream 时必须用状态长轮询（waitForUpdate=1 + lastUpdatedAt + timeoutMs）并将间隔控制在 2-8 秒（遵循 recommendedPollIntervalMs 后再钳制），禁止固定高频或分钟级稀疏轮询。
 - 同一条消息若包含多个 Offer/ASIN/推广链接，必须逐个 Offer 完成“提取 -> A/B/D -> 选优 -> 发布 -> 补点击”后，才能给出“已完成”结论。

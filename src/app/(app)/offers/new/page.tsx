@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getLanguageNameForCountry, getCountryOptionsForUI } from '@/lib/language-country-codes'
+import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 
 export default function NewOfferPage() {
   const router = useRouter()
@@ -44,6 +45,55 @@ export default function NewOfferPage() {
     return getTargetLanguage(targetCountry)
   }, [targetCountry])
 
+  const commissionNormalization = useMemo(() => {
+    const normalizedValue = commissionValue.trim()
+    const normalizedCurrency = commissionCurrency.trim().toUpperCase()
+    if (!normalizedValue) {
+      return {
+        normalized: null as ReturnType<typeof normalizeOfferCommissionInput> | null,
+        error: null as string | null,
+      }
+    }
+
+    try {
+      const normalized = normalizeOfferCommissionInput({
+        targetCountry,
+        commissionType,
+        commissionValue: normalizedValue,
+        commissionCurrency: commissionType === 'amount'
+          ? (normalizedCurrency || undefined)
+          : undefined,
+      })
+      return {
+        normalized,
+        error: null as string | null,
+      }
+    } catch (err: any) {
+      return {
+        normalized: null as ReturnType<typeof normalizeOfferCommissionInput> | null,
+        error: err?.message || '佣金参数格式错误',
+      }
+    }
+  }, [commissionValue, commissionCurrency, commissionType, targetCountry])
+
+  const suggestedCpcHint = useMemo(() => {
+    if (commissionNormalization.error || !commissionNormalization.normalized?.commissionType) {
+      return null
+    }
+
+    if (commissionNormalization.normalized.commissionType === 'amount') {
+      return {
+        formula: '绝对佣金 ÷ 50',
+        detail: '示例：$22.5 ÷ 50 = $0.45（假设50个点击出一单）',
+      }
+    }
+
+    return {
+      formula: '产品价格 × 佣金比例 ÷ 50',
+      detail: '示例：$699.00 × 7.5% ÷ 50 = $1.05（假设50个点击出一单）',
+    }
+  }, [commissionNormalization])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -74,6 +124,19 @@ export default function NewOfferPage() {
         throw new Error('请至少提供推广链接或落地页URL')
       }
 
+      const normalizedCommissionValue = commissionValue.trim()
+      const normalizedCommissionCurrency = commissionCurrency.trim().toUpperCase()
+      const normalizedCommission = normalizedCommissionValue
+        ? normalizeOfferCommissionInput({
+          targetCountry,
+          commissionType,
+          commissionValue: normalizedCommissionValue,
+          commissionCurrency: commissionType === 'amount'
+            ? (normalizedCommissionCurrency || undefined)
+            : undefined,
+        })
+        : null
+
       // 使用任务队列创建Offer（替代已下线的 POST /api/offers）
       const response = await fetch('/api/offers/extract', {
         method: 'POST',
@@ -91,9 +154,10 @@ export default function NewOfferPage() {
             : undefined,
           // 需求28：产品价格和佣金比例（可选）
           product_price: productPrice || undefined,
-          commission_type: commissionValue ? commissionType : undefined,
-          commission_value: commissionValue || undefined,
-          commission_currency: commissionType === 'amount' ? (commissionCurrency || undefined) : undefined,
+          commission_payout: normalizedCommission?.commissionPayout || undefined,
+          commission_type: normalizedCommission?.commissionType || undefined,
+          commission_value: normalizedCommission?.commissionValue || undefined,
+          commission_currency: normalizedCommission?.commissionCurrency || undefined,
         }),
       })
 
@@ -155,9 +219,10 @@ export default function NewOfferPage() {
         product_highlights: productHighlights || undefined,
         target_audience: targetAudience || undefined,
         product_price: productPrice || undefined,
-        commission_type: commissionValue ? commissionType : undefined,
-        commission_value: commissionValue || undefined,
-        commission_currency: commissionType === 'amount' ? (commissionCurrency || undefined) : undefined,
+        commission_payout: normalizedCommission?.commissionPayout || undefined,
+        commission_type: normalizedCommission?.commissionType || undefined,
+        commission_value: normalizedCommission?.commissionValue || undefined,
+        commission_currency: normalizedCommission?.commissionCurrency || undefined,
       }
 
       try {
@@ -402,7 +467,7 @@ export default function NewOfferPage() {
                 <h3 className="text-lg font-medium text-gray-900 mb-4">
                   定价信息
                   <span className="ml-2 text-sm font-normal text-gray-500">
-                    （可选，用于计算建议最大CPC）
+                    （可选，用于计算建议CPC）
                   </span>
                 </h3>
 
@@ -457,20 +522,43 @@ export default function NewOfferPage() {
                       />
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      裸数字默认按佣金比例处理；仅在“绝对佣金”模式下按金额处理
+                      与 OpenClaw 佣金规则一致：佣金比例保存为
+                      <code className="mx-1 rounded bg-gray-100 px-1.5 py-0.5">x%</code>
+                      ，绝对佣金保存为
+                      <code className="mx-1 rounded bg-gray-100 px-1.5 py-0.5">货币+金额</code>
+                    </p>
+                    {commissionNormalization.error && (
+                      <p className="mt-1 text-xs text-red-600">{commissionNormalization.error}</p>
+                    )}
+                    {!commissionNormalization.error && commissionNormalization.normalized?.commissionPayout && (
+                      <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <div className="font-medium">发送给 OpenClaw / Offer API 的佣金字段</div>
+                        <div className="mt-1 font-mono break-all">
+                          commission_payout={commissionNormalization.normalized.commissionPayout}
+                          , commission_type={commissionNormalization.normalized.commissionType}
+                          , commission_value={commissionNormalization.normalized.commissionValue}
+                          {commissionNormalization.normalized.commissionCurrency
+                            ? `, commission_currency=${commissionNormalization.normalized.commissionCurrency}`
+                            : ''}
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs text-gray-500">
+                      OpenClaw 侧规则：<code className="mx-1 rounded bg-gray-100 px-1.5 py-0.5">commission_payout</code>
+                      带 <code className="mx-1 rounded bg-gray-100 px-1.5 py-0.5">%</code> 视为比例，不带则视为金额。
                     </p>
                   </div>
                 </div>
 
-                {productPrice && commissionValue && (
+                {suggestedCpcHint && (
                   <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
                     <p className="text-sm text-blue-800">
-                      <strong>💡 建议最大CPC</strong>: 在"一键上广告"流程中，系统将根据
-                      <code className="mx-1 px-1.5 py-0.5 bg-blue-100 rounded">产品价格 × 佣金比例 ÷ 50</code>
-                      公式计算建议的最大CPC出价
+                      <strong>💡 建议CPC</strong>: 在"一键上广告"流程中，系统将根据
+                      <code className="mx-1 px-1.5 py-0.5 bg-blue-100 rounded">{suggestedCpcHint.formula}</code>
+                      公式计算建议的CPC出价
                     </p>
                     <p className="mt-1 text-xs text-blue-600">
-                      示例：$699.00 × 7.5% ÷ 50 = $1.05（假设50个点击出一单）
+                      {suggestedCpcHint.detail}
                     </p>
                   </div>
                 )}
