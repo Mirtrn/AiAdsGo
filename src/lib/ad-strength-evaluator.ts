@@ -1046,6 +1046,95 @@ interface CachedResult {
   timestamp: number
 }
 
+type CompetitivePositioningAIScores = {
+  priceAdvantage: number
+  uniqueMarketPosition: number
+  competitiveComparison: number
+  valueEmphasis: number
+  confidence: number
+}
+
+function stripMarkdownCodeFences(text: string): string {
+  return text
+    .replace(/```json\s*/gi, '')
+    .replace(/```javascript\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim()
+}
+
+/**
+ * 从文本中提取首个完整JSON对象（忽略对象后的解释文本）
+ */
+function extractFirstJsonObject(text: string): string | null {
+  const firstBrace = text.indexOf('{')
+  if (firstBrace === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let objectStart = -1
+
+  for (let i = firstBrace; i < text.length; i++) {
+    const char = text[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === '{') {
+      if (depth === 0) {
+        objectStart = i
+      }
+      depth += 1
+      continue
+    }
+
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0 && objectStart >= 0) {
+        return text.slice(objectStart, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function parseCompetitivePositioningAiScores(responseText: string): CompetitivePositioningAIScores {
+  const cleanedText = stripMarkdownCodeFences(responseText)
+
+  try {
+    const parsed = JSON.parse(cleanedText)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('AI响应不是JSON对象')
+    }
+    return parsed as CompetitivePositioningAIScores
+  } catch {
+    const jsonObject = extractFirstJsonObject(cleanedText)
+    if (!jsonObject) {
+      throw new Error('AI响应未包含可解析的JSON对象')
+    }
+
+    const parsed = JSON.parse(jsonObject)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('AI响应不是JSON对象')
+    }
+    return parsed as CompetitivePositioningAIScores
+  }
+}
+
 // 内存缓存（Redis不可用时的降级方案）
 const memoryCache = new Map<string, CachedResult>()
 const CACHE_TTL_SECONDS = 60 * 60 * 24 // 24小时（Redis用秒）
@@ -1243,6 +1332,7 @@ Rules:
 - Only increase score if you find clear evidence that was missed
 - Return 0 if element not present
 - Confidence: 1.0 = certain, 0.8 = high confidence, 0.6 = moderate, <0.5 = uncertain
+- Return ONLY a JSON object, no markdown, no analysis text, no extra prose
 `.trim()
 
     // 智能模型选择：广告强度评估使用Flash模型（简单评分任务）
@@ -1305,23 +1395,9 @@ Rules:
     }
 
     // 🔧 健壮的JSON解析
-    let aiScores: {
-      priceAdvantage: number
-      uniqueMarketPosition: number
-      competitiveComparison: number
-      valueEmphasis: number
-      confidence: number
-    }
+    let aiScores: CompetitivePositioningAIScores
     try {
-      // 清理可能的markdown代码块
-      let jsonText = result.text.trim()
-      if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '')
-      } else if (jsonText.startsWith('```')) {
-        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '')
-      }
-
-      aiScores = JSON.parse(jsonText)
+      aiScores = parseCompetitivePositioningAiScores(result.text)
 
       // 验证必需字段
       const requiredFields = ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
@@ -2228,4 +2304,8 @@ export async function evaluateIndividualAsset(
     issues,
     suggestions
   }
+}
+
+export const __testOnly = {
+  parseCompetitivePositioningAiScores,
 }

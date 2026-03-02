@@ -474,7 +474,11 @@ export async function generateContent(params: {
   if (responseSchema) {
     generationConfig.responseMimeType = responseMimeType || 'application/json'
     generationConfig.responseSchema = responseSchema
-    console.log(`📋 Gemini API使用JSON schema约束`)
+    if (provider === 'relay') {
+      console.log(`📋 已请求JSON schema约束（relay链路可能忽略）`)
+    } else {
+      console.log(`📋 Gemini API使用JSON schema约束`)
+    }
   }
 
   const request: GeminiRequest = {

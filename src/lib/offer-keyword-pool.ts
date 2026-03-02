@@ -41,6 +41,9 @@ import { parseJsonField, toDbJsonArrayField } from './json-field'
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
 const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
 const KEYWORD_CLUSTERING_INPUT_LIMIT = 500
+const KEYWORD_CLUSTERING_TRUNCATION_MARGIN = 32
+const KEYWORD_CLUSTERING_MAX_SPLIT_DEPTH = 3
+const KEYWORD_CLUSTERING_MIN_SPLIT_KEYWORDS = 8
 
 type GeminiGenerateParams = Parameters<typeof generateContent>[0]
 type GeminiGenerateResult = Awaited<ReturnType<typeof generateContent>>
@@ -158,6 +161,87 @@ async function runKeywordClustering(
       enableAutoModelSelection: false,
     }, userId)
   }
+}
+
+function appendKeywordClusteringOutputGuardrails(prompt: string): string {
+  const guardrails = [
+    'CRITICAL OUTPUT RULES:',
+    '- Return ONLY one valid JSON object. No markdown, no prose, no explanation.',
+    '- Keep all description fields concise (single short sentence).',
+    '- Do not invent new keywords. Use only keywords provided in input.',
+    '- Each input keyword must appear at most once across all buckets.',
+    '- If uncertain, keep keyword array empty instead of adding extra text.',
+  ].join('\n')
+
+  return `${prompt}\n\n${guardrails}`
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const firstBrace = text.indexOf('{')
+  if (firstBrace === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let objectStart = -1
+
+  for (let i = firstBrace; i < text.length; i++) {
+    const char = text[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === '{') {
+      if (depth === 0) {
+        objectStart = i
+      }
+      depth += 1
+      continue
+    }
+
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0 && objectStart >= 0) {
+        return text.slice(objectStart, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function parseKeywordClusteringJson(responseText: string): any {
+  const jsonCandidate = extractFirstJsonObject(responseText)
+  if (!jsonCandidate) {
+    throw new Error('AI 返回的数据格式无效：未找到JSON对象')
+  }
+
+  const cleanedJson = repairJsonText(jsonCandidate)
+  return JSON.parse(cleanedJson)
+}
+
+function isLikelyKeywordClusteringTruncated(response: GeminiGenerateResult): boolean {
+  const outputTokens = response.usage?.outputTokens || 0
+  if (outputTokens <= 0) return false
+  return outputTokens >= (KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS - KEYWORD_CLUSTERING_TRUNCATION_MARGIN)
+}
+
+function splitKeywordsForRetry(keywords: string[]): [string[], string[]] {
+  const mid = Math.ceil(keywords.length / 2)
+  return [keywords.slice(0, mid), keywords.slice(mid)]
 }
 
 function derivePageTypeFromScrapedData(scrapedData: any): 'store' | 'product' | null {
@@ -1283,14 +1367,9 @@ async function clusterBatchKeywords(
   userId: number,
   batchIndex: number,
   totalBatches: number,
-  pageType: 'product' | 'store' = 'product'
-): Promise<{
-  bucketA: { intent: string; intentEn: string; description: string; keywords: string[] }
-  bucketB: { intent: string; intentEn: string; description: string; keywords: string[] }
-  bucketC: { intent: string; intentEn: string; description: string; keywords: string[] }
-  bucketD: { intent: string; intentEn: string; description: string; keywords: string[] }
-  statistics: { totalKeywords: number; bucketACount: number; bucketBCount: number; bucketCCount: number; bucketDCount: number; balanceScore: number }
-}> {
+  pageType: 'product' | 'store' = 'product',
+  splitDepth: number = 0
+): Promise<KeywordBuckets | StoreKeywordBuckets> {
   console.log(`📦 处理批次 ${batchIndex}/${totalBatches}: ${batchKeywords.length} 个关键词 (${pageType}链接)`)
 
   // 1. 加载聚类 prompt
@@ -1303,6 +1382,7 @@ async function clusterBatchKeywords(
     .replace('{{keywords}}', batchKeywords.join('\n'))
     // 🆕 v4.16: 添加链接类型参数到 prompt
     .replace(/\{\{linkType\}\}/g, pageType)
+  prompt = appendKeywordClusteringOutputGuardrails(prompt)
 
   // 3. 定义结构化输出 schema（支持4桶产品 或 5桶店铺）
   const isStore = pageType === 'store'
@@ -1412,17 +1492,48 @@ async function clusterBatchKeywords(
     })
   }
 
-  // 6. 解析响应
-  const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    throw new Error('AI 返回的数据格式无效：未找到JSON')
-  }
-
   let batchResult
   try {
-    const cleanedJson = repairJsonText(jsonMatch[0])
-    batchResult = JSON.parse(cleanedJson)
+    batchResult = parseKeywordClusteringJson(aiResponse.text)
   } catch (parseError) {
+    const likelyTruncated = isLikelyKeywordClusteringTruncated(aiResponse)
+    const canSplitFurther =
+      likelyTruncated &&
+      splitDepth < KEYWORD_CLUSTERING_MAX_SPLIT_DEPTH &&
+      batchKeywords.length >= (KEYWORD_CLUSTERING_MIN_SPLIT_KEYWORDS * 2)
+
+    if (canSplitFurther) {
+      const [leftKeywords, rightKeywords] = splitKeywordsForRetry(batchKeywords)
+      console.warn(
+        `⚠️ 批次 ${batchIndex}/${totalBatches} 响应疑似被 token 截断 ` +
+        `(${aiResponse.usage?.outputTokens || 0}/${KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS})，` +
+        `拆分为 ${leftKeywords.length}+${rightKeywords.length} 重试`
+      )
+
+      const leftResult = await clusterBatchKeywords(
+        leftKeywords,
+        brandName,
+        category,
+        userId,
+        batchIndex,
+        totalBatches,
+        pageType,
+        splitDepth + 1
+      )
+      const rightResult = await clusterBatchKeywords(
+        rightKeywords,
+        brandName,
+        category,
+        userId,
+        batchIndex,
+        totalBatches,
+        pageType,
+        splitDepth + 1
+      )
+
+      return mergeBatchResults([leftResult, rightResult])
+    }
+
     console.error('❌ JSON解析失败:', parseError)
     console.error('   原始响应:', aiResponse.text.slice(0, 500))
     const errorMessage = parseError instanceof Error ? parseError.message : '未知错误'
@@ -1852,6 +1963,7 @@ async function clusterKeywordsDirectly(
         .replace('{{keywords}}', keywords.join('\n'))
         // 🆕 v4.16: 添加链接类型参数到 prompt
         .replace(/\{\{linkType\}\}/g, pageType)
+      prompt = appendKeywordClusteringOutputGuardrails(prompt)
 
       // 3. 定义结构化输出 schema（支持4桶产品 或 5桶店铺）
       const isStore = pageType === 'store'
@@ -1961,21 +2073,51 @@ async function clusterKeywordsDirectly(
         })
       }
 
-      // 6. 解析响应
-      const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error('AI 返回的数据格式无效：未找到JSON')
-      }
-
       let buckets: KeywordBuckets | StoreKeywordBuckets
       try {
-        const cleanedJson = repairJsonText(jsonMatch[0])
-        buckets = JSON.parse(cleanedJson)
+        buckets = parseKeywordClusteringJson(aiResponse.text)
       } catch (parseError) {
-        console.error('❌ JSON解析失败:', parseError)
-        console.error('   原始响应:', aiResponse.text.slice(0, 500))
-        const errorMessage = parseError instanceof Error ? parseError.message : '未知错误'
-        throw new Error(`JSON解析失败: ${errorMessage}`)
+        const likelyTruncated = isLikelyKeywordClusteringTruncated(aiResponse)
+        const canSplit =
+          likelyTruncated &&
+          keywords.length >= (KEYWORD_CLUSTERING_MIN_SPLIT_KEYWORDS * 2)
+
+        if (canSplit) {
+          const [leftKeywords, rightKeywords] = splitKeywordsForRetry(keywords)
+          console.warn(
+            `⚠️ 直接聚类响应疑似被 token 截断 ` +
+            `(${aiResponse.usage?.outputTokens || 0}/${KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS})，` +
+            `拆分为 ${leftKeywords.length}+${rightKeywords.length} 重试`
+          )
+
+          const leftResult = await clusterBatchKeywords(
+            leftKeywords,
+            brandName,
+            category,
+            userId,
+            1,
+            2,
+            pageType,
+            1
+          )
+          const rightResult = await clusterBatchKeywords(
+            rightKeywords,
+            brandName,
+            category,
+            userId,
+            2,
+            2,
+            pageType,
+            1
+          )
+
+          buckets = mergeBatchResults([leftResult, rightResult]) as KeywordBuckets | StoreKeywordBuckets
+        } else {
+          console.error('❌ JSON解析失败:', parseError)
+          console.error('   原始响应:', aiResponse.text.slice(0, 500))
+          const errorMessage = parseError instanceof Error ? parseError.message : '未知错误'
+          throw new Error(`JSON解析失败: ${errorMessage}`)
+        }
       }
 
       // 🔥 2025-12-22 添加数据结构验证（支持4个桶）
