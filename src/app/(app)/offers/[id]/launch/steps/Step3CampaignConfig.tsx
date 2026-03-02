@@ -1177,7 +1177,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   return (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
                       <Info className="inline h-4 w-4 mr-1" />
-                      <strong>建议最大CPC</strong>: {cpcResult.maxCPCFormatted}
+                      <strong>建议CPC</strong>: {cpcResult.maxCPCFormatted}
                       {details.commissionMode === 'percent' && details.commissionRate !== null && (
                         <span className="ml-1 text-xs text-blue-600">
                           (${details.productPrice} × {details.commissionRate.toFixed(2)}% ÷ {details.clicksPerSale}，假设{details.clicksPerSale}个点击出一单)
