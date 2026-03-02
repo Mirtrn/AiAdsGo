@@ -97,6 +97,7 @@ type SendDailyReportToFeishuParams = {
   userId: number
   target?: string
   date?: string
+  startDate?: string
   deliveryTaskId?: string
 }
 
@@ -2248,6 +2249,10 @@ function formatReportMessage(report: DailyReportPayload): string {
     )
   const dailyCostCurrency = roi ? roiCurrency : budgetCurrency
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').trim()
+  const dateRange = asObject(report.dateRange)
+  const isRangeMode = dateRange?.isRange === true
+  const reportStartDate = String(dateRange?.startDate || '').trim()
+  const reportEndDate = String(dateRange?.endDate || '').trim()
 
   const lines: string[] = []
   const strategyRecommendations = Array.isArray(report.strategyRecommendations)
@@ -2282,12 +2287,16 @@ function formatReportMessage(report: DailyReportPayload): string {
     }
   )
 
-  lines.push(`📊 OpenClaw 每日报表（${report.date}）`)
+  if (isRangeMode && reportStartDate && reportEndDate) {
+    lines.push(`📊 OpenClaw 周报（${reportStartDate} ~ ${reportEndDate}）`)
+  } else {
+    lines.push(`📊 OpenClaw 每日报表（${report.date}）`)
+  }
   if (summary) {
     lines.push(`- 规模概览：Offer ${summary.totalOffers ?? 0} 个｜Campaign ${summary.totalCampaigns ?? 0} 个`)
   }
   lines.push(`- 投放消耗：点击 ${dailyClicks} 次｜花费 ${formatMoney(dailyCost, dailyCostCurrency)}`)
-  lines.push(`- 当日表现：曝光 ${dailyImpressions}｜转化（Google Ads）${dailyConversions}｜联盟佣金记录 ${affiliateRecordCount}`)
+  lines.push(`- ${isRangeMode ? '周期表现' : '当日表现'}：曝光 ${dailyImpressions}｜转化（Google Ads）${dailyConversions}｜联盟佣金记录 ${affiliateRecordCount}`)
 
   if (roi) {
     if (revenueAvailable) {
@@ -2414,9 +2423,15 @@ function formatReportMessage(report: DailyReportPayload): string {
 }
 
 export async function sendDailyReportToFeishu(params: SendDailyReportToFeishuParams): Promise<void> {
-  const reportDate = normalizeOpenclawReportDate(params.date || formatLocalDate(new Date()))
+  const defaultDailyReportDate = shiftYmdDate(formatLocalDate(new Date()), -1)
+  const reportDate = normalizeOpenclawReportDate(params.date || defaultDailyReportDate)
+  const normalizedStartDate = params.startDate
+    ? normalizeOpenclawReportDate(params.startDate)
+    : undefined
+  const isRangeMode = Boolean(normalizedStartDate && normalizedStartDate < reportDate)
+  const deliveryScope = isRangeMode ? `${normalizedStartDate}:${reportDate}` : reportDate
   const inflightKey = params.deliveryTaskId
-    ? `daily-report-delivery:${params.userId}:${reportDate}:${params.target || 'no-target'}:${params.deliveryTaskId}`
+    ? `daily-report-delivery:${params.userId}:${deliveryScope}:${params.target || 'no-target'}:${params.deliveryTaskId}`
     : undefined
 
   if (inflightKey) {
@@ -2428,6 +2443,7 @@ export async function sendDailyReportToFeishu(params: SendDailyReportToFeishuPar
     const task = sendDailyReportToFeishuInternal({
       ...params,
       date: reportDate,
+      startDate: isRangeMode ? normalizedStartDate : undefined,
     })
     reportDeliveryInflight.set(inflightKey, task)
     try {
@@ -2441,15 +2457,25 @@ export async function sendDailyReportToFeishu(params: SendDailyReportToFeishuPar
   return sendDailyReportToFeishuInternal({
     ...params,
     date: reportDate,
+    startDate: isRangeMode ? normalizedStartDate : undefined,
   })
 }
 
 async function sendDailyReportToFeishuInternal(params: SendDailyReportToFeishuParams): Promise<void> {
-  const report = await getOrCreateDailyReport(params.userId, params.date)
+  const reportDate = normalizeOpenclawReportDate(
+    params.date || shiftYmdDate(formatLocalDate(new Date()), -1)
+  )
+  const normalizedStartDate = params.startDate
+    ? normalizeOpenclawReportDate(params.startDate)
+    : undefined
+  const isRangeMode = Boolean(normalizedStartDate && normalizedStartDate < reportDate)
+  const report = isRangeMode
+    ? await buildOpenclawDailyReport(params.userId, reportDate, { startDate: normalizedStartDate })
+    : await getOrCreateDailyReport(params.userId, reportDate)
   const db = await getDatabase()
   const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
-  if (params.deliveryTaskId) {
+  if (!isRangeMode && params.deliveryTaskId) {
     const latestDelivery = await db.queryOne<{
       sent_status?: string
       last_delivery_task_id?: string | null
@@ -2466,21 +2492,26 @@ async function sendDailyReportToFeishuInternal(params: SendDailyReportToFeishuPa
     }
   }
 
-  await db.exec(
-    `UPDATE openclaw_daily_reports
-     SET delivery_attempts = COALESCE(delivery_attempts, 0) + 1,
-         last_delivery_task_id = ?,
-         delivery_error = NULL
-     WHERE user_id = ? AND report_date = ?`,
-    [params.deliveryTaskId || null, params.userId, report.date]
-  )
+  if (!isRangeMode) {
+    await db.exec(
+      `UPDATE openclaw_daily_reports
+       SET delivery_attempts = COALESCE(delivery_attempts, 0) + 1,
+           last_delivery_task_id = ?,
+           delivery_error = NULL
+       WHERE user_id = ? AND report_date = ?`,
+      [params.deliveryTaskId || null, params.userId, report.date]
+    )
+  }
 
   const message = formatReportMessage(report)
   let sentAny = false
   const errors: string[] = []
   const accountId = await resolveUserFeishuAccountId(params.userId)
+  const deliveryScope = isRangeMode && normalizedStartDate
+    ? `${normalizedStartDate}:${report.date}`
+    : report.date
   const deliveryIdempotencyKey = params.deliveryTaskId
-    ? `daily-report:${params.userId}:${report.date}:${params.target || 'no-target'}:${params.deliveryTaskId}`
+    ? `daily-report:${params.userId}:${deliveryScope}:${params.target || 'no-target'}:${params.deliveryTaskId}`
     : undefined
 
   if (params.target) {
@@ -2503,44 +2534,48 @@ async function sendDailyReportToFeishuInternal(params: SendDailyReportToFeishuPa
     }
   }
 
-  try {
-    await writeDailyReportToBitable(params.userId, report)
-    sentAny = true
-  } catch (error: any) {
-    const messageText = error?.message || String(error)
-    errors.push(`bitable: ${messageText}`)
-    console.error('❌ 写入飞书多维表格失败:', error)
-  }
+  if (!isRangeMode) {
+    try {
+      await writeDailyReportToBitable(params.userId, report)
+      sentAny = true
+    } catch (error: any) {
+      const messageText = error?.message || String(error)
+      errors.push(`bitable: ${messageText}`)
+      console.error('❌ 写入飞书多维表格失败:', error)
+    }
 
-  try {
-    await writeDailyReportToDoc(params.userId, report)
-    sentAny = true
-  } catch (error: any) {
-    const messageText = error?.message || String(error)
-    errors.push(`doc: ${messageText}`)
-    console.error('❌ 写入飞书文档失败:', error)
+    try {
+      await writeDailyReportToDoc(params.userId, report)
+      sentAny = true
+    } catch (error: any) {
+      const messageText = error?.message || String(error)
+      errors.push(`doc: ${messageText}`)
+      console.error('❌ 写入飞书文档失败:', error)
+    }
   }
 
   const deliveryError = sentAny ? null : (errors.join(' | ') || '所有投递渠道均失败')
 
-  await db.exec(
-    `UPDATE openclaw_daily_reports
-     SET sent_status = ?,
-         sent_at = CASE WHEN ? THEN ${nowSql} ELSE sent_at END,
-         delivery_error = ?,
-         last_delivery_task_id = COALESCE(?, last_delivery_task_id)
-     WHERE user_id = ? AND report_date = ?`,
-    [
-      sentAny ? 'sent' : 'failed',
-      sentAny,
-      deliveryError,
-      params.deliveryTaskId || null,
-      params.userId,
-      report.date,
-    ]
-  )
+  if (!isRangeMode) {
+    await db.exec(
+      `UPDATE openclaw_daily_reports
+       SET sent_status = ?,
+           sent_at = CASE WHEN ? THEN ${nowSql} ELSE sent_at END,
+           delivery_error = ?,
+           last_delivery_task_id = COALESCE(?, last_delivery_task_id)
+       WHERE user_id = ? AND report_date = ?`,
+      [
+        sentAny ? 'sent' : 'failed',
+        sentAny,
+        deliveryError,
+        params.deliveryTaskId || null,
+        params.userId,
+        report.date,
+      ]
+    )
+  }
 
   if (!sentAny) {
-    throw new Error(deliveryError || '每日报表投递失败')
+    throw new Error(deliveryError || (isRangeMode ? '周报投递失败' : '每日报表投递失败'))
   }
 }

@@ -78,6 +78,13 @@ function formatDateInTimezone(date: Date, timeZone: string): string {
   }).format(date)
 }
 
+function shiftDateKeyByDays(dateKey: string, days: number): string {
+  const parsed = new Date(`${dateKey}T00:00:00.000Z`)
+  if (Number.isNaN(parsed.getTime())) return dateKey
+  parsed.setUTCDate(parsed.getUTCDate() + days)
+  return parsed.toISOString().slice(0, 10)
+}
+
 function buildAffiliateLookbackDates(days: number, timeZone: string): string[] {
   const safeDays = Math.min(30, Math.max(7, Math.round(days)))
   const today = new Date()
@@ -106,7 +113,14 @@ async function enqueueOpenclawStrategy(userId: number, mode: string) {
     const queue = getQueueManagerForTaskType('openclaw-strategy')
     await queue.enqueue(
       'openclaw-strategy',
-      { userId, mode, trigger: 'cron', kind: 'analyze_recommendations' },
+      {
+        userId,
+        mode,
+        trigger: 'cron',
+        kind: 'analyze_recommendations',
+        // 避免与任务6（独立日报推送）重复投递
+        sendReport: false,
+      },
       userId,
       { priority: 'normal', maxRetries: 0 }
     )
@@ -346,8 +360,8 @@ async function suspendInactiveOrExpiredUserTasksTask() {
  */
 async function openclawDailyReportTask() {
   const reportTimeZone = process.env.TZ || 'Asia/Shanghai'
-  const reportDate = buildAffiliateLookbackDates(2, reportTimeZone)[0]
-    || formatDateInTimezone(new Date(), reportTimeZone)
+  const todayDate = formatDateInTimezone(new Date(), reportTimeZone)
+  const reportDate = shiftDateKeyByDays(todayDate, -1)
 
   log(`📨 开始推送 OpenClaw 每日报表 (reportDate=${reportDate}, timezone=${reportTimeZone})...`)
 
@@ -415,7 +429,80 @@ async function openclawDailyReportTask() {
 }
 
 /**
- * 任务6.1: OpenClaw 联盟成交/佣金快照刷新
+ * 任务6.1: OpenClaw 每周报表推送（飞书）
+ * 频率：每周一上午（Asia/Shanghai，推送上周一~周日数据）
+ */
+async function openclawWeeklyReportTask() {
+  const reportTimeZone = process.env.TZ || 'Asia/Shanghai'
+  const todayDate = formatDateInTimezone(new Date(), reportTimeZone)
+  const reportEndDate = shiftDateKeyByDays(todayDate, -1)
+  const reportStartDate = shiftDateKeyByDays(reportEndDate, -6)
+
+  log(`🗓️ 开始推送 OpenClaw 周报 (start=${reportStartDate}, end=${reportEndDate}, timezone=${reportTimeZone})...`)
+
+  const db = await getDatabase()
+
+  try {
+    const rows = await db.query<{
+      user_id: number
+      target: string | null
+    }>(`
+      SELECT
+        ss.user_id,
+        MAX(CASE WHEN ss.key = 'feishu_target' THEN ss.value END) as target
+      FROM system_settings ss
+      INNER JOIN users u ON u.id = ss.user_id
+      WHERE ss.category = 'openclaw'
+        AND ss.user_id IS NOT NULL
+        AND ss.value IS NOT NULL
+        AND ss.value != ''
+        AND ss.key IN ('feishu_target')
+        AND u.is_active = ?
+        AND u.openclaw_enabled = ?
+      GROUP BY ss.user_id
+    `, [true, true])
+
+    if (!rows || rows.length === 0) {
+      log('📭 未找到需要推送周报的 OpenClaw 用户')
+      return
+    }
+
+    const queue = getQueueManagerForTaskType('openclaw-report-send')
+
+    let queuedCount = 0
+    for (const row of rows) {
+      try {
+        const taskId = await queue.enqueue(
+          'openclaw-report-send',
+          {
+            userId: row.user_id,
+            target: row.target || undefined,
+            date: reportEndDate,
+            startDate: reportStartDate,
+            trigger: 'cron',
+          },
+          row.user_id,
+          {
+            priority: 'normal',
+            maxRetries: 1,
+            taskId: `openclaw-weekly-report-send-cron:${row.user_id}:${reportStartDate}:${reportEndDate}`,
+          }
+        )
+        queuedCount++
+        log(`📥 OpenClaw周报投递任务已入队 (user=${row.user_id}, task=${taskId}, range=${reportStartDate}~${reportEndDate})`)
+      } catch (error) {
+        logError(`❌ OpenClaw周报投递任务入队失败 (user=${row.user_id})`, error)
+      }
+    }
+
+    log(`🗓️ OpenClaw 周报投递任务入队完成 - 成功: ${queuedCount}/${rows.length}`)
+  } catch (error) {
+    logError('❌ OpenClaw 周报推送执行失败:', error)
+  }
+}
+
+/**
+ * 任务6.2: OpenClaw 联盟成交/佣金快照刷新
  * 频率：每小时执行一次（按用户配置的 interval 过滤）
  * 范围：默认刷新最近7天（含当天）；若设置了更长 pending 宽限期，会自动扩展窗口；也可通过 OPENCLAW_AFFILIATE_SYNC_LOOKBACK_DAYS 配置
  */
@@ -724,6 +811,7 @@ function startScheduler() {
   log('  - 数据清理: 每天凌晨3点')
   log('  - 禁用/过期用户任务暂停: 每天一次 (默认凌晨4点)')
   log('  - OpenClaw 每日报表推送: 每天上午9点')
+  log('  - OpenClaw 每周报表推送: 每周一上午9:10')
   log('  - OpenClaw 联盟佣金快照刷新: 每小时（按用户配置）')
   log('  - OpenClaw 策略调度: 按用户配置')
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
@@ -821,7 +909,23 @@ function startScheduler() {
     timezone: 'Asia/Shanghai'
   })
 
-  // 任务6.1: OpenClaw 联盟成交/佣金快照刷新（每小时）
+  // 任务6.1: OpenClaw 每周报表推送（每周一）
+  const openclawWeeklyReportEnabled = process.env.OPENCLAW_WEEKLY_REPORT_ENABLED !== 'false'
+  const openclawWeeklyReportCron = process.env.OPENCLAW_WEEKLY_REPORT_CRON || '10 9 * * 1'
+
+  if (openclawWeeklyReportEnabled) {
+    cron.schedule(openclawWeeklyReportCron, async () => {
+      await openclawWeeklyReportTask()
+    }, {
+      scheduled: true,
+      timezone: 'Asia/Shanghai'
+    })
+    log(`✅ OpenClaw 每周报表推送任务已启动 (cron: ${openclawWeeklyReportCron})`)
+  } else {
+    log('⏸️  OpenClaw 每周报表推送任务已禁用 (OPENCLAW_WEEKLY_REPORT_ENABLED=false)')
+  }
+
+  // 任务6.2: OpenClaw 联盟成交/佣金快照刷新（每小时）
   const openclawAffiliateSyncEnabled = process.env.OPENCLAW_AFFILIATE_SYNC_ENABLED !== 'false'
   const openclawAffiliateSyncCron = process.env.OPENCLAW_AFFILIATE_SYNC_CRON || '5 * * * *'
 

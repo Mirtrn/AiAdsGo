@@ -125,6 +125,12 @@ export async function GET(request: NextRequest) {
         enabled: true,
       },
       {
+        name: 'OpenClaw周报',
+        description: '每周一发送上一周（周一~周日）汇总报表',
+        schedule: '每周一上午9:10',
+        enabled: process.env.OPENCLAW_WEEKLY_REPORT_ENABLED !== 'false',
+      },
+      {
         name: 'A/B测试监控',
         description: '监控A/B测试并自动优化',
         schedule: '每小时',
