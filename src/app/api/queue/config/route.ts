@@ -12,6 +12,15 @@ import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 
+const GLOBAL_CONCURRENCY_MAX = 1000
+const PER_USER_CONCURRENCY_MAX = 1000
+const PER_TYPE_CONCURRENCY_MAX = 1000
+const MAX_QUEUE_SIZE_MAX = 10000
+const TASK_TIMEOUT_MIN_MS = 10000
+const TASK_TIMEOUT_MAX_MS = 900000
+const DEFAULT_MAX_RETRIES_MAX = 5
+const RETRY_DELAY_MAX_MS = 60000
+
 // 默认队列配置
 const DEFAULT_QUEUE_CONFIG = {
   globalConcurrency: 999,  // 🔥 全局并发提升至999（补点击需求）
@@ -65,6 +74,11 @@ const ALL_TASK_TYPES = [
   'openclaw-report-send',
 ] as const
 
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
 function normalizeQueueConfig(input: any): typeof DEFAULT_QUEUE_CONFIG {
   const merged = {
     ...DEFAULT_QUEUE_CONFIG,
@@ -80,20 +94,69 @@ function normalizeQueueConfig(input: any): typeof DEFAULT_QUEUE_CONFIG {
     if (merged.perTypeConcurrency[taskType] === undefined) {
       merged.perTypeConcurrency[taskType] = 2
     }
+    merged.perTypeConcurrency[taskType] = clampNumber(
+      merged.perTypeConcurrency[taskType],
+      1,
+      PER_TYPE_CONCURRENCY_MAX,
+      DEFAULT_QUEUE_CONFIG.perTypeConcurrency[taskType]
+    )
   }
+
+  merged.globalConcurrency = clampNumber(
+    merged.globalConcurrency,
+    1,
+    GLOBAL_CONCURRENCY_MAX,
+    DEFAULT_QUEUE_CONFIG.globalConcurrency
+  )
+  merged.perUserConcurrency = clampNumber(
+    merged.perUserConcurrency,
+    1,
+    PER_USER_CONCURRENCY_MAX,
+    DEFAULT_QUEUE_CONFIG.perUserConcurrency
+  )
+  merged.maxQueueSize = clampNumber(
+    merged.maxQueueSize,
+    10,
+    MAX_QUEUE_SIZE_MAX,
+    DEFAULT_QUEUE_CONFIG.maxQueueSize
+  )
+  merged.taskTimeout = clampNumber(
+    merged.taskTimeout,
+    TASK_TIMEOUT_MIN_MS,
+    TASK_TIMEOUT_MAX_MS,
+    DEFAULT_QUEUE_CONFIG.taskTimeout
+  )
+  merged.defaultMaxRetries = clampNumber(
+    merged.defaultMaxRetries,
+    0,
+    DEFAULT_MAX_RETRIES_MAX,
+    DEFAULT_QUEUE_CONFIG.defaultMaxRetries
+  )
+  merged.retryDelay = clampNumber(
+    merged.retryDelay,
+    1000,
+    RETRY_DELAY_MAX_MS,
+    DEFAULT_QUEUE_CONFIG.retryDelay
+  )
 
   return merged
 }
 
 // 统一队列配置验证Schema
 const queueConfigSchema = z.object({
-  globalConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
-  perUserConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
-  perTypeConcurrency: z.record(z.number().min(1).max(1000)).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
-  maxQueueSize: z.number().min(10).max(10000).optional(),
-  taskTimeout: z.number().min(10000).max(900000).optional(), // 10秒 - 15分钟
-  defaultMaxRetries: z.number().min(0).max(5).optional(),
-  retryDelay: z.number().min(1000).max(60000).optional(),
+  globalConcurrency: z.number().min(1).max(GLOBAL_CONCURRENCY_MAX).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
+  perUserConcurrency: z.number().min(1).max(PER_USER_CONCURRENCY_MAX).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
+  perTypeConcurrency: z.record(z.number().min(1).max(PER_TYPE_CONCURRENCY_MAX)).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
+  maxQueueSize: z.number().min(10).max(MAX_QUEUE_SIZE_MAX).optional(),
+  // 兼容历史超限值：先裁剪再验证，避免“修改其它字段时被旧 taskTimeout 阻塞”
+  taskTimeout: z.preprocess(
+    (value) => (typeof value === 'number' && Number.isFinite(value)
+      ? Math.min(value, TASK_TIMEOUT_MAX_MS)
+      : value),
+    z.number().min(TASK_TIMEOUT_MIN_MS).max(TASK_TIMEOUT_MAX_MS).optional()
+  ),
+  defaultMaxRetries: z.number().min(0).max(DEFAULT_MAX_RETRIES_MAX).optional(),
+  retryDelay: z.number().min(1000).max(RETRY_DELAY_MAX_MS).optional(),
 }).passthrough()  // 🔥 允许额外字段（如 enablePriority, storageType 等前端状态字段）
 
 function getRuntimeQueueConfig(): typeof DEFAULT_QUEUE_CONFIG {
