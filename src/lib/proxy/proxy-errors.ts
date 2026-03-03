@@ -105,6 +105,22 @@ export class ProxyUnavailableError extends ProxyError {
 }
 
 /**
+ * Provider业务错误（持续性，不应重试）
+ * 例如：账户异常、风控冻结、需要联系客服处理
+ */
+export class ProxyProviderBusinessError extends ProxyError {
+  provider: string
+  statusCode?: number
+
+  constructor(provider: string, message: string, statusCode?: number) {
+    super(message, false, 'PROVIDER_BUSINESS_ERROR')
+    this.name = 'ProxyProviderBusinessError'
+    this.provider = provider
+    this.statusCode = statusCode
+  }
+}
+
+/**
  * 健康检查失败（可能恢复，应该重试）
  * 代理IP获取成功但连接测试失败
  */

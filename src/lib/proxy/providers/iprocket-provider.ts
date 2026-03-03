@@ -5,10 +5,35 @@ import { validateProxyUrl } from '../validate-url'
 import axios from 'axios'
 import {
   ProxyFormatError,
+  ProxyError,
   ProxyHttpError,
   ProxyNetworkError,
+  ProxyProviderBusinessError,
   analyzeProxyError,
 } from '../proxy-errors'
+
+function isBusinessAbnormalityError(code: number, message: string): boolean {
+  const lowerMessage = String(message || '').toLowerCase()
+  if (lowerMessage.includes('business abnormality')) return true
+  if (lowerMessage.includes('contact customer service')) return true
+  if (lowerMessage.includes('account abnormal')) return true
+  if (lowerMessage.includes('risk control')) return true
+
+  // IPRocket有时会返回500但属于账户/风控类业务错误，不是临时网络故障
+  return code === 500 && lowerMessage.includes('abnormal')
+}
+
+function createIprocketApiError(code: number, message: string): ProxyError {
+  const normalized = message || 'Unknown API error'
+  if (isBusinessAbnormalityError(code, normalized)) {
+    return new ProxyProviderBusinessError(
+      'IPRocket',
+      `IPRocket API business error: ${normalized}`,
+      code
+    )
+  }
+  return new ProxyHttpError(code, `IPRocket API error: ${normalized}`)
+}
 
 /**
  * IPRocket代理提供商
@@ -61,12 +86,12 @@ export class IPRocketProvider implements ProxyProvider {
           if (jsonResp.code && jsonResp.code !== 200) {
             const errorMsg = jsonResp.msg || jsonResp.message || 'Unknown API error'
             console.error(`[IPRocket] API返回业务错误: code=${jsonResp.code}, msg=${errorMsg}`)
-            // 不要回退到Playwright，因为是API层面的错误（账户/配额问题）
-            throw new ProxyHttpError(jsonResp.code, `IPRocket API error: ${errorMsg}`)
+            // 不要回退到Playwright，因为是API层面的错误（账户/配额/风控问题）
+            throw createIprocketApiError(jsonResp.code, errorMsg)
           }
         } catch (parseErr) {
           // 如果是ProxyHttpError，重新抛出（不要被当作JSON解析错误）
-          if (parseErr instanceof ProxyHttpError) {
+          if (parseErr instanceof ProxyError) {
             throw parseErr
           }
           // 如果JSON解析失败但看起来像JSON，记录警告
@@ -112,6 +137,14 @@ export class IPRocketProvider implements ProxyProvider {
 
       return { host, port, username, password, fullAddress: `${host}:${port}` }
     } catch (error: any) {
+      // API业务错误或明确不可重试错误：直接抛出，避免无效降级到Playwright再次请求同一API
+      if (error instanceof ProxyProviderBusinessError) {
+        throw error
+      }
+      if (error instanceof ProxyError && !error.retryable) {
+        throw error
+      }
+
       // HTTP 获取失败再回退到 Playwright（用于应对 provider 的反爬/挑战页）。
       console.warn(`[IPRocket] HTTP 获取失败，回退到 Playwright: ${error?.message || String(error)}`)
     }
@@ -203,11 +236,11 @@ export class IPRocketProvider implements ProxyProvider {
           if (jsonResp.code && jsonResp.code !== 200) {
             const errorMsg = jsonResp.msg || jsonResp.message || 'Unknown API error'
             console.error(`[IPRocket Playwright] API返回业务错误: code=${jsonResp.code}, msg=${errorMsg}`)
-            throw new ProxyHttpError(jsonResp.code, `IPRocket API error: ${errorMsg}`)
+            throw createIprocketApiError(jsonResp.code, errorMsg)
           }
         } catch (parseErr) {
-          // 如果是ProxyHttpError，重新抛出
-          if (parseErr instanceof ProxyHttpError) {
+          // 如果是ProxyError，重新抛出
+          if (parseErr instanceof ProxyError) {
             throw parseErr
           }
           if (text.trim().startsWith('{')) {

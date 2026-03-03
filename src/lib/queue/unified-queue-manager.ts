@@ -635,6 +635,9 @@ export class UnifiedQueueManager {
       'credential',                                          // 凭证相关
       'config',                                              // 配置相关
       'permission_denied',                                   // Google Ads API 权限拒绝
+      'business abnormality',                                // 代理服务商业务异常（需人工介入）
+      'contact customer service',                            // 代理服务商要求联系客服
+      'api business error',                                  // 代理服务商业务错误（不可恢复）
     ]
 
     for (const pattern of nonRecoverablePatterns) {

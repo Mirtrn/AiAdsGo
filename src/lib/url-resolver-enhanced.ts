@@ -699,6 +699,19 @@ function shouldRetryHttpInsteadOfFallbackToPlaywright(error: unknown): boolean {
   return transientPatterns.some(p => msg.includes(p))
 }
 
+function shouldFailFastWithoutPlaywrightFallback(error: unknown): boolean {
+  const msg = (error as any)?.message ? String((error as any).message) : String(error)
+  const lower = msg.toLowerCase()
+
+  // Provider业务错误（账户/风控/客服介入）不可通过Playwright降级恢复，
+  // 继续降级只会重复请求同一provider并放大错误风暴。
+  return (
+    lower.includes('iprocket api business error') ||
+    lower.includes('business abnormality') ||
+    lower.includes('contact customer service')
+  )
+}
+
 // ==================== Playwright方式（Level 2） ====================
 
 async function resolveWithPlaywright(
@@ -838,6 +851,10 @@ export async function resolveAffiliateLink(
         } catch (httpError: any) {
           // 🔥 修复：HTTP失败时降级到Playwright
           console.log(`   HTTP失败: ${httpError.message}`)
+          if (shouldFailFastWithoutPlaywrightFallback(httpError)) {
+            console.log(`   HTTP命中代理业务错误（不可恢复），终止当前尝试`)
+            throw httpError
+          }
           if (shouldRetryHttpInsteadOfFallbackToPlaywright(httpError)) {
             console.log(`   HTTP临时失败（优先换代理重试），不降级到Playwright`)
             throw httpError
@@ -894,6 +911,10 @@ export async function resolveAffiliateLink(
           }
         } catch (httpError: any) {
           console.log(`   HTTP失败: ${httpError.message}`)
+          if (shouldFailFastWithoutPlaywrightFallback(httpError)) {
+            console.log(`   HTTP命中代理业务错误（不可恢复），终止当前尝试`)
+            throw httpError
+          }
           if (shouldRetryHttpInsteadOfFallbackToPlaywright(httpError)) {
             console.log(`   HTTP临时失败（优先换代理重试），不降级到Playwright`)
             throw httpError
