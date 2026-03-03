@@ -16,6 +16,7 @@ import { getDatabase } from './lib/db'
 import { getQueueRoutingDiagnostics } from './lib/queue/queue-routing'
 import { logger } from './lib/structured-logger'
 import { setBackgroundWorkerHeartbeat, getBackgroundWorkerHeartbeatKey, getBackgroundWorkerHeartbeatTtlSeconds } from './lib/queue/background-worker-heartbeat'
+import { getHeapStatistics } from 'v8'
 
 async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
   try {
@@ -37,6 +38,12 @@ async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
 
 async function main() {
   logger.info('background_worker_boot', getQueueRoutingDiagnostics())
+  const heapLimitMb = Math.round(getHeapStatistics().heap_size_limit / 1024 / 1024)
+  logger.info('background_worker_runtime', {
+    pid: process.pid,
+    heapLimitMb,
+    nodeOptions: process.env.NODE_OPTIONS || null,
+  })
 
   const queue = getBackgroundQueueManager({
     // worker 进程：不依赖 enqueue 自动 start，避免误触发全量执行器注册

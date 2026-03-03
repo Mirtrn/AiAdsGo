@@ -114,6 +114,7 @@ export interface KeywordPerformanceData {
  */
 export class DataSyncService {
   private static instance: DataSyncService
+  private static googleAdsQuotaBackoffUntilMs = 0
   private syncStatus: Map<number, SyncStatus> = new Map()
 
   private normalizeCurrency(value: unknown): string {
@@ -139,6 +140,47 @@ export class DataSyncService {
       DataSyncService.instance = new DataSyncService()
     }
     return DataSyncService.instance
+  }
+
+  private getGoogleAdsQuotaBackoffSecondsRemaining(): number {
+    const remainingMs = DataSyncService.googleAdsQuotaBackoffUntilMs - Date.now()
+    if (remainingMs <= 0) return 0
+    return Math.ceil(remainingMs / 1000)
+  }
+
+  private isGoogleAdsQuotaErrorMessage(message: string): boolean {
+    const normalized = message.toLowerCase()
+    return (
+      normalized.includes('quota_error') ||
+      normalized.includes('too many requests') ||
+      normalized.includes('number of operations for explorer access')
+    )
+  }
+
+  private extractRetryInSeconds(message: string): number | null {
+    const match = message.match(/retry in\s+(\d+)\s+seconds/i)
+    if (!match) return null
+    const seconds = parseInt(match[1], 10)
+    if (!Number.isFinite(seconds) || seconds <= 0) return null
+    return seconds
+  }
+
+  private markGoogleAdsQuotaBackoffIfNeeded(error: unknown, source: string): number {
+    const message = this.buildSyncErrorMessage(error)
+    if (!this.isGoogleAdsQuotaErrorMessage(message)) return 0
+
+    const retryInSeconds = this.extractRetryInSeconds(message)
+    if (!retryInSeconds) return 0
+
+    const until = Date.now() + retryInSeconds * 1000
+    if (until > DataSyncService.googleAdsQuotaBackoffUntilMs) {
+      DataSyncService.googleAdsQuotaBackoffUntilMs = until
+      console.warn(
+        `[DataSync] 检测到Google Ads配额限制，触发全局冷却 ${retryInSeconds}s（来源: ${source}）`
+      )
+    }
+
+    return this.getGoogleAdsQuotaBackoffSecondsRemaining()
   }
 
   /**
@@ -343,6 +385,21 @@ export class DataSyncService {
           accountSyncLogId = getInsertedId(logResult, db.type)
           syncLogId = accountSyncLogId  // 保留最后一个syncLogId用于整体同步日志
 
+          const quotaBackoffRemaining = this.getGoogleAdsQuotaBackoffSecondsRemaining()
+          if (quotaBackoffRemaining > 0) {
+            const skipMessage = `Google Ads API 配额冷却中，跳过剩余账户（约 ${quotaBackoffRemaining}s）`
+            console.warn(`[DataSync] ${skipMessage}`)
+            await db.exec(
+              `
+              UPDATE sync_logs
+              SET status = 'success', record_count = 0, error_message = ?, duration_ms = ?, completed_at = ?
+              WHERE id = ?
+              `,
+              [skipMessage, Date.now() - startTime, new Date().toISOString(), accountSyncLogId]
+            )
+            break
+          }
+
           // 查询该账户下的所有Campaigns
           const campaigns = await db.query(
             `
@@ -543,7 +600,18 @@ export class DataSyncService {
               campaignMap,
             })
           } catch (error) {
-            console.warn(`⚠️ 品牌全局核心关键词同步失败（不影响主流程）:`, error)
+            const quotaBackoffRemaining = this.markGoogleAdsQuotaBackoffIfNeeded(
+              error,
+              `brand-core-keywords:${account.customer_id}`
+            )
+            const errorMessage = this.buildSyncErrorMessage(error)
+            if (quotaBackoffRemaining > 0) {
+              console.warn(
+                `⚠️ 品牌全局核心关键词同步命中配额冷却（剩余约 ${quotaBackoffRemaining}s，不影响主流程）: ${errorMessage}`
+              )
+            } else {
+              console.warn(`⚠️ 品牌全局核心关键词同步失败（不影响主流程）: ${errorMessage}`)
+            }
           }
 
           // 更新账户的last_sync_at
@@ -576,7 +644,12 @@ export class DataSyncService {
             )
           }
 
-          console.error(`❌ 账户 ${account.customer_id} 同步失败:`, accountError)
+          console.error(`❌ 账户 ${account.customer_id} 同步失败: ${errorMessage}`)
+
+          const quotaBackoffRemaining = this.markGoogleAdsQuotaBackoffIfNeeded(
+            accountError,
+            `performance:${account.customer_id}`
+          )
 
           // 🆕 修复(2026-01-02): 检测OAuth token过期错误并创建风险警报
           const isTokenExpiredError =
@@ -610,6 +683,13 @@ export class DataSyncService {
               console.error(`❌ 创建风险警报失败:`, alertError)
               // 不影响主流程
             }
+          }
+
+          if (quotaBackoffRemaining > 0) {
+            console.warn(
+              `[DataSync] Google Ads 配额冷却中，终止本轮剩余账户同步（剩余约 ${quotaBackoffRemaining}s）`
+            )
+            break
           }
 
           // 继续处理下一个账户，不中断整体同步流程
@@ -808,9 +888,18 @@ export class DataSyncService {
 
       throw lastQueryError || new Error(`Google Ads账号 ${customerId} 查询失败`)
     } catch (error) {
-      console.error('GAQL查询失败:', error)
+      const quotaBackoffRemaining = this.markGoogleAdsQuotaBackoffIfNeeded(
+        error,
+        `gaql-performance:${customerId}`
+      )
+      const errorMessage = this.buildSyncErrorMessage(error)
+      if (quotaBackoffRemaining > 0) {
+        console.error(`GAQL查询失败(效果，配额冷却剩余约${quotaBackoffRemaining}s): ${errorMessage}`)
+      } else {
+        console.error(`GAQL查询失败(效果): ${errorMessage}`)
+      }
       throw new Error(
-        `Google Ads API查询失败: ${this.buildSyncErrorMessage(error)}`
+        `Google Ads API查询失败: ${errorMessage}`
       )
     }
   }
@@ -996,9 +1085,18 @@ export class DataSyncService {
         }
       })
     } catch (error) {
-      console.error('GAQL查询搜索词报告失败:', error)
+      const quotaBackoffRemaining = this.markGoogleAdsQuotaBackoffIfNeeded(
+        error,
+        `gaql-search-term:${customerId}`
+      )
+      const errorMessage = this.buildSyncErrorMessage(error)
+      if (quotaBackoffRemaining > 0) {
+        console.error(`GAQL查询搜索词报告失败(配额冷却剩余约${quotaBackoffRemaining}s): ${errorMessage}`)
+      } else {
+        console.error(`GAQL查询搜索词报告失败: ${errorMessage}`)
+      }
       throw new Error(
-        `Google Ads API查询失败(搜索词报告): ${this.buildSyncErrorMessage(error)}`
+        `Google Ads API查询失败(搜索词报告): ${errorMessage}`
       )
     }
   }
@@ -1119,9 +1217,18 @@ export class DataSyncService {
         }
       })
     } catch (error) {
-      console.error('GAQL查询关键词表现失败:', error)
+      const quotaBackoffRemaining = this.markGoogleAdsQuotaBackoffIfNeeded(
+        error,
+        `gaql-keyword:${customerId}`
+      )
+      const errorMessage = this.buildSyncErrorMessage(error)
+      if (quotaBackoffRemaining > 0) {
+        console.error(`GAQL查询关键词表现失败(配额冷却剩余约${quotaBackoffRemaining}s): ${errorMessage}`)
+      } else {
+        console.error(`GAQL查询关键词表现失败: ${errorMessage}`)
+      }
       throw new Error(
-        `Google Ads API查询失败(关键词表现): ${this.buildSyncErrorMessage(error)}`
+        `Google Ads API查询失败(关键词表现): ${errorMessage}`
       )
     }
   }

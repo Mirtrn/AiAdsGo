@@ -44,6 +44,12 @@ function getBoundedFloatFromEnv(key: string, fallback: number, min: number, max:
   return Math.min(max, Math.max(min, parsed))
 }
 
+function clampPositiveInt(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.floor(parsed)
+}
+
 /**
  * 统一队列管理器
  *
@@ -94,6 +100,18 @@ export class UnifiedQueueManager {
     72,
     50,
     95
+  )
+  private readonly clickFarmConcurrencyHardCap = getPositiveIntFromEnv(
+    'QUEUE_CLICK_FARM_CONCURRENCY_HARD_CAP',
+    40
+  )
+  private readonly clickFarmBatchConcurrencyHardCap = getPositiveIntFromEnv(
+    'QUEUE_CLICK_FARM_BATCH_CONCURRENCY_HARD_CAP',
+    12
+  )
+  private readonly clickFarmTriggerConcurrencyHardCap = getPositiveIntFromEnv(
+    'QUEUE_CLICK_FARM_TRIGGER_CONCURRENCY_HARD_CAP',
+    8
   )
 
   constructor(config: Partial<QueueConfig> = {}) {
@@ -1539,14 +1557,31 @@ export class UnifiedQueueManager {
    * 更新队列配置
    */
   updateConfig(config: Partial<QueueConfig>): void {
+    const mergedPerTypeConcurrency = {
+      ...this.config.perTypeConcurrency,
+      ...(config.perTypeConcurrency || {}),
+    }
+
+    const applyHardCap = (type: TaskType, cap: number, fallback: number) => {
+      const normalized = clampPositiveInt(mergedPerTypeConcurrency[type], fallback)
+      const capped = Math.min(normalized, Math.max(1, cap))
+      if (capped !== mergedPerTypeConcurrency[type]) {
+        console.warn(
+          `[QueueConfig] ${type} 并发已被硬上限限制: requested=${mergedPerTypeConcurrency[type]}, capped=${capped}, hardCap=${cap}`
+        )
+      }
+      mergedPerTypeConcurrency[type] = capped
+    }
+
+    applyHardCap('click-farm', this.clickFarmConcurrencyHardCap, 20)
+    applyHardCap('click-farm-batch', this.clickFarmBatchConcurrencyHardCap, 6)
+    applyHardCap('click-farm-trigger', this.clickFarmTriggerConcurrencyHardCap, 4)
+
     this.config = {
       ...this.config,
       ...config,
       // 防御性合并：避免外部只传部分perTypeConcurrency导致其它类型丢失（进而回退到默认2并发）
-      perTypeConcurrency: {
-        ...this.config.perTypeConcurrency,
-        ...(config.perTypeConcurrency || {}),
-      },
+      perTypeConcurrency: mergedPerTypeConcurrency,
     }
     console.log('🔄 队列配置已更新')
   }
