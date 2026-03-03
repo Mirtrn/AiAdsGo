@@ -47,6 +47,19 @@ function normalizeSettingValue(category: string, key: string, value: string | nu
   return value
 }
 
+function normalizeInputValue(category: string, key: string, value: string): string {
+  if (category === 'ai' && key === 'gemini_model') {
+    return normalizeGeminiModel(value)
+  }
+
+  // 防止粘贴时带入首尾空白导致 API Key 无效
+  if (category === 'ai' && (key === 'gemini_api_key' || key === 'gemini_relay_api_key')) {
+    return value.trim()
+  }
+
+  return value
+}
+
 /**
  * 获取所有系统配置（包括全局和用户级）
  * 优先级：用户配置 > 全局配置
@@ -270,10 +283,7 @@ export async function updateSetting(
   value: string,
   userId?: number
 ): Promise<void> {
-  let normalizedValue = value
-  if (category === 'ai' && key === 'gemini_model') {
-    normalizedValue = normalizeGeminiModel(value)
-  }
+  const normalizedValue = normalizeInputValue(category, key, value)
 
   const db = await getDatabase()
 

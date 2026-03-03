@@ -28,6 +28,82 @@ function shouldLogFullGeminiResponse(): boolean {
   return isEnvTrue(process.env.GEMINI_LOG_FULL_RESPONSE)
 }
 
+function parseRetryAfterMs(headers: any): number | null {
+  if (!headers || typeof headers !== 'object') return null
+
+  const retryAfterRaw = headers['retry-after'] ?? headers['Retry-After']
+  if (retryAfterRaw === undefined || retryAfterRaw === null) return null
+
+  const retryAfter = String(retryAfterRaw).trim()
+  if (!retryAfter) return null
+
+  const seconds = Number.parseInt(retryAfter, 10)
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000
+  }
+
+  const retryAt = Date.parse(retryAfter)
+  if (Number.isFinite(retryAt)) {
+    return Math.max(0, retryAt - Date.now())
+  }
+
+  return null
+}
+
+function shouldRetryGeminiError(
+  error: any,
+  provider: GeminiProvider
+): { retryable: boolean; reason: string } {
+  const status = Number(error?.response?.status || 0)
+  const code = String(error?.code || '').toUpperCase()
+  const message = String(error?.message || '')
+  const lowerMessage = message.toLowerCase()
+
+  const isNetworkTransient = [
+    'ECONNABORTED',
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'EPIPE',
+    'ECONNREFUSED',
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+  ].includes(code)
+
+  if (isNetworkTransient) {
+    return { retryable: true, reason: '网络波动' }
+  }
+
+  const hasRateLimitMessage =
+    lowerMessage.includes('concurrency slot') ||
+    lowerMessage.includes('resource_exhausted') ||
+    lowerMessage.includes('resource exhausted') ||
+    lowerMessage.includes('too many requests') ||
+    lowerMessage.includes('rate limit')
+  if (status === 429 || hasRateLimitMessage) {
+    return { retryable: true, reason: '限流/并发受限' }
+  }
+
+  const hasModelBusyMessage =
+    lowerMessage.includes('high demand') ||
+    lowerMessage.includes('overloaded') ||
+    lowerMessage.includes('temporarily unavailable') ||
+    lowerMessage.includes('service unavailable') ||
+    lowerMessage.includes('try again later')
+  if (status === 503 || hasModelBusyMessage) {
+    return { retryable: true, reason: '模型繁忙/高负载' }
+  }
+
+  if (provider === 'relay' && [500, 502, 504].includes(status)) {
+    return { retryable: true, reason: '中转上游暂时不可用' }
+  }
+
+  if (provider === 'official' && [500, 504].includes(status)) {
+    return { retryable: true, reason: '官方服务暂时异常' }
+  }
+
+  return { retryable: false, reason: '' }
+}
+
 /**
  * Gemini API 请求接口
  */
@@ -739,8 +815,8 @@ export async function generateContent(params: {
       }
     }
 
-    const maxRateLimitRetries = 3
-    for (let attempt = 1; attempt <= maxRateLimitRetries; attempt++) {
+    const maxTransientRetries = 5
+    for (let attempt = 1; attempt <= maxTransientRetries; attempt++) {
       try {
         return await runRequest()
       } catch (error: any) {
@@ -748,19 +824,22 @@ export async function generateContent(params: {
           throw error
         }
 
-        const status = error?.response?.status
-        const message = String(error?.message || '')
-        const isRateLimited = status === 429 ||
-          message.includes('concurrency slot') ||
-          message.includes('RESOURCE_EXHAUSTED')
-        const isRelayUpstreamRetryable = provider === 'relay' && status === 502
+        const status = Number(error?.response?.status || 0)
+        const retryAfterMs = parseRetryAfterMs(error?.response?.headers)
+        const retryDecision = shouldRetryGeminiError(error, provider)
 
-        if ((isRateLimited || isRelayUpstreamRetryable) && attempt < maxRateLimitRetries) {
+        if (retryDecision.retryable && attempt < maxTransientRetries) {
           const baseDelayMs = 2000 * Math.pow(2, attempt - 1)
           const jitterMs = Math.floor(Math.random() * 1000)
-          const delayMs = Math.min(baseDelayMs + jitterMs, 20000)
-          const reason = isRelayUpstreamRetryable ? '上游暂时不可用' : '限流/并发受限'
-          console.warn(`⚠️ Gemini API${reason}，${(delayMs / 1000).toFixed(1)}s 后重试 (${attempt}/${maxRateLimitRetries})`)
+          const adaptiveDelayMs = retryAfterMs !== null
+            ? Math.max(baseDelayMs + jitterMs, retryAfterMs)
+            : (baseDelayMs + jitterMs)
+          const delayMs = Math.min(adaptiveDelayMs, 30000)
+          const statusLabel = status ? `HTTP ${status}` : '网络错误'
+          console.warn(
+            `⚠️ Gemini API${retryDecision.reason}(${statusLabel})，` +
+            `${(delayMs / 1000).toFixed(1)}s 后重试 (${attempt}/${maxTransientRetries})`
+          )
           await new Promise(resolve => setTimeout(resolve, delayMs))
           continue
         }
