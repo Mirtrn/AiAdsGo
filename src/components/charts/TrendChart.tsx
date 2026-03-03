@@ -28,6 +28,7 @@ export interface TrendChartMetric {
   formatter?: (value: number) => string
   yAxisId?: 'left' | 'right' // 指定使用左侧还是右侧Y轴
   chartType?: 'line' | 'bar' // mixed 模式下指定该指标渲染类型
+  stackId?: string // 柱状图堆叠分组
 }
 
 export interface TrendChartProps {
@@ -518,6 +519,7 @@ export function TrendChart({
                     fill={metric.color}
                     name={metric.label}
                     yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
+                    stackId={metric.stackId}
                     radius={[4, 4, 0, 0]}
                     barSize={barSize}
                   />
@@ -646,6 +648,7 @@ export function TrendChart({
                       fill={metric.color}
                       name={metric.label}
                       yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
+                      stackId={metric.stackId}
                       radius={[4, 4, 0, 0]}
                       barSize={barSize}
                     />

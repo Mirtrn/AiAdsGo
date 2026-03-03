@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { convertCurrency } from '@/lib/currency'
 import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 
 function normalizeCurrency(value: unknown): string {
@@ -45,6 +46,8 @@ function diffDaysInclusive(startYmd: string, endYmd: string): number {
 function roundTo2(value: number): number {
   return Math.round(value * 100) / 100
 }
+
+const BASE_CURRENCY = 'USD'
 
 function normalizeDateKey(value: unknown): string {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -104,7 +107,8 @@ export async function GET(request: NextRequest) {
         )
       }
     }
-    const requestedCurrency = normalizeCurrency(searchParams.get('currency'))
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? normalizeCurrency(requestedCurrencyRaw) : null
 
     const db = await getDatabase()
 
@@ -142,15 +146,18 @@ export async function GET(request: NextRequest) {
       .filter((v, idx, arr) => arr.indexOf(v) === idx)
 
     const hasMixedCurrency = currencies.length > 1
-    const reportingCurrency =
-      currencies.includes(requestedCurrency)
-        ? requestedCurrency
-        : (currencies[0] || 'USD')
+    const reportingCurrencies = requestedCurrency && currencies.includes(requestedCurrency)
+      ? [requestedCurrency]
+      : currencies
+    const reportingCurrency = reportingCurrencies.length === 1
+      ? reportingCurrencies[0]
+      : (reportingCurrencies[0] || BASE_CURRENCY)
 
     const adTrends = await db.query<any>(
       `
       SELECT
         DATE(date) as date,
+        COALESCE(currency, 'USD') as currency,
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
         SUM(cost) as cost
@@ -158,27 +165,26 @@ export async function GET(request: NextRequest) {
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
-        AND COALESCE(currency, 'USD') = ?
-      GROUP BY DATE(date)
-      ORDER BY date ASC
+      GROUP BY DATE(date), COALESCE(currency, 'USD')
+      ORDER BY date ASC, currency ASC
       `,
-      [userId, startDateStr, endDateStr, reportingCurrency]
+      [userId, startDateStr, endDateStr]
     )
 
     const queryAttributedCommissionTrends = async () => db.query<any>(
       `
       SELECT
         report_date as date,
+        COALESCE(currency, 'USD') as currency,
         COALESCE(SUM(commission_amount), 0) as commission
       FROM affiliate_commission_attributions
       WHERE user_id = ?
         AND report_date >= ?
         AND report_date <= ?
-        AND COALESCE(currency, 'USD') = ?
-      GROUP BY report_date
-      ORDER BY report_date ASC
+      GROUP BY report_date, COALESCE(currency, 'USD')
+      ORDER BY report_date ASC, currency ASC
       `,
-      [userId, startDateStr, endDateStr, reportingCurrency]
+      [userId, startDateStr, endDateStr]
     )
 
     const queryUnattributedCommissionTrends = async (): Promise<any[]> => {
@@ -188,17 +194,17 @@ export async function GET(request: NextRequest) {
           `
           SELECT
             report_date as date,
+            COALESCE(currency, 'USD') as currency,
             COALESCE(SUM(commission_amount), 0) as commission
           FROM openclaw_affiliate_attribution_failures
           WHERE user_id = ?
             AND report_date >= ?
             AND report_date <= ?
             AND ${unattributedFailureFilter.sql}
-            AND COALESCE(currency, 'USD') = ?
-          GROUP BY report_date
-          ORDER BY report_date ASC
+          GROUP BY report_date, COALESCE(currency, 'USD')
+          ORDER BY report_date ASC, currency ASC
           `,
-          [userId, startDateStr, endDateStr, ...unattributedFailureFilter.values, reportingCurrency]
+          [userId, startDateStr, endDateStr, ...unattributedFailureFilter.values]
         )
       } catch (error: any) {
         const message = String(error?.message || '')
@@ -217,22 +223,32 @@ export async function GET(request: NextRequest) {
       queryUnattributedCommissionTrends(),
     ])
 
-    const adMap = new Map<string, { impressions: number; clicks: number; cost: number }>()
+    const adMap = new Map<string, Map<string, { impressions: number; clicks: number; cost: number }>>()
     for (const row of adTrends) {
       const date = normalizeDateKey(row.date)
-      adMap.set(date, {
+      const currency = normalizeCurrency(row.currency)
+      if (!reportingCurrencies.includes(currency)) continue
+
+      const byCurrency = adMap.get(date) ?? new Map<string, { impressions: number; clicks: number; cost: number }>()
+      byCurrency.set(currency, {
         impressions: Number(row.impressions) || 0,
         clicks: Number(row.clicks) || 0,
         cost: Number(row.cost) || 0,
       })
+      adMap.set(date, byCurrency)
     }
 
-    const commissionMap = new Map<string, number>()
+    const commissionMap = new Map<string, Map<string, number>>()
     const appendCommissionRows = (rows: any[]) => {
       for (const row of rows) {
         const date = normalizeDateKey(row.date)
+        const currency = normalizeCurrency(row.currency)
+        if (!reportingCurrencies.includes(currency)) continue
+
         const commission = Number(row.commission) || 0
-        commissionMap.set(date, (commissionMap.get(date) || 0) + commission)
+        const byCurrency = commissionMap.get(date) ?? new Map<string, number>()
+        byCurrency.set(currency, (byCurrency.get(currency) || 0) + commission)
+        commissionMap.set(date, byCurrency)
       }
     }
     appendCommissionRows(attributedCommissionTrends)
@@ -243,33 +259,90 @@ export async function GET(request: NextRequest) {
       ...Array.from(commissionMap.keys()),
     ])).sort((a, b) => a.localeCompare(b))
 
-    const formattedTrends = dates.map((date) => {
-      const ad = adMap.get(date)
-      const impressions = ad?.impressions || 0
-      const clicks = ad?.clicks || 0
-      const cost = ad?.cost || 0
-      const commission = commissionMap.get(date) || 0
+    const convertToBase = (amount: number, currency: string): number => {
+      const normalized = normalizeCurrency(currency)
+      if (normalized === BASE_CURRENCY) return amount
+      try {
+        return convertCurrency(amount, normalized, BASE_CURRENCY)
+      } catch {
+        return 0
+      }
+    }
 
-      const commissionPerClick = clicks > 0 ? commission / clicks : 0
-      const costPerCommission = commission > 0 ? cost / commission : 0
-      const roas = cost > 0 ? commission / cost : 0
+    const costTotalsByCurrency = new Map<string, number>()
+    const commissionTotalsByCurrency = new Map<string, number>()
+    let totalCostBase = 0
+    let totalCommissionBase = 0
+    let totalClicks = 0
+    let totalImpressions = 0
+
+    const formattedTrends = dates.map((date) => {
+      const adByCurrency = adMap.get(date) ?? new Map<string, { impressions: number; clicks: number; cost: number }>()
+      const commissionByCurrency = commissionMap.get(date) ?? new Map<string, number>()
+
+      const row: Record<string, string | number> = { date }
+
+      let impressions = 0
+      let clicks = 0
+      let costBase = 0
+      let commissionBase = 0
+
+      reportingCurrencies.forEach((currency) => {
+        const ad = adByCurrency.get(currency)
+        const currencyCost = Number(ad?.cost) || 0
+        const currencyImpressions = Number(ad?.impressions) || 0
+        const currencyClicks = Number(ad?.clicks) || 0
+        const currencyCommission = Number(commissionByCurrency.get(currency)) || 0
+
+        row[`cost_${currency}`] = roundTo2(currencyCost)
+        row[`commission_${currency}`] = roundTo2(currencyCommission)
+
+        impressions += currencyImpressions
+        clicks += currencyClicks
+        costBase += convertToBase(currencyCost, currency)
+        commissionBase += convertToBase(currencyCommission, currency)
+
+        costTotalsByCurrency.set(currency, (costTotalsByCurrency.get(currency) || 0) + currencyCost)
+        commissionTotalsByCurrency.set(currency, (commissionTotalsByCurrency.get(currency) || 0) + currencyCommission)
+      })
+
+      totalImpressions += impressions
+      totalClicks += clicks
+      totalCostBase += costBase
+      totalCommissionBase += commissionBase
+
+      const commissionPerClick = clicks > 0 ? commissionBase / clicks : 0
+      const costPerCommission = commissionBase > 0 ? costBase / commissionBase : 0
+      const roas = costBase > 0 ? commissionBase / costBase : 0
 
       return {
-        date,
+        ...row,
         impressions,
         clicks,
-        conversions: roundTo2(commission),
-        commission: roundTo2(commission),
-        cost: roundTo2(cost),
+        conversions: roundTo2(commissionBase),
+        commission: roundTo2(commissionBase),
+        cost: roundTo2(costBase),
         ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
         conversionRate: roundTo2(commissionPerClick),
         commissionPerClick: roundTo2(commissionPerClick),
-        avgCpc: clicks > 0 ? roundTo2(cost / clicks) : 0,
+        avgCpc: clicks > 0 ? roundTo2(costBase / clicks) : 0,
         roas: roundTo2(roas),
         avgCpa: roundTo2(costPerCommission),
         costPerCommission: roundTo2(costPerCommission),
       }
     })
+
+    const costsByCurrency = reportingCurrencies.map((currency) => ({
+      currency,
+      amount: roundTo2(costTotalsByCurrency.get(currency) || 0),
+    }))
+    const commissionsByCurrency = reportingCurrencies.map((currency) => ({
+      currency,
+      amount: roundTo2(commissionTotalsByCurrency.get(currency) || 0),
+    }))
+
+    const totalCpcBase = totalClicks > 0 ? totalCostBase / totalClicks : 0
+    const totalRoasBase = totalCostBase > 0 ? totalCommissionBase / totalCostBase : 0
 
     return NextResponse.json({
       success: true,
@@ -280,9 +353,20 @@ export async function GET(request: NextRequest) {
         days: rangeDays,
       },
       summary: {
-        currency: reportingCurrency,
-        currencies,
+        currency: reportingCurrencies.length > 1 ? 'MIXED' : reportingCurrency,
+        currencies: reportingCurrencies,
         hasMixedCurrency,
+        baseCurrency: BASE_CURRENCY,
+        totalsConverted: {
+          cost: roundTo2(totalCostBase),
+          commission: roundTo2(totalCommissionBase),
+          impressions: roundTo2(totalImpressions),
+          clicks: roundTo2(totalClicks),
+          cpc: roundTo2(totalCpcBase),
+          roas: roundTo2(totalRoasBase),
+        },
+        costsByCurrency,
+        commissionsByCurrency,
       },
     })
   } catch (error: any) {
