@@ -864,10 +864,10 @@ export default function CampaignsClientPage({
     const filtersChanged = filterKeyRef.current !== filterKey
     filterKeyRef.current = filterKey
 
-    const totalPages = Math.max(1, Math.ceil(result.length / pageSize))
+    const filteredTotalPages = Math.max(1, Math.ceil(result.length / pageSize))
     setCurrentPage((prev) => {
       const nextPage = filtersChanged ? 1 : prev
-      return nextPage > totalPages ? totalPages : nextPage
+      return nextPage > filteredTotalPages ? filteredTotalPages : nextPage
     })
   }, [campaigns, searchQuery, statusFilter, sortField, sortDirection, pageSize, showDeletedCampaigns, isServerPagingMode, totalPages])
 
