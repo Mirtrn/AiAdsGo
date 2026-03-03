@@ -94,7 +94,7 @@ const queueConfigSchema = z.object({
   taskTimeout: z.number().min(10000).max(900000).optional(), // 10秒 - 15分钟
   defaultMaxRetries: z.number().min(0).max(5).optional(),
   retryDelay: z.number().min(1000).max(60000).optional(),
-})
+}).passthrough()  // 🔥 允许额外字段（如 enablePriority, storageType 等前端状态字段）
 
 function getRuntimeQueueConfig(): typeof DEFAULT_QUEUE_CONFIG {
   const queueManager = getQueueManager()
@@ -245,6 +245,10 @@ export async function PUT(request: NextRequest) {
     // 验证配置
     const validationResult = queueConfigSchema.safeParse(body)
     if (!validationResult.success) {
+      console.error('[UnifiedQueueConfig] 配置验证失败:', {
+        body,
+        errors: validationResult.error.errors
+      })
       return NextResponse.json(
         { error: '配置格式错误', details: validationResult.error.errors },
         { status: 400 }

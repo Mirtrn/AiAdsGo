@@ -589,6 +589,9 @@ export default function QueueManagementPage() {
   const saveConfig = async () => {
     setSavingConfig(true)
     try {
+      // 🔥 记录发送的配置，便于调试
+      console.log('[QueueConfig] 保存配置:', config)
+
       const result = await fetchWithRetry('/api/queue/config', {
         method: 'PUT',
         headers: {
@@ -598,7 +601,15 @@ export default function QueueManagementPage() {
       })
 
       if (!result.success) {
-        toast.error(result.userMessage)
+        // 🔥 显示详细错误信息
+        const errorMsg = result.userMessage || '保存配置失败'
+        const details = result.data?.details
+        if (details && Array.isArray(details)) {
+          console.error('[QueueConfig] 验证错误详情:', details)
+          toast.error(`${errorMsg}: ${details.map((d: any) => d.message).join(', ')}`)
+        } else {
+          toast.error(errorMsg)
+        }
         return
       }
 
@@ -1387,7 +1398,7 @@ export default function QueueManagementPage() {
                   id="perUserConcurrency"
                   type="number"
                   min="1"
-                  max="20"
+                  max="1000"
                   value={config.perUserConcurrency}
                   onChange={(e) => setConfig({ ...config, perUserConcurrency: parseInt(e.target.value) || 1 })}
                   className="mt-1"
