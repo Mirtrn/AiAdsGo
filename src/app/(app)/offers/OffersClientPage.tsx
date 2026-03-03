@@ -22,6 +22,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import dynamic from 'next/dynamic'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { usePagination } from '@/hooks/usePagination'
@@ -1203,38 +1209,28 @@ export default function OffersClientPage({
                 创建Offer
               </Button>
 
-              <div className="hidden sm:flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleExport} disabled={totalItems === 0}>
-                  导出Offer
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => window.open('/api/offers/batch-template')}>
-                  下载模板
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => router.push('/offers/batch')}>
-                  导入Offer
-                </Button>
-              </div>
-
-              {/* 移动端显示的简化按钮 */}
-              <div className="flex sm:hidden w-full gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push('/offers/batch')}
-                  className="flex-1"
-                >
-                  导入
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExport}
-                  disabled={totalItems === 0}
-                  className="flex-1"
-                >
-                  导出
-                </Button>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                  >
+                    更多操作
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={handleExport} disabled={totalItems === 0}>
+                    导出Offer
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => window.open('/api/offers/batch-template')}>
+                    下载模板
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push('/offers/batch')}>
+                    导入Offer
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
