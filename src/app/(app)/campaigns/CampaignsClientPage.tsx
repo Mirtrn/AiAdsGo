@@ -2675,7 +2675,7 @@ export default function CampaignsClientPage({
                         />
                       </TableHead>
                       <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
-                      <TableHead className="w-[92px] whitespace-nowrap">关联Ads账号</TableHead>
+                      <TableHead className="w-[92px] min-w-[92px] max-w-[92px] whitespace-nowrap">关联Ads账号</TableHead>
                       <SortableHeader field="budgetAmount" className="w-[86px] whitespace-nowrap">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
@@ -2812,13 +2812,13 @@ export default function CampaignsClientPage({
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="w-[92px] whitespace-nowrap">
-                        <div className="min-w-0">
+                      <TableCell className="w-[92px] min-w-[92px] max-w-[92px] whitespace-nowrap">
+                        <div className="w-[92px] min-w-[92px] max-w-[92px] overflow-hidden">
                           <div className="font-medium text-gray-900 truncate" title={adsAccountDisplayName}>
                             {adsAccountDisplayName}
                           </div>
                           {!shouldHideAdsAccount && adsAccountDisplayId && (
-                            <div className="text-[11px] text-gray-500 font-mono leading-none mt-0.5">
+                            <div className="text-[11px] text-gray-500 font-mono leading-none mt-0.5 truncate" title={adsAccountDisplayId}>
                               {adsAccountDisplayId}
                             </div>
                           )}
