@@ -5,6 +5,8 @@ import { useReportWebVitals } from 'next/web-vitals'
 
 type WebVitalsReporterProps = {
   enabled: boolean
+  buildId: string
+  flagSnapshot: string
 }
 
 type WebVitalMetric = {
@@ -40,7 +42,7 @@ function reportMetric(payload: Record<string, unknown>) {
   }).catch(() => {})
 }
 
-export default function WebVitalsReporter({ enabled }: WebVitalsReporterProps) {
+export default function WebVitalsReporter({ enabled, buildId, flagSnapshot }: WebVitalsReporterProps) {
   const pathname = usePathname() || '/'
 
   useReportWebVitals((metric: WebVitalMetric) => {
@@ -54,6 +56,8 @@ export default function WebVitalsReporter({ enabled }: WebVitalsReporterProps) {
       rating: metric.rating,
       navigationType: metric.navigationType,
       path: pathname,
+      buildId,
+      flagSnapshot,
       ts: Date.now(),
     })
   })

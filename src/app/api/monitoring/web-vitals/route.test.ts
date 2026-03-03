@@ -86,6 +86,7 @@ describe('POST /api/monitoring/web-vitals', () => {
   })
 
   it('records normalized web vital payload', async () => {
+    const oversizedFlagSnapshot = 'x'.repeat(1300)
     const req = new NextRequest('http://localhost/api/monitoring/web-vitals', {
       method: 'POST',
       headers: {
@@ -100,6 +101,8 @@ describe('POST /api/monitoring/web-vitals', () => {
         rating: 'good',
         navigationType: 'navigate',
         path: '/dashboard',
+        buildId: '  build-20260303  ',
+        flagSnapshot: `  ${oversizedFlagSnapshot}  `,
         ts: 1710000000000,
       }),
     })
@@ -118,6 +121,8 @@ describe('POST /api/monitoring/web-vitals', () => {
         rating: 'good',
         navigationType: 'navigate',
         path: '/dashboard',
+        buildId: 'build-20260303',
+        flagSnapshot: oversizedFlagSnapshot.slice(0, 1024),
         timestamp: 1710000000000,
         userId: 7,
         userAgent: 'vitest-agent',

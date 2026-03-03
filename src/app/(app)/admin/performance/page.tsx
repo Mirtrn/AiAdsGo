@@ -10,6 +10,8 @@ type OverallStats = {
   avgDuration: number
   minDuration: number
   maxDuration: number
+  p95Duration?: number
+  p99Duration?: number
   totalRequests: number
   slowRequests: number
 }
@@ -24,6 +26,8 @@ type PathStats = {
   avgDuration: number
   minDuration: number
   maxDuration: number
+  p95Duration?: number
+  p99Duration?: number
   totalRequests: number
   slowRequests: number
 }
@@ -295,6 +299,14 @@ export default function AdminPerformancePage() {
               <p className="text-sm text-gray-500">缓存有效条目</p>
               <p className="text-2xl font-semibold">{formatNumber(data.cache.validKeys)}</p>
             </div>
+            <div className="rounded-lg border bg-white p-4">
+              <p className="text-sm text-gray-500">整体 P95</p>
+              <p className="text-2xl font-semibold">{formatMs(data.overall.p95Duration)}</p>
+            </div>
+            <div className="rounded-lg border bg-white p-4">
+              <p className="text-sm text-gray-500">整体 P99</p>
+              <p className="text-2xl font-semibold">{formatMs(data.overall.p99Duration)}</p>
+            </div>
           </section>
 
           <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -310,19 +322,23 @@ export default function AdminPerformancePage() {
                       <th className="py-2 pr-3">接口</th>
                       <th className="py-2 pr-3">请求数</th>
                       <th className="py-2 pr-3">平均</th>
+                      <th className="py-2 pr-3">P95</th>
+                      <th className="py-2 pr-3">P99</th>
                       <th className="py-2 pr-3">最大</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortedPathStats.length === 0 ? (
                       <tr>
-                        <td className="py-4 text-gray-400" colSpan={4}>暂无数据</td>
+                        <td className="py-4 text-gray-400" colSpan={6}>暂无数据</td>
                       </tr>
                     ) : sortedPathStats.map((row) => (
                       <tr key={row.path} className="border-b last:border-b-0">
                         <td className="py-2 pr-3 font-mono text-xs">{row.path}</td>
                         <td className="py-2 pr-3">{formatNumber(row.totalRequests)}</td>
                         <td className="py-2 pr-3">{formatMs(row.avgDuration)}</td>
+                        <td className="py-2 pr-3">{formatMs(row.p95Duration)}</td>
+                        <td className="py-2 pr-3">{formatMs(row.p99Duration)}</td>
                         <td className="py-2 pr-3">{formatMs(row.maxDuration)}</td>
                       </tr>
                     ))}

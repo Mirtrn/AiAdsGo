@@ -5,6 +5,8 @@ import { useEffect, useRef } from 'react'
 
 type FrontendErrorReporterProps = {
   enabled: boolean
+  buildId: string
+  flagSnapshot: string
 }
 
 const FRONTEND_ERROR_ENDPOINT = '/api/monitoring/frontend-errors'
@@ -32,7 +34,7 @@ function sendError(payload: Record<string, unknown>) {
   }).catch(() => {})
 }
 
-export default function FrontendErrorReporter({ enabled }: FrontendErrorReporterProps) {
+export default function FrontendErrorReporter({ enabled, buildId, flagSnapshot }: FrontendErrorReporterProps) {
   const pathname = usePathname() || '/'
   const recentErrorRef = useRef<Map<string, number>>(new Map())
 
@@ -59,6 +61,8 @@ export default function FrontendErrorReporter({ enabled }: FrontendErrorReporter
         message,
         stack: event.error?.stack,
         path: pathname,
+        buildId,
+        flagSnapshot,
         ts: Date.now(),
       })
     }
@@ -87,6 +91,8 @@ export default function FrontendErrorReporter({ enabled }: FrontendErrorReporter
         message,
         stack,
         path: pathname,
+        buildId,
+        flagSnapshot,
         ts: Date.now(),
       })
     }
@@ -98,7 +104,7 @@ export default function FrontendErrorReporter({ enabled }: FrontendErrorReporter
       window.removeEventListener('error', handleError)
       window.removeEventListener('unhandledrejection', handleUnhandledRejection)
     }
-  }, [enabled, pathname])
+  }, [enabled, pathname, buildId, flagSnapshot])
 
   return null
 }

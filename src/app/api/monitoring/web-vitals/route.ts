@@ -11,6 +11,8 @@ type WebVitalPayload = {
   rating?: unknown
   navigationType?: unknown
   path?: unknown
+  buildId?: unknown
+  flagSnapshot?: unknown
   ts?: unknown
   timestamp?: unknown
 }
@@ -35,6 +37,18 @@ function toFiniteNumber(value: unknown): number | null {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return null
   return parsed
+}
+
+function normalizeBuildId(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, 64) : undefined
+}
+
+function normalizeFlagSnapshot(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, 1024) : undefined
 }
 
 const postHandler = async (request: NextRequest) => {
@@ -73,6 +87,8 @@ const postHandler = async (request: NextRequest) => {
         ? body.navigationType.trim().slice(0, 32)
         : undefined,
     path: normalizePath(body.path),
+    buildId: normalizeBuildId(body.buildId),
+    flagSnapshot: normalizeFlagSnapshot(body.flagSnapshot),
     timestamp: timestamp !== null && timestamp > 0 ? Math.floor(timestamp) : Date.now(),
     userId: Number.isFinite(userId) && userId > 0 ? userId : undefined,
     userAgent: request.headers.get('user-agent')?.slice(0, 256),

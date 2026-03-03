@@ -9,7 +9,6 @@
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { exportOffers, type OfferExportData } from '@/lib/export-utils'
 import { safeJsonParse } from '@/lib/api-error-handler'
 import {
   Table,
@@ -31,30 +30,18 @@ import {
 } from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import dynamic from 'next/dynamic'
-import { LaunchScoreModalDynamic } from '@/components/dynamic'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
 import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, Wand2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { getScrapeStatusLabel } from '@/lib/i18n-constants'
@@ -63,6 +50,19 @@ import type { OfferListItem, UnlinkTarget } from './types'
 
 // 使用类型别名保持兼容性
 type Offer = OfferListItem
+
+interface OfferExportData {
+  id: number
+  offerName: string
+  brand: string
+  targetCountry: string
+  targetLanguage: string
+  url: string
+  affiliateLink: string | null
+  scrapeStatus: string
+  isActive: boolean
+  createdAt: string
+}
 
 interface OffersClientPageProps {
   offersIncrementalPollEnabled?: boolean
@@ -80,11 +80,13 @@ const OFFERS_SERVER_SUPPORTED_SORTS = new Set([
   'scrapeStatus',
 ])
 
+const LaunchScoreModalDynamic = dynamic(() => import('@/components/LaunchScoreModal'), { ssr: false })
 const AdjustCpcModal = dynamic(() => import('@/components/AdjustCpcModal'), { ssr: false })
 const CreateOfferModalV2 = dynamic(() => import('@/components/CreateOfferModalV2'), { ssr: false })
 const DeleteOfferConfirmDialog = dynamic(() => import('@/components/DeleteOfferConfirmDialog'), { ssr: false })
 const ClickFarmTaskModal = dynamic(() => import('@/components/ClickFarmTaskModal'), { ssr: false })
 const UrlSwapTaskModal = dynamic(() => import('@/components/UrlSwapTaskModal'), { ssr: false })
+const OffersActionDialogs = dynamic(() => import('./OffersActionDialogs'), { ssr: false })
 
 export default function OffersClientPage({
   offersIncrementalPollEnabled = false,
@@ -101,6 +103,7 @@ export default function OffersClientPage({
   const selectedOfferIdsRef = useRef<Set<number>>(new Set())
   const visibleOfferIdsRef = useRef<number[]>([])
   const pollRoundRef = useRef(0)
+  const forceFullSyncRef = useRef(false)
   const pollingRef = useRef(false)
   const offersFetchAbortRef = useRef<AbortController | null>(null)
   const offersFetchSeqRef = useRef(0)
@@ -378,6 +381,27 @@ export default function OffersClientPage({
   }, [fetchOffers])
 
   useEffect(() => {
+    if (!offersIncrementalPollEnabled) return
+
+    const markForceFullSync = () => {
+      forceFullSyncRef.current = true
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        markForceFullSync()
+      }
+    }
+
+    window.addEventListener('focus', markForceFullSync)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', markForceFullSync)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [offersIncrementalPollEnabled])
+
+  useEffect(() => {
     const buildIncrementalPollIds = (): number[] => {
       const inProgressIds = offersRef.current
         .filter((offer) => offer.scrapeStatus === 'in_progress')
@@ -521,8 +545,10 @@ export default function OffersClientPage({
 
         pollRoundRef.current += 1
         const incrementalIds = buildIncrementalPollIds()
+        const forceFullSync = forceFullSyncRef.current
         const shouldRunFullSync = (
-          incrementalIds.length === 0
+          forceFullSync
+          || incrementalIds.length === 0
           || pollRoundRef.current % OFFERS_FULL_SYNC_EVERY_POLLS === 0
         )
 
@@ -535,6 +561,7 @@ export default function OffersClientPage({
         if (shouldRunFullSync) {
           const nextOffers = Array.isArray(data.offers) ? (data.offers as Offer[]) : []
           const nextTotal = Number.isFinite(Number(data.total)) ? Number(data.total) : nextOffers.length
+          forceFullSyncRef.current = false
           setServerTotal(nextTotal)
           if (shouldRefreshFullOffers(nextOffers)) {
             console.log('[Polling] Updating offers list...')
@@ -1008,6 +1035,7 @@ export default function OffersClientPage({
   // P2-2: 导出Offer数据
   const handleExport = async () => {
     try {
+      const { exportOffers } = await import('@/lib/export-utils')
       let exportSource = offers
       if (isServerPagingMode) {
         const response = await fetch(
@@ -1042,6 +1070,37 @@ export default function OffersClientPage({
       exportOffers(exportData)
     } catch (err: any) {
       showError('导出失败', err?.message || '导出Offer失败')
+    }
+  }
+
+  const shouldMountActionDialogs = (
+    isUnlinkDialogOpen
+    || isDeleteDialogOpen
+    || isBatchDeleteDialogOpen
+    || isBatchCreativeDialogOpen
+    || isBlacklistDialogOpen
+  )
+
+  const handleUnlinkDialogOpenChange = (open: boolean) => {
+    setIsUnlinkDialogOpen(open)
+    if (!open) {
+      setRemoveGoogleAdsCampaignsOnUnlink(false)
+    }
+  }
+
+  const handleDeleteDialogOpenChange = (open: boolean) => {
+    setIsDeleteDialogOpen(open)
+    if (!open) {
+      setDeleteError(null)
+      setRemoveGoogleAdsCampaignsOnDelete(false)
+    }
+  }
+
+  const handleBatchDeleteDialogOpenChange = (open: boolean) => {
+    setIsBatchDeleteDialogOpen(open)
+    if (!open) {
+      setBatchDeleteError(null)
+      setRemoveGoogleAdsCampaignsOnDelete(false)
     }
   }
 
@@ -1513,42 +1572,14 @@ export default function OffersClientPage({
                                 onClick: async () => {
                                   setClickFarmLoading(true)
                                   try {
-                                    // 先查询是否有已存在的补点击任务
-                                    const response = await fetch(`/api/offers/${offer.id}/click-farm-task`, {
-                                      credentials: 'include',
-                                    })
-
-                                    if (response.ok) {
-                                      const data = await response.json()
-                                      if (data.data) {
-                                        setSelectedOfferForClickFarm(offer)
-                                        if (isEditableClickFarmStatus(data.data.status)) {
-                                          // 有可编辑任务，进入编辑模式
-                                          setEditTaskIdForClickFarm(data.data.id)
-                                          if (data.data.status === 'paused' || data.data.status === 'stopped') {
-                                            showInfo(`当前任务状态为 ${formatClickFarmStatus(data.data.status)}，可在弹窗中恢复或调整后重新启动。`)
-                                          }
-                                        } else {
-                                          // 任务不可编辑（如已完成），进入创建模式
-                                          setEditTaskIdForClickFarm(undefined)
-                                          showInfo(
-                                            `当前任务状态为 ${formatClickFarmStatus(data.data.status)}，已进入创建新任务。` +
-                                            '如需继续当前任务，请前往补点击管理页面'
-                                          )
-                                        }
-                                      } else {
-                                        // 没有任务，进入创建模式
-                                        setSelectedOfferForClickFarm(offer)
-                                        setEditTaskIdForClickFarm(undefined)
-                                      }
-                                      setIsClickFarmModalOpen(true)
-                                    } else {
-                                      console.error('查询补点击任务失败')
-                                      // 出错时默认进入创建模式
-                                      setSelectedOfferForClickFarm(offer)
-                                      setEditTaskIdForClickFarm(undefined)
-                                      setIsClickFarmModalOpen(true)
+                                    const { resolveClickFarmTaskMode } = await import('./task-modal-helpers')
+                                    const { editTaskId, infoMessage } = await resolveClickFarmTaskMode(offer.id)
+                                    setSelectedOfferForClickFarm(offer)
+                                    setEditTaskIdForClickFarm(editTaskId)
+                                    if (infoMessage) {
+                                      showInfo(infoMessage)
                                     }
+                                    setIsClickFarmModalOpen(true)
                                   } catch (error) {
                                     console.error('查询补点击任务出错:', error)
                                     setSelectedOfferForClickFarm(offer)
@@ -1566,39 +1597,16 @@ export default function OffersClientPage({
                                 onClick: async () => {
                                   setUrlSwapLoading(true)
                                   try {
-                                    // 先查询是否有已存在的换链接任务
-                                    const response = await fetch(`/api/offers/${offer.id}/url-swap-task`, {
-                                      credentials: 'include',
-                                    })
-
-                                    if (response.ok) {
-                                      const data = await response.json()
-                                      if (data.data) {
-                                        setSelectedOfferForUrlSwap(offer)
-                                        if (isEditableUrlSwapStatus(data.data.status)) {
-                                          // 可编辑任务，进入编辑模式
-                                          setEditTaskIdForUrlSwap(data.data.id)
-                                          if (data.data.status === 'disabled' || data.data.status === 'error') {
-                                            showInfo(`当前任务状态为 ${formatUrlSwapStatus(data.data.status)}，可在弹窗中调整配置后前往换链接管理启用。`)
-                                          }
-                                        } else {
-                                          // 已完成任务，进入创建模式
-                                          setEditTaskIdForUrlSwap(undefined)
-                                          showInfo(`当前任务状态为 ${formatUrlSwapStatus(data.data.status)}，已进入创建新任务。`)
-                                        }
-                                      } else {
-                                        // 没有任务，进入创建模式
-                                        setSelectedOfferForUrlSwap(offer)
-                                        setEditTaskIdForUrlSwap(undefined)
-                                      }
-                                      setIsUrlSwapModalOpen(true)
-                                    } else {
-                                      console.error('查询换链接任务失败')
-                                      // 出错时默认进入创建模式
-                                      setSelectedOfferForUrlSwap(offer)
-                                      setEditTaskIdForUrlSwap(undefined)
-                                      setIsUrlSwapModalOpen(true)
+                                    const { resolveUrlSwapTaskMode } = await import('./task-modal-helpers')
+                                    const { editTaskId, infoMessage } = await resolveUrlSwapTaskMode(offer.id)
+                                    setSelectedOfferForUrlSwap(offer)
+                                    setEditTaskIdForUrlSwap(
+                                      editTaskId === undefined ? undefined : String(editTaskId)
+                                    )
+                                    if (infoMessage) {
+                                      showInfo(infoMessage)
                                     }
+                                    setIsUrlSwapModalOpen(true)
                                   } catch (error) {
                                     console.error('查询换链接任务出错:', error)
                                     setSelectedOfferForUrlSwap(offer)
@@ -1684,375 +1692,112 @@ export default function OffersClientPage({
       )}
 
       {/* 补点击任务Modal */}
-      <ClickFarmTaskModal
-        open={isClickFarmModalOpen}
-        onOpenChange={(open) => {
-          setIsClickFarmModalOpen(open)
-          if (!open) {
-            setSelectedOfferForClickFarm(null)
-            setEditTaskIdForClickFarm(undefined)
-          }
-        }}
-        onSuccess={() => {
-          // 任务创建/更新成功后可以选择刷新列表或显示提示
-        }}
-        preSelectedOfferId={selectedOfferForClickFarm?.id}
-        editTaskId={editTaskIdForClickFarm}
-      />
+      {(isClickFarmModalOpen || selectedOfferForClickFarm) && (
+        <ClickFarmTaskModal
+          open={isClickFarmModalOpen}
+          onOpenChange={(open) => {
+            setIsClickFarmModalOpen(open)
+            if (!open) {
+              setSelectedOfferForClickFarm(null)
+              setEditTaskIdForClickFarm(undefined)
+            }
+          }}
+          onSuccess={() => {
+            // 任务创建/更新成功后可以选择刷新列表或显示提示
+          }}
+          preSelectedOfferId={selectedOfferForClickFarm?.id}
+          editTaskId={editTaskIdForClickFarm}
+        />
+      )}
 
-      <UrlSwapTaskModal
-        open={isUrlSwapModalOpen}
-        onOpenChange={(open) => {
-          setIsUrlSwapModalOpen(open)
-          if (!open) {
-            setSelectedOfferForUrlSwap(null)
-            setEditTaskIdForUrlSwap(undefined)
-          }
-        }}
-        onSuccess={() => {
-          // 任务创建/更新成功后可以选择刷新列表或显示提示
-        }}
-        offerId={selectedOfferForUrlSwap?.id}
-        editTaskId={editTaskIdForUrlSwap}
-      />
+      {(isUrlSwapModalOpen || selectedOfferForUrlSwap) && (
+        <UrlSwapTaskModal
+          open={isUrlSwapModalOpen}
+          onOpenChange={(open) => {
+            setIsUrlSwapModalOpen(open)
+            if (!open) {
+              setSelectedOfferForUrlSwap(null)
+              setEditTaskIdForUrlSwap(undefined)
+            }
+          }}
+          onSuccess={() => {
+            // 任务创建/更新成功后可以选择刷新列表或显示提示
+          }}
+          offerId={selectedOfferForUrlSwap?.id}
+          editTaskId={editTaskIdForUrlSwap}
+        />
+      )}
 
-      <CreateOfferModalV2
-        open={isCreateModalOpen}
-        onOpenChange={setIsCreateModalOpen}
-        onSuccess={fetchOffers}
-      />
-
-      {/* P1-11: Unlink Account Confirmation Dialog */}
-      <AlertDialog
-        open={isUnlinkDialogOpen}
-        onOpenChange={(open) => {
-          setIsUnlinkDialogOpen(open)
-          if (!open) {
-            setRemoveGoogleAdsCampaignsOnUnlink(false)
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认解除关联</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>
-                您确定要解除 <strong className="text-gray-900">{offerToUnlink?.offer.brand}</strong> 与账号 <strong className="text-gray-900">{offerToUnlink?.accountName}</strong> 的关联吗？
-              </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-body-sm text-blue-800">
-                <p className="font-medium mb-1">ℹ️ 解除关联将会：</p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>仅暂停该账号下与该Offer关联的广告系列（Google Ads）</li>
-                  <li>广告投放将立即停止（仅限上述广告系列）</li>
-                  <li>历史数据会保留用于查看</li>
-                </ul>
-              </div>
-              <div className="flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
-                <Checkbox
-                  id="unlink-remove-ads"
-                  checked={removeGoogleAdsCampaignsOnUnlink}
-                  onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnUnlink(checked as boolean)}
-                  className="mt-0.5"
-                />
-                <div className="flex-1">
-                  <Label htmlFor="unlink-remove-ads" className="text-sm font-medium cursor-pointer text-orange-900">
-                    同时在 Ads 账号中删除对应广告系列（不可恢复）
-                  </Label>
-                  <p className="text-xs text-orange-700 mt-1">
-                    仅删除该账号下与该Offer关联的广告系列
-                  </p>
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={unlinking}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleUnlinkAccount}
-              disabled={unlinking}
-              className="bg-orange-600 hover:bg-orange-700 focus:ring-orange-600"
-            >
-              {unlinking ? '解除中...' : '确认解除'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* P1-10: Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
-        setIsDeleteDialogOpen(open)
-        if (!open) {
-          setDeleteError(null)
-          setRemoveGoogleAdsCampaignsOnDelete(false)
-        }
-      }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认删除Offer</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  您确定要删除 <strong className="text-gray-900">{offerToDelete?.brand}</strong> 的Offer吗？
-                </p>
-                {/* 删除错误提示 */}
-                {deleteError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
-                    <p className="font-medium mb-1">删除失败</p>
-                    <p>{deleteError}</p>
-                  </div>
-                )}
-                {!deleteError && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
-                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>已删除的Offer历史数据会保留在系统中</li>
-                      <li>系统会自动暂停该Offer在各关联Ads账号下的已启用广告系列（仅暂停该账号下关联的广告系列），避免继续花费</li>
-                      <li>关联的Google Ads账号会自动解除关联</li>
-                      <li>此操作不可撤销</li>
-                    </ul>
-                    <div className="mt-3 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
-                      <Checkbox
-                        id="delete-remove-ads-simple"
-                        checked={removeGoogleAdsCampaignsOnDelete}
-                        onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnDelete(checked as boolean)}
-                        className="mt-0.5"
-                      />
-                      <div className="flex-1">
-                        <Label htmlFor="delete-remove-ads-simple" className="text-sm font-medium cursor-pointer text-orange-900">
-                          同时在 Ads 账号中删除对应广告系列（不可恢复）
-                        </Label>
-                        <p className="text-xs text-orange-700 mt-1">
-                          仅删除该账号下与该Offer关联的广告系列
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting} onClick={() => setDeleteError(null)}>取消</AlertDialogCancel>
-            <Button
-              onClick={() => handleDeleteOffer(false, removeGoogleAdsCampaignsOnDelete)}
-              disabled={deleting}
-              variant="destructive"
-            >
-              {deleting ? '删除中...' : deleteError ? '重试删除' : '确认删除'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isCreateModalOpen && (
+        <CreateOfferModalV2
+          open={isCreateModalOpen}
+          onOpenChange={setIsCreateModalOpen}
+          onSuccess={fetchOffers}
+        />
+      )}
 
       {/* Delete Offer Confirm Dialog (with linked accounts details) */}
-      <DeleteOfferConfirmDialog
-        open={isDeleteConfirmDialogOpen}
-        onOpenChange={(open) => {
-          setIsDeleteConfirmDialogOpen(open)
-          if (!open) {
-            setDeleteLinkedAccounts([])
-            setDeleteAccountCount(0)
-            setDeleteCampaignCount(0)
-            setDeleteError(null)
-            setRemoveGoogleAdsCampaignsOnDelete(false)
-          }
-        }}
-        offerName={offerToDelete?.offerName || offerToDelete?.brand || ''}
-        linkedAccounts={deleteLinkedAccounts}
-        accountCount={deleteAccountCount}
-        campaignCount={deleteCampaignCount}
-        onConfirmDelete={(autoUnlink) => handleDeleteOffer(autoUnlink, removeGoogleAdsCampaignsOnDelete)}
-        removeGoogleAdsCampaigns={removeGoogleAdsCampaignsOnDelete}
-        onRemoveGoogleAdsCampaignsChange={setRemoveGoogleAdsCampaignsOnDelete}
-        deleting={deleting}
-      />
+      {isDeleteConfirmDialogOpen && (
+        <DeleteOfferConfirmDialog
+          open={isDeleteConfirmDialogOpen}
+          onOpenChange={(open) => {
+            setIsDeleteConfirmDialogOpen(open)
+            if (!open) {
+              setDeleteLinkedAccounts([])
+              setDeleteAccountCount(0)
+              setDeleteCampaignCount(0)
+              setDeleteError(null)
+              setRemoveGoogleAdsCampaignsOnDelete(false)
+            }
+          }}
+          offerName={offerToDelete?.offerName || offerToDelete?.brand || ''}
+          linkedAccounts={deleteLinkedAccounts}
+          accountCount={deleteAccountCount}
+          campaignCount={deleteCampaignCount}
+          onConfirmDelete={(autoUnlink) => handleDeleteOffer(autoUnlink, removeGoogleAdsCampaignsOnDelete)}
+          removeGoogleAdsCampaigns={removeGoogleAdsCampaignsOnDelete}
+          onRemoveGoogleAdsCampaignsChange={setRemoveGoogleAdsCampaignsOnDelete}
+          deleting={deleting}
+        />
+      )}
 
-      {/* Batch Delete Confirmation Dialog */}
-      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
-        setIsBatchDeleteDialogOpen(open)
-        if (!open) {
-          setBatchDeleteError(null)
-          setRemoveGoogleAdsCampaignsOnDelete(false)
-        }
-      }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>您确定要删除选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer吗？</p>
-                {/* 批量删除错误提示 */}
-                {batchDeleteError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
-                    <p className="font-medium mb-1">部分删除失败</p>
-                    <p className="whitespace-pre-line">{batchDeleteError}</p>
-                  </div>
-                )}
-                {!batchDeleteError && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
-                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>已删除的Offer历史数据会保留在系统中</li>
-                      <li>系统会自动暂停各Offer在关联Ads账号下的已启用广告系列（仅暂停该账号下关联的广告系列），避免继续花费</li>
-                      <li>关联的Google Ads账号会自动解除关联</li>
-                      <li>此操作不可撤销</li>
-                    </ul>
-                    <div className="mt-3 flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-body-sm text-orange-800">
-                      <Checkbox
-                        id="delete-remove-ads-batch"
-                        checked={removeGoogleAdsCampaignsOnDelete}
-                        onCheckedChange={(checked) => setRemoveGoogleAdsCampaignsOnDelete(checked as boolean)}
-                        className="mt-0.5"
-                      />
-                      <div className="flex-1">
-                        <Label htmlFor="delete-remove-ads-batch" className="text-sm font-medium cursor-pointer text-orange-900">
-                          同时在 Ads 账号中删除对应广告系列（不可恢复）
-                        </Label>
-                        <p className="text-xs text-orange-700 mt-1">
-                          仅删除该账号下与该Offer关联的广告系列
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={batchDeleting} onClick={() => setBatchDeleteError(null)}>取消</AlertDialogCancel>
-            <Button
-              onClick={handleBatchDelete}
-              disabled={batchDeleting}
-              variant="destructive"
-            >
-              {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Batch Creative Generation Confirmation Dialog */}
-      <AlertDialog open={isBatchCreativeDialogOpen} onOpenChange={setIsBatchCreativeDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认批量创建广告创意</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  将为选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer提交创意生成任务：
-                  每个Offer仅创建 <strong className="text-gray-900">1</strong> 个创意，生成下一步类型（A→B→D）。
-                </p>
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-body-sm text-gray-700">
-                  <p className="font-medium mb-1">跳过规则：</p>
-                  <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>Offer未完成抓取（pending/in_progress/failed）</li>
-                    <li>该Offer已存在生成中的任务（pending/running）</li>
-                    <li>该Offer已生成满3种类型创意（A/B/D）</li>
-                  </ul>
-                </div>
-                {selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
-                    单次最多支持 <strong>{MAX_BATCH_CREATIVE_OFFERS}</strong> 个Offer，请减少选择后再提交。
-                  </div>
-                )}
-                <div className="text-body-sm text-gray-500">
-                  提交后无需等待执行结果，可稍后进入对应Offer的发布流程查看生成进度。
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={batchCreatingCreatives}>取消</AlertDialogCancel>
-            <Button
-              onClick={handleBatchCreateCreatives}
-              disabled={
-                batchCreatingCreatives ||
-                selectedOfferIds.size === 0 ||
-                selectedOfferIds.size > MAX_BATCH_CREATIVE_OFFERS
-              }
-            >
-              {batchCreatingCreatives ? '提交中...' : '确认提交'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Blacklist Confirmation Dialog */}
-      <AlertDialog open={isBlacklistDialogOpen} onOpenChange={setIsBlacklistDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {offerToBlacklist?.isBlacklisted ? '确认取消拉黑' : '确认拉黑投放'}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  您确定要{offerToBlacklist?.isBlacklisted ? '取消拉黑' : '拉黑'} <strong className="text-gray-900">{offerToBlacklist?.brand}</strong> ({offerToBlacklist?.targetCountry}) 吗？
-                </p>
-                {!offerToBlacklist?.isBlacklisted && (
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-body-sm text-orange-800">
-                    <p className="font-medium mb-1">⚠️ 拉黑后：</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>该品牌+国家组合将被标记为拉黑状态</li>
-                      <li>创建相同品牌+国家的新Offer时会显示风险提示</li>
-                      <li>可随时取消拉黑状态</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={blacklisting}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleToggleBlacklist}
-              disabled={blacklisting}
-              className={offerToBlacklist?.isBlacklisted ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}
-            >
-              {blacklisting ? '处理中...' : offerToBlacklist?.isBlacklisted ? '确认取消拉黑' : '确认拉黑'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {shouldMountActionDialogs && (
+        <OffersActionDialogs
+          isUnlinkDialogOpen={isUnlinkDialogOpen}
+          onUnlinkDialogOpenChange={handleUnlinkDialogOpenChange}
+          offerToUnlink={offerToUnlink}
+          removeGoogleAdsCampaignsOnUnlink={removeGoogleAdsCampaignsOnUnlink}
+          onRemoveGoogleAdsCampaignsOnUnlinkChange={setRemoveGoogleAdsCampaignsOnUnlink}
+          unlinking={unlinking}
+          onConfirmUnlink={handleUnlinkAccount}
+          isDeleteDialogOpen={isDeleteDialogOpen}
+          onDeleteDialogOpenChange={handleDeleteDialogOpenChange}
+          offerToDelete={offerToDelete}
+          deleteError={deleteError}
+          onDeleteErrorReset={() => setDeleteError(null)}
+          removeGoogleAdsCampaignsOnDelete={removeGoogleAdsCampaignsOnDelete}
+          onRemoveGoogleAdsCampaignsOnDeleteChange={setRemoveGoogleAdsCampaignsOnDelete}
+          deleting={deleting}
+          onConfirmDeleteSimple={() => handleDeleteOffer(false, removeGoogleAdsCampaignsOnDelete)}
+          isBatchDeleteDialogOpen={isBatchDeleteDialogOpen}
+          onBatchDeleteDialogOpenChange={handleBatchDeleteDialogOpenChange}
+          batchDeleteError={batchDeleteError}
+          onBatchDeleteErrorReset={() => setBatchDeleteError(null)}
+          selectedOfferCount={selectedOfferIds.size}
+          batchDeleting={batchDeleting}
+          onConfirmBatchDelete={handleBatchDelete}
+          isBatchCreativeDialogOpen={isBatchCreativeDialogOpen}
+          onBatchCreativeDialogOpenChange={setIsBatchCreativeDialogOpen}
+          batchCreatingCreatives={batchCreatingCreatives}
+          maxBatchCreativeOffers={MAX_BATCH_CREATIVE_OFFERS}
+          onConfirmBatchCreateCreatives={handleBatchCreateCreatives}
+          isBlacklistDialogOpen={isBlacklistDialogOpen}
+          onBlacklistDialogOpenChange={setIsBlacklistDialogOpen}
+          offerToBlacklist={offerToBlacklist}
+          blacklisting={blacklisting}
+          onConfirmToggleBlacklist={handleToggleBlacklist}
+        />
+      )}
     </div>
   )
-}
-const isEditableClickFarmStatus = (status?: string) => (
-  status === 'pending' || status === 'running' || status === 'paused' || status === 'stopped'
-)
-
-const formatClickFarmStatus = (status?: string) => {
-  switch (status) {
-    case 'pending':
-      return '待开始'
-    case 'running':
-      return '运行中'
-    case 'paused':
-      return '已暂停'
-    case 'stopped':
-      return '已停止'
-    case 'completed':
-      return '已完成'
-    default:
-      return status || '未知'
-  }
-}
-
-const isEditableUrlSwapStatus = (status?: string) => (
-  status === 'enabled' || status === 'disabled' || status === 'error'
-)
-
-const formatUrlSwapStatus = (status?: string) => {
-  switch (status) {
-    case 'enabled':
-      return '已启用'
-    case 'disabled':
-      return '已禁用'
-    case 'error':
-      return '异常'
-    case 'completed':
-      return '已完成'
-    default:
-      return status || '未知'
-  }
 }

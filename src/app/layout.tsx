@@ -3,7 +3,7 @@ import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
 import FrontendErrorReporter from '@/components/monitoring/FrontendErrorReporter'
 import WebVitalsReporter from '@/components/monitoring/WebVitalsReporter'
-import { isPerformanceReleaseEnabled } from '@/lib/feature-flags'
+import { getPerformanceReleaseSnapshot, isPerformanceReleaseEnabled } from '@/lib/feature-flags'
 import './globals.css'
 
 // ⚡ P0性能优化: 移除全局force-dynamic，按需在各页面单独设置
@@ -13,6 +13,15 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 const webVitalsMonitoringEnabled = isPerformanceReleaseEnabled('webVitalsMonitoring')
 const frontendErrorMonitoringEnabled = isPerformanceReleaseEnabled('frontendErrorMonitoring')
+const buildId = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_BUILD_ID || 'local').slice(0, 64)
+const flagSnapshot = (() => {
+  const snapshot = getPerformanceReleaseSnapshot()
+  const enabledMap: Record<string, boolean> = {}
+  for (const [flagName, flagValue] of Object.entries(snapshot)) {
+    enabledMap[flagName] = flagValue.enabled
+  }
+  return JSON.stringify(enabledMap)
+})()
 
 export const metadata: Metadata = {
   // P0-4: SEO优化 - 更精准的标题和描述
@@ -93,8 +102,8 @@ export default function RootLayout({
       <body className={inter.className}>
         {children}
         <ToasterProvider />
-        {webVitalsMonitoringEnabled ? <WebVitalsReporter enabled={true} /> : null}
-        {frontendErrorMonitoringEnabled ? <FrontendErrorReporter enabled={true} /> : null}
+        {webVitalsMonitoringEnabled ? <WebVitalsReporter enabled={true} buildId={buildId} flagSnapshot={flagSnapshot} /> : null}
+        {frontendErrorMonitoringEnabled ? <FrontendErrorReporter enabled={true} buildId={buildId} flagSnapshot={flagSnapshot} /> : null}
       </body>
     </html>
   )

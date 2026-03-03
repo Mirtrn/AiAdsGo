@@ -23,6 +23,8 @@ interface WebVitalMetric {
   navigationType?: string
   id?: string
   path: string
+  buildId?: string
+  flagSnapshot?: string
   timestamp: number
   userId?: number
   userAgent?: string
@@ -34,6 +36,8 @@ interface FrontendErrorMetric {
   message: string
   stack?: string
   path: string
+  buildId?: string
+  flagSnapshot?: string
   timestamp: number
   userId?: number
   userAgent?: string
@@ -88,6 +92,8 @@ class PerformanceMonitor {
     avgDuration: number
     minDuration: number
     maxDuration: number
+    p95Duration: number
+    p99Duration: number
     totalRequests: number
     slowRequests: number
   } {
@@ -101,6 +107,8 @@ class PerformanceMonitor {
         avgDuration: 0,
         minDuration: 0,
         maxDuration: 0,
+        p95Duration: 0,
+        p99Duration: 0,
         totalRequests: 0,
         slowRequests: 0,
       }
@@ -114,6 +122,8 @@ class PerformanceMonitor {
       avgDuration: sum / durations.length,
       minDuration: Math.min(...durations),
       maxDuration: Math.max(...durations),
+      p95Duration: computePercentile(durations, 95),
+      p99Duration: computePercentile(durations, 99),
       totalRequests: filteredMetrics.length,
       slowRequests,
     }

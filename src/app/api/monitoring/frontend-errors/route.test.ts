@@ -70,6 +70,7 @@ describe('POST /api/monitoring/frontend-errors', () => {
   })
 
   it('records frontend error payload', async () => {
+    const oversizedFlagSnapshot = 'f'.repeat(1500)
     const req = new NextRequest('http://localhost/api/monitoring/frontend-errors', {
       method: 'POST',
       headers: {
@@ -82,6 +83,8 @@ describe('POST /api/monitoring/frontend-errors', () => {
         message: 'Cannot read properties of undefined',
         stack: 'TypeError: ...',
         path: '/offers',
+        buildId: '  v20260303  ',
+        flagSnapshot: ` ${oversizedFlagSnapshot} `,
         ts: 1710000000123,
       }),
     })
@@ -98,6 +101,8 @@ describe('POST /api/monitoring/frontend-errors', () => {
         message: 'Cannot read properties of undefined',
         stack: 'TypeError: ...',
         path: '/offers',
+        buildId: 'v20260303',
+        flagSnapshot: oversizedFlagSnapshot.slice(0, 1024),
         timestamp: 1710000000123,
         userId: 7,
         userAgent: 'vitest-agent',
