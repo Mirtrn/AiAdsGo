@@ -1033,15 +1033,11 @@ export default function OffersClientPage({
   }, [offers, countryFilter])
 
   const hasActiveFilters = Boolean(searchQuery || countryFilter !== 'all' || statusFilter !== 'all')
-  const modeBadgeLabel = isServerPagingMode ? '服务端分页模式' : '兼容全量模式'
-  const modeHint = hasUnsupportedServerSort
-    ? '当前排序字段不支持服务端排序，已自动使用兼容模式'
-    : manualCompatMode
-      ? '你已手动切换到兼容模式'
-      : '默认使用服务端分页/筛选/排序'
-  const modeToggleLabel = (!isServerPagingMode && hasUnsupportedServerSort)
-    ? '当前排序仅兼容模式'
-    : (isServerPagingMode ? '切换兼容模式' : '切回服务端模式')
+  useEffect(() => {
+    if (manualCompatMode && !hasUnsupportedServerSort) {
+      setManualCompatMode(false)
+    }
+  }, [manualCompatMode, hasUnsupportedServerSort])
 
   // P2-2: 导出Offer数据
   const handleExport = async () => {
@@ -1204,7 +1200,7 @@ export default function OffersClientPage({
                 onClick={() => setIsCreateModalOpen(true)}
                 className="flex-1 sm:flex-none"
               >
-                创建
+                创建Offer
               </Button>
 
               <div className="hidden sm:flex items-center gap-2">
@@ -1290,31 +1286,6 @@ export default function OffersClientPage({
                 </select>
               </div>
             </div>
-
-            {offersServerPagingEnabled && (
-              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border bg-slate-50 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant={isServerPagingMode ? 'default' : 'secondary'}>
-                    {modeBadgeLabel}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">{modeHint}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (!isServerPagingMode && hasUnsupportedServerSort) {
-                      showInfo('当前排序字段仅兼容模式支持，请切换到其他排序字段后再启用服务端模式。')
-                      return
-                    }
-                    setManualCompatMode((prev) => !prev)
-                    setPage(1)
-                  }}
-                >
-                  {modeToggleLabel}
-                </Button>
-              </div>
-            )}
 
             {/* 筛选结果提示 */}
             {hasActiveFilters && (
