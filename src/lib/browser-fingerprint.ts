@@ -146,7 +146,7 @@ export function generateRandomFingerprint(): BrowserFingerprint {
   // 🔥 根据 User-Agent 生成匹配的 Sec-CH-UA 头部（参考 browser-stealth.ts）
   let secChUa: string | undefined
   let secChUaPlatform: string | undefined
-  let secChUaMobile = '?0'
+  let secChUaMobile: string | undefined = '?0'
 
   if (userAgent.includes('Macintosh')) {
     secChUaPlatform = '"macOS"'
