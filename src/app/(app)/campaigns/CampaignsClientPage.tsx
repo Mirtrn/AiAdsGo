@@ -2675,7 +2675,7 @@ export default function CampaignsClientPage({
                         />
                       </TableHead>
                       <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
-                      <TableHead className="w-[112px] whitespace-nowrap">关联Ads账号</TableHead>
+                      <TableHead className="w-[92px] whitespace-nowrap">关联Ads账号</TableHead>
                       <SortableHeader field="budgetAmount" className="w-[86px] whitespace-nowrap">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
@@ -2695,20 +2695,22 @@ export default function CampaignsClientPage({
 	                    const isDeleted = isCampaignDeleted(campaign)
 	                    const offerDeleted = isOfferDeleted(campaign)
 	                    const googleCampaignId = getCampaignGoogleId(campaign)
-                        const isStatusUpdating = statusUpdatingIds.has(campaign.id)
+	                    const isStatusUpdating = statusUpdatingIds.has(campaign.id)
 	                    const budgetCurrency = campaign.adsAccountCurrency || defaultCurrency
 	                    const performanceCurrency = campaign.performanceCurrency || campaign.adsAccountCurrency || defaultCurrency
                         const adsAccountName = String(campaign.adsAccountName || '').trim()
                         const adsAccountCustomerId = String(campaign.adsAccountCustomerId || '').trim()
                         const shouldHideAdsAccount = isDeleted
-                        const adsAccountPrimaryText = shouldHideAdsAccount
+                        const adsAccountDisplayName = shouldHideAdsAccount
                           ? '-'
+                          : (adsAccountName || adsAccountCustomerId || '-')
+                        const adsAccountDisplayId = shouldHideAdsAccount
+                          ? ''
                           : (
-                            adsAccountName
-                            || adsAccountCustomerId
+                            adsAccountCustomerId
                             || (campaign.googleAdsAccountId !== null && campaign.googleAdsAccountId !== undefined
-                              ? `ID ${campaign.googleAdsAccountId}`
-                              : '-')
+                              ? String(campaign.googleAdsAccountId)
+                              : '')
                           )
 
 			                    const canAdjustCpc = Boolean(googleCampaignId) && !isDeleted && !offerDeleted && campaign.adsAccountAvailable !== false
@@ -2810,14 +2812,14 @@ export default function CampaignsClientPage({
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="w-[92px] whitespace-nowrap">
                         <div className="min-w-0">
-                          <div className="font-medium text-gray-900 truncate" title={adsAccountPrimaryText}>
-                            {adsAccountPrimaryText}
+                          <div className="font-medium text-gray-900 truncate" title={adsAccountDisplayName}>
+                            {adsAccountDisplayName}
                           </div>
-                          {!shouldHideAdsAccount && adsAccountName && adsAccountCustomerId && (
-                            <div className="text-[11px] text-gray-500 font-mono truncate" title={adsAccountCustomerId}>
-                              {adsAccountCustomerId}
+                          {!shouldHideAdsAccount && adsAccountDisplayId && (
+                            <div className="text-[11px] text-gray-500 font-mono leading-none mt-0.5">
+                              {adsAccountDisplayId}
                             </div>
                           )}
                           {!shouldHideAdsAccount && campaign.adsAccountAvailable === false && (
