@@ -2629,10 +2629,6 @@ export default function CampaignsClientPage({
           </CardContent>
         </Card>
 
-        <p className="mb-4 text-xs text-gray-500">
-          跨币种排序按 {summary?.baseCurrency || 'USD'} 统一折算，展示金额保持行币种。
-        </p>
-
         {error && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
