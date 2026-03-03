@@ -4,6 +4,7 @@ import { queryActiveCampaigns, pauseCampaigns } from '@/lib/active-campaigns-que
 import { recordOpenclawAction } from '@/lib/openclaw/action-logs'
 import type { GoogleAdsCampaignInfo } from '@/lib/campaign-association'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 export const dynamic = 'force-dynamic'
 
@@ -150,6 +151,7 @@ export async function POST(request: NextRequest) {
       accountId,
       campaigns: enabledCampaigns,
     })
+    invalidateOfferCache(userId)
 
     try {
       await recordOpenclawAction({

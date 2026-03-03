@@ -6,6 +6,12 @@ import { toNumber } from '@/lib/utils'
 import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
 import { withPerformanceMonitoring } from '@/lib/api-performance'
 
+function parseBooleanParam(value: string | null): boolean {
+  if (value === null) return false
+  const normalized = String(value).trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
 /**
  * POST /api/offers
  * 已下线：请使用 /api/offers/extract 或 /api/offers/extract/stream
@@ -43,12 +49,29 @@ async function get(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const idsParam = searchParams.get('ids') // 批量查询特定ID的Offers
     const summary = searchParams.get('summary') === 'true' // Dashboard等轻量场景仅需概要统计
-    const noCache = searchParams.get('noCache') === 'true' || searchParams.get('refresh') === 'true'
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : undefined
-    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!, 10) : undefined
+    const refresh = parseBooleanParam(searchParams.get('refresh'))
+    const noCache = parseBooleanParam(searchParams.get('noCache'))
+    const shouldBypassReadCache = refresh || noCache
+    const shouldWriteCache = !noCache
+    const limitParam = searchParams.get('limit')
+    const offsetParam = searchParams.get('offset')
+    const parsedLimit = limitParam ? parseInt(limitParam, 10) : undefined
+    const parsedOffset = offsetParam ? parseInt(offsetParam, 10) : undefined
+    const limit = Number.isFinite(parsedLimit) && (parsedLimit as number) > 0
+      ? parsedLimit
+      : undefined
+    const offset = Number.isFinite(parsedOffset) && (parsedOffset as number) >= 0
+      ? parsedOffset
+      : undefined
     const isActive = searchParams.get('isActive') === 'true' ? true : searchParams.get('isActive') === 'false' ? false : undefined
     const targetCountry = searchParams.get('targetCountry') || undefined
     const searchQuery = searchParams.get('search') || undefined
+    const scrapeStatus = searchParams.get('scrapeStatus') || undefined
+    const sortBy = searchParams.get('sortBy') || undefined
+    const sortOrderParam = searchParams.get('sortOrder')
+    const sortOrder = sortOrderParam === 'asc' || sortOrderParam === 'desc'
+      ? sortOrderParam
+      : undefined
 
     // 如果提供了ids参数，直接查询特定的Offers（用于批量上传进度显示）
     if (idsParam) {
@@ -121,6 +144,9 @@ async function get(request: NextRequest) {
       isActive,
       targetCountry,
       searchQuery,
+      scrapeStatus,
+      sortBy,
+      sortOrder,
     })
 
     const buildResult = async () => {
@@ -130,6 +156,9 @@ async function get(request: NextRequest) {
         isActive,
         targetCountry,
         searchQuery,
+        scrapeStatus,
+        sortBy,
+        sortOrder,
       })
 
       return {
@@ -174,12 +203,15 @@ async function get(request: NextRequest) {
       }
     }
 
-    if (!noCache) {
+    if (!shouldBypassReadCache) {
       const result = await apiCache.getOrSet(cacheKey, buildResult, 2 * 60 * 1000)
       return NextResponse.json(result)
     }
 
     const result = await buildResult()
+    if (shouldWriteCache) {
+      apiCache.set(cacheKey, result, 2 * 60 * 1000)
+    }
     return NextResponse.json(result)
   } catch (error: any) {
     console.error('获取Offer列表失败:', error)

@@ -7,6 +7,7 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 import { normalizeGoogleAdsApiUpdateOperations } from '@/lib/google-ads-mutate-helpers'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
+import { invalidateDashboardCache, invalidateOfferCache } from '@/lib/api-cache'
 
 function toBiddingStrategyType(value: unknown): string {
   if (value === undefined || value === null) return 'UNKNOWN'
@@ -274,6 +275,14 @@ export async function PUT(
     const localCampaignIdRaw = linked.local_campaign_id
     const localCampaignIdNum = Number(localCampaignIdRaw)
     const localCampaignId = Number.isFinite(localCampaignIdNum) ? localCampaignIdNum : null
+    const invalidateRelatedCaches = () => {
+      const numericOfferId = Number(offerId)
+      if (Number.isFinite(numericOfferId) && numericOfferId > 0) {
+        invalidateOfferCache(numericUserId, numericOfferId)
+      } else {
+        invalidateDashboardCache(numericUserId)
+      }
+    }
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
     const recordHistory = async (
       adjustmentType: string,
@@ -531,6 +540,7 @@ export async function PUT(
       )
 
       await recordHistory('manual_cpc', adGroups.length, 0, null)
+      invalidateRelatedCaches()
 
       return NextResponse.json({
         success: true,
@@ -575,6 +585,7 @@ export async function PUT(
       }
 
       await recordHistory('max_cpc', 1, 0, null)
+      invalidateRelatedCaches()
 
       return NextResponse.json({
         success: true,
@@ -618,6 +629,7 @@ export async function PUT(
       }
 
       await recordHistory('max_cpc', 1, 0, null)
+      invalidateRelatedCaches()
 
       return NextResponse.json({
         success: true,
@@ -651,6 +663,7 @@ export async function PUT(
       )
 
       await recordHistory('target_cpa', 1, 0, null)
+      invalidateRelatedCaches()
 
       return NextResponse.json({
         success: true,

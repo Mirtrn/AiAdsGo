@@ -734,6 +734,12 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const silentRefreshCountRef = useRef(0)
+  const productsRequestSeqRef = useRef(0)
+  const productsAbortControllerRef = useRef<AbortController | null>(null)
+  const summaryRequestSeqRef = useRef(0)
+  const summaryAbortControllerRef = useRef<AbortController | null>(null)
+  const syncRunsInFlightRef = useRef(false)
+  const periodicRefreshInFlightRef = useRef(false)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [platformStats, setPlatformStats] = useState<PlatformStatsMap>(() => createEmptyPlatformStatsMap())
@@ -918,6 +924,12 @@ export default function ProductsPage() {
     suppressErrorToast?: boolean
   } = {}) => {
     const { forceNoCache = false, silent = false, suppressErrorToast = false } = options
+    const requestSeq = productsRequestSeqRef.current + 1
+    productsRequestSeqRef.current = requestSeq
+    productsAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    productsAbortControllerRef.current = controller
+
     if (silent) {
       silentRefreshCountRef.current += 1
       setBackgroundRefreshing(true)
@@ -958,6 +970,7 @@ export default function ProductsPage() {
       const response = await fetch(`/api/products?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
+        signal: controller.signal,
       })
 
       if (response.status === 401) {
@@ -968,6 +981,10 @@ export default function ProductsPage() {
       const data = await response.json() as ProductListResponse
       if (!response.ok || !data.success) {
         throw new Error((data as any)?.error || '加载商品列表失败')
+      }
+
+      if (requestSeq !== productsRequestSeqRef.current) {
+        return
       }
 
       setItems(data.items || [])
@@ -984,22 +1001,36 @@ export default function ProductsPage() {
         return next
       })
     } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return
+      }
       if (!suppressErrorToast) {
         showError('加载失败', error?.message || '加载商品列表失败')
       }
     } finally {
       if (silent) {
         silentRefreshCountRef.current = Math.max(0, silentRefreshCountRef.current - 1)
-        if (silentRefreshCountRef.current === 0) {
-          setBackgroundRefreshing(false)
-        }
+          if (silentRefreshCountRef.current === 0) {
+            setBackgroundRefreshing(false)
+          }
       } else {
-        setLoading(false)
+        if (requestSeq === productsRequestSeqRef.current) {
+          setLoading(false)
+        }
+      }
+      if (productsAbortControllerRef.current === controller) {
+        productsAbortControllerRef.current = null
       }
     }
   }
 
   const fetchProductSummary = async () => {
+    const requestSeq = summaryRequestSeqRef.current + 1
+    summaryRequestSeqRef.current = requestSeq
+    summaryAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    summaryAbortControllerRef.current = controller
+
     try {
       const params = new URLSearchParams()
       if (searchQuery) params.set('search', searchQuery)
@@ -1028,6 +1059,7 @@ export default function ProductsPage() {
       const response = await fetch(`/api/products/summary?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
+        signal: controller.signal,
       })
       if (response.status === 401) {
         router.push('/login')
@@ -1042,14 +1074,25 @@ export default function ProductsPage() {
         return
       }
 
+      if (requestSeq !== summaryRequestSeqRef.current) {
+        return
+      }
+
       setTotal(data.total || 0)
       setPlatformStats(normalizePlatformStatsMap(data.platformStats))
-    } catch {
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return
       // ignore summary fetch failures (list API remains source of truth)
+    } finally {
+      if (summaryAbortControllerRef.current === controller) {
+        summaryAbortControllerRef.current = null
+      }
     }
   }
 
   const fetchSyncRuns = async () => {
+    if (syncRunsInFlightRef.current) return
+    syncRunsInFlightRef.current = true
     try {
       const response = await fetch('/api/products/sync-runs?limit=20', {
         credentials: 'include',
@@ -1066,6 +1109,8 @@ export default function ProductsPage() {
       setYpSyncMonitor(data.ypMonitor || createEmptyYeahPromosSyncMonitor())
     } catch {
       // ignore
+    } finally {
+      syncRunsInFlightRef.current = false
     }
   }
 
@@ -1241,8 +1286,14 @@ export default function ProductsPage() {
     if (!hasActiveRuns) return
 
     const timer = window.setInterval(() => {
-      fetchSyncRuns()
-      fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true })
+      if (periodicRefreshInFlightRef.current) return
+      periodicRefreshInFlightRef.current = true
+      Promise.all([
+        fetchSyncRuns(),
+        fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true }),
+      ]).finally(() => {
+        periodicRefreshInFlightRef.current = false
+      })
     }, 8000)
 
     return () => window.clearInterval(timer)
@@ -1561,8 +1612,11 @@ export default function ProductsPage() {
       setClearAllConfirmOpen(false)
       setSelectedProductIds(new Set())
       setPage(1)
-      await fetchProducts({ forceNoCache: true })
-      await fetchSyncRuns()
+      setItems([])
+      setTotal(0)
+      setPlatformStats(createEmptyPlatformStatsMap())
+      void fetchProducts({ forceNoCache: true, silent: true })
+      void fetchSyncRuns()
     } catch (error: any) {
       showError('清空失败', error?.message || '清空商品失败')
     } finally {

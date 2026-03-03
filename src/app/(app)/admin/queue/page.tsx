@@ -601,15 +601,9 @@ export default function QueueManagementPage() {
       })
 
       if (!result.success) {
-        // 🔥 显示详细错误信息
         const errorMsg = result.userMessage || '保存配置失败'
-        const details = result.data?.details
-        if (details && Array.isArray(details)) {
-          console.error('[QueueConfig] 验证错误详情:', details)
-          toast.error(`${errorMsg}: ${details.map((d: any) => d.message).join(', ')}`)
-        } else {
-          toast.error(errorMsg)
-        }
+        console.error('[QueueConfig] 保存失败:', result.error)
+        toast.error(errorMsg)
         return
       }
 

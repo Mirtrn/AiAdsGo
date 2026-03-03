@@ -369,6 +369,9 @@ export async function listOffers(
     isActive?: boolean
     targetCountry?: string
     searchQuery?: string
+    scrapeStatus?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
     includeDeleted?: boolean
     ids?: number[] // 批量查询特定ID的Offers
   }
@@ -417,6 +420,11 @@ export async function listOffers(
     params.push(searchPattern, searchPattern, searchPattern)
   }
 
+  if (options?.scrapeStatus) {
+    whereConditions.push('scrape_status = ?')
+    params.push(options.scrapeStatus)
+  }
+
   const whereClause = whereConditions.join(' AND ')
 
   // 获取总数
@@ -453,7 +461,22 @@ export async function listOffers(
     'updated_at',
   ].join(', ')
 
-  let listQuery = `SELECT ${listColumns} FROM offers WHERE ${whereClause} ORDER BY created_at DESC`
+  const sortableColumnMap: Record<string, string> = {
+    offerName: 'offer_name',
+    brand: 'brand',
+    targetCountry: 'target_country',
+    targetLanguage: 'target_language',
+    scrapeStatus: 'scrape_status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  }
+
+  const sortColumn = options?.sortBy && sortableColumnMap[options.sortBy]
+    ? sortableColumnMap[options.sortBy]
+    : 'created_at'
+  const sortOrder = options?.sortOrder === 'asc' ? 'ASC' : 'DESC'
+
+  let listQuery = `SELECT ${listColumns} FROM offers WHERE ${whereClause} ORDER BY ${sortColumn} ${sortOrder}, id DESC`
 
   if (options?.limit) {
     listQuery += ` LIMIT ${options.limit}`

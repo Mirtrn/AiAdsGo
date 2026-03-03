@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findCampaignById, updateCampaign, deleteCampaign } from '@/lib/campaigns'
+import { invalidateDashboardCache } from '@/lib/api-cache'
 
 /**
  * GET /api/campaigns/:id
@@ -89,6 +90,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
+    invalidateDashboardCache(parseInt(userId, 10))
+
     return NextResponse.json({
       success: true,
       campaign,
@@ -147,6 +150,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
         { status: 404 }
       )
     }
+
+    invalidateDashboardCache(parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,

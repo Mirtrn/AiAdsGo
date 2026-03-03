@@ -61,6 +61,12 @@ function parseCountryFilter(searchParams: URLSearchParams, key: string): string 
   return raw
 }
 
+function parseBooleanParam(value: string | null): boolean {
+  if (value === null) return false
+  const normalized = String(value).trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userIdRaw = request.headers.get('x-user-id')
@@ -102,7 +108,10 @@ export async function GET(request: NextRequest) {
     const createdAtFrom = parseDateFilter(searchParams, 'createdAtFrom')
     const createdAtTo = parseDateFilter(searchParams, 'createdAtTo')
 
-    const noCache = (searchParams.get('noCache') || '').toLowerCase() === 'true'
+    const refresh = parseBooleanParam(searchParams.get('refresh'))
+    const noCache = parseBooleanParam(searchParams.get('noCache'))
+    const shouldBypassReadCache = refresh || noCache
+    const shouldWriteCache = !noCache
 
     const cachePayload = {
       page,
@@ -128,7 +137,7 @@ export async function GET(request: NextRequest) {
     const cacheHash = buildProductListCacheHash(cachePayload)
     await setLatestProductListQuery(userId, cachePayload)
 
-    if (!noCache) {
+    if (!shouldBypassReadCache) {
       const cached = await getCachedProductList<{
         success: true
         items: any[]
@@ -192,7 +201,7 @@ export async function GET(request: NextRequest) {
       pageSize: result.pageSize,
     }
 
-    if (!noCache) {
+    if (shouldWriteCache) {
       await setCachedProductList(userId, cacheHash, responsePayload)
     }
 

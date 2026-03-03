@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import {
+  Activity,
   LayoutDashboard,
   Package,
   Boxes,
@@ -80,6 +82,49 @@ interface NavItem {
   href: string
   icon: React.ComponentType<{ className?: string }>
   requireAdmin?: boolean
+}
+
+interface SidebarLinkProps {
+  href: string
+  className: string
+  title?: string
+  useNextLink: boolean
+  onIntentPrefetch?: (href: string) => void
+  children: React.ReactNode
+}
+
+function SidebarLink({
+  href,
+  className,
+  title,
+  useNextLink,
+  onIntentPrefetch,
+  children,
+}: SidebarLinkProps) {
+  if (useNextLink) {
+    const handleIntent = () => {
+      onIntentPrefetch?.(href)
+    }
+
+    return (
+      <Link
+        href={href}
+        prefetch={false}
+        onMouseEnter={handleIntent}
+        onFocus={handleIntent}
+        className={className}
+        title={title}
+      >
+        {children}
+      </Link>
+    )
+  }
+
+  return (
+    <a href={href} className={className} title={title}>
+      {children}
+    </a>
+  )
 }
 
 const collapsibleNavigationHrefs = new Set(['/data-management', '/openclaw'])
@@ -186,6 +231,12 @@ const adminNavigationItems: NavItem[] = [
     icon: TrendingUp,
     requireAdmin: true,
   },
+  {
+    label: '性能监控',
+    href: '/admin/performance',
+    icon: Activity,
+    requireAdmin: true,
+  },
   // {
   //   label: '抓取与AI测试',
   //   href: '/admin/scrape-test',
@@ -217,7 +268,13 @@ let cachedUser: UserInfo | null = null
 let cacheTimestamp: number = 0
 const CACHE_DURATION = 5 * 60 * 1000 // 5分钟缓存
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default function AppLayout({
+  children,
+  navLinkEnabled = false,
+}: {
+  children: React.ReactNode
+  navLinkEnabled?: boolean
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const [user, setUser] = useState<UserInfo | null>(cachedUser)
@@ -229,6 +286,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [loading, setLoading] = useState(!cachedUser)
   const fetchingRef = useRef(false)
+  const prefetchedNavHrefsRef = useRef(new Set<string>())
+
+  const prefetchNavLinkByIntent = (href: string) => {
+    if (!navLinkEnabled) return
+    if (prefetchedNavHrefsRef.current.has(href)) return
+
+    prefetchedNavHrefsRef.current.add(href)
+    router.prefetch(href)
+  }
 
   useEffect(() => {
     // 如果已有缓存且未过期，直接使用
@@ -433,9 +499,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             const active = isActive(item.href)
 
             return (
-              <a
+              <SidebarLink
                 key={item.href}
                 href={item.href}
+                useNextLink={navLinkEnabled}
+                onIntentPrefetch={prefetchNavLinkByIntent}
                 className={`
                   group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                   ${active
@@ -451,7 +519,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {sidebarOpen && active && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
                 )}
-              </a>
+              </SidebarLink>
             )
           })}
 
@@ -481,9 +549,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     const active = isActive(item.href)
 
                     return (
-                      <a
+                      <SidebarLink
                         key={item.href}
                         href={item.href}
+                        useNextLink={navLinkEnabled}
+                        onIntentPrefetch={prefetchNavLinkByIntent}
                         className={`
                           group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                           ${active
@@ -497,7 +567,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                         {active && (
                           <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
                         )}
-                      </a>
+                      </SidebarLink>
                     )
                   })}
                 </div>
@@ -524,9 +594,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 const active = isActive(item.href)
 
                 return (
-                  <a
+                  <SidebarLink
                     key={item.href}
                     href={item.href}
+                    useNextLink={navLinkEnabled}
+                    onIntentPrefetch={prefetchNavLinkByIntent}
                     className={`
                       group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                       ${active
@@ -539,7 +611,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${active ? 'text-purple-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
                     {sidebarOpen && <span className="text-sm">{item.label}</span>}
-                  </a>
+                  </SidebarLink>
                 )
               })}
             </>

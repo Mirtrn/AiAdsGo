@@ -1,6 +1,7 @@
 /**
- * API性能监控工具
- * 记录API响应时间和性能指标
+ * API 与前端性能监控工具
+ * - API: 记录接口响应耗时
+ * - Web Vitals: 记录前端核心体验指标
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -12,6 +13,42 @@ interface PerformanceMetric {
   timestamp: number
   statusCode: number
   userId?: number
+}
+
+interface WebVitalMetric {
+  name: string
+  value: number
+  delta?: number
+  rating?: 'good' | 'needs-improvement' | 'poor'
+  navigationType?: string
+  id?: string
+  path: string
+  timestamp: number
+  userId?: number
+  userAgent?: string
+}
+
+interface FrontendErrorMetric {
+  type: 'error' | 'unhandledrejection'
+  name?: string
+  message: string
+  stack?: string
+  path: string
+  timestamp: number
+  userId?: number
+  userAgent?: string
+}
+
+type WebVitalSeriesStats = {
+  count: number
+  avg: number
+  min: number
+  max: number
+  p75: number
+  p95: number
+  good: number
+  needsImprovement: number
+  poor: number
 }
 
 class PerformanceMonitor {
@@ -92,6 +129,126 @@ class PerformanceMonitor {
 
 // 导出单例实例
 export const performanceMonitor = new PerformanceMonitor()
+
+function computePercentile(values: number[], percentile: number): number {
+  if (values.length === 0) return 0
+  if (values.length === 1) return values[0]
+
+  const sorted = [...values].sort((a, b) => a - b)
+  const rank = Math.ceil((percentile / 100) * sorted.length) - 1
+  const index = Math.min(sorted.length - 1, Math.max(0, rank))
+  return sorted[index]
+}
+
+class WebVitalsMonitor {
+  private metrics: WebVitalMetric[] = []
+  private maxMetrics: number = 3000
+
+  record(metric: WebVitalMetric): void {
+    this.metrics.push(metric)
+
+    if (this.metrics.length > this.maxMetrics) {
+      this.metrics.shift()
+    }
+  }
+
+  getRecentMetrics(limit: number = 100): WebVitalMetric[] {
+    return this.metrics.slice(-limit)
+  }
+
+  getSummary(): {
+    total: number
+    byMetric: Record<string, WebVitalSeriesStats>
+  } {
+    const byMetric: Record<string, WebVitalSeriesStats> = {}
+    const groups = new Map<string, WebVitalMetric[]>()
+
+    for (const metric of this.metrics) {
+      const group = groups.get(metric.name)
+      if (group) {
+        group.push(metric)
+      } else {
+        groups.set(metric.name, [metric])
+      }
+    }
+
+    for (const [name, items] of groups.entries()) {
+      const values = items.map((item) => item.value)
+      const sum = values.reduce((acc, current) => acc + current, 0)
+      const ratingStats = {
+        good: items.filter((item) => item.rating === 'good').length,
+        needsImprovement: items.filter((item) => item.rating === 'needs-improvement').length,
+        poor: items.filter((item) => item.rating === 'poor').length,
+      }
+
+      byMetric[name] = {
+        count: items.length,
+        avg: values.length > 0 ? sum / values.length : 0,
+        min: values.length > 0 ? Math.min(...values) : 0,
+        max: values.length > 0 ? Math.max(...values) : 0,
+        p75: computePercentile(values, 75),
+        p95: computePercentile(values, 95),
+        ...ratingStats,
+      }
+    }
+
+    return {
+      total: this.metrics.length,
+      byMetric,
+    }
+  }
+
+  clear(): void {
+    this.metrics = []
+  }
+}
+
+export const webVitalsMonitor = new WebVitalsMonitor()
+
+class FrontendErrorMonitor {
+  private metrics: FrontendErrorMetric[] = []
+  private maxMetrics: number = 2000
+
+  record(metric: FrontendErrorMetric): void {
+    this.metrics.push(metric)
+    if (this.metrics.length > this.maxMetrics) {
+      this.metrics.shift()
+    }
+  }
+
+  getRecentMetrics(limit: number = 100): FrontendErrorMetric[] {
+    return this.metrics.slice(-limit)
+  }
+
+  getSummary(): {
+    total: number
+    byType: Record<FrontendErrorMetric['type'], number>
+    byPath: Record<string, number>
+  } {
+    const byType: Record<FrontendErrorMetric['type'], number> = {
+      error: 0,
+      unhandledrejection: 0,
+    }
+    const byPath: Record<string, number> = {}
+
+    for (const metric of this.metrics) {
+      byType[metric.type] += 1
+      byPath[metric.path] = (byPath[metric.path] || 0) + 1
+    }
+
+    return {
+      total: this.metrics.length,
+      byType,
+      byPath,
+    }
+  }
+
+  clear(): void {
+    this.metrics = []
+  }
+}
+
+export const frontendErrorMonitor = new FrontendErrorMonitor()
 
 /**
  * API性能监控中间件

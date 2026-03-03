@@ -11,6 +11,7 @@ export interface OfferListItem {
   affiliateLink: string | null
   brandDescription: string | null
   scrapeStatus: string  // 🔧 修复(2025-12-11): snake_case → camelCase
+  scrapeError?: string | null
   isActive: boolean
   createdAt: string
   offerName: string | null

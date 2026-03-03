@@ -3,6 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignBudget } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { invalidateDashboardCache, invalidateOfferCache } from '@/lib/api-cache'
 import {
   isGoogleAdsAccountAccessError,
   resolveLoginCustomerCandidates,
@@ -64,6 +65,7 @@ export async function PUT(
         SELECT
           c.id AS local_campaign_id,
           c.google_ads_account_id,
+          c.offer_id,
           c.status,
           c.is_deleted,
           gaa.customer_id,
@@ -84,6 +86,7 @@ export async function PUT(
       | {
           local_campaign_id: number
           google_ads_account_id: number
+          offer_id: number | null
           status: string | null
           is_deleted: any
           customer_id: string | null
@@ -221,6 +224,13 @@ export async function PUT(
       `,
       [normalizedBudgetAmount, budgetType, userId, googleCampaignId, googleCampaignId]
     )
+
+    const offerId = Number(linked.offer_id)
+    if (Number.isFinite(offerId) && offerId > 0) {
+      invalidateOfferCache(userId, offerId)
+    } else {
+      invalidateDashboardCache(userId)
+    }
 
     return NextResponse.json({
       success: true,

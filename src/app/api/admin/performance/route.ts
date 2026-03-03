@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { performanceMonitor } from '@/lib/api-performance'
+import { frontendErrorMonitor, performanceMonitor, webVitalsMonitor } from '@/lib/api-performance'
 import { apiCache } from '@/lib/api-cache'
 
 /**
@@ -23,6 +23,10 @@ export async function GET(request: NextRequest) {
     // 获取性能统计
     const overallStats = performanceMonitor.getStats()
     const recentMetrics = performanceMonitor.getRecentMetrics(50)
+    const webVitalsSummary = webVitalsMonitor.getSummary()
+    const recentWebVitals = webVitalsMonitor.getRecentMetrics(50)
+    const frontendErrorSummary = frontendErrorMonitor.getSummary()
+    const recentFrontendErrors = frontendErrorMonitor.getRecentMetrics(50)
 
     // 获取缓存统计
     const cacheStats = apiCache.getStats()
@@ -42,6 +46,10 @@ export async function GET(request: NextRequest) {
         cache: cacheStats,
         byPath: pathStats,
         recentRequests: recentMetrics.slice(0, 20),
+        frontendVitals: webVitalsSummary,
+        recentFrontendVitals: recentWebVitals.slice(0, 20),
+        frontendErrors: frontendErrorSummary,
+        recentFrontendErrors: recentFrontendErrors.slice(0, 20),
       },
     })
   } catch (error) {
@@ -74,6 +82,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     performanceMonitor.clear()
+    webVitalsMonitor.clear()
+    frontendErrorMonitor.clear()
 
     return NextResponse.json({
       success: true,

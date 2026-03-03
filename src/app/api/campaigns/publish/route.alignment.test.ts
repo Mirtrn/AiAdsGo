@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   computeCampaignConfigHash: vi.fn(),
   getOrCreateQueueManager: vi.fn(),
   queueEnqueue: vi.fn(),
+  invalidateOfferCache: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -40,6 +41,10 @@ vi.mock('@/lib/launch-scores', () => ({
 
 vi.mock('@/lib/queue/init-queue', () => ({
   getOrCreateQueueManager: mocks.getOrCreateQueueManager,
+}))
+
+vi.mock('@/lib/api-cache', () => ({
+  invalidateOfferCache: mocks.invalidateOfferCache,
 }))
 
 import { POST } from '@/app/api/campaigns/publish/route'
@@ -227,6 +232,7 @@ describe('POST /api/campaigns/publish URL alignment', () => {
     })
     expect(getInsertedCampaignConfig()).toBeNull()
     expect(mocks.queueEnqueue).not.toHaveBeenCalled()
+    expect(mocks.invalidateOfferCache).not.toHaveBeenCalled()
   })
 
   it('uses creative URL source when request does not override ownership fields', async () => {
@@ -276,5 +282,6 @@ describe('POST /api/campaigns/publish URL alignment', () => {
       7,
       expect.any(Object)
     )
+    expect(mocks.invalidateOfferCache).toHaveBeenCalledWith(7, 11)
   })
 })

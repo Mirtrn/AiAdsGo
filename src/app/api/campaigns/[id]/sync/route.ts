@@ -3,6 +3,7 @@ import { findCampaignById, updateCampaign } from '@/lib/campaigns'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
 import { createGoogleAdsCampaign } from '@/lib/google-ads-api'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 /**
  * POST /api/campaigns/:id/sync
@@ -13,13 +14,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const { id } = params
 
     // 从中间件注入的请求头中获取用户ID
-    const userId = request.headers.get('x-user-id')
-    if (!userId) {
+    const userIdHeader = request.headers.get('x-user-id')
+    if (!userIdHeader) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const userId = parseInt(userIdHeader, 10)
+    if (!Number.isFinite(userId) || userId <= 0) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
     // 查找Campaign
-    const campaign = await findCampaignById(parseInt(id, 10), parseInt(userId, 10))
+    const campaign = await findCampaignById(parseInt(id, 10), userId)
     if (!campaign) {
       return NextResponse.json(
         {
@@ -42,7 +48,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // 查找Google Ads账号
     const googleAdsAccount = await findGoogleAdsAccountById(
       campaign.googleAdsAccountId,
-      parseInt(userId, 10)
+      userId
     )
 
     if (!googleAdsAccount) {
@@ -65,14 +71,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新状态为pending
-    await updateCampaign(campaign.id, parseInt(userId, 10), {
+    await updateCampaign(campaign.id, userId, {
       creationStatus: 'pending',
       creationError: null,
     })
 
     try {
       // 获取用户授权方式
-      const auth = await getUserAuthType(parseInt(userId, 10))
+      const auth = await getUserAuthType(userId)
 
       // 创建Google Ads广告系列
       const result = await createGoogleAdsCampaign({
@@ -85,18 +91,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         startDate: campaign.startDate || undefined,
         endDate: campaign.endDate || undefined,
         accountId: googleAdsAccount.id,
-        userId: parseInt(userId, 10),
+        userId,
         authType: auth.authType,
         serviceAccountId: auth.serviceAccountId,
       })
 
       // 更新Campaign，标记为已同步
-      const updatedCampaign = await updateCampaign(campaign.id, parseInt(userId, 10), {
+      const updatedCampaign = await updateCampaign(campaign.id, userId, {
         campaignId: result.campaignId,
         creationStatus: 'synced',
         creationError: null,
         lastSyncAt: new Date().toISOString(),
       })
+      invalidateOfferCache(userId, campaign.offerId)
 
       return NextResponse.json({
         success: true,
@@ -105,10 +112,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
     } catch (error: any) {
       // 同步失败，更新错误状态
-      await updateCampaign(campaign.id, parseInt(userId, 10), {
+      await updateCampaign(campaign.id, userId, {
         creationStatus: 'failed',
         creationError: error.message || '同步到Google Ads失败',
       })
+      invalidateOfferCache(userId, campaign.offerId)
 
       throw error
     }

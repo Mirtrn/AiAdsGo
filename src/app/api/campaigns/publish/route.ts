@@ -37,6 +37,7 @@ import { resolveTaskCampaignKeywords } from '@/lib/campaign-publish/task-keyword
 import { isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { applyCampaignTransitionByGoogleCampaignIds } from '@/lib/campaign-state-machine'
 import { normalizeCampaignPublishRequestBody } from '@/lib/autoads-request-normalizers'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 const SINGLE_BRAND_PER_ACCOUNT_ENFORCED = (
   process.env.CAMPAIGN_PUBLISH_ENFORCE_SINGLE_BRAND_PER_ACCOUNT
@@ -1311,6 +1312,13 @@ export async function POST(request: NextRequest) {
 
       // A/B测试功能已下线 (KISS optimization 2025-12-08)
       // ab_test_variants记录创建已移除 - abTestId始终为null
+
+      const numericOfferId = Number(_offerId)
+      if (Number.isFinite(numericOfferId) && numericOfferId > 0) {
+        invalidateOfferCache(userId, numericOfferId)
+      } else {
+        invalidateOfferCache(userId)
+      }
 
       return NextResponse.json({
         success: publishResults.length > 0,

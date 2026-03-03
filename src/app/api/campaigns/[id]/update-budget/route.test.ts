@@ -20,6 +20,11 @@ const oauthFns = vi.hoisted(() => ({
   getGoogleAdsCredentials: vi.fn(),
 }))
 
+const cacheFns = vi.hoisted(() => ({
+  invalidateOfferCache: vi.fn(),
+  invalidateDashboardCache: vi.fn(),
+}))
+
 vi.mock('@/lib/auth', () => ({
   verifyAuth: authFns.verifyAuth,
 }))
@@ -39,6 +44,11 @@ vi.mock('@/lib/google-ads-api', () => ({
 vi.mock('@/lib/google-ads-oauth', () => ({
   getUserAuthType: oauthFns.getUserAuthType,
   getGoogleAdsCredentials: oauthFns.getGoogleAdsCredentials,
+}))
+
+vi.mock('@/lib/api-cache', () => ({
+  invalidateOfferCache: cacheFns.invalidateOfferCache,
+  invalidateDashboardCache: cacheFns.invalidateDashboardCache,
 }))
 
 describe('PUT /api/campaigns/:id/update-budget', () => {
@@ -98,6 +108,7 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
     dbFns.queryOne.mockResolvedValue({
       local_campaign_id: 12,
       google_ads_account_id: 9,
+      offer_id: 77,
       status: 'ENABLED',
       is_deleted: false,
       customer_id: '1234567890',
@@ -133,12 +144,15 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
       serviceAccountId: undefined,
     })
     expect(dbFns.exec).toHaveBeenCalled()
+    expect(cacheFns.invalidateOfferCache).toHaveBeenCalledWith(1, 77)
+    expect(cacheFns.invalidateDashboardCache).not.toHaveBeenCalled()
   })
 
   it('falls back to oauth login_customer_id when parent_mcc_id is missing', async () => {
     dbFns.queryOne.mockResolvedValue({
       local_campaign_id: 12,
       google_ads_account_id: 9,
+      offer_id: null,
       status: 'ENABLED',
       is_deleted: false,
       customer_id: '1234567890',
@@ -177,12 +191,14 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
       authType: 'oauth',
       serviceAccountId: undefined,
     })
+    expect(cacheFns.invalidateDashboardCache).toHaveBeenCalledWith(1)
   })
 
   it('retries with next login_customer_id candidate on access error', async () => {
     dbFns.queryOne.mockResolvedValue({
       local_campaign_id: 12,
       google_ads_account_id: 9,
+      offer_id: 55,
       status: 'ENABLED',
       is_deleted: false,
       customer_id: '1234567890',
@@ -241,5 +257,6 @@ describe('PUT /api/campaigns/:id/update-budget', () => {
       authType: 'oauth',
       serviceAccountId: undefined,
     })
+    expect(cacheFns.invalidateOfferCache).toHaveBeenCalledWith(1, 55)
   })
 })

@@ -22,6 +22,10 @@ const transitionFns = vi.hoisted(() => ({
   })),
 }))
 
+const cacheFns = vi.hoisted(() => ({
+  invalidateOfferCache: vi.fn(),
+}))
+
 vi.mock('@/lib/auth', () => ({
   verifyAuth: authFns.verifyAuth,
 }))
@@ -37,6 +41,10 @@ vi.mock('@/lib/openclaw/action-logs', () => ({
 
 vi.mock('@/lib/campaign-state-machine', () => ({
   applyCampaignTransitionByGoogleCampaignIds: transitionFns.applyCampaignTransitionByGoogleCampaignIds,
+}))
+
+vi.mock('@/lib/api-cache', () => ({
+  invalidateOfferCache: cacheFns.invalidateOfferCache,
 }))
 
 describe('POST /api/campaigns/circuit-break', () => {
@@ -109,6 +117,7 @@ describe('POST /api/campaigns/circuit-break', () => {
     expect(data.data.summary.enabledCampaigns).toBe(3)
     expect(campaignsFns.pauseCampaigns).not.toHaveBeenCalled()
     expect(transitionFns.applyCampaignTransitionByGoogleCampaignIds).not.toHaveBeenCalled()
+    expect(cacheFns.invalidateOfferCache).not.toHaveBeenCalled()
   })
 
   it('pauses campaigns and syncs local status', async () => {
@@ -127,5 +136,6 @@ describe('POST /api/campaigns/circuit-break', () => {
     expect(campaignsFns.pauseCampaigns).toHaveBeenCalledWith(expect.any(Array), 9, 7)
     expect(transitionFns.applyCampaignTransitionByGoogleCampaignIds).toHaveBeenCalledTimes(1)
     expect(actionLogFns.recordOpenclawAction).toHaveBeenCalled()
+    expect(cacheFns.invalidateOfferCache).toHaveBeenCalledWith(7)
   })
 })

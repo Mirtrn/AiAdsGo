@@ -1,5 +1,6 @@
 import AppLayout from '@/components/layout/AppLayout'
 import { generateMetadata as createMetadata } from '@/lib/seo' // P2-1: SEO优化
+import { isPerformanceReleaseEnabled } from '@/lib/feature-flags'
 
 // 强制动态渲染，避免静态生成时的 Context 错误
 export const dynamic = 'force-dynamic'
@@ -16,5 +17,7 @@ export default function AuthenticatedLayout({
 }: {
   children: React.ReactNode
 }) {
-  return <AppLayout>{children}</AppLayout>
+  const navLinkEnabled = isPerformanceReleaseEnabled('navLink')
+
+  return <AppLayout navLinkEnabled={navLinkEnabled}>{children}</AppLayout>
 }

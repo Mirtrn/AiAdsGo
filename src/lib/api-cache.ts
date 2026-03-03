@@ -244,7 +244,7 @@ export function invalidateOfferCache(userId: number, offerId?: number): void {
     apiCache.deleteByPrefix(`offer:${offerId}`)
   }
   apiCache.deleteByPrefix(`offers:user:${userId}`)
-  apiCache.deleteByPrefix(`dashboard:user:${userId}`)
+  invalidateDashboardCache(userId)
 }
 
 /**
@@ -263,6 +263,7 @@ export function invalidateCreativeCache(userId: number, creativeId?: number): vo
  */
 export function invalidateDashboardCache(userId: number): void {
   apiCache.deleteByPrefix(`dashboard:user:${userId}`)
+  apiCache.deleteByPrefix(`dashboard-summary:user:${userId}`)
   apiCache.deleteByPrefix(`kpis:user:${userId}`)
   apiCache.deleteByPrefix(`trends:user:${userId}`)
   apiCache.deleteByPrefix(`insights:user:${userId}`)

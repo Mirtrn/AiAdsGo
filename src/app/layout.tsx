@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
+import FrontendErrorReporter from '@/components/monitoring/FrontendErrorReporter'
+import WebVitalsReporter from '@/components/monitoring/WebVitalsReporter'
+import { isPerformanceReleaseEnabled } from '@/lib/feature-flags'
 import './globals.css'
 
 // ⚡ P0性能优化: 移除全局force-dynamic，按需在各页面单独设置
@@ -8,6 +11,8 @@ import './globals.css'
 // 实时数据页面（dashboard、offers等）在各自的page.tsx中设置dynamic='force-dynamic'
 
 const inter = Inter({ subsets: ['latin'] })
+const webVitalsMonitoringEnabled = isPerformanceReleaseEnabled('webVitalsMonitoring')
+const frontendErrorMonitoringEnabled = isPerformanceReleaseEnabled('frontendErrorMonitoring')
 
 export const metadata: Metadata = {
   // P0-4: SEO优化 - 更精准的标题和描述
@@ -88,6 +93,8 @@ export default function RootLayout({
       <body className={inter.className}>
         {children}
         <ToasterProvider />
+        {webVitalsMonitoringEnabled ? <WebVitalsReporter enabled={true} /> : null}
+        {frontendErrorMonitoringEnabled ? <FrontendErrorReporter enabled={true} /> : null}
       </body>
     </html>
   )

@@ -6,6 +6,7 @@ import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { applyCampaignTransition } from '@/lib/campaign-state-machine'
+import { invalidateDashboardCache } from '@/lib/api-cache'
 
 type ToggleStatusBody = {
   status?: string
@@ -243,6 +244,8 @@ export async function PUT(
       action: 'TOGGLE_STATUS',
       payload: { status: nextStatus as 'PAUSED' | 'ENABLED' },
     })
+
+    invalidateDashboardCache(userId)
 
     const updated = await findCampaignById(campaignId, userId)
 

@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
 import { withPerformanceMonitoring } from '@/lib/api-performance'
 import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
+import { isPerformanceReleaseEnabled } from '@/lib/feature-flags'
 
 /**
  * KPI数据响应
@@ -47,6 +48,30 @@ interface KPIData {
     current: { start: string; end: string }
     previous: { start: string; end: string }
   }
+}
+
+const DEFAULT_KPI_CACHE_TTL_MS = 5 * 60 * 1000
+const SHORT_KPI_CACHE_DEFAULT_TTL_MS = 20 * 1000
+const SHORT_KPI_CACHE_MIN_TTL_MS = 15 * 1000
+const SHORT_KPI_CACHE_MAX_TTL_MS = 30 * 1000
+
+function parseBooleanParam(value: string | null): boolean {
+  if (value === null) return false
+  const normalized = String(value).trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
+function resolveKpiCacheTtlMs(): number {
+  if (!isPerformanceReleaseEnabled('kpiShortTtl')) {
+    return DEFAULT_KPI_CACHE_TTL_MS
+  }
+
+  const parsed = Number.parseInt(process.env.KPI_SHORT_TTL_MS || '', 10)
+  if (!Number.isFinite(parsed)) {
+    return SHORT_KPI_CACHE_DEFAULT_TTL_MS
+  }
+
+  return Math.min(Math.max(parsed, SHORT_KPI_CACHE_MIN_TTL_MS), SHORT_KPI_CACHE_MAX_TTL_MS)
 }
 
 function roundTo2(value: number): number {
@@ -141,19 +166,17 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         )
       }
     }
-    const refresh = searchParams.get('refresh') === 'true' || searchParams.get('noCache') === 'true'
+    const refresh = parseBooleanParam(searchParams.get('refresh'))
+    const noCache = parseBooleanParam(searchParams.get('noCache'))
+    const shouldBypassReadCache = refresh || noCache
+    const shouldWriteCache = !noCache
+    const kpiCacheTtlMs = resolveKpiCacheTtlMs()
 
     const cacheKey = generateCacheKey('kpis', userId, {
       days,
       startDate: startDateQuery || '',
       endDate: endDateQuery || '',
     })
-    if (!refresh) {
-      const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
-      if (cached) {
-        return NextResponse.json(cached)
-      }
-    }
 
     const buildResult = async () => {
       let currentStartDate = startDateQuery || ''
@@ -422,13 +445,15 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       }
     }
 
-    if (!refresh) {
-      const result = await apiCache.getOrSet(cacheKey, buildResult, 5 * 60 * 1000)
+    if (!shouldBypassReadCache) {
+      const result = await apiCache.getOrSet(cacheKey, buildResult, kpiCacheTtlMs)
       return NextResponse.json(result)
     }
 
     const result = await buildResult()
-    apiCache.set(cacheKey, result, 5 * 60 * 1000)
+    if (shouldWriteCache) {
+      apiCache.set(cacheKey, result, kpiCacheTtlMs)
+    }
     return NextResponse.json(result)
   } catch (error) {
     console.error('获取KPI数据失败:', error)

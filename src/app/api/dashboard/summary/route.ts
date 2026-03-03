@@ -6,11 +6,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
+import { getDatabase } from '@/lib/db'
+import { listOffers } from '@/lib/offers'
+
+function parseBooleanParam(value: string | null): boolean {
+  if (value === null) return false
+  const normalized = String(value).trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
 
 // 从现有API导入逻辑
 async function getKPIs(userId: number, days: number = 30) {
   // 这里调用kpis API的核心逻辑
-  const { getDatabase } = await import('@/lib/db')
   const db = await getDatabase()
 
   // 🔧 PostgreSQL兼容性：生产库中 is_deleted 可能仍是 INTEGER，需同时兼容 BOOLEAN/INTEGER
@@ -60,7 +67,6 @@ async function getKPIs(userId: number, days: number = 30) {
 }
 
 async function getRiskAlerts(userId: number, limit: number = 3) {
-  const { getDatabase } = await import('@/lib/db')
   const db = await getDatabase()
 
   // 🔧 PostgreSQL兼容性：生产库中 is_deleted 可能仍是 INTEGER，需同时兼容 BOOLEAN/INTEGER
@@ -122,8 +128,6 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
 }
 
 async function getTopOffers(userId: number, limit: number = 5) {
-  const { listOffers } = await import('@/lib/offers')
-
   const result = await listOffers(userId, {
     limit,
     isActive: true
@@ -145,15 +149,21 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const days = parseInt(searchParams.get('days') || '30')
+    const refresh = parseBooleanParam(searchParams.get('refresh'))
+    const noCache = parseBooleanParam(searchParams.get('noCache'))
+    const shouldBypassReadCache = refresh || noCache
+    const shouldWriteCache = !noCache
 
     // 检查缓存
     const cacheKey = generateCacheKey('dashboard-summary', userId, { days })
-    const cached = apiCache.get(cacheKey)
-    if (cached) {
-      return NextResponse.json({
-        ...cached,
-        cached: true
-      })
+    if (!shouldBypassReadCache) {
+      const cached = apiCache.get(cacheKey)
+      if (cached) {
+        return NextResponse.json({
+          ...cached,
+          cached: true
+        })
+      }
     }
 
     const buildResult = async () => {
@@ -172,7 +182,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const result = await apiCache.getOrSet(cacheKey, buildResult, 2 * 60 * 1000)
+    const result = await buildResult()
+    if (shouldWriteCache) {
+      apiCache.set(cacheKey, result, 2 * 60 * 1000)
+    }
 
     return NextResponse.json({
       ...result,

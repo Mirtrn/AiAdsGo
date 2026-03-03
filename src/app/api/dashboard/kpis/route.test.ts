@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { GET } from '@/app/api/dashboard/kpis/route'
 
@@ -11,7 +11,7 @@ const dbFns = vi.hoisted(() => ({
 }))
 
 const cacheFns = vi.hoisted(() => ({
-  get: vi.fn(),
+  getOrSet: vi.fn(),
   set: vi.fn(),
   generateCacheKey: vi.fn(),
 }))
@@ -26,7 +26,7 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('@/lib/api-cache', () => ({
   apiCache: {
-    get: cacheFns.get,
+    getOrSet: cacheFns.getOrSet,
     set: cacheFns.set,
   },
   generateCacheKey: cacheFns.generateCacheKey,
@@ -44,7 +44,11 @@ describe('GET /api/dashboard/kpis', () => {
       user: { userId: 1 },
     })
     cacheFns.generateCacheKey.mockReturnValue('kpis:test')
-    cacheFns.get.mockReturnValue(null)
+    cacheFns.getOrSet.mockResolvedValue({ success: true, data: { source: 'cache' } })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('returns 401 when unauthorized', async () => {
@@ -56,7 +60,39 @@ describe('GET /api/dashboard/kpis', () => {
     expect(res.status).toBe(401)
   })
 
+  it('uses cache getOrSet in normal mode and keeps default TTL', async () => {
+    const req = new NextRequest('http://localhost/api/dashboard/kpis?days=7')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toEqual({ success: true, data: { source: 'cache' } })
+    expect(cacheFns.getOrSet).toHaveBeenCalledWith(
+      'kpis:test',
+      expect.any(Function),
+      5 * 60 * 1000
+    )
+    expect(cacheFns.set).not.toHaveBeenCalled()
+  })
+
+  it('applies short KPI TTL when FF_KPI_SHORT_TTL is enabled', async () => {
+    vi.stubEnv('FF_KPI_SHORT_TTL', 'true')
+    vi.stubEnv('KPI_SHORT_TTL_MS', '10000')
+
+    const req = new NextRequest('http://localhost/api/dashboard/kpis?days=7')
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(cacheFns.getOrSet).toHaveBeenCalledWith(
+      'kpis:test',
+      expect.any(Function),
+      15 * 1000
+    )
+  })
+
   it('excludes in-window pending/campaign-miss failures when calculating commission totals', async () => {
+    cacheFns.getOrSet.mockReset()
+
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('SELECT DISTINCT currency') && sql.includes('FROM campaign_performance')) {
         return [{ currency: 'USD' }]
@@ -128,5 +164,65 @@ describe('GET /api/dashboard/kpis', () => {
       expect.objectContaining({ success: true }),
       expect.any(Number)
     )
+    expect(cacheFns.getOrSet).not.toHaveBeenCalled()
+  })
+
+  it('bypasses read/write cache when noCache=true', async () => {
+    cacheFns.getOrSet.mockReset()
+
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('SELECT DISTINCT currency') && sql.includes('FROM campaign_performance')) {
+        return [{ currency: 'USD' }]
+      }
+
+      throw new Error(`unexpected query sql: ${sql}`)
+    })
+
+    let periodCallCount = 0
+    let attributedCallCount = 0
+    let unattributedCallCount = 0
+
+    const queryOne = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('SUM(impressions) as impressions')) {
+        periodCallCount += 1
+        if (periodCallCount === 1) {
+          return { impressions: 1000, clicks: 100, cost: 50 }
+        }
+        return { impressions: 800, clicks: 80, cost: 40 }
+      }
+
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        attributedCallCount += 1
+        if (attributedCallCount === 1) {
+          return { total_commission: 8 }
+        }
+        return { total_commission: 4 }
+      }
+
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        unattributedCallCount += 1
+        if (unattributedCallCount === 1) {
+          return { total_commission: 2 }
+        }
+        return { total_commission: 1 }
+      }
+
+      throw new Error(`unexpected queryOne sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({
+      query,
+      queryOne,
+    })
+
+    const req = new NextRequest('http://localhost/api/dashboard/kpis?days=7&noCache=true')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.data?.current?.commission).toBe(10)
+    expect(cacheFns.getOrSet).not.toHaveBeenCalled()
+    expect(cacheFns.set).not.toHaveBeenCalled()
   })
 })

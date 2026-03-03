@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createCampaign, findCampaignsByUserId, findCampaignsByOfferId } from '@/lib/campaigns'
 import { findOfferById } from '@/lib/offers'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 /**
  * GET /api/campaigns?offerId=:id
@@ -124,6 +125,8 @@ export async function POST(request: NextRequest) {
       startDate,
       endDate,
     })
+
+    invalidateOfferCache(parseInt(userId, 10), offerId)
 
     return NextResponse.json({
       success: true,
