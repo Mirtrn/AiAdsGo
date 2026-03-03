@@ -14,6 +14,7 @@ import { getYeahPromosSessionCookieForSync } from '@/lib/yeahpromos-session'
 import axios from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { fetchProxyIp } from '@/lib/proxy/fetch-proxy-ip'
+import { generateRandomFingerprint } from '@/lib/browser-fingerprint'
 
 export type AffiliatePlatform = 'yeahpromos' | 'partnerboost'
 export type SyncMode = 'platform' | 'single' | 'delta'
@@ -316,6 +317,7 @@ const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 30000
 const DEFAULT_YP_DELTA_MAX_PAGES = 20
 const MAX_YP_SYNC_MAX_PAGES = 50000
 const MAX_YP_EMPTY_PAGE_STREAK = 3
+const DEFAULT_YP_SKIP_FAILED_PAGES = true // 默认跳过连续失败的页面，避免因服务器端问题导致整个同步中止
 const DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS = 4500
 const MIN_YP_PRODUCTS_REQUEST_DELAY_MS = 1500
 const MAX_YP_PRODUCTS_REQUEST_DELAY_MS = 15000
@@ -615,6 +617,14 @@ function normalizeBoolFlag(value: unknown): boolean {
     return normalized === '1' || normalized === 'true' || normalized === 'yes'
   }
   return false
+}
+
+function parseBooleanSetting(value: string | null | undefined, fallback: boolean): boolean {
+  if (value === null || value === undefined) return fallback
+  const normalized = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false
+  return fallback
 }
 
 export function extractPartnerboostProductsPayload(payload: PartnerboostProductsResponse): {
@@ -2769,12 +2779,34 @@ async function fetchYeahPromosAccessProductsCount(params: {
   url.searchParams.set('site_id', params.siteId)
 
   const agent = params.proxyAgent
+  const fingerprint = generateRandomFingerprint()
+
+  // 构建完整的 HTTP 头部（参考 browser-stealth.ts）
+  const headers: Record<string, string> = {
+    'Cookie': params.sessionCookie,
+    'Accept': fingerprint.accept,
+    'Accept-Language': fingerprint.acceptLanguage,
+    'Accept-Encoding': fingerprint.acceptEncoding!,
+    'User-Agent': fingerprint.userAgent,
+    'Connection': fingerprint.connection!,
+    'Upgrade-Insecure-Requests': fingerprint.upgradeInsecureRequests!,
+    'Sec-Fetch-Dest': fingerprint.secFetchDest!,
+    'Sec-Fetch-Mode': fingerprint.secFetchMode!,
+    'Sec-Fetch-Site': fingerprint.secFetchSite!,
+    'Sec-Fetch-User': fingerprint.secFetchUser!,
+    'Cache-Control': fingerprint.cacheControl!,
+    'DNT': fingerprint.dnt!,
+  }
+
+  // 只有 Chrome/Edge 才发送 Sec-CH-UA 头部
+  if (fingerprint.secChUa) {
+    headers['Sec-CH-UA'] = fingerprint.secChUa
+    headers['Sec-CH-UA-Mobile'] = fingerprint.secChUaMobile!
+    headers['Sec-CH-UA-Platform'] = fingerprint.secChUaPlatform!
+  }
+
   const response = await axios.get(url.toString(), {
-    headers: {
-      Cookie: params.sessionCookie,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-    },
+    headers,
     httpsAgent: agent,
     httpAgent: agent,
     maxRedirects: 5,
@@ -3119,6 +3151,8 @@ async function fetchYeahPromosProductsHtmlPageWithPlaywright(params: {
 }): Promise<string> {
   const { chromium } = await import('playwright')
   const proxy = await fetchProxyIp(params.proxyProviderUrl, 3, false)
+  // 每次使用不同的浏览器指纹，避免被识别为同一客户端
+  const fingerprint = generateRandomFingerprint()
   const browser = await chromium.launch({
     headless: true,
     proxy: {
@@ -3132,10 +3166,12 @@ async function fetchYeahPromosProductsHtmlPageWithPlaywright(params: {
 
   try {
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      userAgent: fingerprint.userAgent,
+      locale: fingerprint.language,
       extraHTTPHeaders: {
         Cookie: params.sessionCookie,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Accept: fingerprint.accept,
+        'Accept-Language': fingerprint.acceptLanguage,
       },
     })
     const page = await context.newPage()
@@ -3186,12 +3222,35 @@ async function fetchYeahPromosProductsHtmlPage(params: {
         country: params.template.country,
         reason: `http:page=${params.page},attempt=${attempt + 1}`,
       })
+      // 每次重试使用不同的浏览器指纹，避免被识别为同一客户端
+      const fingerprint = generateRandomFingerprint()
+
+      // 构建完整的 HTTP 头部（参考 browser-stealth.ts）
+      const headers: Record<string, string> = {
+        'Cookie': params.sessionCookie,
+        'Accept': fingerprint.accept,
+        'Accept-Language': fingerprint.acceptLanguage,
+        'Accept-Encoding': fingerprint.acceptEncoding!,
+        'User-Agent': fingerprint.userAgent,
+        'Connection': fingerprint.connection!,
+        'Upgrade-Insecure-Requests': fingerprint.upgradeInsecureRequests!,
+        'Sec-Fetch-Dest': fingerprint.secFetchDest!,
+        'Sec-Fetch-Mode': fingerprint.secFetchMode!,
+        'Sec-Fetch-Site': fingerprint.secFetchSite!,
+        'Sec-Fetch-User': fingerprint.secFetchUser!,
+        'Cache-Control': fingerprint.cacheControl!,
+        'DNT': fingerprint.dnt!,
+      }
+
+      // 只有 Chrome/Edge 才发送 Sec-CH-UA 头部
+      if (fingerprint.secChUa) {
+        headers['Sec-CH-UA'] = fingerprint.secChUa
+        headers['Sec-CH-UA-Mobile'] = fingerprint.secChUaMobile!
+        headers['Sec-CH-UA-Platform'] = fingerprint.secChUaPlatform!
+      }
+
       response = await axios.get(pageUrl, {
-        headers: {
-          Cookie: params.sessionCookie,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-        },
+        headers,
         httpsAgent: agent,
         httpAgent: agent,
         maxRedirects: 5,
@@ -3378,6 +3437,13 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     ),
   }
 
+  // 读取是否跳过连续失败的页面配置
+  // 默认为 true，避免因 YeahPromos 服务器端问题导致整个同步中止
+  const skipFailedPages = parseBooleanSetting(
+    check.values.yeahpromos_skip_failed_pages,
+    DEFAULT_YP_SKIP_FAILED_PAGES
+  )
+
   const maxPages = resolveSyncMaxPages(params.maxPages, null, MAX_YP_SYNC_MAX_PAGES)
   const configuredStartPage = Math.max(1, parseInteger(check.values.yeahpromos_page || '1', 1))
   const startScope = normalizeYeahPromosMarketplace(params.startScope || '')
@@ -3457,11 +3523,21 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       )
       if (consecutiveScopeFailureCount >= MAX_YP_EMPTY_PAGE_STREAK) {
         const reason = error?.message || error
-        // 避免静默跳过整个 scope 导致“completed 但漏抓大量页面”。
-        // 连续失败达到阈值时直接抛错，让任务进入 failed 并由续跑逻辑从当前 cursor 重试。
-        throw new Error(
-          `YeahPromos scope=${currentTemplate.scope} page=${currentPage} 连续失败 ${consecutiveScopeFailureCount} 次，已中止同步以避免漏抓。最后错误: ${reason}`
-        )
+
+        if (skipFailedPages) {
+          // 跳过当前页面，继续下一页，避免因服务器端问题导致整个同步中止
+          console.warn(
+            `[yeahpromos] 连续失败 ${consecutiveScopeFailureCount} 次，跳过当前页面继续同步 (scope=${currentTemplate.scope}, page=${currentPage})`
+          )
+          page = currentPage + 1
+          consecutiveScopeFailureCount = 0
+        } else {
+          // 避免静默跳过整个 scope 导致”completed 但漏抓大量页面”。
+          // 连续失败达到阈值时直接抛错，让任务进入 failed 并由续跑逻辑从当前 cursor 重试。
+          throw new Error(
+            `YeahPromos scope=${currentTemplate.scope} page=${currentPage} 连续失败 ${consecutiveScopeFailureCount} 次，已中止同步以避免漏抓。最后错误: ${reason}`
+          )
+        }
       } else {
         // 失败时保持当前页，下一轮更换代理后重试同一页，避免跳页漏抓。
         page = currentPage
