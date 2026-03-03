@@ -7,7 +7,7 @@ import { generateDefaultDistribution, validateDistribution } from '@/lib/click-f
 import type { CreateClickFarmTaskRequest, TaskFilters } from '@/lib/click-farm-types';
 import { getDatabase } from '@/lib/db';
 import { getTimezoneByCountry, getDateInTimezone } from '@/lib/timezone-utils';
-import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
+import { enqueueClickFarmTriggerRequest } from '@/lib/click-farm/click-farm-scheduler-trigger';
 import { getAllProxyUrls } from '@/lib/settings';
 import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getQueueRoutingDiagnostics } from '@/lib/queue/queue-routing';
@@ -233,7 +233,8 @@ export async function POST(request: NextRequest) {
 
     if (scheduledDate === todayInTaskTimezone) {
       const triggerMode = (process.env.CLICK_FARM_TRIGGER_MODE || 'async').toLowerCase();
-      const queueManager = getQueueManagerForTaskType('click-farm');
+      const queueManager = getQueueManagerForTaskType('click-farm-trigger');
+      await queueManager.ensureInitialized();
       const queueInfo = queueManager.getRuntimeInfo();
       const routingDiagnostics = getQueueRoutingDiagnostics();
       const redisReady = queueInfo.adapter === 'RedisQueueAdapter' && queueInfo.connected;
@@ -269,17 +270,31 @@ export async function POST(request: NextRequest) {
         triggerResult = { status: 'deferred', mode: triggerMode };
         console.log(`[CreateTask] 任务 ${task.id} 开始日期是今天，跳过立即调度 (mode=${triggerMode})`);
       } else {
-        triggerResult = { status: 'deferred', mode: 'async' };
-        console.log(`[CreateTask] 任务 ${task.id} 开始日期是今天，异步触发调度...`);
-        setImmediate(() => {
-          triggerTaskScheduling(task.id)
-            .then((result) => {
-              console.log(`[CreateTask] 任务 ${task.id} 调度结果:`, result);
-            })
-            .catch((error) => {
-              console.error(`[CreateTask] 任务 ${task.id} 调度失败:`, error);
-            });
-        });
+        try {
+          const requestId = request.headers.get('x-request-id') || undefined;
+          const trigger = await enqueueClickFarmTriggerRequest({
+            clickFarmTaskId: task.id,
+            userId: userIdNum,
+            source: 'create',
+            priority: 'high',
+            parentRequestId: requestId,
+          });
+          triggerResult = { status: 'queued', mode: 'async', queueTaskId: trigger.queueTaskId };
+          console.log(`[CreateTask] 任务 ${task.id} 触发请求已入队: ${trigger.queueTaskId}`);
+        } catch (enqueueError) {
+          const message = enqueueError instanceof Error ? enqueueError.message : String(enqueueError || '');
+          const reason = message.includes('队列后端不可用')
+            ? 'queue_unavailable'
+            : message.includes('后台Worker')
+              ? 'worker_unavailable'
+              : 'enqueue_failed';
+          triggerResult = {
+            status: 'deferred',
+            mode: 'async',
+            reason,
+          };
+          console.error(`[CreateTask] 任务 ${task.id} 触发请求入队失败:`, enqueueError);
+        }
       }
     } else {
       console.log(`[CreateTask] 任务 ${task.id} 开始日期不是今天，跳过立即调度`);
@@ -293,10 +308,10 @@ export async function POST(request: NextRequest) {
         status: task.status,
         trigger: triggerResult,
         message: triggerResult?.status === 'queued'
-          ? `补点击任务创建成功，已加入 ${triggerResult.clickCount} 个点击任务`
-          : triggerResult?.mode === 'queue_unavailable'
+          ? '补点击任务创建成功，触发请求已入队并将异步调度'
+          : triggerResult?.mode === 'queue_unavailable' || triggerResult?.reason === 'queue_unavailable'
             ? '补点击任务创建成功，但队列未就绪，调度将由后台稍后处理'
-            : triggerResult?.mode === 'worker_unavailable'
+            : triggerResult?.mode === 'worker_unavailable' || triggerResult?.reason === 'worker_unavailable'
               ? '补点击任务创建成功，但后台Worker未就绪，调度将由后台稍后处理'
           : triggerResult?.status === 'deferred'
             ? '补点击任务创建成功，调度将在后台触发'

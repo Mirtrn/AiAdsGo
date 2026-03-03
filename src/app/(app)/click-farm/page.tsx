@@ -47,6 +47,7 @@ import { getDateInTimezone } from '@/lib/timezone-utils';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
 import type { ClickFarmTaskListItem, ClickFarmStats } from '@/lib/click-farm-types';
+import { safeJsonParse } from '@/lib/api-error-handler';
 
 export default function ClickFarmPage() {
   const router = useRouter();
@@ -314,10 +315,9 @@ export default function ClickFarmPage() {
       const response = await fetch(`/api/click-farm/tasks/${taskId}/stop`, {
         method: 'POST',
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || '暂停任务失败');
+      const result = await safeJsonParse<{ message?: string }>(response);
+      if (!result.success) {
+        throw new Error(result.userMessage || '暂停任务失败');
       }
 
       toast.success('任务已暂停');
@@ -335,10 +335,9 @@ export default function ClickFarmPage() {
       const response = await fetch(`/api/click-farm/tasks/${taskId}/restart`, {
         method: 'POST',
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || '重启任务失败');
+      const result = await safeJsonParse<{ message?: string }>(response);
+      if (!result.success) {
+        throw new Error(result.userMessage || '重启任务失败');
       }
 
       toast.success('任务已重启');
@@ -356,10 +355,12 @@ export default function ClickFarmPage() {
       const response = await fetch(`/api/click-farm/tasks/${taskId}/trigger`, {
         method: 'POST',
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
+      const result = await safeJsonParse<{ message?: string; error?: string; success?: boolean }>(response);
+      if (!result.success) {
+        throw new Error(result.userMessage || '触发任务失败');
+      }
+      const data = result.data;
+      if (data?.success === false) {
         throw new Error(data.error || data.message || '触发任务失败');
       }
 
@@ -380,10 +381,9 @@ export default function ClickFarmPage() {
       const response = await fetch(`/api/click-farm/tasks/${deleteTaskId}`, {
         method: 'DELETE',
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || '删除任务失败');
+      const result = await safeJsonParse<{ message?: string }>(response);
+      if (!result.success) {
+        throw new Error(result.userMessage || '删除任务失败');
       }
 
       toast.success('任务已删除，历史数据已保留');

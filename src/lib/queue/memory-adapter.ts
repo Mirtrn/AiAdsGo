@@ -24,6 +24,10 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     return Number.isFinite(n) && n > 0 ? n : 5000
   })()
 
+  private isEphemeralTaskType(type: Task['type']): boolean {
+    return type === 'click-farm' || type === 'click-farm-trigger' || type === 'click-farm-batch'
+  }
+
   private recordFinished(taskId: string) {
     this.finishedOrder.push(taskId)
     while (this.finishedOrder.length > this.maxFinishedTasks) {
@@ -131,8 +135,8 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     if (status === 'completed' || status === 'failed') {
       task.completedAt = Date.now()
       this.runningTasks.delete(taskId)
-      if (task.type === 'click-farm') {
-        // click-farm 为高频任务：完成即清理，避免内存队列膨胀
+      if (this.isEphemeralTaskType(task.type)) {
+        // click-farm 系列为高频任务：完成即清理，避免内存队列膨胀
         this.tasks.delete(taskId)
         return
       }

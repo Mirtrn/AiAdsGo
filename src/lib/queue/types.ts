@@ -21,6 +21,8 @@ export type TaskType =
   | 'batch-offer-creation'  // 批量Offer创建（父任务：协调多个offer-extraction子任务）
   | 'ad-creative'           // 广告创意生成（多轮优化 + Ad Strength评估）
   | 'campaign-publish'      // 🆕 广告系列发布到Google Ads（异步处理，避免504超时）
+  | 'click-farm-trigger'    // 🆕 补点击触发请求（控制面任务：仅触发调度，不直接执行点击）
+  | 'click-farm-batch'      // 🆕 补点击批次分发（将整小时点击拆分为小批量滚动入队）
   | 'click-farm'            // 🆕 补点击任务（单次点击执行，带代理和超时控制）
   | 'url-swap'              // 🆕 换链接任务（自动监测和更新Google Ads广告链接）
   | 'openclaw-strategy'      // 🆕 OpenClaw 自进化策略任务
@@ -42,6 +44,8 @@ export const ALL_TASK_TYPES: TaskType[] = [
   'batch-offer-creation',
   'ad-creative',
   'campaign-publish',
+  'click-farm-trigger',
+  'click-farm-batch',
   'click-farm',
   'url-swap',
   'openclaw-strategy',

@@ -38,6 +38,8 @@ const DEFAULT_QUEUE_CONFIG = {
     'batch-offer-creation': 1,
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
+    'click-farm-trigger': 4, // 补点击触发任务（控制面）
+    'click-farm-batch': 6, // 补点击批次分发任务（滚动派发）
     'click-farm': 50,  // 补点击任务并发限制（默认保守，避免小规格容器资源耗尽；可在管理台调整）
     'url-swap': 3,  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
     'openclaw-strategy': 2,  // OpenClaw 策略任务并发限制
@@ -65,6 +67,8 @@ const ALL_TASK_TYPES = [
   'batch-offer-creation',
   'ad-creative',
   'campaign-publish',
+  'click-farm-trigger',
+  'click-farm-batch',
   'click-farm',
   'url-swap',
   'openclaw-strategy',

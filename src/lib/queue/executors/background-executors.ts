@@ -6,6 +6,8 @@
  */
 
 import type { UnifiedQueueManager } from '../unified-queue-manager'
+import { executeClickFarmTriggerTask } from './click-farm-trigger-executor'
+import { executeClickFarmBatchTask } from './click-farm-batch-executor'
 import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
@@ -15,6 +17,8 @@ import { executeOpenclawAffiliateSync } from './openclaw-affiliate-sync-executor
 import { executeOpenclawReportSend } from './openclaw-report-send-executor'
 
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
+  queue.registerExecutor('click-farm-trigger', executeClickFarmTriggerTask)
+  queue.registerExecutor('click-farm-batch', executeClickFarmBatchTask)
   queue.registerExecutor('click-farm', createClickFarmExecutor())
   queue.registerExecutor('url-swap', executeUrlSwapTask)
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)

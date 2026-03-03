@@ -8,26 +8,32 @@ import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } fro
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getDatabase } from '@/lib/db';
-import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
+import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 import { hasEnabledCampaignForOffer } from '@/lib/click-farm/campaign-health-guard'
-import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 import type { UnifiedQueueManager } from '@/lib/queue/unified-queue-manager';
 import { getHeapStatistics } from 'v8';
+import type { ClickFarmBatchTaskData, ClickFarmTriggerTaskData } from '@/lib/click-farm/queue-task-types';
 
 // 🆕 扩展ClickFarmTask类型，支持referer_config
 // 🔧 修复(2025-12-31): ClickFarmTask 已包含 referer_config，不需要额外定义
-interface TaskWithRefererConfig extends ClickFarmTask {
-  // referer_config 已在 ClickFarmTask 类型中定义
-}
-
 interface TriggerResult {
   taskId: string;
   status: 'queued' | 'skipped' | 'paused' | 'completed' | 'error';
   clickCount?: number;
   message?: string;
 }
+
+const CLICK_FARM_BATCH_SIZE = (() => {
+  const n = parseInt(process.env.CLICK_FARM_BATCH_SIZE || '20', 10)
+  return Number.isFinite(n) && n > 0 ? n : 20
+})()
+
+const CLICK_FARM_BATCH_DELAY_MS = (() => {
+  const n = parseInt(process.env.CLICK_FARM_BATCH_DELAY_MS || '200', 10)
+  return Number.isFinite(n) && n >= 0 ? n : 200
+})()
 
 const MAX_SAFE_CLICKS_PER_HOUR = 1000
 const CLICK_FARM_HEAP_PRESSURE_THRESHOLD = (() => {
@@ -98,11 +104,107 @@ function getSafeHourlyClickCount(params: {
   return normalized
 }
 
+function normalizeBatchSize(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n) || n <= 0) return CLICK_FARM_BATCH_SIZE
+  return Math.max(1, Math.floor(n))
+}
+
+function buildClickFarmBatchTaskId(data: ClickFarmBatchTaskData): string {
+  const hour = String(Math.min(23, Math.max(0, Math.floor(Number(data.targetHour) || 0)))).padStart(2, '0')
+  const offset = Math.max(0, Math.floor(Number(data.dispatchedClicks) || 0))
+  return `click-farm-batch:${data.clickFarmTaskId}:${data.targetDate}:${hour}:${offset}`
+}
+
+function buildClickFarmTriggerTaskId(clickFarmTaskId: string): string {
+  return `click-farm-trigger:${clickFarmTaskId}`
+}
+
+export async function enqueueClickFarmTriggerRequest(params: {
+  clickFarmTaskId: string
+  userId: number
+  source?: ClickFarmTriggerTaskData['source']
+  priority?: 'high' | 'normal' | 'low'
+  parentRequestId?: string
+}): Promise<{ queueTaskId: string }> {
+  const clickFarmTaskId = String(params.clickFarmTaskId || '').trim()
+  if (!clickFarmTaskId) {
+    throw new Error('clickFarmTaskId 不能为空')
+  }
+
+  const queueManager = getQueueManagerForTaskType('click-farm-trigger')
+  if (!await ensureClickFarmQueueAvailable(queueManager)) {
+    throw new Error('队列后端不可用，无法接收触发请求')
+  }
+
+  const queueTaskId = buildClickFarmTriggerTaskId(clickFarmTaskId)
+  await queueManager.enqueue(
+    'click-farm-trigger',
+    {
+      clickFarmTaskId,
+      source: params.source || 'manual',
+    },
+    params.userId,
+    {
+      priority: params.priority || 'high',
+      maxRetries: 0,
+      taskId: queueTaskId,
+      parentRequestId: params.parentRequestId,
+    }
+  )
+
+  return { queueTaskId }
+}
+
+async function enqueueClickFarmBatchTask(params: {
+  task: ClickFarmTask
+  clickCount: number
+  currentHour: number
+  targetDate: string
+  affiliateLink: string
+  proxyUrl: string
+  refererConfig?: ClickFarmBatchTaskData['refererConfig']
+  parentRequestId?: string
+}): Promise<{ accepted: boolean; queueTaskId?: string; error?: string }> {
+  const queueManager = getQueueManagerForTaskType('click-farm-batch')
+  if (!await ensureClickFarmQueueAvailable(queueManager)) {
+    return { accepted: false, error: '队列后端不可用' }
+  }
+
+  const batchData: ClickFarmBatchTaskData = {
+    clickFarmTaskId: params.task.id,
+    offerId: params.task.offer_id,
+    url: params.affiliateLink,
+    proxyUrl: params.proxyUrl,
+    timezone: params.task.timezone,
+    targetDate: params.targetDate,
+    targetHour: params.currentHour,
+    totalClicks: Math.max(0, Math.floor(params.clickCount)),
+    dispatchedClicks: 0,
+    batchSize: normalizeBatchSize(process.env.CLICK_FARM_BATCH_SIZE),
+    refererConfig: params.refererConfig,
+    scheduledAt: new Date(Date.now() + CLICK_FARM_BATCH_DELAY_MS).toISOString(),
+  }
+
+  const queueTaskId = buildClickFarmBatchTaskId(batchData)
+  await queueManager.enqueue('click-farm-batch', batchData, params.task.user_id, {
+    priority: 'low',
+    maxRetries: 0,
+    taskId: queueTaskId,
+    parentRequestId: params.parentRequestId,
+  })
+
+  return { accepted: true, queueTaskId }
+}
+
 /**
  * 触发单个补点击任务的调度
  * 用于创建任务后立即执行
  */
-export async function triggerTaskScheduling(taskId: string): Promise<TriggerResult> {
+export async function triggerTaskScheduling(
+  taskId: string,
+  options?: { parentRequestId?: string }
+): Promise<TriggerResult> {
   const db = getDatabase();
 
   // 获取任务
@@ -157,9 +259,10 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     );
     // 同时更新 completed_at 字段
     const db = getDatabase();
+    const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
     await db.exec(`
       UPDATE click_farm_tasks
-      SET completed_at = datetime('now'), updated_at = datetime('now')
+      SET completed_at = ${nowSql}, updated_at = ${nowSql}
       WHERE id = ?
     `, [task.id]);
     return { taskId, status: 'completed', message: '任务已完成' };
@@ -260,67 +363,35 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     ? task.referer_config
     : undefined;
 
-  // 获取队列管理器并加入队列
-  const queueManager = getQueueManagerForTaskType('click-farm');
-  if (!await ensureClickFarmQueueAvailable(queueManager)) {
+  const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
+  const batchEnqueue = await enqueueClickFarmBatchTask({
+    task,
+    clickCount,
+    currentHour,
+    targetDate: todayInTimezone,
+    affiliateLink: offer.affiliate_link,
+    proxyUrl: proxyConfig.url,
+    refererConfig,
+    parentRequestId: options?.parentRequestId,
+  })
+
+  if (!batchEnqueue.accepted) {
     await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
     return {
       taskId,
       status: 'skipped',
-      message: '队列后端不可用，已延后调度'
+      message: batchEnqueue.error || '队列后端不可用，已延后调度'
     }
   }
 
-  let queued = 0;
-
-  // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
-  // 每批处理 50 个，批间等待 50ms 让 GC 有机会回收
-  const BATCH_SIZE = 50;
-  const BATCH_DELAY_MS = 50;
-
-  const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
-  const hourStr = String(currentHour).padStart(2, '0')
-  for (let i = 0; i < clickCount; i++) {
-    const minute = Math.floor(Math.random() * 60)
-    const second = Math.floor(Math.random() * 60)
-    const scheduledAt = createDateInTimezone(
-      todayInTimezone,
-      `${hourStr}:${String(minute).padStart(2, '0')}`,
-      task.timezone,
-      second
-    )
-    const taskData: ClickFarmTaskData = {
-      taskId: task.id,
-      url: offer.affiliate_link,
-      proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
-      offerId: task.offer_id,
-      timezone: task.timezone,
-      scheduledAt: scheduledAt.toISOString(),  // 🆕 传递计划执行时间，实现时间分散
-      refererConfig  // 🆕 传递Referer配置
-    };
-
-    try {
-      await queueManager.enqueue('click-farm', taskData, task.user_id, {
-        priority: 'normal',
-        maxRetries: 0
-      });
-      queued++;
-
-      // 🔧 修复(2025-12-31): 每 BATCH_SIZE 个任务后让出主线程，让 GC 回收
-      if (queued % BATCH_SIZE === 0) {
-        console.log(`[Trigger] 任务 ${task.id} 已加入 ${queued}/${clickCount} 个点击到队列...`);
-        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-      }
-    } catch (error) {
-      console.error(`[Trigger] 任务 ${task.id} 加入队列失败:`, error);
-    }
-  }
+  const queued = clickCount
 
   // 第一次执行时设置 started_at
   if (!task.started_at) {
+    const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
     await db.exec(`
       UPDATE click_farm_tasks
-      SET started_at = datetime('now'), updated_at = datetime('now')
+      SET started_at = ${nowSql}, updated_at = ${nowSql}
       WHERE id = ?
     `, [task.id]);
     await initializeDailyHistory({ ...task, started_at: new Date().toISOString() });
@@ -347,183 +418,24 @@ export async function triggerAllPendingTasks(): Promise<{
   skipped: number;
 }> {
   const tasks = await getPendingTasks();
-  const queueManager = getQueueManagerForTaskType('click-farm');
-  const db = getDatabase();
-
-  if (!await ensureClickFarmQueueAvailable(queueManager)) {
-    for (const task of tasks) {
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
-    }
-
-    return {
-      processed: tasks.length,
-      queued: 0,
-      paused: 0,
-      skipped: tasks.length
-    }
-  }
-
-  // 🔧 添加调试日志
   console.log(`[TriggerAll] 开始执行，找到 ${tasks.length} 个待处理任务，当前时间: ${new Date().toISOString()}`);
 
   const results = { processed: 0, queued: 0, paused: 0, skipped: 0 };
 
   for (const task of tasks) {
-    // 🔧 添加任务详情日志
-    console.log(`[TriggerAll] 处理任务 ${task.id}: status=${task.status}, duration_days=${task.duration_days}, started_at=${task.started_at}, next_run_at=${task.next_run_at}`);
     results.processed++;
-
-    const hasEnabledCampaign = await hasEnabledCampaignForOffer({
-      db,
-      userId: task.user_id,
-      offerId: task.offer_id,
-    })
-
-    if (!hasEnabledCampaign) {
-      await pauseClickFarmTask(task.id, 'no_campaign', '未检测到可用Campaign，系统自动暂停，请先发布广告后重启任务')
-      results.paused++
-      continue
-    }
-
-    // 检查开始日期
-    if (task.scheduled_start_date) {
-      const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
-      if (todayInTaskTimezone < task.scheduled_start_date) {
-        results.skipped++;
-        continue;
+    try {
+      const result = await triggerTaskScheduling(task.id);
+      if (result.status === 'queued') {
+        results.queued += result.clickCount || 0;
+      } else if (result.status === 'paused') {
+        results.paused += 1;
+      } else {
+        results.skipped += 1;
       }
-    }
-
-    // 检查是否完成
-    if (shouldCompleteTask(task)) {
-      await updateTaskStatus(task.id, 'completed');
-      // 同时更新 completed_at 字段
-      await db.exec(`
-        UPDATE click_farm_tasks
-        SET completed_at = datetime('now'), updated_at = datetime('now')
-        WHERE id = ?
-      `, [task.id]);
-      results.skipped++;
-      continue;
-    }
-
-    // 获取Offer和代理
-    const offer = await db.queryOne<any>(`
-      SELECT affiliate_link, target_country FROM offers WHERE id = ?
-    `, [task.offer_id]);
-
-    if (!offer) {
-      await pauseClickFarmTask(task.id, 'offer_deleted', 'Offer已删除');
-      results.paused++;
-      continue;
-    }
-
-    // 🔧 修复(2025-12-30): 使用新的代理配置系统
-    const proxyUrls = await getAllProxyUrls(task.user_id);
-    const targetCountry = offer.target_country.toUpperCase();
-    const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry);
-
-    if (!proxyConfig) {
-      await pauseClickFarmTask(task.id, 'no_proxy', '缺少代理配置');
-      results.paused++;
-      continue;
-    }
-
-    // 检查执行时间
-    const currentHour = getHourInTimezone(new Date(), task.timezone);
-    if (!isWithinExecutionTimeRange(task)) {
-      // 🔧 修复：即使跳过任务，也要更新 next_run_at
-      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
-      results.skipped++;
-      continue;
-    }
-
-    if (isHeapPressureHigh()) {
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task))
-      results.skipped++
-      continue
-    }
-
-    const hourlyDistribution = task.hourly_distribution
-    const rawClickCount = Array.isArray(hourlyDistribution)
-      ? hourlyDistribution[currentHour]
-      : (hourlyDistribution && typeof hourlyDistribution === 'object')
-        ? (hourlyDistribution as Record<string, unknown>)[String(currentHour)]
-        : 0
-    const clickCount = getSafeHourlyClickCount({
-      rawCount: rawClickCount,
-      dailyClickCount: task.daily_click_count,
-      taskId: String(task.id),
-      hour: currentHour
-    })
-    if (clickCount === 0) {
-      // 🔧 修复：即使跳过任务，也要更新 next_run_at
-      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
-      results.skipped++;
-      continue;
-    }
-
-    // 🆕 获取任务的Referer配置
-    // 🔧 修复(2025-12-31): parseClickFarmTask 已经解析好了 referer_config
-    const refererConfig = task.referer_config && task.referer_config.type !== 'none'
-      ? task.referer_config
-      : undefined;
-
-    // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
-    const BATCH_SIZE = 100;
-    const BATCH_DELAY_MS = 50;
-
-    // 加入队列
-    let queued = 0;
-    const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
-    const hourStr = String(currentHour).padStart(2, '0')
-    for (let i = 0; i < clickCount; i++) {
-      const minute = Math.floor(Math.random() * 60)
-      const second = Math.floor(Math.random() * 60)
-      const scheduledAt = createDateInTimezone(
-        todayInTimezone,
-        `${hourStr}:${String(minute).padStart(2, '0')}`,
-        task.timezone,
-        second
-      )
-      try {
-        await queueManager.enqueue('click-farm', {
-          taskId: task.id,
-          url: offer.affiliate_link,
-          proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
-          offerId: task.offer_id,
-          timezone: task.timezone,
-          scheduledAt: scheduledAt.toISOString(),  // 🆕 传递计划执行时间
-          refererConfig  // 🆕 传递Referer配置
-        }, task.user_id, { priority: 'normal', maxRetries: 0 });
-        queued++;
-
-        // 🔧 修复(2025-12-31): 每 BATCH_SIZE 个任务后让出主线程
-        if (queued % BATCH_SIZE === 0) {
-          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-        }
-      } catch (error) {
-        console.error(`[TriggerAll] 任务 ${task.id} 加入队列失败:`, error);
-      }
-    }
-
-    // 🔧 修复：第一次执行时设置 started_at（在 triggerTaskScheduling 中已有，这里补充）
-    if (queued > 0 && !task.started_at) {
-      await db.exec(`
-        UPDATE click_farm_tasks
-        SET started_at = datetime('now'), updated_at = datetime('now')
-        WHERE id = ?
-      `, [task.id]);
-      const { initializeDailyHistory } = await import('@/lib/click-farm');
-      await initializeDailyHistory({ ...task, started_at: new Date().toISOString() });
-    }
-
-    if (queued > 0) {
-      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
-      results.queued += queued;
+    } catch (error) {
+      console.error(`[TriggerAll] 任务 ${task.id} 调度失败:`, error);
+      results.skipped += 1;
     }
   }
 

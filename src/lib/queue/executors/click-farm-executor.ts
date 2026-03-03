@@ -12,6 +12,7 @@ import { getProxyIp } from '@/lib/proxy/fetch-proxy-ip';
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry';
 import { maskProxyUrl } from '@/lib/proxy/validate-url';
 import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility';
+import { getHeapStatistics } from 'v8';
 
 /**
  * 补点击任务数据结构
@@ -131,9 +132,35 @@ class SimpleSemaphore {
 
 // click-farm 需要“快速发起请求即算成功”，但同时必须避免堆出海量并发请求。
 // 这里用一个轻量级信号量控制真实 in-flight 请求数；任务不等待响应结果，但会等待“拿到发起名额”。
+const CLICK_FARM_INFLIGHT_HARD_CAP = (() => {
+  const raw = parseInt(process.env.CLICK_FARM_MAX_INFLIGHT_HARD_CAP || '40', 10)
+  return Number.isFinite(raw) && raw > 0 ? raw : 40
+})()
+const CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT = (() => {
+  const raw = parseFloat(process.env.CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT || '80')
+  if (!Number.isFinite(raw)) return 80
+  return Math.min(95, Math.max(50, raw))
+})()
+const clickFarmMaxInFlight = (() => {
+  const raw = parseInt(process.env.CLICK_FARM_MAX_INFLIGHT || '20', 10)
+  const value = Number.isFinite(raw) && raw > 0 ? raw : 20
+  return Math.min(value, CLICK_FARM_INFLIGHT_HARD_CAP)
+})()
 const clickFarmSemaphore = new SimpleSemaphore(
-  Math.max(1, parseInt(process.env.CLICK_FARM_MAX_INFLIGHT || '50', 10) || 50)
+  Math.max(1, clickFarmMaxInFlight)
 )
+
+function isHeapPressureHigh(): boolean {
+  try {
+    const heapUsed = process.memoryUsage().heapUsed
+    const limit = getHeapStatistics().heap_size_limit
+    if (!limit || limit <= 0) return false
+    const pct = (heapUsed / limit) * 100
+    return pct >= CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT
+  } catch {
+    return false
+  }
+}
 
 /**
  * 解析代理URL - 支持多种格式
@@ -276,6 +303,12 @@ export async function executeClickFarmTask(
   const { taskId, url, refererConfig, scheduledAt, timezone } = task.data;
   await assertUserExecutionAllowed(task.userId, { source: `click-farm:${task.id}` })
 
+  const getScheduledHour = (): number | undefined => {
+    if (!scheduledAt) return undefined
+    const tz = timezone || 'America/New_York'
+    return getHourInTimezone(new Date(scheduledAt), tz)
+  }
+
   // 关键防线：执行前再次校验 click_farm_tasks 状态，避免“已暂停/已停止任务”残留队列继续记点击
   try {
     const db = await getDatabase()
@@ -293,6 +326,17 @@ export async function executeClickFarmTask(
     }
   } catch (error: any) {
     console.warn(`[ClickFarm] 执行前状态校验失败，按安全策略跳过: ${taskId}`, error?.message || error)
+    return { success: false, traffic: 0 }
+  }
+
+  // 生产止血：当堆内存接近上限时，不再继续发起点击请求，避免触发进程 OOM。
+  if (isHeapPressureHigh()) {
+    console.warn(`[ClickFarm] 内存压力过高，跳过执行: taskId=${taskId}`)
+    try {
+      await updateTaskStats(taskId, false, getScheduledHour())
+    } catch {
+      // ignore
+    }
     return { success: false, traffic: 0 }
   }
 
@@ -415,11 +459,7 @@ export async function executeClickFarmTask(
     }
 
     // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
-    let scheduledHour: number | undefined;
-    if (scheduledAt) {
-      const tz = timezone || 'America/New_York'
-      scheduledHour = getHourInTimezone(new Date(scheduledAt), tz);
-    }
+    const scheduledHour = getScheduledHour()
 
     // 需求：只要“成功发起请求”就算成功；不等待访问结果
     // 这里将“发起成功”定义为：请求已被创建并进入发送流程（axios 调用不抛同步错误）。
@@ -474,10 +514,7 @@ export async function executeClickFarmTask(
     // 同步阶段失败（例如代理URL解析失败之外的异常），记为失败
     try {
       let scheduledHour: number | undefined;
-      if (scheduledAt) {
-        const tz = timezone || 'America/New_York'
-        scheduledHour = getHourInTimezone(new Date(scheduledAt), tz);
-      }
+      scheduledHour = getScheduledHour()
       await updateTaskStats(taskId, false, scheduledHour);
     } catch {
       // ignore

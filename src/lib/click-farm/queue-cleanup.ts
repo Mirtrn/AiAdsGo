@@ -10,8 +10,16 @@ function getQueueManagers(): UnifiedQueueManager[] {
 }
 
 function extractClickFarmTaskId(task: Task): string | null {
-  if (!task || task.type !== 'click-farm') return null
-  const id = (task.data as any)?.taskId
+  if (!task) return null
+  const type = task.type
+  if (type !== 'click-farm' && type !== 'click-farm-trigger' && type !== 'click-farm-batch') {
+    return null
+  }
+
+  const data = task.data as any
+  const id = type === 'click-farm'
+    ? data?.taskId
+    : data?.clickFarmTaskId
   if (id === null || id === undefined) return null
   const normalized = String(id).trim()
   return normalized || null

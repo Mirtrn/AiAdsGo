@@ -17,6 +17,8 @@ import { executeOfferExtraction } from './offer-extraction-executor'
 import { executeBatchCreation } from './batch-creation-executor'
 import { executeAdCreativeGeneration } from './ad-creative-executor'
 import { executeCampaignPublish } from './campaign-publish-executor'
+import { executeClickFarmTriggerTask } from './click-farm-trigger-executor'
+import { executeClickFarmBatchTask } from './click-farm-batch-executor'
 import { createClickFarmExecutor } from './click-farm-executor'
 import { executeUrlSwapTask } from './url-swap-executor'
 import { executeOpenclawStrategy } from './openclaw-strategy-executor'
@@ -97,6 +99,8 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
   const backgroundDecision = shouldRegisterBackgroundExecutors()
   if (backgroundDecision.allowed) {
     // 🆕 注册 click-farm 执行器（补点击任务，带代理和超时控制）
+    queue.registerExecutor('click-farm-trigger', executeClickFarmTriggerTask)
+    queue.registerExecutor('click-farm-batch', executeClickFarmBatchTask)
     queue.registerExecutor('click-farm', createClickFarmExecutor())
 
     // 🆕 注册 url-swap 执行器（换链接任务，监测和更新广告链接）
@@ -129,6 +133,8 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
  * 用于独立 background worker：只加载必要执行器，减少内存占用并降低对核心任务的干扰。
  */
 export function registerBackgroundExecutors(queue: UnifiedQueueManager): void {
+  queue.registerExecutor('click-farm-trigger', executeClickFarmTriggerTask)
+  queue.registerExecutor('click-farm-batch', executeClickFarmBatchTask)
   queue.registerExecutor('click-farm', createClickFarmExecutor())
   queue.registerExecutor('url-swap', executeUrlSwapTask)
   queue.registerExecutor('openclaw-strategy', executeOpenclawStrategy)
@@ -157,6 +163,7 @@ export type { CleanupTaskData } from './cleanup-executor'
 export type { AdCreativeTaskData } from './ad-creative-executor'
 export type { CampaignPublishTaskData } from './campaign-publish-executor'
 export type { ClickFarmTaskData } from './click-farm-executor'
+export type { ClickFarmTriggerTaskData, ClickFarmBatchTaskData } from '@/lib/click-farm/queue-task-types'
 export type { UrlSwapTaskData } from './url-swap-executor'
 export type { AffiliateProductSyncTaskData } from './affiliate-product-sync-executor'
 export type { OpenclawCommandTaskData } from './openclaw-command-executor'

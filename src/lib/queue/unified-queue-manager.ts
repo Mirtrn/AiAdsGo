@@ -35,6 +35,15 @@ function getPositiveIntFromEnv(key: string, fallback: number): number {
   return parsed
 }
 
+function getBoundedFloatFromEnv(key: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[key]
+  if (!raw) return fallback
+
+  const parsed = parseFloat(raw)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
 /**
  * 统一队列管理器
  *
@@ -80,13 +89,23 @@ export class UnifiedQueueManager {
   private lastErrorTime: number = 0
   private readonly MAX_CONSECUTIVE_ERRORS = 3
   private readonly ERROR_BACKOFF_MS = 5000  // 连续错误后暂停5秒
+  private readonly clickFarmHeapPressureThresholdPct = getBoundedFloatFromEnv(
+    'QUEUE_CLICK_FARM_HEAP_PRESSURE_PCT',
+    72,
+    50,
+    95
+  )
 
   constructor(config: Partial<QueueConfig> = {}) {
     const defaultRedisKeyPrefix =
       process.env.REDIS_KEY_PREFIX ||
       `autoads:${process.env.NODE_ENV || 'development'}:queue:`
 
-    const defaultClickFarmConcurrency = getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 50)
+    const clickFarmConcurrencyCap = getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY_HARD_CAP', 40)
+    const defaultClickFarmConcurrency = Math.min(
+      getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 20),
+      Math.max(1, clickFarmConcurrencyCap)
+    )
     const defaultUrlSwapConcurrency = getPositiveIntFromEnv('QUEUE_URL_SWAP_CONCURRENCY', 3)
 
     // 合并默认配置
@@ -107,6 +126,8 @@ export class UnifiedQueueManager {
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
         'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
+        'click-farm-trigger': 4,    // 🆕 补点击触发任务（控制面）
+        'click-farm-batch': 6,      // 🆕 补点击批次分发任务（滚动派发）
         'click-farm': defaultClickFarmConcurrency, // 🆕 支持通过 QUEUE_CLICK_FARM_CONCURRENCY 覆盖
         'url-swap': defaultUrlSwapConcurrency,     // 支持通过 QUEUE_URL_SWAP_CONCURRENCY 覆盖
         'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
@@ -139,6 +160,18 @@ export class UnifiedQueueManager {
 
   private getCoreGlobalRunningCount(): number {
     return Math.max(0, this.globalRunningCount - this.backgroundRunningCount)
+  }
+
+  private isHeapPressureHigh(thresholdPct: number): boolean {
+    try {
+      const heapUsed = process.memoryUsage().heapUsed
+      const limit = getHeapStatistics().heap_size_limit
+      if (!limit || limit <= 0) return false
+      const pct = (heapUsed / limit) * 100
+      return pct >= thresholdPct
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -428,10 +461,14 @@ export class UnifiedQueueManager {
       (this.isBackgroundTaskType(type) ? 'low' : 'normal')
 
     // click-farm：明确不重试（用户可重新触发/由调度器下一轮重建）
-    const maxRetries =
-      type === 'click-farm'
-        ? (options.maxRetries ?? 0)
-        : (options.maxRetries ?? this.config.defaultMaxRetries)
+    const noRetryTaskTypes = new Set<TaskType>([
+      'click-farm',
+      'click-farm-trigger',
+      'click-farm-batch',
+    ])
+    const maxRetries = noRetryTaskTypes.has(type)
+      ? (options.maxRetries ?? 0)
+      : (options.maxRetries ?? this.config.defaultMaxRetries)
 
     const task: Task<T> = {
       id: taskId,
@@ -559,6 +596,14 @@ export class UnifiedQueueManager {
    */
   private canExecuteTask(task: Task): boolean {
     const isBackground = this.isBackgroundTaskType(task.type)
+
+    // click-farm 属于高频任务，堆内存压力高时主动延后，避免把 Web 进程顶到 OOM
+    if (
+      (task.type === 'click-farm' || task.type === 'click-farm-batch') &&
+      this.isHeapPressureHigh(this.clickFarmHeapPressureThresholdPct)
+    ) {
+      return false
+    }
 
     // 1. 全局并发检查（轻量级后台任务不占用 globalConcurrency）
     if (!isBackground && this.getCoreGlobalRunningCount() >= this.config.globalConcurrency) {

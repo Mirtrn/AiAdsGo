@@ -9,7 +9,7 @@ import {
   deleteClickFarmTask
 } from '@/lib/click-farm';
 import { validateDistribution, generateDefaultDistribution } from '@/lib/click-farm/distribution';
-import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
+import { enqueueClickFarmTriggerRequest } from '@/lib/click-farm/click-farm-scheduler-trigger';
 import type { UpdateClickFarmTaskRequest } from '@/lib/click-farm-types';
 
 /**
@@ -154,29 +154,49 @@ export async function PUT(
 
     const updatedTask = await updateClickFarmTask(params.id, parseInt(userId!), body);
 
-    // 🔧 修复：更新任务参数后重新触发调度，使新参数立即生效
-    // 但如果任务是 pending 状态且 scheduled_start_date 是未来日期，不触发调度
+    // 更新后异步触发调度请求（控制面入队），避免在 API 请求内同步调度
     let triggerResult = null;
+    const requestId = request.headers.get('x-request-id') || undefined;
     if (updatedTask.status === 'running') {
-      // 如果任务已在运行，直接触发调度（新参数立即生效）
+      // 运行中任务：始终触发一次异步重调度
       try {
-        triggerResult = await triggerTaskScheduling(updatedTask.id);
-        console.log(`[UpdateTask] 任务 ${updatedTask.id} 参数已更新，重新调度结果:`, triggerResult);
+        const trigger = await enqueueClickFarmTriggerRequest({
+          clickFarmTaskId: updatedTask.id,
+          userId: parseInt(userId!, 10),
+          source: 'update',
+          priority: 'high',
+          parentRequestId: requestId,
+        });
+        triggerResult = {
+          status: 'accepted',
+          mode: 'async',
+          queueTaskId: trigger.queueTaskId,
+        };
+        console.log(`[UpdateTask] 任务 ${updatedTask.id} 参数已更新，触发请求入队:`, triggerResult);
       } catch (error) {
-        console.error(`[UpdateTask] 任务 ${updatedTask.id} 重新调度失败:`, error);
-        // 调度失败不影响更新成功返回
+        console.error(`[UpdateTask] 任务 ${updatedTask.id} 触发请求入队失败:`, error);
       }
     } else if (updatedTask.status === 'pending') {
-      // pending 状态检查是否需要触发
+      // pending 状态仅在“今天开始”时触发
       const { getDateInTimezone } = await import('@/lib/timezone-utils');
       const todayInTaskTimezone = getDateInTimezone(new Date(), updatedTask.timezone);
       if (updatedTask.scheduled_start_date === todayInTaskTimezone) {
-        // 今天开始的任务，立即触发
         try {
-          triggerResult = await triggerTaskScheduling(updatedTask.id);
-          console.log(`[UpdateTask] 任务 ${updatedTask.id} 已更新，触发调度:`, triggerResult);
+          const trigger = await enqueueClickFarmTriggerRequest({
+            clickFarmTaskId: updatedTask.id,
+            userId: parseInt(userId!, 10),
+            source: 'update',
+            priority: 'high',
+            parentRequestId: requestId,
+          });
+          triggerResult = {
+            status: 'accepted',
+            mode: 'async',
+            queueTaskId: trigger.queueTaskId,
+          };
+          console.log(`[UpdateTask] 任务 ${updatedTask.id} 已更新，触发请求入队:`, triggerResult);
         } catch (error) {
-          console.error(`[UpdateTask] 任务 ${updatedTask.id} 调度失败:`, error);
+          console.error(`[UpdateTask] 任务 ${updatedTask.id} 触发请求入队失败:`, error);
         }
       }
     }
