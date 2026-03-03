@@ -102,6 +102,7 @@ export default function OffersClientPage({
   const offersRef = useRef<Offer[]>([])
   const selectedOfferIdsRef = useRef<Set<number>>(new Set())
   const visibleOfferIdsRef = useRef<number[]>([])
+  const compatFallbackSignalRef = useRef<string>('')
   const pollRoundRef = useRef(0)
   const forceFullSyncRef = useRef(false)
   const pollingRef = useRef(false)
@@ -310,6 +311,26 @@ export default function OffersClientPage({
       }
 
       const data = await response.json()
+      const compatibilityCode = typeof data?.compatibility?.code === 'string'
+        ? data.compatibility.code
+        : ''
+
+      if (
+        compatibilityCode === 'PARTIAL_UNSUPPORTED_SORT'
+        && isServerPagingMode
+        && !options?.forceCompatFullList
+        && !manualCompatMode
+      ) {
+        const signalKey = String(data?.compatibility?.requestedSortBy || '')
+        if (compatFallbackSignalRef.current !== signalKey) {
+          compatFallbackSignalRef.current = signalKey
+          showInfo('当前排序字段暂不支持服务端模式，已自动切换到兼容全量模式。')
+        }
+        setManualCompatMode(true)
+        setPage(1)
+        return
+      }
+
       const nextOffers = Array.isArray(data.offers) ? (data.offers as Offer[]) : []
       const nextTotal = Number.isFinite(Number(data.total)) ? Number(data.total) : nextOffers.length
 
@@ -333,7 +354,7 @@ export default function OffersClientPage({
         offersFetchAbortRef.current = null
       }
     }
-  }, [buildOffersListUrl, handleUnauthorized])
+  }, [buildOffersListUrl, handleUnauthorized, isServerPagingMode, manualCompatMode, setPage])
 
   const applyLocalOfferDeletion = useCallback((ids: number[]) => {
     const uniqueIds = Array.from(new Set(ids))

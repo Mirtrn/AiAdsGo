@@ -286,6 +286,47 @@ describe('GET /api/offers', () => {
     expect(data.success).toBe(true)
     expect(data.total).toBe(1)
   })
+
+  it('returns compatibility signal and falls back sort when sortBy is unsupported', async () => {
+    offerFns.listOffers.mockResolvedValue({
+      offers: [createOfferRow()],
+      total: 1,
+    })
+
+    const req = new NextRequest('http://localhost/api/offers?limit=20&offset=0&sortBy=linkedAccounts&sortOrder=asc', {
+      headers: { 'x-user-id': '7' },
+    })
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(cacheFns.generateCacheKey).toHaveBeenCalledWith('offers', 7, {
+      limit: 20,
+      offset: 0,
+      isActive: undefined,
+      targetCountry: undefined,
+      searchQuery: undefined,
+      scrapeStatus: undefined,
+      sortBy: 'linkedAccounts',
+      sortOrder: 'asc',
+    })
+    expect(offerFns.listOffers).toHaveBeenCalledWith(7, {
+      limit: 20,
+      offset: 0,
+      isActive: undefined,
+      targetCountry: undefined,
+      searchQuery: undefined,
+      scrapeStatus: undefined,
+      sortBy: undefined,
+      sortOrder: 'asc',
+    })
+    expect(data.compatibility).toEqual({
+      code: 'PARTIAL_UNSUPPORTED_SORT',
+      requestedSortBy: 'linkedAccounts',
+      appliedSortBy: 'createdAt',
+      appliedSortOrder: 'asc',
+    })
+  })
 })
 
 describe('POST /api/offers', () => {

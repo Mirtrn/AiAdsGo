@@ -60,7 +60,7 @@ describe('GET /api/dashboard/kpis', () => {
     expect(res.status).toBe(401)
   })
 
-  it('uses cache getOrSet in normal mode and keeps default TTL', async () => {
+  it('uses cache getOrSet in normal mode and keeps short TTL by default', async () => {
     const req = new NextRequest('http://localhost/api/dashboard/kpis?days=7')
     const res = await GET(req)
     const data = await res.json()
@@ -70,9 +70,23 @@ describe('GET /api/dashboard/kpis', () => {
     expect(cacheFns.getOrSet).toHaveBeenCalledWith(
       'kpis:test',
       expect.any(Function),
-      5 * 60 * 1000
+      20 * 1000
     )
     expect(cacheFns.set).not.toHaveBeenCalled()
+  })
+
+  it('falls back to legacy TTL when FF_KPI_SHORT_TTL is explicitly disabled', async () => {
+    vi.stubEnv('FF_KPI_SHORT_TTL', 'false')
+
+    const req = new NextRequest('http://localhost/api/dashboard/kpis?days=7')
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(cacheFns.getOrSet).toHaveBeenCalledWith(
+      'kpis:test',
+      expect.any(Function),
+      5 * 60 * 1000
+    )
   })
 
   it('applies short KPI TTL when FF_KPI_SHORT_TTL is enabled', async () => {

@@ -6,6 +6,16 @@ import { toNumber } from '@/lib/utils'
 import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
 import { withPerformanceMonitoring } from '@/lib/api-performance'
 
+const OFFERS_SERVER_SUPPORTED_SORTS = new Set([
+  'offerName',
+  'brand',
+  'targetCountry',
+  'targetLanguage',
+  'scrapeStatus',
+  'createdAt',
+  'updatedAt',
+])
+
 function parseBooleanParam(value: string | null): boolean {
   if (value === null) return false
   const normalized = String(value).trim().toLowerCase()
@@ -67,10 +77,20 @@ async function get(request: NextRequest) {
     const targetCountry = searchParams.get('targetCountry') || undefined
     const searchQuery = searchParams.get('search') || undefined
     const scrapeStatus = searchParams.get('scrapeStatus') || undefined
-    const sortBy = searchParams.get('sortBy') || undefined
+    const requestedSortBy = searchParams.get('sortBy') || undefined
+    const sortByUnsupported = Boolean(requestedSortBy && !OFFERS_SERVER_SUPPORTED_SORTS.has(requestedSortBy))
+    const sortBy = sortByUnsupported ? undefined : requestedSortBy
     const sortOrderParam = searchParams.get('sortOrder')
     const sortOrder = sortOrderParam === 'asc' || sortOrderParam === 'desc'
       ? sortOrderParam
+      : undefined
+    const compatibility = sortByUnsupported
+      ? {
+          code: 'PARTIAL_UNSUPPORTED_SORT' as const,
+          requestedSortBy,
+          appliedSortBy: 'createdAt' as const,
+          appliedSortOrder: sortOrder || 'desc',
+        }
       : undefined
 
     // 如果提供了ids参数，直接查询特定的Offers（用于批量上传进度显示）
@@ -145,7 +165,7 @@ async function get(request: NextRequest) {
       targetCountry,
       searchQuery,
       scrapeStatus,
-      sortBy,
+      sortBy: requestedSortBy,
       sortOrder,
     })
 
@@ -200,6 +220,7 @@ async function get(request: NextRequest) {
         total,
         limit,
         offset,
+        compatibility,
       }
     }
 

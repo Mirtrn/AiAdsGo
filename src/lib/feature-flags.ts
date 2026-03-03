@@ -168,7 +168,7 @@ export const PERFORMANCE_RELEASE_FLAGS = {
     dependsOn: ['campaignsReqDedup'] as const,
   },
   kpiShortTtl: {
-    enabled: false,
+    enabled: true,
     envKey: 'FF_KPI_SHORT_TTL',
     description: 'Dashboard KPI 短TTL策略',
     owner: 'backend',
