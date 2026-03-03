@@ -40,9 +40,10 @@ export function buildUserExecutionEligibleSql(params: {
   const userRef = normalizeAlias(params.userAlias)
   const activeExpr = boolCondition(`${userRef}is_active`, true, params.dbType)
   const nowExpr = params.nowExpr || (params.dbType === 'postgres' ? 'NOW()' : "datetime('now')")
+  const packageExpiresAtExpr = `${userRef}package_expires_at`
   const packageExpr = params.dbType === 'postgres'
-    ? `(${userRef}package_expires_at IS NULL OR ${userRef}package_expires_at >= ${nowExpr})`
-    : `(${userRef}package_expires_at IS NULL OR datetime(${userRef}package_expires_at) >= ${nowExpr})`
+    ? `(${packageExpiresAtExpr} IS NULL OR NULLIF(BTRIM(${packageExpiresAtExpr}), '')::timestamptz >= ${nowExpr})`
+    : `(${packageExpiresAtExpr} IS NULL OR datetime(${packageExpiresAtExpr}) >= ${nowExpr})`
 
   return `${activeExpr} AND ${packageExpr}`
 }

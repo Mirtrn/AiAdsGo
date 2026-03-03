@@ -85,6 +85,7 @@ describe('user-execution-eligibility', () => {
     const sql = buildUserExecutionEligibleSql({ dbType: 'postgres', userAlias: 'u' })
     expect(sql).toContain('u.is_active = true')
     expect(sql).toContain('u.package_expires_at')
+    expect(sql).toContain("NULLIF(BTRIM(u.package_expires_at), '')::timestamptz")
     expect(sql).toContain('NOW()')
   })
 
