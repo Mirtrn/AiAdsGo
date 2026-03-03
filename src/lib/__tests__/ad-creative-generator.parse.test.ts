@@ -110,4 +110,39 @@ line2", "type": "feature-benefit-cta", "length": 10},
     expect(result.headlines[0]).toContain('Line1 Line2')
     expect(result.descriptions[0]).toContain('Desc line1 line2')
   })
+
+  it('sanitizes policy-sensitive health terms in assets and keywords', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const aiText = `{
+  "headlines": [
+    {"text": "Sleep Apnea Ring", "type": "brand", "length": 16},
+    {"text": "Diagnose Overnight", "type": "feature", "length": 18},
+    {"text": "Clinical Sleep Tracking", "type": "cta", "length": 22}
+  ],
+  "descriptions": [
+    {"text": "Diagnose sleep apnea at home.", "type": "feature-benefit-cta", "length": 30},
+    {"text": "Treatment insights for patients.", "type": "feature-benefit-cta", "length": 31}
+  ],
+  "keywords": ["ringconn sleep apnea monitoring", "sleep apnea diagnosis ring", "clinical sleep ring"],
+  "callouts": ["Sleep Apnea Support", "Clinical Grade Tracking"],
+  "sitelinks": [{"text": "Sleep Apnea Info", "url": "/", "description": "Diagnosis and treatment guide"}]
+}`
+
+    const result = parseAIResponse(aiText)
+    const combinedText = [
+      ...result.headlines,
+      ...result.descriptions,
+      ...(result.callouts || []),
+      ...(result.sitelinks || []).map((s) => `${s.text} ${s.description || ''}`),
+      ...result.keywords
+    ].join(' ').toLowerCase()
+
+    expect(combinedText).not.toContain('sleep apnea')
+    expect(combinedText).not.toContain('diagnos')
+    expect(combinedText).not.toContain('clinical')
+    expect(result.keywords.some((kw) => kw.toLowerCase().includes('sleep quality'))).toBe(true)
+  })
 })

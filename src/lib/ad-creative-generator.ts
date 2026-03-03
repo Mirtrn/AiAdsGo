@@ -29,6 +29,15 @@ import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './goo
 import { getLocalizedDkiOfficialSuffix, type DkiLocaleOptions } from './dki-localization'
 import { classifyKeywordIntent } from './keyword-intent'
 import { KEYWORD_POLICY, getRatioCappedCount, resolveNonBrandMinSearchVolumeByBrandKeywordCount } from './keyword-policy'
+import {
+  type GoogleAdsPolicyGuardMode,
+  buildGoogleAdsPolicyPromptGuardrails,
+  extractGoogleAdsPolicySensitiveTerms,
+  resolveGoogleAdsPolicyGuardMode,
+  sanitizeGoogleAdsPolicyText,
+  sanitizeKeywordListForGoogleAdsPolicy,
+  sanitizeKeywordObjectsForGoogleAdsPolicy
+} from './google-ads-policy-guard'
 
 /**
  * 🔧 安全解析JSON字段
@@ -70,6 +79,7 @@ export interface SearchTermFeedbackHintsInput {
 interface PromptRuntimeGuidanceOptions {
   retryFailureType?: RetryFailureType
   searchTermFeedbackHints?: SearchTermFeedbackHintsInput
+  policyGuardMode?: GoogleAdsPolicyGuardMode
 }
 
 export interface CreativePriceEvidenceResolution {
@@ -3344,6 +3354,21 @@ async function buildAdCreativePrompt(
   // Build variables map for basic product information
   const targetLanguage = offer.target_language || 'English'
   const languageInstruction = getLanguageInstruction(targetLanguage)
+  const policyGuardMode = resolveGoogleAdsPolicyGuardMode(runtimeGuidance?.policyGuardMode)
+  const rawProductTitle = offer.product_title || offer.name || offer.title || 'Product'
+  const rawProductName = offer.product_name || offer.product_title || offer.name || offer.brand
+  const rawProductDescription = offer.brand_description || offer.unique_selling_points || 'Quality product'
+  const rawUniqueSellingPoints = offer.unique_selling_points || offer.product_highlights || 'Premium quality'
+  const policySafeProductTitle = sanitizeGoogleAdsPolicyText(String(rawProductTitle || ''), { maxLength: 120, mode: policyGuardMode })
+  const policySafeProductName = sanitizeGoogleAdsPolicyText(String(rawProductName || ''), { maxLength: 120, mode: policyGuardMode })
+  const policySafeProductDescription = sanitizeGoogleAdsPolicyText(String(rawProductDescription || ''), { maxLength: 240, mode: policyGuardMode })
+  const policySafeUniqueSellingPoints = sanitizeGoogleAdsPolicyText(String(rawUniqueSellingPoints || ''), { maxLength: 240, mode: policyGuardMode })
+  const policySignalTerms = extractGoogleAdsPolicySensitiveTerms([
+    String(rawProductTitle || ''),
+    String(rawProductName || ''),
+    String(rawProductDescription || ''),
+    String(rawUniqueSellingPoints || '')
+  ], { mode: policyGuardMode })
 
   // 🆕 v4.16: 确定链接类型（含scraped_data兜底）
   const scrapedDataForLinkType = safeParseJson(offer.scraped_data, null)
@@ -3362,10 +3387,10 @@ async function buildAdCreativePrompt(
     language_instruction: languageInstruction,
     brand: offer.brand,
     category: offer.category || 'product',
-    product_title: offer.product_title || offer.name || offer.title || 'Product',
-    product_name: offer.product_name || offer.product_title || offer.name || offer.brand,
-    product_description: offer.brand_description || offer.unique_selling_points || 'Quality product',
-    unique_selling_points: offer.unique_selling_points || offer.product_highlights || 'Premium quality',
+    product_title: policySafeProductTitle.text || String(rawProductTitle || 'Product'),
+    product_name: policySafeProductName.text || String(rawProductName || offer.brand || 'Product'),
+    product_description: policySafeProductDescription.text || String(rawProductDescription || 'Quality product'),
+    unique_selling_points: policySafeUniqueSellingPoints.text || String(rawUniqueSellingPoints || 'Premium quality'),
     target_audience: offer.target_audience || 'General',
     target_country: offer.target_country,
     target_language: targetLanguage,
@@ -4826,7 +4851,6 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   if (searchTermFeedbackGuidance.softTerms.length > 0) {
     excludeKeywordLines.push(`- 搜索词软抑制: ${searchTermFeedbackGuidance.softTerms.join(', ')}`)
   }
-  variables.exclude_keywords_section = excludeKeywordLines.join('\n')
 
   // 🎯 新增：AI关键词section
   // 🔥 修复(2025-12-17): 优先使用mergedData中的关键词池数据，而非旧的ai_keywords字段
@@ -4834,16 +4858,38 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   const brandFilter = (kw: string) =>
     brandGateKeywords.length === 0 || containsPureBrand(kw, brandGateKeywords)
 
-  const baseKeywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
+  const rawBaseKeywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
     ? extractedElements.keywords.slice(0, PROMPT_KEYWORD_LIMIT).map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)  // 使用关键词池数据（最多50个）
     : aiKeywords.filter(brandFilter).slice(0, 15)  // fallback到旧的ai_keywords（品牌门禁）
+  const baseKeywordsPolicySafe = sanitizeKeywordListForGoogleAdsPolicy(rawBaseKeywordsForPrompt, { mode: policyGuardMode })
+  if (baseKeywordsPolicySafe.changedCount > 0 || baseKeywordsPolicySafe.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] Prompt关键词净化: 替换${baseKeywordsPolicySafe.changedCount}个, 丢弃${baseKeywordsPolicySafe.droppedCount}个`
+    )
+  }
 
-  const validatedKeywordsForPrompt = dedupeKeywordSeeds(baseKeywordsForPrompt, PROMPT_KEYWORD_LIMIT)
+  const validatedKeywordsForPrompt = dedupeKeywordSeeds(baseKeywordsPolicySafe.items, PROMPT_KEYWORD_LIMIT)
   const rawTitleAboutKeywordSeeds = titleAndAboutSignals.keywordSeeds || []
+  const titleAboutSeedsPolicySafe = sanitizeKeywordListForGoogleAdsPolicy(rawTitleAboutKeywordSeeds, { mode: policyGuardMode })
+  if (titleAboutSeedsPolicySafe.changedCount > 0 || titleAboutSeedsPolicySafe.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] TITLE/ABOUT关键词净化: 替换${titleAboutSeedsPolicySafe.changedCount}个, 丢弃${titleAboutSeedsPolicySafe.droppedCount}个`
+    )
+  }
   const highIntentTitleAboutSeeds = dedupeKeywordSeeds(
-    filterHighIntentKeywordSeeds(rawTitleAboutKeywordSeeds, targetLanguage),
+    filterHighIntentKeywordSeeds(titleAboutSeedsPolicySafe.items, targetLanguage),
     PROMPT_KEYWORD_LIMIT
   )
+
+  const policyMatchedTerms = Array.from(new Set([
+    ...policySignalTerms,
+    ...baseKeywordsPolicySafe.matchedTerms,
+    ...titleAboutSeedsPolicySafe.matchedTerms
+  ])).slice(0, 12)
+  if (policyMatchedTerms.length > 0) {
+    excludeKeywordLines.push(`- 政策敏感词硬排除: ${policyMatchedTerms.join(', ')}`)
+  }
+  variables.exclude_keywords_section = excludeKeywordLines.join('\n')
 
   const maxSeedByTotalLimit = Math.floor(PROMPT_KEYWORD_LIMIT * TITLE_ABOUT_SEED_RATIO_CAP)
   const maxSeedByRatio = getSeedCapByRatio(validatedKeywordsForPrompt.length)
@@ -4877,9 +4923,11 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     keywordsForPrompt,
     normalizeLanguageCode(targetLanguage || 'English')
   )
+  const policyGuidanceSection = buildGoogleAdsPolicyPromptGuardrails(targetLanguage, policyMatchedTerms, { mode: policyGuardMode })
   const retryFailureGuidanceSection = buildRetryFailureGuidanceSection(runtimeGuidance?.retryFailureType)
   variables.type_intent_guidance_section = [
     typeIntentGuidanceSection,
+    policyGuidanceSection,
     searchTermFeedbackGuidance.section,
     retryFailureGuidanceSection
   ].filter(Boolean).join('\n')
@@ -5711,7 +5759,11 @@ function selectBestJsonCandidate(text: string): string | null {
 /**
  * 解析AI响应
  */
-export function parseAIResponse(text: string): GeneratedAdCreativeData {
+export function parseAIResponse(
+  text: string,
+  options?: { policyGuardMode?: GoogleAdsPolicyGuardMode }
+): GeneratedAdCreativeData {
+  const policyGuardMode = resolveGoogleAdsPolicyGuardMode(options?.policyGuardMode)
   console.log('🔍 AI原始响应长度:', text.length)
   console.log('🔍 AI原始响应前500字符:', text.substring(0, 500))
 
@@ -5873,6 +5925,14 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
       return cleaned
     }
 
+    const sanitizePolicySensitiveText = (text: string, maxLength: number): string => {
+      const policySafe = sanitizeGoogleAdsPolicyText(text, { maxLength, mode: policyGuardMode })
+      if (policySafe.changed) {
+        console.log(`🛡️ 政策敏感词净化: "${text}" → "${policySafe.text}" (命中: ${policySafe.matchedTerms.join(', ')})`)
+      }
+      return policySafe.text
+    }
+
     // 应用DKI修复到所有headlines
     const originalHeadlines = [...headlinesArray]
     headlinesArray = headlinesArray.map((h: string) => fixDKISyntax(h))
@@ -5884,6 +5944,14 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     // 🔥 新增：应用符号过滤到所有headlines和descriptions
     headlinesArray = headlinesArray.map((h: string) => removeProhibitedSymbols(h))
     descriptionsArray = descriptionsArray.map((d: string) => removeProhibitedSymbols(d))
+    headlinesArray = headlinesArray.map((h: string) => sanitizePolicySensitiveText(h, 30))
+    descriptionsArray = descriptionsArray.map((d: string) => sanitizePolicySensitiveText(d, 90))
+
+    // 兜底：政策净化后再次验证 headline 长度
+    const invalidHeadlinesAfterPolicy = headlinesArray.filter((h: string) => h.length > 30)
+    if (invalidHeadlinesAfterPolicy.length > 0) {
+      headlinesArray = headlinesArray.map((h: string) => h.substring(0, 30))
+    }
 
     const invalidDescriptions = descriptionsArray.filter((d: string) => d.length > 90)
     if (invalidDescriptions.length > 0) {
@@ -5938,6 +6006,7 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
         return c
       })
     }
+    calloutsArray = calloutsArray.map((c: string) => sanitizePolicySensitiveText(String(c || ''), 25))
 
     // ============================================================================
     // 验证 Sitelinks 长度 (text≤25, desc≤35)
@@ -5951,7 +6020,7 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
 
       // 兼容：旧数据可能是 string 数组
       if (typeof raw === 'string') {
-        const text = removeProhibitedSymbols(raw).trim().substring(0, 25)
+        const text = sanitizePolicySensitiveText(removeProhibitedSymbols(raw).trim(), 25)
         if (!text) return null
         return { text, url: '/', description: undefined as string | undefined }
       }
@@ -5962,7 +6031,7 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
         (typeof raw.text === 'string' && raw.text) ||
         (typeof (raw as any).title === 'string' && (raw as any).title) ||
         ''
-      const text = removeProhibitedSymbols(textRaw).trim().substring(0, 25)
+      const text = sanitizePolicySensitiveText(removeProhibitedSymbols(textRaw).trim(), 25)
       if (!text) return null
 
       const urlRaw = typeof raw.url === 'string' ? raw.url : '/'
@@ -5981,7 +6050,7 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
         (v: any) => typeof v === 'string' && v.trim().length > 0
       ) as string | undefined
       const description = descriptionValue
-        ? removeProhibitedSymbols(descriptionValue).trim().substring(0, 35)
+        ? sanitizePolicySensitiveText(removeProhibitedSymbols(descriptionValue).trim(), 35)
         : undefined
 
       return { text, url, description }
@@ -6012,7 +6081,12 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     // 🔧 修复(2025-12-25): 放宽到10个单词，符合Google Ads实际限制
     // Google Ads允许最多10个单词的关键词
     // ============================================================================
-    let keywordsArray = Array.isArray(data.keywords) ? data.keywords : []
+    let keywordsArray = Array.isArray(data.keywords) ? data.keywords.map((k: any) => String(k || '').trim()).filter(Boolean) : []
+    const policySafeKeywords = sanitizeKeywordListForGoogleAdsPolicy(keywordsArray, { mode: policyGuardMode })
+    if (policySafeKeywords.changedCount > 0 || policySafeKeywords.droppedCount > 0) {
+      console.log(`🛡️ 关键词政策净化: 替换${policySafeKeywords.changedCount}个, 丢弃${policySafeKeywords.droppedCount}个`)
+    }
+    keywordsArray = policySafeKeywords.items
     const invalidKeywords = keywordsArray.filter((k: string) => {
       if (!k) return false
       const wordCount = k.trim().split(/\s+/).length
@@ -6131,6 +6205,7 @@ export async function generateAdCreative(
     excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
     retryFailureType?: RetryFailureType
     searchTermFeedbackHints?: SearchTermFeedbackHintsInput
+    policyGuardMode?: GoogleAdsPolicyGuardMode
     // 🆕 v4.10: 关键词池参数
     keywordPool?: any  // OfferKeywordPool
     bucket?: 'A' | 'B' | 'C' | 'S' | 'D'  // 🔥 2025-12-22: 添加D（高购买意图）桶支持
@@ -6176,6 +6251,9 @@ export async function generateAdCreative(
     preGenerationValidation.issues.forEach(issue => console.error(`   - ${issue}`))
     throw new Error(`创意生成前置校验失败: ${preGenerationValidation.issues.join('; ')}`)
   }
+
+  const policyGuardMode = resolveGoogleAdsPolicyGuardMode(options?.policyGuardMode)
+  console.log(`[PolicyGuard] 当前策略模式: ${policyGuardMode}`)
 
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
   const canonicalBrandKeyword = normalizeGoogleAdsKeyword(offerBrand)
@@ -6416,12 +6494,19 @@ export async function generateAdCreative(
 
   // 🎯 合并数据：将enhanced和extracted数据合并（去重）
   // 统一关键词格式为extracted格式（因为buildAdCreativePrompt期望这个格式）
-  const normalizedEnhancedKeywords = (enhancedData.keywords || []).map(kw => ({
+  let normalizedEnhancedKeywords = (enhancedData.keywords || []).map(kw => ({
     keyword: kw.keyword,
     searchVolume: kw.volume || 0,
     source: 'AI_ENHANCED',
     priority: kw.score > 80 ? 'HIGH' : kw.score > 60 ? 'MEDIUM' : 'LOW'
   }))
+  const policySafeEnhancedKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(normalizedEnhancedKeywords, { mode: policyGuardMode })
+  if (policySafeEnhancedKeywords.changedCount > 0 || policySafeEnhancedKeywords.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] 增强关键词净化: 替换${policySafeEnhancedKeywords.changedCount}个, 丢弃${policySafeEnhancedKeywords.droppedCount}个`
+    )
+  }
+  normalizedEnhancedKeywords = policySafeEnhancedKeywords.items
 
   // 🆕 v4.10: 如果传入了桶关键词，将其作为最高优先级关键词
   let bucketKeywordsNormalized: Array<{ keyword: string; searchVolume: number; source: string; priority: string }> = []
@@ -6462,9 +6547,16 @@ export async function generateAdCreative(
       console.log(`📦 v4.16 关键词池: ${linkType}链接 - 桶 ${bucketType} 暂无关键词，将使用默认关键词`)
     }
   }
+  const policySafeBucketKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(bucketKeywordsNormalized, { mode: policyGuardMode })
+  if (policySafeBucketKeywords.changedCount > 0 || policySafeBucketKeywords.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] 桶关键词净化: 替换${policySafeBucketKeywords.changedCount}个, 丢弃${policySafeBucketKeywords.droppedCount}个`
+    )
+  }
+  bucketKeywordsNormalized = policySafeBucketKeywords.items
 
   // 🔥 2025-12-16修复：统一extracted关键词格式（可能是字符串数组或对象数组）
-  const normalizedExtractedKeywords = (extractedElements.keywords || []).map((kw: any) => {
+  let normalizedExtractedKeywords = (extractedElements.keywords || []).map((kw: any) => {
     // 如果是字符串，转换为对象格式
     if (typeof kw === 'string') {
       return {
@@ -6482,10 +6574,24 @@ export async function generateAdCreative(
       priority: kw.priority || 'MEDIUM'
     }
   }).filter((kw: { keyword: string }) => kw.keyword.length > 0)
+  const policySafeExtractedKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(normalizedExtractedKeywords, { mode: policyGuardMode })
+  if (policySafeExtractedKeywords.changedCount > 0 || policySafeExtractedKeywords.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] 提取关键词净化: 替换${policySafeExtractedKeywords.changedCount}个, 丢弃${policySafeExtractedKeywords.droppedCount}个`
+    )
+  }
+  normalizedExtractedKeywords = policySafeExtractedKeywords.items
 
   // 🆕 v4.10: 桶关键词优先，然后是增强关键词，最后是基础关键词
   // 🔥 优化(2025-12-22): 使用Google Ads标准化规则去重
-  const mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...normalizedExtractedKeywords]
+  let mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...normalizedExtractedKeywords]
+  const policySafeMergedKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(mergedKeywords, { mode: policyGuardMode })
+  if (policySafeMergedKeywords.changedCount > 0 || policySafeMergedKeywords.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] 合并关键词兜底净化: 替换${policySafeMergedKeywords.changedCount}个, 丢弃${policySafeMergedKeywords.droppedCount}个`
+    )
+  }
+  mergedKeywords = policySafeMergedKeywords.items
 
   // 🔥 优化：使用Google Ads标准化进行去重，保留最高优先级的关键词
   const uniqueKeywords = deduplicateKeywordsWithPriority(
@@ -6579,7 +6685,8 @@ export async function generateAdCreative(
     mergedData,  // 🎯 传入合并后的增强数据
     {
       retryFailureType: options?.retryFailureType,
-      searchTermFeedbackHints: options?.searchTermFeedbackHints
+      searchTermFeedbackHints: options?.searchTermFeedbackHints,
+      policyGuardMode
     }
   )
 
@@ -6628,13 +6735,21 @@ export async function generateAdCreative(
 
   // 解析AI响应
   console.time('⏱️ 解析AI响应')
-  const result: GeneratedAdCreativeData = parseAIResponse(aiResponse.text)
+  const result: GeneratedAdCreativeData = parseAIResponse(aiResponse.text, { policyGuardMode })
   const aiModel = `${aiMode}:${aiResponse.model}`
   console.timeEnd('⏱️ 解析AI响应')
 
   // 🔧 修复(2025-12-27): 对AI生成的关键词进行质量过滤（移除品牌变体词和语义查询词）
   const brandName = offerBrand || 'Brand'
   if (result.keywords && result.keywords.length > 0) {
+    const policySafeGeneratedKeywords = sanitizeKeywordListForGoogleAdsPolicy(result.keywords, { mode: policyGuardMode })
+    if (policySafeGeneratedKeywords.changedCount > 0 || policySafeGeneratedKeywords.droppedCount > 0) {
+      console.log(
+        `[PolicyGuard] AI生成关键词净化: 替换${policySafeGeneratedKeywords.changedCount}个, 丢弃${policySafeGeneratedKeywords.droppedCount}个`
+      )
+    }
+    result.keywords = policySafeGeneratedKeywords.items
+
     const { filterKeywordQuality } = await import('./keyword-quality-filter')
     const keywordData = result.keywords.map(kw => ({
       keyword: kw,
@@ -6948,6 +7063,15 @@ export async function generateAdCreative(
     keywordSupplementationReport = supplemented.keywordSupplementation
     result.keywordSupplementation = keywordSupplementationReport
   }
+
+  const policySafeFinalKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(keywordsWithVolume, { mode: policyGuardMode })
+  if (policySafeFinalKeywords.changedCount > 0 || policySafeFinalKeywords.droppedCount > 0) {
+    console.log(
+      `[PolicyGuard] 最终关键词兜底净化: 替换${policySafeFinalKeywords.changedCount}个, 丢弃${policySafeFinalKeywords.droppedCount}个`
+    )
+  }
+  keywordsWithVolume = policySafeFinalKeywords.items
+  result.keywords = keywordsWithVolume.map(kw => kw.keyword)
 
   // ✅ 基础约束修复：CTA（多语言软补强）与关键词嵌入率（English）
   const resolvedLanguage = normalizeLanguageCode(targetLanguage)
