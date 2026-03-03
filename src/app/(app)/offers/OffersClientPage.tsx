@@ -64,8 +64,6 @@ const OFFERS_SERVER_SUPPORTED_SORTS = new Set([
   'scrapeStatus',
 ])
 
-const LaunchScoreModalDynamic = dynamic(() => import('@/components/LaunchScoreModal'), { ssr: false })
-const AdjustCpcModal = dynamic(() => import('@/components/AdjustCpcModal'), { ssr: false })
 const CreateOfferModalV2 = dynamic(() => import('@/components/CreateOfferModalV2'), { ssr: false })
 const DeleteOfferConfirmDialog = dynamic(() => import('@/components/DeleteOfferConfirmDialog'), { ssr: false })
 const ClickFarmTaskModal = dynamic(() => import('@/components/ClickFarmTaskModal'), { ssr: false })
@@ -188,10 +186,6 @@ export default function OffersClientPage({
   }, [paginatedOffers])
 
   // Modals
-  const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
-  const [selectedOfferForCpc, setSelectedOfferForCpc] = useState<Offer | null>(null)
-  const [isLaunchScoreModalOpen, setIsLaunchScoreModalOpen] = useState(false)
-  const [selectedOfferForScore, setSelectedOfferForScore] = useState<Offer | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [offerToDelete, setOfferToDelete] = useState<Offer | null>(null)
@@ -1547,26 +1541,6 @@ export default function OffersClientPage({
                             }}
                             secondaryActions={[
                               {
-                                icon: <span className="text-[10px] font-semibold text-gray-500">CPC</span>,
-                                label: '调整CPC',
-                                onClick: () => {
-                                  setSelectedOfferForCpc(offer)
-                                  setIsAdjustCpcModalOpen(true)
-                                },
-                                disabled: !offer.linkedAccounts || offer.linkedAccounts.length === 0,
-                                title: !offer.linkedAccounts || offer.linkedAccounts.length === 0
-                                  ? '请先发布广告并关联Ads账号'
-                                  : undefined,
-                              },
-                              {
-                                icon: <span className="text-[10px] font-semibold text-gray-500">ROI</span>,
-                                label: '投放分析',
-                                onClick: () => {
-                                  setSelectedOfferForScore(offer)
-                                  setIsLaunchScoreModalOpen(true)
-                                },
-                              },
-                              {
                                 icon: <span className="text-[10px] font-semibold text-gray-500">CLK</span>,
                                 label: '补点击任务',
                                 onClick: async () => {
@@ -1669,28 +1643,6 @@ export default function OffersClientPage({
       </main>
 
       {/* Modals */}
-      {selectedOfferForCpc && (
-        <AdjustCpcModal
-          isOpen={isAdjustCpcModalOpen}
-          onClose={() => {
-            setIsAdjustCpcModalOpen(false)
-            setSelectedOfferForCpc(null)
-          }}
-          offer={selectedOfferForCpc as any}
-        />
-      )}
-
-      {selectedOfferForScore && (
-        <LaunchScoreModalDynamic
-          isOpen={isLaunchScoreModalOpen}
-          onClose={() => {
-            setIsLaunchScoreModalOpen(false)
-            setSelectedOfferForScore(null)
-          }}
-          offer={selectedOfferForScore as any}
-        />
-      )}
-
       {/* 补点击任务Modal */}
       {(isClickFarmModalOpen || selectedOfferForClickFarm) && (
         <ClickFarmTaskModal
