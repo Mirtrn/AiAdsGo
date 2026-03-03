@@ -11,6 +11,7 @@ import { getDatabase } from '@/lib/db'
 import { dateMinusDays } from '@/lib/db-helpers'
 import { createOptimizationEngine, type CampaignMetrics, type OptimizationRecommendation } from './optimization-rules'
 import { getCommissionPerConversion as getOfferCommissionPerConversion } from './offer-monetization'
+import { buildUserExecutionEligibleSql, getUserExecutionEligibility } from './user-execution-eligibility'
 
 export interface OptimizationTask {
   id: number
@@ -38,6 +39,11 @@ export interface OptimizationTaskWithCampaign extends OptimizationTask {
  * 为单个用户生成优化任务
  */
 export async function generateOptimizationTasksForUser(userId: number): Promise<number> {
+  const eligibility = await getUserExecutionEligibility(userId)
+  if (!eligibility.eligible) {
+    return 0
+  }
+
   const db = await getDatabase()
   const recentCutoffExpr = dateMinusDays(7, db.type)
   const engine = createOptimizationEngine()
@@ -232,13 +238,16 @@ export async function generateWeeklyOptimizationTasks(): Promise<{
   userTasks: Record<number, number>
 }> {
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   // 获取所有有活跃Campaign的用户
   const users = await db.query(
     `
-    SELECT DISTINCT user_id
-    FROM campaigns
-    WHERE status IN ('ENABLED', 'PAUSED')
+    SELECT DISTINCT c.user_id
+    FROM campaigns c
+    INNER JOIN users u ON u.id = c.user_id
+    WHERE c.status IN ('ENABLED', 'PAUSED')
+      AND ${userEligibleCondition}
   `,
     []
   ) as { user_id: number }[]

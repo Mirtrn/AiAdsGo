@@ -3,6 +3,7 @@ import { verifyAuth, createUser, generateUniqueUsername } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { logUserCreated, UserManagementContext } from '@/lib/audit-logger'
 import { buildAdminUsersOrderBy } from '@/lib/admin/users-query'
+import { isExpiredOverDays } from '@/lib/user-execution-eligibility'
 
 // 获取客户端IP地址
 function getClientIP(request: NextRequest): string {
@@ -22,7 +23,10 @@ function getClientIP(request: NextRequest): string {
  * 🔧 修复(2025-12-30): 统一isActive为boolean类型（兼容PostgreSQL和SQLite）
  * 规范: API响应使用 camelCase，数据库字段使用 snake_case
  */
-function transformUserToApiResponse(user: any) {
+function transformUserToApiResponse(user: any, now: Date) {
+  const isActive = user.is_active === true || user.is_active === 1
+  const disableSuggested = isActive && isExpiredOverDays(user.package_expires_at, 30, now)
+
   return {
     id: user.id,
     username: user.username,
@@ -32,10 +36,12 @@ function transformUserToApiResponse(user: any) {
     packageType: user.package_type,
     packageExpiresAt: user.package_expires_at,
     // PostgreSQL返回boolean，SQLite返回0/1，统一转为boolean
-    isActive: user.is_active === true || user.is_active === 1,
+    isActive,
     openclawEnabled: user.openclaw_enabled === true || user.openclaw_enabled === 1,
     productManagementEnabled: user.product_management_enabled === true || user.product_management_enabled === 1,
     strategyCenterEnabled: user.strategy_center_enabled === true || user.strategy_center_enabled === 1,
+    disableSuggested,
+    disableSuggestedReason: disableSuggested ? 'expired_over_30d' : null,
     lastLoginAt: user.last_login_at,
     createdAt: user.created_at,
     lockedUntil: user.locked_until,
@@ -137,8 +143,10 @@ export async function GET(request: NextRequest) {
     // Get users
     const users = await db.query(query, [...params, limit, offset])
 
+    const now = new Date()
+
     return NextResponse.json({
-      users: users.map(transformUserToApiResponse),
+      users: users.map((user) => transformUserToApiResponse(user, now)),
       pagination: {
         total: total.count,
         page,

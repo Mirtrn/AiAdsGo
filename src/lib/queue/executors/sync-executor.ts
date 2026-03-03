@@ -14,6 +14,7 @@
 import type { Task, TaskExecutor } from '../types'
 import { dataSyncService } from '@/lib/data-sync-service'
 import type { SyncLog } from '@/lib/data-sync-service'
+import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility'
 
 /**
  * Sync 任务数据接口
@@ -37,6 +38,8 @@ export function createSyncExecutor(): TaskExecutor<SyncTaskData> {
     console.log(`   账户ID: ${googleAdsAccountId || '全部'}, 期间: ${startDate || '默认'} - ${endDate || '默认'}`)
 
     try {
+      await assertUserExecutionAllowed(userId, { source: `sync:${task.id}` })
+
       // 调用现有的数据同步服务
       // 注意：现有服务会处理所有账户的同步，不需要传入特定账户ID
       const syncLog: SyncLog = await dataSyncService.syncPerformanceData(userId, syncType)

@@ -15,6 +15,7 @@ import { getDatabase } from '../../db'
 import { triggerDataSync } from '../../queue-triggers'
 import { getUserAuthType, getGoogleAdsCredentials } from '../../google-ads-oauth'
 import { getServiceAccountConfig } from '../../google-ads-service-account'
+import { buildUserExecutionEligibleSql } from '../../user-execution-eligibility'
 
 function parseBooleanEnv(rawValue: string | undefined, defaultValue: boolean): boolean {
   if (rawValue === undefined) return defaultValue
@@ -125,6 +126,7 @@ export class DataSyncScheduler {
 
       const db = await getDatabase()
       const now = new Date()
+      const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
       // 查询所有启用了自动同步的用户
       const configs = await db.query<UserSyncConfig>(
@@ -154,6 +156,7 @@ export class DataSyncScheduler {
            WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
           'true'
         ) = 'true'
+          AND ${userEligibleCondition}
         `
       )
 

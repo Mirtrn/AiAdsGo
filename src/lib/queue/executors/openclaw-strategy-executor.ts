@@ -19,6 +19,7 @@ import { normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
 import { refreshOpenclawDailyReportSnapshot } from '@/lib/openclaw/reports'
 import { getOpenclawSettingsMap } from '@/lib/openclaw/settings'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
+import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility'
 
 export type OpenclawStrategyTaskData = {
   userId: number
@@ -1566,6 +1567,7 @@ async function executeStrategyRecommendationTask(
   const recommendationId = String(task.data?.recommendationId || '').trim()
   const kind = String(task.data?.kind || '').trim() as StrategyRecommendationQueueTaskData['kind']
   const userId = Number(task.data?.userId || task.userId)
+  await assertUserExecutionAllowed(userId, { source: `openclaw-strategy:${task.id}:${kind || 'unknown'}` })
 
   if (!recommendationId || !kind) {
     throw new Error('策略建议队列任务缺少必要参数')
@@ -1590,6 +1592,7 @@ async function executeStrategyRecommendationTask(
   const reviewWindowDays = Math.max(1, Math.floor(Number(executed.data?.impactWindowDays || 3)))
   const scheduledAt = new Date(Date.now() + reviewWindowDays * 24 * 60 * 60 * 1000).toISOString()
   try {
+    await assertUserExecutionAllowed(userId, { source: `openclaw-strategy:post-review-enqueue:${task.id}` })
     const queue = getQueueManagerForTaskType('openclaw-strategy')
     const reviewTaskId = await queue.enqueue(
       'openclaw-strategy',
@@ -1628,6 +1631,7 @@ async function executeStrategyRecommendationAnalyzeTask(
   task: Task<OpenclawStrategyTaskData>
 ): Promise<{ success: boolean; skipped?: boolean }> {
   const userId = Number(task.data?.userId || task.userId)
+  await assertUserExecutionAllowed(userId, { source: `openclaw-strategy:${task.id}:analyze` })
   const db = await getDatabase()
   const userAccess = await db.queryOne<{ openclaw_enabled: boolean | number }>(
     'SELECT openclaw_enabled FROM users WHERE id = ?',
@@ -1662,6 +1666,7 @@ async function executeStrategyRecommendationAnalyzeTask(
   const shouldSendReport = task.data?.sendReport !== false
   if (shouldSendReport) {
     try {
+      await assertUserExecutionAllowed(userId, { source: `openclaw-strategy:report-enqueue:${task.id}` })
       const settings = await getOpenclawSettingsMap(userId)
       const feishuTarget = String(settings.feishu_target || '').trim() || undefined
       const queue = getQueueManagerForTaskType('openclaw-report-send')

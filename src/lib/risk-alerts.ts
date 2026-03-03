@@ -10,6 +10,7 @@
 import { getDatabase } from '@/lib/db'
 import { nowFunc, dateMinusDays } from '@/lib/db-helpers'
 import { proxyHead } from './proxy-axios'
+import { buildUserExecutionEligibleSql } from '@/lib/user-execution-eligibility'
 
 export interface RiskAlert {
   id: number
@@ -620,6 +621,7 @@ export async function dailyLinkCheck(): Promise<{
   results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>>
 }> {
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
   const isDeletedFalse = db.type === 'postgres' ? false : 0
@@ -627,11 +629,13 @@ export async function dailyLinkCheck(): Promise<{
   // 获取所有有Offers的用户
   const users = await db.query(
     `
-    SELECT DISTINCT user_id
-    FROM offers
-    WHERE affiliate_link IS NOT NULL
-      AND affiliate_link != ''
-      AND (is_deleted = ? OR is_deleted IS NULL)
+    SELECT DISTINCT o.user_id
+    FROM offers o
+    INNER JOIN users u ON u.id = o.user_id
+    WHERE o.affiliate_link IS NOT NULL
+      AND o.affiliate_link != ''
+      AND (o.is_deleted = ? OR o.is_deleted IS NULL)
+      AND ${userEligibleCondition}
   `,
     [isDeletedFalse]
   ) as { user_id: number }[]

@@ -19,6 +19,7 @@ import { getOpenclawSettingsMap } from './lib/openclaw/settings'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
 import { resolveBackupDir } from './lib/backup'
+import { buildUserExecutionEligibleSql } from './lib/user-execution-eligibility'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
 // import { runABTestMonitor } from './scheduler/ab-test-monitor'
 import fs from 'fs'
@@ -132,6 +133,7 @@ async function enqueueOpenclawStrategy(userId: number, mode: string) {
 
 async function refreshOpenclawStrategySchedules() {
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
   const rows = await db.query<{
     user_id: number
     enabled: string | null
@@ -143,13 +145,13 @@ async function refreshOpenclawStrategySchedules() {
       MAX(CASE WHEN ss.key = 'openclaw_strategy_cron' THEN ss.value END) as cron
     FROM system_settings ss
     INNER JOIN users u ON u.id = ss.user_id
-    WHERE ss.category = 'openclaw'
-      AND ss.user_id IS NOT NULL
-      AND ss.key IN ('openclaw_strategy_enabled', 'openclaw_strategy_cron')
-      AND u.is_active = ?
-      AND u.openclaw_enabled = ?
-    GROUP BY ss.user_id
-  `, [true, true])
+      WHERE ss.category = 'openclaw'
+        AND ss.user_id IS NOT NULL
+        AND ss.key IN ('openclaw_strategy_enabled', 'openclaw_strategy_cron')
+        AND ${userEligibleCondition}
+        AND u.openclaw_enabled = ?
+      GROUP BY ss.user_id
+  `, [true])
 
   const activeUsers = new Set<number>()
   for (const row of rows || []) {
@@ -215,6 +217,7 @@ async function syncDataTask() {
   log('📊 开始执行数据同步任务...')
 
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   try {
     // 获取所有活跃用户及其同步配置
@@ -237,11 +240,11 @@ async function syncDataTask() {
       LEFT JOIN system_settings ss ON ss.user_id = u.id
         AND ss.category = 'system'
         AND ss.key = 'sync_interval_hours'
-      WHERE u.is_active = ?
+      WHERE ${userEligibleCondition}
         AND ga.is_active = ?
         AND ga.refresh_token IS NOT NULL
         AND ga.refresh_token != ''
-    `, [true, true])
+    `, [true])
 
     log(`找到 ${activeUsers.length} 个活跃用户`)
 
@@ -366,6 +369,7 @@ async function openclawDailyReportTask() {
   log(`📨 开始推送 OpenClaw 每日报表 (reportDate=${reportDate}, timezone=${reportTimeZone})...`)
 
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   try {
     const rows = await db.query<{
@@ -386,10 +390,10 @@ async function openclawDailyReportTask() {
         AND ss.value IS NOT NULL
         AND ss.value != ''
         AND ss.key IN ('feishu_target', 'feishu_doc_folder_token', 'feishu_bitable_app_token')
-        AND u.is_active = ?
+        AND ${userEligibleCondition}
         AND u.openclaw_enabled = ?
       GROUP BY ss.user_id
-    `, [true, true])
+    `, [true])
 
     if (!rows || rows.length === 0) {
       log('📭 未找到需要推送的OpenClaw用户')
@@ -441,6 +445,7 @@ async function openclawWeeklyReportTask() {
   log(`🗓️ 开始推送 OpenClaw 周报 (start=${reportStartDate}, end=${reportEndDate}, timezone=${reportTimeZone})...`)
 
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   try {
     const rows = await db.query<{
@@ -457,10 +462,10 @@ async function openclawWeeklyReportTask() {
         AND ss.value IS NOT NULL
         AND ss.value != ''
         AND ss.key IN ('feishu_target')
-        AND u.is_active = ?
+        AND ${userEligibleCondition}
         AND u.openclaw_enabled = ?
       GROUP BY ss.user_id
-    `, [true, true])
+    `, [true])
 
     if (!rows || rows.length === 0) {
       log('📭 未找到需要推送周报的 OpenClaw 用户')
@@ -510,6 +515,7 @@ async function openclawAffiliateRevenueSnapshotTask() {
   log('🧾 开始刷新 OpenClaw 联盟成交/佣金快照...')
 
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
   const reportTimeZone = 'Asia/Shanghai'
   const pendingGraceDays = Math.max(1, parsePositiveInt(process.env.OPENCLAW_AFFILIATE_ATTRIBUTION_PENDING_DAYS, 7))
   const lookbackDays = Math.max(
@@ -541,10 +547,10 @@ async function openclawAffiliateRevenueSnapshotTask() {
           'openclaw_affiliate_sync_interval_hours',
           'openclaw_affiliate_sync_mode'
         )
-      WHERE u.is_active = ?
+      WHERE ${userEligibleCondition}
         AND u.openclaw_enabled = ?
       GROUP BY u.id
-    `, [true, true])
+    `, [true])
 
     if (!rows || rows.length === 0) {
       log('📭 未找到可刷新的 OpenClaw 用户')
@@ -701,9 +707,10 @@ async function linkAndAccountCheckTask() {
   log('🔍 开始执行链接可用性和账号状态检查任务...')
 
   const db = await getDatabase()
+  const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
 
   try {
-    // 获取所有启用了链接检查的用户配置
+    // 获取所有启用了链接检查且执行资格有效的用户配置
     const userConfigs = await db.query<{
       user_id: number
       link_check_enabled: string
@@ -714,9 +721,11 @@ async function linkAndAccountCheckTask() {
         MAX(CASE WHEN ss.key = 'link_check_enabled' THEN ss.value END) as link_check_enabled,
         MAX(CASE WHEN ss.key = 'link_check_time' THEN ss.value END) as link_check_time
       FROM system_settings ss
+      INNER JOIN users u ON u.id = ss.user_id
       WHERE ss.category = 'system'
         AND ss.key IN ('link_check_enabled', 'link_check_time')
         AND ss.user_id IS NOT NULL
+        AND ${userEligibleCondition}
       GROUP BY ss.user_id
     `)
 

@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateWeeklyOptimizationTasks, cleanupOldTasks } from '@/lib/optimization-tasks'
 import { runCreativeOptimizationLoop } from '@/lib/creative-learning'
 import { getDatabase } from '@/lib/db'
+import { buildUserExecutionEligibleSql } from '@/lib/user-execution-eligibility'
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,10 +37,13 @@ export async function POST(request: NextRequest) {
     console.log('[Cron] Starting creative optimization loop...')
 
     const db = await getDatabase()
+    const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type, userAlias: 'u' })
     const users = await db.query<{ user_id: number }>(`
-      SELECT DISTINCT user_id
-      FROM campaigns
-      WHERE status IN ('ENABLED', 'PAUSED')
+      SELECT DISTINCT c.user_id
+      FROM campaigns c
+      INNER JOIN users u ON u.id = c.user_id
+      WHERE c.status IN ('ENABLED', 'PAUSED')
+        AND ${userEligibleCondition}
     `)
 
     const creativeResults: Record<number, {

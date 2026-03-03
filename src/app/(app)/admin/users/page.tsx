@@ -59,6 +59,8 @@ interface User {
     openclawEnabled: boolean
     productManagementEnabled: boolean
     strategyCenterEnabled: boolean
+    disableSuggested?: boolean
+    disableSuggestedReason?: 'expired_over_30d' | null
     createdAt: string
     lockedUntil: string | null
     failedLoginCount: number
@@ -878,23 +880,30 @@ export default function UserManagementPage() {
                                                 )}
                                             </TableCell>
                                             <TableCell className="whitespace-nowrap">
-                                                {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
-                                                {!user.isActive ? (
-                                                    <Badge variant="destructive" className="h-6 px-2 text-xs whitespace-nowrap">
-                                                        <span className="sm:hidden">禁用</span>
-                                                        <span className="hidden sm:inline">🚫 已禁用</span>
-                                                    </Badge>
-                                                ) : isUserLocked(user) ? (
-                                                    <Badge variant="outline" className="h-6 px-2 text-xs text-yellow-600 border-yellow-600 whitespace-nowrap">
-                                                        <span className="2xl:hidden">⏳ 已锁定</span>
-                                                        <span className="hidden 2xl:inline">⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）</span>
-                                                    </Badge>
-                                                ) : (
-                                                    <Badge variant="outline" className="h-6 px-2 text-xs text-green-600 border-green-600 whitespace-nowrap">
-                                                        <span className="sm:hidden">正常</span>
-                                                        <span className="hidden sm:inline">✅ 正常</span>
-                                                    </Badge>
-                                                )}
+                                                <div className="flex flex-col gap-1">
+                                                    {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
+                                                    {!user.isActive ? (
+                                                        <Badge variant="destructive" className="h-6 px-2 text-xs whitespace-nowrap">
+                                                            <span className="sm:hidden">禁用</span>
+                                                            <span className="hidden sm:inline">🚫 已禁用</span>
+                                                        </Badge>
+                                                    ) : isUserLocked(user) ? (
+                                                        <Badge variant="outline" className="h-6 px-2 text-xs text-yellow-600 border-yellow-600 whitespace-nowrap">
+                                                            <span className="2xl:hidden">⏳ 已锁定</span>
+                                                            <span className="hidden 2xl:inline">⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）</span>
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="outline" className="h-6 px-2 text-xs text-green-600 border-green-600 whitespace-nowrap">
+                                                            <span className="sm:hidden">正常</span>
+                                                            <span className="hidden sm:inline">✅ 正常</span>
+                                                        </Badge>
+                                                    )}
+                                                    {user.isActive && user.disableSuggested ? (
+                                                        <span className="text-[11px] leading-4 text-amber-600">
+                                                            可禁用（已过期30天+）
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="px-1">
                                                 <div className="flex items-center justify-center gap-0">

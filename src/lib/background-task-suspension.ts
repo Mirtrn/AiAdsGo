@@ -1,10 +1,12 @@
 import { getDatabase } from '@/lib/db'
 import { boolParam, nowFunc, toBool } from '@/lib/db-helpers'
 import { getBackgroundQueueManager, getQueueManager } from '@/lib/queue'
-import type { TaskType } from '@/lib/queue/types'
+import { ALL_TASK_TYPES, type TaskType } from '@/lib/queue/types'
 import { pauseUrlSwapTargetsByUserIds } from '@/lib/url-swap'
+import { clearUserExecutionEligibilityCache } from '@/lib/user-execution-eligibility'
 
-export const USER_SUSPENDED_TASK_TYPES: TaskType[] = ['click-farm', 'url-swap']
+// 队列止血默认覆盖所有用户任务类型；通过 userId 维度删除，不影响系统任务（userId<=0）。
+export const USER_SUSPENDED_TASK_TYPES: TaskType[] = [...ALL_TASK_TYPES]
 
 export type UserSuspensionReason = 'manual_disable' | 'package_expired' | 'daily_sweep'
 
@@ -88,6 +90,8 @@ export async function suspendUserBackgroundTasks(
   if (purgeQueue) {
     queuePurged = await purgeUserPendingQueueTasks(userId, USER_SUSPENDED_TASK_TYPES)
   }
+
+  clearUserExecutionEligibilityCache(userId)
 
   return { clickFarmStopped, urlSwapDisabled, queuePurged }
 }
@@ -173,6 +177,10 @@ export async function suspendBackgroundTasksForInactiveOrExpiredUsers(opts?: {
     for (const userId of affectedUserIds) {
       queuePurged += await purgeUserPendingQueueTasks(userId, USER_SUSPENDED_TASK_TYPES)
     }
+  }
+
+  for (const userId of affectedUserIds) {
+    clearUserExecutionEligibilityCache(userId)
   }
 
   return { affectedUserIds, clickFarmStopped, urlSwapDisabled, queuePurged }

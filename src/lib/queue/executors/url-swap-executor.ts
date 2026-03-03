@@ -28,6 +28,7 @@ import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
 import { formatGoogleAdsApiError } from '@/lib/google-ads-api-error'
 import { resolveLoginCustomerCandidates, isGoogleAdsAccountAccessError } from '@/lib/google-ads-login-customer'
 import { initializeProxyPool } from '@/lib/offer-utils'
+import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility'
 
 /**
  * URL域名验证
@@ -207,6 +208,10 @@ async function updateTargetsFinalUrlSuffix(params: {
   let forcedAuthType: 'oauth' | 'service_account' | null = null
 
   for (const target of params.targets) {
+    await assertUserExecutionAllowed(params.userId, {
+      source: `url-swap:target-update:${target.google_campaign_id || 'unknown'}`,
+    })
+
     const attemptAuthType = forcedAuthType ?? params.authType
     try {
       try {
@@ -292,6 +297,7 @@ export async function executeUrlSwapTask(
   const { taskId, offerId, affiliateLink, targetCountry, googleCustomerId, googleCampaignId, currentFinalUrl, currentFinalUrlSuffix } = task.data
 
   console.log(`[url-swap-executor] 开始执行任务: ${taskId}, offer: ${offerId}`)
+  await assertUserExecutionAllowed(task.userId, { source: `url-swap:${task.id}` })
 
   let effectiveCurrentFinalUrl: string | null = currentFinalUrl
   let effectiveCurrentFinalUrlSuffix: string | null = currentFinalUrlSuffix
@@ -375,6 +381,7 @@ export async function executeUrlSwapTask(
 
       // 确保代理池已按该用户的设置加载
       await initializeProxyPool(task.userId, targetCountry)
+      await assertUserExecutionAllowed(task.userId, { source: `url-swap:manual-before-resolve:${task.id}` })
 
       console.log(`[url-swap-executor]（manual）解析推广链接: ${selectedLink}`)
       const resolved = await resolveAffiliateLink(selectedLink, {
@@ -503,6 +510,7 @@ export async function executeUrlSwapTask(
 
     // 确保代理池已按该用户的设置加载（executor 运行在队列进程中，不能假设已初始化）
     await initializeProxyPool(task.userId, targetCountry)
+    await assertUserExecutionAllowed(task.userId, { source: `url-swap:auto-before-resolve:${task.id}` })
 
     // 1. 解析推广链接（禁用缓存，确保获取最新URL）
     console.log(`[url-swap-executor] 解析推广链接: ${affiliateLink}`)

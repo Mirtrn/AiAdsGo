@@ -19,6 +19,11 @@ import { isBackgroundTaskType } from './task-category'
 import { logger } from '@/lib/structured-logger'
 import { runWithLogContext } from '@/lib/log-context'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import {
+  assertUserExecutionAllowed,
+  isUserExecutionSuspendedError,
+  USER_EXECUTION_SUSPENDED_ERROR_CODE,
+} from '@/lib/user-execution-eligibility'
 
 function getPositiveIntFromEnv(key: string, fallback: number): number {
   const raw = process.env[key]
@@ -670,6 +675,11 @@ export class UnifiedQueueManager {
       })
 
       try {
+      // 用户执行资格门禁：禁用/过期用户任务直接终止，避免继续消耗资源
+      await assertUserExecutionAllowed(task.userId, {
+        source: `queue:${task.type}:${task.id}`,
+      })
+
       // 准备代理配置（按需加载）
       // 1. 检查任务类型是否需要代理
       // 2. 如果需要代理，从用户配置中加载
@@ -734,8 +744,10 @@ export class UnifiedQueueManager {
         this.proxyManager.markProxyFailed(task.proxyConfig)
       }
 
+      const isUserSuspended = isUserExecutionSuspendedError(error)
+
       // 判断错误是否可恢复
-      const isRecoverable = this.isRecoverableError(error)
+      const isRecoverable = isUserSuspended ? false : this.isRecoverableError(error)
 
       // 重试逻辑：仅对可恢复的错误执行重试
       const shouldRetry = isRecoverable && (task.retryCount || 0) < (task.maxRetries || 0)
@@ -772,6 +784,16 @@ export class UnifiedQueueManager {
       } else {
         // 不可恢复的错误或超过重试次数，标记为失败
         if (!isRecoverable) {
+          if (isUserSuspended) {
+            logger.warn('queue_task_aborted_user_suspended', {
+              taskId: task.id,
+              taskType: task.type,
+              userId: task.userId,
+              parentRequestId: task.parentRequestId,
+              errorCode: USER_EXECUTION_SUSPENDED_ERROR_CODE,
+              reason: (error as any)?.reason || undefined,
+            })
+          }
           console.log(`⚠️ 不可恢复的错误，不再重试: ${task.id}`)
         }
         // 队列恢复功能已移除，用户可重新提交任务

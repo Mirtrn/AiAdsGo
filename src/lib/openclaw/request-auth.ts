@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { verifyOpenclawGatewayToken } from '@/lib/openclaw/auth'
 import { verifyOpenclawUserToken } from '@/lib/openclaw/tokens'
 import { resolveOpenclawUserFromBinding } from '@/lib/openclaw/bindings'
+import { hasPackageExpired } from '@/lib/user-execution-eligibility'
 
 type ResolvedUser = {
   userId: number
@@ -47,14 +48,15 @@ async function getUserFeatureAccessFlags(userId: number): Promise<UserFeatureAcc
     product_management_enabled?: boolean | number
     strategy_center_enabled?: boolean | number
     is_active: boolean | number
+    package_expires_at: string | null
   }>(
-    'SELECT openclaw_enabled, product_management_enabled, strategy_center_enabled, is_active FROM users WHERE id = ?',
+    'SELECT openclaw_enabled, product_management_enabled, strategy_center_enabled, is_active, package_expires_at FROM users WHERE id = ?',
     [userId]
   )
   if (!user) return null
 
   const isActive = (user.is_active as any) === true || (user.is_active as any) === 1
-  if (!isActive) {
+  if (!isActive || hasPackageExpired(user.package_expires_at, new Date(), { invalidAsExpired: true })) {
     return {
       isActive: false,
       openclawEnabled: false,

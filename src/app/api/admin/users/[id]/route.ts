@@ -8,6 +8,7 @@ import {
   logUserDeleted,
   UserManagementContext,
 } from '@/lib/audit-logger'
+import { clearUserExecutionEligibilityCache } from '@/lib/user-execution-eligibility'
 
 // 获取客户端IP地址
 function getClientIP(request: NextRequest): string {
@@ -178,6 +179,8 @@ export async function PATCH(
 
     // 根据变更类型记录不同的审计日志
     if (changedFields.includes('is_active')) {
+      clearUserExecutionEligibilityCache(userId)
+
       // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型，SQLite返回number类型
       const wasActive = (beforeUser.is_active as any) === true || (beforeUser.is_active as any) === 1
       const isNowActive = (updatedUser.is_active as any) === true || (updatedUser.is_active as any) === 1

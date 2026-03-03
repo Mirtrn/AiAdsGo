@@ -29,6 +29,28 @@ export type TaskType =
   | 'openclaw-affiliate-sync' // 🆕 OpenClaw 联盟成交/佣金快照同步任务
   | 'openclaw-report-send'    // 🆕 OpenClaw 每日报表投递任务
 
+export const ALL_TASK_TYPES: TaskType[] = [
+  'scrape',
+  'ai-analysis',
+  'sync',
+  'backup',
+  'email',
+  'export',
+  'link-check',
+  'cleanup',
+  'offer-extraction',
+  'batch-offer-creation',
+  'ad-creative',
+  'campaign-publish',
+  'click-farm',
+  'url-swap',
+  'openclaw-strategy',
+  'affiliate-product-sync',
+  'openclaw-command',
+  'openclaw-affiliate-sync',
+  'openclaw-report-send',
+]
+
 /**
  * 任务优先级
  */

@@ -11,6 +11,7 @@ import { getAllProxyUrls } from '@/lib/settings';
 import { getProxyIp } from '@/lib/proxy/fetch-proxy-ip';
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry';
 import { maskProxyUrl } from '@/lib/proxy/validate-url';
+import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility';
 
 /**
  * 补点击任务数据结构
@@ -273,6 +274,7 @@ export async function executeClickFarmTask(
   task: Task<ClickFarmTaskData>
 ): Promise<{ success: boolean; traffic: number }> {
   const { taskId, url, refererConfig, scheduledAt, timezone } = task.data;
+  await assertUserExecutionAllowed(task.userId, { source: `click-farm:${task.id}` })
 
   // 关键防线：执行前再次校验 click_farm_tasks 状态，避免“已暂停/已停止任务”残留队列继续记点击
   try {
@@ -354,6 +356,9 @@ export async function executeClickFarmTask(
     }
 
     const proxyAgent = getProxyAgent(proxyAddress)
+
+    // 执行前再次检查，尽快响应用户禁用/过期状态变化
+    await assertUserExecutionAllowed(task.userId, { source: `click-farm:before-request:${task.id}` })
 
     // 🆕 确定Referer
     let referer: string | undefined;

@@ -19,6 +19,7 @@ import {
 } from '../../affiliate-products'
 import { getQueueManagerForTaskType } from '../queue-routing'
 import { isYeahPromosManualSyncOnly } from '../../yeahpromos-session'
+import { buildUserExecutionEligibleSql } from '../../user-execution-eligibility'
 
 const DEFAULT_DELTA_INTERVAL_MINUTES = 6 * 60
 const DEFAULT_FULL_INTERVAL_HOURS = 24
@@ -199,9 +200,8 @@ export class AffiliateProductSyncScheduler {
 
   private async listEligibleUsers(): Promise<number[]> {
     const db = await getDatabase()
-    const whereClause = db.type === 'postgres'
-      ? 'is_active = TRUE AND openclaw_enabled = TRUE'
-      : 'is_active = 1 AND openclaw_enabled = 1'
+    const userEligibleCondition = buildUserExecutionEligibleSql({ dbType: db.type })
+    const whereClause = `${userEligibleCondition} AND ${db.type === 'postgres' ? 'openclaw_enabled = TRUE' : 'openclaw_enabled = 1'}`
 
     const rows = await db.query<{ id: number }>(
       `

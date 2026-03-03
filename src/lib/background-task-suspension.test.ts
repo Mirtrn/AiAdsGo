@@ -50,6 +50,14 @@ describe('background-task-suspension', () => {
     vi.mocked(getBackgroundQueueManager).mockReturnValue(bgQueue as any)
   })
 
+  it('covers all user task types for queue purge', () => {
+    expect(USER_SUSPENDED_TASK_TYPES).toContain('click-farm')
+    expect(USER_SUSPENDED_TASK_TYPES).toContain('url-swap')
+    expect(USER_SUSPENDED_TASK_TYPES).toContain('openclaw-strategy')
+    expect(USER_SUSPENDED_TASK_TYPES).toContain('sync')
+    expect(USER_SUSPENDED_TASK_TYPES).toContain('offer-extraction')
+  })
+
   it('suspendUserBackgroundTasks stops click-farm, disables url-swap, and purges both queues', async () => {
     exec
       .mockResolvedValueOnce({ changes: 2 }) // click-farm
