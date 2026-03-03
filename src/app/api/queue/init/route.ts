@@ -11,7 +11,6 @@ import { NextResponse } from 'next/server'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import { getDatabase } from '@/lib/db'
 import type { QueueConfig } from '@/lib/queue/types'
-import { getDataSyncScheduler } from '@/lib/queue/schedulers/data-sync-scheduler'
 import { getUrlSwapScheduler } from '@/lib/queue/schedulers/url-swap-scheduler'
 import { getAffiliateProductSyncScheduler } from '@/lib/queue/schedulers/affiliate-product-sync-scheduler'
 
@@ -96,7 +95,8 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
       await queue.registerAllExecutorsSafe()
 
       // 启动内置调度器（各调度器内部具备幂等保护）
-      getDataSyncScheduler().start()
+      // 数据同步由独立 scheduler 进程负责，Queue init API 不再启动内置版本
+      console.log('⏭️ Queue init API: 跳过内置数据同步调度器（由独立 scheduler 进程负责）')
       getUrlSwapScheduler().start()
       getAffiliateProductSyncScheduler().start()
 

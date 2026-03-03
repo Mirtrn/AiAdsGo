@@ -4,7 +4,7 @@
  *
  * 功能：
  * 1. 每小时执行补点击任务（迁移到统一队列系统）
- * 2. 每6小时同步Google Ads数据
+ * 2. 每5分钟检查一次，按用户配置间隔同步Google Ads数据
  * 3. 每天凌晨2点备份数据库
  * 4. 每天凌晨3点清理90天前的数据
  * 5. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
@@ -18,6 +18,8 @@ import { getQueueManagerForTaskType } from './lib/queue/queue-routing'
 import { getOpenclawSettingsMap } from './lib/openclaw/settings'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
+import { getUserAuthType, getGoogleAdsCredentials } from './lib/google-ads-oauth'
+import { getServiceAccountConfig } from './lib/google-ads-service-account'
 import { resolveBackupDir } from './lib/backup'
 import { buildUserExecutionEligibleSql } from './lib/user-execution-eligibility'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
@@ -108,6 +110,63 @@ function normalizeDateKey(value: unknown): string {
 }
 
 const openclawStrategySchedules = new Map<number, { cron: string; task: cron.ScheduledTask }>()
+let syncDataTaskRunning = false
+
+async function getUsersWithActiveSyncTasks(): Promise<Set<number>> {
+  const userIds = new Set<number>()
+  try {
+    const queue = getQueueManagerForTaskType('sync')
+    await queue.ensureInitialized()
+
+    const [pendingTasks, runningTasks] = await Promise.all([
+      queue.getPendingTasks(),
+      queue.getRunningTasks(),
+    ])
+
+    for (const task of [...pendingTasks, ...runningTasks]) {
+      if (task.type !== 'sync') continue
+      userIds.add(Number(task.userId))
+    }
+  } catch (error) {
+    logError('⚠️ 读取同步队列状态失败（将继续按时间窗口触发）:', error)
+  }
+  return userIds
+}
+
+async function hasValidSyncCredentials(userId: number): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const auth = await getUserAuthType(userId)
+    if (auth.authType === 'oauth') {
+      const credentials = await getGoogleAdsCredentials(userId)
+      if (!credentials) {
+        return { ok: false, reason: '未配置OAuth凭证（需完成Google Ads OAuth授权）' }
+      }
+      if (!credentials.refresh_token) {
+        return { ok: false, reason: '缺少refresh_token（需重新完成OAuth授权）' }
+      }
+      if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+        return { ok: false, reason: '缺少必需OAuth参数（client_id/client_secret/developer_token）' }
+      }
+      return { ok: true }
+    }
+
+    const serviceAccount = await getServiceAccountConfig(userId, auth.serviceAccountId)
+    if (!serviceAccount) {
+      return { ok: false, reason: '未配置服务账号（需上传服务账号JSON文件）' }
+    }
+    if (
+      !serviceAccount.mccCustomerId
+      || !serviceAccount.developerToken
+      || !serviceAccount.serviceAccountEmail
+      || !serviceAccount.privateKey
+    ) {
+      return { ok: false, reason: '服务账号配置不完整（缺少必需参数）' }
+    }
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, reason: `凭证验证失败: ${error?.message || String(error)}` }
+  }
+}
 
 async function enqueueOpenclawStrategy(userId: number, mode: string) {
   try {
@@ -222,6 +281,7 @@ async function syncDataTask() {
   try {
     // 获取所有活跃用户及其同步配置
     // 🔥 修复（2025-12-13）：只选择配置了Google Ads凭证（refresh_token）的用户
+    // 🔧 修复（2026-03-03）：优先读取 data_sync_interval_hours，兼容旧键 sync_interval_hours
     const activeUsers = await db.query<{
       id: number
       username: string
@@ -233,28 +293,69 @@ async function syncDataTask() {
         u.id,
         u.username,
         u.email,
-        ss.value as sync_interval_hours,
-        (SELECT MAX(started_at) FROM sync_logs WHERE user_id = u.id AND status = 'success') as last_sync_at
+        COALESCE(
+          (
+            SELECT value
+            FROM system_settings ss_interval_new
+            WHERE ss_interval_new.user_id = u.id
+              AND ss_interval_new.category = 'system'
+              AND ss_interval_new.key = 'data_sync_interval_hours'
+            LIMIT 1
+          ),
+          (
+            SELECT value
+            FROM system_settings ss_interval_legacy
+            WHERE ss_interval_legacy.user_id = u.id
+              AND ss_interval_legacy.category = 'system'
+              AND ss_interval_legacy.key = 'sync_interval_hours'
+            LIMIT 1
+          ),
+          '6'
+        ) as sync_interval_hours,
+        (
+          SELECT MAX(started_at)
+          FROM sync_logs
+          WHERE user_id = u.id
+            AND sync_type = 'auto'
+        ) as last_sync_at
       FROM users u
       INNER JOIN google_ads_accounts ga ON u.id = ga.user_id
-      LEFT JOIN system_settings ss ON ss.user_id = u.id
-        AND ss.category = 'system'
-        AND ss.key = 'sync_interval_hours'
       WHERE ${userEligibleCondition}
         AND ga.is_active = ?
-        AND ga.refresh_token IS NOT NULL
-        AND ga.refresh_token != ''
+        AND COALESCE(
+          LOWER(TRIM((
+            SELECT value
+            FROM system_settings ss_enabled
+            WHERE ss_enabled.user_id = u.id
+              AND ss_enabled.category = 'system'
+              AND ss_enabled.key = 'data_sync_enabled'
+            LIMIT 1
+          ))),
+          'true'
+        ) IN ('true', '1', 'yes', 'on')
     `, [true])
 
     log(`找到 ${activeUsers.length} 个活跃用户`)
 
     const now = new Date()
     let queuedCount = 0
+    const usersWithActiveSyncTasks = await getUsersWithActiveSyncTasks()
+    if (usersWithActiveSyncTasks.size > 0) {
+      log(`⏭️ 当前有 ${usersWithActiveSyncTasks.size} 个用户存在进行中的同步任务，将跳过重复入队`)
+    }
 
     // 🔄 为每个用户检查是否需要同步
     for (const user of activeUsers) {
+      if (usersWithActiveSyncTasks.has(user.id)) {
+        log(`⏭️ 用户 ${user.username} 跳过同步（队列中已有 pending/running sync 任务）`)
+        continue
+      }
+
       // 获取用户配置的同步间隔（默认6小时）
-      const syncIntervalHours = parseInt(user.sync_interval_hours || '6', 10)
+      const parsedInterval = parseInt(String(user.sync_interval_hours || '6'), 10)
+      const syncIntervalHours = Number.isFinite(parsedInterval) && parsedInterval > 0
+        ? parsedInterval
+        : 6
 
       // 检查是否需要同步（距离上次同步超过配置的间隔）
       if (user.last_sync_at) {
@@ -265,6 +366,12 @@ async function syncDataTask() {
           log(`⏭️ 用户 ${user.username} 跳过同步（距上次同步 ${hoursSinceLastSync.toFixed(1)} 小时，配置间隔 ${syncIntervalHours} 小时）`)
           continue
         }
+      }
+
+      const credentialCheck = await hasValidSyncCredentials(user.id)
+      if (!credentialCheck.ok) {
+        log(`⏭️ 用户 ${user.username} 跳过同步（${credentialCheck.reason || '凭证不可用'}）`)
+        continue
       }
 
       try {
@@ -287,6 +394,20 @@ async function syncDataTask() {
     log(`📊 数据同步任务入队完成 - 已入队: ${queuedCount}/${activeUsers.length}`)
   } catch (error) {
     logError('❌ 数据同步任务执行失败:', error)
+  }
+}
+
+async function runSyncDataTaskSafely(trigger: 'cron' | 'startup') {
+  if (syncDataTaskRunning) {
+    log(`⏭️ 数据同步检查仍在执行，跳过本轮 (${trigger})`)
+    return
+  }
+
+  syncDataTaskRunning = true
+  try {
+    await syncDataTask()
+  } finally {
+    syncDataTaskRunning = false
   }
 }
 
@@ -813,7 +934,7 @@ function startScheduler() {
   log('🚀 定时任务调度器启动')
   log('📅 任务调度计划:')
   log('  - 补点击任务: 每小时整点 (0 * * * *)')
-  log('  - 数据同步: 每6小时 (0, 6, 12, 18点)')
+  log('  - 数据同步: 每5分钟检查，按用户间隔触发（默认6小时）')
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 创意发布超时检查: 默认每30分钟')
@@ -836,13 +957,15 @@ function startScheduler() {
     // 每个任务的执行时间范围由其自身的 timezone 配置决定
   })
 
-  // 任务1: 每6小时同步数据 (0, 6, 12, 18点)
-  cron.schedule('0 */6 * * *', async () => {
-    await syncDataTask()
+  // 任务1: 高频检查 + 按用户间隔触发同步（避免固定整点导致的延迟）
+  const dataSyncCheckCron = process.env.DATA_SYNC_CHECK_CRON || '*/5 * * * *'
+  cron.schedule(dataSyncCheckCron, async () => {
+    await runSyncDataTaskSafely('cron')
   }, {
     scheduled: true,
     timezone: 'Asia/Shanghai' // 使用中国时区
   })
+  log(`✅ 数据同步检查任务已启动 (cron: ${dataSyncCheckCron})`)
 
   // 任务2: 每天凌晨2点备份数据库
   cron.schedule('0 2 * * *', async () => {
@@ -985,7 +1108,7 @@ function startScheduler() {
   // 启动时立即执行一次数据同步（可选）
   if (process.env.RUN_SYNC_ON_START === 'true') {
     log('🔄 启动时立即执行数据同步...')
-    syncDataTask().catch((error) => {
+    runSyncDataTaskSafely('startup').catch((error) => {
       logError('启动同步失败:', error)
     })
   }

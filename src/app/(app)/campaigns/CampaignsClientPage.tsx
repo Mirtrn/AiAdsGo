@@ -390,6 +390,7 @@ export default function CampaignsClientPage({
     ...(stackedCostMetrics.length > 0
       ? stackedCostMetrics
       : [fallbackCostMetric]),
+    { key: 'commission', label: `佣金(${trendsCurrencyValue})`, color: 'hsl(280, 87%, 65%)', formatter: (v: number) => formatTrendsMoney(v), yAxisId: 'left', chartType: 'bar' },
     { key: 'avgCpc', label: `CPC(${trendsCurrencyValue})`, color: 'hsl(45, 93%, 47%)', formatter: (v: number) => formatTrendsMoney(v), yAxisId: 'right', chartType: 'line' },
     { key: 'roas', label: 'ROAS', color: 'hsl(221, 83%, 53%)', formatter: (v: number) => `${Number(v || 0).toFixed(2)}x`, yAxisId: 'right', chartType: 'line' },
   ]
@@ -2455,7 +2456,7 @@ export default function CampaignsClientPage({
                 data={trendsData}
                 metrics={costTrendMetrics}
                 title="成本趋势"
-                description={`花费按原币种堆叠(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
+                description={`花费按原币种堆叠 + 佣金统一折算(${trendsCurrencyValue})(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={() => void fetchTrends()}
@@ -2678,14 +2679,14 @@ export default function CampaignsClientPage({
                         />
                       </TableHead>
                       <SortableHeader field="campaignName" className="w-[300px] whitespace-nowrap">系列名称</SortableHeader>
-                      <TableHead className="w-[160px] whitespace-nowrap">关联Ads账号</TableHead>
+                      <TableHead className="w-[112px] whitespace-nowrap">关联Ads账号</TableHead>
                       <SortableHeader field="budgetAmount" className="w-[86px] whitespace-nowrap">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
                       <SortableHeader field="ctr" className="w-[56px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap !px-0.5">CPC(行币种)</SortableHeader>
-                      <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap !px-0.5">佣金(行币种)</SortableHeader>
-                      <SortableHeader field="cost" className="w-[94px] whitespace-nowrap !px-0.5">花费(行币种)</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
+                      <SortableHeader field="cost" className="w-[94px] whitespace-nowrap !px-0.5">花费</SortableHeader>
                       <SortableHeader field="roas" className="w-[62px] whitespace-nowrap !px-0.5">ROAS</SortableHeader>
                       <SortableHeader field="status" className="w-[78px] whitespace-nowrap">投放状态</SortableHeader>
                       <SortableHeader field="servingStartDate" className="w-[74px] whitespace-nowrap">投放日期</SortableHeader>
@@ -3080,7 +3081,7 @@ export default function CampaignsClientPage({
               data={trendsData}
               metrics={costTrendMetrics}
               title="成本趋势"
-              description={`花费按原币种堆叠(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
+              description={`花费按原币种堆叠 + 佣金统一折算(${trendsCurrencyValue})(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
               loading={trendsLoading}
               error={trendsError}
               onRetry={() => void fetchTrends()}

@@ -20,7 +20,6 @@ import { registerAllExecutors } from './executors'
 import { NODE_ENV, REDIS_PREFIX_CONFIG } from '../config'
 import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
-import { getDataSyncScheduler } from './schedulers/data-sync-scheduler'
 import { getUrlSwapScheduler } from './schedulers/url-swap-scheduler'
 import { getAffiliateProductSyncScheduler } from './schedulers/affiliate-product-sync-scheduler'
 import { getQueueRoutingDiagnostics } from './queue-routing'
@@ -84,9 +83,8 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     // 启动队列处理循环
     await queue.start()
 
-    // 🔄 启动内置的数据同步调度器（替代外部crontab）
-    const syncScheduler = getDataSyncScheduler()
-    syncScheduler.start()
+    // 数据同步由独立 scheduler 进程负责，队列初始化阶段不再启动内置数据同步调度器
+    console.log('⏭️ 跳过内置数据同步调度器（由独立 scheduler 进程负责）')
 
     // 🔄 启动内置的URL Swap调度器（替代外部crontab）
     const urlSwapScheduler = getUrlSwapScheduler()
@@ -98,7 +96,6 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
 
     console.log('✅ 统一队列系统已启动')
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
-    console.log('🔄 数据同步调度器已集成启动')
     console.log('🔄 URL Swap调度器已集成启动')
     console.log('🔄 联盟商品同步调度器已集成启动')
 
@@ -123,10 +120,6 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
 export async function shutdownQueue() {
   try {
     console.log('⏹️ 关闭队列系统...')
-
-    // 停止数据同步调度器
-    const syncScheduler = getDataSyncScheduler()
-    syncScheduler.stop()
 
     // 停止URL Swap调度器
     const urlSwapScheduler = getUrlSwapScheduler()

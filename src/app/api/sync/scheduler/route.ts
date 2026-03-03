@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { syncScheduler } from '@/lib/sync-scheduler'
+
+const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000
 
 /**
  * GET /api/sync/scheduler
  *
- * Get scheduler status
- * Requires admin privileges (future enhancement)
+ * 获取数据同步调度状态（统一调度模式）
+ * 说明：数据同步由独立 scheduler 进程统一负责，不再通过本API启动/停止
  */
 export async function GET(request: NextRequest) {
   try {
-    // Validate user (basic auth for now)
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const status = syncScheduler.getStatus()
+    const status = {
+      isRunning: true,
+      checkIntervalMs: DEFAULT_CHECK_INTERVAL_MS,
+      enabled: true,
+      mode: 'external_scheduler_process',
+      details: '由独立 scheduler 进程执行（src/scheduler.ts）',
+    }
 
     return NextResponse.json({
       success: true,
@@ -34,42 +40,20 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/sync/scheduler
  *
- * Control scheduler (start/stop)
- * Requires admin privileges (future enhancement)
- *
- * Body: { action: 'start' | 'stop' }
+ * 兼容保留：不再支持通过 API 启停遗留调度器
  */
 export async function POST(request: NextRequest) {
   try {
-    // Validate user (basic auth for now)
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { action } = body
-
-    if (!action || !['start', 'stop'].includes(action)) {
-      return NextResponse.json(
-        { error: 'action必须是start或stop' },
-        { status: 400 }
-      )
-    }
-
-    if (action === 'start') {
-      syncScheduler.start()
-    } else {
-      syncScheduler.stop()
-    }
-
-    const status = syncScheduler.getStatus()
-
     return NextResponse.json({
-      success: true,
-      status,
-      message: `调度器已${action === 'start' ? '启动' : '停止'}`,
-    })
+      success: false,
+      error: '该接口不再支持启停调度器；请通过独立 scheduler 进程（supervisord）管理',
+      mode: 'external_scheduler_process',
+    }, { status: 409 })
   } catch (error: any) {
     console.error('Control scheduler error:', error)
     return NextResponse.json(

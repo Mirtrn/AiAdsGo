@@ -337,10 +337,5 @@ export const syncScheduler = SyncScheduler.getInstance()
  * Initialize scheduler on server startup (call this in your server entry point)
  */
 export function initializeSyncScheduler() {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('🔧 Sync scheduler disabled in development mode')
-    return
-  }
-
-  syncScheduler.start()
+  console.log('⏭️ initializeSyncScheduler 已废弃：数据同步由独立 scheduler 进程统一负责')
 }
