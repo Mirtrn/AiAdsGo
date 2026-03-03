@@ -21,29 +21,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import dynamic from 'next/dynamic'
 import { SortableTableHead } from '@/components/SortableTableHead'
-import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
-import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, Wand2 } from 'lucide-react'
+import { usePagination } from '@/hooks/usePagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { getScrapeStatusLabel } from '@/lib/i18n-constants'
 import { showError, showInfo, showSuccess } from '@/lib/toast-utils'
 import type { OfferListItem, UnlinkTarget } from './types'
@@ -87,6 +71,18 @@ const DeleteOfferConfirmDialog = dynamic(() => import('@/components/DeleteOfferC
 const ClickFarmTaskModal = dynamic(() => import('@/components/ClickFarmTaskModal'), { ssr: false })
 const UrlSwapTaskModal = dynamic(() => import('@/components/UrlSwapTaskModal'), { ssr: false })
 const OffersActionDialogs = dynamic(() => import('./OffersActionDialogs'), { ssr: false })
+const NoOffersStateDynamic = dynamic(
+  () => import('@/components/ui/empty-state').then((mod) => mod.NoOffersState),
+  { ssr: false }
+)
+const NoResultsStateDynamic = dynamic(
+  () => import('@/components/ui/empty-state').then((mod) => mod.NoResultsState),
+  { ssr: false }
+)
+const ResponsiveActionCell = dynamic(
+  () => import('@/components/ui/table-action-buttons').then((mod) => mod.ResponsiveActionCell),
+  { ssr: false }
+)
 
 export default function OffersClientPage({
   offersIncrementalPollEnabled = false,
@@ -1193,7 +1189,6 @@ export default function OffersClientPage({
                         : '为每个Offer生成下一步创意类型（A→B→D），每次最多1个/Offer'
                     }
                   >
-                    <Wand2 className="w-4 h-4 mr-2" />
                     批量创建广告创意 ({selectedOfferIds.size})
                   </Button>
 
@@ -1206,7 +1201,6 @@ export default function OffersClientPage({
                     }}
                     className="flex-shrink-0"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
                     删除 ({selectedOfferIds.size})
                   </Button>
                 </>
@@ -1216,32 +1210,20 @@ export default function OffersClientPage({
                 onClick={() => setIsCreateModalOpen(true)}
                 className="flex-1 sm:flex-none"
               >
-                <Plus className="w-4 h-4 mr-2" />
                 创建
               </Button>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="hidden sm:flex">
-                    <MoreHorizontal className="w-4 h-4 mr-2" />
-                    更多操作
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleExport} disabled={totalItems === 0}>
-                    <Download className="w-4 h-4 mr-2" />
-                    导出Offer
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => window.open('/api/offers/batch-template')}>
-                    <FileDown className="w-4 h-4 mr-2" />
-                    下载模板
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push('/offers/batch')}>
-                    <Upload className="w-4 h-4 mr-2" />
-                    导入Offer
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="hidden sm:flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleExport} disabled={totalItems === 0}>
+                  导出Offer
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => window.open('/api/offers/batch-template')}>
+                  下载模板
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => router.push('/offers/batch')}>
+                  导入Offer
+                </Button>
+              </div>
 
               {/* 移动端显示的简化按钮 */}
               <div className="flex sm:hidden w-full gap-2">
@@ -1275,46 +1257,43 @@ export default function OffersClientPage({
             <div className="flex flex-col lg:flex-row gap-4">
               {/* 搜索框 */}
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   type="text"
                   placeholder="搜索品牌名称、Offer ID、Offer标识、URL..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="pl-3"
                 />
               </div>
 
               {/* 筛选器组 */}
               <div className="flex gap-3 overflow-x-auto pb-1 lg:pb-0">
                 {/* 国家筛选 */}
-                <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="所有国家" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">所有国家</SelectItem>
-                    {uniqueCountries.map((country) => (
-                      <SelectItem key={country} value={country}>
-                        {country}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <select
+                  value={countryFilter}
+                  onChange={(event) => setCountryFilter(event.target.value)}
+                  className="h-10 w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="all">所有国家</option>
+                  {uniqueCountries.map((country) => (
+                    <option key={country} value={country}>
+                      {country}
+                    </option>
+                  ))}
+                </select>
 
                 {/* 状态筛选 */}
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="所有状态" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">所有状态</SelectItem>
-                    <SelectItem value="pending">{getScrapeStatusLabel('pending')}</SelectItem>
-                    <SelectItem value="in_progress">{getScrapeStatusLabel('in_progress')}</SelectItem>
-                    <SelectItem value="completed">{getScrapeStatusLabel('completed')}</SelectItem>
-                    <SelectItem value="failed">{getScrapeStatusLabel('failed')}</SelectItem>
-                  </SelectContent>
-                </Select>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="h-10 w-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="all">所有状态</option>
+                  <option value="pending">{getScrapeStatusLabel('pending')}</option>
+                  <option value="in_progress">{getScrapeStatusLabel('in_progress')}</option>
+                  <option value="completed">{getScrapeStatusLabel('completed')}</option>
+                  <option value="failed">{getScrapeStatusLabel('failed')}</option>
+                </select>
               </div>
             </div>
 
@@ -1375,9 +1354,9 @@ export default function OffersClientPage({
         {/* P2-7: 统一空状态 */}
         {filteredOffers.length === 0 ? (
           totalItems === 0 && !hasActiveFilters ? (
-            <NoOffersState onAction={() => setIsCreateModalOpen(true)} />
+            <NoOffersStateDynamic onAction={() => setIsCreateModalOpen(true)} />
           ) : (
-            <NoResultsState />
+            <NoResultsStateDynamic />
           )
         ) : (
           /* 统一使用表格视图 */
@@ -1487,11 +1466,11 @@ export default function OffersClientPage({
                                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
                               >
                                 {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
-                                <ExternalLink className="w-3 h-3" />
+                                <span aria-hidden className="text-xs">↗</span>
                               </a>
                               {offer.isBlacklisted && (
                                 <span title="该品牌+国家组合已拉黑投放">
-                                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                                  <span className="text-xs font-semibold text-orange-500" aria-hidden>⚠</span>
                                 </span>
                               )}
                             </div>
@@ -1546,7 +1525,7 @@ export default function OffersClientPage({
                                       className="text-gray-400 hover:text-red-600 transition-colors"
                                       title="解除关联"
                                     >
-                                      <Unlink className="w-3 h-3" />
+                                      <span className="text-xs font-semibold" aria-hidden>×</span>
                                     </button>
                                   </div>
                                 ))}
@@ -1559,7 +1538,7 @@ export default function OffersClientPage({
                         <TableCell className="whitespace-nowrap">
                           <ResponsiveActionCell
                             primaryAction={{
-                              icon: <Rocket className="w-3.5 h-3.5" />,
+                              icon: <span className="text-[10px] font-semibold">GO</span>,
                               label: '发布广告',
                               href: `/offers/${offer.id}/launch`,  // 🔥 2026-01-05: 使用href打开新标签页
                               target: '_blank',
@@ -1568,7 +1547,7 @@ export default function OffersClientPage({
                             }}
                             secondaryActions={[
                               {
-                                icon: <DollarSign className="w-4 h-4 text-gray-500" />,
+                                icon: <span className="text-[10px] font-semibold text-gray-500">CPC</span>,
                                 label: '调整CPC',
                                 onClick: () => {
                                   setSelectedOfferForCpc(offer)
@@ -1580,7 +1559,7 @@ export default function OffersClientPage({
                                   : undefined,
                               },
                               {
-                                icon: <BarChart3 className="w-4 h-4 text-gray-500" />,
+                                icon: <span className="text-[10px] font-semibold text-gray-500">ROI</span>,
                                 label: '投放分析',
                                 onClick: () => {
                                   setSelectedOfferForScore(offer)
@@ -1588,7 +1567,7 @@ export default function OffersClientPage({
                                 },
                               },
                               {
-                                icon: <MousePointerClick className="w-4 h-4 text-gray-500" />,
+                                icon: <span className="text-[10px] font-semibold text-gray-500">CLK</span>,
                                 label: '补点击任务',
                                 onClick: async () => {
                                   setClickFarmLoading(true)
@@ -1613,7 +1592,7 @@ export default function OffersClientPage({
                                 disabled: clickFarmLoading,
                               },
                               {
-                                icon: <Link2 className="w-4 h-4 text-gray-500" />,
+                                icon: <span className="text-[10px] font-semibold text-gray-500">URL</span>,
                                 label: '换链接任务',
                                 onClick: async () => {
                                   setUrlSwapLoading(true)
@@ -1640,7 +1619,7 @@ export default function OffersClientPage({
                                 disabled: urlSwapLoading || !offer.linkedAccounts?.length,
                               },
                               {
-                                icon: <XCircle className="w-4 h-4" />,
+                                icon: <span className="text-[10px] font-semibold">BL</span>,
                                 label: offer.isBlacklisted ? '取消拉黑' : '拉黑投放',
                                 onClick: () => {
                                   setOfferToBlacklist(offer)
@@ -1651,7 +1630,7 @@ export default function OffersClientPage({
                                 className: offer.isBlacklisted ? 'text-green-600' : 'text-orange-600',
                               },
                               {
-                                icon: <Trash2 className="w-4 h-4" />,
+                                icon: <span className="text-[10px] font-semibold">DEL</span>,
                                 label: '删除Offer',
                                 onClick: () => {
                                   setOfferToDelete(offer)
