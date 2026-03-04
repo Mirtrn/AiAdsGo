@@ -40,6 +40,7 @@ export type AffiliateProduct = {
   user_id: number
   platform: AffiliatePlatform
   mid: string
+  merchant_id?: string | null
   asin: string | null
   brand: string | null
   product_name: string | null
@@ -95,6 +96,7 @@ export type AffiliateProductListItem = {
 type NormalizedAffiliateProduct = {
   platform: AffiliatePlatform
   mid: string
+  merchantId?: string | null
   asin: string | null
   brand: string | null
   productName: string | null
@@ -353,6 +355,9 @@ const AFFILIATE_YP_ACCESS_PRODUCTS_UPDATED_AT_KEY = 'affiliate_yp_access_product
 
 type PartnerboostProduct = {
   product_id?: string
+  brand_id?: string | number
+  brandId?: string | number
+  bid?: string | number
   product_name?: string
   asin?: string
   brand_name?: string
@@ -2690,10 +2695,20 @@ async function fetchPartnerboostPromotableProductsWithMeta(
       ?? item.rating_count
       ?? item.ratings_total
     )
+    const merchantId = normalizeUrl(
+      typeof item.brand_id === 'string' || typeof item.brand_id === 'number'
+        ? String(item.brand_id)
+        : typeof item.brandId === 'string' || typeof item.brandId === 'number'
+            ? String(item.brandId)
+            : typeof item.bid === 'string' || typeof item.bid === 'number'
+                ? String(item.bid)
+                : ''
+    )
 
     normalized.push({
       platform: 'partnerboost',
       mid,
+      merchantId,
       asin: normalizeUrl(item.asin),
       brand: normalizeUrl(item.brand_name),
       productName: normalizeUrl(item.product_name),
@@ -3612,6 +3627,7 @@ function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): Normaliz
 
     const merged: NormalizedAffiliateProduct = {
       ...existing,
+      merchantId: existing.merchantId || item.merchantId || null,
       asin: existing.asin || item.asin,
       brand: existing.brand || item.brand,
       productName: existing.productName || item.productName,
@@ -3850,6 +3866,7 @@ function buildAffiliateProductsUpsertValues(params: {
       params.userId,
       params.platform,
       item.mid,
+      item.merchantId || null,
       item.asin,
       item.brand,
       item.productName,
@@ -3880,7 +3897,7 @@ async function upsertAffiliateProductsChunkOnConflict(params: {
 }): Promise<void> {
   if (params.items.length === 0) return
 
-  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
   const values = buildAffiliateProductsUpsertValues(params)
 
@@ -3889,6 +3906,7 @@ async function upsertAffiliateProductsChunkOnConflict(params: {
       user_id,
       platform,
       mid,
+      merchant_id,
       asin,
       brand,
       product_name,
@@ -3908,6 +3926,7 @@ async function upsertAffiliateProductsChunkOnConflict(params: {
     )
     VALUES ${placeholders}
     ON CONFLICT (user_id, platform, mid) DO UPDATE SET
+      merchant_id = EXCLUDED.merchant_id,
       asin = EXCLUDED.asin,
       brand = EXCLUDED.brand,
       product_name = EXCLUDED.product_name,
@@ -3936,12 +3955,13 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
 }): Promise<void> {
   if (params.items.length === 0) return
 
-  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
   const incomingColumns = `
     user_id,
     platform,
     mid,
+    merchant_id,
     asin,
     brand,
     product_name,
@@ -3963,6 +3983,7 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     v.user_id::integer AS user_id,
     v.platform::text AS platform,
     v.mid::text AS mid,
+    v.merchant_id::text AS merchant_id,
     v.asin::text AS asin,
     v.brand::text AS brand,
     v.product_name::text AS product_name,
@@ -3993,6 +4014,7 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     ${incomingCte}
     UPDATE affiliate_products p
     SET
+      merchant_id = incoming.merchant_id,
       asin = incoming.asin,
       brand = incoming.brand,
       product_name = incoming.product_name,
@@ -4021,6 +4043,7 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       user_id,
       platform,
       mid,
+      merchant_id,
       asin,
       brand,
       product_name,
@@ -4042,6 +4065,7 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       incoming.user_id,
       incoming.platform,
       incoming.mid,
+      incoming.merchant_id,
       incoming.asin,
       incoming.brand,
       incoming.product_name,
@@ -4300,15 +4324,28 @@ function appendDateRangeWhere(params: {
   to?: string | null
 }): void {
   const { from, to } = normalizeDateRangeBounds({ from: params.from, to: params.to })
+  const toDayStartSql = (ymd: string): string => `${ymd} 00:00:00`
+  const addDaysToYmd = (ymd: string, days: number): string | null => {
+    const parsed = new Date(`${ymd}T00:00:00.000Z`)
+    if (Number.isNaN(parsed.getTime())) return null
+    parsed.setUTCDate(parsed.getUTCDate() + days)
+    return parsed.toISOString().slice(0, 10)
+  }
 
   if (from) {
-    params.whereConditions.push(`DATE(${params.columnSql}) >= ?`)
-    params.whereParams.push(from)
+    params.whereConditions.push(`${params.columnSql} >= ?`)
+    params.whereParams.push(toDayStartSql(from))
   }
 
   if (to) {
-    params.whereConditions.push(`DATE(${params.columnSql}) <= ?`)
-    params.whereParams.push(to)
+    const exclusiveEnd = addDaysToYmd(to, 1)
+    if (exclusiveEnd) {
+      params.whereConditions.push(`${params.columnSql} < ?`)
+      params.whereParams.push(toDayStartSql(exclusiveEnd))
+    } else {
+      params.whereConditions.push(`${params.columnSql} <= ?`)
+      params.whereParams.push(`${to} 23:59:59.999`)
+    }
   }
 }
 
@@ -4383,6 +4420,41 @@ function parseDateToTimestamp(input: string | null): number | null {
 function isMissingTableError(error: unknown): boolean {
   const message = String((error as any)?.message || '').toLowerCase()
   return /(no such table|does not exist)/i.test(message)
+}
+
+const affiliateProductsMerchantIdColumnAvailability: Partial<Record<'sqlite' | 'postgres', boolean>> = {}
+
+async function hasAffiliateProductsMerchantIdColumn(db: DatabaseAdapter): Promise<boolean> {
+  const cached = affiliateProductsMerchantIdColumnAvailability[db.type]
+  if (typeof cached === 'boolean') {
+    return cached
+  }
+
+  try {
+    if (db.type === 'postgres') {
+      const row = await db.queryOne<{ exists: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'affiliate_products'
+              AND column_name = 'merchant_id'
+          ) AS exists
+        `
+      )
+      const exists = Boolean(row?.exists)
+      affiliateProductsMerchantIdColumnAvailability.postgres = exists
+      return exists
+    }
+
+    const rows = await db.query<{ name: string }>(`PRAGMA table_info(affiliate_products)`)
+    const exists = Array.isArray(rows) && rows.some((row) => String((row as any)?.name || '').toLowerCase() === 'merchant_id')
+    affiliateProductsMerchantIdColumnAvailability.sqlite = exists
+    return exists
+  } catch {
+    return false
+  }
 }
 
 function toHourBucketIso(date: Date): string {
@@ -4501,15 +4573,6 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       WHERE ranked.row_num = 1
     )
   `
-  const productStatusSql = `
-    CASE
-      WHEN ${confirmedInvalidStatusSql} THEN 'invalid'
-      WHEN baseline.baseline_started_at IS NULL THEN 'unknown'
-      WHEN p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 'active'
-      ELSE 'sync_missing'
-    END
-  `
-
   const whereConditions: string[] = ['p.user_id = ?']
   const whereParams: any[] = [userId]
 
@@ -4522,42 +4585,81 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const search = (options.search || '').trim().toLowerCase()
   if (search) {
     const like = `%${search}%`
-    whereConditions.push(`(
-      LOWER(COALESCE(p.mid, '')) LIKE ?
-      OR LOWER(COALESCE(p.asin, '')) LIKE ?
-      OR LOWER(COALESCE(p.product_name, '')) LIKE ?
-      OR LOWER(COALESCE(p.brand, '')) LIKE ?
-    )`)
-    whereParams.push(like, like, like, like)
+    whereConditions.push(`
+      LOWER(
+        COALESCE(p.mid, '')
+        || ' '
+        || COALESCE(p.asin, '')
+        || ' '
+        || COALESCE(p.product_name, '')
+        || ' '
+        || COALESCE(p.brand, '')
+      ) LIKE ?
+    `)
+    whereParams.push(like)
   }
 
-  const mid = (options.mid || '').trim().toLowerCase()
-  if (mid) {
-    const like = `%${mid}%`
-    whereConditions.push(`(
-      (
-        p.platform <> 'partnerboost'
-        AND LOWER(COALESCE(p.mid, '')) LIKE ?
-      )
-      OR (
-        p.platform = 'partnerboost'
-        AND (
-          COALESCE(p.raw_json, '') LIKE ?
-          OR COALESCE(p.raw_json, '') LIKE ?
+  const midRaw = (options.mid || '').trim()
+  const mid = midRaw.toLowerCase()
+  const hasMerchantIdColumn = midRaw
+    ? await hasAffiliateProductsMerchantIdColumn(db)
+    : false
+  if (midRaw) {
+    const prefersPartnerboostMerchantExact = hasMerchantIdColumn && /^\d{5,}$/.test(midRaw)
+
+    if (prefersPartnerboostMerchantExact) {
+      // 典型场景：输入 PartnerBoost 商家ID（纯数字），走 merchant_id 精确匹配避免扫描。
+      whereConditions.push(`(
+        (
+          p.platform = 'partnerboost'
+          AND p.merchant_id = ?
         )
+        OR (
+          p.platform <> 'partnerboost'
+          AND p.mid = ?
+        )
+      )`)
+      whereParams.push(midRaw, midRaw)
+    } else if (hasMerchantIdColumn) {
+      // MID 筛选语义改为“精确匹配”，模糊检索请使用通用 search 输入框。
+      whereConditions.push(`(
+        (
+          p.platform <> 'partnerboost'
+          AND LOWER(p.mid) = ?
+        )
+        OR (
+          p.platform = 'partnerboost'
+          AND LOWER(p.merchant_id) = ?
+        )
+      )`)
+      whereParams.push(mid, mid)
+    } else {
+      // 兼容旧库（尚未执行 merchant_id 迁移）时回退 raw_json 匹配。
+      whereConditions.push(`(
+        (
+          p.platform <> 'partnerboost'
+          AND LOWER(p.mid) = ?
+        )
+        OR (
+          p.platform = 'partnerboost'
+          AND (
+            COALESCE(p.raw_json, '') LIKE ?
+            OR COALESCE(p.raw_json, '') LIKE ?
+          )
+        )
+      )`)
+      whereParams.push(
+        mid,
+        `%\"brand_id\":\"${midRaw}\"%`,
+        `%\"brand_id\":${midRaw}%`
       )
-    )`)
-    whereParams.push(
-      like,
-      `%\"brand_id\":\"%${mid}%\"%`,
-      `%\"brand_id\":%${mid}%`
-    )
+    }
   }
 
   const targetCountryCandidates = resolveProductCountryFilterCandidates(options.targetCountry)
   if (targetCountryCandidates.length > 0) {
     const countryLikeConditions = targetCountryCandidates
-      .map(() => `LOWER(COALESCE(p.allowed_countries_json, '')) LIKE ?`)
+      .map(() => `LOWER(p.allowed_countries_json) LIKE ?`)
       .join(' OR ')
     whereConditions.push(`(${countryLikeConditions})`)
     for (const countryCode of targetCountryCandidates) {
@@ -4615,14 +4717,36 @@ export async function listAffiliateProducts(userId: number, options: ProductList
   const filteredWhereParams = [...whereParams]
 
   if (statusFilter !== 'all') {
-    filteredWhereConditions.push(`${productStatusSql} = ?`)
-    filteredWhereParams.push(statusFilter)
+    if (statusFilter === 'invalid') {
+      filteredWhereConditions.push(confirmedInvalidStatusSql)
+    } else if (statusFilter === 'active') {
+      filteredWhereConditions.push(`
+        baseline.baseline_started_at IS NOT NULL
+        AND p.last_seen_at IS NOT NULL
+        AND p.last_seen_at >= baseline.baseline_started_at
+        AND NOT (${confirmedInvalidStatusSql})
+      `)
+    } else if (statusFilter === 'sync_missing') {
+      filteredWhereConditions.push(`
+        baseline.baseline_started_at IS NOT NULL
+        AND (
+          p.last_seen_at IS NULL
+          OR p.last_seen_at < baseline.baseline_started_at
+        )
+        AND NOT (${confirmedInvalidStatusSql})
+      `)
+    } else {
+      filteredWhereConditions.push(`
+        baseline.baseline_started_at IS NULL
+        AND NOT (${confirmedInvalidStatusSql})
+      `)
+    }
   }
 
   const filteredWhereSql = filteredWhereConditions.join(' AND ')
   const productStatusSelectSql = statusFilter === 'all'
     ? 'NULL AS product_status'
-    : `${productStatusSql} AS product_status`
+    : `'${statusFilter}' AS product_status`
 
   type ProductRowWithDerived = AffiliateProduct & {
     related_offer_count?: number
@@ -5109,7 +5233,8 @@ function mapAffiliateProductRow(
   const merchantId = (() => {
     if (row.platform === 'partnerboost') {
       const partnerboostMerchantId = String(
-        rawJson?.brand_id
+        row.merchant_id
+        ?? rawJson?.brand_id
         ?? rawJson?.brandId
         ?? rawJson?.bid
         ?? ''

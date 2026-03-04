@@ -72,9 +72,9 @@ describe('upsertAffiliateProducts postgres two-phase upsert', () => {
     expect(insertSql).toContain('ON p.user_id = incoming.user_id')
     expect(insertSql).not.toContain('ON p.user_id = incoming.user_id::integer')
 
-    expect(updateParams).toHaveLength(19)
+    expect(updateParams).toHaveLength(20)
     expect(updateParams[0]).toBe(1)
     expect(typeof updateParams[0]).toBe('number')
-    expect(updateParams[10]).toBe(19.99)
+    expect(updateParams[11]).toBe(19.99)
   })
 })
