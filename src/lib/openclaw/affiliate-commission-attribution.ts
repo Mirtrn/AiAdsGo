@@ -1210,6 +1210,7 @@ export async function persistAffiliateCommissionAttributions(params: {
     byOfferId: new Map<number, CampaignTarget[]>(),
   }
   let attributedCommission = 0
+  type NormalizedAttributionEntry = typeof normalizedEntries[number]
 
   const allocateEntryToCampaignTargets = (paramsForAllocation: {
     entry: typeof normalizedEntries[number]
@@ -1360,7 +1361,102 @@ export async function persistAffiliateCommissionAttributions(params: {
     return []
   }
 
-  for (const entry of normalizedEntries) {
+  const getDirectMatchedOfferCount = (entry: NormalizedAttributionEntry): number => {
+    const matchedProductIds = new Set<number>()
+    const matchedProductIdsFromLinkId = new Set<number>()
+
+    if (entry.sourceLinkId) {
+      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
+      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
+        matchedProductIdsFromLinkId.add(productId)
+      }
+    }
+
+    const hasPartnerboostLinkHit = entry.platform === 'partnerboost' && matchedProductIdsFromLinkId.size > 0
+    if (hasPartnerboostLinkHit) {
+      for (const productId of matchedProductIdsFromLinkId) {
+        matchedProductIds.add(productId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.sourceMid) {
+      const key = `${entry.platform}|mid|${entry.sourceMid}`
+      for (const productId of productIdsByPlatformMid.get(key) || []) {
+        matchedProductIds.add(productId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
+      const key = `${entry.platform}|asin|${entry.sourceAsin}`
+      for (const productId of productIdsByPlatformAsin.get(key) || []) {
+        matchedProductIds.add(productId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.sourceLinkId) {
+      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
+      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
+        matchedProductIds.add(productId)
+      }
+    }
+
+    const matchedOfferIds = new Set<number>()
+    for (const productId of matchedProductIds) {
+      for (const offerId of offerLinksByProduct.get(productId) || []) {
+        matchedOfferIds.add(offerId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
+      for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
+        matchedOfferIds.add(offerId)
+      }
+    }
+
+    if (!hasPartnerboostLinkHit && entry.platform === 'partnerboost' && entry.sourceLinkId) {
+      for (const offerId of fallbackOfferIdsByPartnerboostLinkId.get(entry.sourceLinkId) || []) {
+        matchedOfferIds.add(offerId)
+      }
+    }
+
+    return matchedOfferIds.size
+  }
+
+  const entryPriorities = new Map<NormalizedAttributionEntry, {
+    directOfferMatches: number
+    hasOrderId: number
+    commission: number
+    originalIndex: number
+  }>()
+
+  normalizedEntries.forEach((entry, originalIndex) => {
+    entryPriorities.set(entry, {
+      directOfferMatches: getDirectMatchedOfferCount(entry),
+      hasOrderId: normalizeOrderId(entry.sourceOrderId) ? 1 : 0,
+      commission: Number(entry.commission) || 0,
+      originalIndex,
+    })
+  })
+
+  // Prioritize direct offer matches first so runtime fallbacks are seeded before
+  // processing unresolved rows from the same order/mid/asin.
+  const prioritizedEntries = [...normalizedEntries].sort((a, b) => {
+    const priorityA = entryPriorities.get(a)!
+    const priorityB = entryPriorities.get(b)!
+
+    const directOfferDelta = priorityB.directOfferMatches - priorityA.directOfferMatches
+    if (directOfferDelta !== 0) return directOfferDelta
+
+    const orderIdDelta = priorityB.hasOrderId - priorityA.hasOrderId
+    if (orderIdDelta !== 0) return orderIdDelta
+
+    const commissionDelta = priorityB.commission - priorityA.commission
+    if (commissionDelta !== 0) return commissionDelta
+
+    return priorityA.originalIndex - priorityB.originalIndex
+  })
+
+  for (const entry of prioritizedEntries) {
     const matchedProductIds = new Set<number>()
     const matchedProductIdsFromAsin = new Set<number>()
     const matchedProductIdsFromLinkId = new Set<number>()

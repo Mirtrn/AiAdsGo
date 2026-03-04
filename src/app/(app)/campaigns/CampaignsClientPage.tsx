@@ -2339,13 +2339,13 @@ export default function CampaignsClientPage({
                     {summary?.currency !== 'MIXED' ? (
                       <>
                         <p className="text-xs mt-1 text-gray-500">
-                          可归因(原币种): {formatCurrencyDashboard(
+                          可归因: {formatCurrencyDashboard(
                             summaryAttributedCommission,
                             summaryCommissionCurrency
                           )}
                         </p>
                         <p className={`text-xs mt-1 ${summaryUnattributedCommission > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
-                          未归因(原币种): {formatCurrencyDashboard(
+                          未归因: {formatCurrencyDashboard(
                             summaryUnattributedCommission,
                             summaryCommissionCurrency
                           )}

@@ -741,6 +741,93 @@ describe('persistAffiliateCommissionAttributions historical lock', () => {
     expect(failureParams?.[10]).toBe('pending_product_mapping_miss')
   })
 
+  it('uses runtime order fallback when direct-match rows appear later in input', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('source_order_id')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_products')) {
+        return [{ id: 101, mid: '363532', asin: null }]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links')) {
+        return []
+      }
+      if (sql.includes('FROM offers')) {
+        return [
+          {
+            id: 2001,
+            url: 'https://www.amazon.com/dp/B0F2JFTL96',
+            final_url: null,
+            affiliate_link: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            campaign_id: 3001,
+            offer_id: 2001,
+            conversions: 2,
+            clicks: 20,
+            cost: 4,
+          },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 9,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 5.99,
+          sourceOrderId: 'order-runtime-fallback-1',
+          sourceMid: '363532',
+          sourceAsin: 'B07PQYJBM3',
+          raw: { sale_comm: 5.99 },
+        },
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 20.23,
+          sourceOrderId: 'order-runtime-fallback-1',
+          sourceMid: '363532',
+          sourceAsin: 'B0F2JFTL96',
+          raw: { sale_comm: 20.23 },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    expect(result).toEqual({
+      reportDate: today,
+      totalCommission: 26.22,
+      attributedCommission: 26.22,
+      unattributedCommission: 0,
+      attributedOffers: 1,
+      attributedCampaigns: 1,
+      writtenRows: 2,
+    })
+
+    const failureInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO openclaw_affiliate_attribution_failures')
+    )
+    expect(failureInsertCalls).toHaveLength(0)
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(2)
+    const insertedCampaignIds = attributionInsertCalls.map(([, params]) => (params as any[])[7])
+    expect(insertedCampaignIds).toEqual([3001, 3001])
+  })
+
   it('keeps unmatched commission unattributed when no offer match exists', async () => {
     const today = formatLocalYmd(new Date())
 
