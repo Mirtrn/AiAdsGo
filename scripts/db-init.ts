@@ -13,10 +13,40 @@ import { splitSqlStatements } from '../src/lib/sql-splitter';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD;
+const STARTUP_MIGRATION_LOCK_TIMEOUT_MS = parsePositiveInt(
+  process.env.STARTUP_MIGRATION_LOCK_TIMEOUT_MS,
+  5000
+);
+const STARTUP_MIGRATION_STATEMENT_TIMEOUT_MS = parsePositiveInt(
+  process.env.STARTUP_MIGRATION_STATEMENT_TIMEOUT_MS,
+  30000
+);
+const STARTUP_MIGRATION_MAX_DURATION_MS = parsePositiveInt(
+  process.env.STARTUP_MIGRATION_MAX_DURATION_MS,
+  90000
+);
+const STARTUP_MIGRATION_SKIP = parseCsvSet(process.env.STARTUP_MIGRATION_SKIP);
 
 if (!DATABASE_URL) {
   console.error('❌ 错误: DATABASE_URL 环境变量未设置');
   process.exit(1);
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function parseCsvSet(value: string | undefined): Set<string> {
+  if (!value) return new Set();
+  return new Set(
+    value
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean)
+  );
 }
 
 /**
@@ -204,6 +234,7 @@ function isIgnorablePostgresMigrationError(errorMessage: string): boolean {
 }
 
 async function runPendingMigrations(sql: ReturnType<typeof postgres>): Promise<void> {
+  const startedAt = Date.now();
   const possiblePaths = [
     resolve('/app/pg-migrations'),
     resolve(__dirname, '../pg-migrations'),
@@ -258,47 +289,92 @@ async function runPendingMigrations(sql: ReturnType<typeof postgres>): Promise<v
     return;
   }
 
-  console.log(`📦 发现 ${pending.length} 个待执行增量迁移`);
-  for (const item of pending) {
+  console.log(`⏱️  增量迁移执行配置: lock_timeout=${STARTUP_MIGRATION_LOCK_TIMEOUT_MS}ms, statement_timeout=${STARTUP_MIGRATION_STATEMENT_TIMEOUT_MS}ms, budget=${STARTUP_MIGRATION_MAX_DURATION_MS}ms`);
+
+  if (STARTUP_MIGRATION_SKIP.size > 0) {
+    console.log(`⚙️  启动阶段跳过迁移配置: ${Array.from(STARTUP_MIGRATION_SKIP).join(', ')}`);
+  }
+
+  const skipped = pending.filter(item => STARTUP_MIGRATION_SKIP.has(item.file));
+  const pendingToRun = pending.filter(item => !STARTUP_MIGRATION_SKIP.has(item.file));
+
+  if (skipped.length > 0) {
+    console.log(`⏭️  启动阶段跳过 ${skipped.length} 个迁移（由 STARTUP_MIGRATION_SKIP 指定）`);
+    for (const item of skipped) {
+      console.log(`   - ${item.file}`);
+    }
+  }
+
+  if (pendingToRun.length === 0) {
+    console.log('✅ 待执行迁移已全部按策略跳过，启动继续');
+    return;
+  }
+
+  console.log(`📦 发现 ${pendingToRun.length} 个待执行增量迁移`);
+  for (const item of pendingToRun) {
     const reasonLabel = item.reason === 'new' ? 'new' : 'changed';
     console.log(`   - ${item.file} (${reasonLabel})`);
   }
 
-  for (const item of pending) {
+  for (const item of pendingToRun) {
+    const elapsedBeforeRun = Date.now() - startedAt;
+    if (elapsedBeforeRun > STARTUP_MIGRATION_MAX_DURATION_MS) {
+      throw new Error(
+        `启动阶段增量迁移超时（已用时${elapsedBeforeRun}ms，预算${STARTUP_MIGRATION_MAX_DURATION_MS}ms），终止启动`
+      );
+    }
+
     const migrationPath = resolve(migrationsPath, item.file);
     const sqlContent = readFileSync(migrationPath, 'utf8');
     const statements = splitSqlStatements(sqlContent);
 
     console.log(`🔄 执行增量迁移: ${item.file}`);
-    await sql.begin(async tx => {
-      for (const stmt of statements) {
-        const trimmed = stmt.trim();
-        if (!trimmed) continue;
-        try {
-          await tx.savepoint(async sp => {
-            await sp.unsafe(trimmed);
-          });
-        } catch (error: any) {
-          const errorMsg = error?.message ? String(error.message) : String(error);
-          if (isIgnorablePostgresMigrationError(errorMsg)) {
-            console.log(`   ⏭️  跳过幂等语句: ${trimmed.substring(0, 80)}...`);
-            continue;
-          }
-          throw error;
-        }
-      }
+    try {
+      await sql.begin(async tx => {
+        await tx.unsafe(`SET LOCAL lock_timeout = '${STARTUP_MIGRATION_LOCK_TIMEOUT_MS}ms'`);
+        await tx.unsafe(`SET LOCAL statement_timeout = '${STARTUP_MIGRATION_STATEMENT_TIMEOUT_MS}ms'`);
 
-      await tx.unsafe(
-        `
-          INSERT INTO migration_history (migration_name, file_hash, executed_at)
-          VALUES ($1, $2, CURRENT_TIMESTAMP)
-          ON CONFLICT (migration_name) DO UPDATE SET
-            file_hash = EXCLUDED.file_hash,
-            executed_at = CURRENT_TIMESTAMP
-        `,
-        [item.file, item.hash]
-      );
-    });
+        for (const stmt of statements) {
+          const trimmed = stmt.trim();
+          if (!trimmed) continue;
+          try {
+            await tx.savepoint(async sp => {
+              await sp.unsafe(trimmed);
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message ? String(error.message) : String(error);
+            if (isIgnorablePostgresMigrationError(errorMsg)) {
+              console.log(`   ⏭️  跳过幂等语句: ${trimmed.substring(0, 80)}...`);
+              continue;
+            }
+
+            if (errorMsg.includes('canceling statement due to lock timeout')) {
+              throw new Error(`语句触发 lock_timeout(${STARTUP_MIGRATION_LOCK_TIMEOUT_MS}ms): ${trimmed.substring(0, 120)}...`);
+            }
+            if (errorMsg.includes('canceling statement due to statement timeout')) {
+              throw new Error(`语句触发 statement_timeout(${STARTUP_MIGRATION_STATEMENT_TIMEOUT_MS}ms): ${trimmed.substring(0, 120)}...`);
+            }
+
+            throw error;
+          }
+        }
+
+        await tx.unsafe(
+          `
+            INSERT INTO migration_history (migration_name, file_hash, executed_at)
+            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (migration_name) DO UPDATE SET
+              file_hash = EXCLUDED.file_hash,
+              executed_at = CURRENT_TIMESTAMP
+          `,
+          [item.file, item.hash]
+        );
+      });
+    } catch (error: any) {
+      const errorMsg = error?.message ? String(error.message) : String(error);
+      throw new Error(`增量迁移失败: ${item.file}\n${errorMsg}`);
+    }
+
     console.log(`✅ 增量迁移完成: ${item.file}`);
   }
 }
