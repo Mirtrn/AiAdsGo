@@ -307,5 +307,26 @@ describe('keyword-quality-filter', () => {
         'smoothie blender',
       ])
     })
+
+    it('should not treat weight units like "10 kg" as German legal suffix KG', () => {
+      const input = [
+        { keyword: 'midea a3 wärmepumpentrockner 10 kg', searchVolume: 0, source: 'AI_GENERATED' as const },
+        { keyword: 'midea gmbh', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+      ]
+
+      const result = filterKeywordQuality(input, {
+        brandName: 'Midea',
+        category: 'Wärmepumpentrockner',
+        productName: 'Midea MD20EH100WB-A3 Wärmepumpentrockner 10 kg',
+        mustContainBrand: false,
+        minContextTokenMatches: 1,
+      })
+
+      expect(result.filtered.map(k => k.keyword)).toEqual([
+        'midea a3 wärmepumpentrockner 10 kg',
+      ])
+      expect(result.removed.map(r => r.keyword.keyword)).toEqual(['midea gmbh'])
+      expect(result.removed[0]?.reason).toContain('品牌无关词')
+    })
   })
 })

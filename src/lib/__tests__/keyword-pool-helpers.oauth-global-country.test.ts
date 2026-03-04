@@ -52,11 +52,11 @@ describe('keyword-pool-helpers.expandAllKeywords (OAuth global candidates)', () 
       exec: vi.fn(),
       close: vi.fn(),
       query: vi.fn(async (_sql: string, params: any[]) => {
-        const countryParams = params.slice(0, 2)
-        const language = params[2]
-        const hasGb = countryParams.includes('GB')
-        const hasUk = countryParams.includes('UK')
-        if (hasGb && hasUk && language === 'en') {
+        const hasGb = params.includes('GB')
+        const hasUk = params.includes('UK')
+        const hasEn = params.includes('en')
+        const hasEnglish = params.includes('English')
+        if (hasGb && hasUk && (hasEn || hasEnglish)) {
           return [
             {
               keyword: 'hoover vacuum cleaner',
@@ -69,6 +69,19 @@ describe('keyword-pool-helpers.expandAllKeywords (OAuth global candidates)', () 
               search_volume: 1900,
               competition_level: 'MEDIUM',
               avg_cpc_micros: 800000,
+            },
+          ]
+        }
+        const hasDeCountry = params.includes('DE')
+        const hasDe = params.includes('de')
+        const hasGerman = params.includes('German')
+        if (hasDeCountry && hasDe && hasGerman) {
+          return [
+            {
+              keyword: 'midea waschmaschine',
+              search_volume: 2900,
+              competition_level: 'MEDIUM',
+              avg_cpc_micros: 900000,
             },
           ]
         }
@@ -99,6 +112,71 @@ describe('keyword-pool-helpers.expandAllKeywords (OAuth global candidates)', () 
     expect(String(sql)).toContain('country IN (')
     expect(params).toEqual(expect.arrayContaining(['GB', 'UK', 'en']))
     expect(out.map(k => k.keyword)).toContain('hoover vacuum cleaner')
+  })
+
+  it('queries global_keywords with language aliases (de + German) for DE offers', async () => {
+    const { expandAllKeywords } = await import('../keyword-pool-helpers')
+    const initial: PoolKeywordData[] = [{ keyword: 'midea', searchVolume: 0, source: 'TEST', matchType: 'BROAD' }]
+
+    const out = await expandAllKeywords(
+      initial,
+      'Midea',
+      'Waschmaschinen',
+      'DE',
+      'German',
+      'oauth',
+      undefined,
+      51,
+      '1234567890',
+      'refresh-token'
+    )
+
+    expect(mockDb.query).toHaveBeenCalled()
+    const [sql, params] = mockDb.query.mock.calls[0]
+    expect(String(sql)).toContain('language IN (')
+    expect(params).toEqual(expect.arrayContaining(['DE', 'de', 'German']))
+    expect(out.map(k => k.keyword)).toContain('midea waschmaschine')
+  })
+
+  it('sets plannerDecision.volumeUnavailableFromPlanner when planner metrics are unavailable', async () => {
+    mockGetKeywordSearchVolumes.mockResolvedValue([
+      {
+        keyword: 'hoover',
+        avgMonthlySearches: 0,
+        competition: 'UNKNOWN',
+        competitionIndex: 0,
+        lowTopPageBid: 0,
+        highTopPageBid: 0,
+        volumeUnavailableReason: 'DEV_TOKEN_TEST_ONLY',
+      },
+    ])
+
+    const { expandAllKeywords } = await import('../keyword-pool-helpers')
+    const initial: PoolKeywordData[] = [{ keyword: 'hoover', searchVolume: 0, source: 'TEST', matchType: 'BROAD' }]
+    const plannerDecision: { allowNonBrandFromPlanner?: boolean; volumeUnavailableFromPlanner?: boolean } = {}
+
+    await expandAllKeywords(
+      initial,
+      'Hoover',
+      'Vacuum Cleaner',
+      'UK',
+      'English',
+      'oauth',
+      undefined,
+      51,
+      '1234567890',
+      'refresh-token',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      plannerDecision
+    )
+
+    expect(plannerDecision.volumeUnavailableFromPlanner).toBe(true)
   })
 
   it('keeps platform keyword when semantic term matches product URL platform', async () => {

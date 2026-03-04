@@ -34,7 +34,7 @@ import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-cont
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
-import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
+import { getLanguageName, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { DEFAULTS } from './keyword-constants'
 import { parseJsonField, toDbJsonArrayField } from './json-field'
 
@@ -356,6 +356,7 @@ export interface PoolKeywordData {
   source: string
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
   isPureBrand?: boolean   // 🔥 2025-12-29 新增：标记是否为纯品牌词（豁免搜索量过滤）
+  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
 /**
@@ -1022,7 +1023,15 @@ async function hydrateGlobalCoreKeywordSearchVolumes(
 
   try {
     const country = normalizeCountryCode(offer.target_country || 'US')
-    const language = normalizeLanguageCode(offer.target_language || 'en')
+    const languageCode = normalizeLanguageCode(offer.target_language || 'en')
+    const languageName = getLanguageName(languageCode)
+    const languageCandidates = Array.from(
+      new Set(
+        [languageCode, languageName, offer.target_language]
+          .map(value => String(value || '').trim())
+          .filter(Boolean)
+      )
+    )
 
     const keywordMap = new Map<string, PoolKeywordData>()
     for (const kw of keywords) {
@@ -1036,15 +1045,16 @@ async function hydrateGlobalCoreKeywordSearchVolumes(
 
     const db = await getDatabase()
     const placeholders = normalizedKeywords.map(() => '?').join(',')
+    const languagePlaceholders = languageCandidates.map(() => '?').join(',')
     const rows = await db.query(
       `
       SELECT keyword, search_volume, competition_level, avg_cpc_micros, cached_at
       FROM global_keywords
       WHERE keyword IN (${placeholders})
         AND country = ?
-        AND language = ?
+        AND language IN (${languagePlaceholders})
     `,
-      [...normalizedKeywords, country, language]
+      [...normalizedKeywords, country, ...languageCandidates]
     ) as Array<{
       keyword: string
       search_volume: number | null
@@ -3375,7 +3385,10 @@ export async function generateOfferKeywordPool(
     console.warn('⚠️ 无法获取Google Ads凭证，跳过关键词扩展')
   }
 
-  const plannerDecision = { allowNonBrandFromPlanner: allowPlannerNonBrand }
+  const plannerDecision = {
+    allowNonBrandFromPlanner: allowPlannerNonBrand,
+    volumeUnavailableFromPlanner: false,
+  }
   const expandedKeywords = await expandAllKeywords(
     initialKeywords,
     offer.brand,
@@ -3450,7 +3463,11 @@ export async function generateOfferKeywordPool(
 
   // 🔒 有真实搜索量数据时，移除非纯品牌的0搜索量关键词
   const hasAnyVolume = finalFilteredKeywords.some(kw => kw.searchVolume > 0)
-  if (hasAnyVolume) {
+  const volumeUnavailable = plannerDecision.volumeUnavailableFromPlanner || finalFilteredKeywords.some((kw: any) =>
+    kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+    kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+  )
+  if (hasAnyVolume && !volumeUnavailable) {
     const beforeVolumeFilter = finalFilteredKeywords.length
     finalFilteredKeywords = finalFilteredKeywords.filter(kw =>
       kw.searchVolume > 0 || isPureBrandKeywordInternal(kw.keyword, pureBrandKeywordsForFilter)
@@ -3458,6 +3475,8 @@ export async function generateOfferKeywordPool(
     if (beforeVolumeFilter !== finalFilteredKeywords.length) {
       console.log(`📉 搜索量过滤(保留纯品牌): ${beforeVolumeFilter} → ${finalFilteredKeywords.length}`)
     }
+  } else if (hasAnyVolume && volumeUnavailable) {
+    console.log('⚠️ 搜索量数据不可用（Planner 权限受限），跳过非纯品牌 0 搜索量关键词强制移除')
   }
 
   console.log(`📝 最终过滤后关键词数: ${finalFilteredKeywords.length}`)

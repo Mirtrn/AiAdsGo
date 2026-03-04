@@ -420,8 +420,8 @@ export function extractValidBrandTerms(keyword: string, brandName: string): stri
 const BRAND_IRRELEVANT_PATTERNS: RegExp[] = [
   // 意大利语 - 匹配 "word suffix" 格式
   /\b\w+\s+(unito|srl|sa|scarl)\b/i,
-  // 德语
-  /\b\w+\s+(gmbh|ag|kg|mbh)\b/i,
+  // 德语（前置词必须包含字母，避免把 "10 kg" 这类重量单位误判为公司后缀 KG）
+  /\b[\p{L}\p{N}_]*[\p{L}][\p{L}\p{N}_]*\s+(gmbh|ag|kg|mbh)\b/iu,
   // 英语
   /\b\w+\s+(inc|ltd|llc|corp|corporation|limited)\b/i,
   // 法语

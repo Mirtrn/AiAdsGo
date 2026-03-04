@@ -14,7 +14,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
-import { normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
+import { getLanguageName, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import {
   detectCountryInKeyword,
@@ -87,7 +87,15 @@ async function getGlobalKeywordCandidates(params: {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
   if (!targetCountry || pureBrandKeywords.length === 0) return []
 
-  const language = normalizeLanguageCode(targetLanguage || 'en')
+  const languageCode = normalizeLanguageCode(targetLanguage || 'en')
+  const languageName = getLanguageName(languageCode)
+  const languageCandidates = Array.from(
+    new Set(
+      [languageCode, languageName, targetLanguage]
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+    )
+  )
   const normalizedCountry = normalizeCountryCode(targetCountry)
   const countryCandidates = Array.from(
     new Set(
@@ -106,16 +114,17 @@ async function getGlobalKeywordCandidates(params: {
 
   const db = await getDatabase()
   const countryPlaceholders = countryCandidates.map(() => '?').join(', ')
+  const languagePlaceholders = languageCandidates.map(() => '?').join(', ')
   const clauses = patterns.map(() => 'LOWER(keyword) LIKE ?').join(' OR ')
 
   try {
     const rows = await db.query(
       `SELECT keyword, search_volume, competition_level, avg_cpc_micros
        FROM global_keywords
-       WHERE country IN (${countryPlaceholders}) AND language = ? AND (${clauses})
+       WHERE country IN (${countryPlaceholders}) AND language IN (${languagePlaceholders}) AND (${clauses})
        ORDER BY search_volume DESC
        LIMIT ?`,
-      [...countryCandidates, language, ...patterns, limit]
+      [...countryCandidates, ...languageCandidates, ...patterns, limit]
     ) as Array<{
       keyword: string
       search_volume: number | string | null
@@ -299,7 +308,7 @@ export async function expandAllKeywords(
   progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void,
   plannerMinSearchVolume?: number,
   allowNonBrandFromPlanner?: boolean,
-  plannerDecision?: { allowNonBrandFromPlanner?: boolean }
+  plannerDecision?: { allowNonBrandFromPlanner?: boolean; volumeUnavailableFromPlanner?: boolean }
 ): Promise<PoolKeywordData[]> {
   console.log(`\n📋 关键词扩展策略 (v2.0 - 认证类型: ${authType}):`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
@@ -364,7 +373,7 @@ interface OAuthExpandParams {
   developerToken?: string
   minSearchVolume?: number
   allowNonBrandFromPlanner?: boolean
-  plannerDecision?: { allowNonBrandFromPlanner?: boolean }
+  plannerDecision?: { allowNonBrandFromPlanner?: boolean; volumeUnavailableFromPlanner?: boolean }
   progress?: (info: { phase?: 'seed-volume' | 'expand-round' | 'volume-batch' | 'service-step' | 'filter' | 'cluster' | 'save'; message: string; current?: number; total?: number }) => Promise<void> | void
 }
 
@@ -405,6 +414,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   const fullBrandKeywords = fullBrand ? [fullBrand] : []
   const minFullBrandCount = DEFAULTS.minKeywordsTarget
   let allowNonBrand = allowNonBrandFromPlanner ?? false
+  let volumeUnavailableFromPlanner = false
   const allKeywords = new Map<string, PoolKeywordData>()
   const maxRounds = 3
   const topN = 20
@@ -515,6 +525,13 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       })
 
       let results = primaryResults
+      if (primaryResults.some((kw: any) =>
+        kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+        kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      )) {
+        volumeUnavailableFromPlanner = true
+        if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true
+      }
 
       const brandCountFromSiteFilter = fullBrandKeywords.length > 0
         ? primaryResults.filter(kw => containsPureBrand(kw.keyword, fullBrandKeywords)).length
@@ -559,6 +576,13 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           }
         }
         results = Array.from(merged.values())
+        if (supplementalResults.some((kw: any) =>
+          kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+          kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+        )) {
+          volumeUnavailableFromPlanner = true
+          if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true
+        }
         usedNoSiteFilterSupplement = true
         allowNonBrand = true
         if (plannerDecision) {
@@ -612,7 +636,8 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
             highTopPageBid: kw.highTopPageBid,
             source: 'KEYWORD_PLANNER',
             matchType,
-            isPureBrand
+            isPureBrand,
+            volumeUnavailableReason: (kw as any).volumeUnavailableReason
           })
           newCount++
           brandRelatedAdded++
@@ -626,6 +651,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
             highTopPageBid: kw.highTopPageBid,
             matchType,
             isPureBrand,
+            volumeUnavailableReason: (kw as any).volumeUnavailableReason || existing.volumeUnavailableReason,
             source: existing.source === 'BRAND_SEED' ? 'KEYWORD_PLANNER' : existing.source
           })
           updatedCount++
@@ -707,6 +733,17 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           const canonical = normalizeGoogleAdsKeyword(vol.keyword)
           if (canonical && allKeywords.has(canonical)) {
             const existing = allKeywords.get(canonical)!
+            if (
+              vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+              vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+            ) {
+              volumeUnavailableFromPlanner = true
+              if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true
+              allKeywords.set(canonical, {
+                ...existing,
+                volumeUnavailableReason: vol.volumeUnavailableReason,
+              })
+            }
             if (vol.avgMonthlySearches > 0) {
               allKeywords.set(canonical, {
                 ...existing,
@@ -715,6 +752,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
                 competitionIndex: vol.competitionIndex || existing.competitionIndex,
                 lowTopPageBid: vol.lowTopPageBid || existing.lowTopPageBid,
                 highTopPageBid: vol.highTopPageBid || existing.highTopPageBid,
+                volumeUnavailableReason: vol.volumeUnavailableReason || existing.volumeUnavailableReason,
               })
               updatedCount++
             }
@@ -738,6 +776,10 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           })
         }
       }
+    }
+
+    if (plannerDecision && volumeUnavailableFromPlanner) {
+      plannerDecision.volumeUnavailableFromPlanner = true
     }
 
     const globalCandidates = await getGlobalKeywordCandidates({
