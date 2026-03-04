@@ -1110,7 +1110,7 @@ async function hydrateGlobalCoreKeywordSearchVolumes(
         const volumes = await getKeywordSearchVolumes(
           refreshKeywords,
           country,
-          language,
+          languageCode,
           userId,
           auth.authType,
           auth.serviceAccountId
@@ -1140,10 +1140,10 @@ async function hydrateGlobalCoreKeywordSearchVolumes(
       await updateBrandCoreKeywordSearchVolumes(
         offer.brand,
         country,
-        language,
+        languageCode,
         updates
       )
-      await refreshBrandCoreKeywordCache(offer.brand, country, language)
+      await refreshBrandCoreKeywordCache(offer.brand, country, languageCode)
     }
   } catch (error: any) {
     console.warn(`⚠️ 全局核心关键词搜索量补齐失败: ${error?.message || String(error)}`)
