@@ -407,14 +407,14 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table className="table-fixed min-w-[1120px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">选择</TableHead>
-                  <TableHead>账号名称</TableHead>
+                  <TableHead className="w-[220px]">账号名称</TableHead>
                   <TableHead>账号ID</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>推荐</TableHead>
+                  <TableHead className="w-[120px] whitespace-nowrap">状态</TableHead>
+                  <TableHead className="w-[140px] whitespace-nowrap">推荐</TableHead>
                   <TableHead>账户余额</TableHead>
                   <TableHead>已关联Offer</TableHead>
                   <TableHead>时区</TableHead>
@@ -438,9 +438,11 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                           {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{account.descriptiveName}</span>
+                      <TableCell className="w-[220px]">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="block truncate font-medium" title={account.descriptiveName}>
+                            {account.descriptiveName}
+                          </span>
                           {account.testAccount && (
                             <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 text-xs">
                               测试
@@ -454,10 +456,10 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{account.customerId}</TableCell>
-                      <TableCell>
+                      <TableCell className="w-[120px] whitespace-nowrap">
                         {getAccountStatusBadge(account.status)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[140px] whitespace-nowrap">
                         {/* 🔓 KISS优化(2025-12-12): 优先级标识 */}
                         {account.priority === 'current' && (
                           <Badge className="bg-green-100 text-green-800 border-green-300">
