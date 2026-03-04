@@ -143,6 +143,8 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
   const [deferredWidgetsMounted, setDeferredWidgetsMounted] = useState(!dashboardDeferEnabled)
   const fetchAbortRef = useRef<AbortController | null>(null)
   const fetchSeqRef = useRef(0)
+  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
+  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!dashboardDeferEnabled) {
@@ -326,6 +328,22 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
 
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
+      }
+    }
+
+    input.focus()
+    input.click()
+  }
+
   const openCustomRange = (open: boolean) => {
     setCustomRangeOpen(open)
     if (!open) return
@@ -333,16 +351,24 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
-      return
-    }
-
-    if (!customStartDate && !customEndDate) {
+    } else if (!customStartDate && !customEndDate) {
       const end = new Date()
       const start = new Date(end)
       start.setDate(start.getDate() - 6)
       setCustomStartDate(formatDateInputValue(start))
       setCustomEndDate(formatDateInputValue(end))
     }
+
+    window.setTimeout(() => {
+      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
+    }, 0)
+  }
+
+  const handleCustomStartDateChange = (value: string) => {
+    setCustomStartDate(value)
+    window.setTimeout(() => {
+      openNativeDatePicker(customEndDateInputRef.current)
+    }, 0)
   }
 
   const applyCustomRange = () => {
@@ -428,14 +454,16 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                     <div>
                       <p className="text-xs text-gray-500 mb-1">开始日期</p>
                       <Input
+                        ref={customStartDateInputRef}
                         type="date"
                         value={customStartDate}
-                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        onChange={(e) => handleCustomStartDateChange(e.target.value)}
                       />
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 mb-1">结束日期</p>
                       <Input
+                        ref={customEndDateInputRef}
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}

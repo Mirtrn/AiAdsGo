@@ -2,6 +2,43 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+function formatLocalYmd(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseYmdParam(value: string | null): string | null {
+  if (!value) return null
+  const normalized = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+
+  const [year, month, day] = normalized.split('-').map((part) => Number(part))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function diffDaysInclusive(startYmd: string, endYmd: string): number {
+  const startTs = Date.parse(`${startYmd}T00:00:00Z`)
+  const endTs = Date.parse(`${endYmd}T00:00:00Z`)
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return 1
+  return Math.max(1, Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1)
+}
+
+function parseLocalYmdToDate(value: string): Date {
+  const [year, month, day] = value.split('-').map((part) => Number(part))
+  return new Date(year, month - 1, day)
+}
+
 /**
  * GET /api/creatives/trends
  *
@@ -13,6 +50,8 @@ import { getDatabase } from '@/lib/db'
  *
  * Query Parameters:
  * - daysBack: number (可选，默认7天)
+ * - start_date: string (可选，YYYY-MM-DD)
+ * - end_date: string (可选，YYYY-MM-DD)
  * - offerId: number (可选，筛选特定Offer的创意)
  */
 export async function GET(request: NextRequest) {
@@ -25,28 +64,47 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
-    const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const rawDaysBack = parseInt(searchParams.get('daysBack') || '7', 10)
+    const daysBack = Number.isFinite(rawDaysBack) ? Math.min(Math.max(rawDaysBack, 1), 3650) : 7
+    const startDateQuery = parseYmdParam(searchParams.get('start_date'))
+    const endDateQuery = parseYmdParam(searchParams.get('end_date'))
+    const hasCustomRangeQuery = searchParams.has('start_date') || searchParams.has('end_date')
+    if (hasCustomRangeQuery) {
+      if (!startDateQuery || !endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 和 end_date 必须同时提供，且格式为 YYYY-MM-DD' },
+          { status: 400 }
+        )
+      }
+      if (startDateQuery > endDateQuery) {
+        return NextResponse.json(
+          { error: 'start_date 不能晚于 end_date' },
+          { status: 400 }
+        )
+      }
+    }
     const offerId = searchParams.get('offerId')
 
     const db = await getDatabase()
 
     // 2. 计算日期范围
-    // 🔧 修复(2025-01-02): 使用本地日期而非 UTC 日期，避免时区问题
-    // 修复 daysBack 计算：当选择7天时，应该返回7天的数据（今天 + 过去6天 = 7天）
-    const endDate = new Date()
-    const startDate = new Date()
-    startDate.setDate(startDate.getDate() - daysBack + 1)  // +1 确保包含今天，共 daysBack 天数据
-
-    // 格式化为 YYYY-MM-DD 本地日期
-    const toLocalDateStr = (date: Date) => {
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
+    let startDateStr = startDateQuery || ''
+    let endDateStr = endDateQuery || ''
+    let rangeDays = daysBack
+    if (!startDateStr || !endDateStr) {
+      const endDate = new Date()
+      const startDate = new Date(endDate)
+      // 修复 daysBack 计算：当选择7天时，应该返回7天的数据（今天 + 过去6天 = 7天）
+      startDate.setDate(startDate.getDate() - daysBack + 1)
+      startDateStr = formatLocalYmd(startDate)
+      endDateStr = formatLocalYmd(endDate)
+      rangeDays = daysBack
+    } else {
+      rangeDays = diffDaysInclusive(startDateStr, endDateStr)
     }
 
-    const startDateStr = toLocalDateStr(startDate)
-    const endDateStr = toLocalDateStr(endDate)
+    const startDate = parseLocalYmdToDate(startDateStr)
+    const endDate = parseLocalYmdToDate(endDateStr)
 
     // 格式化日期函数（PostgreSQL返回的DATE类型需要提取YYYY-MM-DD）
     const formatDate = (dateValue: any): string => {
@@ -101,13 +159,13 @@ export async function GET(request: NextRequest) {
 
     // 🔧 调试日志：检查原始查询结果
     console.log('[Trends API] 原始查询结果:', JSON.stringify(dailyTrends, null, 2))
-    console.log('[Trends API] 日期范围:', { startDateStr, endDateStr, daysBack, userId, offerId: offerId || '全部' })
+    console.log('[Trends API] 日期范围:', { startDateStr, endDateStr, rangeDays, userId, offerId: offerId || '全部' })
 
     // 10. 补全缺失的日期（确保返回完整的日期范围，包括没有数据的日期）
     const allDates: string[] = []
     const currentDate = new Date(startDate)
     while (currentDate <= endDate) {
-      allDates.push(toLocalDateStr(currentDate))
+      allDates.push(formatLocalYmd(currentDate))
       currentDate.setDate(currentDate.getDate() + 1)
     }
 
@@ -294,7 +352,7 @@ export async function GET(request: NextRequest) {
       dateRange: {
         start: startDateStr,
         end: endDateStr,
-        days: daysBack,
+        days: rangeDays,
       },
     })
   } catch (error: any) {

@@ -35,6 +35,11 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Search,
   RefreshCw,
   Trash2,
@@ -48,7 +53,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Package
+  Package,
+  CalendarDays,
 } from 'lucide-react'
 import { TrendChart, TrendChartData } from '@/components/charts/TrendChart'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
@@ -60,6 +66,13 @@ const getTextContent = (item: unknown): string => {
     return String((item as { text: unknown }).text)
   }
   return String(item || '')
+}
+
+const formatDateInputValue = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 interface KeywordWithVolume {
@@ -119,6 +132,8 @@ interface Summary {
   draft: number
 }
 
+type CreativesTimeRange = '7' | '14' | '30' | 'custom'
+
 export default function CreativesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -137,7 +152,11 @@ export default function CreativesPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [timeRange, setTimeRange] = useState<string>('7')
+  const [timeRange, setTimeRange] = useState<CreativesTimeRange>('7')
+  const [isTrendCustomDateRangeOpen, setIsTrendCustomDateRangeOpen] = useState(false)
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
 
   // Trend data states - 创意维度统计
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
@@ -168,6 +187,8 @@ export default function CreativesPage() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const filterKeyRef = useRef<string>('')
+  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
+  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // Detail dialog
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null)
@@ -199,7 +220,7 @@ export default function CreativesPage() {
 
   useEffect(() => {
     fetchTrends()
-  }, [timeRange])
+  }, [timeRange, appliedCustomRange?.startDate, appliedCustomRange?.endDate])
 
   useEffect(() => {
     let result = creatives
@@ -340,13 +361,89 @@ export default function CreativesPage() {
     })
   }
 
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
+      }
+    }
+
+    input.focus()
+    input.click()
+  }
+
+  const openTrendCustomDateRange = (open: boolean) => {
+    setIsTrendCustomDateRangeOpen(open)
+    if (!open) return
+
+    if (appliedCustomRange) {
+      setCustomStartDate(appliedCustomRange.startDate)
+      setCustomEndDate(appliedCustomRange.endDate)
+    } else if (!customStartDate && !customEndDate) {
+      const end = new Date()
+      const start = new Date(end)
+      start.setDate(start.getDate() - 6)
+      setCustomStartDate(formatDateInputValue(start))
+      setCustomEndDate(formatDateInputValue(end))
+    }
+
+    window.setTimeout(() => {
+      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
+    }, 0)
+  }
+
+  const handleCustomStartDateChange = (value: string) => {
+    setCustomStartDate(value)
+    window.setTimeout(() => {
+      openNativeDatePicker(customEndDateInputRef.current)
+    }, 0)
+  }
+
+  const applyCustomDateRange = () => {
+    if (!customStartDate || !customEndDate) {
+      showError('请选择时间范围', '需要同时选择开始日期和结束日期')
+      return
+    }
+    if (customStartDate > customEndDate) {
+      showError('时间范围无效', '结束日期不能早于开始日期')
+      return
+    }
+
+    setAppliedCustomRange({
+      startDate: customStartDate,
+      endDate: customEndDate,
+    })
+    setTimeRange('custom')
+    setIsTrendCustomDateRangeOpen(false)
+  }
+
+  const selectPresetTimeRange = (days: Exclude<CreativesTimeRange, 'custom'>) => {
+    setTimeRange(days)
+  }
+
   const fetchTrends = async () => {
     try {
       setTrendsLoading(true)
-      let url = `/api/creatives/trends?daysBack=${timeRange}`
-      if (offerId) {
-        url += `&offerId=${offerId}`
+      const params = new URLSearchParams()
+      if (timeRange === 'custom') {
+        if (appliedCustomRange) {
+          params.set('start_date', appliedCustomRange.startDate)
+          params.set('end_date', appliedCustomRange.endDate)
+        } else {
+          params.set('daysBack', '7')
+        }
+      } else {
+        params.set('daysBack', timeRange)
       }
+      if (offerId) {
+        params.set('offerId', offerId)
+      }
+      const url = `/api/creatives/trends?${params.toString()}`
       const response = await fetch(url, {
         credentials: 'include',
       })
@@ -372,6 +469,15 @@ export default function CreativesPage() {
       setTrendsLoading(false)
     }
   }
+
+  const canApplyCustomRange = Boolean(
+    customStartDate
+      && customEndDate
+      && customStartDate <= customEndDate
+  )
+  const customRangeLabel = appliedCustomRange
+    ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
+    : '自定义'
 
   const handleGenerateCreatives = async () => {
     setGenerating(true)
@@ -775,19 +881,66 @@ export default function CreativesPage() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-500">时间范围:</span>
               <div className="flex gap-1">
-                {[7, 14, 30].map((days) => (
-                  <button
+                {(['7', '14', '30'] as const).map((days) => (
+                  <Button
                     key={days}
-                    onClick={() => setTimeRange(days.toString())}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      timeRange === days.toString()
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
+                    size="sm"
+                    variant={timeRange === days ? 'default' : 'ghost'}
+                    className={`h-8 px-3 text-sm ${timeRange === days ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    onClick={() => selectPresetTimeRange(days)}
                   >
                     {days}天
-                  </button>
+                  </Button>
                 ))}
+                <DropdownMenu
+                  open={isTrendCustomDateRangeOpen}
+                  onOpenChange={openTrendCustomDateRange}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                      className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 mr-1" />
+                      <span className="truncate">{customRangeLabel}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-72 p-3">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">开始日期</p>
+                        <Input
+                          ref={customStartDateInputRef}
+                          type="date"
+                          value={customStartDate}
+                          onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">结束日期</p>
+                        <Input
+                          ref={customEndDateInputRef}
+                          type="date"
+                          value={customEndDate}
+                          onChange={(e) => setCustomEndDate(e.target.value)}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
+                      {customStartDate && customEndDate && customStartDate > customEndDate && (
+                        <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
+                      )}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={applyCustomDateRange}
+                        disabled={!canApplyCustomRange}
+                      >
+                        应用时间范围
+                      </Button>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
