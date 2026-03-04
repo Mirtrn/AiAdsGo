@@ -1054,14 +1054,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `Besoin d'une solution fiable pour vos projets ? ${preferredKeyword} vous aide à finir plus vite`,
+          base: `Besoin de résultats fiables au quotidien ? ${preferredKeyword} vous aide à avancer sereinement`,
           cta: 'En savoir plus'
         },
         painSolution2: {
-          base: `Réparez en confiance avec ${preferredKeyword} conçu pour les travaux quotidiens`,
+          base: `${preferredKeyword} offre une performance stable pour vos besoins quotidiens`,
           cta: 'Acheter maintenant'
         },
-        scenarioHeadline: 'Besoin de meilleurs résultats ?'
+        scenarioHeadline: 'Meilleurs résultats au quotidien ?'
       },
       d: {
         valueDescription: {
@@ -1084,14 +1084,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `Brauchen Sie eine zuverlässige Lösung für echte Projekte? ${preferredKeyword} hilft schneller fertig zu werden`,
+          base: `Brauchen Sie verlässliche Ergebnisse im Alltag? ${preferredKeyword} unterstützt Sie zuverlässig`,
           cta: 'Mehr erfahren'
         },
         painSolution2: {
-          base: `Reparieren Sie sicher mit ${preferredKeyword} für tägliche Aufgaben`,
+          base: `${preferredKeyword} liefert stabile Leistung für tägliche Anforderungen`,
           cta: 'Jetzt kaufen'
         },
-        scenarioHeadline: 'Bessere Projektergebnisse?'
+        scenarioHeadline: 'Bessere Ergebnisse im Alltag?'
       },
       d: {
         valueDescription: {
@@ -1114,14 +1114,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `¿Necesitas una solución fiable para tus proyectos? ${preferredKeyword} te ayuda a terminar antes`,
+          base: `¿Necesitas resultados fiables cada día? ${preferredKeyword} te ayuda con rendimiento constante`,
           cta: 'Más información'
         },
         painSolution2: {
-          base: `Repara con confianza con ${preferredKeyword} para trabajos diarios`,
+          base: `${preferredKeyword} ofrece confianza y desempeño para necesidades diarias`,
           cta: 'Comprar ahora'
         },
-        scenarioHeadline: '¿Mejores resultados hoy?'
+        scenarioHeadline: '¿Mejores resultados diarios?'
       },
       d: {
         valueDescription: {
@@ -1144,14 +1144,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `Ti serve una soluzione affidabile per i progetti? ${preferredKeyword} ti aiuta a finire prima`,
+          base: `Vuoi risultati affidabili ogni giorno? ${preferredKeyword} ti aiuta con prestazioni costanti`,
           cta: 'Scopri di più'
         },
         painSolution2: {
-          base: `Ripara con fiducia con ${preferredKeyword} per lavori quotidiani`,
+          base: `${preferredKeyword} offre affidabilità e performance per esigenze quotidiane`,
           cta: 'Acquista ora'
         },
-        scenarioHeadline: 'Vuoi risultati migliori?'
+        scenarioHeadline: 'Risultati migliori ogni giorno?'
       },
       d: {
         valueDescription: {
@@ -1174,14 +1174,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `Precisa de solução confiável para projetos reais? ${preferredKeyword} ajuda a terminar mais rápido`,
+          base: `Precisa de resultados confiáveis no dia a dia? ${preferredKeyword} ajuda com desempenho estável`,
           cta: 'Saiba mais'
         },
         painSolution2: {
-          base: `Faça reparos com confiança usando ${preferredKeyword} para tarefas diárias`,
+          base: `${preferredKeyword} oferece confiança e performance para necessidades diárias`,
           cta: 'Comprar agora'
         },
-        scenarioHeadline: 'Quer melhores resultados?'
+        scenarioHeadline: 'Melhores resultados no dia a dia?'
       },
       d: {
         valueDescription: {
@@ -1204,14 +1204,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `项目维修总费力？${preferredKeyword} 帮你更快完工`,
+          base: `需要稳定可靠的日常表现吗？${preferredKeyword} 助你持续发挥更好`,
           cta: '了解更多'
         },
         painSolution2: {
-          base: `日常施工更省心，${preferredKeyword} 稳定耐用`,
+          base: `${preferredKeyword} 为日常需求带来稳定表现与信心`,
           cta: '立即购买'
         },
-        scenarioHeadline: '想让项目更省力？'
+        scenarioHeadline: '想要更好的日常表现吗？'
       },
       d: {
         valueDescription: {
@@ -1234,14 +1234,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `作業が進まない？${preferredKeyword} で早く仕上げる`,
+          base: `毎日の成果を安定させたいですか？${preferredKeyword} がしっかり支えます`,
           cta: '詳しく見る'
         },
         painSolution2: {
-          base: `${preferredKeyword} で日常の修理をもっと確実に`,
+          base: `${preferredKeyword} は日常ニーズに安定したパフォーマンスを提供します`,
           cta: '今すぐ購入'
         },
-        scenarioHeadline: '作業効率を上げたい？'
+        scenarioHeadline: '日々の成果を高めたいですか？'
       },
       d: {
         valueDescription: {
@@ -1264,14 +1264,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `작업이 자꾸 지연되나요? ${preferredKeyword} 로 더 빨리 마무리`,
+          base: `매일 더 안정적인 결과가 필요하신가요? ${preferredKeyword} 가 꾸준히 도와줍니다`,
           cta: '자세히 보기'
         },
         painSolution2: {
-          base: `${preferredKeyword} 로 일상 수리를 더 안정적으로`,
+          base: `${preferredKeyword} 는 일상 니즈에 안정적인 성능과 신뢰를 제공합니다`,
           cta: '지금 구매'
         },
-        scenarioHeadline: '작업 결과를 높이고 싶나요?'
+        scenarioHeadline: '일상 성과를 더 높이고 싶나요?'
       },
       d: {
         valueDescription: {
@@ -1294,14 +1294,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `Сложно завершить проект вовремя? ${preferredKeyword} помогает быстрее`,
+          base: `Нужны стабильные результаты каждый день? ${preferredKeyword} помогает уверенно двигаться дальше`,
           cta: 'Узнать больше'
         },
         painSolution2: {
-          base: `${preferredKeyword} делает ежедневный ремонт проще и надежнее`,
+          base: `${preferredKeyword} обеспечивает надежную работу для ежедневных задач`,
           cta: 'Купить сейчас'
         },
-        scenarioHeadline: 'Нужен лучший результат проекта?'
+        scenarioHeadline: 'Лучшие результаты каждый день?'
       },
       d: {
         valueDescription: {
@@ -1324,14 +1324,14 @@ function getSoftCopyTemplates(
       },
       b: {
         painSolution1: {
-          base: `هل تتأخر مشاريعك؟ ${preferredKeyword} يساعدك على الإنجاز أسرع`,
+          base: `هل تحتاج نتائج موثوقة كل يوم؟ ${preferredKeyword} يساعدك بأداء ثابت`,
           cta: 'اعرف المزيد'
         },
         painSolution2: {
-          base: `${preferredKeyword} يجعل إصلاحاتك اليومية أسهل وأكثر ثباتًا`,
+          base: `${preferredKeyword} يمنحك ثباتًا وثقة لاحتياجاتك اليومية`,
           cta: 'اشتري الآن'
         },
-        scenarioHeadline: 'تريد نتائج أفضل للمشروع؟'
+        scenarioHeadline: 'تريد نتائج يومية أفضل؟'
       },
       d: {
         valueDescription: {
@@ -1353,14 +1353,14 @@ function getSoftCopyTemplates(
     },
     b: {
       painSolution1: {
-        base: `Need a reliable fix for real projects? ${preferredKeyword} helps you finish faster`,
+        base: `Need dependable results every day? ${preferredKeyword} helps you stay confident and efficient`,
         cta: 'Learn More'
       },
       painSolution2: {
-        base: `Tackle repairs with confidence using ${preferredKeyword} built for daily jobs`,
+        base: `Get reliable everyday performance with ${preferredKeyword} designed for daily use`,
         cta: 'Shop Now'
       },
-      scenarioHeadline: 'Need Better Project Results?'
+      scenarioHeadline: 'Need Better Everyday Results?'
     },
     d: {
       valueDescription: {

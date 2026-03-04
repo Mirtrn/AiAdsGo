@@ -121,7 +121,7 @@ describe('ad-creative-generator enforceHeadlineComplementarity', () => {
     expect(fix.fixes).toBeGreaterThan(0)
     expect(creative.headlines[0]).toBe('{KeyWord:ToolPro} Official')
     const editableTop8 = creative.headlines.slice(1, 9)
-    expect(editableTop8.some((h) => /Need Better Project Results\?/i.test(h))).toBe(true)
+    expect(editableTop8.some((h) => /Need Better Everyday Results\?/i.test(h))).toBe(true)
   })
 
   it('treats solution-style copy as scenario-equivalent to avoid intent conflicts', () => {
