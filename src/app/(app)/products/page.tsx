@@ -732,10 +732,9 @@ function isNumericRangeFiltersEqual(a: NumericRangeFilters, b: NumericRangeFilte
 export default function ProductsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
-  const silentRefreshCountRef = useRef(0)
   const productsRequestSeqRef = useRef(0)
   const productsAbortControllerRef = useRef<AbortController | null>(null)
+  const foregroundProductsRequestSeqRef = useRef<number | null>(null)
   const summaryRequestSeqRef = useRef(0)
   const summaryAbortControllerRef = useRef<AbortController | null>(null)
   const syncRunsInFlightRef = useRef(false)
@@ -760,6 +759,7 @@ export default function ProductsPage() {
   })
   const [createdAtFrom, setCreatedAtFrom] = useState('')
   const [createdAtTo, setCreatedAtTo] = useState('')
+  const [createdDateCustomOpen, setCreatedDateCustomOpen] = useState(false)
   const [sortBy, setSortBy] = useState<SortField>('serial')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set())
@@ -865,6 +865,11 @@ export default function ProductsPage() {
     { key: '30d', label: '过去30天（含当天）', days: 30 },
     { key: '90d', label: '过去90天（含当天）', days: 90 },
   ]
+  const isCreatedDateCustomActive = Boolean(createdAtFrom || createdAtTo)
+    && !createdDateQuickFilters.some((filter) => {
+      const range = resolveRecentDateRange(filter.days)
+      return createdAtFrom === range.from && createdAtTo === range.to
+    })
 
   const syncHistoryRows = useMemo(() => {
     const rows: Array<{
@@ -888,6 +893,10 @@ export default function ProductsPage() {
     ]
     return rows
   }, [latestRuns])
+  const hasActiveSyncRuns = useMemo(
+    () => latestRuns.some((run) => run.status === 'queued' || run.status === 'running'),
+    [latestRuns]
+  )
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -924,16 +933,19 @@ export default function ProductsPage() {
     suppressErrorToast?: boolean
   } = {}) => {
     const { forceNoCache = false, silent = false, suppressErrorToast = false } = options
+    // 后台静默刷新不应打断前台显式加载（筛选/排序/分页），否则会导致 loading 无法收敛。
+    if (silent && foregroundProductsRequestSeqRef.current !== null) {
+      return
+    }
+
     const requestSeq = productsRequestSeqRef.current + 1
     productsRequestSeqRef.current = requestSeq
     productsAbortControllerRef.current?.abort()
     const controller = new AbortController()
     productsAbortControllerRef.current = controller
 
-    if (silent) {
-      silentRefreshCountRef.current += 1
-      setBackgroundRefreshing(true)
-    } else {
+    if (!silent) {
+      foregroundProductsRequestSeqRef.current = requestSeq
       setLoading(true)
     }
     try {
@@ -1008,15 +1020,9 @@ export default function ProductsPage() {
         showError('加载失败', error?.message || '加载商品列表失败')
       }
     } finally {
-      if (silent) {
-        silentRefreshCountRef.current = Math.max(0, silentRefreshCountRef.current - 1)
-          if (silentRefreshCountRef.current === 0) {
-            setBackgroundRefreshing(false)
-          }
-      } else {
-        if (requestSeq === productsRequestSeqRef.current) {
-          setLoading(false)
-        }
+      if (!silent && foregroundProductsRequestSeqRef.current === requestSeq) {
+        foregroundProductsRequestSeqRef.current = null
+        setLoading(false)
       }
       if (productsAbortControllerRef.current === controller) {
         productsAbortControllerRef.current = null
@@ -1282,22 +1288,23 @@ export default function ProductsPage() {
   }, [searchQuery, midQuery, platformFilter, statusFilter, targetCountryFilter, numericRangeFilters, createdAtFrom, createdAtTo])
 
   useEffect(() => {
-    const hasActiveRuns = latestRuns.some((run) => run.status === 'queued' || run.status === 'running')
-    if (!hasActiveRuns) return
+    if (!hasActiveSyncRuns) return
 
     const timer = window.setInterval(() => {
       if (periodicRefreshInFlightRef.current) return
       periodicRefreshInFlightRef.current = true
-      Promise.all([
-        fetchSyncRuns(),
-        fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true }),
-      ]).finally(() => {
+      const tasks: Array<Promise<void>> = [fetchSyncRuns()]
+      // 用户正在筛选时固定结果集，避免被后台同步过程中的数据波动干扰。
+      if (!hasFilters) {
+        tasks.push(fetchProducts({ forceNoCache: true, silent: true, suppressErrorToast: true }))
+      }
+      Promise.all(tasks).finally(() => {
         periodicRefreshInFlightRef.current = false
       })
     }, 8000)
 
     return () => window.clearInterval(timer)
-  }, [latestRuns])
+  }, [hasActiveSyncRuns, hasFilters])
 
   useEffect(() => {
     loadYeahPromosSessionStatus()
@@ -1342,6 +1349,12 @@ export default function ProductsPage() {
     const range = resolveRecentDateRange(days)
     setCreatedAtFrom(range.from)
     setCreatedAtTo(range.to)
+    setPage(1)
+  }
+
+  const clearCreatedDateFilter = () => {
+    setCreatedAtFrom('')
+    setCreatedAtTo('')
     setPage(1)
   }
 
@@ -2286,10 +2299,10 @@ export default function ProductsPage() {
             <CardTitle className="text-base">商品列表</CardTitle>
             <CardDescription className="flex flex-wrap items-center gap-2">
               <span>共 {total} 个商品，支持排序、单商品同步、创建 Offer、手动下线商品和批量操作</span>
-              {backgroundRefreshing && (
+              {hasActiveSyncRuns && (
                 <span className="inline-flex items-center text-xs text-muted-foreground">
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  后台更新中
+                  {hasFilters ? '后台更新中（筛选结果已锁定）' : '后台更新中'}
                 </span>
               )}
             </CardDescription>
@@ -2376,6 +2389,7 @@ export default function ProductsPage() {
                       setTargetCountryFilter('all')
                       setCreatedAtFrom('')
                       setCreatedAtTo('')
+                      setCreatedDateCustomOpen(false)
                       setNumericRangeDrafts({ ...EMPTY_NUMERIC_RANGE_FILTER_DRAFTS })
                       setNumericRangeFilters({ ...EMPTY_NUMERIC_RANGE_FILTERS })
                       setPage(1)
@@ -2400,7 +2414,7 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            <div className="rounded-md border p-3 space-y-3">
+            <div className="rounded-md border p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium text-muted-foreground">添加日期</span>
                 {createdDateQuickFilters.map((filter) => {
@@ -2417,40 +2431,52 @@ export default function ProductsPage() {
                     </Button>
                   )
                 })}
+                <DropdownMenu open={createdDateCustomOpen} onOpenChange={setCreatedDateCustomOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={isCreatedDateCustomActive || createdDateCustomOpen ? 'secondary' : 'outline'}
+                    >
+                      自定义
+                      <ChevronDown className={`ml-1 h-3.5 w-3.5 transition-transform ${createdDateCustomOpen ? 'rotate-180' : ''}`} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[320px] p-3">
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground">选择开始和结束日期</div>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                        <Input
+                          type="date"
+                          value={createdAtFrom}
+                          onChange={(event) => {
+                            setCreatedAtFrom(event.target.value)
+                            setPage(1)
+                          }}
+                          aria-label="添加日期开始"
+                        />
+                        <span className="text-xs text-muted-foreground">至</span>
+                        <Input
+                          type="date"
+                          value={createdAtTo}
+                          onChange={(event) => {
+                            setCreatedAtTo(event.target.value)
+                            setPage(1)
+                          }}
+                          aria-label="添加日期结束"
+                        />
+                      </div>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {(createdAtFrom || createdAtTo) && (
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => {
-                      setCreatedAtFrom('')
-                      setCreatedAtTo('')
-                      setPage(1)
-                    }}
+                    onClick={clearCreatedDateFilter}
                   >
                     清空日期
                   </Button>
                 )}
-              </div>
-              <div className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-                <Input
-                  type="date"
-                  value={createdAtFrom}
-                  onChange={(event) => {
-                    setCreatedAtFrom(event.target.value)
-                    setPage(1)
-                  }}
-                  aria-label="添加日期开始"
-                />
-                <span className="text-xs text-muted-foreground">至</span>
-                <Input
-                  type="date"
-                  value={createdAtTo}
-                  onChange={(event) => {
-                    setCreatedAtTo(event.target.value)
-                    setPage(1)
-                  }}
-                  aria-label="添加日期结束"
-                />
               </div>
             </div>
 
