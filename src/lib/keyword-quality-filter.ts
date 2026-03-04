@@ -140,6 +140,11 @@ const SEMANTIC_QUERY_PATTERNS = [
   'used', 'refurbished', 'repair', 'fix', 'broken', 'replacement',
   'parts', 'spare parts', 'manual', 'instructions',
 
+  // 素材/尺寸查询类（低购买意图，且容易污染广告文案）
+  'gif', 'meme', 'emoji', 'sticker', 'drawing', 'image', 'images',
+  'logo', 'png', 'jpg', 'jpeg', 'svg', 'icon', 'clipart', 'wallpaper',
+  'size chart', 'size guide', 'sizing',
+
   // DIY/自制类
   'diy', 'homemade', 'handmade', 'build your own', 'make your own',
 
@@ -759,6 +764,17 @@ function hasCommercialContextSignal(keyword: string): boolean {
   return tokens.some(token => COMMERCIAL_CONTEXT_SIGNAL_TOKENS.has(token))
 }
 
+const CONTEXT_RESTORE_BLOCKED_PATTERNS = [
+  /\b(gif|meme|emoji|sticker|drawing|image|images|logo|png|jpg|jpeg|svg|icon|clipart|wallpaper)\b/i,
+  /\b(size chart|size guide|sizing)\b/i,
+]
+
+function shouldBlockContextRestore(keyword: string): boolean {
+  const normalized = String(keyword || '').trim().toLowerCase()
+  if (!normalized) return false
+  return CONTEXT_RESTORE_BLOCKED_PATTERNS.some(pattern => pattern.test(normalized))
+}
+
 function normalizeRelevanceTokens(input: string): string[] {
   let normalized = (input || '').toLowerCase().normalize('NFKC')
   for (const rule of RELEVANCE_PHRASE_NORMALIZERS) {
@@ -977,11 +993,16 @@ export function filterKeywordQuality(
 
       const text = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
       if (!shouldKeepByBrand(text, pureBrandKeywords) || isPureBrandKeyword(text, pureBrandKeywords)) return false
+      if (shouldBlockContextRestore(text)) return false
 
       const nonBrandTokens = normalizeRelevanceTokens(text).filter(token => !brandContextTokens.has(token))
       if (nonBrandTokens.length === 0 || nonBrandTokens.length > 2) return false
 
-      return nonBrandTokens.some(token => (contextSupportTokenCounts.get(token) || 0) >= 2)
+      if (nonBrandTokens.length === 1) {
+        return (contextSupportTokenCounts.get(nonBrandTokens[0]) || 0) >= 2
+      }
+
+      return nonBrandTokens.every(token => (contextSupportTokenCounts.get(token) || 0) >= 2)
     })
 
     supportRestores.sort((a, b) => {
@@ -1029,7 +1050,7 @@ export function filterKeywordQuality(
       const restoreCandidates = contextRemovedCandidates
         .filter(item => {
           const text = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
-          return hasCommercialContextSignal(text)
+          return hasCommercialContextSignal(text) && !shouldBlockContextRestore(text)
         })
         .sort((a, b) => {
           const aVol = typeof a.keyword === 'string' ? 0 : (Number(a.keyword.searchVolume) || 0)

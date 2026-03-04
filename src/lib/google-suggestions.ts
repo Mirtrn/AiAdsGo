@@ -105,6 +105,10 @@ const LOW_INTENT_PATTERNS = [
   // 使用负向前瞻排除 video + 产品词 的组合
   /\b(youtube|vlog|video\s+review|review\s+video)\b/i,
   /\bvideo\b(?!\s+(doorbell|camera|monitor|recorder|intercom|surveillance))/i,
+
+  // 15. 素材/尺寸信息类（低购买意图，且容易污染关键词池）
+  /\b(gif|meme|emoji|sticker|drawing|image|images|logo|png|jpg|jpeg|svg|icon|clipart|wallpaper)\b/i,
+  /\b(size chart|size guide|sizing)\b/i,
 ]
 
 /**

@@ -154,6 +154,32 @@ describe('keyword-quality-filter', () => {
       expect(result.removed.map(r => r.keyword.keyword)).toEqual(['ikea sonos'])
     })
 
+    it('should not restore visual-noise keywords via context support fallback', () => {
+      const input = [
+        { keyword: 'running girl sports bra purchase', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'running girl sports bras purchase', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'running girl bra purchase', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'running girl sports bra buy', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+        { keyword: 'running girl gif purchase', searchVolume: 0, source: 'KEYWORD_POOL' as const },
+      ]
+
+      const result = filterKeywordQuality(input, {
+        brandName: 'Running Girl',
+        category: 'Sports Bras',
+        productName: 'RUNNING GIRL Sports Bras for Women Seamless Padded Yoga Bra',
+        mustContainBrand: true,
+        minContextTokenMatches: 1,
+      })
+
+      expect(result.filtered.map(k => k.keyword)).toEqual([
+        'running girl sports bra purchase',
+        'running girl sports bras purchase',
+        'running girl bra purchase',
+        'running girl sports bra buy',
+      ])
+      expect(result.removed.map(r => r.keyword.keyword)).toEqual(['running girl gif purchase'])
+    })
+
     it('should keep robotic vacuum variants like robovac', () => {
       const input = [
         { keyword: 'eufy', searchVolume: 60500, source: 'KEYWORD_PLANNER' as const },

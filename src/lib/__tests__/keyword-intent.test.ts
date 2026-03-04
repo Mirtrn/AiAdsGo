@@ -41,6 +41,16 @@ describe('keyword-intent', () => {
     expect(result.hardNegative).toBe(false)
   })
 
+  it('classifies visual-asset and sizing lookups as hard-negative support intent', () => {
+    const visual = classifyKeywordIntent('running girl gif purchase')
+    const sizing = classifyKeywordIntent('running girl bra size chart')
+
+    expect(visual.intent).toBe('SUPPORT')
+    expect(visual.hardNegative).toBe(true)
+    expect(sizing.intent).toBe('SUPPORT')
+    expect(sizing.hardNegative).toBe(true)
+  })
+
   it('recommends exact for pure brand keyword', () => {
     const matchType = recommendMatchTypeForKeyword({
       keyword: 'eufy',

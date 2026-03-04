@@ -72,6 +72,15 @@ const INTENT_PATTERN_GROUPS: PatternGroup[] = [
     ],
   },
   {
+    intent: 'SUPPORT',
+    reason: 'visual_asset_or_size_lookup',
+    hardNegative: true,
+    patterns: [
+      /\b(gif|meme|emoji|sticker|drawing|image|images|logo|png|jpg|jpeg|svg|icon|clipart|wallpaper)\b/i,
+      /\b(size chart|size guide|sizing)\b/i,
+    ],
+  },
+  {
     intent: 'COMMERCIAL',
     reason: 'commercial_research',
     hardNegative: false,
