@@ -175,10 +175,9 @@ describe('parseYeahPromosProductHtmlPage', () => {
     expect(item?.commissionRate).toBe(12.5)
     expect(item?.priceAmount).toBe(25.99)
     expect(item?.reviewCount).toBe(12345)
-
-    const rawJson = JSON.parse(item?.rawJson || '{}')
-    expect(rawJson?.key_fields_status?.complete).toBe(true)
-    expect(rawJson?.key_fields_status?.missing_fields || []).toEqual([])
+    expect(item?.commissionRateMode).toBe('percent')
+    expect(item?.isDeepLink).toBeNull()
+    expect(item?.isConfirmedInvalid).toBe(false)
   })
 
   it('parses promo link from ClipboardJS.copy with double quotes', () => {
@@ -274,10 +273,8 @@ describe('parseYeahPromosProductHtmlPage', () => {
     expect(item?.mid).toBe('product_123456')
     expect(item?.promoLink).toBeNull()
     expect(item?.asin).toBe('B0ABCDE123')
-
-    const rawJson = JSON.parse(item?.rawJson || '{}')
-    expect(rawJson?.key_fields_status?.complete).toBe(false)
-    expect(rawJson?.key_fields_status?.missing_fields || []).toContain('promoLink')
+    expect(item?.commissionRateMode).toBe('percent')
+    expect(item?.isConfirmedInvalid).toBe(false)
   })
 })
 

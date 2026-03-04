@@ -234,8 +234,10 @@ describe('dedupeNormalizedProducts', () => {
         priceCurrency: 'USD',
         commissionRate: 10,
         commissionAmount: 1.2,
+        commissionRateMode: 'percent',
         reviewCount: 100,
-        rawJson: '{"country":"US"}',
+        isDeepLink: null,
+        isConfirmedInvalid: false,
       },
       {
         platform: 'partnerboost',
@@ -251,8 +253,10 @@ describe('dedupeNormalizedProducts', () => {
         priceCurrency: 'USD',
         commissionRate: 10,
         commissionAmount: 1.2,
+        commissionRateMode: 'percent',
         reviewCount: 100,
-        rawJson: '{"country":"DE"}',
+        isDeepLink: null,
+        isConfirmedInvalid: false,
       },
     ])
 

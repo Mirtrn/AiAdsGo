@@ -43,8 +43,10 @@ describe('upsertAffiliateProducts postgres two-phase upsert', () => {
         priceCurrency: 'USD',
         commissionRate: 10,
         commissionAmount: 2,
+        commissionRateMode: 'percent',
         reviewCount: 120,
-        rawJson: '{"mid":"PB-MID-001"}',
+        isDeepLink: false,
+        isConfirmedInvalid: false,
       },
     ], { progressEvery: 1 })
 
@@ -54,25 +56,45 @@ describe('upsertAffiliateProducts postgres two-phase upsert', () => {
       updatedCount: 0,
     })
 
-    expect(dbFns.exec).toHaveBeenCalledTimes(2)
+    expect(dbFns.exec).toHaveBeenCalledTimes(3)
 
     const updateSql = String(dbFns.exec.mock.calls[0]?.[0] || '')
     const updateParams = dbFns.exec.mock.calls[0]?.[1] || []
-    const insertSql = String(dbFns.exec.mock.calls[1]?.[0] || '')
+    const touchSql = String(dbFns.exec.mock.calls[1]?.[0] || '')
+    const touchParams = dbFns.exec.mock.calls[1]?.[1] || []
+    const insertSql = String(dbFns.exec.mock.calls[2]?.[0] || '')
+    const insertParams = dbFns.exec.mock.calls[2]?.[1] || []
 
     expect(updateSql).toContain('WITH incoming AS')
     expect(updateSql).toContain('FROM (VALUES')
     expect(updateSql).toContain('AS v (')
     expect(updateSql).toContain('v.user_id::integer AS user_id')
     expect(updateSql).toContain('v.price_amount::double precision AS price_amount')
+    expect(updateSql).toContain('v.commission_rate_mode::text AS commission_rate_mode')
     expect(updateSql).toContain('v.review_count::integer AS review_count')
+    expect(updateSql).toContain('v.is_deeplink::boolean AS is_deeplink')
+    expect(updateSql).toContain('v.is_confirmed_invalid::boolean AS is_confirmed_invalid')
     expect(updateSql).toContain('WHERE p.user_id = incoming.user_id')
+    expect(updateSql).toContain('p.merchant_id IS DISTINCT FROM incoming.merchant_id')
     expect(updateSql).not.toContain('WHERE p.user_id = incoming.user_id::integer')
 
+    expect(touchSql).toContain('SET')
+    expect(touchSql).toContain('last_synced_at = incoming.last_synced_at')
+    expect(touchSql).toContain('last_seen_at = incoming.last_seen_at')
+    expect(touchSql).toContain('AND NOT (')
+
     expect(insertSql).toContain('ON p.user_id = incoming.user_id')
+    expect(insertSql).toContain('merchant_id = CASE')
+    expect(insertSql).toContain('commission_rate_mode = CASE')
+    expect(insertSql).toContain('is_deeplink = CASE')
+    expect(insertSql).toContain('is_confirmed_invalid = CASE')
+    expect(insertSql).toContain('updated_at = CASE')
+    expect(insertSql).toContain('affiliate_products.last_synced_at IS DISTINCT FROM EXCLUDED.last_synced_at')
     expect(insertSql).not.toContain('ON p.user_id = incoming.user_id::integer')
 
-    expect(updateParams).toHaveLength(20)
+    expect(updateParams).toHaveLength(22)
+    expect(touchParams).toHaveLength(22)
+    expect(insertParams).toHaveLength(22)
     expect(updateParams[0]).toBe(1)
     expect(typeof updateParams[0]).toBe('number')
     expect(updateParams[11]).toBe(19.99)

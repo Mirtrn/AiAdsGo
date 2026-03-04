@@ -7,6 +7,7 @@ function buildBaseRow(overrides: Partial<AffiliateProduct> = {}): AffiliateProdu
     user_id: 7,
     platform: 'yeahpromos',
     mid: 'M-1',
+    merchant_id: null,
     asin: null,
     brand: 'Demo',
     product_name: 'Demo Product',
@@ -18,8 +19,10 @@ function buildBaseRow(overrides: Partial<AffiliateProduct> = {}): AffiliateProdu
     price_currency: 'USD',
     commission_rate: 15,
     commission_amount: 15,
+    commission_rate_mode: 'percent',
     review_count: null,
-    raw_json: '{}',
+    is_deeplink: null,
+    is_confirmed_invalid: 0,
     is_blacklisted: 0,
     last_synced_at: null,
     last_seen_at: null,
@@ -32,9 +35,7 @@ function buildBaseRow(overrides: Partial<AffiliateProduct> = {}): AffiliateProdu
 describe('affiliate-products display mapping', () => {
   it('keeps percent mode when commission is percentage', () => {
     const row = buildBaseRow({
-      raw_json: JSON.stringify({
-        payout_unit: '%',
-      }),
+      commission_rate_mode: 'percent',
       commission_rate: 12,
       commission_amount: 18,
     })
@@ -48,9 +49,7 @@ describe('affiliate-products display mapping', () => {
 
   it('uses amount mode and aligns rate/amount when commission is absolute value', () => {
     const row = buildBaseRow({
-      raw_json: JSON.stringify({
-        payout_unit: 'USD',
-      }),
+      commission_rate_mode: 'amount',
       commission_rate: 20,
       commission_amount: 32.5,
     })
@@ -62,26 +61,20 @@ describe('affiliate-products display mapping', () => {
     expect(mapped.commissionCurrency).toBe('USD')
   })
 
-  it('falls back to raw reviews when review_count column is empty', () => {
+  it('keeps reviewCount null when structured column is empty', () => {
     const row = buildBaseRow({
       review_count: null,
-      raw_json: JSON.stringify({
-        reviews: '1,234',
-      }),
     })
 
     const mapped = __testOnly.mapAffiliateProductRow(row)
-    expect(mapped.reviewCount).toBe(1234)
+    expect(mapped.reviewCount).toBeNull()
   })
 
-  it('uses commission_currency from raw json when present', () => {
+  it('infers amount mode when mode is missing but rate equals amount', () => {
     const row = buildBaseRow({
-      raw_json: JSON.stringify({
-        commission_mode: 'amount',
-        commission_currency: 'eur',
-      }),
+      commission_rate_mode: null,
       price_currency: null,
-      commission_rate: 10,
+      commission_rate: 21.99,
       commission_amount: 21.99,
     })
 
@@ -89,7 +82,7 @@ describe('affiliate-products display mapping', () => {
     expect(mapped.commissionRateMode).toBe('amount')
     expect(mapped.commissionRate).toBe(21.99)
     expect(mapped.commissionAmount).toBe(21.99)
-    expect(mapped.commissionCurrency).toBe('EUR')
+    expect(mapped.commissionCurrency).toBeNull()
   })
 
   it('supports separate display serial while keeping primary key id', () => {

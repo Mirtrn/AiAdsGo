@@ -14,6 +14,7 @@ import {
   checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun,
   getLatestFailedAffiliateProductSyncRun,
+  runAffiliateProductsRawJsonRetirementMaintenance,
   type SyncMode,
   updateAffiliateProductSyncRun,
 } from '../../affiliate-products'
@@ -167,6 +168,12 @@ export class AffiliateProductSyncScheduler {
     console.log(`\n[${nowIso}] 🔄 检查联盟商品同步任务...`)
 
     try {
+      try {
+        await runAffiliateProductsRawJsonRetirementMaintenance()
+      } catch (error: any) {
+        console.warn(`[affiliate-sync-scheduler] raw_json retirement maintenance failed: ${error?.message || error}`)
+      }
+
       const users = await this.listEligibleUsers()
       if (users.length === 0) {
         console.log('  ℹ️  没有符合条件的用户')

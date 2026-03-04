@@ -34,6 +34,7 @@ export type AffiliateLandingPageType =
 
 export type AffiliateProductLifecycleStatus = 'active' | 'invalid' | 'sync_missing' | 'unknown'
 export type AffiliateProductStatusFilter = AffiliateProductLifecycleStatus | 'all'
+export type AffiliateCommissionRateMode = 'percent' | 'amount'
 
 export type AffiliateProduct = {
   id: number
@@ -52,8 +53,11 @@ export type AffiliateProduct = {
   price_currency: string | null
   commission_rate: number | null
   commission_amount: number | null
+  commission_rate_mode?: AffiliateCommissionRateMode | null
   review_count: number | null
-  raw_json: string | null
+  is_deeplink?: boolean | number | null
+  is_confirmed_invalid?: boolean | number | null
+  raw_json?: string | null
   is_blacklisted: boolean | number
   last_synced_at: string | null
   last_seen_at: string | null
@@ -78,7 +82,7 @@ export type AffiliateProductListItem = {
   priceAmount: number | null
   priceCurrency: string | null
   commissionRate: number | null
-  commissionRateMode: 'percent' | 'amount'
+  commissionRateMode: AffiliateCommissionRateMode
   commissionAmount: number | null
   commissionCurrency: string | null
   reviewCount: number | null
@@ -108,8 +112,10 @@ type NormalizedAffiliateProduct = {
   priceCurrency: string | null
   commissionRate: number | null
   commissionAmount: number | null
+  commissionRateMode: AffiliateCommissionRateMode
   reviewCount: number | null
-  rawJson: string
+  isDeepLink: boolean | null
+  isConfirmedInvalid: boolean
 }
 
 export type ProductSortField =
@@ -325,6 +331,22 @@ const MIN_YP_PRODUCTS_REQUEST_DELAY_MS = 1500
 const MAX_YP_PRODUCTS_REQUEST_DELAY_MS = 15000
 const DEFAULT_YP_PRODUCTS_DELAY_JITTER_MS = 1200
 const MAX_YP_PRODUCTS_DELAY_JITTER_MS = 4000
+const AFFILIATE_RAW_JSON_RETIREMENT_TABLE = 'affiliate_product_raw_json_retirement'
+const AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID = 1
+const AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MIN = 500
+const AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_BUSY = 1000
+const AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MAX = 2000
+const AFFILIATE_RAW_JSON_RETIREMENT_BUSY_SYNC_RUNS_THRESHOLD = 1
+const AFFILIATE_RAW_JSON_RETIREMENT_PEAK_SYNC_RUNS_THRESHOLD = 3
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_LOCK_KEY = 93620411
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_LOCK_TIMEOUT_MS = 1500
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_STATEMENT_TIMEOUT_MS = 5000
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_MAX_ATTEMPTS = 3
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_RETRY_BASE_DELAY_MS = 500
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_RETRY_MAX_DELAY_MS = 3000
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_START_HOUR = 1
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_END_HOUR = 6
+const AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_TZ_OFFSET_HOURS = 8
 const YP_MARKETPLACE_TEMPLATES_SETTING_KEY = 'yeahpromos_marketplace_templates_json'
 const YP_PROXY_COUNTRY_ALIAS: Record<string, string> = {
   UK: 'GB',
@@ -1692,14 +1714,6 @@ function formatYmdDate(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-function toJsonString(value: unknown): string {
-  try {
-    return JSON.stringify(value ?? {})
-  } catch {
-    return '{}'
-  }
-}
-
 function parseAllowedCountries(value: string | null | undefined): string[] {
   if (!value) return []
   try {
@@ -1743,6 +1757,91 @@ function normalizeTriStateBool(value: unknown): boolean | null {
   if (raw === '1' || raw === 'true' || raw === 'yes') return true
   if (raw === '0' || raw === 'false' || raw === 'no') return false
   return null
+}
+
+function normalizeCommissionRateMode(value: unknown): AffiliateCommissionRateMode | null {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return null
+  if (raw === 'amount') return 'amount'
+  if (raw === 'rate' || raw === 'percent' || raw === 'percentage') return 'percent'
+  return null
+}
+
+const CONFIRMED_INVALID_STATUS_TOKENS = new Set<string>([
+  'offline',
+  'inactive',
+  'disabled',
+  'removed',
+  'invalid',
+  'out_of_stock',
+  'sold_out',
+  'unavailable',
+])
+
+const CONFIRMED_INVALID_STATUS_KEYWORDS = [
+  'offline',
+  'inactive',
+  'disabled',
+  'removed',
+  'invalid',
+  'out of stock',
+  'out-of-stock',
+  'sold out',
+  'unavailable',
+  '失效',
+  '下架',
+  '缺货',
+  '无库存',
+  '不可用',
+]
+
+function normalizeStatusToken(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+}
+
+function resolveConfirmedInvalidFromSignals(input: {
+  advertStatus?: unknown
+  status?: unknown
+  availability?: unknown
+  stockStatus?: unknown
+  joinStatus?: unknown
+  isAvailable?: unknown
+  inStock?: unknown
+  isOos?: unknown
+}): boolean {
+  const advertStatus = String(input.advertStatus ?? '').trim()
+  if (advertStatus === '0') return true
+
+  const statusTokens = [
+    normalizeStatusToken(input.status),
+    normalizeStatusToken(input.availability),
+    normalizeStatusToken(input.stockStatus),
+  ].filter(Boolean)
+
+  if (statusTokens.some((token) => CONFIRMED_INVALID_STATUS_TOKENS.has(token))) {
+    return true
+  }
+
+  const joinStatusText = String(input.joinStatus || '').trim().toLowerCase()
+  if (joinStatusText) {
+    if (CONFIRMED_INVALID_STATUS_KEYWORDS.some((keyword) => joinStatusText.includes(keyword))) {
+      return true
+    }
+  }
+
+  const isAvailable = normalizeTriStateBool(input.isAvailable)
+  if (isAvailable === false) return true
+
+  const inStock = normalizeTriStateBool(input.inStock)
+  if (inStock === false) return true
+
+  const isOos = normalizeTriStateBool(input.isOos)
+  if (isOos === true) return true
+
+  return false
 }
 
 export function detectAffiliateLandingPageType(params: {
@@ -2704,6 +2803,16 @@ async function fetchPartnerboostPromotableProductsWithMeta(
                 ? String(item.bid)
                 : ''
     )
+    const isDeepLink = normalizeTriStateBool((item as any).is_deeplink ?? (item as any).isDeepLink)
+    const isConfirmedInvalid = resolveConfirmedInvalidFromSignals({
+      advertStatus: (item as any).advert_status,
+      status: (item as any).status,
+      availability: (item as any).availability,
+      stockStatus: (item as any).stock_status,
+      isAvailable: (item as any).is_available,
+      inStock: (item as any).in_stock,
+      isOos: (item as any).is_oos,
+    })
 
     normalized.push({
       platform: 'partnerboost',
@@ -2722,12 +2831,10 @@ async function fetchPartnerboostPromotableProductsWithMeta(
       commissionAmount: parsedCommission.mode === 'amount'
         ? parsedCommission.amount
         : computeCommissionAmount(priceAmount, commissionRate),
+      commissionRateMode: parsedCommission.mode,
       reviewCount,
-      rawJson: toJsonString({
-        ...item,
-        commission_mode: parsedCommission.mode,
-        commission_currency: parsedCommission.currency,
-      }),
+      isDeepLink,
+      isConfirmedInvalid,
     })
   }
 
@@ -3111,13 +3218,15 @@ function parseYeahPromosProductHtmlPage(
     const commissionRate = parsePercentage(commissionText)
     const commissionAmount = computeCommissionAmount(priceAmount, commissionRate)
     const allowedCountries = selectedMarketplaceCode ? [selectedMarketplaceCode] : []
-    const keyFieldsStatus = resolveYeahPromosKeyFieldsStatus({
-      brand,
-      asin,
-      priceAmount,
-      commissionRate,
-      promoLink,
-      reviewCount,
+    const isConfirmedInvalid = resolveConfirmedInvalidFromSignals({
+      advertStatus: null,
+      status: null,
+      availability: null,
+      stockStatus: null,
+      joinStatus,
+      isAvailable: null,
+      inStock: null,
+      isOos: null,
     })
 
     items.push({
@@ -3134,19 +3243,10 @@ function parseYeahPromosProductHtmlPage(
       priceCurrency,
       commissionRate,
       commissionAmount,
+      commissionRateMode: 'percent',
       reviewCount,
-      rawJson: toJsonString({
-        source: 'yeahpromos_offer_products',
-        page_now: parsedPageNow,
-        site_id: selectedSiteId,
-        pid: promoMeta.pid,
-        track: promoMeta.track,
-        product_id: applyProductId,
-        join_status: joinStatus,
-        rating,
-        marketplace: normalizeYeahPromosMarketplace(context?.marketplace || ''),
-        key_fields_status: keyFieldsStatus,
-      }),
+      isDeepLink: null,
+      isConfirmedInvalid,
     })
   }
 
@@ -3639,8 +3739,10 @@ function dedupeNormalizedProducts(items: NormalizedAffiliateProduct[]): Normaliz
       priceCurrency: existing.priceCurrency || item.priceCurrency,
       commissionRate: existing.commissionRate ?? item.commissionRate,
       commissionAmount: existing.commissionAmount ?? item.commissionAmount,
+      commissionRateMode: existing.commissionRateMode || item.commissionRateMode,
       reviewCount: existing.reviewCount ?? item.reviewCount,
-      rawJson: existing.rawJson || item.rawJson,
+      isDeepLink: existing.isDeepLink ?? item.isDeepLink,
+      isConfirmedInvalid: existing.isConfirmedInvalid || item.isConfirmedInvalid,
     }
 
     deduped.set(key, merged)
@@ -3878,14 +3980,51 @@ function buildAffiliateProductsUpsertValues(params: {
       item.priceCurrency,
       item.commissionRate,
       item.commissionAmount,
+      item.commissionRateMode,
       item.reviewCount,
-      item.rawJson,
+      item.isDeepLink,
+      item.isConfirmedInvalid,
       params.nowIso,
       params.nowIso,
       params.nowIso
     )
   }
   return values
+}
+
+function buildAffiliateProductsBusinessChangedSql(params: {
+  existingAlias: string
+  incomingAlias: string
+  dbType: 'sqlite' | 'postgres'
+}): string {
+  const comparator = params.dbType === 'postgres'
+    ? 'IS DISTINCT FROM'
+    : 'IS NOT'
+
+  const fields: Array<[string, string]> = [
+    ['merchant_id', 'merchant_id'],
+    ['asin', 'asin'],
+    ['brand', 'brand'],
+    ['product_name', 'product_name'],
+    ['product_url', 'product_url'],
+    ['promo_link', 'promo_link'],
+    ['short_promo_link', 'short_promo_link'],
+    ['allowed_countries_json', 'allowed_countries_json'],
+    ['price_amount', 'price_amount'],
+    ['price_currency', 'price_currency'],
+    ['commission_rate', 'commission_rate'],
+    ['commission_amount', 'commission_amount'],
+    ['commission_rate_mode', 'commission_rate_mode'],
+    ['review_count', 'review_count'],
+    ['is_deeplink', 'is_deeplink'],
+    ['is_confirmed_invalid', 'is_confirmed_invalid'],
+  ]
+
+  return fields
+    .map(([existingColumn, incomingColumn]) => (
+      `${params.existingAlias}.${existingColumn} ${comparator} ${params.incomingAlias}.${incomingColumn}`
+    ))
+    .join('\n          OR ')
 }
 
 async function upsertAffiliateProductsChunkOnConflict(params: {
@@ -3897,9 +4036,17 @@ async function upsertAffiliateProductsChunkOnConflict(params: {
 }): Promise<void> {
   if (params.items.length === 0) return
 
-  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
   const values = buildAffiliateProductsUpsertValues(params)
+  const businessChangedSql = buildAffiliateProductsBusinessChangedSql({
+    existingAlias: 'affiliate_products',
+    incomingAlias: 'EXCLUDED',
+    dbType: params.db.type,
+  })
+  const timestampDistinctComparator = params.db.type === 'postgres'
+    ? 'IS DISTINCT FROM'
+    : 'IS NOT'
 
   await params.db.exec(`
     INSERT INTO affiliate_products (
@@ -3918,31 +4065,125 @@ async function upsertAffiliateProductsChunkOnConflict(params: {
       price_currency,
       commission_rate,
       commission_amount,
+      commission_rate_mode,
       review_count,
-      raw_json,
+      is_deeplink,
+      is_confirmed_invalid,
       last_synced_at,
       last_seen_at,
       updated_at
     )
     VALUES ${placeholders}
     ON CONFLICT (user_id, platform, mid) DO UPDATE SET
-      merchant_id = EXCLUDED.merchant_id,
-      asin = EXCLUDED.asin,
-      brand = EXCLUDED.brand,
-      product_name = EXCLUDED.product_name,
-      product_url = EXCLUDED.product_url,
-      promo_link = EXCLUDED.promo_link,
-      short_promo_link = EXCLUDED.short_promo_link,
-      allowed_countries_json = EXCLUDED.allowed_countries_json,
-      price_amount = EXCLUDED.price_amount,
-      price_currency = EXCLUDED.price_currency,
-      commission_rate = EXCLUDED.commission_rate,
-      commission_amount = EXCLUDED.commission_amount,
-      review_count = EXCLUDED.review_count,
-      raw_json = EXCLUDED.raw_json,
+      merchant_id = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.merchant_id
+        ELSE affiliate_products.merchant_id
+      END,
+      asin = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.asin
+        ELSE affiliate_products.asin
+      END,
+      brand = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.brand
+        ELSE affiliate_products.brand
+      END,
+      product_name = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.product_name
+        ELSE affiliate_products.product_name
+      END,
+      product_url = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.product_url
+        ELSE affiliate_products.product_url
+      END,
+      promo_link = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.promo_link
+        ELSE affiliate_products.promo_link
+      END,
+      short_promo_link = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.short_promo_link
+        ELSE affiliate_products.short_promo_link
+      END,
+      allowed_countries_json = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.allowed_countries_json
+        ELSE affiliate_products.allowed_countries_json
+      END,
+      price_amount = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.price_amount
+        ELSE affiliate_products.price_amount
+      END,
+      price_currency = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.price_currency
+        ELSE affiliate_products.price_currency
+      END,
+      commission_rate = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.commission_rate
+        ELSE affiliate_products.commission_rate
+      END,
+      commission_amount = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.commission_amount
+        ELSE affiliate_products.commission_amount
+      END,
+      commission_rate_mode = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.commission_rate_mode
+        ELSE affiliate_products.commission_rate_mode
+      END,
+      review_count = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.review_count
+        ELSE affiliate_products.review_count
+      END,
+      is_deeplink = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.is_deeplink
+        ELSE affiliate_products.is_deeplink
+      END,
+      is_confirmed_invalid = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.is_confirmed_invalid
+        ELSE affiliate_products.is_confirmed_invalid
+      END,
       last_synced_at = EXCLUDED.last_synced_at,
       last_seen_at = EXCLUDED.last_seen_at,
-      updated_at = EXCLUDED.updated_at
+      updated_at = CASE
+        WHEN (
+          ${businessChangedSql}
+        ) THEN EXCLUDED.updated_at
+        ELSE affiliate_products.updated_at
+      END
+    WHERE (
+      ${businessChangedSql}
+    )
+      OR affiliate_products.last_synced_at ${timestampDistinctComparator} EXCLUDED.last_synced_at
+      OR affiliate_products.last_seen_at ${timestampDistinctComparator} EXCLUDED.last_seen_at
   `, values)
 }
 
@@ -3955,7 +4196,7 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
 }): Promise<void> {
   if (params.items.length === 0) return
 
-  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  const perRowPlaceholder = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   const placeholders = new Array(params.items.length).fill(perRowPlaceholder).join(', ')
   const incomingColumns = `
     user_id,
@@ -3973,8 +4214,10 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     price_currency,
     commission_rate,
     commission_amount,
+    commission_rate_mode,
     review_count,
-    raw_json,
+    is_deeplink,
+    is_confirmed_invalid,
     last_synced_at,
     last_seen_at,
     updated_at
@@ -3995,8 +4238,10 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     v.price_currency::text AS price_currency,
     v.commission_rate::double precision AS commission_rate,
     v.commission_amount::double precision AS commission_amount,
+    v.commission_rate_mode::text AS commission_rate_mode,
     v.review_count::integer AS review_count,
-    v.raw_json::text AS raw_json,
+    v.is_deeplink::boolean AS is_deeplink,
+    v.is_confirmed_invalid::boolean AS is_confirmed_invalid,
     v.last_synced_at::timestamp AS last_synced_at,
     v.last_seen_at::timestamp AS last_seen_at,
     v.updated_at::timestamp AS updated_at
@@ -4009,6 +4254,16 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     )
   `
   const values = buildAffiliateProductsUpsertValues(params)
+  const businessChangedSql = buildAffiliateProductsBusinessChangedSql({
+    existingAlias: 'p',
+    incomingAlias: 'incoming',
+    dbType: 'postgres',
+  })
+  const conflictBusinessChangedSql = buildAffiliateProductsBusinessChangedSql({
+    existingAlias: 'affiliate_products',
+    incomingAlias: 'EXCLUDED',
+    dbType: 'postgres',
+  })
 
   await params.db.exec(`
     ${incomingCte}
@@ -4026,8 +4281,10 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       price_currency = incoming.price_currency,
       commission_rate = incoming.commission_rate,
       commission_amount = incoming.commission_amount,
+      commission_rate_mode = incoming.commission_rate_mode,
       review_count = incoming.review_count,
-      raw_json = incoming.raw_json,
+      is_deeplink = incoming.is_deeplink,
+      is_confirmed_invalid = incoming.is_confirmed_invalid,
       last_synced_at = incoming.last_synced_at,
       last_seen_at = incoming.last_seen_at,
       updated_at = incoming.updated_at
@@ -4035,6 +4292,28 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
     WHERE p.user_id = incoming.user_id
       AND p.platform = incoming.platform
       AND p.mid = incoming.mid
+      AND (
+        ${businessChangedSql}
+      )
+  `, values)
+
+  await params.db.exec(`
+    ${incomingCte}
+    UPDATE affiliate_products p
+    SET
+      last_synced_at = incoming.last_synced_at,
+      last_seen_at = incoming.last_seen_at
+    FROM incoming
+    WHERE p.user_id = incoming.user_id
+      AND p.platform = incoming.platform
+      AND p.mid = incoming.mid
+      AND NOT (
+        ${businessChangedSql}
+      )
+      AND (
+        p.last_synced_at IS DISTINCT FROM incoming.last_synced_at
+        OR p.last_seen_at IS DISTINCT FROM incoming.last_seen_at
+      )
   `, values)
 
   await params.db.exec(`
@@ -4055,8 +4334,10 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       price_currency,
       commission_rate,
       commission_amount,
+      commission_rate_mode,
       review_count,
-      raw_json,
+      is_deeplink,
+      is_confirmed_invalid,
       last_synced_at,
       last_seen_at,
       updated_at
@@ -4077,8 +4358,10 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       incoming.price_currency,
       incoming.commission_rate,
       incoming.commission_amount,
+      incoming.commission_rate_mode,
       incoming.review_count,
-      incoming.raw_json,
+      incoming.is_deeplink,
+      incoming.is_confirmed_invalid,
       incoming.last_synced_at,
       incoming.last_seen_at,
       incoming.updated_at
@@ -4089,22 +4372,115 @@ async function upsertAffiliateProductsChunkPostgresTwoPhase(params: {
       AND p.mid = incoming.mid
     WHERE p.id IS NULL
     ON CONFLICT (user_id, platform, mid) DO UPDATE SET
-      asin = EXCLUDED.asin,
-      brand = EXCLUDED.brand,
-      product_name = EXCLUDED.product_name,
-      product_url = EXCLUDED.product_url,
-      promo_link = EXCLUDED.promo_link,
-      short_promo_link = EXCLUDED.short_promo_link,
-      allowed_countries_json = EXCLUDED.allowed_countries_json,
-      price_amount = EXCLUDED.price_amount,
-      price_currency = EXCLUDED.price_currency,
-      commission_rate = EXCLUDED.commission_rate,
-      commission_amount = EXCLUDED.commission_amount,
-      review_count = EXCLUDED.review_count,
-      raw_json = EXCLUDED.raw_json,
+      merchant_id = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.merchant_id
+        ELSE affiliate_products.merchant_id
+      END,
+      asin = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.asin
+        ELSE affiliate_products.asin
+      END,
+      brand = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.brand
+        ELSE affiliate_products.brand
+      END,
+      product_name = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.product_name
+        ELSE affiliate_products.product_name
+      END,
+      product_url = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.product_url
+        ELSE affiliate_products.product_url
+      END,
+      promo_link = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.promo_link
+        ELSE affiliate_products.promo_link
+      END,
+      short_promo_link = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.short_promo_link
+        ELSE affiliate_products.short_promo_link
+      END,
+      allowed_countries_json = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.allowed_countries_json
+        ELSE affiliate_products.allowed_countries_json
+      END,
+      price_amount = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.price_amount
+        ELSE affiliate_products.price_amount
+      END,
+      price_currency = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.price_currency
+        ELSE affiliate_products.price_currency
+      END,
+      commission_rate = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.commission_rate
+        ELSE affiliate_products.commission_rate
+      END,
+      commission_amount = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.commission_amount
+        ELSE affiliate_products.commission_amount
+      END,
+      commission_rate_mode = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.commission_rate_mode
+        ELSE affiliate_products.commission_rate_mode
+      END,
+      review_count = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.review_count
+        ELSE affiliate_products.review_count
+      END,
+      is_deeplink = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.is_deeplink
+        ELSE affiliate_products.is_deeplink
+      END,
+      is_confirmed_invalid = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.is_confirmed_invalid
+        ELSE affiliate_products.is_confirmed_invalid
+      END,
       last_synced_at = EXCLUDED.last_synced_at,
       last_seen_at = EXCLUDED.last_seen_at,
-      updated_at = EXCLUDED.updated_at
+      updated_at = CASE
+        WHEN (
+          ${conflictBusinessChangedSql}
+        ) THEN EXCLUDED.updated_at
+        ELSE affiliate_products.updated_at
+      END
+    WHERE (
+      ${conflictBusinessChangedSql}
+    )
+      OR affiliate_products.last_synced_at IS DISTINCT FROM EXCLUDED.last_synced_at
+      OR affiliate_products.last_seen_at IS DISTINCT FROM EXCLUDED.last_seen_at
   `, values)
 }
 
@@ -4349,65 +4725,8 @@ function appendDateRangeWhere(params: {
   }
 }
 
-function buildConfirmedInvalidSql(rawJsonSql: string = `LOWER(COALESCE(p.raw_json, ''))`): string {
-  return `
-    (
-      ${rawJsonSql} LIKE '%"advert_status":0%'
-      OR ${rawJsonSql} LIKE '%"advert_status":"0"%'
-      OR ${rawJsonSql} LIKE '%"status":"offline"%'
-      OR ${rawJsonSql} LIKE '%"status":"inactive"%'
-      OR ${rawJsonSql} LIKE '%"status":"disabled"%'
-      OR ${rawJsonSql} LIKE '%"status":"removed"%'
-      OR ${rawJsonSql} LIKE '%"status":"invalid"%'
-      OR ${rawJsonSql} LIKE '%"status":"out_of_stock"%'
-      OR ${rawJsonSql} LIKE '%"status":"out-of-stock"%'
-      OR ${rawJsonSql} LIKE '%"status":"sold_out"%'
-      OR ${rawJsonSql} LIKE '%"status":"unavailable"%'
-      OR ${rawJsonSql} LIKE '%"availability":"out_of_stock"%'
-      OR ${rawJsonSql} LIKE '%"availability":"out-of-stock"%'
-      OR ${rawJsonSql} LIKE '%"availability":"sold_out"%'
-      OR ${rawJsonSql} LIKE '%"availability":"unavailable"%'
-      OR ${rawJsonSql} LIKE '%"stock_status":"out_of_stock"%'
-      OR ${rawJsonSql} LIKE '%"stock_status":"out-of-stock"%'
-      OR ${rawJsonSql} LIKE '%"stock_status":"sold_out"%'
-      OR ${rawJsonSql} LIKE '%"stock_status":"unavailable"%'
-      OR ${rawJsonSql} LIKE '%"is_available":false%'
-      OR ${rawJsonSql} LIKE '%"in_stock":false%'
-      OR ${rawJsonSql} LIKE '%"is_oos":true%'
-    )
-  `
-}
-
-const CONFIRMED_INVALID_MARKERS: string[] = [
-  '"advert_status":0',
-  '"advert_status":"0"',
-  '"status":"offline"',
-  '"status":"inactive"',
-  '"status":"disabled"',
-  '"status":"removed"',
-  '"status":"invalid"',
-  '"status":"out_of_stock"',
-  '"status":"out-of-stock"',
-  '"status":"sold_out"',
-  '"status":"unavailable"',
-  '"availability":"out_of_stock"',
-  '"availability":"out-of-stock"',
-  '"availability":"sold_out"',
-  '"availability":"unavailable"',
-  '"stock_status":"out_of_stock"',
-  '"stock_status":"out-of-stock"',
-  '"stock_status":"sold_out"',
-  '"stock_status":"unavailable"',
-  '"is_available":false',
-  '"in_stock":false',
-  '"is_oos":true',
-]
-
-function isConfirmedInvalidFromRawJson(rawJson: string | null): boolean {
-  if (!rawJson) return false
-  const normalized = rawJson.toLowerCase().replace(/\s+/g, '')
-  if (!normalized) return false
-  return CONFIRMED_INVALID_MARKERS.some((marker) => normalized.includes(marker))
+function buildConfirmedInvalidSql(columnSql: string = 'p.is_confirmed_invalid'): string {
+  return `(COALESCE(${columnSql}, FALSE) = TRUE)`
 }
 
 function parseDateToTimestamp(input: string | null): number | null {
@@ -4423,6 +4742,7 @@ function isMissingTableError(error: unknown): boolean {
 }
 
 const affiliateProductsMerchantIdColumnAvailability: Partial<Record<'sqlite' | 'postgres', boolean>> = {}
+const affiliateProductsRawJsonColumnAvailability: Partial<Record<'sqlite' | 'postgres', boolean>> = {}
 
 async function hasAffiliateProductsMerchantIdColumn(db: DatabaseAdapter): Promise<boolean> {
   const cached = affiliateProductsMerchantIdColumnAvailability[db.type]
@@ -4457,6 +4777,396 @@ async function hasAffiliateProductsMerchantIdColumn(db: DatabaseAdapter): Promis
   }
 }
 
+async function hasAffiliateProductsRawJsonColumn(
+  db: DatabaseAdapter,
+  options?: { refresh?: boolean }
+): Promise<boolean> {
+  const cached = affiliateProductsRawJsonColumnAvailability[db.type]
+  if (!options?.refresh && typeof cached === 'boolean') {
+    return cached
+  }
+
+  try {
+    if (db.type === 'postgres') {
+      const row = await db.queryOne<{ exists: boolean }>(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'affiliate_products'
+              AND column_name = 'raw_json'
+          ) AS exists
+        `
+      )
+      const exists = Boolean(row?.exists)
+      affiliateProductsRawJsonColumnAvailability.postgres = exists
+      return exists
+    }
+
+    const rows = await db.query<{ name: string }>(`PRAGMA table_info(affiliate_products)`)
+    const exists = Array.isArray(rows) && rows.some((row) => String((row as any)?.name || '').toLowerCase() === 'raw_json')
+    affiliateProductsRawJsonColumnAvailability.sqlite = exists
+    return exists
+  } catch {
+    return false
+  }
+}
+
+function isMissingColumnError(error: unknown): boolean {
+  const message = String((error as any)?.message || '').toLowerCase()
+  return /(no such column|column .* does not exist|unknown column|undefined column)/i.test(message)
+}
+
+function isRetriableRawJsonDropError(error: unknown): boolean {
+  const code = String((error as any)?.code || '').trim().toUpperCase()
+  if (code === '55P03' || code === '57014' || code === '40P01') {
+    return true
+  }
+
+  const message = String((error as any)?.message || '').toLowerCase()
+  return (
+    message.includes('lock timeout')
+    || message.includes('statement timeout')
+    || message.includes('could not obtain lock on relation')
+    || message.includes('deadlock detected')
+  )
+}
+
+async function countActiveAffiliateProductSyncRuns(db: DatabaseAdapter): Promise<number> {
+  try {
+    const row = await db.queryOne<{ active_count: number }>(
+      `
+        SELECT COUNT(*) AS active_count
+        FROM affiliate_product_sync_runs
+        WHERE status IN ('pending', 'running')
+      `
+    )
+    return toSafeNonNegativeInt(row?.active_count)
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return 0
+    }
+    throw error
+  }
+}
+
+async function resolveAffiliateProductsRawJsonCleanupBatchSize(params: {
+  db: DatabaseAdapter
+  requestedBatchSize?: number
+}): Promise<number> {
+  if (typeof params.requestedBatchSize === 'number' && Number.isFinite(params.requestedBatchSize)) {
+    return parseIntegerInRange(
+      params.requestedBatchSize,
+      AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MAX,
+      AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MIN,
+      AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MAX
+    )
+  }
+
+  const activeSyncRuns = await countActiveAffiliateProductSyncRuns(params.db)
+  if (activeSyncRuns >= AFFILIATE_RAW_JSON_RETIREMENT_PEAK_SYNC_RUNS_THRESHOLD) {
+    return AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MIN
+  }
+  if (activeSyncRuns >= AFFILIATE_RAW_JSON_RETIREMENT_BUSY_SYNC_RUNS_THRESHOLD) {
+    return AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_BUSY
+  }
+  return AFFILIATE_RAW_JSON_RETIREMENT_BATCH_SIZE_MAX
+}
+
+type RawJsonDropAttemptResult = 'dropped' | 'already_missing' | 'lock_not_acquired'
+
+function isWithinAffiliateRawJsonDropWindow(now: Date): boolean {
+  const offsetHours = parseIntegerInRange(
+    process.env.AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_TZ_OFFSET_HOURS,
+    AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_TZ_OFFSET_HOURS,
+    -12,
+    14
+  )
+  const startHour = parseIntegerInRange(
+    process.env.AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_START_HOUR,
+    AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_START_HOUR,
+    0,
+    23
+  )
+  const endHour = parseIntegerInRange(
+    process.env.AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_END_HOUR,
+    AFFILIATE_RAW_JSON_RETIREMENT_DROP_WINDOW_END_HOUR,
+    0,
+    24
+  )
+
+  const localHour = (now.getUTCHours() + offsetHours + 24) % 24
+  if (startHour === endHour) {
+    return true
+  }
+  if (startHour < endHour) {
+    return localHour >= startHour && localHour < endHour
+  }
+  return localHour >= startHour || localHour < endHour
+}
+
+async function dropAffiliateProductsRawJsonColumnWithRetry(db: DatabaseAdapter): Promise<RawJsonDropAttemptResult> {
+  if (db.type !== 'postgres') {
+    try {
+      await db.exec(`ALTER TABLE affiliate_products DROP COLUMN raw_json`)
+      return 'dropped'
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        return 'already_missing'
+      }
+      throw error
+    }
+  }
+
+  for (let attempt = 1; attempt <= AFFILIATE_RAW_JSON_RETIREMENT_DROP_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await db.transaction(async () => {
+        const lockRow = await db.queryOne<{ acquired: boolean }>(
+          `SELECT pg_try_advisory_xact_lock(?) AS acquired`,
+          [AFFILIATE_RAW_JSON_RETIREMENT_DROP_LOCK_KEY]
+        )
+        if (!lockRow?.acquired) {
+          return 'lock_not_acquired' as const
+        }
+
+        await db.exec(`SET LOCAL lock_timeout = '${AFFILIATE_RAW_JSON_RETIREMENT_DROP_LOCK_TIMEOUT_MS}ms'`)
+        await db.exec(`SET LOCAL statement_timeout = '${AFFILIATE_RAW_JSON_RETIREMENT_DROP_STATEMENT_TIMEOUT_MS}ms'`)
+        await db.exec(`ALTER TABLE affiliate_products DROP COLUMN IF EXISTS raw_json`)
+        return 'dropped' as const
+      })
+
+      return result
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        return 'already_missing'
+      }
+
+      const canRetry = isRetriableRawJsonDropError(error) && attempt < AFFILIATE_RAW_JSON_RETIREMENT_DROP_MAX_ATTEMPTS
+      if (!canRetry) {
+        throw error
+      }
+
+      const delayMs = Math.min(
+        AFFILIATE_RAW_JSON_RETIREMENT_DROP_RETRY_MAX_DELAY_MS,
+        AFFILIATE_RAW_JSON_RETIREMENT_DROP_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1))
+      )
+      await sleep(delayMs)
+    }
+  }
+
+  return 'lock_not_acquired'
+}
+
+async function clearAffiliateProductsRawJsonBatch(db: DatabaseAdapter, batchSize: number): Promise<number> {
+  if (batchSize <= 0) return 0
+
+  if (db.type === 'postgres') {
+    const result = await db.exec(
+      `
+        WITH target AS (
+          SELECT ctid
+          FROM affiliate_products
+          WHERE raw_json IS NOT NULL
+          LIMIT ?
+        )
+        UPDATE affiliate_products p
+        SET raw_json = NULL
+        FROM target
+        WHERE p.ctid = target.ctid
+      `,
+      [batchSize]
+    )
+    return Number(result?.changes || 0)
+  }
+
+  const result = await db.exec(
+    `
+      UPDATE affiliate_products
+      SET raw_json = NULL
+      WHERE rowid IN (
+        SELECT rowid
+        FROM affiliate_products
+        WHERE raw_json IS NOT NULL
+        LIMIT ?
+      )
+    `,
+    [batchSize]
+  )
+  return Number(result?.changes || 0)
+}
+
+export async function runAffiliateProductsRawJsonRetirementMaintenance(options?: {
+  batchSize?: number
+  now?: Date
+  allowDropOutsideWindow?: boolean
+}): Promise<void> {
+  const db = await getDatabase()
+  const now = options?.now instanceof Date
+    && Number.isFinite(options.now.getTime())
+    ? options.now
+    : new Date()
+
+  type RetirementControlRow = {
+    drop_after_at: string | null
+    cleanup_completed_at: string | null
+    raw_json_drop_completed_at: string | null
+  }
+
+  let controlRow: RetirementControlRow | undefined
+  try {
+    controlRow = await db.queryOne<RetirementControlRow>(
+      `
+        SELECT
+          drop_after_at,
+          cleanup_completed_at,
+          raw_json_drop_completed_at
+        FROM ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+        WHERE singleton_id = ?
+        LIMIT 1
+      `,
+      [AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+    )
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return
+    }
+    throw error
+  }
+
+  if (!controlRow) {
+    return
+  }
+
+  const nowIso = now.toISOString()
+  let rawJsonColumnExists = await hasAffiliateProductsRawJsonColumn(db)
+
+  if (!controlRow.cleanup_completed_at) {
+    if (!rawJsonColumnExists) {
+      await db.exec(
+        `
+          UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+          SET cleanup_completed_at = COALESCE(cleanup_completed_at, ?),
+              updated_at = ?
+          WHERE singleton_id = ?
+        `,
+        [nowIso, nowIso, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+      )
+      controlRow.cleanup_completed_at = nowIso
+    } else {
+      const batchSize = await resolveAffiliateProductsRawJsonCleanupBatchSize({
+        db,
+        requestedBatchSize: options?.batchSize,
+      })
+      const cleanedRows = await clearAffiliateProductsRawJsonBatch(db, batchSize)
+      if (cleanedRows === 0) {
+        await db.exec(
+          `
+            UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+            SET cleanup_completed_at = COALESCE(cleanup_completed_at, ?),
+                updated_at = ?
+            WHERE singleton_id = ?
+          `,
+          [nowIso, nowIso, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+        )
+        controlRow.cleanup_completed_at = nowIso
+      }
+    }
+  }
+
+  const dropAfterTimestamp = parseDateToTimestamp(controlRow.drop_after_at || null)
+  const dropWindowReady = options?.allowDropOutsideWindow === true
+    || isWithinAffiliateRawJsonDropWindow(now)
+  if (
+    rawJsonColumnExists
+    && !controlRow.raw_json_drop_completed_at
+    && dropAfterTimestamp !== null
+    && now.getTime() >= dropAfterTimestamp
+    && dropWindowReady
+  ) {
+    await db.exec(
+      `
+        UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+        SET raw_json_drop_started_at = COALESCE(raw_json_drop_started_at, ?),
+            last_error = NULL,
+            updated_at = ?
+        WHERE singleton_id = ?
+      `,
+      [nowIso, nowIso, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+    )
+
+    try {
+      const dropResult = await dropAffiliateProductsRawJsonColumnWithRetry(db)
+      if (dropResult === 'lock_not_acquired') {
+        rawJsonColumnExists = await hasAffiliateProductsRawJsonColumn(db, { refresh: true })
+      } else {
+        rawJsonColumnExists = await hasAffiliateProductsRawJsonColumn(db, { refresh: true })
+      }
+
+      if (!rawJsonColumnExists) {
+        const dropCompletedAt = new Date().toISOString()
+        await db.exec(
+          `
+            UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+            SET raw_json_drop_completed_at = COALESCE(raw_json_drop_completed_at, ?),
+                last_error = NULL,
+                updated_at = ?
+            WHERE singleton_id = ?
+          `,
+          [dropCompletedAt, dropCompletedAt, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+        )
+        controlRow.raw_json_drop_completed_at = dropCompletedAt
+      }
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        affiliateProductsRawJsonColumnAvailability[db.type] = false
+        rawJsonColumnExists = false
+        const dropCompletedAt = new Date().toISOString()
+        await db.exec(
+          `
+            UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+            SET raw_json_drop_completed_at = COALESCE(raw_json_drop_completed_at, ?),
+                last_error = NULL,
+                updated_at = ?
+            WHERE singleton_id = ?
+          `,
+          [dropCompletedAt, dropCompletedAt, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+        )
+        controlRow.raw_json_drop_completed_at = dropCompletedAt
+      } else {
+        const errorMessage = String((error as any)?.message || error || 'unknown error').slice(0, 1000)
+        const failedAt = new Date().toISOString()
+        await db.exec(
+          `
+            UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+            SET last_error = ?,
+                updated_at = ?
+            WHERE singleton_id = ?
+          `,
+          [errorMessage, failedAt, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+        )
+        throw error
+      }
+    }
+  }
+
+  rawJsonColumnExists = await hasAffiliateProductsRawJsonColumn(db, { refresh: true })
+
+  if (!rawJsonColumnExists && !controlRow.raw_json_drop_completed_at) {
+    const dropCompletedAt = new Date().toISOString()
+    await db.exec(
+      `
+        UPDATE ${AFFILIATE_RAW_JSON_RETIREMENT_TABLE}
+        SET raw_json_drop_completed_at = COALESCE(raw_json_drop_completed_at, ?),
+            last_error = NULL,
+            updated_at = ?
+        WHERE singleton_id = ?
+      `,
+      [dropCompletedAt, dropCompletedAt, AFFILIATE_RAW_JSON_RETIREMENT_SINGLETON_ID]
+    )
+  }
+}
+
 function toHourBucketIso(date: Date): string {
   const copy = new Date(date.getTime())
   copy.setUTCMinutes(0, 0, 0)
@@ -4470,10 +5180,10 @@ function toSafeNonNegativeInt(value: unknown): number {
 }
 
 function resolveLifecycleStatusFromRowForList(
-  row: Pick<AffiliateProduct, 'platform' | 'raw_json' | 'last_seen_at'>
+  row: Pick<AffiliateProduct, 'is_confirmed_invalid' | 'last_seen_at'>
   & { baseline_started_at?: string | null }
 ): AffiliateProductLifecycleStatus {
-  if (row.platform === 'yeahpromos' && isConfirmedInvalidFromRawJson(row.raw_json)) {
+  if (normalizeTriStateBool(row.is_confirmed_invalid) === true) {
     return 'invalid'
   }
 
@@ -4546,14 +5256,7 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     yeahpromos: toPlatformStats(accumulator.yeahpromos),
     partnerboost: toPlatformStats(accumulator.partnerboost),
   })
-  const confirmedInvalidSql = buildConfirmedInvalidSql()
-  // 失效判定依赖 raw_json 大文本扫描，当前仅在 YeahPromos 生效，避免 PartnerBoost 超大数据集触发超时。
-  const confirmedInvalidStatusSql = `
-    (
-      p.platform = 'yeahpromos'
-      AND ${confirmedInvalidSql}
-    )
-  `
+  const confirmedInvalidStatusSql = buildConfirmedInvalidSql()
   const fullSyncBaselineCteSql = `
     WITH latest_platform_full_sync AS (
       SELECT ranked.platform, ranked.baseline_started_at
@@ -4634,25 +5337,9 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       )`)
       whereParams.push(mid, mid)
     } else {
-      // 兼容旧库（尚未执行 merchant_id 迁移）时回退 raw_json 匹配。
-      whereConditions.push(`(
-        (
-          p.platform <> 'partnerboost'
-          AND LOWER(p.mid) = ?
-        )
-        OR (
-          p.platform = 'partnerboost'
-          AND (
-            COALESCE(p.raw_json, '') LIKE ?
-            OR COALESCE(p.raw_json, '') LIKE ?
-          )
-        )
-      )`)
-      whereParams.push(
-        mid,
-        `%\"brand_id\":\"${midRaw}\"%`,
-        `%\"brand_id\":${midRaw}%`
-      )
+      // 兼容旧库（尚未执行 merchant_id 迁移）时退化为 mid 精确匹配。
+      whereConditions.push('LOWER(p.mid) = ?')
+      whereParams.push(mid)
     }
   }
 
@@ -5036,9 +5723,8 @@ export async function listAffiliateProducts(userId: number, options: ProductList
     let invalidActiveOverlapCount = 0
     let invalidSyncMissingOverlapCount = 0
     let invalidUnknownOverlapCount = 0
-    const hasYeahpromosCandidates = platformStatsAccumulator.yeahpromos.total > 0
 
-    if (hasYeahpromosCandidates && !skipInvalidSummary) {
+    if (!skipInvalidSummary) {
       const invalidSummaryRow = await db.queryOne<{
         invalid_products_count: number
         invalid_active_overlap_count: number
@@ -5046,28 +5732,40 @@ export async function listAffiliateProducts(userId: number, options: ProductList
         invalid_unknown_overlap_count: number
       }>(
         `
-          ${fullSyncBaselineCteSql},
-          yp_invalid_candidates AS MATERIALIZED (
-            SELECT
-              p.last_seen_at,
-              LOWER(COALESCE(p.raw_json, '')) AS raw_json_lower
-            FROM affiliate_products p
-            WHERE ${baseWhereSql}
-              AND p.platform = 'yeahpromos'
-          )
+          ${fullSyncBaselineCteSql}
           SELECT
             COUNT(*) AS invalid_products_count,
-            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND yp.last_seen_at IS NOT NULL AND yp.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
-            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (yp.last_seen_at IS NULL OR yp.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
             SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS invalid_unknown_overlap_count
-          FROM yp_invalid_candidates yp
-          LEFT JOIN (
-            SELECT baseline_started_at
-            FROM latest_platform_full_sync
-            WHERE platform = 'yeahpromos'
-            LIMIT 1
-          ) baseline ON TRUE
-          WHERE ${buildConfirmedInvalidSql('yp.raw_json_lower')}
+          FROM affiliate_products p
+          LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+          WHERE ${baseWhereSql}
+            AND ${confirmedInvalidStatusSql}
+        `,
+        [userId, ...whereParams]
+      )
+
+      const invalidSummaryByPlatformRows = await db.query<{
+        platform: string
+        invalid_products_count: number
+        invalid_active_overlap_count: number
+        invalid_sync_missing_overlap_count: number
+        invalid_unknown_overlap_count: number
+      }>(
+        `
+          ${fullSyncBaselineCteSql}
+          SELECT
+            p.platform AS platform,
+            COUNT(*) AS invalid_products_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND p.last_seen_at IS NOT NULL AND p.last_seen_at >= baseline.baseline_started_at THEN 1 ELSE 0 END) AS invalid_active_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NOT NULL AND (p.last_seen_at IS NULL OR p.last_seen_at < baseline.baseline_started_at) THEN 1 ELSE 0 END) AS invalid_sync_missing_overlap_count,
+            SUM(CASE WHEN baseline.baseline_started_at IS NULL THEN 1 ELSE 0 END) AS invalid_unknown_overlap_count
+          FROM affiliate_products p
+          LEFT JOIN latest_platform_full_sync baseline ON baseline.platform = p.platform
+          WHERE ${baseWhereSql}
+            AND ${confirmedInvalidStatusSql}
+          GROUP BY p.platform
         `,
         [userId, ...whereParams]
       )
@@ -5077,19 +5775,28 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       invalidSyncMissingOverlapCount = Number(invalidSummaryRow?.invalid_sync_missing_overlap_count || 0)
       invalidUnknownOverlapCount = Number(invalidSummaryRow?.invalid_unknown_overlap_count || 0)
 
-      platformStatsAccumulator.yeahpromos.invalidProductsCount = invalidProductsCount
-      platformStatsAccumulator.yeahpromos.activeProductsCount = Math.max(
-        0,
-        platformStatsAccumulator.yeahpromos.activeProductsCount - invalidActiveOverlapCount
-      )
-      platformStatsAccumulator.yeahpromos.syncMissingProductsCount = Math.max(
-        0,
-        platformStatsAccumulator.yeahpromos.syncMissingProductsCount - invalidSyncMissingOverlapCount
-      )
-      platformStatsAccumulator.yeahpromos.unknownProductsCount = Math.max(
-        0,
-        platformStatsAccumulator.yeahpromos.unknownProductsCount - invalidUnknownOverlapCount
-      )
+      for (const row of invalidSummaryByPlatformRows) {
+        const platformKey = normalizeAffiliatePlatform(row.platform)
+        if (!platformKey) continue
+        const invalidCount = toSafeCount(row.invalid_products_count)
+        const invalidActiveOverlap = toSafeCount(row.invalid_active_overlap_count)
+        const invalidSyncMissingOverlap = toSafeCount(row.invalid_sync_missing_overlap_count)
+        const invalidUnknownOverlap = toSafeCount(row.invalid_unknown_overlap_count)
+
+        platformStatsAccumulator[platformKey].invalidProductsCount = invalidCount
+        platformStatsAccumulator[platformKey].activeProductsCount = Math.max(
+          0,
+          platformStatsAccumulator[platformKey].activeProductsCount - invalidActiveOverlap
+        )
+        platformStatsAccumulator[platformKey].syncMissingProductsCount = Math.max(
+          0,
+          platformStatsAccumulator[platformKey].syncMissingProductsCount - invalidSyncMissingOverlap
+        )
+        platformStatsAccumulator[platformKey].unknownProductsCount = Math.max(
+          0,
+          platformStatsAccumulator[platformKey].unknownProductsCount - invalidUnknownOverlap
+        )
+      }
     }
 
     const baseActiveProductsCount = Number(summaryRow?.active_products_count || 0)
@@ -5168,35 +5875,16 @@ function mapAffiliateProductRow(
   },
   serialNumber?: number
 ): AffiliateProductListItem {
-  const rawJson = (() => {
-    if (!row.raw_json) return null
-    try {
-      return JSON.parse(row.raw_json)
-    } catch {
-      return null
-    }
-  })()
+  const normalizedCommissionRateMode = normalizeCommissionRateMode(row.commission_rate_mode)
+  const hasComparableCommissionValues = row.commission_amount !== null && row.commission_rate !== null
+  const looksLikeAmountModeFromValues = hasComparableCommissionValues
+    ? Math.abs(Number(row.commission_amount) - Number(row.commission_rate)) < 0.000001
+    : false
 
-  const commissionUnitText = String(rawJson?.payout_unit || '').trim()
-  const inferredCommissionCurrency = normalizeCurrencyUnit(commissionUnitText)
-    || normalizeCurrencyUnit(rawJson?.commission_currency)
-    || normalizeCurrencyUnit(rawJson?.currency)
-    || normalizeCurrencyUnit(rawJson?.transaction_metric?.currency)
-    || normalizeCurrencyUnit(row.price_currency)
+  const commissionRateMode: 'percent' | 'amount' = normalizedCommissionRateMode
+    || (looksLikeAmountModeFromValues ? 'amount' : 'percent')
 
-  const inferredCommissionModeFromRaw = (() => {
-    const rawMode = String(rawJson?.commission_mode || '').trim().toLowerCase()
-    if (rawMode === 'amount') return 'amount' as const
-    if (rawMode === 'rate' || rawMode === 'percent' || rawMode === 'percentage') return 'percent' as const
-    return null
-  })()
-
-  const commissionRateMode: 'percent' | 'amount' =
-    inferredCommissionModeFromRaw === 'amount'
-      || Boolean(rawJson?.avg_payout && String(rawJson.avg_payout).includes('$'))
-      || looksLikeCurrencyUnit(commissionUnitText)
-      ? 'amount'
-      : 'percent'
+  const inferredCommissionCurrency = normalizeCurrencyUnit(row.price_currency)
 
   const normalizedCommissionAmount = commissionRateMode === 'amount'
     ? (row.commission_amount ?? row.commission_rate)
@@ -5207,15 +5895,7 @@ function mapAffiliateProductRow(
     : row.commission_rate
 
   const normalizedReviewCount = row.review_count
-    ?? parseReviewCount(
-      rawJson?.review_count
-      ?? rawJson?.reviewCount
-      ?? rawJson?.reviews
-      ?? rawJson?.rating_count
-      ?? rawJson?.ratings_total
-    )
-
-  const isDeepLink = normalizeTriStateBool(rawJson?.is_deeplink)
+  const isDeepLink = normalizeTriStateBool(row.is_deeplink)
   const landingPageType = detectAffiliateLandingPageType({
     asin: row.asin,
     productUrl: row.product_url,
@@ -5232,13 +5912,7 @@ function mapAffiliateProductRow(
 
   const merchantId = (() => {
     if (row.platform === 'partnerboost') {
-      const partnerboostMerchantId = String(
-        row.merchant_id
-        ?? rawJson?.brand_id
-        ?? rawJson?.brandId
-        ?? rawJson?.bid
-        ?? ''
-      ).trim()
+      const partnerboostMerchantId = String(row.merchant_id || '').trim()
       return partnerboostMerchantId || null
     }
 

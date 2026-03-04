@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   checkAffiliatePlatformConfig: vi.fn(),
   createAffiliateProductSyncRun: vi.fn(),
   getLatestFailedAffiliateProductSyncRun: vi.fn(),
+  runAffiliateProductsRawJsonRetirementMaintenance: vi.fn(),
   updateAffiliateProductSyncRun: vi.fn(),
   getQueueManagerForTaskType: vi.fn(),
   isYeahPromosManualSyncOnly: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../../affiliate-products', () => ({
   checkAffiliatePlatformConfig: mocks.checkAffiliatePlatformConfig,
   createAffiliateProductSyncRun: mocks.createAffiliateProductSyncRun,
   getLatestFailedAffiliateProductSyncRun: mocks.getLatestFailedAffiliateProductSyncRun,
+  runAffiliateProductsRawJsonRetirementMaintenance: mocks.runAffiliateProductsRawJsonRetirementMaintenance,
   updateAffiliateProductSyncRun: mocks.updateAffiliateProductSyncRun,
 }))
 
@@ -45,6 +47,7 @@ describe('AffiliateProductSyncScheduler YP support', () => {
       missingKeys: [],
       values: {},
     })
+    mocks.runAffiliateProductsRawJsonRetirementMaintenance.mockResolvedValue(undefined)
     mocks.getLatestFailedAffiliateProductSyncRun.mockResolvedValue(null)
     mocks.isYeahPromosManualSyncOnly.mockResolvedValue(false)
   })
@@ -399,5 +402,15 @@ describe('AffiliateProductSyncScheduler YP support', () => {
 
     expect(mocks.getLatestFailedAffiliateProductSyncRun).not.toHaveBeenCalled()
     expect(enqueueMock).toHaveBeenCalled()
+  })
+
+  it('runs raw_json retirement maintenance during periodic checks', async () => {
+    const scheduler = new AffiliateProductSyncScheduler() as any
+    scheduler.isRunning = true
+    vi.spyOn(scheduler, 'listEligibleUsers').mockResolvedValue([])
+
+    await scheduler.checkAndScheduleSync()
+
+    expect(mocks.runAffiliateProductsRawJsonRetirementMaintenance).toHaveBeenCalledTimes(1)
   })
 })
