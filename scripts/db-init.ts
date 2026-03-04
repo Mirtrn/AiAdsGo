@@ -5,9 +5,11 @@
  */
 
 import postgres from 'postgres';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { resolve } from 'path';
+import crypto from 'crypto';
 import { hashPassword } from '../src/lib/crypto.js';
+import { splitSqlStatements } from '../src/lib/sql-splitter';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD;
@@ -147,6 +149,158 @@ async function initializeDatabase(sql: ReturnType<typeof postgres>): Promise<voi
   await Promise.race([sql.unsafe(migration), timeoutPromise]);
 
   console.log('✅ 数据库初始化完成');
+}
+
+function calculateFileHash(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex');
+}
+
+async function ensureMigrationHistorySchema(sql: ReturnType<typeof postgres>): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS migration_history (
+      id SERIAL PRIMARY KEY,
+      migration_name TEXT NOT NULL UNIQUE,
+      file_hash TEXT,
+      executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+
+  await sql.unsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'migration_history'
+          AND column_name = 'file_hash'
+      ) THEN
+        ALTER TABLE migration_history ADD COLUMN file_hash TEXT;
+      END IF;
+    END $$;
+  `);
+
+  await sql.unsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'migration_history'
+          AND column_name = 'executed_at'
+      ) THEN
+        ALTER TABLE migration_history ADD COLUMN executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      END IF;
+    END $$;
+  `);
+}
+
+function isIgnorablePostgresMigrationError(errorMessage: string): boolean {
+  return (
+    errorMessage.includes('already exists') ||
+    errorMessage.includes('duplicate key value violates unique constraint')
+  );
+}
+
+async function runPendingMigrations(sql: ReturnType<typeof postgres>): Promise<void> {
+  const possiblePaths = [
+    resolve('/app/pg-migrations'),
+    resolve(__dirname, '../pg-migrations'),
+    resolve(process.cwd(), 'pg-migrations'),
+  ];
+
+  const migrationsPath = possiblePaths.find(p => existsSync(p));
+  if (!migrationsPath) {
+    console.log(`⚠️  增量迁移目录不存在，跳过:\n${possiblePaths.join('\n')}`);
+    return;
+  }
+
+  await ensureMigrationHistorySchema(sql);
+
+  const appliedRows = await sql<{ migration_name: string; file_hash: string | null }[]>`
+    SELECT migration_name, file_hash
+    FROM migration_history
+  `;
+  const applied = new Map<string, string | null>(
+    appliedRows.map((row: { migration_name: string; file_hash: string | null }) => [
+      row.migration_name,
+      row.file_hash,
+    ])
+  );
+
+  const migrationFiles = readdirSync(migrationsPath)
+    .filter(name => name.endsWith('.pg.sql'))
+    .filter(name => !name.startsWith('000_'))
+    .sort();
+
+  if (migrationFiles.length === 0) {
+    console.log('📋 未发现增量迁移文件');
+    return;
+  }
+
+  const pending: Array<{ file: string; hash: string; reason: 'new' | 'changed' }> = [];
+  for (const file of migrationFiles) {
+    const content = readFileSync(resolve(migrationsPath, file), 'utf8');
+    const hash = calculateFileHash(content);
+    const recorded = applied.get(file);
+    if (recorded == null) {
+      pending.push({ file, hash, reason: 'new' });
+      continue;
+    }
+    if (recorded !== hash) {
+      pending.push({ file, hash, reason: 'changed' });
+    }
+  }
+
+  if (pending.length === 0) {
+    console.log('✅ 增量迁移已是最新状态');
+    return;
+  }
+
+  console.log(`📦 发现 ${pending.length} 个待执行增量迁移`);
+  for (const item of pending) {
+    const reasonLabel = item.reason === 'new' ? 'new' : 'changed';
+    console.log(`   - ${item.file} (${reasonLabel})`);
+  }
+
+  for (const item of pending) {
+    const migrationPath = resolve(migrationsPath, item.file);
+    const sqlContent = readFileSync(migrationPath, 'utf8');
+    const statements = splitSqlStatements(sqlContent);
+
+    console.log(`🔄 执行增量迁移: ${item.file}`);
+    await sql.begin(async tx => {
+      for (const stmt of statements) {
+        const trimmed = stmt.trim();
+        if (!trimmed) continue;
+        try {
+          await tx.savepoint(async sp => {
+            await sp.unsafe(trimmed);
+          });
+        } catch (error: any) {
+          const errorMsg = error?.message ? String(error.message) : String(error);
+          if (isIgnorablePostgresMigrationError(errorMsg)) {
+            console.log(`   ⏭️  跳过幂等语句: ${trimmed.substring(0, 80)}...`);
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      await tx.unsafe(
+        `
+          INSERT INTO migration_history (migration_name, file_hash, executed_at)
+          VALUES ($1, $2, CURRENT_TIMESTAMP)
+          ON CONFLICT (migration_name) DO UPDATE SET
+            file_hash = EXCLUDED.file_hash,
+            executed_at = CURRENT_TIMESTAMP
+        `,
+        [item.file, item.hash]
+      );
+    });
+    console.log(`✅ 增量迁移完成: ${item.file}`);
+  }
 }
 
 async function ensureAdminAccount(sql: ReturnType<typeof postgres>): Promise<void> {
@@ -291,6 +445,10 @@ async function main() {
     } else {
       console.log('✅ 数据库表结构已初始化');
     }
+
+    console.log('🔄 检查并执行增量迁移...');
+    await runPendingMigrations(targetSql);
+    console.log('✅ 增量迁移检查完成');
 
     // 确保管理员账号存在
     await ensureAdminAccount(targetSql);
