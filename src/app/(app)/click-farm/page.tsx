@@ -74,7 +74,6 @@ export default function ClickFarmPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showDeletedTasks, setShowDeletedTasks] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -93,7 +92,7 @@ export default function ClickFarmPage() {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
   useEffect(() => {
     setSelectedTaskIds((prev) => {
@@ -109,7 +108,7 @@ export default function ClickFarmPage() {
     const allTasks: ClickFarmTaskListItem[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
-      const response = await fetch(`/api/click-farm/tasks?page=${page}&limit=${pageSize}&include_deleted=1`);
+      const response = await fetch(`/api/click-farm/tasks?page=${page}&limit=${pageSize}`);
       if (!response.ok) {
         throw new Error(`获取补点击任务失败: page=${page}`);
       }
@@ -149,11 +148,7 @@ export default function ClickFarmPage() {
   };
 
   const filterTasks = () => {
-    let result = [...tasks];
-
-    if (!showDeletedTasks) {
-      result = result.filter((task) => !task.is_deleted);
-    }
+    let result = tasks.filter((task) => !task.is_deleted);
 
     // Search filter
     if (searchQuery) {
@@ -254,7 +249,7 @@ export default function ClickFarmPage() {
 
     setFilteredTasks(result);
 
-    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks });
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection });
     const filtersChanged = filterKeyRef.current !== filterKey;
     filterKeyRef.current = filterKey;
 
@@ -746,19 +741,6 @@ export default function ClickFarmPage() {
                 <option value="paused">已暂停</option>
                 <option value="completed">已完成</option>
               </select>
-              <div className="md:col-span-3 flex items-center">
-                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
-                  <Checkbox
-                    id="show-deleted-click-farm-tasks"
-                    checked={showDeletedTasks}
-                    onCheckedChange={(checked) => setShowDeletedTasks(Boolean(checked))}
-                    aria-label="显示历史补点击任务（含已删除）"
-                  />
-                  <label htmlFor="show-deleted-click-farm-tasks" className="text-sm text-gray-700">
-                    显示历史（含已删除）
-                  </label>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>

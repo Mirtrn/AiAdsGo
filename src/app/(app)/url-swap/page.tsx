@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -69,7 +68,6 @@ export default function UrlSwapPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showDeletedTasks, setShowDeletedTasks] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -88,7 +86,7 @@ export default function UrlSwapPage() {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks]);
+  }, [tasks, searchQuery, statusFilter, sortField, sortDirection]);
 
   const fetchAllTasks = async (): Promise<UrlSwapTaskListItem[]> => {
     const pageSize = 200;
@@ -96,7 +94,7 @@ export default function UrlSwapPage() {
     const allTasks: UrlSwapTaskListItem[] = [];
 
     for (let page = 1; page <= maxPages; page++) {
-      const response = await fetch(`/api/url-swap/tasks?page=${page}&limit=${pageSize}&include_deleted=1`);
+      const response = await fetch(`/api/url-swap/tasks?page=${page}&limit=${pageSize}`);
       if (!response.ok) {
         throw new Error(`获取换链任务失败: page=${page}`);
       }
@@ -137,11 +135,7 @@ export default function UrlSwapPage() {
   };
 
   const filterTasks = () => {
-    let result = [...tasks];
-
-    if (!showDeletedTasks) {
-      result = result.filter((task) => !task.is_deleted);
-    }
+    let result = tasks.filter((task) => !task.is_deleted);
 
     // Search filter
     if (searchQuery) {
@@ -226,7 +220,7 @@ export default function UrlSwapPage() {
 
     setFilteredTasks(result);
 
-    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection, showDeletedTasks });
+    const filterKey = JSON.stringify({ searchQuery, statusFilter, sortField, sortDirection });
     const filtersChanged = filterKeyRef.current !== filterKey;
     filterKeyRef.current = filterKey;
 
@@ -539,19 +533,6 @@ export default function UrlSwapPage() {
                 <option value="error">异常</option>
                 <option value="completed">已完成</option>
               </select>
-              <div className="md:col-span-3 flex items-center">
-                <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
-                  <Checkbox
-                    id="show-deleted-url-swap-tasks"
-                    checked={showDeletedTasks}
-                    onCheckedChange={(checked) => setShowDeletedTasks(Boolean(checked))}
-                    aria-label="显示历史换链接任务（含已删除）"
-                  />
-                  <label htmlFor="show-deleted-url-swap-tasks" className="text-sm text-gray-700">
-                    显示历史（含已删除）
-                  </label>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>

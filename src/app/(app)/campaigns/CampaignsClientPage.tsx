@@ -241,7 +241,7 @@ export default function CampaignsClientPage({
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
-  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(false)
+  const showDeletedCampaigns = false
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
@@ -2598,23 +2598,6 @@ export default function CampaignsClientPage({
                     <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-md bg-white">
-                <Checkbox
-                  id="show-deleted-campaigns"
-                  checked={showDeletedCampaigns}
-                  onCheckedChange={(checked) => {
-                    setShowDeletedCampaigns(Boolean(checked))
-                    if (isServerPagingMode && currentPage !== 1) {
-                      setCurrentPage(1)
-                    }
-                  }}
-                  aria-label="显示历史广告系列（含已删除）"
-                />
-                <label htmlFor="show-deleted-campaigns" className="text-sm text-gray-700">
-                  显示历史（含已删除）
-                </label>
               </div>
 
               <div className="flex items-center px-3 py-2 border border-gray-200 rounded-md bg-gray-50 md:ml-auto">
