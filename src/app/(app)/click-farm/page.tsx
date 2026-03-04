@@ -779,13 +779,13 @@ export default function ClickFarmPage() {
                       />
                     </TableHead>
                     <SortableHeader field="id" className="w-[60px]">ID</SortableHeader>
-                    <SortableHeader field="offer" className="w-[80px]">Offer</SortableHeader>
+                    <SortableHeader field="offer" className="w-[180px]">Offer</SortableHeader>
                     <SortableHeader field="status" className="w-[100px]">状态</SortableHeader>
-                    <SortableHeader field="country" className="w-[120px]">国家/时区</SortableHeader>
-                    <SortableHeader field="dailyClicks" className="w-[100px]">每日点击</SortableHeader>
+                    <SortableHeader field="country" className="w-[108px]">国家/时区</SortableHeader>
+                    <SortableHeader field="dailyClicks" className="w-[96px]">每日点击</SortableHeader>
                     <SortableHeader field="progress" className="w-[80px]">进度</SortableHeader>
-                    <SortableHeader field="successRate" className="w-[100px]">成功率</SortableHeader>
-                    <SortableHeader field="startDate" className="w-[150px]">开始日期</SortableHeader>
+                    <SortableHeader field="successRate" className="w-[92px]">成功率</SortableHeader>
+                    <SortableHeader field="startDate" className="w-[112px]">开始日期</SortableHeader>
                     <TableHead className="w-[120px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
