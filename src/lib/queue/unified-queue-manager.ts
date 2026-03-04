@@ -44,6 +44,15 @@ function getBoundedFloatFromEnv(key: string, fallback: number, min: number, max:
   return Math.min(max, Math.max(min, parsed))
 }
 
+function getBooleanFromEnv(key: string, fallback: boolean): boolean {
+  const raw = process.env[key]
+  if (!raw) return fallback
+  const normalized = raw.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
+}
+
 function clampPositiveInt(value: unknown, fallback: number): number {
   const parsed = typeof value === 'number' ? value : parseInt(String(value), 10)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
@@ -112,6 +121,10 @@ export class UnifiedQueueManager {
   private readonly clickFarmTriggerConcurrencyHardCap = getPositiveIntFromEnv(
     'QUEUE_CLICK_FARM_TRIGGER_CONCURRENCY_HARD_CAP',
     8
+  )
+  private readonly skipStartupPendingRepair = getBooleanFromEnv(
+    'QUEUE_SKIP_STARTUP_PENDING_REPAIR',
+    false
   )
 
   constructor(config: Partial<QueueConfig> = {}) {
@@ -323,7 +336,7 @@ export class UnifiedQueueManager {
       }
 
       // 🔥 修复 pending 索引：避免 tasks hash 中的 pending 任务因缺失 zset 索引而永远无法执行
-      if (this.adapter.repairPendingIndexes) {
+      if (this.adapter.repairPendingIndexes && !this.skipStartupPendingRepair) {
         const repairStartedAt = Date.now()
         const repair = await this.adapter.repairPendingIndexes()
         const repairElapsedMs = Date.now() - repairStartedAt
@@ -332,6 +345,8 @@ export class UnifiedQueueManager {
         } else {
           console.log(`🧩 pending 索引修复: 无需处理 (scanned=${repair.scannedCount}, elapsed=${repairElapsedMs}ms)`)
         }
+      } else if (this.adapter.repairPendingIndexes && this.skipStartupPendingRepair) {
+        console.log('⏭️ 启动阶段已跳过 pending 索引修复 (QUEUE_SKIP_STARTUP_PENDING_REPAIR=true)')
       }
 
       // 🔥 启动时清理URL Swap队列任务（避免重复执行）

@@ -1484,6 +1484,27 @@ async function clearRedisAllUnfinishedTasks(): Promise<{
     userQueuesCleared: number
   }
 }> {
+  async function scanKeysByPattern(redisClient: any, pattern: string, scanCount = 200): Promise<string[]> {
+    const matched: string[] = []
+    let cursor = '0'
+
+    do {
+      const [nextCursor, batch] = await redisClient.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        scanCount
+      )
+      cursor = String(nextCursor)
+      if (Array.isArray(batch) && batch.length > 0) {
+        matched.push(...batch)
+      }
+    } while (cursor !== '0')
+
+    return matched
+  }
+
   try {
     const redisClient = await getRedisClient()
     if (!redisClient) {
@@ -1509,7 +1530,7 @@ async function clearRedisAllUnfinishedTasks(): Promise<{
     runningCleared = runningTaskIds.length
 
     // 3. 获取所有用户pending队列
-    const userPendingKeys = await redisClient.keys(`${redisKeyPrefix}user:*:pending`)
+    const userPendingKeys = await scanKeysByPattern(redisClient, `${redisKeyPrefix}user:*:pending`)
     userQueuesCleared = userPendingKeys.length
 
     const allTaskIds = [...new Set([...pendingTaskIds, ...runningTaskIds])]  // 去重

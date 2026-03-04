@@ -18,6 +18,9 @@ fi
 cd /app
 node dist/db-init.js
 
+# 入口脚本已完成数据库初始化，通知 Next.js 运行时跳过重复初始化
+export SKIP_RUNTIME_DB_INIT=true
+
 # 初始化 OpenClaw 目录并授权
 mkdir -p /app/.openclaw /app/.openclaw/workspace /app/.openclaw/canvas /app/data/backups
 chown -R nextjs:nodejs /app/.openclaw /app/data/backups
