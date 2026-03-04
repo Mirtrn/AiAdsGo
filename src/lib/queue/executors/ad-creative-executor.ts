@@ -610,7 +610,8 @@ export async function executeAdCreativeGeneration(
               productDescription: offer.brand_description,
               uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
               keywords: creative.keywords || [],
-              targetLanguage: offer.target_language || 'en'
+              targetLanguage: offer.target_language || 'en',
+              bucket: selectedBucket || null
             }
           })
 

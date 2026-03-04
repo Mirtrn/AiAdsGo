@@ -879,6 +879,97 @@ function buildTypeIntentGuidanceSection(
 - Solution keyword candidates: ${solutionLine}`
 }
 
+function normalizePersonaOrScenarioPhrase(value: string, maxWords: number, maxChars: number): string {
+  const cleaned = String(value || '')
+    .replace(/[|/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+
+  const words = cleaned.split(' ').filter(Boolean).slice(0, maxWords)
+  const joined = words.join(' ')
+  if (joined.length <= maxChars) return joined
+  return joined.slice(0, maxChars).trim()
+}
+
+function splitAudienceCandidates(targetAudience: string): string[] {
+  const raw = String(targetAudience || '').trim()
+  if (!raw) return []
+  return raw
+    .split(/[;,|/]/g)
+    .map(segment => normalizePersonaOrScenarioPhrase(segment, 6, 40))
+    .filter(Boolean)
+}
+
+function dedupePhrases(phrases: string[], limit: number): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const phrase of phrases) {
+    const normalized = phrase.toLowerCase()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    out.push(phrase)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+function buildPersonaScenarioGuidanceSection(params: {
+  bucket: NormalizedCreativeBucket
+  targetAudience: string
+  useCases: string[]
+  userProfiles: Array<{ profile: string; indicators?: string[] }>
+  linkType: 'store' | 'product'
+}): string {
+  const personaCandidates = dedupePhrases([
+    ...params.userProfiles.map(profile => normalizePersonaOrScenarioPhrase(profile?.profile || '', 6, 40)),
+    ...splitAudienceCandidates(params.targetAudience),
+  ], 4)
+  const scenarioCandidates = dedupePhrases(
+    (params.useCases || []).map(useCase => normalizePersonaOrScenarioPhrase(useCase, 8, 55)),
+    5
+  )
+
+  const personaLine = personaCandidates.length > 0 ? personaCandidates.join(' | ') : 'Use inferred buyer persona from audience intent'
+  const scenarioLine = scenarioCandidates.length > 0 ? scenarioCandidates.join(' | ') : 'Use one concrete real-world use scenario'
+  const linkTypeHint = params.linkType === 'store'
+    ? 'Store page: persona/scenario should guide exploration and trust, not only hard sell.'
+    : 'Product page: persona/scenario must stay focused on the single product.'
+
+  const baseRules = `
+## 👤 PERSONA + SCENARIO COPY MODE (KISS)
+- Write in a realistic user voice (what a real shopper would say), not abstract brand slogans.
+- Each asset should center on ONE clear persona and ONE concrete scenario.
+- Avoid mixing unrelated personas/scenarios in the same sentence.
+- Persona candidates: ${personaLine}
+- Scenario candidates: ${scenarioLine}
+- ${linkTypeHint}`
+
+  if (params.bucket === 'A') {
+    return `${baseRules}
+- Bucket A emotion rule: prioritize reassurance and trust language.
+- If pain is mentioned, keep it light and brief (max 1 description).
+- Avoid fear/shame-heavy wording.`
+  }
+
+  if (params.bucket === 'B') {
+    return `${baseRules}
+- Bucket B emotion rule: use mild pain-point cues first, then immediate solution + CTA.
+- Prefer 2 descriptions following pain -> solution -> CTA.
+- Do not overuse strong negative wording. Keep tone practical and empathetic.`
+  }
+
+  if (params.bucket === 'D') {
+    return `${baseRules}
+- Bucket D emotion rule: emphasize value/action with clear CTA.
+- Use light loss-aversion only when evidence supports urgency/offer.
+- Avoid fear/shame-heavy wording; keep conversion tone direct and positive.`
+  }
+
+  return `${baseRules}
+- Keep a balanced tone across trust, scenario, and value.`
+}
+
 function normalizeSearchTermHintsTerms(terms: string[] | undefined, limit: number): string[] {
   const out: string[] = []
   const seen = new Set<string>()
@@ -1385,6 +1476,74 @@ function getDefaultProductNoun(language: SupportedSoftCopyLanguage): string {
   if (language === 'ru') return 'этот продукт'
   if (language === 'ar') return 'هذا المنتج'
   return 'our product'
+}
+
+const STRONG_NEGATIVE_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bpanic(?:king|ed)?\b/gi, replacement: 'concern' },
+  { pattern: /\bterrified\b/gi, replacement: 'worried' },
+  { pattern: /\bdesperate\b/gi, replacement: 'eager' },
+  { pattern: /\bashamed?\b/gi, replacement: 'uncomfortable' },
+  { pattern: /\bembarrass(?:ed|ing)?\b/gi, replacement: 'inconvenient' },
+  { pattern: /\bhumiliat(?:e|ed|ing)\b/gi, replacement: 'frustrating' },
+  { pattern: /\bdisaster\b/gi, replacement: 'setback' },
+  { pattern: /\bsuffer(?:ing|ed)?\b/gi, replacement: 'deal with' },
+]
+
+function applyStrongNegativeSoftening(text: string): { text: string; changed: boolean } {
+  let updated = String(text || '')
+  let changed = false
+  for (const rule of STRONG_NEGATIVE_REPLACEMENTS) {
+    const next = updated.replace(rule.pattern, rule.replacement)
+    if (next !== updated) {
+      changed = true
+      updated = next
+    }
+  }
+  return { text: updated, changed }
+}
+
+function countStrongNegativeMatches(texts: string[]): number {
+  const joined = texts.join(' ')
+  let total = 0
+  for (const rule of STRONG_NEGATIVE_REPLACEMENTS) {
+    const matches = joined.match(new RegExp(rule.pattern.source, 'gi')) || []
+    total += matches.length
+  }
+  return total
+}
+
+function enforceEmotionBoundaryByBucket(
+  result: GeneratedAdCreativeData,
+  bucket: NormalizedCreativeBucket,
+  languageCode: string
+): { fixes: number } {
+  const softLanguage = resolveSoftCopyLanguage(languageCode)
+  if (!bucket || softLanguage !== 'en') return { fixes: 0 }
+
+  const headlines = [...(result.headlines || [])]
+  const descriptions = [...(result.descriptions || [])]
+  let fixes = 0
+
+  const allowStrongNegativeCount = bucket === 'B' ? 2 : 0
+  const currentStrongNegativeCount = countStrongNegativeMatches([...headlines, ...descriptions])
+  if (currentStrongNegativeCount <= allowStrongNegativeCount) {
+    return { fixes: 0 }
+  }
+
+  const softenText = (text: string): string => {
+    const softened = applyStrongNegativeSoftening(text)
+    if (softened.changed) fixes += 1
+    return softened.text
+  }
+
+  const updatedHeadlines = headlines.map(softenText)
+  const updatedDescriptions = descriptions.map(softenText)
+  if (fixes > 0) {
+    result.headlines = updatedHeadlines
+    result.descriptions = updatedDescriptions
+  }
+
+  return { fixes }
 }
 
 export function softlyReinforceTypeCopy(
@@ -4956,10 +5115,21 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     keywordsForPrompt,
     normalizeLanguageCode(targetLanguage || 'English')
   )
+  const personaScenarioGuidanceSection = buildPersonaScenarioGuidanceSection({
+    bucket: normalizedPromptBucket,
+    targetAudience: String(offer.target_audience || ''),
+    useCases: Array.from(new Set([
+      ...useCases,
+      ...((extractedElements?.productInfo?.useCases || []).map((item: any) => String(item || '').trim()))
+    ])).filter(Boolean).slice(0, 6),
+    userProfiles,
+    linkType
+  })
   const policyGuidanceSection = buildGoogleAdsPolicyPromptGuardrails(targetLanguage, policyMatchedTerms, { mode: policyGuardMode })
   const retryFailureGuidanceSection = buildRetryFailureGuidanceSection(runtimeGuidance?.retryFailureType)
   variables.type_intent_guidance_section = [
     typeIntentGuidanceSection,
+    personaScenarioGuidanceSection,
     policyGuidanceSection,
     searchTermFeedbackGuidance.section,
     retryFailureGuidanceSection
@@ -7144,6 +7314,11 @@ export async function generateAdCreative(
   const softFix = softlyReinforceTypeCopy(result, normalizedBucket, targetLanguage || resolvedLanguage, brandName)
   if (softFix.headlineFixes > 0 || softFix.descriptionFixes > 0) {
     console.log(`🔧 类型化文案补强: headlines ${softFix.headlineFixes} 条, descriptions ${softFix.descriptionFixes} 条`)
+  }
+
+  const emotionFix = enforceEmotionBoundaryByBucket(result, normalizedBucket, targetLanguage || resolvedLanguage)
+  if (emotionFix.fixes > 0) {
+    console.log(`🔧 情绪边界补强: 中和强负面表达 ${emotionFix.fixes} 处`)
   }
 
   const complementarityFix = enforceHeadlineComplementarity(

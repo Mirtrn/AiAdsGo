@@ -9,12 +9,14 @@ export interface CreativeRuleContextInput {
   uniqueSellingPoints?: string | null
   keywords?: string[]
   targetLanguage?: string | null
+  bucket?: string | null
 }
 
 export interface CreativeRuleContext {
   anchorTokens: Set<string>
   keywordTokens: Set<string>
   targetLanguage: string
+  bucket: 'A' | 'B' | 'D' | null
 }
 
 export interface CreativeRelevanceDecision {
@@ -93,6 +95,12 @@ const TRUST_PATTERN =
 
 const VALUE_PATTERN =
   /\b(save|off|deal|discount|value|premium|free shipping|bundle|comfort|breathable|durable|lightweight|supportive)\b|优惠|折扣|超值/i
+
+const PAIN_PATTERN =
+  /\b(struggle|struggling|frustrat|annoyed|hard to|tired of|bounce|chafing|slip|discomfort|irritat|worry)\b|困扰|烦恼|不适/i
+
+const STRONG_NEGATIVE_PATTERN =
+  /\b(panic|terrified|desperate|humiliat|ashamed|embarrass|disaster|suffer(?:ing)?)\b/i
 
 function normalizeWord(value: string): string {
   return String(value || '')
@@ -337,6 +345,33 @@ function evaluateConversion(
   if (requireTrustAndValue && !hasTrust) reasons.push('missing trust/proof signal')
   if (requireTrustAndValue && !hasValue) reasons.push('missing value/benefit signal')
 
+  // 分桶情绪规则（KISS）：
+  // A/D：避免强负面情绪；B：允许轻痛点，但限制强负面并要求至少1条痛点表达。
+  const allAssetText = [
+    ...(creative.headlines || []),
+    ...(creative.descriptions || []),
+    ...(creative.callouts || []),
+    ...((creative.sitelinks || []).map(s => `${s.text || ''} ${s.description || ''}`))
+  ].join(' ')
+  const strongNegativeMatches = allAssetText.match(new RegExp(STRONG_NEGATIVE_PATTERN.source, 'gi')) || []
+
+  if ((context.bucket === 'A' || context.bucket === 'D') && strongNegativeMatches.length > 0) {
+    reasons.push(`bucket ${context.bucket} should avoid strong negative emotion language`)
+  }
+  if (context.bucket === 'B') {
+    if (strongNegativeMatches.length > 2) {
+      reasons.push('bucket B uses too much strong negative emotion language')
+    }
+
+    if (isEnglishLike(context.targetLanguage)) {
+      const descriptionText = (creative.descriptions || []).join(' ')
+      const hasPainCue = PAIN_PATTERN.test(descriptionText)
+      if (!hasPainCue) {
+        reasons.push('bucket B should include at least one mild pain-point cue in descriptions')
+      }
+    }
+  }
+
   return {
     passed: reasons.length === 0,
     reasons,
@@ -349,10 +384,18 @@ function evaluateConversion(
 export function createCreativeRuleContext(input: CreativeRuleContextInput): CreativeRuleContext {
   const anchorTokens = buildAnchorTokens(input)
   const keywordTokens = buildKeywordTokens(input)
+  const normalizedBucket = (() => {
+    const upper = String(input.bucket || '').toUpperCase()
+    if (upper === 'A') return 'A'
+    if (upper === 'B' || upper === 'C') return 'B'
+    if (upper === 'D' || upper === 'S') return 'D'
+    return null
+  })()
   return {
     anchorTokens,
     keywordTokens,
-    targetLanguage: String(input.targetLanguage || 'en')
+    targetLanguage: String(input.targetLanguage || 'en'),
+    bucket: normalizedBucket
   }
 }
 

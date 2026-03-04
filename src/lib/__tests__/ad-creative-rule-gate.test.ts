@@ -94,6 +94,52 @@ describe('ad-creative-rule-gate', () => {
     expect(result.diversity.reasons.join(' ')).toMatch(/uniqueness|duplicate/i)
   })
 
+  it('blocks strong negative emotion for bucket A creatives', () => {
+    const creative = buildCreative({
+      descriptions: [
+        'Do not panic about bounce issues. Shop Now.',
+        'No more embarrassing workouts. Learn More.',
+        'Trusted support for daily exercise.'
+      ]
+    })
+
+    const result = evaluateCreativeRuleGate(creative, {
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: creative.keywords,
+      targetLanguage: 'en',
+      bucket: 'A'
+    })
+
+    expect(result.conversion.passed).toBe(false)
+    expect(result.conversion.reasons.join(' ')).toMatch(/strong negative emotion/i)
+  })
+
+  it('requires mild pain cue for bucket B creatives', () => {
+    const creative = buildCreative({
+      descriptions: [
+        'Premium comfort and breathable fit. Shop Now.',
+        'Trusted quality for training sessions. Learn More.',
+        'Lightweight support for daily wear.'
+      ]
+    })
+
+    const result = evaluateCreativeRuleGate(creative, {
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: creative.keywords,
+      targetLanguage: 'en',
+      bucket: 'B'
+    })
+
+    expect(result.conversion.passed).toBe(false)
+    expect(result.conversion.reasons.join(' ')).toMatch(/pain-point cue/i)
+  })
+
   it('filters noisy prompt extras by relevance context', () => {
     const context = createCreativeRuleContext({
       brandName: 'FitFlow',

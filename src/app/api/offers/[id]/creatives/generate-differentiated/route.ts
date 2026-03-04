@@ -409,7 +409,8 @@ async function generateCreativeWithBucket(
         productDescription: offer.brand_description,
         uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
         keywords: creative.keywords || [],
-        targetLanguage: offer.target_language || 'en'
+        targetLanguage: offer.target_language || 'en',
+        bucket
       }
     })
   })
