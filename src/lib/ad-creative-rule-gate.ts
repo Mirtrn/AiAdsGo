@@ -102,6 +102,12 @@ const PAIN_PATTERN =
 const STRONG_NEGATIVE_PATTERN =
   /\b(panic|terrified|desperate|humiliat|ashamed|embarrass|disaster|suffer(?:ing)?)\b/i
 
+const WEAK_SALES_RANK_THRESHOLD = 1000
+const SALES_RANK_CONTEXT_PATTERN = /\b(best\s*seller|rank(?:ed|ing)?|category)\b/i
+const RISKY_SOCIAL_PROOF_PERCENT_PATTERN =
+  /\b\d{1,3}%\s+of\s+(?:women|men|users|people|customers)\s+(?:love|prefer|recommend|say|agree)\b/i
+const LOW_TRUST_SLANG_PATTERN = /\b(cuz|awesome|ain't|gonna|kinda|sorta)\b/i
+
 function normalizeWord(value: string): string {
   return String(value || '')
     .toLowerCase()
@@ -233,6 +239,50 @@ function findOffTopicNoiseTerms(
   return Array.from(hits)
 }
 
+function findWeakSalesRankClaims(texts: string[]): string[] {
+  const hits = new Set<string>()
+
+  for (const text of texts) {
+    const raw = String(text || '').trim()
+    if (!raw) continue
+
+    const hasRankingContext = SALES_RANK_CONTEXT_PATTERN.test(raw) || raw.includes('#')
+    if (!hasRankingContext) continue
+
+    const rankMatches = raw.matchAll(/#\s*([\d,]+)/g)
+    for (const match of rankMatches) {
+      const rankText = match[1]
+      if (!rankText) continue
+      const rankNumber = Number.parseInt(rankText.replace(/,/g, ''), 10)
+      if (!Number.isFinite(rankNumber) || rankNumber <= WEAK_SALES_RANK_THRESHOLD) continue
+      hits.add(`#${rankNumber.toLocaleString('en-US')}`)
+    }
+  }
+
+  return Array.from(hits)
+}
+
+function findNegativeTrustSignals(texts: string[]): string[] {
+  const hits = new Set<string>()
+
+  for (const text of texts) {
+    const raw = String(text || '').trim()
+    if (!raw) continue
+
+    const riskyPercentMatch = raw.match(RISKY_SOCIAL_PROOF_PERCENT_PATTERN)
+    if (riskyPercentMatch?.[0]) {
+      hits.add(riskyPercentMatch[0].toLowerCase())
+    }
+
+    const slangMatch = raw.match(LOW_TRUST_SLANG_PATTERN)
+    if (slangMatch?.[0]) {
+      hits.add(slangMatch[0].toLowerCase())
+    }
+  }
+
+  return Array.from(hits)
+}
+
 function evaluateRelevance(
   creative: GeneratedAdCreativeData,
   context: CreativeRuleContext
@@ -260,10 +310,22 @@ function evaluateRelevance(
     reasons.push(`anchor coverage ${(anchorCoverage * 100).toFixed(1)}% < ${(minCoverage * 100).toFixed(0)}%`)
   }
 
-  const offTopicHits = findOffTopicNoiseTerms(texts, context.anchorTokens, context.keywordTokens)
-  if (offTopicHits.length > 0) {
-    reasons.push(`off-topic noise terms: ${offTopicHits.slice(0, 6).join(', ')}`)
+  const offTopicNoiseHits = findOffTopicNoiseTerms(texts, context.anchorTokens, context.keywordTokens)
+  if (offTopicNoiseHits.length > 0) {
+    reasons.push(`off-topic noise terms: ${offTopicNoiseHits.slice(0, 6).join(', ')}`)
   }
+
+  const weakSalesRankHits = findWeakSalesRankClaims(texts)
+  if (weakSalesRankHits.length > 0) {
+    reasons.push(`weak sales-rank claims: ${weakSalesRankHits.slice(0, 4).join(', ')}`)
+  }
+
+  const negativeTrustHits = findNegativeTrustSignals(texts)
+  if (negativeTrustHits.length > 0) {
+    reasons.push(`negative trust signals: ${negativeTrustHits.slice(0, 4).join(', ')}`)
+  }
+
+  const offTopicHits = [...offTopicNoiseHits, ...weakSalesRankHits, ...negativeTrustHits]
 
   return {
     passed: reasons.length === 0,
@@ -441,6 +503,16 @@ export function filterPromptExtrasByRelevance(
     const hits = findOffTopicNoiseTerms([text], context.anchorTokens, context.keywordTokens)
     if (hits.length > 0) {
       removed.push(`${text} [hits=${hits.join(', ')}]`)
+      continue
+    }
+    const weakSalesRankHits = findWeakSalesRankClaims([text])
+    if (weakSalesRankHits.length > 0) {
+      removed.push(`${text} [weak_rank=${weakSalesRankHits.join(', ')}]`)
+      continue
+    }
+    const negativeTrustHits = findNegativeTrustSignals([text])
+    if (negativeTrustHits.length > 0) {
+      removed.push(`${text} [trust_risk=${negativeTrustHits.join(', ')}]`)
       continue
     }
     filtered.push(text)

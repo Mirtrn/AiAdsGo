@@ -69,6 +69,13 @@ function deriveLinkTypeFromScrapedData(scrapedData: any): 'store' | 'product' | 
 }
 
 const PRICE_EVIDENCE_MISMATCH_THRESHOLD = 0.2
+const SALES_RANK_PROMPT_MAX = 1000
+const SALES_RANK_STRONG_SIGNAL_MAX = 100
+const REVIEW_QUOTE_MIN_LENGTH = 8
+const REVIEW_QUOTE_MAX_LENGTH = 90
+const REVIEW_QUOTE_BLOCKLIST_PATTERN = /\b(cuz|awesome|ain't|gonna|kinda|sorta|wtf|omg|lol)\b/i
+const RISKY_SOCIAL_PROOF_PERCENT_PATTERN =
+  /\b\d{1,3}%\s+of\s+(?:women|men|users|people|customers)\s+(?:love|prefer|recommend|say|agree)\b/i
 
 export type RetryFailureType = 'evidence_fail' | 'intent_fail' | 'format_fail'
 
@@ -92,6 +99,14 @@ export interface CreativePriceEvidenceResolution {
   priceSource: 'offer_product_price' | 'offer_pricing_current' | 'scraped_data' | 'none'
 }
 
+export interface CreativeSalesRankSignal {
+  raw: string | null
+  normalizedRankText: string | null
+  rankNumber: number | null
+  eligibleForPrompt: boolean
+  strongSignal: boolean
+}
+
 function toNonEmptyPriceText(value: unknown): string | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? String(value) : null
@@ -108,6 +123,69 @@ function parsePriceAmount(value: string | null): number | null {
   const stripped = value.replace(/[A-Za-z]/g, '').trim()
   if (!stripped) return null
   return parsePrice(stripped)
+}
+
+export function resolveCreativeSalesRankSignal(value: unknown): CreativeSalesRankSignal {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) {
+    return {
+      raw: null,
+      normalizedRankText: null,
+      rankNumber: null,
+      eligibleForPrompt: false,
+      strongSignal: false
+    }
+  }
+
+  const rankMatch = raw.match(/#\s*([\d,]+)/)
+  if (!rankMatch?.[1]) {
+    return {
+      raw,
+      normalizedRankText: null,
+      rankNumber: null,
+      eligibleForPrompt: false,
+      strongSignal: false
+    }
+  }
+
+  const rankNumber = Number.parseInt(rankMatch[1].replace(/,/g, ''), 10)
+  if (!Number.isFinite(rankNumber) || rankNumber <= 0) {
+    return {
+      raw,
+      normalizedRankText: null,
+      rankNumber: null,
+      eligibleForPrompt: false,
+      strongSignal: false
+    }
+  }
+
+  return {
+    raw,
+    normalizedRankText: `#${rankNumber.toLocaleString('en-US')}`,
+    rankNumber,
+    eligibleForPrompt: rankNumber <= SALES_RANK_PROMPT_MAX,
+    strongSignal: rankNumber <= SALES_RANK_STRONG_SIGNAL_MAX
+  }
+}
+
+function sanitizeReviewSnippetForPrompt(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value
+    .replace(/\s+/g, ' ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+
+  if (normalized.length < REVIEW_QUOTE_MIN_LENGTH) return null
+
+  const truncated = normalized.length > REVIEW_QUOTE_MAX_LENGTH
+    ? `${normalized.slice(0, REVIEW_QUOTE_MAX_LENGTH - 3).trim()}...`
+    : normalized
+
+  if (REVIEW_QUOTE_BLOCKLIST_PATTERN.test(truncated)) return null
+  if (RISKY_SOCIAL_PROOF_PERCENT_PATTERN.test(truncated)) return null
+
+  return truncated
 }
 
 export function resolveCreativePriceEvidence(offer: any): CreativePriceEvidenceResolution {
@@ -3898,7 +3976,7 @@ This creative focuses on "${intent || intentEn}" user intent.
   }
 
   // 🔥 P0-2: 销售排名和徽章（社会证明）
-  let salesRank = null
+  let salesRank: string | null = null
   let badge = null
   if (offer.scraped_data) {
     try {
@@ -3907,12 +3985,20 @@ This creative focuses on "${intent || intentEn}" user intent.
       badge = scrapedData.badge
     } catch {}
   }
-  if (salesRank) {
-    // 提取排名数字，例如 "#1,234 in Electronics" → "#1,234"
-    const rankMatch = salesRank.match(/#[\d,]+/)
-    if (rankMatch) {
-      extras.push(`SALES RANK: ${rankMatch[0]}`)
-    }
+  const salesRankSignal = resolveCreativeSalesRankSignal(salesRank)
+  const salesRankForPrompt = salesRankSignal.eligibleForPrompt
+    ? salesRankSignal.raw
+    : null
+  const featuredSalesRank = salesRankSignal.strongSignal
+    ? salesRankSignal.raw
+    : null
+
+  if (salesRankSignal.eligibleForPrompt && salesRankSignal.normalizedRankText) {
+    extras.push(`SALES RANK: ${salesRankSignal.normalizedRankText}`)
+  } else if (salesRank) {
+    console.log(
+      `[SalesRankGuard] Offer ${offer.id}: skip salesRank "${salesRank}" (rank=${salesRankSignal.rankNumber ?? 'N/A'} > ${SALES_RANK_PROMPT_MAX} or unparsable)`
+    )
   }
   if (badge) {
     extras.push(`BADGE: ${badge}`)
@@ -3952,7 +4038,14 @@ This creative focuses on "${intent || intentEn}" user intent.
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
-      topReviews = scrapedData.topReviews || []
+      const rawTopReviews: unknown[] = Array.isArray(scrapedData.topReviews) ? scrapedData.topReviews : []
+      topReviews = rawTopReviews
+        .map((review: unknown) => sanitizeReviewSnippetForPrompt(review))
+        .filter((review): review is string => !!review)
+      const droppedTopReviews = rawTopReviews.length - topReviews.length
+      if (droppedTopReviews > 0) {
+        console.log(`[ReviewQuoteGuard] Offer ${offer.id}: dropped ${droppedTopReviews} low-trust top reviews`)
+      }
     } catch {}
   }
   if (topReviews.length > 0) {
@@ -3979,7 +4072,7 @@ This creative focuses on "${intent || intentEn}" user intent.
         if (matches) {
           matches.slice(0, 2).forEach(m => {
             const cleaned = m.toLowerCase().trim()
-            if (cleaned.length > 5 && cleaned.length < 30) {
+            if (cleaned.length > 5 && cleaned.length < 30 && !REVIEW_QUOTE_BLOCKLIST_PATTERN.test(cleaned)) {
               userPhrases.push(cleaned)
             }
           })
@@ -4086,7 +4179,7 @@ This creative focuses on "${intent || intentEn}" user intent.
   if (sentimentDistribution && totalReviews > 0) {
     const positiveRate = sentimentDistribution.positive
     if (positiveRate >= 80) {
-      extras.push(`SOCIAL PROOF: ${positiveRate}% positive reviews from ${totalReviews} customers${averageRating ? `, ${averageRating} stars` : ''}`)
+      extras.push(`SOCIAL PROOF: Strong positive review sentiment from ${totalReviews} customers${averageRating ? `, ${averageRating} stars` : ''}`)
     } else if (positiveRate >= 60) {
       extras.push(`REVIEWS: ${totalReviews} customer reviews${averageRating ? `, ${averageRating} avg rating` : ''}`)
     }
@@ -4783,7 +4876,7 @@ ${hooksList}
     const p = activePromotions[0]
     verifiedFacts.push(`- PROMOTION: ${p.description}${p.code ? ` (Code: ${p.code})` : ''}${p.validUntil ? ` (Until: ${p.validUntil})` : ''}`)
   }
-  if (salesRank) verifiedFacts.push(`- SALES RANK: ${salesRank}`)
+  if (salesRankForPrompt) verifiedFacts.push(`- SALES RANK: ${salesRankForPrompt}`)
   if (badge) verifiedFacts.push(`- BADGE: ${badge}`)
   if (availability) verifiedFacts.push(`- STOCK/AVAILABILITY: ${availability}`)
   if (primeEligible) verifiedFacts.push(`- PRIME/FAST SHIPPING: Yes`)
@@ -4979,13 +5072,13 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.brand_analysis_section = brand_analysis_section
 
   // Build all dynamic guidance sections
-  variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
+  variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, featuredSalesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
   variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords, featureSource)
   variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions, hasPromoEvidence, priceEvidenceBlocked)
   variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
   variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability, hasUrgencyEvidence)
 
-  variables.description_1_guidance = buildDescription1Guidance(badge, salesRank)
+  variables.description_1_guidance = buildDescription1Guidance(badge, featuredSalesRank)
   variables.description_2_guidance = buildDescription2Guidance(primeEligible, activePromotions)
   variables.description_3_guidance = buildDescription3Guidance(useCases, userProfiles)
   variables.description_4_guidance = buildDescription4Guidance(topReviews, hotInsights, topProducts, sentimentDistribution, totalReviews, averageRating)
@@ -5031,7 +5124,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     aiReviews
   )
 
-  variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions, hasVerifiedFacts)
+  variables.callout_guidance = buildCalloutGuidance(salesRankForPrompt, primeEligible, availability, badge, activePromotions, hasVerifiedFacts)
   const searchTermFeedbackGuidance = buildSearchTermFeedbackGuidanceSection(runtimeGuidance?.searchTermFeedbackHints)
   const excludeKeywordLines: string[] = []
   if (excludeKeywords?.length) {
@@ -5148,7 +5241,14 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
       ai_competitive_section += `\n**库存状态**: ${aiCompetitiveEdges.stockStatus}\n`
     }
     if (aiCompetitiveEdges.salesRank) {
-      ai_competitive_section += `\n**销售排名**: ${aiCompetitiveEdges.salesRank}\n`
+      const aiSalesRankSignal = resolveCreativeSalesRankSignal(aiCompetitiveEdges.salesRank)
+      if (aiSalesRankSignal.strongSignal && aiSalesRankSignal.raw) {
+        ai_competitive_section += `\n**销售排名**: ${aiSalesRankSignal.raw}\n`
+      } else if (aiSalesRankSignal.raw) {
+        console.log(
+          `[SalesRankGuard] Offer ${offer.id}: skip ai_competitive salesRank "${aiSalesRankSignal.raw}" (not top-tier)`
+        )
+      }
     }
   }
   variables.ai_competitive_section = ai_competitive_section
@@ -5409,11 +5509,14 @@ export async function markBucketGenerated(
 /**
  * Helper functions to build dynamic guidance sections
  */
-function buildHeadlineBrandGuidance(badge: string | null, salesRank: string | null, offer: any, hotInsights: any, topProducts: string[], sentimentDistribution: any, averageRating: number): string {
-  return `- Brand (2): ${badge ? `🎯 **P3 CRITICAL - MUST use complete BADGE text**: "${badge}" (e.g., "${badge} | ${offer.brand}", "${badge} - Trusted Quality")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}${sentimentDistribution && sentimentDistribution.positive >= 80 ? `. **SOCIAL PROOF**: Use high approval rate: "${sentimentDistribution.positive}% Love It", "Rated ${averageRating} Stars"` : ''}
+function buildHeadlineBrandGuidance(badge: string | null, featuredSalesRank: string | null, offer: any, hotInsights: any, topProducts: string[], sentimentDistribution: any, averageRating: number): string {
+  const rankHint = featuredSalesRank
+    ? `Optional social proof: use SALES RANK only when truly top-tier (e.g., "${featuredSalesRank}")`
+    : 'Do NOT invent ranking claims such as "#1" or "Best Seller" without strong evidence'
+  return `- Brand (2): ${badge ? `🎯 **P3 CRITICAL - MUST use complete BADGE text**: "${badge}" (e.g., "${badge} | ${offer.brand}", "${badge} - Trusted Quality")` : '"Trusted Brand"'}, ${rankHint}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}${sentimentDistribution && sentimentDistribution.positive >= 80 ? `. **SOCIAL PROOF**: Use review-backed trust phrasing like "Highly Rated by Customers"${averageRating ? `, "Rated ${averageRating} Stars"` : ''}. Avoid "% of people" claims.` : ''}
   * IMPORTANT: Make these 2 brand headlines COMPLETELY DIFFERENT in focus and wording
   * Example 1: "Official ${offer.brand} Store" (trust focus)
-  * Example 2: "#1 Trusted ${offer.brand}" (social proof focus)
+  * Example 2: "Trusted ${offer.brand} Quality" (social proof focus)
   * ❌ AVOID: "Official ${offer.brand}", "Official ${offer.brand} Brand" (too similar)
 `
 }
@@ -5541,8 +5644,8 @@ function buildHeadlineUrgencyGuidance(availability: string | null, hasUrgencyEvi
   * ❌ AVOID: unverified time/stock claims ("Limited Time", "Ends Soon", "Only X Left")`
 }
 
-function buildDescription1Guidance(badge: string | null, salesRank: string | null): string {
-  return `- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
+function buildDescription1Guidance(badge: string | null, featuredSalesRank: string | null): string {
+  return `- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. Optionally mention BADGE: "${badge}" if natural` : ''}${featuredSalesRank ? `. Optional social proof: mention SALES RANK "${featuredSalesRank}" at most once` : `. Do NOT add ranking numbers or "Best Seller" claims without strong evidence`}
   * Focus: What makes this product/brand special (unique value proposition)
   * Example: "Premium design. Built for everyday comfort."
   * ❌ AVOID: Repeating "shop", "buy", "get" from other descriptions
@@ -5566,8 +5669,8 @@ function buildDescription3Guidance(useCases: string[], userProfiles: Array<{prof
 }
 
 function buildDescription4Guidance(topReviews: string[], hotInsights: any, topProducts: string[], sentimentDistribution: any, totalReviews: number, averageRating: number): string {
-  return `- **Description 4 (Trust + Social Proof)**: Customer validation or support${topReviews.length > 0 ? `. 🎯 **P0 OPTIMIZATION - TOP REVIEWS**: MUST quote 1-2 real customer reviews for credibility: ${topReviews.slice(0, 2).map(r => `"${r.length > 50 ? r.substring(0, 47) + '...' : r}"`).join(' or ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: ${sentimentDistribution.positive}% positive from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}` : ''}
-  * 🎯 **P0 CRITICAL**: If TOP REVIEWS available, incorporate authentic customer quotes for credibility (keep ≤90 chars)
+  return `- **Description 4 (Trust + Social Proof)**: Customer validation or support${topReviews.length > 0 ? `. 🎯 **P0 OPTIMIZATION - TOP REVIEWS**: Prefer concise, policy-safe review-backed phrasing (quote or paraphrase): ${topReviews.slice(0, 2).map(r => `"${r.length > 50 ? r.substring(0, 47) + '...' : r}"`).join(' or ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: Strong positive review sentiment from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}. Avoid "% of people" claims.` : ''}
+  * 🎯 **P0 CRITICAL**: If TOP REVIEWS available, use clean and trustworthy wording; avoid slang/colloquial quotes
   * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
   * Example with review: "Works perfectly!" - Customer Review. Shop with confidence.
   * Example without review: "Trusted for quality and style. Learn more today."

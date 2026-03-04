@@ -76,6 +76,73 @@ describe('ad-creative-rule-gate', () => {
     expect(result.relevance.passed).toBe(true)
   })
 
+  it('blocks weak high-rank bestseller claims', () => {
+    const creative = buildCreative({
+      descriptions: [
+        '#18,696 Best Seller in Clothing. Running Girl style comfort.',
+        'Stay comfortable with medium support and breathable fabric. Shop Now.',
+        'Trusted fit for gym sessions and daily movement. Learn More.'
+      ]
+    })
+
+    const result = evaluateCreativeRuleGate(creative, {
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: creative.keywords,
+      targetLanguage: 'en'
+    })
+
+    expect(result.relevance.passed).toBe(false)
+    expect(result.relevance.reasons.join(' ')).toMatch(/weak sales-rank claims/i)
+    expect(result.relevance.offTopicHits).toContain('#18,696')
+  })
+
+  it('allows strong top-rank claims', () => {
+    const creative = buildCreative({
+      descriptions: [
+        '#12 Best Seller in Sports Bras. Trusted support for workouts.',
+        'Stay comfortable with medium support and breathable fabric. Shop Now.',
+        'Trusted fit for gym sessions and daily movement. Learn More.'
+      ]
+    })
+
+    const result = evaluateCreativeRuleGate(creative, {
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: creative.keywords,
+      targetLanguage: 'en'
+    })
+
+    expect(result.relevance.passed).toBe(true)
+  })
+
+  it('blocks risky social-proof percentages and slang', () => {
+    const creative = buildCreative({
+      descriptions: [
+        '80% of women love this sports bra cuz it works great.',
+        'Stay comfortable with medium support and breathable fabric. Shop Now.',
+        'Trusted fit for gym sessions and daily movement. Learn More.'
+      ]
+    })
+
+    const result = evaluateCreativeRuleGate(creative, {
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: creative.keywords,
+      targetLanguage: 'en'
+    })
+
+    expect(result.relevance.passed).toBe(false)
+    expect(result.relevance.reasons.join(' ')).toMatch(/negative trust signals/i)
+    expect(result.relevance.offTopicHits.some(hit => /80% of women love|cuz/i.test(hit))).toBe(true)
+  })
+
   it('flags low diversity when headlines are duplicated', () => {
     const creative = buildCreative({
       headlines: Array.from({ length: 10 }, () => 'Shop Sports Bra Today')
@@ -158,5 +225,46 @@ describe('ad-creative-rule-gate', () => {
     expect(filtered.filtered.length).toBe(1)
     expect(filtered.removed.length).toBe(1)
     expect(filtered.removed[0]).toMatch(/repair|drill/i)
+  })
+
+  it('filters weak sales-rank prompt extras', () => {
+    const context = createCreativeRuleContext({
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: ['sports bra', 'workout bra'],
+      targetLanguage: 'en'
+    })
+
+    const filtered = filterPromptExtrasByRelevance([
+      'SALES RANK: #18,696',
+      'CORE FEATURES: Breathable fabric, medium support'
+    ], context)
+
+    expect(filtered.filtered).toEqual(['CORE FEATURES: Breathable fabric, medium support'])
+    expect(filtered.removed.length).toBe(1)
+    expect(filtered.removed[0]).toMatch(/weak_rank|#18,696/i)
+  })
+
+  it('filters risky social-proof extras', () => {
+    const context = createCreativeRuleContext({
+      brandName: 'FitFlow',
+      category: 'Sports Bra',
+      productName: 'Women Sports Bra',
+      productTitle: 'FitFlow Seamless Sports Bra',
+      keywords: ['sports bra', 'workout bra'],
+      targetLanguage: 'en'
+    })
+
+    const filtered = filterPromptExtrasByRelevance([
+      'SOCIAL PROOF: 80% of women love this bra',
+      'TOP REVIEWS: It is awesome and comfy',
+      'CORE FEATURES: Breathable fabric, medium support'
+    ], context)
+
+    expect(filtered.filtered).toEqual(['CORE FEATURES: Breathable fabric, medium support'])
+    expect(filtered.removed.length).toBe(2)
+    expect(filtered.removed.join(' ')).toMatch(/trust_risk|80% of women love|awesome/i)
   })
 })
