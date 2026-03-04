@@ -15,14 +15,17 @@ import {
   CREATIVE_KEYWORD_MAX_COUNT,
   selectCreativeKeywords,
 } from '@/lib/creative-keyword-selection'
-import {
-  evaluateCreativeAdStrength
-} from '@/lib/scoring'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { toDbJsonObjectField } from '@/lib/json-field'
 import { filterKeywordQuality } from '@/lib/keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from '@/lib/keyword-context-filter'
+import {
+  AD_CREATIVE_MAX_AUTO_RETRIES,
+  AD_CREATIVE_REQUIRED_MIN_SCORE,
+  evaluateCreativeForQuality,
+  runCreativeGenerationQualityLoop
+} from '@/lib/ad-creative-quality-loop'
 // 🆕 v4.10: 关键词池集成
 import {
   getOrCreateKeywordPool,
@@ -226,13 +229,20 @@ export async function executeAdCreativeGeneration(
 ): Promise<any> {
   const {
     offerId,
-    maxRetries = 3,
-    targetRating = 'EXCELLENT',
+    maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES,
+    targetRating = 'GOOD',
     synthetic = false,
     bucket,
   } = task.data
   const db = getDatabase()
-  const effectiveMaxRetries = Math.min(maxRetries, 2)
+  const effectiveMaxRetries = Math.max(
+    0,
+    Math.min(
+      AD_CREATIVE_MAX_AUTO_RETRIES,
+      Number.isFinite(Number(maxRetries)) ? Math.floor(Number(maxRetries)) : AD_CREATIVE_MAX_AUTO_RETRIES
+    )
+  )
+  const enforcedTargetRating: AdCreativeTaskData['targetRating'] = 'GOOD'
   const requestedBucket = normalizeRequestedBucket(bucket)
   const creativeTaskHeartbeatMs = parsePositiveIntEnv(
     process.env.CREATIVE_TASK_HEARTBEAT_MS,
@@ -384,312 +394,258 @@ export async function executeAdCreativeGeneration(
       throw new Error(`关键词池创建失败，无法生成创意: ${poolError.message}`)
     }
 
-    let bestCreative: any = null
-    let bestEvaluation: any = null
-    let attempts = 0
-    let noImprovementStreak = 0
-    let retryHistory: Array<{
-      attempt: number
-      rating: string
-      score: number
-      suggestions: string[]
-    }> = []
+    if (String(targetRating || '').toUpperCase() !== String(enforcedTargetRating)) {
+      console.warn(`⚠️ queue targetRating=${targetRating} 已忽略，统一使用 GOOD 阈值`)
+    }
+    if (effectiveMaxRetries < Number(maxRetries)) {
+      console.log(`ℹ️ 已限制自动重试次数: ${maxRetries} → ${effectiveMaxRetries}`)
+    }
 
     let usedKeywords: string[] = []
     const brandKeywords = offer.brand ? [offer.brand.toLowerCase()] : []
+    const offerAny = offer as any
 
-    // 多轮生成循环
-    if (effectiveMaxRetries < maxRetries) {
-      console.log(`ℹ️ 已限制最大生成轮次: ${maxRetries} → ${effectiveMaxRetries}`)
-    }
-
-    while (attempts < effectiveMaxRetries) {
-      attempts++
-      const attemptBaseProgress = 10 + (attempts - 1) * 25
-
-      // 更新进度：生成中
-      const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
-      const generationMessageBase = `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
-      const generationStartedAt = Date.now()
-      let generationHeartbeatTimer: NodeJS.Timeout | null = null
-      const updateGenerationHeartbeat = async () => {
-        const elapsedSeconds = Math.floor((Date.now() - generationStartedAt) / 1000)
-        await db.exec(`
-          UPDATE creative_tasks
-          SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
-          WHERE id = ?
-        `, [attemptBaseProgress, `${generationMessageBase} (${elapsedSeconds}s)`, attempts, task.id])
-      }
-      await updateGenerationHeartbeat()
-      generationHeartbeatTimer = setInterval(() => {
-        void updateGenerationHeartbeat().catch((heartbeatError: any) => {
-          console.warn(`⚠️ 创意生成心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
-        })
-      }, creativeTaskHeartbeatMs)
-
-      // 1. 生成创意
-      // 🔥 2025-12-12修复：始终跳过缓存，确保每次重新生成都产生新创意
-      // 🆕 v4.10: 传递关键词池信息，实现分层关键词策略
-      let creative: Awaited<ReturnType<typeof generateAdCreative>>
-      try {
-        creative = await generateAdCreative(
-          offerId,
-          task.userId,
-          {
-            skipCache: true,  // 始终跳过缓存
-            excludeKeywords: attempts > 1 ? usedKeywords : undefined,
-            // 🆕 v4.10: 关键词池参数
-            keywordPool: keywordPool || undefined,
-            bucket: selectedBucket || undefined,
-            bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
-            bucketIntent: bucketInfo?.intent,
-            bucketIntentEn: bucketInfo?.intentEn,
-            deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0)
-          }
-        )
-      } finally {
-        if (generationHeartbeatTimer) {
-          clearInterval(generationHeartbeatTimer)
-          generationHeartbeatTimer = null
+    const generationResult = await runCreativeGenerationQualityLoop<Awaited<ReturnType<typeof generateAdCreative>>>({
+      maxRetries: effectiveMaxRetries,
+      delayMs: 1000,
+      generate: async ({ attempt, retryFailureType }) => {
+        const attemptBaseProgress = 10 + (attempt - 1) * 25
+        const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
+        const generationMessageBase = `第${attempt}次生成${bucketLabel}: AI正在创作广告文案...`
+        const generationStartedAt = Date.now()
+        let generationHeartbeatTimer: NodeJS.Timeout | null = null
+        const updateGenerationHeartbeat = async () => {
+          const elapsedSeconds = Math.floor((Date.now() - generationStartedAt) / 1000)
+          await db.exec(`
+            UPDATE creative_tasks
+            SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
+            WHERE id = ?
+          `, [attemptBaseProgress, `${generationMessageBase} (${elapsedSeconds}s)`, attempt, task.id])
         }
-      }
+        await updateGenerationHeartbeat()
+        generationHeartbeatTimer = setInterval(() => {
+          void updateGenerationHeartbeat().catch((heartbeatError: any) => {
+            console.warn(`⚠️ 创意生成心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+          })
+        }, creativeTaskHeartbeatMs)
 
-      // 🔧 强制将创意关键词同步为桶关键词来源
-      // 背景：generateAdCreative 内部会对关键词做多轮过滤，极端情况下会导致仅保留 1-3 个关键词
-      // 但 KISS-3 类型创意必须基于关键词池桶集合，再由统一优先级规则裁剪到全局上限
-      const generatedKeywordsForExclusion: string[] = Array.isArray(creative.keywords)
-        ? creative.keywords.slice()
-        : []
+        let creative: Awaited<ReturnType<typeof generateAdCreative>>
+        try {
+          creative = await generateAdCreative(
+            offerId,
+            task.userId,
+            {
+              skipCache: true,
+              excludeKeywords: attempt > 1 ? usedKeywords : undefined,
+              retryFailureType,
+              keywordPool: keywordPool || undefined,
+              bucket: selectedBucket || undefined,
+              bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
+              bucketIntent: bucketInfo?.intent,
+              bucketIntentEn: bucketInfo?.intentEn,
+              deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0)
+            }
+          )
+        } finally {
+          if (generationHeartbeatTimer) {
+            clearInterval(generationHeartbeatTimer)
+            generationHeartbeatTimer = null
+          }
+        }
 
-      if (bucketInfo?.keywords && bucketInfo.keywords.length > 0) {
-        const bucketKeywordsWithVolume = bucketInfo.keywords
-          .map((kw: any) => {
-            const keywordRaw = typeof kw === 'string' ? kw : kw?.keyword
-            const keyword = typeof keywordRaw === 'string' ? keywordRaw.trim() : ''
-            if (!keyword) return null
+        const generatedKeywordsForExclusion: string[] = Array.isArray(creative.keywords)
+          ? creative.keywords.slice()
+          : []
 
-            if (typeof kw === 'string') {
+        if (bucketInfo?.keywords && bucketInfo.keywords.length > 0) {
+          const bucketKeywordsWithVolume = bucketInfo.keywords
+            .map((kw: any) => {
+              const keywordRaw = typeof kw === 'string' ? kw : kw?.keyword
+              const keyword = typeof keywordRaw === 'string' ? keywordRaw.trim() : ''
+              if (!keyword) return null
+
+              if (typeof kw === 'string') {
+                return {
+                  keyword,
+                  searchVolume: 0,
+                  matchType: 'PHRASE' as const,
+                  source: 'KEYWORD_POOL' as const
+                }
+              }
+
               return {
                 keyword,
-                searchVolume: 0,
-                matchType: 'PHRASE' as const,
+                searchVolume: typeof kw.searchVolume === 'number' ? kw.searchVolume : Number(kw.searchVolume) || 0,
+                competition: kw.competition,
+                competitionIndex: kw.competitionIndex,
+                lowTopPageBid: kw.lowTopPageBid,
+                highTopPageBid: kw.highTopPageBid,
+                matchType: (kw.matchType as 'EXACT' | 'PHRASE' | 'BROAD' | undefined) || ('PHRASE' as const),
                 source: 'KEYWORD_POOL' as const
               }
-            }
+            })
+            .filter((v): v is NonNullable<typeof v> => v !== null)
+          creative.keywords = bucketKeywordsWithVolume.map((kw: any) => kw.keyword)
+          creative.keywordsWithVolume = bucketKeywordsWithVolume
+        }
 
-            return {
-              keyword,
-              searchVolume: typeof kw.searchVolume === 'number' ? kw.searchVolume : Number(kw.searchVolume) || 0,
-              competition: kw.competition,
-              competitionIndex: kw.competitionIndex,
-              lowTopPageBid: kw.lowTopPageBid,
-              highTopPageBid: kw.highTopPageBid,
-              matchType: (kw.matchType as 'EXACT' | 'PHRASE' | 'BROAD' | undefined) || ('PHRASE' as const),
-              source: 'KEYWORD_POOL' as const
-            }
-          })
-          .filter((v): v is NonNullable<typeof v> => v !== null)
-        creative.keywords = bucketKeywordsWithVolume.map((kw: any) => kw.keyword)
-        creative.keywordsWithVolume = bucketKeywordsWithVolume
-      }
-
-      if (selectedBucket) {
-        try {
-          const poolCandidates = Array.isArray(bucketInfo?.keywords)
-            ? bucketInfo.keywords
+        if (selectedBucket) {
+          try {
+            const poolCandidates = Array.isArray(bucketInfo?.keywords)
+              ? bucketInfo.keywords
                 .map((kw: any) => typeof kw === 'string' ? kw : kw?.keyword)
                 .map((keyword: string) => String(keyword || '').trim())
                 .filter(Boolean)
-            : []
-          const baseKeywordsWithVolume = Array.isArray(creative.keywordsWithVolume)
-            ? creative.keywordsWithVolume
-            : (creative.keywords || []).map((keyword: string) => ({
+              : []
+            const baseKeywordsWithVolume = Array.isArray(creative.keywordsWithVolume)
+              ? creative.keywordsWithVolume
+              : (creative.keywords || []).map((keyword: string) => ({
                 keyword,
                 searchVolume: 0,
                 matchType: 'PHRASE' as const,
                 source: 'AI_GENERATED' as const
               }))
-          const supplemented = await applyKeywordSupplementationOnce({
-            offer,
-            userId: task.userId,
-            brandName: offer.brand || 'Unknown',
-            targetLanguage: offer.target_language || 'English',
-            keywordsWithVolume: baseKeywordsWithVolume,
-            poolCandidates,
-          })
-          creative.keywords = supplemented.keywords
-          creative.keywordsWithVolume = supplemented.keywordsWithVolume
-          creative.keywordSupplementation = supplemented.keywordSupplementation
-        } catch (supplementError: any) {
-          console.warn(`⚠️ 关键词补充失败（继续执行）: ${supplementError?.message || supplementError}`)
+            const supplemented = await applyKeywordSupplementationOnce({
+              offer,
+              userId: task.userId,
+              brandName: offer.brand || 'Unknown',
+              targetLanguage: offer.target_language || 'English',
+              keywordsWithVolume: baseKeywordsWithVolume,
+              poolCandidates,
+            })
+            creative.keywords = supplemented.keywords
+            creative.keywordsWithVolume = supplemented.keywordsWithVolume
+            creative.keywordSupplementation = supplemented.keywordSupplementation
+          } catch (supplementError: any) {
+            console.warn(`⚠️ 关键词补充失败（继续执行）: ${supplementError?.message || supplementError}`)
+          }
         }
-      }
 
-      const creativeKeywordCandidates = normalizeCreativeKeywordsWithVolume(
-        Array.isArray(creative.keywordsWithVolume)
-          ? creative.keywordsWithVolume
-          : (creative.keywords || []).map((keyword: string) => ({
+        const creativeKeywordCandidates = normalizeCreativeKeywordsWithVolume(
+          Array.isArray(creative.keywordsWithVolume)
+            ? creative.keywordsWithVolume
+            : (creative.keywords || []).map((keyword: string) => ({
               keyword,
               searchVolume: 0,
               matchType: 'PHRASE' as const,
               source: 'AI_GENERATED' as const
             })),
-        selectedBucket ? 'KEYWORD_POOL' : 'AI_GENERATED'
-      )
-
-      const contextFilteredCandidates = filterCreativeKeywordsByOfferContext({
-        offer,
-        keywordsWithVolume: creativeKeywordCandidates,
-        scopeLabel: selectedBucket ? `桶${selectedBucket}` : '默认'
-      })
-
-      const keywordsForSelection = contextFilteredCandidates.length > 0
-        ? contextFilteredCandidates
-        : creativeKeywordCandidates
-      if (creativeKeywordCandidates.length > 0 && contextFilteredCandidates.length === 0) {
-        console.warn('⚠️ 创意关键词上下文过滤后为空，回退原候选关键词')
-      }
-
-      creative.keywordsWithVolume = keywordsForSelection as any
-      creative.keywords = keywordsForSelection.map(item => item.keyword)
-
-      const prioritizedKeywords = selectCreativeKeywords({
-        keywords: creative.keywords,
-        keywordsWithVolume: creative.keywordsWithVolume as any,
-        brandName: offer.brand || '',
-        bucket: (selectedBucket || null) as any,
-        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
-        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
-        minBrandKeywords: CREATIVE_BRAND_KEYWORD_RESERVE,
-        brandOnly: creativeKeywordBrandOnly,
-      })
-      creative.keywords = prioritizedKeywords.keywords
-      creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
-
-      // 更新进度：评估中
-      const evaluationMessageBase = `第${attempts}次生成: 评估创意质量...`
-      const evaluationStartedAt = Date.now()
-      let evaluationHeartbeatTimer: NodeJS.Timeout | null = null
-      const updateEvaluationHeartbeat = async () => {
-        const elapsedSeconds = Math.floor((Date.now() - evaluationStartedAt) / 1000)
-        await db.exec(`
-          UPDATE creative_tasks
-          SET stage = 'evaluating', progress = ?, message = ?, updated_at = ${nowFunc}
-          WHERE id = ?
-        `, [attemptBaseProgress + 10, `${evaluationMessageBase} (${elapsedSeconds}s)`, task.id])
-      }
-      await updateEvaluationHeartbeat()
-      evaluationHeartbeatTimer = setInterval(() => {
-        void updateEvaluationHeartbeat().catch((heartbeatError: any) => {
-          console.warn(`⚠️ 创意评估心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
-        })
-      }, creativeTaskHeartbeatMs)
-
-      // 2. 检查metadata
-      const hasMetadata = creative.headlinesWithMetadata && creative.descriptionsWithMetadata
-      if (!hasMetadata) {
-        creative.headlinesWithMetadata = creative.headlines.map(text => ({ text, length: text.length }))
-        creative.descriptionsWithMetadata = creative.descriptions.map(text => ({ text, length: text.length }))
-      }
-
-      // 3. 评估Ad Strength
-      let evaluation: Awaited<ReturnType<typeof evaluateCreativeAdStrength>>
-      try {
-        evaluation = await evaluateCreativeAdStrength(
-          creative.headlinesWithMetadata!,
-          creative.descriptionsWithMetadata!,
-          creative.keywords,
-          {
-            brandName: offer.brand,
-            targetCountry: offer.target_country || 'US',
-            targetLanguage: offer.target_language || 'en',
-            userId: task.userId
-          }
+          selectedBucket ? 'KEYWORD_POOL' : 'AI_GENERATED'
         )
-      } finally {
-        if (evaluationHeartbeatTimer) {
-          clearInterval(evaluationHeartbeatTimer)
-          evaluationHeartbeatTimer = null
+
+        const contextFilteredCandidates = filterCreativeKeywordsByOfferContext({
+          offer,
+          keywordsWithVolume: creativeKeywordCandidates,
+          scopeLabel: selectedBucket ? `桶${selectedBucket}` : '默认'
+        })
+        const keywordsForSelection = contextFilteredCandidates.length > 0
+          ? contextFilteredCandidates
+          : creativeKeywordCandidates
+        if (creativeKeywordCandidates.length > 0 && contextFilteredCandidates.length === 0) {
+          console.warn('⚠️ 创意关键词上下文过滤后为空，回退原候选关键词')
+        }
+
+        creative.keywordsWithVolume = keywordsForSelection as any
+        creative.keywords = keywordsForSelection.map(item => item.keyword)
+
+        const prioritizedKeywords = selectCreativeKeywords({
+          keywords: creative.keywords,
+          keywordsWithVolume: creative.keywordsWithVolume as any,
+          brandName: offer.brand || '',
+          bucket: (selectedBucket || null) as any,
+          maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+          brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+          minBrandKeywords: CREATIVE_BRAND_KEYWORD_RESERVE,
+          brandOnly: creativeKeywordBrandOnly,
+        })
+        creative.keywords = prioritizedKeywords.keywords
+        creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
+
+        if (generatedKeywordsForExclusion.length > 0) {
+          const nonBrandKeywords = generatedKeywordsForExclusion.filter(kw => {
+            if (!kw || typeof kw !== 'string') return false
+            const kwLower = kw.toLowerCase()
+            return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
+          })
+          usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
+        }
+
+        return creative
+      },
+      evaluate: async (creative, { attempt }) => {
+        const attemptBaseProgress = 10 + (attempt - 1) * 25
+        const evaluationMessageBase = `第${attempt}次生成: 评估创意质量...`
+        const evaluationStartedAt = Date.now()
+        let evaluationHeartbeatTimer: NodeJS.Timeout | null = null
+        const updateEvaluationHeartbeat = async () => {
+          const elapsedSeconds = Math.floor((Date.now() - evaluationStartedAt) / 1000)
+          await db.exec(`
+            UPDATE creative_tasks
+            SET stage = 'evaluating', progress = ?, message = ?, updated_at = ${nowFunc}
+            WHERE id = ?
+          `, [attemptBaseProgress + 10, `${evaluationMessageBase} (${elapsedSeconds}s)`, task.id])
+        }
+        await updateEvaluationHeartbeat()
+        evaluationHeartbeatTimer = setInterval(() => {
+          void updateEvaluationHeartbeat().catch((heartbeatError: any) => {
+            console.warn(`⚠️ 创意评估心跳更新失败: ${task.id}: ${heartbeatError?.message || heartbeatError}`)
+          })
+        }, creativeTaskHeartbeatMs)
+
+        try {
+          const evaluation = await evaluateCreativeForQuality({
+            creative,
+            minimumScore: AD_CREATIVE_REQUIRED_MIN_SCORE,
+            adStrengthContext: {
+              brandName: offer.brand,
+              targetCountry: offer.target_country || 'US',
+              targetLanguage: offer.target_language || 'en',
+              userId: task.userId
+            },
+            ruleContext: {
+              brandName: offer.brand,
+              category: offer.category,
+              productName: offer.product_name || offerAny.product_title || offerAny.name,
+              productTitle: offerAny.product_title || offerAny.title,
+              productDescription: offer.brand_description,
+              uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
+              keywords: creative.keywords || [],
+              targetLanguage: offer.target_language || 'en'
+            }
+          })
+
+          await db.exec(`
+            UPDATE creative_tasks
+            SET progress = ?, message = ?, updated_at = ${nowFunc}
+            WHERE id = ?
+          `, [attemptBaseProgress + 18, `第${attempt}次生成: ${evaluation.adStrength.finalRating} (${evaluation.adStrength.finalScore}分)`, task.id])
+          return evaluation
+        } finally {
+          if (evaluationHeartbeatTimer) {
+            clearInterval(evaluationHeartbeatTimer)
+            evaluationHeartbeatTimer = null
+          }
         }
       }
+    })
 
-      // 更新进度：评估完成
-      await db.exec(`
-        UPDATE creative_tasks
-        SET progress = ?, message = ?, updated_at = ${nowFunc}
-        WHERE id = ?
-      `, [attemptBaseProgress + 18, `第${attempts}次生成: ${evaluation.finalRating} (${evaluation.finalScore}分)`, task.id])
+    const attempts = generationResult.attempts
+    const bestCreative = generationResult.selectedCreative
+    const selectedEvaluation = generationResult.selectedEvaluation
+    const bestEvaluation = selectedEvaluation.adStrength
+    const retryHistory = generationResult.history.map(item => ({
+      attempt: item.attempt,
+      rating: item.rating,
+      score: item.score,
+      suggestions: item.suggestions,
+      failureType: item.failureType,
+      reasons: item.reasons,
+      passed: item.passed
+    }))
+    const qualityWarning = !selectedEvaluation.passed
 
-      retryHistory.push({
-        attempt: attempts,
-        rating: evaluation.finalRating,
-        score: evaluation.finalScore,
-        suggestions: evaluation.combinedSuggestions
-      })
-
-      // 更新最佳结果
-      const ratingRank: Record<string, number> = {
-        POOR: 0,
-        AVERAGE: 1,
-        GOOD: 2,
-        EXCELLENT: 3
-      }
-      const currentRank = ratingRank[evaluation.finalRating] ?? 0
-      const bestRank = bestEvaluation ? (ratingRank[bestEvaluation.finalRating] ?? 0) : -1
-      const scoreImproved = !bestEvaluation || evaluation.finalScore > bestEvaluation.finalScore
-      const ratingImproved = currentRank > bestRank
-
-      if (!bestEvaluation || ratingImproved || scoreImproved) {
-        bestCreative = creative
-        bestEvaluation = evaluation
-        noImprovementStreak = 0
-      } else {
-        noImprovementStreak += 1
-      }
-
-      // 收集已使用关键词
-      if (generatedKeywordsForExclusion.length > 0) {
-        const nonBrandKeywords = generatedKeywordsForExclusion.filter(kw => {
-          if (!kw || typeof kw !== 'string') return false
-          const kwLower = kw.toLowerCase()
-          return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
-        })
-        usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
-      }
-
-      // 检查是否达到目标
-      if (evaluation.finalRating === targetRating) {
-        break
-      }
-
-      // 🔧 自适应提前停止：连续无提升且已达到 GOOD 时不再强求 EXCELLENT
-      // 目的：避免第三轮无明显收益却显著拉长总时长
-      if (
-        attempts >= 2 &&
-        noImprovementStreak >= 1 &&
-        bestEvaluation?.finalRating === 'GOOD' &&
-        targetRating === 'EXCELLENT'
-      ) {
-        console.log(`⚠️ 连续无提升，已达 GOOD，提前结束重试以缩短耗时`)
-        break
-      }
-
-      if (attempts < effectiveMaxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
-    }
-
-    // 检查最终结果
-    if (!bestCreative || !bestEvaluation) {
-      throw new Error('生成创意失败')
-    }
-
-    // 🔧 修复(2025-12-22): 质量门检查改为警告而非失败
-    // 即使质量未达标也允许保存，但标记为警告状态
-    const MINIMUM_SCORE = 70
-    const qualityWarning = bestEvaluation.finalScore < MINIMUM_SCORE
     if (qualityWarning) {
-      console.warn(`⚠️ 创意质量未达标（${bestEvaluation.finalScore}分 < ${MINIMUM_SCORE}分），但仍保存创意`)
+      console.warn(`⚠️ 创意未达 GOOD 阈值，已保存最佳结果: ${bestEvaluation.finalRating} (${bestEvaluation.finalScore})`)
     }
 
     // 更新进度：保存中
@@ -773,8 +729,9 @@ export async function executeAdCreativeGeneration(
       },
       optimization: {
         attempts,
-        targetRating,
-        achieved: bestEvaluation.finalRating === targetRating,
+        targetRating: enforcedTargetRating,
+        achieved: selectedEvaluation.passed,
+        qualityGatePassed: selectedEvaluation.passed,
         history: retryHistory
       },
       offer: {

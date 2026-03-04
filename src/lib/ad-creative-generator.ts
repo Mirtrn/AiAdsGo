@@ -38,6 +38,7 @@ import {
   sanitizeKeywordListForGoogleAdsPolicy,
   sanitizeKeywordObjectsForGoogleAdsPolicy
 } from './google-ads-policy-guard'
+import { createCreativeRuleContext, filterPromptExtrasByRelevance } from './ad-creative-rule-gate'
 
 /**
  * 🔧 安全解析JSON字段
@@ -4584,8 +4585,31 @@ ${hooksList}
     }
   }
 
-  // Build extras_data section
-  variables.extras_data = extras.length ? '\n' + extras.join(' | ') + '\n' : ''
+  const promptRuleContext = createCreativeRuleContext({
+    brandName: offer.brand,
+    category: offer.category,
+    productName: rawProductName,
+    productTitle: rawProductTitle,
+    productDescription: rawProductDescription,
+    uniqueSellingPoints: rawUniqueSellingPoints,
+    keywords: (extractedElements?.keywords || [])
+      .map((item: any) => typeof item === 'string' ? item : item?.keyword)
+      .map((item: any) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, PROMPT_KEYWORD_LIMIT),
+    targetLanguage
+  })
+
+  // Build extras_data section（去噪，避免无关维修/工具类噪声污染Prompt）
+  const filteredExtrasResult = filterPromptExtrasByRelevance(extras, promptRuleContext)
+  if (filteredExtrasResult.removed.length > 0) {
+    console.warn(
+      `🧹 Prompt extras 去噪: 移除 ${filteredExtrasResult.removed.length} 条疑似离题片段`
+    )
+  }
+  variables.extras_data = filteredExtrasResult.filtered.length
+    ? '\n' + filteredExtrasResult.filtered.join(' | ') + '\n'
+    : ''
 
   // ✅ VERIFIED FACTS（仅允许使用这些可验证信息；为空则不要写数字/承诺）
   // 只使用“产品数据”来源，避免把prompt中的示例数字误当作证据
@@ -4607,7 +4631,16 @@ ${hooksList}
   if (totalReviews > 0) verifiedFacts.push(`- TOTAL REVIEWS: ${totalReviews}`)
   if (averageRating > 0) verifiedFacts.push(`- AVERAGE RATING: ${averageRating}`)
   if (supplementalVerifiedFacts.length > 0) {
-    verifiedFacts.push(...supplementalVerifiedFacts.slice(0, 6))
+    const filteredSupplementalFacts = filterPromptExtrasByRelevance(
+      supplementalVerifiedFacts,
+      promptRuleContext
+    )
+    if (filteredSupplementalFacts.removed.length > 0) {
+      console.warn(
+        `🧹 Verified facts 去噪: 移除 ${filteredSupplementalFacts.removed.length} 条疑似离题事实`
+      )
+    }
+    verifiedFacts.push(...filteredSupplementalFacts.filtered.slice(0, 6))
   }
   if (quantitativeHighlights.length > 0) {
     verifiedFacts.push(`- QUANTITATIVE HIGHLIGHTS: ${quantitativeHighlights.slice(0, 3).map(h => `${h.metric}=${h.value}`).join(', ')}`)

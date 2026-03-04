@@ -2,16 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { applyKeywordSupplementationOnce, generateAdCreative } from '@/lib/ad-creative-generator'
-import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
-import {
-  evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult
-} from '@/lib/scoring'
+import { createAdCreative } from '@/lib/ad-creative'
+import { type ComprehensiveAdStrengthResult } from '@/lib/scoring'
 import {
   CREATIVE_BRAND_KEYWORD_RESERVE,
   CREATIVE_KEYWORD_MAX_COUNT,
   selectCreativeKeywords,
 } from '@/lib/creative-keyword-selection'
+import {
+  AD_CREATIVE_MAX_AUTO_RETRIES,
+  AD_CREATIVE_REQUIRED_MIN_SCORE,
+  evaluateCreativeForQuality,
+  runCreativeGenerationQualityLoop
+} from '@/lib/ad-creative-quality-loop'
 import {
   getOrCreateKeywordPool,
   getKeywordPoolByOfferId,
@@ -86,13 +89,20 @@ export async function POST(
     const body = await request.json().catch(() => ({}))
     const {
       buckets: requestedBuckets,
-      maxRetries = 2,
+      maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES,
     } = body
+    const normalizedMaxRetries = Math.max(
+      0,
+      Math.min(
+        AD_CREATIVE_MAX_AUTO_RETRIES,
+        Number.isFinite(Number(maxRetries)) ? Math.floor(Number(maxRetries)) : AD_CREATIVE_MAX_AUTO_RETRIES
+      )
+    )
     const forceRegeneratePool = parseBooleanFlag(body.forceRegeneratePool)
 
     console.log(`\n🎨 POST /api/offers/${offerId}/creatives/generate-differentiated`)
     console.log(`   requestedBuckets: ${requestedBuckets ? requestedBuckets.join(', ') : '自动选择'}`)
-    console.log(`   maxRetries: ${maxRetries}`)
+    console.log(`   maxRetries: ${normalizedMaxRetries}`)
     console.log(`   forceRegeneratePool: ${forceRegeneratePool}`)
 
     if (forceRegeneratePool) {
@@ -206,7 +216,7 @@ export async function POST(
           pool,
           bucket,
           bucketInfo,
-          maxRetries
+          normalizedMaxRetries
         )
 
         results.push({
@@ -318,23 +328,20 @@ async function generateCreativeWithBucket(
 }> {
   const db = await getDatabase()
 
-  let bestCreative: GeneratedAdCreativeData | null = null
-  let bestEvaluation: ComprehensiveAdStrengthResult | null = null
-  let attempts = 0
-
   // 从 PoolKeywordData[] 提取关键词字符串
   const keywordStrings = bucketInfo.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword)
+  let usedKeywords: string[] = []
+  const brandKeywords = [String(offer.brand || '').toLowerCase()].filter(Boolean)
 
-  while (attempts < maxRetries) {
-    attempts++
-    console.log(`   📝 第 ${attempts} 次尝试 (桶 ${bucket})...`)
-
-    try {
-      // 🔧 2025-12-17: 修复关键词分桶差异化问题
-      // 传递完整的桶信息给 generateAdCreative，使 AI 生成的 headlines/descriptions 能够基于桶关键词差异化
+  const loopResult = await runCreativeGenerationQualityLoop({
+    maxRetries,
+    delayMs: 1000,
+    generate: async ({ attempt, retryFailureType }) => {
       const creative = await generateAdCreative(offerId, userId, {
         theme: `${bucketInfo.intent} - ${bucketInfo.intentEn}`,
-        skipCache: attempts > 1,
+        skipCache: attempt > 1,
+        excludeKeywords: attempt > 1 ? usedKeywords : undefined,
+        retryFailureType,
         keywordPool: pool,
         bucket: bucket,
         bucketKeywords: keywordStrings,
@@ -377,90 +384,82 @@ async function generateCreativeWithBucket(
       creative.keywords = prioritizedKeywords.keywords
       creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
-      // 评估 Ad Strength
-      const headlinesWithMetadata = creative.headlinesWithMetadata || creative.headlines.map(text => ({
-        text,
-        length: text.length
-      }))
-      const descriptionsWithMetadata = creative.descriptionsWithMetadata || creative.descriptions.map(text => ({
-        text,
-        length: text.length
-      }))
+      const nonBrandKeywords = (creative.keywords || []).filter((kw: string) => {
+        const kwLower = kw.toLowerCase()
+        return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
+      })
+      usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
 
-      const evaluation = await evaluateCreativeAdStrength(
-        headlinesWithMetadata,
-        descriptionsWithMetadata,
-        creative.keywords,
-        { brandName: offer.brand }
-      )
-
-      // 保存创意
-      const savedCreative = await createAdCreative(
-        userId,
-        offerId,
-        {
-          ...creative,
-          final_url: offer.final_url || offer.url,
-          final_url_suffix: offer.final_url_suffix,
-          ai_model: creative.ai_model,
-          generation_round: 1,
-          score: evaluation.finalScore,
-          score_breakdown: evaluation.localEvaluation.dimensions as any,
-          adStrength: {
-            rating: evaluation.finalRating,
-            score: evaluation.finalScore,
-            isExcellent: evaluation.finalRating === 'EXCELLENT',
-            dimensions: evaluation.localEvaluation.dimensions,
-            suggestions: evaluation.combinedSuggestions
-          }
-        }
-      )
-
-      // 更新创意的桶信息
-      await db.exec(
-        `UPDATE ad_creatives SET
-          keyword_bucket = ?,
-          keyword_pool_id = ?,
-          bucket_intent = ?
-        WHERE id = ?`,
-        [bucket, pool.id, bucketInfo.intent, savedCreative.id]
-      )
-
-      // 检查是否达到 EXCELLENT
-      if (evaluation.finalRating === 'EXCELLENT' || attempts >= maxRetries) {
-        bestCreative = creative
-        bestEvaluation = evaluation
-
-        return {
-          creative: {
-            ...savedCreative,
-            keyword_bucket: bucket,
-            bucket_intent: bucketInfo.intent,
-            keywordSupplementation: creative.keywordSupplementation || null
-          },
-          evaluation
-        }
+      return creative
+    },
+    evaluate: async (creative) => evaluateCreativeForQuality({
+      creative,
+      minimumScore: AD_CREATIVE_REQUIRED_MIN_SCORE,
+      adStrengthContext: {
+        brandName: offer.brand,
+        targetCountry: offer.target_country || 'US',
+        targetLanguage: offer.target_language || 'en',
+        userId
+      },
+      ruleContext: {
+        brandName: offer.brand,
+        category: offer.category,
+        productName: offer.product_name || offer.product_title || offer.name,
+        productTitle: offer.product_title || offer.title,
+        productDescription: offer.brand_description,
+        uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
+        keywords: creative.keywords || [],
+        targetLanguage: offer.target_language || 'en'
       }
+    })
+  })
 
-      // 如果未达到 EXCELLENT，继续重试
-      bestCreative = creative
-      bestEvaluation = evaluation
-    } catch (error: any) {
-      console.error(`   ❌ 第 ${attempts} 次尝试失败:`, error.message)
-      if (attempts >= maxRetries) {
-        throw error
+  const bestCreative = loopResult.selectedCreative
+  const selectedEvaluation = loopResult.selectedEvaluation
+  const evaluation = selectedEvaluation.adStrength
+
+  if (!selectedEvaluation.passed) {
+    console.warn(`⚠️ 桶 ${bucket} 未达 GOOD 阈值，已保存最佳结果: ${evaluation.finalRating} (${evaluation.finalScore})`)
+  }
+
+  const savedCreative = await createAdCreative(
+    userId,
+    offerId,
+    {
+      ...bestCreative,
+      final_url: offer.final_url || offer.url,
+      final_url_suffix: offer.final_url_suffix,
+      ai_model: bestCreative.ai_model,
+      generation_round: loopResult.attempts,
+      score: evaluation.finalScore,
+      score_breakdown: evaluation.localEvaluation.dimensions as any,
+      adStrength: {
+        rating: evaluation.finalRating,
+        score: evaluation.finalScore,
+        isExcellent: evaluation.finalRating === 'EXCELLENT',
+        dimensions: evaluation.localEvaluation.dimensions,
+        suggestions: evaluation.combinedSuggestions
       }
     }
-  }
+  )
 
-  // 返回最佳结果
-  if (!bestCreative) {
-    throw new Error('创意生成失败')
-  }
+  await db.exec(
+    `UPDATE ad_creatives SET
+      keyword_bucket = ?,
+      keyword_pool_id = ?,
+      bucket_intent = ?
+    WHERE id = ?`,
+    [bucket, pool.id, bucketInfo.intent, savedCreative.id]
+  )
 
   return {
-    creative: bestCreative,
-    evaluation: bestEvaluation
+    creative: {
+      ...savedCreative,
+      keyword_bucket: bucket,
+      bucket_intent: bucketInfo.intent,
+      keywordSupplementation: bestCreative.keywordSupplementation || null
+    },
+    evaluation
   }
 }
 

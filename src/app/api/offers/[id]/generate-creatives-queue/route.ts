@@ -13,6 +13,7 @@ import { createError } from '@/lib/errors'
 import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
+import { AD_CREATIVE_MAX_AUTO_RETRIES } from '@/lib/ad-creative-quality-loop'
 
 type NormalizedCreativeBucket = 'A' | 'B' | 'D'
 
@@ -43,11 +44,19 @@ export async function POST(
 
   const body = await request.json()
   const {
-    maxRetries = 3,
-    targetRating = 'EXCELLENT',
+    maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES,
+    targetRating = 'GOOD',
     synthetic = false,  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
     bucket,
   } = body
+  const normalizedMaxRetries = Math.max(
+    0,
+    Math.min(
+      AD_CREATIVE_MAX_AUTO_RETRIES,
+      Number.isFinite(Number(maxRetries)) ? Math.floor(Number(maxRetries)) : AD_CREATIVE_MAX_AUTO_RETRIES
+    )
+  )
+  const normalizedTargetRating: AdCreativeTaskData['targetRating'] = 'GOOD'
   const requestedBucket = normalizeBucketSelection(bucket)
 
   if (bucket !== undefined && !requestedBucket) {
@@ -179,14 +188,14 @@ export async function POST(
         id, user_id, offer_id, status, stage, progress, message,
         max_retries, target_rating, created_at, updated_at
       ) VALUES (?, ?, ?, 'pending', 'init', 0, '准备开始生成...', ?, ?, datetime('now'), datetime('now'))`,
-      [taskId, parseInt(userId, 10), parseInt(id, 10), maxRetries, targetRating]
+      [taskId, parseInt(userId, 10), parseInt(id, 10), normalizedMaxRetries, normalizedTargetRating]
     )
 
     // 将任务加入队列
     const taskData: AdCreativeTaskData = {
       offerId: parseInt(id, 10),
-      maxRetries,
-      targetRating,
+      maxRetries: normalizedMaxRetries,
+      targetRating: normalizedTargetRating,
       synthetic,  // 🔧 向后兼容：旧版标记（执行器会映射为D）
       bucket: requestedType || undefined,
     }

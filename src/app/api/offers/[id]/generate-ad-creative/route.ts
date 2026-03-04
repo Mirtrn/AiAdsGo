@@ -4,7 +4,7 @@ import { findOfferById, markBucketGenerated } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 import { applyKeywordSupplementationOnce, generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
-import { createError, ErrorCode, AppError } from '@/lib/errors'
+import { createError, AppError } from '@/lib/errors'
 import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
   CREATIVE_BRAND_KEYWORD_RESERVE,
@@ -12,10 +12,11 @@ import {
   selectCreativeKeywords,
 } from '@/lib/creative-keyword-selection'
 import {
-  evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult
-} from '@/lib/scoring'
-import { evaluateRsaQualityGate } from '@/lib/rsa-quality-gate'
+  AD_CREATIVE_MAX_AUTO_RETRIES,
+  AD_CREATIVE_REQUIRED_MIN_SCORE,
+  evaluateCreativeForQuality,
+  runCreativeGenerationQualityLoop
+} from '@/lib/ad-creative-quality-loop'
 // 🆕 v4.16: 导入智能创意选择函数
 import { getNextCreativeType, getThemeByBucket, BucketType } from '@/lib/ad-creative-generator'
 
@@ -203,7 +204,6 @@ export async function POST(
 
     // 批量生成或单个生成
     const userId = authResult.user!.userId  // Already verified above
-    const MINIMUM_SCORE = 70
     let searchTermFeedbackHints: {
       hardNegativeTerms?: string[]
       softSuppressTerms?: string[]
@@ -225,99 +225,122 @@ export async function POST(
       console.warn(`⚠️ 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)
     }
 
+    const normalizedMaxRetries = AD_CREATIVE_MAX_AUTO_RETRIES
+    console.log(`   质量策略: 低于 GOOD 不保存，自动重试最多 ${normalizedMaxRetries} 次，失败后保存最佳`)
+    const offerAny = offer as any
+
+    const buildRuleContext = (keywords: string[]) => ({
+      brandName: offer.brand,
+      category: offer.category,
+      productName: offer.product_name || offerAny.product_title || offerAny.name,
+      productTitle: offerAny.product_title || offerAny.title,
+      productDescription: offer.brand_description,
+      uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
+      keywords,
+      targetLanguage: offer.target_language || 'en'
+    })
+
     if (batch && actualCount > 1) {
-      // 批量并行生成（传入userId以获取用户特定配置）
-      const generatedDataList = await generateAdCreativesBatch(offerId, userId, actualCount, {
+      const initialCreatives = await generateAdCreativesBatch(offerId, userId, actualCount, {
         theme,
         referencePerformance: reference_performance,
-        skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        skipCache: true,
         searchTermFeedbackHints
       })
 
-      // 批量评估Ad Strength并保存到数据库（门禁未通过仅告警，不阻断）
-      const batchResults = await Promise.all(generatedDataList.map(async (generatedData, index) => {
-        const prioritizedKeywords = selectCreativeKeywords({
-          keywords: generatedData.keywords,
-          keywordsWithVolume: generatedData.keywordsWithVolume as any,
-          brandName: offer.brand || '',
-          bucket,
-          maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
-          brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+      const batchResults = await Promise.all(initialCreatives.map(async (initialCreative, index) => {
+        let usedKeywords: string[] = []
+        const brandKeywords = [String(offer.brand || '').toLowerCase()].filter(Boolean)
+
+        const loopResult = await runCreativeGenerationQualityLoop({
+          maxRetries: normalizedMaxRetries,
+          delayMs: 1000,
+          generate: async ({ attempt, retryFailureType }) => {
+            const creative = attempt === 1
+              ? initialCreative
+              : await generateAdCreative(offerId, userId, {
+                theme: bucketIntent,
+                referencePerformance: reference_performance,
+                skipCache: true,
+                excludeKeywords: usedKeywords,
+                retryFailureType,
+                searchTermFeedbackHints,
+                deferKeywordSupplementation: bucket === 'D',
+                bucket,
+                bucketIntent,
+                bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
+              })
+
+            const prioritizedKeywords = selectCreativeKeywords({
+              keywords: creative.keywords,
+              keywordsWithVolume: creative.keywordsWithVolume as any,
+              brandName: offer.brand || '',
+              bucket,
+              maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+              brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+            })
+            creative.keywords = prioritizedKeywords.keywords
+            creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
+
+            const nonBrandKeywords = (creative.keywords || []).filter(kw => {
+              const kwLower = kw.toLowerCase()
+              return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
+            })
+            usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
+            return creative
+          },
+          evaluate: async (creative) => evaluateCreativeForQuality({
+            creative,
+            minimumScore: AD_CREATIVE_REQUIRED_MIN_SCORE,
+            adStrengthContext: {
+              brandName: offer.brand,
+              targetCountry: offer.target_country || 'US',
+              targetLanguage: offer.target_language || 'en',
+              userId
+            },
+            ruleContext: buildRuleContext(creative.keywords || [])
+          })
         })
-        generatedData.keywords = prioritizedKeywords.keywords
-        generatedData.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
-        // 确保有metadata，否则构造基础格式
-        const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
-          text,
-          length: text.length
-        }))
-        const descriptionsWithMetadata = generatedData.descriptionsWithMetadata || generatedData.descriptions.map(text => ({
-          text,
-          length: text.length
-        }))
+        const bestCreative = loopResult.selectedCreative
+        const selectedEvaluation = loopResult.selectedEvaluation
+        const bestEvaluation = selectedEvaluation.adStrength
 
-        // Ad Strength评估（传入品牌信息）
-        const evaluation = await evaluateCreativeAdStrength(
-          headlinesWithMetadata,
-          descriptionsWithMetadata,
-          generatedData.keywords,
-          {
-            brandName: offer.brand,
-            targetCountry: offer.target_country || 'US',
-            targetLanguage: offer.target_language || 'en',
-            userId
-          }
-        )
-        const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
-
-        console.log(
-          `📊 批量创意评估#${index + 1}: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}`
-        )
-
-        if (!gateDecision.passed) {
-          console.warn(
-            `⚠️ 批量创意#${index + 1} 未通过RSA门禁，按新策略仅告警保存: failureType=${gateDecision.failureType || 'unknown'}`
-          )
-        }
-
-        // 保存到数据库（传入Ad Strength评分）
         const saved = await createAdCreative(userId, offerId, {
-          ...generatedData,
+          ...bestCreative,
           final_url: offer.final_url || offer.url,
           final_url_suffix: offer.final_url_suffix || undefined,
           generation_round,
-          // 传入Ad Strength评估结果
-          score: evaluation.finalScore,
+          score: bestEvaluation.finalScore,
           score_breakdown: {
-            relevance: evaluation.localEvaluation.dimensions.relevance.score,
-            quality: evaluation.localEvaluation.dimensions.quality.score,
-            engagement: evaluation.localEvaluation.dimensions.completeness.score,
-            diversity: evaluation.localEvaluation.dimensions.diversity.score,
-            clarity: evaluation.localEvaluation.dimensions.compliance.score,
-            brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score,
-            competitivePositioning: evaluation.localEvaluation.dimensions.competitivePositioning.score
+            relevance: bestEvaluation.localEvaluation.dimensions.relevance.score,
+            quality: bestEvaluation.localEvaluation.dimensions.quality.score,
+            engagement: bestEvaluation.localEvaluation.dimensions.completeness.score,
+            diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
+            clarity: bestEvaluation.localEvaluation.dimensions.compliance.score,
+            brandSearchVolume: bestEvaluation.localEvaluation.dimensions.brandSearchVolume.score,
+            competitivePositioning: bestEvaluation.localEvaluation.dimensions.competitivePositioning.score
           }
         })
+
         return {
           saved,
-          qualityWarning: !gateDecision.passed ? {
+          keywordSupplementation: bestCreative.keywordSupplementation || null,
+          qualityWarning: !selectedEvaluation.passed ? {
             index: index + 1,
-            score: evaluation.finalScore,
-            rating: evaluation.finalRating,
-            failureType: gateDecision.failureType,
-            gateReasons: gateDecision.reasons,
-            rsaQualityGate: evaluation.rsaQualityGate,
+            score: bestEvaluation.finalScore,
+            rating: bestEvaluation.finalRating,
+            failureType: selectedEvaluation.failureType,
+            gateReasons: selectedEvaluation.reasons,
+            rsaQualityGate: bestEvaluation.rsaQualityGate,
+            ruleGate: selectedEvaluation.ruleGate
           } : null
         }
       }))
+
       const savedCreatives = batchResults.map(item => item.saved)
       const qualityWarnings = batchResults.flatMap(item => item.qualityWarning ? [item.qualityWarning] : [])
-      const keywordSupplementations = generatedDataList.map(item => item.keywordSupplementation || null)
-
-      console.log(
-        `✅ ${savedCreatives.length} 个广告创意已保存（质量告警 ${qualityWarnings.length} 个）`
-      )
+      const keywordSupplementations = batchResults.map(item => item.keywordSupplementation)
 
       return NextResponse.json({
         success: true,
@@ -330,7 +353,7 @@ export async function POST(
           stage: 'campaign_publish',
           hardBlockSource: 'launch_score'
         },
-        creatives: savedCreatives,  // 前端期望 creatives 字段
+        creatives: savedCreatives,
         keywordSupplementations,
         count: savedCreatives.length,
         qualityWarningCount: qualityWarnings.length,
@@ -338,131 +361,125 @@ export async function POST(
         message: `成功生成 ${savedCreatives.length} 个广告创意`
       })
     } else {
-      // 单个生成（传入userId以获取用户特定配置）
-      const generatedData = await generateAdCreative(offerId, userId, {
-        theme: bucketIntent,  // 🆕 v4.16: 使用bucket主题
-        referencePerformance: reference_performance,
-        skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
-        searchTermFeedbackHints,
-        deferKeywordSupplementation: bucket === 'D',
-        // 🆕 v4.16: 传递bucket信息
-        bucket: bucket,
-        bucketIntent: bucketIntent,
-        bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
-      })
+      let usedKeywords: string[] = []
+      const brandKeywords = [String(offer.brand || '').toLowerCase()].filter(Boolean)
 
-      // ✅ D桶关键词优先：先同步桶关键词，再由统一优先级规则裁剪到全局上限
-      if (bucket === 'D') {
-        let poolCandidates: string[] = []
-        try {
-          const { getKeywordsByLinkTypeAndBucket } = await import('@/lib/offer-keyword-pool')
-          const bucketResult = await getKeywordsByLinkTypeAndBucket(
-            offerId,
-            linkType as 'product' | 'store',
-            'D'
-          )
-          const keywordStrings = bucketResult.keywords.map(kw => kw.keyword)
-          poolCandidates = keywordStrings
-
-          if (keywordStrings.length > 0) {
-            generatedData.keywords = keywordStrings
-            generatedData.keywordsWithVolume = bucketResult.keywords.map(kw => ({
-              keyword: kw.keyword,
-              searchVolume: kw.searchVolume || 0,
-              competition: kw.competition,
-              competitionIndex: kw.competitionIndex,
-              lowTopPageBid: kw.lowTopPageBid,
-              highTopPageBid: kw.highTopPageBid,
-              matchType: kw.matchType || 'PHRASE',
-              source: 'KEYWORD_POOL'
-            }))
-          }
-        } catch (error: any) {
-          console.warn(`⚠️ D桶全量关键词同步失败: ${error.message}`)
-        }
-
-        try {
-          const baseKeywordsWithVolume = Array.isArray(generatedData.keywordsWithVolume)
-            ? generatedData.keywordsWithVolume
-            : generatedData.keywords.map(keyword => ({
-                keyword,
-                searchVolume: 0,
-                matchType: 'PHRASE' as const,
-                source: 'AI_GENERATED' as const
-              }))
-
-          const supplemented = await applyKeywordSupplementationOnce({
-            offer,
-            userId,
-            brandName: offer.brand || 'Unknown',
-            targetLanguage: offer.target_language || 'English',
-            keywordsWithVolume: baseKeywordsWithVolume,
-            poolCandidates,
+      const generationResult = await runCreativeGenerationQualityLoop({
+        maxRetries: normalizedMaxRetries,
+        delayMs: 1000,
+        generate: async ({ attempt, retryFailureType }) => {
+          const generatedData = await generateAdCreative(offerId, userId, {
+            theme: bucketIntent,
+            referencePerformance: reference_performance,
+            skipCache: true,
+            excludeKeywords: attempt > 1 ? usedKeywords : undefined,
+            retryFailureType,
+            searchTermFeedbackHints,
+            deferKeywordSupplementation: bucket === 'D',
+            bucket: bucket,
+            bucketIntent: bucketIntent,
+            bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
           })
 
-          generatedData.keywords = supplemented.keywords
-          generatedData.keywordsWithVolume = supplemented.keywordsWithVolume
-          generatedData.keywordSupplementation = supplemented.keywordSupplementation
-        } catch (error: any) {
-          console.warn(`⚠️ D桶补词失败: ${error?.message || error}`)
-        }
-      }
+          if (bucket === 'D') {
+            let poolCandidates: string[] = []
+            try {
+              const { getKeywordsByLinkTypeAndBucket } = await import('@/lib/offer-keyword-pool')
+              const bucketResult = await getKeywordsByLinkTypeAndBucket(
+                offerId,
+                linkType as 'product' | 'store',
+                'D'
+              )
+              const keywordStrings = bucketResult.keywords.map(kw => kw.keyword)
+              poolCandidates = keywordStrings
 
-      const prioritizedKeywords = selectCreativeKeywords({
-        keywords: generatedData.keywords,
-        keywordsWithVolume: generatedData.keywordsWithVolume as any,
-        brandName: offer.brand || '',
-        bucket,
-        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
-        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+              if (keywordStrings.length > 0) {
+                generatedData.keywords = keywordStrings
+                generatedData.keywordsWithVolume = bucketResult.keywords.map(kw => ({
+                  keyword: kw.keyword,
+                  searchVolume: kw.searchVolume || 0,
+                  competition: kw.competition,
+                  competitionIndex: kw.competitionIndex,
+                  lowTopPageBid: kw.lowTopPageBid,
+                  highTopPageBid: kw.highTopPageBid,
+                  matchType: kw.matchType || 'PHRASE',
+                  source: 'KEYWORD_POOL'
+                }))
+              }
+            } catch (error: any) {
+              console.warn(`⚠️ D桶全量关键词同步失败: ${error.message}`)
+            }
+
+            try {
+              const baseKeywordsWithVolume = Array.isArray(generatedData.keywordsWithVolume)
+                ? generatedData.keywordsWithVolume
+                : generatedData.keywords.map(keyword => ({
+                  keyword,
+                  searchVolume: 0,
+                  matchType: 'PHRASE' as const,
+                  source: 'AI_GENERATED' as const
+                }))
+
+              const supplemented = await applyKeywordSupplementationOnce({
+                offer,
+                userId,
+                brandName: offer.brand || 'Unknown',
+                targetLanguage: offer.target_language || 'English',
+                keywordsWithVolume: baseKeywordsWithVolume,
+                poolCandidates,
+              })
+
+              generatedData.keywords = supplemented.keywords
+              generatedData.keywordsWithVolume = supplemented.keywordsWithVolume
+              generatedData.keywordSupplementation = supplemented.keywordSupplementation
+            } catch (error: any) {
+              console.warn(`⚠️ D桶补词失败: ${error?.message || error}`)
+            }
+          }
+
+          const prioritizedKeywords = selectCreativeKeywords({
+            keywords: generatedData.keywords,
+            keywordsWithVolume: generatedData.keywordsWithVolume as any,
+            brandName: offer.brand || '',
+            bucket,
+            maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+            brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+          })
+          generatedData.keywords = prioritizedKeywords.keywords
+          generatedData.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
+
+          const nonBrandKeywords = (generatedData.keywords || []).filter(kw => {
+            const kwLower = kw.toLowerCase()
+            return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
+          })
+          usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
+
+          return generatedData
+        },
+        evaluate: async (creative) => evaluateCreativeForQuality({
+          creative,
+          minimumScore: AD_CREATIVE_REQUIRED_MIN_SCORE,
+          adStrengthContext: {
+            brandName: offer.brand,
+            targetCountry: offer.target_country || 'US',
+            targetLanguage: offer.target_language || 'en',
+            userId
+          },
+          ruleContext: buildRuleContext(creative.keywords || [])
+        })
       })
-      generatedData.keywords = prioritizedKeywords.keywords
-      generatedData.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
 
-      // 确保有metadata，否则构造基础格式
-      const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
-        text,
-        length: text.length
-      }))
-      const descriptionsWithMetadata = generatedData.descriptionsWithMetadata || generatedData.descriptions.map(text => ({
-        text,
-        length: text.length
-      }))
+      const generatedData = generationResult.selectedCreative
+      const selectedEvaluation = generationResult.selectedEvaluation
+      const evaluation = selectedEvaluation.adStrength
 
-      // Ad Strength评估（传入品牌信息用于品牌搜索量维度）
-      const evaluation = await evaluateCreativeAdStrength(
-        headlinesWithMetadata,
-        descriptionsWithMetadata,
-        generatedData.keywords,
-        {
-          brandName: offer.brand,
-          targetCountry: offer.target_country || 'US',
-          targetLanguage: offer.target_language || 'en',
-          userId
-        }
-      )
-      const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
-
-      console.log(
-        `📊 创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}`
-      )
-
-      if (!gateDecision.passed) {
-        console.warn(
-          `⚠️ 创意未通过RSA门禁，按新策略仅告警保存: rating=${evaluation.finalRating}, score=${evaluation.finalScore}, failureType=${gateDecision.failureType}`
-        )
-      }
-
-      // 保存到数据库（传入Ad Strength评分）
       const adCreative = await createAdCreative(userId, offerId, {
         ...generatedData,
         final_url: offer.final_url || offer.url,
         final_url_suffix: offer.final_url_suffix || undefined,
         generation_round,
-        // 🆕 v4.16: 保存bucket信息
         keyword_bucket: bucket,
         bucket_intent: bucketIntent,
-        // 传入Ad Strength评估结果
         score: evaluation.finalScore,
         score_breakdown: {
           relevance: evaluation.localEvaluation.dimensions.relevance.score,
@@ -475,15 +492,15 @@ export async function POST(
         }
       })
 
-      console.log(`✅ 广告创意已保存 (ID: ${adCreative.id}, Bucket: ${bucket}, 评分: ${adCreative.score}, 评级: ${evaluation.finalRating})`)
+      if (!selectedEvaluation.passed) {
+        console.warn(
+          `⚠️ 创意未达 GOOD 阈值，已保存最佳结果: rating=${evaluation.finalRating}, score=${evaluation.finalScore}`
+        )
+      }
 
-      // 🆕 v4.16: 持久化保存 bucket 到数据库
       await markBucketGenerated(offerId, bucket)
-
-      // 🆕 v4.16: 获取更新后的 generated_buckets 列表
       const updatedGeneratedBuckets = updateGeneratedBuckets(offer.generated_buckets, bucket)
 
-      // 🆕 v4.16: 返回bucket信息给前端
       return NextResponse.json({
         success: true,
         forcePublish: false,
@@ -495,18 +512,27 @@ export async function POST(
           stage: 'campaign_publish',
           hardBlockSource: 'launch_score'
         },
-        creative: adCreative,  // 前端期望 creative 字段（单数）
+        creative: adCreative,
         qualityGate: {
-          passed: gateDecision.passed,
-          warning: !gateDecision.passed,
-          reasons: gateDecision.reasons,
-          failureType: gateDecision.failureType,
+          passed: selectedEvaluation.passed,
+          warning: !selectedEvaluation.passed,
+          reasons: selectedEvaluation.reasons,
+          failureType: selectedEvaluation.failureType,
+          rsaGatePassed: selectedEvaluation.rsaGate.passed,
+          ruleGatePassed: selectedEvaluation.ruleGate.passed,
           rsaQualityGate: evaluation.rsaQualityGate,
+          ruleGate: selectedEvaluation.ruleGate,
+        },
+        optimization: {
+          attempts: generationResult.attempts,
+          targetRating: 'GOOD',
+          achieved: selectedEvaluation.passed,
+          history: generationResult.history
         },
         keywordSupplementation: generatedData.keywordSupplementation || null,
-        bucket: bucket,  // 🆕 当前生成的bucket类型
-        bucketIntent: bucketIntent,  // 🆕 bucket主题描述
-        generatedBuckets: updatedGeneratedBuckets,  // 🆕 更新后的已生成列表
+        bucket: bucket,
+        bucketIntent: bucketIntent,
+        generatedBuckets: updatedGeneratedBuckets,
         message: `广告创意生成成功 (${bucket} - ${bucketIntent})`
       })
     }

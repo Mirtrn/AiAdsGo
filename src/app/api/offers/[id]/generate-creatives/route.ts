@@ -9,13 +9,11 @@ import {
 } from '@/lib/creative-keyword-selection'
 import { getSearchTermFeedbackHints } from '@/lib/search-term-feedback-hints'
 import {
-  evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult
-} from '@/lib/scoring'
-import {
-  evaluateRsaQualityGate,
-  type RetryFailureType
-} from '@/lib/rsa-quality-gate'
+  AD_CREATIVE_MAX_AUTO_RETRIES,
+  AD_CREATIVE_REQUIRED_MIN_SCORE,
+  evaluateCreativeForQuality,
+  runCreativeGenerationQualityLoop
+} from '@/lib/ad-creative-quality-loop'
 
 /**
  * POST /api/offers/:id/generate-creatives
@@ -42,8 +40,8 @@ export async function POST(
 
     const body = await request.json()
     const {
-      maxRetries = 3, // 最大重试次数
-      targetRating = 'EXCELLENT' // 目标评级
+      maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES,
+      targetRating: requestedTargetRating = 'GOOD'
     } = body
     const forcePublishRequested = body?.forcePublish === true || body?.force_publish === true
     const parsedOfferId = parseInt(id, 10)
@@ -92,181 +90,106 @@ export async function POST(
       console.warn(`⚠️ 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)
     }
 
-    console.log(`🎯 开始生成创意，目标评级: ${targetRating}, 最大重试: ${maxRetries}次`)
+    const normalizedMaxRetries = Math.max(
+      0,
+      Math.min(
+        AD_CREATIVE_MAX_AUTO_RETRIES,
+        Number.isFinite(Number(maxRetries)) ? Math.floor(Number(maxRetries)) : AD_CREATIVE_MAX_AUTO_RETRIES
+      )
+    )
+    const enforcedTargetRating = 'GOOD'
+    const offerAny = offer as any
+    if (String(requestedTargetRating || '').toUpperCase() !== enforcedTargetRating) {
+      console.warn(`⚠️ targetRating=${requestedTargetRating} 已忽略，统一使用最低阈值 GOOD`)
+    }
+
+    console.log(`🎯 开始生成创意，目标评级: ${enforcedTargetRating}, 自动重试上限: ${normalizedMaxRetries}次`)
     console.log(`📌 生成接口 forcePublish 参数: ${forcePublishRequested ? '已传入（本接口忽略）' : '未传入'}`)
     console.time('⏱️ 总生成耗时')
-    const MINIMUM_SCORE = 70 // GOOD评级的最低分数
 
-    // 生成创意的核心函数（支持反馈优化）
-    let bestCreative: GeneratedAdCreativeData | null = null
-    let bestEvaluation: ComprehensiveAdStrengthResult | null = null
-    let bestGateDecision: ReturnType<typeof evaluateRsaQualityGate> | null = null
-    let attempts = 0
-    let retryHistory: Array<{
-      attempt: number
-      rating: string
-      score: number
-      gatePassed: boolean
-      failureType: RetryFailureType | null
-      gateReasons: string[]
-      suggestions: string[]
-    }> = []
-
-    // 关键词去重：收集已使用的非品牌关键词
     let usedKeywords: string[] = []
-    const brandKeywords = [offer.brand.toLowerCase()] // 品牌词列表（可以重复）
-    let retryFailureType: RetryFailureType | undefined
+    const brandKeywords = [String(offer.brand || '').toLowerCase()].filter(Boolean)
 
-    while (attempts < maxRetries) {
-      attempts++
-      console.log(`\n📝 第${attempts}次生成尝试...`)
-      console.time(`⏱️ 第${attempts}次尝试耗时`)
+    const generationResult = await runCreativeGenerationQualityLoop<GeneratedAdCreativeData>({
+      maxRetries: normalizedMaxRetries,
+      delayMs: 1000,
+      generate: async ({ attempt, retryFailureType }) => {
+        const creative = await generateAdCreative(
+          parsedOfferId,
+          parsedUserId,
+          {
+            skipCache: attempt > 1,
+            excludeKeywords: attempt > 1 ? usedKeywords : undefined,
+            retryFailureType,
+            searchTermFeedbackHints
+          }
+        )
 
-      // 1. 生成创意（使用优化后的Prompt + 关键词去重）
-      const creative = await generateAdCreative(
-        parsedOfferId,
-        parsedUserId,
-        {
-          skipCache: attempts > 1, // 第2次及以后跳过缓存，强制重新生成
-          excludeKeywords: attempts > 1 ? usedKeywords : undefined, // 第2次及以后传递已使用的关键词
-          retryFailureType,
-          searchTermFeedbackHints
+        const prioritizedKeywords = selectCreativeKeywords({
+          keywords: creative.keywords,
+          keywordsWithVolume: creative.keywordsWithVolume as any,
+          brandName: offer.brand || '',
+          maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
+          brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
+        })
+        creative.keywords = prioritizedKeywords.keywords
+        creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
+
+        if (creative.keywords && creative.keywords.length > 0) {
+          const nonBrandKeywords = creative.keywords.filter(kw => {
+            const kwLower = kw.toLowerCase()
+            return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
+          })
+          usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
         }
-      )
 
-      const prioritizedKeywords = selectCreativeKeywords({
-        keywords: creative.keywords,
-        keywordsWithVolume: creative.keywordsWithVolume as any,
-        brandName: offer.brand || '',
-        maxKeywords: CREATIVE_KEYWORD_MAX_COUNT,
-        brandReserve: CREATIVE_BRAND_KEYWORD_RESERVE,
-      })
-      creative.keywords = prioritizedKeywords.keywords
-      creative.keywordsWithVolume = prioritizedKeywords.keywordsWithVolume as any
-
-      // 2. 检查是否有带metadata的资产
-      const hasMetadata = creative.headlinesWithMetadata && creative.descriptionsWithMetadata
-
-      if (!hasMetadata) {
-        console.warn('⚠️ 创意缺少metadata，使用基础格式')
-        // 转换为基础格式
-        const headlinesWithMetadata = creative.headlines.map(text => ({
-          text,
-          length: text.length
-        }))
-        const descriptionsWithMetadata = creative.descriptions.map(text => ({
-          text,
-          length: text.length
-        }))
-
-        creative.headlinesWithMetadata = headlinesWithMetadata
-        creative.descriptionsWithMetadata = descriptionsWithMetadata
-      }
-
-      // 3. 评估Ad Strength（传入品牌信息用于品牌搜索量维度）
-      const evaluation = await evaluateCreativeAdStrength(
-        creative.headlinesWithMetadata!,
-        creative.descriptionsWithMetadata!,
-        creative.keywords,
-        {
+        return creative
+      },
+      evaluate: async (creative) => evaluateCreativeForQuality({
+        creative,
+        minimumScore: AD_CREATIVE_REQUIRED_MIN_SCORE,
+        adStrengthContext: {
           brandName: offer.brand,
           targetCountry: offer.target_country || 'US',
           targetLanguage: offer.target_language || 'en',
           userId: parsedUserId
+        },
+        ruleContext: {
+          brandName: offer.brand,
+          category: offer.category,
+          productName: offer.product_name || offerAny.product_title || offerAny.name,
+          productTitle: offerAny.product_title || offerAny.title,
+          productDescription: offer.brand_description,
+          uniqueSellingPoints: offer.unique_selling_points || offer.product_highlights,
+          keywords: creative.keywords,
+          targetLanguage: offer.target_language || 'en'
         }
-      )
-      const gateDecision = evaluateRsaQualityGate(evaluation, MINIMUM_SCORE)
-
-      console.log(
-        `📊 评估结果: ${evaluation.finalRating} (${evaluation.finalScore}分), gatePassed=${gateDecision.passed}, failureType=${gateDecision.failureType || 'none'}`
-      )
-      console.timeEnd(`⏱️ 第${attempts}次尝试耗时`)
-
-      // 记录历史
-      retryHistory.push({
-        attempt: attempts,
-        rating: evaluation.finalRating,
-        score: evaluation.finalScore,
-        gatePassed: gateDecision.passed,
-        failureType: gateDecision.failureType,
-        gateReasons: gateDecision.reasons,
-        suggestions: evaluation.combinedSuggestions
       })
+    })
 
-      // 4. 如果是第一次，或通过门禁优先，或同门禁状态下分数更高，更新最佳结果
-      const currentPassed = gateDecision.passed
-      const bestPassed = bestGateDecision?.passed ?? false
-      if (
-        !bestEvaluation ||
-        (currentPassed && !bestPassed) ||
-        (currentPassed === bestPassed && evaluation.finalScore > bestEvaluation.finalScore)
-      ) {
-        bestCreative = creative
-        bestEvaluation = evaluation
-        bestGateDecision = gateDecision
-        console.log(`✅ 更新最佳结果: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
-      }
-
-      // 4.1 收集当前创意的非品牌关键词（用于下次生成时避免重复）
-      if (creative.keywords && creative.keywords.length > 0) {
-        const nonBrandKeywords = creative.keywords.filter(kw => {
-          const kwLower = kw.toLowerCase()
-          // 排除品牌词（品牌名或包含品牌名的关键词）
-          return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
-        })
-
-        // 添加到已使用关键词列表（去重）
-        usedKeywords = Array.from(new Set([...usedKeywords, ...nonBrandKeywords]))
-
-        console.log(`📝 已收集 ${nonBrandKeywords.length} 个非品牌关键词（总计 ${usedKeywords.length} 个）`)
-        if (usedKeywords.length > 0) {
-          console.log(`   已使用关键词: ${usedKeywords.slice(0, 5).join(', ')}${usedKeywords.length > 5 ? '...' : ''}`)
-        }
-      }
-
-      // 5. 如果达到目标评级，停止重试
-      if (evaluation.finalRating === targetRating && gateDecision.passed) {
-        console.log(`🎉 达到目标评级 ${targetRating} 且通过质量门禁，停止重试`)
-        break
-      }
-
-      // 6. 如果还没达到最大重试次数，准备下一次重试
-      if (attempts < maxRetries) {
-        retryFailureType = gateDecision.failureType || 'format_fail'
-        console.log(`💡 未达到${targetRating}，准备第${attempts + 1}次重试...`)
-        console.log(`🎯 下一轮重试路由: ${retryFailureType}`)
-        console.log(`📋 改进建议:`)
-        evaluation.combinedSuggestions.slice(0, 5).forEach(suggestion => {
-          console.log(`   - ${suggestion}`)
-        })
-        if (gateDecision.reasons.length > 0) {
-          console.log(`🧪 门禁未通过原因:`)
-          gateDecision.reasons.slice(0, 3).forEach(reason => {
-            console.log(`   - ${reason}`)
-          })
-        }
-
-        // 等待1秒后重试（避免API rate limit）
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
-    }
-
-    // 7. 检查最终结果是否达到最低标准（70分）
-    if (!bestCreative || !bestEvaluation) {
-      throw new Error('生成创意失败')
-    }
-    const finalGateDecision = bestGateDecision || evaluateRsaQualityGate(bestEvaluation, MINIMUM_SCORE)
+    const attempts = generationResult.attempts
+    const bestCreative = generationResult.selectedCreative
+    const selectedEvaluation = generationResult.selectedEvaluation
+    const bestEvaluation = selectedEvaluation.adStrength
+    const finalGateDecision = selectedEvaluation.rsaGate
+    const finalRuleGateDecision = selectedEvaluation.ruleGate
+    const qualityPassed = selectedEvaluation.passed
+    const retryHistory = generationResult.history.map(item => ({
+      ...item,
+      gatePassed: item.passed,
+      gateReasons: item.reasons
+    }))
 
     console.log(`\n🎯 最终结果: ${bestEvaluation.finalRating} (${bestEvaluation.finalScore}分)`)
     console.log(`📊 总尝试次数: ${attempts}次`)
     console.timeEnd('⏱️ 总生成耗时')
 
-    if (!finalGateDecision.passed) {
+    if (!qualityPassed) {
       console.warn(
-        `⚠️ 创意未通过RSA质量门禁，按新策略仅告警不阻断: rating=${bestEvaluation.finalRating}, score=${bestEvaluation.finalScore}, failureType=${finalGateDecision.failureType}`
+        `⚠️ 连续重试仍未达到 GOOD 阈值，已按策略保存最佳结果: score=${bestEvaluation.finalScore}, failureType=${selectedEvaluation.failureType}`
       )
     } else {
-      console.log(`✅ 创意质量达标: ${bestEvaluation.finalScore}分 ≥ ${MINIMUM_SCORE}分 且通过RSA门禁`)
+      console.log(`✅ 创意质量达标: ${bestEvaluation.finalScore}分 ≥ ${AD_CREATIVE_REQUIRED_MIN_SCORE}分 且通过规则门禁`)
     }
 
 
@@ -311,11 +234,14 @@ export async function POST(
         hardBlockSource: 'launch_score'
       },
       qualityGate: {
-        passed: finalGateDecision.passed,
-        warning: !finalGateDecision.passed,
-        reasons: finalGateDecision.reasons,
-        failureType: finalGateDecision.failureType,
-        rsaQualityGate: bestEvaluation.rsaQualityGate
+        passed: qualityPassed,
+        warning: !qualityPassed,
+        reasons: selectedEvaluation.reasons,
+        failureType: selectedEvaluation.failureType,
+        rsaGatePassed: finalGateDecision.passed,
+        ruleGatePassed: finalRuleGateDecision.passed,
+        rsaQualityGate: bestEvaluation.rsaQualityGate,
+        ruleGate: finalRuleGateDecision
       },
       creative: {
         id: savedCreative.id,
@@ -343,9 +269,9 @@ export async function POST(
       },
       optimization: {
         attempts,
-        targetRating,
-        achieved: bestEvaluation.finalRating === targetRating && finalGateDecision.passed,
-        qualityGatePassed: finalGateDecision.passed,
+        targetRating: enforcedTargetRating,
+        achieved: qualityPassed,
+        qualityGatePassed: qualityPassed,
         history: retryHistory
       },
       offer: {

@@ -18,6 +18,7 @@ import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import { AD_CREATIVE_MAX_AUTO_RETRIES } from '@/lib/ad-creative-quality-loop'
 
 export const maxDuration = 60
 
@@ -206,13 +207,13 @@ export async function POST(request: NextRequest) {
             id, user_id, offer_id, status, stage, progress, message,
             max_retries, target_rating, created_at, updated_at
           ) VALUES (?, ?, ?, 'pending', 'init', 0, '准备开始生成...', ?, ?, ${nowFunc}, ${nowFunc})`,
-          [taskId, userIdNum, offerId, 3, 'EXCELLENT']
+          [taskId, userIdNum, offerId, AD_CREATIVE_MAX_AUTO_RETRIES, 'GOOD']
         )
 
         const taskData: AdCreativeTaskData = {
           offerId,
-          maxRetries: 3,
-          targetRating: 'EXCELLENT',
+          maxRetries: AD_CREATIVE_MAX_AUTO_RETRIES,
+          targetRating: 'GOOD',
           synthetic: false,
         }
 
