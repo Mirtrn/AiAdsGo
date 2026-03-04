@@ -99,6 +99,47 @@ describe('GET /api/campaigns/trends', () => {
     expect(day24.clicks).toBe(25)
   })
 
+  it('includes pending unattributed failures for campaign trend backend parity', async () => {
+    const query = vi.fn(async (sql: string, params: any[] = []) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+        return [{ currency: 'USD', cost: 40 }]
+      }
+
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY DATE(date), COALESCE(currency')) {
+        return [{ date: '2026-02-27', currency: 'USD', impressions: 80, clicks: 8, cost: 40 }]
+      }
+
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        return [{ date: '2026-02-27', currency: 'USD', commission: 20.23 }]
+      }
+
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        expect(sql).toContain("COALESCE(reason_code, '') <> ?")
+        expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
+        expect(params).toEqual(expect.arrayContaining(['campaign_mapping_miss']))
+        expect(params).not.toEqual(expect.arrayContaining([
+          'pending_product_mapping_miss',
+          'pending_offer_mapping_miss',
+        ]))
+        return [{ date: '2026-02-27', currency: 'USD', commission: 5.99 }]
+      }
+
+      throw new Error(`unexpected sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({ query })
+
+    const req = new NextRequest('http://localhost/api/campaigns/trends?start_date=2026-02-27&end_date=2026-02-27')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.trends).toHaveLength(1)
+    expect(data.trends[0]?.date).toBe('2026-02-27')
+    expect(data.trends[0]?.commission).toBe(26.22)
+  })
+
   it('falls back when unattributed table is unavailable', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {

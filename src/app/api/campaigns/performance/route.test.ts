@@ -173,14 +173,16 @@ describe('GET /api/campaigns/performance', () => {
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
         expect(sql).toContain("COALESCE(reason_code, '') <> ?")
-        expect(sql).toContain("COALESCE(reason_code, '') NOT IN")
+        expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
         expect(params).toEqual(
           expect.arrayContaining([
             'campaign_mapping_miss',
-            'pending_product_mapping_miss',
-            'pending_offer_mapping_miss',
           ])
         )
+        expect(params).not.toEqual(expect.arrayContaining([
+          'pending_product_mapping_miss',
+          'pending_offer_mapping_miss',
+        ]))
         expect(params?.[params.length - 1]).toBe('CNY')
         unattributedCallCount += 1
         if (unattributedCallCount === 1) {

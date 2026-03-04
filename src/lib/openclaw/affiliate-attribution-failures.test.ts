@@ -43,4 +43,19 @@ describe('affiliate attribution failures', () => {
       '2026-02-22',
     ])
   })
+
+  it('can include pending misses within grace for backend parity views', () => {
+    const filter = buildAffiliateUnattributedFailureFilter({
+      currentDate: '2026-02-28',
+      pendingGraceDays: 7,
+      includePendingWithinGrace: true,
+    })
+
+    expect(filter.pendingCutoffDate).toBe('2026-02-22')
+    expect(filter.sql).toContain("COALESCE(reason_code, '') <> ?")
+    expect(filter.sql).not.toContain('NOT IN')
+    expect(filter.values).toEqual([
+      'campaign_mapping_miss',
+    ])
+  })
 })

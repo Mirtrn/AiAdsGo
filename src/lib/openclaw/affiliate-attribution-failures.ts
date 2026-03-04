@@ -109,6 +109,7 @@ export function resolveAffiliateAttributionFailureReasonCode(params: {
 export function buildAffiliateUnattributedFailureFilter(params?: {
   currentDate?: string
   pendingGraceDays?: number
+  includePendingWithinGrace?: boolean
 }): {
   sql: string
   values: string[]
@@ -119,6 +120,22 @@ export function buildAffiliateUnattributedFailureFilter(params?: {
   const currentDate = resolveReferenceDate(params?.currentDate)
   const pendingGraceDays = getAffiliateAttributionPendingGraceDays(params?.pendingGraceDays)
   const pendingCutoffDate = shiftYmdDate(currentDate, -(pendingGraceDays - 1))
+  const includePendingWithinGrace = params?.includePendingWithinGrace === true
+
+  if (includePendingWithinGrace) {
+    return {
+      sql: `
+        COALESCE(reason_code, '') <> ?
+      `,
+      values: [
+        ATTRIBUTION_ALWAYS_EXCLUDED_REASON_CODES[0],
+      ],
+      currentDate,
+      pendingCutoffDate,
+      pendingGraceDays,
+    }
+  }
+
   const pendingReasonPlaceholders = ATTRIBUTION_PENDING_REASON_CODES.map(() => '?').join(', ')
 
   return {

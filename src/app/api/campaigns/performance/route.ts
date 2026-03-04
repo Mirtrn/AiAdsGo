@@ -733,7 +733,10 @@ export async function GET(request: NextRequest) {
       end: string
       currency?: string
     }): Promise<number> => {
-      const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter()
+      const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter({
+        // Keep /campaigns summary consistent with trends and affiliate backend totals.
+        includePendingWithinGrace: true,
+      })
       const hasCurrencyFilter = Boolean(params.currency)
       try {
         const queryParams = hasCurrencyFilter
