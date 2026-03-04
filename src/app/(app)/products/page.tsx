@@ -739,6 +739,8 @@ export default function ProductsPage() {
   const summaryAbortControllerRef = useRef<AbortController | null>(null)
   const syncRunsInFlightRef = useRef(false)
   const periodicRefreshInFlightRef = useRef(false)
+  const createdAtFromInputRef = useRef<HTMLInputElement | null>(null)
+  const createdAtToInputRef = useRef<HTMLInputElement | null>(null)
   const [items, setItems] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [platformStats, setPlatformStats] = useState<PlatformStatsMap>(() => createEmptyPlatformStatsMap())
@@ -1352,9 +1354,33 @@ export default function ProductsPage() {
     setPage(1)
   }
 
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker may require user activation in some browsers.
+      }
+    }
+    input.focus()
+    input.click()
+  }
+
+  const handleCreatedDateCustomOpenChange = (open: boolean) => {
+    setCreatedDateCustomOpen(open)
+    if (!open) return
+    window.setTimeout(() => {
+      openNativeDatePicker(createdAtFromInputRef.current || createdAtToInputRef.current)
+    }, 0)
+  }
+
   const clearCreatedDateFilter = () => {
     setCreatedAtFrom('')
     setCreatedAtTo('')
+    setCreatedDateCustomOpen(false)
     setPage(1)
   }
 
@@ -2431,7 +2457,7 @@ export default function ProductsPage() {
                     </Button>
                   )
                 })}
-                <DropdownMenu open={createdDateCustomOpen} onOpenChange={setCreatedDateCustomOpen}>
+                <DropdownMenu open={createdDateCustomOpen} onOpenChange={handleCreatedDateCustomOpenChange}>
                   <DropdownMenuTrigger asChild>
                     <Button
                       size="sm"
@@ -2446,21 +2472,32 @@ export default function ProductsPage() {
                       <div className="text-xs font-medium text-muted-foreground">选择开始和结束日期</div>
                       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                         <Input
+                          ref={createdAtFromInputRef}
                           type="date"
                           value={createdAtFrom}
                           onChange={(event) => {
-                            setCreatedAtFrom(event.target.value)
+                            const nextFrom = event.target.value
+                            setCreatedAtFrom(nextFrom)
                             setPage(1)
+                            if (!createdAtTo || createdAtTo < nextFrom) {
+                              window.setTimeout(() => {
+                                openNativeDatePicker(createdAtToInputRef.current)
+                              }, 0)
+                            }
                           }}
                           aria-label="添加日期开始"
                         />
                         <span className="text-xs text-muted-foreground">至</span>
                         <Input
+                          ref={createdAtToInputRef}
                           type="date"
                           value={createdAtTo}
                           onChange={(event) => {
                             setCreatedAtTo(event.target.value)
                             setPage(1)
+                            if (createdAtFrom && event.target.value) {
+                              setCreatedDateCustomOpen(false)
+                            }
                           }}
                           aria-label="添加日期结束"
                         />
