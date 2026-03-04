@@ -4542,8 +4542,8 @@ export async function listAffiliateProducts(userId: number, options: ProductList
       OR (
         p.platform = 'partnerboost'
         AND (
-          LOWER(COALESCE(p.raw_json, '')) LIKE ?
-          OR LOWER(COALESCE(p.raw_json, '')) LIKE ?
+          COALESCE(p.raw_json, '') LIKE ?
+          OR COALESCE(p.raw_json, '') LIKE ?
         )
       )
     )`)
