@@ -12,10 +12,14 @@ interface AdjustCampaignCpcDialogProps {
   onOpenChange: (open: boolean) => void
   googleCampaignId: string
   campaignName: string
+  onSaved?: (payload: {
+    googleCampaignId: string
+    newCpc: number
+  }) => void | Promise<void>
 }
 
 export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogProps) {
-  const { open, onOpenChange, googleCampaignId, campaignName } = props
+  const { open, onOpenChange, googleCampaignId, campaignName, onSaved } = props
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -89,7 +93,15 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || data?.message || '更新CPC失败')
 
-      showSuccess('CPC已更新', `${campaignName} → ${currency} ${parsed.toFixed(2)}`)
+      const nextCpc = Number(data?.newCpc ?? parsed)
+      const normalizedNextCpc = Number.isFinite(nextCpc) && nextCpc > 0 ? nextCpc : parsed
+
+      await onSaved?.({
+        googleCampaignId,
+        newCpc: normalizedNextCpc,
+      })
+
+      showSuccess('CPC已更新', `${campaignName} → ${currency} ${normalizedNextCpc.toFixed(2)}`)
       onOpenChange(false)
     } catch (e: any) {
       showError('更新CPC失败', e?.message || String(e))

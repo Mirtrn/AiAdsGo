@@ -79,6 +79,7 @@ interface Campaign {
   adsAccountAvailable?: boolean
   adsAccountCurrency?: string | null
   performanceCurrency?: string | null
+  configuredMaxCpc?: number | null
   createdAt: string
   // 🔧 新增: 软删除状态字段
   isDeleted?: boolean | number
@@ -264,6 +265,8 @@ export default function CampaignsClientPage({
   const campaignsFetchSeqRef = useRef(0)
   const trendsFetchAbortRef = useRef<AbortController | null>(null)
   const trendsFetchSeqRef = useRef(0)
+  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
+  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // Trend data states
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
@@ -515,6 +518,22 @@ export default function CampaignsClientPage({
     }
   }, [isServerPagingMode, searchQuery])
 
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
+      }
+    }
+
+    input.focus()
+    input.click()
+  }
+
   const openTrendCustomDateRange = (open: boolean) => {
     setIsTrendCustomDateRangeOpen(open)
 
@@ -523,16 +542,24 @@ export default function CampaignsClientPage({
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
-      return
-    }
-
-    if (!customStartDate && !customEndDate) {
+    } else if (!customStartDate && !customEndDate) {
       const end = new Date()
       const start = new Date(end)
       start.setDate(start.getDate() - 6)
       setCustomStartDate(formatDateInputValue(start))
       setCustomEndDate(formatDateInputValue(end))
     }
+
+    window.setTimeout(() => {
+      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
+    }, 0)
+  }
+
+  const handleCustomStartDateChange = (value: string) => {
+    setCustomStartDate(value)
+    window.setTimeout(() => {
+      openNativeDatePicker(customEndDateInputRef.current)
+    }, 0)
   }
 
   const applyCustomDateRange = () => {
@@ -1117,6 +1144,30 @@ export default function CampaignsClientPage({
         }
       })
     )
+  }
+
+  const handleCpcAdjusted = async (payload: {
+    googleCampaignId: string
+    newCpc: number
+  }) => {
+    const normalizedCpc = Number(payload.newCpc)
+    if (!Number.isFinite(normalizedCpc) || normalizedCpc <= 0) return
+
+    setCampaigns((prev) =>
+      prev.map((campaign) => {
+        if (String(getCampaignGoogleId(campaign) || '') !== payload.googleCampaignId) {
+          return campaign
+        }
+
+        return {
+          ...campaign,
+          configuredMaxCpc: normalizedCpc,
+        }
+      })
+    )
+
+    // Keep table data eventually consistent with backend-calculated fields.
+    await fetchCampaigns({ silent: true })
   }
 
   const openDeleteDraftDialog = (campaign: Campaign) => {
@@ -2385,14 +2436,16 @@ export default function CampaignsClientPage({
                       <div>
                         <p className="text-xs text-gray-500 mb-1">开始日期</p>
                         <Input
+                          ref={customStartDateInputRef}
                           type="date"
                           value={customStartDate}
-                          onChange={(e) => setCustomStartDate(e.target.value)}
+                          onChange={(e) => handleCustomStartDateChange(e.target.value)}
                         />
                       </div>
                       <div>
                         <p className="text-xs text-gray-500 mb-1">结束日期</p>
                         <Input
+                          ref={customEndDateInputRef}
                           type="date"
                           value={customEndDate}
                           onChange={(e) => setCustomEndDate(e.target.value)}
@@ -2643,7 +2696,7 @@ export default function CampaignsClientPage({
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="min-w-[1160px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
+                <Table className="min-w-[1260px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
@@ -2663,7 +2716,8 @@ export default function CampaignsClientPage({
                       <SortableHeader field="impressions" className="w-[58px] whitespace-nowrap !px-0.5">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
                       <SortableHeader field="ctr" className="w-[56px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
-                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap !px-0.5">CPC</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap !px-0.5">实际CPC</SortableHeader>
+                      <TableHead className="w-[94px] whitespace-nowrap !px-0.5">配置CPC</TableHead>
                       <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[94px] whitespace-nowrap !px-0.5">花费</SortableHeader>
                       <SortableHeader field="roas" className="w-[62px] whitespace-nowrap !px-0.5">ROAS</SortableHeader>
@@ -2758,6 +2812,8 @@ export default function CampaignsClientPage({
 		                    const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
 		                    const canDeleteRemovedAction = isRemovedStatus && !deleteRemovedSubmitting
                         const campaignRoas = formatCampaignRoas(campaign)
+                        const configuredMaxCpc = Number(campaign.configuredMaxCpc)
+                        const hasConfiguredMaxCpc = Number.isFinite(configuredMaxCpc) && configuredMaxCpc > 0
 
 
 		                    return (
@@ -2840,6 +2896,13 @@ export default function CampaignsClientPage({
                       <TableCell className="whitespace-nowrap !px-0.5">
                         <div className="font-medium text-gray-900">
                           {formatMoney(Number(campaign.performance?.cpcLocal ?? campaign.performance?.cpcUsd) || 0, performanceCurrency)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap !px-0.5">
+                        <div className="font-medium text-gray-900">
+                          {hasConfiguredMaxCpc
+                            ? formatMoney(configuredMaxCpc, budgetCurrency)
+                            : '-'}
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap !px-0.5">
@@ -3028,6 +3091,7 @@ export default function CampaignsClientPage({
 	          }}
 	          googleCampaignId={adjustCpcTarget.googleCampaignId}
 	          campaignName={adjustCpcTarget.campaignName}
+            onSaved={handleCpcAdjusted}
 	        />
 	      )}
 

@@ -26,6 +26,11 @@ function normalizeGoogleCampaignId(value: unknown): string | null {
   return /^\d+$/.test(raw) ? raw : null
 }
 
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
  * 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务更新
@@ -284,6 +289,23 @@ export async function PUT(
       }
     }
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+    const syncLocalConfiguredMaxCpc = async (nextMaxCpc: number) => {
+      const normalized = toPositiveNumberOrNull(nextMaxCpc)
+      if (normalized === null) return
+
+      await db.exec(
+        `
+          UPDATE campaigns
+          SET
+            max_cpc = ?,
+            updated_at = ${nowFunc}
+          WHERE user_id = ?
+            AND google_campaign_id = ?
+            AND status != 'REMOVED'
+        `,
+        [normalized, numericUserId, String(campaignIdNum)]
+      )
+    }
     const recordHistory = async (
       adjustmentType: string,
       successCount: number,
@@ -539,6 +561,7 @@ export async function PUT(
         requestId
       )
 
+      await syncLocalConfiguredMaxCpc(newCpc)
       await recordHistory('manual_cpc', adGroups.length, 0, null)
       invalidateRelatedCaches()
 
@@ -584,6 +607,7 @@ export async function PUT(
         )
       }
 
+      await syncLocalConfiguredMaxCpc(newCpc)
       await recordHistory('max_cpc', 1, 0, null)
       invalidateRelatedCaches()
 
@@ -628,6 +652,7 @@ export async function PUT(
         )
       }
 
+      await syncLocalConfiguredMaxCpc(newCpc)
       await recordHistory('max_cpc', 1, 0, null)
       invalidateRelatedCaches()
 

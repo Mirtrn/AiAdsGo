@@ -139,6 +139,30 @@ function parseOptionalBoolean(value: string | null): boolean | null {
   return null
 }
 
+function safeParseJson<T = any>(value: unknown): T | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object') return value as T
+  if (typeof value !== 'string') return null
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return null
+  }
+}
+
+function toPositiveNumberOrNull(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function resolveConfiguredMaxCpc(maxCpc: unknown, campaignConfig: unknown): number | null {
+  const direct = toPositiveNumberOrNull(maxCpc)
+  if (direct !== null) return direct
+
+  const parsedConfig = safeParseJson<Record<string, unknown>>(campaignConfig)
+  return toPositiveNumberOrNull(parsedConfig?.maxCpcBid)
+}
+
 function isCampaignRemovedOrDeleted(campaign: any): boolean {
   const removedStatus = String(campaign?.status || '').toUpperCase() === 'REMOVED'
   const deletedFlag = campaign?.isDeleted === true || campaign?.isDeleted === 1
@@ -280,6 +304,8 @@ export async function GET(request: NextRequest) {
           c.google_ads_account_id,
           c.budget_amount,
           c.budget_type,
+          c.max_cpc,
+          c.campaign_config,
           c.creation_status,
           c.creation_error,
           c.last_sync_at,
@@ -458,6 +484,7 @@ export async function GET(request: NextRequest) {
       const costBase = convertToBase(cost, selectedCurrency)
       const commissionBase = convertToBase(commission, selectedCurrency)
       const cpcBase = clicks > 0 ? costBase / clicks : 0
+      const configuredMaxCpc = resolveConfiguredMaxCpc(c.max_cpc, c.campaign_config)
 
       return {
         id: c.id,
@@ -481,6 +508,7 @@ export async function GET(request: NextRequest) {
         performanceCurrency: selectedCurrency,
         budgetAmount: Number(c.budget_amount) || 0,
         budgetType: c.budget_type,
+        configuredMaxCpc,
         lastSyncAt: c.last_sync_at,
         createdAt: c.created_at,
         isDeleted: c.is_deleted,

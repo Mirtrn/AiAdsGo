@@ -319,6 +319,96 @@ describe('GET /api/campaigns/performance', () => {
     expect(data.campaigns?.[0]?.performance?.cpcLocal).toBe(2)
   })
 
+  it('returns configured max CPC from local campaign config with max_cpc priority', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+        return [{ currency: 'USD', total_cost: 24 }]
+      }
+
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            id: 1,
+            campaign_id: 'cmp_config_cpc',
+            campaign_name: 'Config CPC Campaign',
+            offer_id: 11,
+            offer_brand: 'Brand A',
+            offer_url: 'https://example.com',
+            status: 'ENABLED',
+            google_campaign_id: 'g_1',
+            google_ads_account_id: 77,
+            budget_amount: 50,
+            budget_type: 'DAILY',
+            max_cpc: 0.63,
+            campaign_config: JSON.stringify({ maxCpcBid: 0.48 }),
+            creation_status: 'SUCCESS',
+            creation_error: null,
+            last_sync_at: '2026-03-03T00:00:00.000Z',
+            created_at: '2026-03-03T00:00:00.000Z',
+            published_at: '2026-03-03T00:00:00.000Z',
+            is_deleted: 0,
+            deleted_at: null,
+            ads_account_id: 77,
+            ads_account_customer_id: '5247163195',
+            ads_account_name: 'USD Account',
+            ads_account_is_active: 1,
+            ads_account_is_deleted: 0,
+            ads_account_currency: 'USD',
+            offer_is_deleted: 0,
+          },
+        ]
+      }
+
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY campaign_id, COALESCE(currency')) {
+        return [
+          {
+            campaign_id: 1,
+            currency: 'USD',
+            impressions: 120,
+            clicks: 12,
+            cost: 24,
+          },
+        ]
+      }
+
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('GROUP BY campaign_id')) {
+        return [{ campaign_id: 1, currency: 'USD', commission: 3 }]
+      }
+
+      throw new Error(`unexpected query sql: ${sql}`)
+    })
+
+    const queryOne = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM sync_logs')) {
+        return { latest_sync_at: null }
+      }
+      if (sql.includes('FROM campaign_performance') && sql.includes('COALESCE(SUM(impressions), 0) as impressions')) {
+        return { impressions: 120, clicks: 12, cost: 24 }
+      }
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        return { total_commission: 3 }
+      }
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        return { total_commission: 0 }
+      }
+      throw new Error(`unexpected queryOne sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({
+      type: 'sqlite',
+      query,
+      queryOne,
+    })
+
+    const req = new NextRequest('http://localhost/api/campaigns/performance?daysBack=7&currency=USD')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.campaigns?.[0]?.configuredMaxCpc).toBe(0.63)
+  })
+
   it('uses row currency aligned commission in mixed-currency campaign rows', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
