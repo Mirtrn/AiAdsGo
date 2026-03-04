@@ -74,7 +74,7 @@ export default function ClickFarmPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showDeletedTasks, setShowDeletedTasks] = useState(true);
+  const [showDeletedTasks, setShowDeletedTasks] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);

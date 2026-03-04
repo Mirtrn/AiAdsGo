@@ -241,7 +241,7 @@ export default function CampaignsClientPage({
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
-  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(true)
+  const [showDeletedCampaigns, setShowDeletedCampaigns] = useState(false)
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
