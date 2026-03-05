@@ -224,44 +224,42 @@ export class AffiliateProductSyncScheduler {
   }
 
   private async scheduleForUser(userId: number, now: Date): Promise<boolean> {
-    const hasActiveRun = await this.hasActiveSyncRun(userId)
-    if (hasActiveRun) {
-      return false
-    }
-
     const nowIso = now.toISOString()
     const nowMs = now.getTime()
     const globalDeltaIntervalMinutes = await this.loadOpenclawGlobalDeltaIntervalMinutes(userId)
 
     const pbConfigCheck = await checkAffiliatePlatformConfig(userId, 'partnerboost')
     if (pbConfigCheck.configured) {
-      const scheduleConfig = await this.loadUserScheduleConfig(userId, globalDeltaIntervalMinutes)
-      const latestCompleted = await this.loadLatestCompletedRunTimes(userId)
-      const lastDeltaAt = scheduleConfig.lastDeltaAt || latestCompleted.lastDeltaAt
-      const lastFullAt = scheduleConfig.lastFullAt || latestCompleted.lastFullAt
+      const pbHasActiveRun = await this.hasActiveSyncRun(userId, 'partnerboost')
+      if (!pbHasActiveRun) {
+        const scheduleConfig = await this.loadUserScheduleConfig(userId, globalDeltaIntervalMinutes)
+        const latestCompleted = await this.loadLatestCompletedRunTimes(userId)
+        const lastDeltaAt = scheduleConfig.lastDeltaAt || latestCompleted.lastDeltaAt
+        const lastFullAt = scheduleConfig.lastFullAt || latestCompleted.lastFullAt
 
-      const shouldRunFull = isDue(
-        lastFullAt,
-        scheduleConfig.fullIntervalHours * 60 * 60 * 1000,
-        nowMs
-      )
-      const shouldRunDelta = !shouldRunFull && isDue(
-        lastDeltaAt,
-        scheduleConfig.deltaIntervalMinutes * 60 * 1000,
-        nowMs
-      )
+        const shouldRunFull = isDue(
+          lastFullAt,
+          scheduleConfig.fullIntervalHours * 60 * 60 * 1000,
+          nowMs
+        )
+        const shouldRunDelta = !shouldRunFull && isDue(
+          lastDeltaAt,
+          scheduleConfig.deltaIntervalMinutes * 60 * 1000,
+          nowMs
+        )
 
-      if (shouldRunFull || shouldRunDelta) {
-        const mode: SyncMode = shouldRunFull ? 'platform' : 'delta'
-        await this.enqueueSyncTask({
-          userId,
-          platform: 'partnerboost',
-          mode,
-          nowIso,
-        })
-        const recordKey = shouldRunFull ? PB_LAST_FULL_SYNC_KEY : PB_LAST_DELTA_SYNC_KEY
-        await this.upsertUserSystemSetting(userId, recordKey, nowIso)
-        return true
+        if (shouldRunFull || shouldRunDelta) {
+          const mode: SyncMode = shouldRunFull ? 'platform' : 'delta'
+          await this.enqueueSyncTask({
+            userId,
+            platform: 'partnerboost',
+            mode,
+            nowIso,
+          })
+          const recordKey = shouldRunFull ? PB_LAST_FULL_SYNC_KEY : PB_LAST_DELTA_SYNC_KEY
+          await this.upsertUserSystemSetting(userId, recordKey, nowIso)
+          return true
+        }
       }
     }
 
@@ -272,6 +270,11 @@ export class AffiliateProductSyncScheduler {
 
     const ypConfigCheck = await checkAffiliatePlatformConfig(userId, 'yeahpromos')
     if (!ypConfigCheck.configured) {
+      return false
+    }
+
+    const ypHasActiveRun = await this.hasActiveSyncRun(userId, 'yeahpromos')
+    if (ypHasActiveRun) {
       return false
     }
 
@@ -330,17 +333,18 @@ export class AffiliateProductSyncScheduler {
     return normalizedHours * 60
   }
 
-  private async hasActiveSyncRun(userId: number): Promise<boolean> {
+  private async hasActiveSyncRun(userId: number, platform: 'partnerboost' | 'yeahpromos'): Promise<boolean> {
     const db = await getDatabase()
     const row = await db.queryOne<{ id: number }>(
       `
         SELECT id
         FROM affiliate_product_sync_runs
         WHERE user_id = ?
+          AND platform = ?
           AND status IN ('queued', 'running')
         LIMIT 1
       `,
-      [userId]
+      [userId, platform]
     )
     return Boolean(row?.id)
   }

@@ -217,14 +217,76 @@ describe('AffiliateProductSyncScheduler YP support', () => {
     expect(scheduler.enqueueSyncTask).not.toHaveBeenCalled()
   })
 
-  it('skips scheduling when an active run exists', async () => {
+  it('does not let YP active run block PB scheduling', async () => {
     const scheduler = new AffiliateProductSyncScheduler() as any
-    vi.spyOn(scheduler, 'hasActiveSyncRun').mockResolvedValue(true)
+    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (_userId: number, platform: string) => {
+      return platform === 'yeahpromos'
+    })
+    vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
+    vi.spyOn(scheduler, 'upsertUserSystemSetting').mockResolvedValue(undefined)
+    vi.spyOn(scheduler, 'loadUserScheduleConfig').mockResolvedValue({
+      deltaIntervalMinutes: 360,
+      fullIntervalHours: 24,
+      lastDeltaAt: null,
+      lastFullAt: null,
+    })
+    vi.spyOn(scheduler, 'loadLatestCompletedRunTimes').mockResolvedValue({
+      lastDeltaAt: null,
+      lastFullAt: null,
+    })
+
+    mocks.checkAffiliatePlatformConfig.mockImplementation(async (_userId: number, platform: string) => {
+      if (platform === 'partnerboost') {
+        return {
+          configured: true,
+          missingKeys: [],
+          values: { partnerboost_token: 'token' },
+        }
+      }
+      return {
+        configured: false,
+        missingKeys: ['yeahpromos_token', 'yeahpromos_site_id'],
+        values: {},
+      }
+    })
 
     const queued = await scheduler.scheduleForUser(3, new Date('2026-02-24T00:00:00.000Z'))
 
+    expect(queued).toBe(true)
+    expect(scheduler.enqueueSyncTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 3,
+        platform: 'partnerboost',
+      })
+    )
+  })
+
+  it('skips PB scheduling when PB has active run and YP is not eligible', async () => {
+    const scheduler = new AffiliateProductSyncScheduler() as any
+    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (_userId: number, platform: string) => {
+      return platform === 'partnerboost'
+    })
+    vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
+
+    mocks.checkAffiliatePlatformConfig.mockImplementation(async (_userId: number, platform: string) => {
+      if (platform === 'partnerboost') {
+        return {
+          configured: true,
+          missingKeys: [],
+          values: { partnerboost_token: 'token' },
+        }
+      }
+      return {
+        configured: false,
+        missingKeys: ['yeahpromos_token', 'yeahpromos_site_id'],
+        values: {},
+      }
+    })
+
+    const queued = await scheduler.scheduleForUser(13, new Date('2026-02-24T00:00:00.000Z'))
+
     expect(queued).toBe(false)
-    expect(mocks.checkAffiliatePlatformConfig).not.toHaveBeenCalled()
+    expect(scheduler.enqueueSyncTask).not.toHaveBeenCalled()
   })
 
   it('uses openclaw global interval as PB delta fallback when platform-specific interval is absent', async () => {
