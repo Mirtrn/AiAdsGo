@@ -407,7 +407,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table className="table-fixed min-w-[1120px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+          <Table className="table-fixed min-w-[1120px] [&_thead_th]:bg-white">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">选择</TableHead>
