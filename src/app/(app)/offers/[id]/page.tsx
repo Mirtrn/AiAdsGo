@@ -837,7 +837,7 @@ export default function OfferDetailPage() {
                       <CardContent className="pt-6">
                         <h3 className="text-md font-semibold text-gray-900 mb-4">广告系列表现对比</h3>
                         <div className="overflow-x-auto">
-                          <Table>
+                          <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
                             <TableHeader>
                               <TableRow>
                                 <TableHead>广告系列名称</TableHead>

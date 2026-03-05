@@ -305,7 +305,7 @@ export default function OpenClawConfigGuidePage() {
 
 function ParamTable({ rows }: { rows: ParamRow[] }) {
   return (
-    <Table>
+    <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
       <TableHeader>
         <TableRow>
           <TableHead className="w-[280px]">参数</TableHead>

@@ -1716,7 +1716,7 @@ export default function ProductsPage() {
 
   const renderProductTable = () => (
     <div className="overflow-x-auto rounded-lg border">
-      <Table className="table-fixed min-w-[2000px]">
+      <Table className="table-fixed min-w-[2000px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[42px] whitespace-nowrap">
@@ -2825,7 +2825,7 @@ export default function ProductsPage() {
           </DialogHeader>
 
           <div className="max-h-[60vh] overflow-auto rounded-md border">
-            <Table className="min-w-[720px]">
+            <Table className="min-w-[720px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[84px] whitespace-nowrap">链接类型</TableHead>

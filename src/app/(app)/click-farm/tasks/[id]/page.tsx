@@ -463,7 +463,7 @@ export default function TaskDetailPage() {
           {task.daily_history.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">暂无执行记录</p>
           ) : (
-            <Table>
+            <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
               <TableHeader>
                 <TableRow>
                   <TableHead>日期</TableHead>

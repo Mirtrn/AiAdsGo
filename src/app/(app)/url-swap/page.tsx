@@ -564,7 +564,7 @@ export default function UrlSwapPage() {
         ) : (
           <Card>
             <CardContent className="p-0">
-              <Table>
+              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <SortableHeader field="id" className="w-[60px]">ID</SortableHeader>
