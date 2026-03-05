@@ -2405,33 +2405,35 @@ export default function CampaignsClientPage({
                     {days}天
                   </Button>
                 ))}
-                <Button
-                  size="sm"
-                  variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                  className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                  onClick={openTrendCustomDateRange}
-                >
-                  <CalendarDays className="w-3.5 h-3.5 mr-1" />
-                  <span className="truncate">{customRangeLabel}</span>
-                </Button>
-                <input
-                  ref={customStartDateInputRef}
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                  className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-                <input
-                  ref={customEndDateInputRef}
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                  className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
+                <div className="relative inline-flex">
+                  <Button
+                    size="sm"
+                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                    className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    onClick={openTrendCustomDateRange}
+                  >
+                    <CalendarDays className="w-3.5 h-3.5 mr-1" />
+                    <span className="truncate">{customRangeLabel}</span>
+                  </Button>
+                  <input
+                    ref={customStartDateInputRef}
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                  <input
+                    ref={customEndDateInputRef}
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -427,33 +427,35 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   {d}天
                 </Button>
               ))}
-              <Button
-                variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                size="sm"
-                className="h-7 px-3 text-xs max-w-[220px]"
-                onClick={openCustomRange}
-              >
-                <CalendarDays className="w-3 h-3 mr-1" />
-                <span className="truncate">{customRangeLabel}</span>
-              </Button>
-              <input
-                ref={customStartDateInputRef}
-                type="date"
-                value={customStartDate}
-                onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-              <input
-                ref={customEndDateInputRef}
-                type="date"
-                value={customEndDate}
-                onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
-                tabIndex={-1}
-                aria-hidden="true"
-              />
+              <div className="relative inline-flex">
+                <Button
+                  variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-3 text-xs max-w-[220px]"
+                  onClick={openCustomRange}
+                >
+                  <CalendarDays className="w-3 h-3 mr-1" />
+                  <span className="truncate">{customRangeLabel}</span>
+                </Button>
+                <input
+                  ref={customStartDateInputRef}
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                  className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+                <input
+                  ref={customEndDateInputRef}
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                  className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
             </div>
           </div>
         </div>
