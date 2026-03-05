@@ -36,6 +36,7 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { getLanguageName, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { DEFAULTS } from './keyword-constants'
+import { classifyKeywordIntent } from './keyword-intent'
 import { parseJsonField, toDbJsonArrayField } from './json-field'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
@@ -334,6 +335,48 @@ function prioritizeBucketKeywords(keywords: PoolKeywordData[]): PoolKeywordData[
 
     return b.keyword.length - a.keyword.length
   })
+}
+
+function isSearchVolumeUnavailableReason(reason: unknown): boolean {
+  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+}
+
+function hasSearchVolumeUnavailableFlag(
+  keywords: Array<{ volumeUnavailableReason?: unknown }>
+): boolean {
+  return keywords.some((kw) => isSearchVolumeUnavailableReason(kw?.volumeUnavailableReason))
+}
+
+function hasCommercialIntentForProductRelaxedRetention(
+  keyword: string,
+  language: string
+): boolean {
+  if (!keyword) return false
+  const intent = classifyKeywordIntent(keyword, { language })
+  if (intent.hardNegative) return false
+  if (intent.intent === 'TRANSACTIONAL' || intent.intent === 'COMMERCIAL') return true
+  return isHighIntentGlobalCoreKeyword(keyword)
+}
+
+function prioritizeBrandKeywordsFirst(
+  keywords: PoolKeywordData[],
+  pureBrandKeywords: string[]
+): PoolKeywordData[] {
+  if (keywords.length <= 1 || pureBrandKeywords.length === 0) return keywords
+
+  const brandKeywords: PoolKeywordData[] = []
+  const nonBrandKeywords: PoolKeywordData[] = []
+
+  for (const kw of keywords) {
+    if (isPureBrandKeywordInternal(kw.keyword, pureBrandKeywords)) {
+      brandKeywords.push(kw)
+    } else {
+      nonBrandKeywords.push(kw)
+    }
+  }
+
+  if (brandKeywords.length === 0 || nonBrandKeywords.length === 0) return keywords
+  return [...brandKeywords, ...nonBrandKeywords]
 }
 
 // ============================================
@@ -3461,12 +3504,84 @@ export async function generateOfferKeywordPool(
   // 使用过滤后的关键词
   let finalFilteredKeywords = qualityFiltered.filtered
 
+  // 产品页放宽策略（仅在严格过滤导致词池接近“纯品牌词独占”时触发）：
+  // 在保持上下文/语义过滤前提下，回补少量高意图非纯品牌词，避免关键词池坍缩为单词。
+  if (pageTypeForContextFilter === 'product' && pureBrandKeywordsForFilter.length > 0) {
+    const strictNonPureCount = finalFilteredKeywords.filter(
+      kw => !isPureBrandKeywordInternal(kw.keyword, pureBrandKeywordsForFilter)
+    ).length
+
+    if (strictNonPureCount < 3) {
+      const relaxedQualityFiltered = filterKeywordQuality(filteredKeywords, {
+        brandName: offer.brand,
+        category: categoryContext || undefined,
+        productName: offer.product_name || undefined,
+        targetCountry: offer.target_country || undefined,
+        targetLanguage: offer.target_language || undefined,
+        productUrl: offer.final_url || offer.url || undefined,
+        minWordCount: 1,
+        maxWordCount: 8,
+        mustContainBrand: false,
+        allowNonBrandFromPlanner: allowPlannerNonBrand,
+        minContextTokenMatches: effectiveContextMatches,
+      })
+
+      const existingNormSet = new Set(
+        finalFilteredKeywords
+          .map(item => normalizeGoogleAdsKeyword(item.keyword))
+          .filter(Boolean)
+      )
+
+      const relaxedSeenSet = new Set<string>()
+      const relaxedCandidates = prioritizeKeywordsForClustering(
+        relaxedQualityFiltered.filtered
+          .map((kw): PoolKeywordData | null => {
+            if (isPureBrandKeywordInternal(kw.keyword, pureBrandKeywordsForFilter)) return null
+            if (!hasCommercialIntentForProductRelaxedRetention(
+              kw.keyword,
+              offer.target_language || 'en'
+            )) {
+              return null
+            }
+
+            // 参考 title/about 补词：把高意图非品牌词统一改写为“品牌前置”形式，避免品牌词重复并限制词长。
+            const brandedKeyword = composeGlobalCoreBrandedKeyword(kw.keyword, offer.brand || '', 5)
+            if (!brandedKeyword) return null
+
+            const norm = normalizeGoogleAdsKeyword(brandedKeyword)
+            if (!norm || existingNormSet.has(norm) || relaxedSeenSet.has(norm)) return null
+            relaxedSeenSet.add(norm)
+
+            return {
+              ...kw,
+              keyword: brandedKeyword,
+              source: 'PRODUCT_RELAX_BRANDED',
+              matchType: 'PHRASE',
+            }
+          })
+          .filter((kw): kw is PoolKeywordData => kw !== null)
+      )
+
+      const rescueLimit = Math.max(8, Math.min(30, Math.floor(filteredKeywords.length * 0.2)))
+      const rescuedKeywords = relaxedCandidates.slice(0, rescueLimit)
+
+      if (rescuedKeywords.length > 0) {
+        finalFilteredKeywords = [...finalFilteredKeywords, ...rescuedKeywords]
+        console.log(
+          `🧩 product页放宽补齐: +${rescuedKeywords.length} 个高意图词(品牌前置改写) ` +
+          `(strict_non_pure=${strictNonPureCount}, relaxed_candidates=${relaxedCandidates.length})`
+        )
+      } else {
+        console.log(
+          `ℹ️ product页放宽补齐未命中可用词 (strict_non_pure=${strictNonPureCount})`
+        )
+      }
+    }
+  }
+
   // 🔒 有真实搜索量数据时，移除非纯品牌的0搜索量关键词
   const hasAnyVolume = finalFilteredKeywords.some(kw => kw.searchVolume > 0)
-  const volumeUnavailable = plannerDecision.volumeUnavailableFromPlanner || finalFilteredKeywords.some((kw: any) =>
-    kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-    kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
-  )
+  const volumeUnavailable = plannerDecision.volumeUnavailableFromPlanner || hasSearchVolumeUnavailableFlag(finalFilteredKeywords)
   if (hasAnyVolume && !volumeUnavailable) {
     const beforeVolumeFilter = finalFilteredKeywords.length
     finalFilteredKeywords = finalFilteredKeywords.filter(kw =>
@@ -3478,6 +3593,12 @@ export async function generateOfferKeywordPool(
   } else if (hasAnyVolume && volumeUnavailable) {
     console.log('⚠️ 搜索量数据不可用（Planner 权限受限），跳过非纯品牌 0 搜索量关键词强制移除')
   }
+
+  // 约束：最终关键词顺序始终前置纯品牌词，避免后续截断时品牌词被挤压
+  finalFilteredKeywords = prioritizeBrandKeywordsFirst(
+    finalFilteredKeywords,
+    pureBrandKeywordsForFilter
+  )
 
   console.log(`📝 最终过滤后关键词数: ${finalFilteredKeywords.length}`)
   await progress?.({ phase: 'filter', message: '关键词过滤完成' })
@@ -4307,7 +4428,12 @@ export async function getSyntheticBucketKeywords(
   console.log(`   非品牌词（去重后）: ${allNonBrandKeywords.size}个`)
 
   // 3. 如果需要按搜索量排序，获取搜索量数据
-  let nonBrandWithVolume: Array<{ keyword: string; searchVolume: number; isBrand: boolean }> = []
+  let nonBrandWithVolume: Array<{
+    keyword: string
+    searchVolume: number
+    isBrand: boolean
+    volumeUnavailableReason?: unknown
+  }> = []
 
   if (config.sortByVolume && allNonBrandKeywords.size > 0) {
     try {
@@ -4320,13 +4446,22 @@ export async function getSyntheticBucketKeywords(
         brandName: pool.brandKeywords[0] ? (typeof pool.brandKeywords[0] === 'string' ? pool.brandKeywords[0] : pool.brandKeywords[0].keyword) : ''
       })
 
-      // 构建搜索量映射
-      const volumeMap = new Map(volumeData.map(v => [v.keyword.toLowerCase(), v.searchVolume]))
+      // 构建搜索量映射（保留“搜索量不可用”标记）
+      const volumeMap = new Map(
+        volumeData.map(v => [
+          v.keyword.toLowerCase(),
+          {
+            searchVolume: v.searchVolume,
+            volumeUnavailableReason: v.volumeUnavailableReason,
+          }
+        ])
+      )
 
       // 转换为带搜索量的格式
       nonBrandWithVolume = Array.from(allNonBrandKeywords).map(kw => ({
         keyword: kw,
-        searchVolume: (volumeMap.get(kw.toLowerCase()) as number) || 0,
+        searchVolume: Number(volumeMap.get(kw.toLowerCase())?.searchVolume || 0),
+        volumeUnavailableReason: volumeMap.get(kw.toLowerCase())?.volumeUnavailableReason,
         isBrand: false
       }))
 
@@ -4334,13 +4469,16 @@ export async function getSyntheticBucketKeywords(
       nonBrandWithVolume.sort((a, b) => b.searchVolume - a.searchVolume)
 
       // 过滤低于阈值的关键词
-      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+      // 🔧 修复(2026-03-05): Explorer/权限受限返回 volumeUnavailableReason 时，跳过全部搜索量过滤
       const hasAnyVolume = nonBrandWithVolume.some(kw => kw.searchVolume > 0)
-      if (hasAnyVolume) {
+      const volumeUnavailable = hasSearchVolumeUnavailableFlag(nonBrandWithVolume as Array<{ volumeUnavailableReason?: unknown }>)
+      if (hasAnyVolume && !volumeUnavailable) {
         nonBrandWithVolume = nonBrandWithVolume.filter(
           kw => kw.searchVolume >= config.minSearchVolume
         )
         console.log(`   获取搜索量成功，过滤后剩余: ${nonBrandWithVolume.length}个`)
+      } else if (hasAnyVolume && volumeUnavailable) {
+        console.log(`   ⚠️ 搜索量数据不可用（Planner 权限受限），跳过搜索量过滤`)
       } else {
         console.log(`   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤`)
       }
@@ -4673,7 +4811,8 @@ export async function getKeywords(
   // 5. 按搜索量过滤（纯品牌词豁免）
   // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
   const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
-  if (hasAnyVolume) {
+  const volumeUnavailable = hasSearchVolumeUnavailableFlag(keywords)
+  if (hasAnyVolume && !volumeUnavailable) {
     const pureBrandSet = new Set(
       keywordPool.brandKeywords
         .map(kw => normalizeGoogleAdsKeyword(kw.keyword))
@@ -4683,8 +4822,17 @@ export async function getKeywords(
       const normalized = normalizeGoogleAdsKeyword(kw.keyword)
       return kw.searchVolume >= minSearchVolume || (normalized && pureBrandSet.has(normalized))
     })
+  } else if (hasAnyVolume && volumeUnavailable) {
+    console.log('⚠️ 搜索量数据不可用（Planner 权限受限），跳过搜索量过滤')
   } else {
     console.log('⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
+  }
+
+  if (bucket === 'ALL' && keywordPool.brandKeywords.length > 0) {
+    keywords = prioritizeBrandKeywordsFirst(
+      keywords,
+      keywordPool.brandKeywords.map(kw => kw.keyword)
+    )
   }
 
   // 6. 限制数量

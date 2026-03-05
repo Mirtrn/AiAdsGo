@@ -2816,6 +2816,7 @@ interface ExtractedKeywordForMerge {
   searchVolume: number
   competition?: string
   competitionIndex?: number
+  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
 }
 
 interface MergeExtractedKeywordsInput {
@@ -2830,6 +2831,16 @@ interface MergeExtractedKeywordsInput {
 
 interface MergeExtractedKeywordsOutput {
   keywordsWithVolume: KeywordWithVolume[]
+}
+
+function isSearchVolumeUnavailableReason(reason: unknown): boolean {
+  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+}
+
+function hasSearchVolumeUnavailableFlag(
+  keywords: Array<{ volumeUnavailableReason?: unknown }>
+): boolean {
+  return keywords.some((kw) => isSearchVolumeUnavailableReason(kw?.volumeUnavailableReason))
 }
 
 async function mergeExtractedKeywordsWithSingleExit(
@@ -2868,6 +2879,7 @@ async function mergeExtractedKeywordsWithSingleExit(
     console.log(
       `   🎚️ 动态非品牌搜索量阈值: >= ${dynamicNonBrandMinSearchVolume} (品牌相关词 ${brandKeywordCountForThreshold} 个)`
     )
+    let volumeUnavailable = hasSearchVolumeUnavailableFlag(mergedKeywordsWithVolume)
 
     const keywordsNeedVolume = extractedKeywords.filter(kw =>
       kw.keyword && kw.searchVolume === 0 && !existingKeywordsLower.has(kw.keyword.toLowerCase())
@@ -2894,6 +2906,10 @@ async function mergeExtractedKeywordsWithSingleExit(
           const volumeData = volumes.find((v: any) => v.keyword.toLowerCase() === kw.keyword?.toLowerCase())
           if (volumeData) {
             kw.searchVolume = volumeData.avgMonthlySearches
+            kw.volumeUnavailableReason = volumeData.volumeUnavailableReason
+            if (isSearchVolumeUnavailableReason(volumeData.volumeUnavailableReason)) {
+              volumeUnavailable = true
+            }
           }
         })
         console.log(`   ✅ 搜索量查询完成`)
@@ -2910,7 +2926,7 @@ async function mergeExtractedKeywordsWithSingleExit(
       const isBrandKeywordCandidate =
         containsPureBrand(kw.keyword, pureBrandKeywordsForMerge) ||
         isBrandConcatenation(kw.keyword, brandName)
-      if (!isBrandKeywordCandidate && kw.searchVolume < dynamicNonBrandMinSearchVolume) return false
+      if (!volumeUnavailable && !isBrandKeywordCandidate && kw.searchVolume < dynamicNonBrandMinSearchVolume) return false
       return true
     })
     const skippedCount = extractedKeywords.length - keywordsToMerge.length
@@ -4990,9 +5006,12 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
       const promptDynamicNonBrandMinSearchVolume =
         resolveNonBrandMinSearchVolumeByBrandKeywordCount(promptBrandKeywordCount)
       const hasAnyVolume = extractedElements.keywords.some(k => k.searchVolume > 0)
+      const promptVolumeUnavailable = extractedElements.keywords.some((k: any) =>
+        isSearchVolumeUnavailableReason(k?.volumeUnavailableReason)
+      )
       const topKeywords = extractedElements.keywords
         .filter(k => {
-          if (!hasAnyVolume) return true
+          if (!hasAnyVolume || promptVolumeUnavailable) return true
           const keywordText = String(k.keyword || '')
           const isBrandKeyword =
             containsPureBrand(keywordText, promptBrandTokens) ||

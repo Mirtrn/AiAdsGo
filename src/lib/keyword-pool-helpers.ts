@@ -77,6 +77,16 @@ function inferBrandAwareMatchType(
   return isPureBrandKeyword(keyword, pureBrandKeywords) ? 'EXACT' : 'PHRASE'
 }
 
+function isSearchVolumeUnavailableReason(reason: unknown): boolean {
+  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+}
+
+function hasSearchVolumeUnavailableFlag(
+  keywords: Array<{ volumeUnavailableReason?: unknown }>
+): boolean {
+  return keywords.some((kw) => isSearchVolumeUnavailableReason(kw?.volumeUnavailableReason))
+}
+
 async function getGlobalKeywordCandidates(params: {
   brandName: string
   targetCountry: string
@@ -834,6 +844,7 @@ function qualityFilterOAuth(
   const pureBrandKeywords = getPureBrandKeywords(brandName)
   const dynamicThreshold = calculateDynamicThreshold(keywords)
   const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
+  const volumeUnavailable = hasSearchVolumeUnavailableFlag(keywords)
 
   console.log(`      动态搜索量阈值: ${dynamicThreshold}`)
 
@@ -875,7 +886,7 @@ function qualityFilterOAuth(
     }
 
     // 5. 搜索量过滤（纯品牌词豁免）
-    if (hasAnyVolume && !isPureBrand && kw.searchVolume < dynamicThreshold) {
+    if (hasAnyVolume && !volumeUnavailable && !isPureBrand && kw.searchVolume < dynamicThreshold) {
       volumeRemoved++
       return false
     }
@@ -890,6 +901,9 @@ function qualityFilterOAuth(
 
   console.log(`      保留: ${filtered.length}`)
   console.log(`      纯品牌词: ${brandKeptCount}`)
+  if (hasAnyVolume && volumeUnavailable) {
+    console.log(`      ⚠️ 搜索量数据不可用（Planner 权限受限），跳过搜索量过滤`)
+  }
   console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 低意图(${lowIntentRemoved}) 地理(${geoRemoved}) 搜索量(${volumeRemoved})`)
 
   return filtered
@@ -1455,9 +1469,10 @@ export function selectKeywordsForCreative(
     .slice(0, 3)
 
   // 桶匹配词：优先 searchVolume > 1000，其次 CPC 高
-  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  // 🔧 修复(2026-03-05): 若搜索量不可用（Explorer/权限受限），跳过搜索量过滤
   const hasAnyVolume = bucketKeywords.some(kw => kw.searchVolume > 0)
-  const highVolume = hasAnyVolume
+  const volumeUnavailable = hasSearchVolumeUnavailableFlag(bucketKeywords)
+  const highVolume = hasAnyVolume && !volumeUnavailable
     ? bucketKeywords
         .filter(kw => kw.searchVolume > 1000)
         .sort((a, b) => b.searchVolume - a.searchVolume)
