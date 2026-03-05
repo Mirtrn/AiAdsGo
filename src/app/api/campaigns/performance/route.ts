@@ -110,6 +110,7 @@ const CAMPAIGN_SORT_FIELDS = new Set([
   'clicks',
   'ctr',
   'cpc',
+  'configuredMaxCpc',
   'conversions',
   'cost',
   'roas',
@@ -609,6 +610,10 @@ export async function GET(request: NextRequest) {
           case 'cpc':
             aVal = Number(a.performance?.cpcBase ?? a.performance?.cpcLocal ?? a.performance?.cpcUsd) || 0
             bVal = Number(b.performance?.cpcBase ?? b.performance?.cpcLocal ?? b.performance?.cpcUsd) || 0
+            break
+          case 'configuredMaxCpc':
+            aVal = Number(a.configuredMaxCpc) || 0
+            bVal = Number(b.configuredMaxCpc) || 0
             break
           case 'conversions':
             aVal = Number(a.performance?.commissionBase ?? a.performance?.commission ?? a.performance?.conversions) || 0

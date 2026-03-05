@@ -629,6 +629,118 @@ describe('GET /api/campaigns/performance', () => {
     expect(data.campaigns[1]?.campaignName).toBe('CNY Campaign')
   })
 
+  it('sorts campaigns by configured max cpc when requested', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+        return [{ currency: 'USD', total_cost: 20 }]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          {
+            id: 1,
+            campaign_id: 'cmp_low',
+            campaign_name: 'Low CPC Campaign',
+            offer_id: 11,
+            offer_brand: 'Brand A',
+            offer_url: 'https://example.com/low',
+            status: 'ENABLED',
+            google_campaign_id: 'g_1',
+            google_ads_account_id: 100,
+            budget_amount: 20,
+            budget_type: 'DAILY',
+            max_cpc: 0.2,
+            creation_status: 'SUCCESS',
+            creation_error: null,
+            last_sync_at: '2026-03-03T00:00:00.000Z',
+            created_at: '2026-03-03T00:00:00.000Z',
+            published_at: '2026-03-03T00:00:00.000Z',
+            is_deleted: 0,
+            deleted_at: null,
+            ads_account_id: 100,
+            ads_account_customer_id: '111111',
+            ads_account_name: 'Main',
+            ads_account_is_active: 1,
+            ads_account_is_deleted: 0,
+            ads_account_currency: 'USD',
+            offer_is_deleted: 0,
+          },
+          {
+            id: 2,
+            campaign_id: 'cmp_high',
+            campaign_name: 'High CPC Campaign',
+            offer_id: 12,
+            offer_brand: 'Brand B',
+            offer_url: 'https://example.com/high',
+            status: 'ENABLED',
+            google_campaign_id: 'g_2',
+            google_ads_account_id: 101,
+            budget_amount: 20,
+            budget_type: 'DAILY',
+            max_cpc: 0.8,
+            creation_status: 'SUCCESS',
+            creation_error: null,
+            last_sync_at: '2026-03-03T00:00:00.000Z',
+            created_at: '2026-03-03T00:00:00.000Z',
+            published_at: '2026-03-03T00:00:00.000Z',
+            is_deleted: 0,
+            deleted_at: null,
+            ads_account_id: 101,
+            ads_account_customer_id: '222222',
+            ads_account_name: 'Backup',
+            ads_account_is_active: 1,
+            ads_account_is_deleted: 0,
+            ads_account_currency: 'USD',
+            offer_is_deleted: 0,
+          },
+        ]
+      }
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY campaign_id, COALESCE(currency')) {
+        return [
+          { campaign_id: 1, currency: 'USD', impressions: 100, clicks: 10, cost: 10 },
+          { campaign_id: 2, currency: 'USD', impressions: 100, clicks: 10, cost: 10 },
+        ]
+      }
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('GROUP BY campaign_id, COALESCE(currency')) {
+        return []
+      }
+      throw new Error(`unexpected query sql: ${sql}`)
+    })
+
+    const queryOne = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM sync_logs')) {
+        return { latest_sync_at: null }
+      }
+      if (sql.includes('FROM campaign_performance') && sql.includes('COALESCE(SUM(impressions), 0) as impressions')) {
+        return { impressions: 200, clicks: 20, cost: 20 }
+      }
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        return { total_commission: 0 }
+      }
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        return { total_commission: 0 }
+      }
+      throw new Error(`unexpected queryOne sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({
+      type: 'sqlite',
+      query,
+      queryOne,
+    })
+
+    const req = new NextRequest(
+      'http://localhost/api/campaigns/performance?daysBack=7&sortBy=configuredMaxCpc&sortOrder=desc'
+    )
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.campaigns).toHaveLength(2)
+    expect(data.campaigns[0]?.campaignName).toBe('High CPC Campaign')
+    expect(data.campaigns[1]?.campaignName).toBe('Low CPC Campaign')
+  })
+
   it('keeps response contract when campaigns parallel mode is enabled', async () => {
     vi.stubEnv('FF_CAMPAIGNS_PARALLEL', 'true')
 

@@ -252,7 +252,7 @@ export default function CampaignsClientPage({
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
 
   // Sorting states
-  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'roas' | 'status' | 'servingStartDate'
+  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'configuredMaxCpc' | 'conversions' | 'cost' | 'roas' | 'status' | 'servingStartDate'
   type SortDirection = 'asc' | 'desc' | null
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
@@ -863,6 +863,10 @@ export default function CampaignsClientPage({
             // 🔧 修复(2025-12-29): 确保数值类型比较
             aVal = Number(a.performance?.cpcBase ?? a.performance?.cpcLocal ?? a.performance?.cpcUsd) || 0
             bVal = Number(b.performance?.cpcBase ?? b.performance?.cpcLocal ?? b.performance?.cpcUsd) || 0
+            break
+          case 'configuredMaxCpc':
+            aVal = Number(a.configuredMaxCpc) || 0
+            bVal = Number(b.configuredMaxCpc) || 0
             break
           case 'conversions':
             // 🔧 修复(2025-12-29): 确保数值类型比较
@@ -2331,11 +2335,6 @@ export default function CampaignsClientPage({
                         String(trendsCurrencyValue || defaultCurrency)
                       )}
                     </p>
-                    {commissionBreakdown.length > 0 && (
-                      <p className="text-xs mt-1 text-gray-500">
-                        分币种: {formatMultiCurrency(commissionBreakdown)}
-                      </p>
-                    )}
                     {summary?.currency !== 'MIXED' ? (
                       <>
                         <p className="text-xs mt-1 text-gray-500">
@@ -2696,7 +2695,7 @@ export default function CampaignsClientPage({
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="min-w-[1260px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5">
+                <Table className="min-w-[1260px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5 [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}
@@ -2717,7 +2716,7 @@ export default function CampaignsClientPage({
                       <SortableHeader field="clicks" className="w-[58px] whitespace-nowrap !px-0.5">点击</SortableHeader>
                       <SortableHeader field="ctr" className="w-[56px] whitespace-nowrap !px-0.5">点击率</SortableHeader>
                       <SortableHeader field="cpc" className="w-[94px] whitespace-nowrap !px-0.5">实际CPC</SortableHeader>
-                      <TableHead className="w-[94px] whitespace-nowrap !px-0.5">配置CPC</TableHead>
+                      <SortableHeader field="configuredMaxCpc" className="w-[94px] whitespace-nowrap !px-0.5">配置CPC</SortableHeader>
                       <SortableHeader field="conversions" className="w-[94px] whitespace-nowrap !px-0.5">佣金</SortableHeader>
                       <SortableHeader field="cost" className="w-[94px] whitespace-nowrap !px-0.5">花费</SortableHeader>
                       <SortableHeader field="roas" className="w-[62px] whitespace-nowrap !px-0.5">ROAS</SortableHeader>
