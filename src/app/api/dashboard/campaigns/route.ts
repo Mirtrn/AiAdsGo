@@ -61,7 +61,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1
     const pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw > 0 ? Math.min(pageSizeRaw, 100) : 10
     const statusFilter = searchParams.get('status')
-    const searchQuery = searchParams.get('search')
+    const searchQuery = (searchParams.get('search') || '').trim()
 
     // 验证排序字段
     const validSortFields = ['cost', 'clicks', 'conversions', 'impressions', 'ctr', 'cpc']
@@ -80,6 +80,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     const endDateStr = formatDate(endDate)
 
     const db = await getDatabase()
+    const likeOperator = db.type === 'postgres' ? 'ILIKE' : 'LIKE'
 
     // 构建查询条件
     const conditions: string[] = ['c.user_id = ?']
@@ -91,7 +92,7 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
     }
 
     if (searchQuery) {
-      conditions.push('(c.campaign_name LIKE ? OR o.brand LIKE ?)')
+      conditions.push(`(c.campaign_name ${likeOperator} ? OR o.brand ${likeOperator} ?)`)
       params.push(`%${searchQuery}%`, `%${searchQuery}%`)
     }
 

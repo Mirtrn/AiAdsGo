@@ -415,9 +415,24 @@ export async function listOffers(
   }
 
   if (options?.searchQuery) {
-    whereConditions.push('(brand LIKE ? OR url LIKE ? OR category LIKE ?)')
-    const searchPattern = `%${options.searchQuery}%`
-    params.push(searchPattern, searchPattern, searchPattern)
+    const normalizedQuery = String(options.searchQuery).trim()
+    if (normalizedQuery) {
+      // Keep server-side search behavior aligned with client-side filtering:
+      // - case-insensitive matching
+      // - include id / brand / offer_name / url / category
+      const likeOperator = db.type === 'postgres' ? 'ILIKE' : 'LIKE'
+      const searchPattern = `%${normalizedQuery}%`
+      whereConditions.push(
+        `(
+          CAST(id AS TEXT) ${likeOperator} ?
+          OR brand ${likeOperator} ?
+          OR offer_name ${likeOperator} ?
+          OR url ${likeOperator} ?
+          OR category ${likeOperator} ?
+        )`
+      )
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern)
+    }
   }
 
   if (options?.scrapeStatus) {

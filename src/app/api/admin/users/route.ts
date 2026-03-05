@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit
 
     const db = getDatabase()
+    const likeOperator = db.type === 'postgres' ? 'ILIKE' : 'LIKE'
 
     const sortBy = (searchParams.get('sortBy') || 'createdAt') as string
     const sortOrderRaw = (searchParams.get('sortOrder') || 'desc').toLowerCase()
@@ -92,9 +93,9 @@ export async function GET(request: NextRequest) {
     const params: any[] = []
 
     // Search filter
-    const search = searchParams.get('search')
+    const search = (searchParams.get('search') || '').trim()
     if (search) {
-      const searchCondition = ` AND (username LIKE ? OR email LIKE ?)`
+      const searchCondition = ` AND (username ${likeOperator} ? OR email ${likeOperator} ?)`
       query += searchCondition
       countQuery += searchCondition
       params.push(`%${search}%`, `%${search}%`)
