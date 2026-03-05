@@ -83,6 +83,24 @@ describe('keyword-pool-helpers.expandAllKeywords (OAuth global candidates)', () 
               competition_level: 'MEDIUM',
               avg_cpc_micros: 900000,
             },
+            {
+              keyword: 'midea dryer',
+              search_volume: 2400,
+              competition_level: 'MEDIUM',
+              avg_cpc_micros: 850000,
+            },
+            {
+              keyword: 'midea comprar',
+              search_volume: 1700,
+              competition_level: 'MEDIUM',
+              avg_cpc_micros: 810000,
+            },
+            {
+              keyword: 'midea купить',
+              search_volume: 1600,
+              competition_level: 'MEDIUM',
+              avg_cpc_micros: 800000,
+            },
           ]
         }
         return []
@@ -136,6 +154,9 @@ describe('keyword-pool-helpers.expandAllKeywords (OAuth global candidates)', () 
     expect(String(sql)).toContain('language IN (')
     expect(params).toEqual(expect.arrayContaining(['DE', 'de', 'German']))
     expect(out.map(k => k.keyword)).toContain('midea waschmaschine')
+    expect(out.map(k => k.keyword)).toContain('midea dryer')
+    expect(out.map(k => k.keyword)).not.toContain('midea comprar')
+    expect(out.map(k => k.keyword)).not.toContain('midea купить')
   })
 
   it('sets plannerDecision.volumeUnavailableFromPlanner when planner metrics are unavailable', async () => {

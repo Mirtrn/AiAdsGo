@@ -87,6 +87,127 @@ function hasSearchVolumeUnavailableFlag(
   return keywords.some((kw) => isSearchVolumeUnavailableReason(kw?.volumeUnavailableReason))
 }
 
+const LATIN_SCRIPT_LANGUAGE_CODES = new Set([
+  'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'sv', 'no', 'da', 'fi',
+  'pl', 'cs', 'tr', 'vi', 'id', 'ms', 'ro', 'hu', 'sk', 'tl'
+])
+
+const DISALLOWED_NON_LATIN_SCRIPT_FOR_LATIN_LANG_RE =
+  /[\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Hebrew}\p{Script=Devanagari}\p{Script=Greek}]/u
+
+const LANGUAGE_HINT_TOKENS: Record<string, Set<string>> = {
+  en: new Set([
+    'buy', 'price', 'deal', 'sale', 'shop', 'official', 'store', 'reviews',
+    'review', 'best', 'compare', 'comparison', 'online'
+  ]),
+  de: new Set([
+    'kaufen', 'kauf', 'preis', 'angebote', 'angebot', 'guenstig', 'günstig',
+    'offiziell', 'bewertung', 'bewertungen', 'vergleich', 'deutschland', 'shop'
+  ]),
+  es: new Set([
+    'comprar', 'precio', 'oferta', 'ofertas', 'tienda', 'oficial', 'reseñas',
+    'resenas', 'comparar'
+  ]),
+  fr: new Set([
+    'acheter', 'prix', 'offre', 'offres', 'boutique', 'officiel', 'avis',
+    'comparaison'
+  ]),
+  it: new Set([
+    'comprare', 'prezzo', 'offerta', 'offerte', 'negozio', 'ufficiale',
+    'recensioni', 'confronto'
+  ]),
+  pt: new Set([
+    'comprar', 'preco', 'oferta', 'ofertas', 'loja', 'oficial', 'avaliacoes',
+    'avaliações', 'comparacao', 'comparação'
+  ]),
+  tr: new Set([
+    'satın', 'satin', 'fiyat', 'indirim', 'magaza', 'mağaza', 'resmi',
+    'yorum', 'karsilastir', 'karşılaştır'
+  ]),
+  pl: new Set([
+    'kupic', 'kupić', 'cena', 'oferta', 'oferty', 'sklep', 'oficjalny',
+    'opinie', 'porownanie', 'porównanie'
+  ]),
+  // 俄语拉丁转写（用于补充脚本检测覆盖不到的场景）
+  ru_latn: new Set([
+    'kupit', 'tsena', 'cena', 'otzyv', 'otzyvy', 'dostavka', 'ventilyator',
+    'napolnyy', 'nastolnyy'
+  ]),
+}
+
+function getAllowedLanguageHintsForTarget(targetLanguage: string): Set<string> {
+  const code = normalizeLanguageCode(targetLanguage || 'en')
+  const allowed = new Set<string>([code])
+
+  // 拉丁语系市场默认允许英文关键词
+  if (LATIN_SCRIPT_LANGUAGE_CODES.has(code)) {
+    allowed.add('en')
+  }
+
+  return allowed
+}
+
+function detectLatinLanguageHints(keyword: string): Set<string> {
+  const hints = new Set<string>()
+  const normalized = String(keyword || '').toLowerCase().normalize('NFKC')
+  if (!normalized) return hints
+
+  // 先按 token 做词形提示
+  const tokens = normalized
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(t => t.trim())
+    .filter(Boolean)
+
+  for (const token of tokens) {
+    for (const [languageCode, markerTokens] of Object.entries(LANGUAGE_HINT_TOKENS)) {
+      if (markerTokens.has(token)) {
+        hints.add(languageCode)
+      }
+    }
+  }
+
+  // 再做字符级提示（仅拉丁字母扩展字符）
+  if (/[äöüß]/u.test(normalized)) hints.add('de')
+  if (/[ñ]/u.test(normalized)) hints.add('es')
+  if (/[àâçéèêëîïôûùœ]/u.test(normalized)) hints.add('fr')
+  if (/[ãõ]/u.test(normalized)) hints.add('pt')
+  if (/[ığş]/u.test(normalized)) hints.add('tr')
+  if (/[ąćęłńóśźż]/u.test(normalized)) hints.add('pl')
+
+  return hints
+}
+
+function isLanguageScriptMismatch(
+  keyword: string,
+  targetLanguage: string,
+  pureBrandKeywords: string[]
+): boolean {
+  const normalizedKeyword = String(keyword || '').trim()
+  if (!normalizedKeyword) return false
+
+  // 纯品牌词豁免，避免误伤多语种品牌名
+  if (isPureBrandKeyword(normalizedKeyword, pureBrandKeywords)) return false
+
+  const languageCode = normalizeLanguageCode(targetLanguage || 'en')
+  if (!LATIN_SCRIPT_LANGUAGE_CODES.has(languageCode)) return false
+
+  // 第一层：脚本拦截（西里尔/阿拉伯/汉字等）
+  if (DISALLOWED_NON_LATIN_SCRIPT_FOR_LATIN_LANG_RE.test(normalizedKeyword)) {
+    return true
+  }
+
+  // 第二层：拉丁语系词形提示（例如 DE 允许 de/en，不允许 es/it/ru_latn）
+  const hints = detectLatinLanguageHints(normalizedKeyword)
+  if (hints.size === 0) return false
+
+  const allowedHints = getAllowedLanguageHintsForTarget(targetLanguage)
+  for (const hint of hints) {
+    if (allowedHints.has(hint)) return false
+  }
+
+  return true
+}
+
 async function getGlobalKeywordCandidates(params: {
   brandName: string
   targetCountry: string
@@ -143,9 +264,15 @@ async function getGlobalKeywordCandidates(params: {
     }>
 
     const candidates = new Map<string, PoolKeywordData>()
+    let scriptFilteredCount = 0
     for (const row of rows) {
       const canonical = normalizeGoogleAdsKeyword(row.keyword)
       if (!canonical) continue
+
+      if (isLanguageScriptMismatch(canonical, targetLanguage, pureBrandKeywords)) {
+        scriptFilteredCount++
+        continue
+      }
 
       const searchVolume = Number(row.search_volume) || 0
       const isConcatenatedBrand = searchVolume > 0 && isBrandConcatenation(canonical, brandName)
@@ -173,6 +300,9 @@ async function getGlobalKeywordCandidates(params: {
 
     if (candidates.size > 0) {
       console.log(`   📦 全局关键词库命中: ${candidates.size} 个`)
+    }
+    if (scriptFilteredCount > 0) {
+      console.log(`   🌐 语言脚本过滤: 移除 ${scriptFilteredCount} 个与目标语言不匹配的全局关键词`)
     }
 
     return Array.from(candidates.values())
@@ -819,6 +949,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
       Array.from(allKeywords.values()),
       brandName,
       targetCountry,
+      targetLanguage,
       pageUrl
     )
 
@@ -839,6 +970,7 @@ function qualityFilterOAuth(
   keywords: PoolKeywordData[],
   brandName: string,
   targetCountry?: string,
+  targetLanguage?: string,
   productUrl?: string
 ): PoolKeywordData[] {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
@@ -854,6 +986,7 @@ function qualityFilterOAuth(
   let irrelevantRemoved = 0
   let lowIntentRemoved = 0
   let geoRemoved = 0
+  let languageRemoved = 0
   let volumeRemoved = 0
 
   const filtered = keywords.filter(kw => {
@@ -885,7 +1018,13 @@ function qualityFilterOAuth(
       return false
     }
 
-    // 5. 搜索量过滤（纯品牌词豁免）
+    // 5. 语言脚本过滤（例如DE/EN场景下移除西里尔字母关键词）
+    if (targetLanguage && isLanguageScriptMismatch(kw.keyword, targetLanguage, pureBrandKeywords)) {
+      languageRemoved++
+      return false
+    }
+
+    // 6. 搜索量过滤（纯品牌词豁免）
     if (hasAnyVolume && !volumeUnavailable && !isPureBrand && kw.searchVolume < dynamicThreshold) {
       volumeRemoved++
       return false
@@ -904,7 +1043,7 @@ function qualityFilterOAuth(
   if (hasAnyVolume && volumeUnavailable) {
     console.log(`      ⚠️ 搜索量数据不可用（Planner 权限受限），跳过搜索量过滤`)
   }
-  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 低意图(${lowIntentRemoved}) 地理(${geoRemoved}) 搜索量(${volumeRemoved})`)
+  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 低意图(${lowIntentRemoved}) 地理(${geoRemoved}) 语言脚本(${languageRemoved}) 搜索量(${volumeRemoved})`)
 
   return filtered
 }
@@ -1153,6 +1292,7 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       Array.from(allKeywords.values()),
       brandName,
       targetCountry,
+      targetLanguage,
       offer.final_url || offer.url || undefined
     )
 
@@ -1173,6 +1313,7 @@ function qualityFilterServiceAccount(
   keywords: PoolKeywordData[],
   brandName: string,
   targetCountry?: string,
+  targetLanguage?: string,
   productUrl?: string
 ): PoolKeywordData[] {
   const pureBrandKeywords = getPureBrandKeywords(brandName)
@@ -1182,6 +1323,7 @@ function qualityFilterServiceAccount(
   let semanticRemoved = 0
   let irrelevantRemoved = 0
   let geoRemoved = 0
+  let languageRemoved = 0
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
@@ -1212,6 +1354,12 @@ function qualityFilterServiceAccount(
       return false
     }
 
+    // 5. 语言脚本过滤（例如DE/EN场景下移除西里尔字母关键词）
+    if (targetLanguage && isLanguageScriptMismatch(kw.keyword, targetLanguage, pureBrandKeywords)) {
+      languageRemoved++
+      return false
+    }
+
     // 无搜索量过滤（服务账号无法获取搜索量）
 
     if (isPureBrand) {
@@ -1224,7 +1372,7 @@ function qualityFilterServiceAccount(
 
   console.log(`      保留: ${filtered.length}`)
   console.log(`      纯品牌词: ${brandKeptCount}`)
-  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 地理(${geoRemoved})`)
+  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 地理(${geoRemoved}) 语言脚本(${languageRemoved})`)
 
   return filtered
 }
