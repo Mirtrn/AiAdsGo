@@ -12,12 +12,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Input } from '@/components/ui/input'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Eye,
   MousePointerClick,
@@ -131,7 +125,6 @@ const formatDateInputValue = (date: Date): string => {
 export default function DashboardClientPage({ dashboardDeferEnabled = false }: DashboardClientPageProps) {
   const router = useRouter()
   const [timeRange, setTimeRange] = useState<DashboardTimeRange>('7')
-  const [customRangeOpen, setCustomRangeOpen] = useState(false)
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
@@ -319,11 +312,6 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     return `${value >= 0 ? '+' : ''}${safeToFixed(value, 1)}%`
   }
 
-  const canApplyCustomRange = Boolean(
-    customStartDate
-      && customEndDate
-      && customStartDate <= customEndDate
-  )
   const customRangeLabel = appliedCustomRange
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
@@ -344,10 +332,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     input.click()
   }
 
-  const openCustomRange = (open: boolean) => {
-    setCustomRangeOpen(open)
-    if (!open) return
-
+  const openCustomRange = () => {
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
@@ -366,16 +351,20 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
 
   const handleCustomStartDateChange = (value: string) => {
     setCustomStartDate(value)
+    if (!value) return
+
     window.setTimeout(() => {
       openNativeDatePicker(customEndDateInputRef.current)
     }, 0)
   }
 
-  const applyCustomRange = () => {
-    if (!canApplyCustomRange) return
-    setAppliedCustomRange({ startDate: customStartDate, endDate: customEndDate })
+  const handleCustomEndDateChange = (value: string) => {
+    setCustomEndDate(value)
+    if (!customStartDate || !value) return
+    if (customStartDate > value) return
+
+    setAppliedCustomRange({ startDate: customStartDate, endDate: value })
     setTimeRange('custom')
-    setCustomRangeOpen(false)
   }
 
   const widgetDays = (() => {
@@ -438,52 +427,33 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   {d}天
                 </Button>
               ))}
-              <DropdownMenu open={customRangeOpen} onOpenChange={openCustomRange}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                    size="sm"
-                    className="h-7 px-3 text-xs max-w-[220px]"
-                  >
-                    <CalendarDays className="w-3 h-3 mr-1" />
-                    <span className="truncate">{customRangeLabel}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72 p-3">
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">开始日期</p>
-                      <Input
-                        ref={customStartDateInputRef}
-                        type="date"
-                        value={customStartDate}
-                        onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">结束日期</p>
-                      <Input
-                        ref={customEndDateInputRef}
-                        type="date"
-                        value={customEndDate}
-                        onChange={(e) => setCustomEndDate(e.target.value)}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
-                    {customStartDate && customEndDate && customStartDate > customEndDate && (
-                      <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
-                    )}
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={applyCustomRange}
-                      disabled={!canApplyCustomRange}
-                    >
-                      应用时间范围
-                    </Button>
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 px-3 text-xs max-w-[220px]"
+                onClick={openCustomRange}
+              >
+                <CalendarDays className="w-3 h-3 mr-1" />
+                <span className="truncate">{customRangeLabel}</span>
+              </Button>
+              <input
+                ref={customStartDateInputRef}
+                type="date"
+                value={customStartDate}
+                onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+              <input
+                ref={customEndDateInputRef}
+                type="date"
+                value={customEndDate}
+                onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
             </div>
           </div>
         </div>

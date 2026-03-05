@@ -238,7 +238,6 @@ export default function CampaignsClientPage({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<CampaignsTimeRange>('7')
-  const [isTrendCustomDateRangeOpen, setIsTrendCustomDateRangeOpen] = useState(false)
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
@@ -483,11 +482,6 @@ export default function CampaignsClientPage({
         ? [{ currency: String(summary.currency), amount: summaryTotalCommission }]
         : []
     )
-  const canApplyCustomRange = Boolean(
-    customStartDate
-      && customEndDate
-      && customStartDate <= customEndDate
-  )
   const customRangeLabel = appliedCustomRange
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
@@ -534,11 +528,7 @@ export default function CampaignsClientPage({
     input.click()
   }
 
-  const openTrendCustomDateRange = (open: boolean) => {
-    setIsTrendCustomDateRangeOpen(open)
-
-    if (!open) return
-
+  const openTrendCustomDateRange = () => {
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
@@ -557,27 +547,26 @@ export default function CampaignsClientPage({
 
   const handleCustomStartDateChange = (value: string) => {
     setCustomStartDate(value)
+    if (!value) return
+
     window.setTimeout(() => {
       openNativeDatePicker(customEndDateInputRef.current)
     }, 0)
   }
 
-  const applyCustomDateRange = () => {
-    if (!customStartDate || !customEndDate) {
-      showError('请选择时间范围', '需要同时选择开始日期和结束日期')
-      return
-    }
-    if (customStartDate > customEndDate) {
+  const handleCustomEndDateChange = (value: string) => {
+    setCustomEndDate(value)
+    if (!customStartDate || !value) return
+    if (customStartDate > value) {
       showError('时间范围无效', '结束日期不能早于开始日期')
       return
     }
 
     setAppliedCustomRange({
       startDate: customStartDate,
-      endDate: customEndDate,
+      endDate: value,
     })
     setTimeRange('custom')
-    setIsTrendCustomDateRangeOpen(false)
   }
 
   const selectPresetTimeRange = (days: Exclude<CampaignsTimeRange, 'custom'>) => {
@@ -2416,55 +2405,33 @@ export default function CampaignsClientPage({
                     {days}天
                   </Button>
                 ))}
-                <DropdownMenu
-                  open={isTrendCustomDateRangeOpen}
-                  onOpenChange={openTrendCustomDateRange}
+                <Button
+                  size="sm"
+                  variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                  className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  onClick={openTrendCustomDateRange}
                 >
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                      className={`h-8 px-3 text-sm max-w-[220px] ${timeRange === 'custom' ? '' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      <CalendarDays className="w-3.5 h-3.5 mr-1" />
-                      <span className="truncate">{customRangeLabel}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-72 p-3">
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">开始日期</p>
-                        <Input
-                          ref={customStartDateInputRef}
-                          type="date"
-                          value={customStartDate}
-                          onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">结束日期</p>
-                        <Input
-                          ref={customEndDateInputRef}
-                          type="date"
-                          value={customEndDate}
-                          onChange={(e) => setCustomEndDate(e.target.value)}
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500">数据范围：[start_date, end_date]</p>
-                      {customStartDate && customEndDate && customStartDate > customEndDate && (
-                        <p className="text-xs text-red-600">结束日期不能早于开始日期</p>
-                      )}
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        onClick={applyCustomDateRange}
-                        disabled={!canApplyCustomRange}
-                      >
-                        应用时间范围
-                      </Button>
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  <CalendarDays className="w-3.5 h-3.5 mr-1" />
+                  <span className="truncate">{customRangeLabel}</span>
+                </Button>
+                <input
+                  ref={customStartDateInputRef}
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                  className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+                <input
+                  ref={customEndDateInputRef}
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                  className="pointer-events-none fixed left-0 top-0 h-0 w-0 opacity-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
               </div>
             </div>
           </div>
