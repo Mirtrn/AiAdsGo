@@ -219,8 +219,8 @@ describe('AffiliateProductSyncScheduler YP support', () => {
 
   it('does not let YP active run block PB scheduling', async () => {
     const scheduler = new AffiliateProductSyncScheduler() as any
-    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (_userId: number, platform: string) => {
-      return platform === 'yeahpromos'
+    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (...args: unknown[]) => {
+      return args[1] === 'yeahpromos'
     })
     vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
     vi.spyOn(scheduler, 'upsertUserSystemSetting').mockResolvedValue(undefined)
@@ -263,8 +263,8 @@ describe('AffiliateProductSyncScheduler YP support', () => {
 
   it('skips PB scheduling when PB has active run and YP is not eligible', async () => {
     const scheduler = new AffiliateProductSyncScheduler() as any
-    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (_userId: number, platform: string) => {
-      return platform === 'partnerboost'
+    vi.spyOn(scheduler, 'hasActiveSyncRun').mockImplementation(async (...args: unknown[]) => {
+      return args[1] === 'partnerboost'
     })
     vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
 
