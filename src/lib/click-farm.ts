@@ -1285,6 +1285,7 @@ export async function updateTaskStatus(
  */
 export async function getPendingTasks(): Promise<ClickFarmTask[]> {
   const db = await getDatabase();
+  const pendingLimit = Math.max(100, Number(process.env.CLICK_FARM_PENDING_LIMIT || 1000) || 1000)
 
   // 🔒 用户禁用/过期后不再调度其任务（避免继续入队）
   const rows = await db.query<any>(`
@@ -1297,8 +1298,11 @@ export async function getPendingTasks(): Promise<ClickFarmTask[]> {
       AND cft.IS_DELETED_FALSE
       AND (cft.next_run_at IS NULL OR cft.next_run_at <= datetime('now'))
       AND u.is_active = ?
-    ORDER BY cft.created_at ASC
-    LIMIT 100
+    ORDER BY
+      CASE WHEN cft.next_run_at IS NULL THEN 0 ELSE 1 END,
+      cft.next_run_at ASC,
+      cft.created_at ASC
+    LIMIT ${pendingLimit}
   `, [boolParam(true, db.type)]);
 
   const now = Date.now();
