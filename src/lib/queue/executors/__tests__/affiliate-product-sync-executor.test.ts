@@ -239,4 +239,77 @@ describe('affiliate-product-sync executor resume behavior', () => {
       })
     )
   })
+
+  it('re-enqueues next shard for partnerboost platform sync when hasMore=true', async () => {
+    mocks.getAffiliateProductSyncRunById.mockResolvedValue({
+      id: 404,
+      user_id: 1,
+      platform: 'partnerboost',
+      mode: 'platform',
+      status: 'running',
+      total_items: 50000,
+      created_count: 120,
+      updated_count: 49880,
+      failed_count: 0,
+      cursor_page: 501,
+      cursor_scope: 'US',
+      processed_batches: 50,
+      started_at: '2026-03-05T06:53:52.070Z',
+      completed_at: null,
+    })
+    mocks.syncAffiliateProducts.mockResolvedValue({
+      totalFetched: 1000,
+      createdCount: 2,
+      updatedCount: 998,
+      hasMore: true,
+      nextCursorPage: 511,
+      nextCursorScope: 'US',
+    })
+
+    const task = createTask({
+      runId: 404,
+      platform: 'partnerboost',
+      mode: 'platform',
+      trigger: 'manual',
+    })
+    const result = await executeAffiliateProductSync(task)
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        runId: 404,
+        continued: true,
+      })
+    )
+    expect(mocks.queueEnqueue).toHaveBeenCalledWith(
+      'affiliate-product-sync',
+      expect.objectContaining({
+        userId: 1,
+        platform: 'partnerboost',
+        mode: 'platform',
+        runId: 404,
+        trigger: 'retry',
+      }),
+      1,
+      expect.objectContaining({
+        priority: 'normal',
+        maxRetries: 1,
+      })
+    )
+    expect(mocks.updateAffiliateProductSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 404,
+        status: 'queued',
+        cursorPage: 511,
+        cursorScope: 'US',
+        completedAt: null,
+      })
+    )
+    expect(mocks.updateAffiliateProductSyncRun).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 404,
+        status: 'completed',
+      })
+    )
+  })
 })

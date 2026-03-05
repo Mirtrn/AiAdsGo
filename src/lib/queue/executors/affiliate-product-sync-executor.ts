@@ -32,7 +32,7 @@ export type AffiliateProductSyncTaskData = {
   trigger?: 'manual' | 'retry' | 'schedule'
 }
 
-const YP_CONTINUATION_DELAY_MS = 2 * 60 * 1000
+const PLATFORM_CONTINUATION_DELAY_MS = 2 * 60 * 1000
 
 const DEFAULT_CACHE_WARM_PARAMS: {
   page: number
@@ -358,13 +358,11 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
     const finalCreatedCount = baseCreatedCount + toSafeCount(result.createdCount)
     const finalUpdatedCount = baseUpdatedCount + toSafeCount(result.updatedCount)
 
-    const shouldContinueYpPlatform = data.platform === 'yeahpromos'
-      && data.mode === 'platform'
-      && Boolean(result.hasMore)
-    if (shouldContinueYpPlatform) {
+    const shouldContinuePlatformSync = data.mode === 'platform' && Boolean(result.hasMore)
+    if (shouldContinuePlatformSync) {
       const nextCursorPage = Math.max(1, toSafeCount(result.nextCursorPage || 1))
       const nextCursorScope = String(result.nextCursorScope || '').trim() || null
-      const continuationScheduledAt = new Date(Date.now() + YP_CONTINUATION_DELAY_MS).toISOString()
+      const continuationScheduledAt = new Date(Date.now() + PLATFORM_CONTINUATION_DELAY_MS).toISOString()
       const heartbeatAt = new Date().toISOString()
 
       await updateAffiliateProductSyncRun({

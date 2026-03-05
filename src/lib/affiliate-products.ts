@@ -7165,6 +7165,9 @@ async function syncPartnerboostPlatformByWindow(params: {
   totalFetched: number
   createdCount: number
   updatedCount: number
+  hasMore: boolean
+  nextCursorPage: number
+  nextCursorScope: string | null
 }> {
   const pageWindowSize = parseIntegerInRange(
     params.pageWindowSize ?? DEFAULT_PB_STREAM_WINDOW_PAGES,
@@ -7226,81 +7229,103 @@ async function syncPartnerboostPlatformByWindow(params: {
   await emitProgress(0)
   await emitCheckpoint()
 
-  while (scopeIndex < countrySequence.length) {
-    const currentCountry = countrySequence[scopeIndex]
-    cursorScope = currentCountry
-    const windowStartPage = cursorPage
-    const fetchResult = await fetchPartnerboostPromotableProductsWithMeta({
-      userId: params.userId,
-      startPage: windowStartPage,
-      countryCodeOverride: currentCountry,
-      linkCountryCodeOverride: currentCountry,
-      maxPages: pageWindowSize,
-      suppressMaxPagesWarning: true,
-      onFetchProgress: async (fetchedCount) => {
-        await emitProgress(totalFetched + Math.max(0, fetchedCount))
-        await emitCheckpoint()
-      },
-    })
-
-    const scopedWindowItems: NormalizedAffiliateProduct[] = []
-    for (const item of fetchResult.items) {
-      const mid = String(item.mid || '').trim()
-      if (!mid) continue
-
-      const allowedCountries = normalizeCountries(item.allowedCountries)
-      const existingCountries = seenMidAllowedCountries.get(mid) || new Set<string>()
-      for (const country of allowedCountries) {
-        existingCountries.add(country)
-      }
-      seenMidAllowedCountries.set(mid, existingCountries)
-
-      scopedWindowItems.push({
-        ...item,
-        allowedCountries: Array.from(existingCountries),
-      })
-    }
-
-    const upserted = await upsertAffiliateProducts(
-      params.userId,
-      'partnerboost',
-      scopedWindowItems,
-      {
-        progressEvery: params.progressEvery,
-      }
-    )
-    totalFetched += upserted.totalFetched
-    createdCount += upserted.createdCount
-    updatedCount += upserted.updatedCount
-    processedBatches += 1
-
-    const nextPage = fetchResult.nextPage > windowStartPage
-      ? fetchResult.nextPage
-      : windowStartPage + Math.max(1, fetchResult.fetchedPages)
-    const scopeHasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
-    if (scopeHasMore) {
-      cursorPage = nextPage
-      cursorScope = currentCountry
-    } else {
-      scopeIndex += 1
-      cursorPage = 1
-      cursorScope = scopeIndex < countrySequence.length
-        ? countrySequence[scopeIndex]
-        : null
-    }
-
+  if (scopeIndex >= countrySequence.length) {
+    cursorPage = 0
+    cursorScope = null
     await emitProgress(totalFetched)
     await emitCheckpoint()
-
-    if (fetchResult.fetchedPages <= 0 && !scopeHasMore) {
-      continue
+    return {
+      totalFetched,
+      createdCount,
+      updatedCount,
+      hasMore: false,
+      nextCursorPage: 0,
+      nextCursorScope: null,
     }
   }
+
+  const currentCountry = countrySequence[scopeIndex]
+  cursorScope = currentCountry
+  const windowStartPage = cursorPage
+  const fetchResult = await fetchPartnerboostPromotableProductsWithMeta({
+    userId: params.userId,
+    startPage: windowStartPage,
+    countryCodeOverride: currentCountry,
+    linkCountryCodeOverride: currentCountry,
+    maxPages: pageWindowSize,
+    suppressMaxPagesWarning: true,
+    onFetchProgress: async (fetchedCount) => {
+      await emitProgress(totalFetched + Math.max(0, fetchedCount))
+      await emitCheckpoint()
+    },
+  })
+
+  const scopedWindowItems: NormalizedAffiliateProduct[] = []
+  for (const item of fetchResult.items) {
+    const mid = String(item.mid || '').trim()
+    if (!mid) continue
+
+    const allowedCountries = normalizeCountries(item.allowedCountries)
+    const existingCountries = seenMidAllowedCountries.get(mid) || new Set<string>()
+    for (const country of allowedCountries) {
+      existingCountries.add(country)
+    }
+    seenMidAllowedCountries.set(mid, existingCountries)
+
+    scopedWindowItems.push({
+      ...item,
+      allowedCountries: Array.from(existingCountries),
+    })
+  }
+
+  const upserted = await upsertAffiliateProducts(
+    params.userId,
+    'partnerboost',
+    scopedWindowItems,
+    {
+      progressEvery: params.progressEvery,
+    }
+  )
+  totalFetched += upserted.totalFetched
+  createdCount += upserted.createdCount
+  updatedCount += upserted.updatedCount
+  if (fetchResult.fetchedPages > 0) {
+    processedBatches += 1
+  }
+
+  const nextPage = fetchResult.nextPage > windowStartPage
+    ? fetchResult.nextPage
+    : windowStartPage + Math.max(1, fetchResult.fetchedPages)
+  const scopeHasMore = fetchResult.hasMore && fetchResult.fetchedPages > 0
+
+  let hasMore = false
+  if (scopeHasMore) {
+    cursorPage = nextPage
+    cursorScope = currentCountry
+    hasMore = true
+  } else {
+    scopeIndex += 1
+    if (scopeIndex < countrySequence.length) {
+      cursorPage = 1
+      cursorScope = countrySequence[scopeIndex]
+      hasMore = true
+    } else {
+      cursorPage = 0
+      cursorScope = null
+      hasMore = false
+    }
+  }
+
+  await emitProgress(totalFetched)
+  await emitCheckpoint()
 
   return {
     totalFetched,
     createdCount,
     updatedCount,
+    hasMore,
+    nextCursorPage: cursorPage,
+    nextCursorScope: cursorScope,
   }
 }
 
@@ -7507,12 +7532,7 @@ export async function syncAffiliateProducts(params: {
         onProgress: params.onProgress,
         onCheckpoint: params.onCheckpoint,
       })
-      return {
-        ...result,
-        hasMore: false,
-        nextCursorPage: 0,
-        nextCursorScope: null,
-      }
+      return result
     }
 
     return await syncYeahPromosPlatformByWindow({
