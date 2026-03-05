@@ -2662,7 +2662,7 @@ export default function CampaignsClientPage({
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <Table className="min-w-[1260px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5 [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                <Table className="min-w-[1260px] [&_th]:h-9 [&_th]:px-1 [&_td]:px-1 [&_td]:py-1.5 [&_thead_th]:bg-white">
                   <TableHeader>
                     <TableRow>
                       {/* 全选checkbox */}

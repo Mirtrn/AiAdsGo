@@ -329,7 +329,7 @@ export default function SyncManagementPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                <Table className="[&_thead_th]:bg-white">
                   <TableHeader>
                     <TableRow>
                       <TableHead>开始时间</TableHead>

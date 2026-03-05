@@ -766,7 +766,7 @@ export default function ClickFarmPage() {
         ) : (
           <Card>
             <CardContent className="p-0">
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     {/* 🆕 全选复选框 */}
