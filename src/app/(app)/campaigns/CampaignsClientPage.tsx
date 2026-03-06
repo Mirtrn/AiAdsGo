@@ -2772,7 +2772,7 @@ export default function CampaignsClientPage({
 		                    const canDeleteDraft = campaign.creationStatus === 'draft'
 		                    const canDeleteDraftAction = canDeleteDraft && !deleteDraftSubmitting
 		                    const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
-		                    const canDeleteRemovedAction = isRemovedStatus && !deleteRemovedSubmitting
+		                    const canDeleteRemovedAction = (isRemovedStatus || campaign.adsAccountAvailable === false) && !deleteRemovedSubmitting
                         const campaignRoas = formatCampaignRoas(campaign)
                         const configuredMaxCpc = Number(campaign.configuredMaxCpc)
                         const hasConfiguredMaxCpc = Number.isFinite(configuredMaxCpc) && configuredMaxCpc > 0
