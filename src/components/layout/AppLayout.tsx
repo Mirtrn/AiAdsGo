@@ -127,7 +127,7 @@ function SidebarLink({
   )
 }
 
-const collapsibleNavigationHrefs = new Set(['/data-management', '/openclaw'])
+const collapsibleNavigationHrefs = new Set(['/data-management', '/analytics/roi', '/analytics/budget', '/openclaw'])
 
 const navigationItems: NavItem[] = [
   {
@@ -169,6 +169,16 @@ const navigationItems: NavItem[] = [
     label: '数据管理',
     href: '/data-management',
     icon: Database,
+  },
+  {
+    label: 'ROI分析',
+    href: '/analytics/roi',
+    icon: TrendingUp,
+  },
+  {
+    label: '预算分析',
+    href: '/analytics/budget',
+    icon: Activity,
   },
   {
     label: 'OpenClaw',

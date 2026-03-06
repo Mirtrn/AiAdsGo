@@ -14,9 +14,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LazyROITrendChart, LazyCampaignROIChart, LazyOfferROIChart } from '@/components/LazyChartLoader'
-import { Download, TrendingUp, TrendingDown, DollarSign, Target, Percent, RefreshCw } from 'lucide-react'
+import { Download, TrendingUp, TrendingDown, DollarSign, Target, Percent, RefreshCw, CalendarDays } from 'lucide-react'
 import { useROIAnalytics } from '@/lib/hooks/useAnalytics'
 import { formatCurrency } from '@/lib/currency'
+
+
+type ROIAnalyticsTimeRange = '7' | '14' | '30' | 'custom'
 
 interface ROIData {
   overall: {
@@ -71,12 +74,17 @@ export default function ROIAnalyticsPage() {
   const router = useRouter()
 
   // Date filters
+  const [timeRange, setTimeRange] = useState<ROIAnalyticsTimeRange>('30')
   const [startDate, setStartDate] = useState(() => {
     const date = new Date()
     date.setDate(date.getDate() - 30)
     return date.toISOString().split('T')[0]
   })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
+  const [isCustomRangePanelOpen, setIsCustomRangePanelOpen] = useState(false)
   const [reportCurrency, setReportCurrency] = useState<string | null>(null)
 
   // Use SWR for data fetching with automatic caching
@@ -86,6 +94,89 @@ export default function ROIAnalyticsPage() {
   const availableCurrencies = currencyInfo?.currencies ?? []
   const money = (amount: number) => formatCurrency(amount, selectedCurrency)
   const moneyCsv = (amount: number) => `${selectedCurrency} ${Number(amount ?? 0).toFixed(2)}`
+
+  const customRangeLabel = appliedCustomRange
+    ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
+    : '自定义'
+
+  const applyPresetRange = (days: Exclude<ROIAnalyticsTimeRange, 'custom'>) => {
+    const end = new Date()
+    const start = new Date(end)
+    start.setDate(start.getDate() - (Number(days) - 1))
+    const startStr = start.toISOString().split('T')[0]
+    const endStr = end.toISOString().split('T')[0]
+    setStartDate(startStr)
+    setEndDate(endStr)
+    setAppliedCustomRange(null)
+  }
+
+  const handleSelectPresetRange = (days: Exclude<ROIAnalyticsTimeRange, 'custom'>) => {
+    setTimeRange(days)
+    setIsCustomRangePanelOpen(false)
+    applyPresetRange(days)
+  }
+
+  const openCustomRange = () => {
+    if (isCustomRangePanelOpen) {
+      setIsCustomRangePanelOpen(false)
+      return
+    }
+
+    if (appliedCustomRange) {
+      setCustomStartDate(appliedCustomRange.startDate)
+      setCustomEndDate(appliedCustomRange.endDate)
+    } else if (startDate && endDate) {
+      setCustomStartDate(startDate)
+      setCustomEndDate(endDate)
+    } else {
+      const end = new Date()
+      const start = new Date(end)
+      start.setDate(start.getDate() - 6)
+      setCustomStartDate(start.toISOString().split('T')[0])
+      setCustomEndDate(end.toISOString().split('T')[0])
+    }
+
+    setIsCustomRangePanelOpen(true)
+  }
+
+  const handleCustomStartDateChange = (value: string) => {
+    setCustomStartDate(value)
+  }
+
+  const handleCustomEndDateChange = (value: string) => {
+    setCustomEndDate(value)
+  }
+
+  const handleApplyCustomDateRange = () => {
+    if (!customStartDate || !customEndDate) {
+      showError('时间范围无效', '请同时选择开始日期和结束日期')
+      return
+    }
+
+    if (customStartDate > customEndDate) {
+      showError('时间范围无效', '结束日期不能早于开始日期')
+      return
+    }
+
+    setAppliedCustomRange({ startDate: customStartDate, endDate: customEndDate })
+    setStartDate(customStartDate)
+    setEndDate(customEndDate)
+    setTimeRange('custom')
+    setIsCustomRangePanelOpen(false)
+  }
+
+  const handleCancelCustomDateRange = () => {
+    if (appliedCustomRange) {
+      setCustomStartDate(appliedCustomRange.startDate)
+      setCustomEndDate(appliedCustomRange.endDate)
+    } else {
+      setCustomStartDate('')
+      setCustomEndDate('')
+    }
+
+    setIsCustomRangePanelOpen(false)
+  }
+
 
   useEffect(() => {
     if (!currencyInfo?.currency || !Array.isArray(currencyInfo.currencies)) return
@@ -188,19 +279,78 @@ export default function ROIAnalyticsPage() {
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-40"
-                />
-                <span className="text-gray-500">至</span>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-40"
-                />
+                <span className="text-sm text-gray-500">时间范围:</span>
+                <div className="flex bg-white rounded-lg border p-1">
+                  {(['7', '14', '30'] as const).map((d) => (
+                    <Button
+                      key={d}
+                      variant={timeRange === d ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => handleSelectPresetRange(d)}
+                      className="h-7 px-3 text-xs"
+                    >
+                      {d}天
+                    </Button>
+                  ))}
+                  <div className="relative inline-flex ml-1">
+                    <Button
+                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                      size="sm"
+                      className="h-7 px-3 text-xs max-w-[220px]"
+                      onClick={openCustomRange}
+                    >
+                      <CalendarDays className="w-3 h-3 mr-1" />
+                      <span className="truncate">{customRangeLabel}</span>
+                    </Button>
+                    {isCustomRangePanelOpen && (
+                      <div className="absolute right-0 top-full mt-2 w-[280px] rounded-md border bg-white shadow-lg p-3 z-20">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="date"
+                              value={customStartDate}
+                              onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                              className="h-8 flex-1 text-[11px]"
+                              max={customEndDate || undefined}
+                            />
+                            <span className="text-xs text-gray-500">至</span>
+                            <Input
+                              type="date"
+                              value={customEndDate}
+                              onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                              className="h-8 flex-1 text-[11px]"
+                              min={customStartDate || undefined}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-gray-500">
+                            {customStartDate && customEndDate ? (
+                              <span>
+                                已选择 {customStartDate} ~ {customEndDate}
+                              </span>
+                            ) : (
+                              <span>请选择开始日期和结束日期</span>
+                            )}
+                            <div className="space-x-2">
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={handleCancelCustomDateRange}
+                              >
+                                取消
+                              </Button>
+                              <Button
+                                size="xs"
+                                onClick={handleApplyCustomDateRange}
+                              >
+                                应用
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               {availableCurrencies.length > 1 && (
                 <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
