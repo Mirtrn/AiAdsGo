@@ -6,6 +6,8 @@ import {
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 import { normalizeGeminiModel } from '@/lib/gemini-models'
+import { getAffiliateSyncSettingsMap } from '@/lib/openclaw/settings'
+import { validateAffiliateSyncConfig } from '@/lib/affiliate-sync-validation'
 
 const validateSchema = z.object({
   category: z.string(),
@@ -206,6 +208,24 @@ export async function POST(request: NextRequest) {
           }
         }
         break
+
+      case 'affiliate_sync': {
+        if (!userIdNum) {
+          return NextResponse.json(
+            { error: '验证联盟同步配置需要登录' },
+            { status: 401 }
+          )
+        }
+
+        const savedSettings = await getAffiliateSyncSettingsMap(userIdNum)
+        result = await validateAffiliateSyncConfig({
+          partnerboostToken: config.partnerboost_token || savedSettings.partnerboost_token,
+          partnerboostBaseUrl: config.partnerboost_base_url || savedSettings.partnerboost_base_url,
+          yeahpromosToken: config.yeahpromos_token || savedSettings.yeahpromos_token,
+          yeahpromosSiteId: config.yeahpromos_site_id || savedSettings.yeahpromos_site_id,
+        })
+        break
+      }
 
       default:
         return NextResponse.json(

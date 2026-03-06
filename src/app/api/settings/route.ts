@@ -6,6 +6,7 @@ import { GEMINI_ACTIVE_MODEL, isDeprecatedGeminiModel, normalizeModelForProvider
 import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
+import { getFixedAffiliateSyncSettingValue } from '@/lib/affiliate-sync-config'
 
 /**
  * GET /api/settings
@@ -64,6 +65,18 @@ export async function GET(request: NextRequest) {
         description: setting.description,
       })
     }
+
+    if (groupedSettings['affiliate_sync']) {
+      groupedSettings['affiliate_sync'] = groupedSettings['affiliate_sync'].map((setting) => {
+        const fixedValue = getFixedAffiliateSyncSettingValue(setting.key)
+        if (fixedValue === undefined) return setting
+        return {
+          ...setting,
+          value: fixedValue,
+        }
+      })
+    }
+
 
     // 🔧 2025-12-29: 为 AI 分类添加动态计算字段
     if (groupedSettings['ai']) {
@@ -159,6 +172,14 @@ export async function PUT(request: NextRequest) {
     }
 
     const { updates } = validationResult.data
+
+    for (const update of updates) {
+      if (update.category !== 'affiliate_sync') continue
+      const fixedValue = getFixedAffiliateSyncSettingValue(update.key)
+      if (fixedValue !== undefined) {
+        update.value = fixedValue
+      }
+    }
 
     // 🔧 同步更新：AI配置变更时，按“服务商 + 模型”自动填充 gemini_endpoint
     const hasAIUpdate = updates.some(u => u.category === 'ai')

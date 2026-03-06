@@ -30,6 +30,11 @@ import {
 } from '@/lib/gemini-models'
 import { getGeminiEndpoint, type GeminiProvider } from '@/lib/gemini-config'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
+import {
+  DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS,
+  DEFAULT_PARTNERBOOST_BASE_URL,
+  getFixedAffiliateSyncSettingValue,
+} from '@/lib/affiliate-sync-config'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
@@ -257,22 +262,22 @@ const SETTING_METADATA: Record<string, {
   },
   'affiliate_sync.partnerboost_base_url': {
     label: 'PartnerBoost Base URL',
-    description: 'PartnerBoost API 地址，默认无需修改',
-    placeholder: 'https://app.partnerboost.com',
-    defaultValue: 'https://app.partnerboost.com',
+    description: 'PartnerBoost API 地址，系统固定使用默认值，不支持修改',
+    placeholder: DEFAULT_PARTNERBOOST_BASE_URL,
+    defaultValue: DEFAULT_PARTNERBOOST_BASE_URL,
   },
   'affiliate_sync.openclaw_affiliate_sync_interval_hours': {
     label: '佣金同步间隔（小时）',
-    description: '联盟佣金快照自动同步间隔，建议 1-24',
-    placeholder: '例如: 1',
-    defaultValue: '1',
+    description: '联盟佣金同步已固定为默认间隔，当前不支持修改',
+    placeholder: DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS,
+    defaultValue: DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS,
   },
   'affiliate_sync.openclaw_affiliate_sync_mode': {
     label: '佣金同步模式',
-    description: 'incremental：按间隔回补；realtime：Feishu 查询优先实时拉取',
+    description: '仍然保留：incremental 走快照缓存；realtime 会让飞书/即时查询优先实时刷新佣金数据',
     options: [
-      { value: 'incremental', label: 'incremental（推荐）' },
-      { value: 'realtime', label: 'realtime' },
+      { value: 'incremental', label: 'incremental（快照缓存，推荐）' },
+      { value: 'realtime', label: 'realtime（飞书查询优先实时）' },
     ],
     defaultValue: 'incremental',
   },
@@ -462,12 +467,14 @@ export default function SettingsPage() {
 
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
+  const [savedFormData, setSavedFormData] = useState<Record<string, Record<string, string>>>({})
 
   // 正在编辑的敏感字段（用于控制显示真实值还是固定占位符）
   const [editingField, setEditingField] = useState<string | null>(null)
 
   // 代理URL配置状态
   const [proxyUrls, setProxyUrls] = useState<ProxyUrlConfig[]>([])
+  const [savedProxyUrls, setSavedProxyUrls] = useState<ProxyUrlConfig[]>([])
 
   // Google Ads 凭证和账户状态
   const [googleAdsCredentialStatus, setGoogleAdsCredentialStatus] = useState<GoogleAdsCredentialStatus | null>(null)
@@ -557,6 +564,81 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const buildCategoryFormValues = (category: string, backendSettings: Setting[]): Record<string, string> => {
+    const categoryFormValues: Record<string, string> = {}
+    const backendMap = new Map<string, Setting>(backendSettings.map((s: Setting) => [s.key, s]))
+
+    const definedFields = CATEGORY_FIELDS[category] || []
+    for (const field of definedFields) {
+      const metaKey = `${category}.${field.key}`
+      const metadata = SETTING_METADATA[metaKey]
+      const backendSetting = backendMap.get(field.key)
+      categoryFormValues[field.key] = backendSetting?.value || metadata?.defaultValue || ''
+    }
+
+    if (category === 'google_ads') {
+      const testKeys = ['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token']
+      for (const key of testKeys) {
+        const metaKey = `${category}.${key}`
+        const metadata = SETTING_METADATA[metaKey]
+        const backendSetting = backendMap.get(key)
+        categoryFormValues[key] = backendSetting?.value || metadata?.defaultValue || ''
+      }
+    }
+
+    if (category === 'ai') {
+      const provider = categoryFormValues.gemini_provider || 'official'
+      const currentModel = categoryFormValues.gemini_model || GEMINI_ACTIVE_MODEL
+      const normalizedModel = normalizeModelForProvider(currentModel, provider)
+      categoryFormValues.gemini_model = normalizedModel
+      categoryFormValues.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
+    }
+
+    return categoryFormValues
+  }
+
+  const applyCategorySettings = (category: string, backendSettings: Setting[]) => {
+    setSettings(prev => ({
+      ...prev,
+      [category]: backendSettings,
+    }))
+
+    if (category === 'proxy') {
+      const proxySetting = backendSettings.find((item) => item.key === 'urls')
+      try {
+        const urls = proxySetting?.value ? JSON.parse(proxySetting.value) : []
+        const normalizedUrls = Array.isArray(urls) ? urls : []
+        setProxyUrls(normalizedUrls)
+        setSavedProxyUrls(normalizedUrls)
+      } catch {
+        setProxyUrls([])
+        setSavedProxyUrls([])
+      }
+    }
+
+    const categoryFormValues = buildCategoryFormValues(category, backendSettings)
+    setFormData(prev => ({ ...prev, [category]: categoryFormValues }))
+    setSavedFormData(prev => ({ ...prev, [category]: categoryFormValues }))
+  }
+
+  const refreshCategorySettings = async (category: string) => {
+    const response = await fetch(`/api/settings?category=${encodeURIComponent(category)}`, {
+      credentials: 'include',
+    })
+
+    if (response.status === 401) {
+      handleUnauthorized()
+      return
+    }
+
+    if (!response.ok) {
+      throw new Error('获取最新配置失败')
+    }
+
+    const data = await response.json()
+    applyCategorySettings(category, (data.settings?.[category] as Setting[]) || [])
+  }
+
   const fetchSettings = async () => {
     try {
       const response = await fetch('/api/settings', {
@@ -579,56 +661,27 @@ export default function SettingsPage() {
       // 初始化表单数据，基于CATEGORY_FIELDS定义，确保所有字段都能显示
       const initialFormData: Record<string, Record<string, string>> = {}
 
-      // 遍历所有分类
       for (const category of ['google_ads', 'ai', 'proxy', 'affiliate_sync', 'system']) {
-        initialFormData[category] = {}
         const backendSettings = (data.settings[category] as Setting[]) || []
-        const backendMap = new Map<string, Setting>(backendSettings.map((s: Setting) => [s.key, s]))
 
-        // 遍历该分类定义的所有字段
-        const definedFields = CATEGORY_FIELDS[category] || []
-        for (const field of definedFields) {
-          const metaKey = `${category}.${field.key}`
-          const metadata = SETTING_METADATA[metaKey]
-          const backendSetting = backendMap.get(field.key)
-
-          // 特殊处理代理URL配置（JSON格式）
-          if (category === 'proxy' && field.key === 'urls') {
-            try {
-              const urls = backendSetting?.value ? JSON.parse(backendSetting.value) : []
-              setProxyUrls(Array.isArray(urls) ? urls : [])
-            } catch {
-              setProxyUrls([])
-            }
-            initialFormData[category][field.key] = backendSetting?.value || '[]'
-          } else {
-            // 使用后端值，否则使用默认值
-            initialFormData[category][field.key] = backendSetting?.value || metadata?.defaultValue || ''
+        if (category === 'proxy') {
+          const proxySetting = backendSettings.find((item: Setting) => item.key === 'urls')
+          try {
+            const urls = proxySetting?.value ? JSON.parse(proxySetting.value) : []
+            const normalizedUrls = Array.isArray(urls) ? urls : []
+            setProxyUrls(normalizedUrls)
+            setSavedProxyUrls(normalizedUrls)
+          } catch {
+            setProxyUrls([])
+            setSavedProxyUrls([])
           }
         }
 
-        // Google Ads 测试权限 MCC 诊断：初始化测试配置字段（不加入 CATEGORY_FIELDS，避免影响现有 OAuth 配置表单）
-        if (category === 'google_ads') {
-          const testKeys = ['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token']
-          for (const key of testKeys) {
-            const metaKey = `${category}.${key}`
-            const metadata = SETTING_METADATA[metaKey]
-            const backendSetting = backendMap.get(key)
-            initialFormData[category][key] = backendSetting?.value || metadata?.defaultValue || ''
-          }
-        }
-      }
-
-      // AI模型按服务商做前端归一化，避免历史值导致下拉不可选
-      if (initialFormData.ai) {
-        const provider = initialFormData.ai.gemini_provider || 'official'
-        const currentModel = initialFormData.ai.gemini_model || GEMINI_ACTIVE_MODEL
-        const normalizedModel = normalizeModelForProvider(currentModel, provider)
-        initialFormData.ai.gemini_model = normalizedModel
-        initialFormData.ai.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
+        initialFormData[category] = buildCategoryFormValues(category, backendSettings)
       }
 
       setFormData(initialFormData)
+      setSavedFormData(initialFormData)
     } catch (err: any) {
       toast.error(err.message || '获取配置失败')
     } finally {
@@ -800,7 +853,7 @@ export default function SettingsPage() {
       if (!response.ok) throw new Error(data.error || '保存失败')
 
       toast.success('Google Ads 测试配置保存成功')
-      await fetchSettings()
+      await refreshCategorySettings('google_ads')
       setEditingField(null)
     } catch (err: any) {
       toast.error(err.message || '保存失败')
@@ -1128,8 +1181,8 @@ export default function SettingsPage() {
       const categoryLabel = CATEGORY_CONFIG[category]?.label || category
       toast.success(`${categoryLabel} 配置保存成功`)
 
-      // 刷新配置（会重新获取解密后的值）
-      await fetchSettings()
+      // 仅刷新当前分类，避免覆盖其他分类未保存修改
+      await refreshCategorySettings(category)
 
       // 🔥 重要：刷新后清除编辑状态，让敏感字段重新显示为占位符
       setEditingField(null)
@@ -1141,6 +1194,14 @@ export default function SettingsPage() {
   }
 
   const handleValidate = async (category: string) => {
+    const disabledReason = getValidateDisabledReason(category)
+    if (disabledReason) {
+      if (disabledReason.includes('未保存')) {
+        toast.error(disabledReason)
+      }
+      return
+    }
+
     setValidating(category)
 
     try {
@@ -1260,7 +1321,7 @@ export default function SettingsPage() {
       }
 
       toast.success(`已删除「${targetLabel}」配置`)
-      await fetchSettings()
+      await refreshCategorySettings('ai')
       setEditingField(null)
       setAiDeleteConfirmTarget(null)
     } catch (err: any) {
@@ -1428,17 +1489,54 @@ export default function SettingsPage() {
     }
   }
 
+  const isReadOnlySetting = (category: string, key: string): boolean => {
+    if (category === 'ai' && key === 'gemini_endpoint') return true
+    return category === 'affiliate_sync' && getFixedAffiliateSyncSettingValue(key) !== undefined
+  }
+
+  const normalizeComparableRecord = (record: Record<string, string> | undefined): Record<string, string> => {
+    const normalized: Record<string, string> = {}
+    for (const [key, rawValue] of Object.entries(record || {})) {
+      normalized[key] = String(rawValue || '')
+    }
+    return normalized
+  }
+
+  const normalizeComparableProxyUrls = (items: ProxyUrlConfig[]): Array<{ country: string; url: string }> => {
+    return items.map((item) => ({
+      country: String(item?.country || ''),
+      url: String(item?.url || ''),
+    }))
+  }
+
+  const hasUnsavedChanges = (category: string): boolean => {
+    if (category === 'proxy') {
+      return JSON.stringify(normalizeComparableProxyUrls(proxyUrls)) !== JSON.stringify(normalizeComparableProxyUrls(savedProxyUrls))
+    }
+
+    return JSON.stringify(normalizeComparableRecord(formData[category])) !== JSON.stringify(normalizeComparableRecord(savedFormData[category]))
+  }
+
+  const getValidateDisabledReason = (category: string): string | null => {
+    if (validating === category) return '正在验证中'
+    if (saving || savingServiceAccount) return '正在保存中'
+    if (hasUnsavedChanges(category)) return '有未保存的修改，请先保存配置'
+    return null
+  }
+
+  const canValidateCategory = (category: string): boolean => getValidateDisabledReason(category) === null
+
   const renderInput = (category: string, setting: Setting) => {
     const metaKey = `${category}.${setting.key}`
     const metadata = SETTING_METADATA[metaKey]
     const value = formData[category]?.[setting.key] || ''
 
     // 🆕 gemini_endpoint 只读显示
-    if (category === 'ai' && setting.key === 'gemini_endpoint') {
+    if (isReadOnlySetting(category, setting.key)) {
       return (
         <Input
           type="text"
-          value={value}
+          value={value || metadata?.defaultValue || ''}
           readOnly
           disabled
           className="bg-gray-100 cursor-not-allowed"
@@ -1483,13 +1581,17 @@ export default function SettingsPage() {
 
     // 数字类型
     if (setting.dataType === 'number') {
+      const readOnly = isReadOnlySetting(category, setting.key)
       return (
         <Input
           type="number"
-          value={value}
+          value={value || metadata?.defaultValue || ''}
           onChange={(e) => handleInputChange(category, setting.key, e.target.value)}
           placeholder={metadata?.placeholder}
           min={0}
+          readOnly={readOnly}
+          disabled={readOnly}
+          className={readOnly ? 'bg-gray-100 cursor-not-allowed' : undefined}
         />
       )
     }
@@ -1507,7 +1609,6 @@ export default function SettingsPage() {
 
     // text类型 - 大文本输入（如Service Account JSON）
     if (setting.dataType === 'text') {
-      // 对于敏感的text类型（如Service Account JSON），使用Textarea但不显示值
       const displayValue = setting.isSensitive && value ? '***已配置***' : value
 
       return (
@@ -1518,7 +1619,6 @@ export default function SettingsPage() {
           rows={6}
           className="font-mono text-sm"
           onFocus={(e) => {
-            // 聚焦时如果是已配置状态，清空以便重新输入
             if (setting.isSensitive && value && e.target.value === '***已配置***') {
               e.target.value = ''
               handleInputChange(category, setting.key, '')
@@ -1528,13 +1628,10 @@ export default function SettingsPage() {
       )
     }
 
-    // 敏感数据 - 密码输入
     if (setting.isSensitive) {
       const fieldKey = `${category}.${setting.key}`
       const isEditing = editingField === fieldKey
       const hasValue = value && value.trim() !== ''
-
-      // 如果正在编辑，显示实际值；否则显示固定长度的占位符（12个点），避免泄露实际长度
       const displayValue = isEditing ? value : (hasValue ? '············' : '')
 
       return (
@@ -1546,15 +1643,12 @@ export default function SettingsPage() {
             placeholder={metadata?.placeholder || ''}
             className={hasValue ? 'border-green-300' : ''}
             onFocus={() => {
-              // 聚焦时标记为正在编辑，并清空占位符
               setEditingField(fieldKey)
               if (hasValue && !isEditing) {
-                // 清空占位符，让用户输入新值
                 handleInputChange(category, setting.key, '')
               }
             }}
             onBlur={() => {
-              // 失焦时取消编辑状态
               setEditingField(null)
             }}
           />
@@ -1568,13 +1662,15 @@ export default function SettingsPage() {
       )
     }
 
-    // 默认文本输入
     return (
       <Input
         type="text"
-        value={value}
+        value={value || metadata?.defaultValue || ''}
         onChange={(e) => handleInputChange(category, setting.key, e.target.value)}
         placeholder={metadata?.placeholder}
+        readOnly={isReadOnlySetting(category, setting.key)}
+        disabled={isReadOnlySetting(category, setting.key)}
+        className={isReadOnlySetting(category, setting.key) ? 'bg-gray-100 cursor-not-allowed' : undefined}
       />
     )
   }
@@ -2501,6 +2597,19 @@ export default function SettingsPage() {
                       </div>
                     )}
 
+                    {category === 'affiliate_sync' && (
+                      <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                        <div className="flex items-start gap-2 mb-2">
+                          <Info className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                          <p className="font-semibold text-body-sm text-emerald-800">联盟同步配置说明</p>
+                        </div>
+                        <div className="space-y-1 text-body-sm text-emerald-700">
+                          <p>支持只配置一个联盟，也支持同时配置 PartnerBoost 与 YeahPromos。</p>
+                          <p>点击“验证配置”会分别实调已配置联盟的真实 API，确认 Token / Site ID 是否可用。</p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
@@ -2540,6 +2649,9 @@ export default function SettingsPage() {
                           <div className="flex items-center justify-between">
                             <Label className="label-text flex items-center gap-2">
                               {metadata?.label || setting.key}
+                              {category === 'affiliate_sync' && isReadOnlySetting(category, setting.key) && (
+                                <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300">固定默认</Badge>
+                              )}
                               {isRequired && (
                                 <span className="text-caption text-red-500">*必填</span>
                               )}
@@ -2631,7 +2743,7 @@ export default function SettingsPage() {
                       <Button
                         variant="outline"
                         onClick={() => handleValidate(category)}
-                        disabled={validating === category}
+                        disabled={!canValidateCategory(category)}
                       >
                         {validating === category ? '验证中...' : '验证配置'}
                       </Button>
@@ -2650,12 +2762,29 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       onClick={() => handleValidate(category)}
-                      disabled={validating === category}
+                      disabled={!canValidateCategory(category)}
+                    >
+                      {validating === category ? '验证中...' : '验证配置'}
+                    </Button>
+                  )}
+
+                  {category === 'affiliate_sync' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleValidate(category)}
+                      disabled={!canValidateCategory(category)}
                     >
                       {validating === category ? '验证中...' : '验证配置'}
                     </Button>
                   )}
                 </div>
+
+                {['ai', 'proxy', 'affiliate_sync'].includes(category) && getValidateDisabledReason(category)?.includes('未保存') && (
+                  <p className="mt-2 text-caption text-amber-600 flex items-center gap-1">
+                    <Info className="w-3 h-3" />
+                    {getValidateDisabledReason(category)}
+                  </p>
+                )}
               </Card>
             )
           })}

@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { getUserOnlySettingsByCategory, getSettingsByCategory, type SettingValue } from '@/lib/settings'
+import { applyFixedAffiliateSyncValues } from '@/lib/affiliate-sync-config'
 
 export type OpenclawSettingMap = Record<string, string | null>
 
@@ -74,7 +75,7 @@ export async function getAffiliateSyncSettingsMap(userId?: number): Promise<Open
   const settings = userId
     ? await getUserOnlySettingsByCategory('affiliate_sync', userId)
     : await getSettingsByCategory('affiliate_sync')
-  return buildSettingMap(settings)
+  return applyFixedAffiliateSyncValues(buildSettingMap(settings))
 }
 
 export async function getOpenclawSettingsWithAffiliateSyncMap(userId?: number): Promise<OpenclawSettingMap> {
