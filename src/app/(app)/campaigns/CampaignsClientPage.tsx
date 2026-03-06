@@ -1197,8 +1197,11 @@ export default function CampaignsClientPage({
   }
 
   const openDeleteRemovedDialog = (campaign: Campaign) => {
-    if (String(campaign.status || '').toUpperCase() !== 'REMOVED') {
-      showError('无法操作', '仅已移除广告系列可删除')
+    const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
+    const adsAccountUnavailable = campaign.adsAccountAvailable === false
+
+    if (!isRemovedStatus && !adsAccountUnavailable) {
+      showError('无法操作', '仅已移除或Ads账号已解绑的广告系列可删除')
       return
     }
 
@@ -2971,14 +2974,14 @@ export default function CampaignsClientPage({
                               <span>下线广告系列</span>
                             </DropdownMenuItem>
 
-                            {(isRemovedStatus || canDeleteDraft) && <DropdownMenuSeparator />}
+                            {(isRemovedStatus || campaign.adsAccountAvailable === false || canDeleteDraft) && <DropdownMenuSeparator />}
 
-                            {isRemovedStatus && (
+                            {(isRemovedStatus || campaign.adsAccountAvailable === false) && (
                               <DropdownMenuItem
                                 className="gap-2"
                                 onClick={() => openDeleteRemovedDialog(campaign)}
                                 disabled={!canDeleteRemovedAction}
-                                title={canDeleteRemovedAction ? '永久删除已移除广告系列' : '删除中...'}
+                                title={canDeleteRemovedAction ? '永久删除广告系列（本地删除，不再调用 Google Ads）' : '删除中...'}
                               >
                                 <Trash2 className="w-4 h-4 text-red-600" />
                                 <span>删除广告系列</span>
@@ -3386,7 +3389,7 @@ export default function CampaignsClientPage({
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  您确定要永久删除已移除广告系列{' '}
+                  您确定要永久删除广告系列{' '}
                   <strong className="text-gray-900">{deleteRemovedTarget?.campaignName || '-'}</strong> 吗？
                 </p>
                 <p className="text-sm text-red-700">
@@ -3396,7 +3399,7 @@ export default function CampaignsClientPage({
                   <p className="font-medium mb-1">删除后将会：</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
                     <li>从广告系列列表中彻底移除</li>
-                    <li>仅删除本地记录，不会触发新的 Google Ads 操作</li>
+                    <li>仅删除本地记录，不会触发新的 Google Ads 操作（包含 Ads 账号已解绑的广告系列）</li>
                     <li>此操作不可恢复</li>
                   </ul>
                 </div>

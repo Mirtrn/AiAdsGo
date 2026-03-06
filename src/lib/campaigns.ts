@@ -289,15 +289,24 @@ export type DeleteCampaignResult =
  * 删除广告系列
  * - 草稿广告系列：软删除（保留历史）
  * - 已移除广告系列：永久删除（不再出现在列表）
+ * - Ads 账号不可用/已解绑：仅本地下线并删除（不再调用 Google Ads）
  */
 export async function deleteCampaign(id: number, userId: number): Promise<DeleteCampaignResult> {
   const db = await getDatabase()
 
   const campaign = await db.queryOne(
     `
-      SELECT creation_status, is_deleted, status
-      FROM campaigns
-      WHERE id = ? AND user_id = ?
+      SELECT
+        c.creation_status,
+        c.is_deleted,
+        c.status,
+        c.google_ads_account_id,
+        gaa.id AS ads_account_id,
+        gaa.is_active AS ads_account_is_active,
+        gaa.is_deleted AS ads_account_is_deleted
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.id = ? AND c.user_id = ?
       LIMIT 1
     `,
     [id, userId]
@@ -306,6 +315,10 @@ export async function deleteCampaign(id: number, userId: number): Promise<Delete
         creation_status: string | null
         is_deleted: any
         status: string | null
+        google_ads_account_id: number | null
+        ads_account_id: number | null
+        ads_account_is_active: any
+        ads_account_is_deleted: any
       }
     | undefined
 
@@ -314,6 +327,20 @@ export async function deleteCampaign(id: number, userId: number): Promise<Delete
   }
 
   const normalizedStatus = String(campaign.status || '').trim().toUpperCase()
+
+  // 与 /api/campaigns/performance 对齐：Ads 账号可用 = 账号存在且为激活状态
+  const hasLinkedAdsAccountId =
+    campaign.google_ads_account_id !== null && campaign.google_ads_account_id !== undefined
+  const hasAccountRow = campaign.ads_account_id !== null && campaign.ads_account_id !== undefined
+  const adsAccountIsActive =
+    campaign.ads_account_is_active === true || campaign.ads_account_is_active === 1
+  const adsAccountIsDeleted =
+    campaign.ads_account_is_deleted === true || campaign.ads_account_is_deleted === 1
+  const adsAccountAvailable =
+    hasLinkedAdsAccountId && hasAccountRow && adsAccountIsActive && !adsAccountIsDeleted
+  const canDeleteDueToAdsUnavailable = !adsAccountAvailable
+
+  // 情况一：已移除广告系列，直接物理删除（保留现有行为）
   if (normalizedStatus === 'REMOVED') {
     const result = await db.exec(
       `
@@ -335,21 +362,50 @@ export async function deleteCampaign(id: number, userId: number): Promise<Delete
     return { success: false, reason: 'ALREADY_DELETED' }
   }
 
-  if (String(campaign.creation_status || '').toLowerCase() !== 'draft') {
-    return { success: false, reason: 'NOT_DRAFT' }
+  const creationStatus = String(campaign.creation_status || '').toLowerCase()
+
+  // 情况二：草稿广告系列 → 软删除（沿用原有状态机）
+  if (creationStatus === 'draft') {
+    const transitionResult = await applyCampaignTransition({
+      userId,
+      campaignId: id,
+      action: 'DRAFT_DELETE',
+    })
+
+    if (transitionResult.updatedCount <= 0) {
+      return { success: false, reason: 'NOT_FOUND' }
+    }
+
+    return { success: true }
   }
 
-  const transitionResult = await applyCampaignTransition({
-    userId,
-    campaignId: id,
-    action: 'DRAFT_DELETE',
-  })
+  // 情况三：Ads 账号已解绑/不可用 → 仅本地下线并删除
+  if (canDeleteDueToAdsUnavailable) {
+    // 本地状态机标记为 REMOVED（不会触发任何 Google Ads 调用）
+    await applyCampaignTransition({
+      userId,
+      campaignId: id,
+      action: 'OFFLINE',
+      payload: { removedReason: 'offline' },
+    })
 
-  if (transitionResult.updatedCount <= 0) {
-    return { success: false, reason: 'NOT_FOUND' }
+    const result = await db.exec(
+      `
+        DELETE FROM campaigns
+        WHERE id = ? AND user_id = ?
+      `,
+      [id, userId]
+    )
+
+    if ((result.changes || 0) <= 0) {
+      return { success: false, reason: 'NOT_FOUND' }
+    }
+
+    return { success: true }
   }
 
-  return { success: true }
+  // 其他情况：保持原有保护逻辑
+  return { success: false, reason: 'NOT_DRAFT' }
 }
 
 /**
