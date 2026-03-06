@@ -213,9 +213,11 @@ type OfferProductBackfillDecisionReason =
   | 'link_id'
   | 'asin'
   | 'link_id_asin_intersection'
+  | 'brand'
   | 'ambiguous_exact_url'
   | 'ambiguous_link_id'
   | 'ambiguous_asin'
+  | 'ambiguous_brand'
   | 'ambiguous_link_id_asin_intersection'
   | 'conflicting_link_id_asin'
   | 'no_match'
@@ -227,10 +229,12 @@ export type OfferProductLinkBackfillReason =
   | 'linked_by_exact_url'
   | 'linked_by_link_id'
   | 'linked_by_asin'
+  | 'linked_by_brand'
   | 'linked_by_link_id_asin_intersection'
   | 'ambiguous_exact_url'
   | 'ambiguous_link_id'
   | 'ambiguous_asin'
+  | 'ambiguous_brand'
   | 'ambiguous_link_id_asin_intersection'
   | 'conflicting_link_id_asin'
   | 'no_match'
@@ -244,11 +248,13 @@ export type OfferProductLinkBackfillResult = {
     urlTokenCount: number
     linkIdCount: number
     asinCount: number
+    brandCount: number
   }
   candidates: {
     exactUrlProductIds: number[]
     linkIdProductIds: number[]
     asinProductIds: number[]
+    brandProductIds: number[]
   }
 }
 
@@ -891,6 +897,12 @@ function normalizeAsin(value: unknown): string | null {
   return normalized || null
 }
 
+function normalizeBrand(value: unknown): string | null {
+  const text = String(value || '').trim()
+  if (!text) return null
+  return text.toLowerCase()
+}
+
 export function resolvePartnerboostPromoLinks(input: {
   productIdLink?: string | null
   asinLink?: string | null
@@ -1176,16 +1188,19 @@ function resolveOfferProductBackfillDecision(params: {
   exactUrlProductIds: number[]
   linkIdProductIds: number[]
   asinProductIds: number[]
+  brandProductIds: number[]
 }): {
   productId: number | null
   reason: OfferProductBackfillDecisionReason
   exactUrlProductIds: number[]
   linkIdProductIds: number[]
   asinProductIds: number[]
+  brandProductIds: number[]
 } {
   const exactUrlProductIds = dedupePositiveIds(params.exactUrlProductIds)
   const linkIdProductIds = dedupePositiveIds(params.linkIdProductIds)
   const asinProductIds = dedupePositiveIds(params.asinProductIds)
+  const brandProductIds = dedupePositiveIds(params.brandProductIds)
 
   if (exactUrlProductIds.length === 1) {
     return {
@@ -1194,6 +1209,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1204,6 +1220,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1217,6 +1234,7 @@ function resolveOfferProductBackfillDecision(params: {
         exactUrlProductIds,
         linkIdProductIds,
         asinProductIds,
+        brandProductIds,
       }
     }
 
@@ -1227,6 +1245,7 @@ function resolveOfferProductBackfillDecision(params: {
         exactUrlProductIds,
         linkIdProductIds,
         asinProductIds,
+        brandProductIds,
       }
     }
 
@@ -1236,6 +1255,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1246,6 +1266,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1256,6 +1277,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1266,6 +1288,7 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1276,6 +1299,30 @@ function resolveOfferProductBackfillDecision(params: {
       exactUrlProductIds,
       linkIdProductIds,
       asinProductIds,
+      brandProductIds,
+    }
+  }
+
+  // Brand matching as fallback
+  if (brandProductIds.length === 1) {
+    return {
+      productId: brandProductIds[0],
+      reason: 'brand',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+      brandProductIds,
+    }
+  }
+
+  if (brandProductIds.length > 1) {
+    return {
+      productId: null,
+      reason: 'ambiguous_brand',
+      exactUrlProductIds,
+      linkIdProductIds,
+      asinProductIds,
+      brandProductIds,
     }
   }
 
@@ -1285,6 +1332,7 @@ function resolveOfferProductBackfillDecision(params: {
     exactUrlProductIds,
     linkIdProductIds,
     asinProductIds,
+    brandProductIds,
   }
 }
 
@@ -6246,11 +6294,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
         urlTokenCount: 0,
         linkIdCount: 0,
         asinCount: 0,
+        brandCount: 0,
       },
       candidates: {
         exactUrlProductIds: [],
         linkIdProductIds: [],
         asinProductIds: [],
+        brandProductIds: [],
       },
     }
   }
@@ -6284,11 +6334,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
         urlTokenCount: 0,
         linkIdCount: 0,
         asinCount: 0,
+        brandCount: 0,
       },
       candidates: {
         exactUrlProductIds: [],
         linkIdProductIds: [],
         asinProductIds: [],
+        brandProductIds: [],
       },
     }
   }
@@ -6314,7 +6366,28 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
     }
   }
 
-  if (offerUrlTokens.size === 0 && offerLinkIds.size === 0 && offerAsins.size === 0) {
+  // Query brand information from affiliate_products for ASINs found in offer URLs
+  const offerBrands = new Set<string>()
+  if (offerAsins.size > 0) {
+    const asinArray = Array.from(offerAsins)
+    const asinPlaceholders = asinArray.map(() => '?').join(', ')
+    const brandRows = await db.query<{ brand: string }>(
+      `
+        SELECT DISTINCT brand
+        FROM affiliate_products
+        WHERE user_id = ? AND asin IN (${asinPlaceholders}) AND brand IS NOT NULL
+      `,
+      [params.userId, ...asinArray]
+    )
+    for (const row of brandRows) {
+      const brand = normalizeBrand(row.brand)
+      if (brand) {
+        offerBrands.add(brand)
+      }
+    }
+  }
+
+  if (offerUrlTokens.size === 0 && offerLinkIds.size === 0 && offerAsins.size === 0 && offerBrands.size === 0) {
     return {
       linked: false,
       offerId: params.offerId,
@@ -6324,11 +6397,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
         urlTokenCount: 0,
         linkIdCount: 0,
         asinCount: 0,
+        brandCount: 0,
       },
       candidates: {
         exactUrlProductIds: [],
         linkIdProductIds: [],
         asinProductIds: [],
+        brandProductIds: [],
       },
     }
   }
@@ -6340,12 +6415,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
   const productRows = await db.query<{
     id: number
     asin: string | null
+    brand: string | null
     promo_link: string | null
     short_promo_link: string | null
     product_url: string | null
   }>(
     `
-      SELECT id, asin, promo_link, short_promo_link, product_url
+      SELECT id, asin, brand, promo_link, short_promo_link, product_url
       FROM affiliate_products
       WHERE user_id = ? AND ${notBlacklistedCondition}
     `,
@@ -6355,6 +6431,7 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
   const exactUrlProductIds: number[] = []
   const linkIdProductIds: number[] = []
   const asinProductIds: number[] = []
+  const brandProductIds: number[] = []
 
   for (const row of productRows) {
     const productId = Number(row.id)
@@ -6398,22 +6475,32 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
         asinProductIds.push(productId)
       }
     }
+
+    if (offerBrands.size > 0) {
+      const productBrand = normalizeBrand(row.brand)
+      if (productBrand && offerBrands.has(productBrand)) {
+        brandProductIds.push(productId)
+      }
+    }
   }
 
   const decision = resolveOfferProductBackfillDecision({
     exactUrlProductIds,
     linkIdProductIds,
     asinProductIds,
+    brandProductIds,
   })
 
   const reasonMap: Record<OfferProductBackfillDecisionReason, OfferProductLinkBackfillReason> = {
     exact_url: 'linked_by_exact_url',
     link_id: 'linked_by_link_id',
     asin: 'linked_by_asin',
+    brand: 'linked_by_brand',
     link_id_asin_intersection: 'linked_by_link_id_asin_intersection',
     ambiguous_exact_url: 'ambiguous_exact_url',
     ambiguous_link_id: 'ambiguous_link_id',
     ambiguous_asin: 'ambiguous_asin',
+    ambiguous_brand: 'ambiguous_brand',
     ambiguous_link_id_asin_intersection: 'ambiguous_link_id_asin_intersection',
     conflicting_link_id_asin: 'conflicting_link_id_asin',
     no_match: 'no_match',
@@ -6429,11 +6516,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
         urlTokenCount: offerUrlTokens.size,
         linkIdCount: offerLinkIds.size,
         asinCount: offerAsins.size,
+        brandCount: offerBrands.size,
       },
       candidates: {
         exactUrlProductIds: decision.exactUrlProductIds,
         linkIdProductIds: decision.linkIdProductIds,
         asinProductIds: decision.asinProductIds,
+        brandProductIds: decision.brandProductIds,
       },
     }
   }
@@ -6454,11 +6543,13 @@ export async function backfillOfferProductLinkForPublishedCampaign(params: {
       urlTokenCount: offerUrlTokens.size,
       linkIdCount: offerLinkIds.size,
       asinCount: offerAsins.size,
+      brandCount: offerBrands.size,
     },
     candidates: {
       exactUrlProductIds: decision.exactUrlProductIds,
       linkIdProductIds: decision.linkIdProductIds,
       asinProductIds: decision.asinProductIds,
+      brandProductIds: decision.brandProductIds,
     },
   }
 }
