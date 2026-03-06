@@ -1492,6 +1492,30 @@ export async function persistAffiliateCommissionAttributions(params: {
       }
     }
 
+    // Enhance asinToBrands with brand info from affiliate_products table
+    // This allows brand fallback attribution even when products have no offer links
+    const productBrandRows = await db.query<{ asin: string; brand: string }>(
+      `
+        SELECT asin, brand
+        FROM affiliate_products
+        WHERE user_id = ?
+          AND asin IS NOT NULL
+          AND brand IS NOT NULL
+      `,
+      [params.userId]
+    )
+
+    for (const row of productBrandRows) {
+      const asin = normalizeAsin(row.asin)
+      if (!asin) continue
+      const brand = normalizeBrand(row.brand)
+      if (!brand) continue
+
+      const brands = asinToBrands.get(asin) || new Set<string>()
+      brands.add(brand)
+      asinToBrands.set(asin, brands)
+    }
+
     const appendAttributionRows = (paramsForAppend: {
       entry: NormalizedCommissionEntry
       candidates: CampaignAttributionCandidate[]

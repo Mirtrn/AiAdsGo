@@ -390,4 +390,66 @@ describe('persistAffiliateCommissionAttributions simplified attribution', () => 
     expect(failureInsertCalls).toHaveLength(1)
     expect((failureInsertCalls[0]?.[1] as any[])[10]).toBe('campaign_mapping_miss')
   })
+
+  it('uses brand from affiliate_products for fallback attribution when no offer link exists', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM offers')) {
+        return [
+          { id: 4001, brand: 'Waterdrop', url: 'https://www.amazon.com/dp/B0LINKED01', final_url: null, affiliate_link: null },
+        ]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links apol')) {
+        // Only B0LINKED01 has offer link, B0NOLINK01 does not
+        return [{ offer_id: 4001, asin: 'B0LINKED01' }]
+      }
+      if (sql.includes('FROM affiliate_products') && sql.includes('brand IS NOT NULL')) {
+        // B0NOLINK01 exists in affiliate_products with brand info but no offer link
+        return [
+          { asin: 'B0LINKED01', brand: 'Waterdrop' },
+          { asin: 'B0NOLINK01', brand: 'Waterdrop' },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          { campaign_id: 5001, offer_id: 4001, brand: 'Waterdrop', created_at: `${today}T00:00:00.000Z`, cost: 100, clicks: 50 },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 10,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 15.5,
+          sourceAsin: 'B0NOLINK01',
+          raw: { id: 'evt-nolink-1' },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    // Should successfully attribute via brand fallback
+    expect(result.attributedCommission).toBe(15.5)
+    expect(result.unattributedCommission).toBe(0)
+    expect(result.attributedCampaigns).toBe(1)
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(1)
+    // Verify it's attributed to campaign 5001 (index 7: campaign_id)
+    expect((attributionInsertCalls[0]?.[1] as any[])[7]).toBe(5001)
+    // Verify attribution rule is brand_equal_split
+    const rawPayload = JSON.parse((attributionInsertCalls[0]?.[1] as any[])[10])
+    expect(rawPayload._autoads_attribution_rule).toBe('brand_equal_split')
+  })
 })
