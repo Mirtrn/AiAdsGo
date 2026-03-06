@@ -18,6 +18,7 @@ async function main() {
   console.log('🔍 Finding pending attribution failures...')
 
   const failures = await db.query<{
+    id: number
     user_id: number
     report_date: string
     platform: string
@@ -29,6 +30,7 @@ async function main() {
     reason_code: string
   }>(`
     SELECT
+      id,
       user_id,
       report_date,
       platform,
@@ -74,6 +76,13 @@ async function main() {
     console.log(`\n👤 User ${userId}, Date ${reportDate}`)
     console.log(`   Pending: $${totalCommission.toFixed(2)} (${groupFailures.length} entries)`)
 
+    // Delete existing failure records for these entries
+    const failureIds = groupFailures.map(f => f.id)
+    await db.exec(
+      `DELETE FROM openclaw_affiliate_attribution_failures WHERE id IN (${failureIds.map(() => '?').join(',')})`,
+      failureIds
+    )
+
     // Re-run attribution for this date
     const result = await persistAffiliateCommissionAttributions({
       userId: userIdNum,
@@ -87,7 +96,7 @@ async function main() {
         sourceMid: f.source_mid,
         sourceAsin: f.source_asin,
       })),
-      replaceExisting: true,
+      replaceExisting: false, // Don't delete existing attributions
       lockHistorical: false,
     })
 
