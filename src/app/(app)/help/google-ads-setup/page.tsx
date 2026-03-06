@@ -272,7 +272,7 @@ export default function GoogleAdsSetupGuidePage() {
                     <div>
                       <h4 className="font-medium">申请 Developer Token</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token（初始为测试权限，可能在几天内自动升级到 Explorer Access，但不保证）
+                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token（初始为测试权限，仅能访问测试账号）
                       </p>
                     </div>
                   </div>
@@ -300,7 +300,7 @@ export default function GoogleAdsSetupGuidePage() {
 
                 <Alert className="mt-4 bg-blue-50 border-blue-200">
                   <AlertDescription>
-                    <strong>提示：</strong>初次申请会获得测试权限的 Developer Token，Google 可能会在几天内自动升级到 Explorer Access（可访问真实账号），但不保证。如需稳定使用，建议申请 Basic Access 或使用 OAuth 授权方式。
+                    <strong>提示：</strong>初次申请会获得测试权限的 Developer Token，仅能访问测试账号。如需访问真实账号，需要申请 Basic Access 或更高级别，或使用 OAuth 授权方式。
                   </AlertDescription>
                 </Alert>
 
@@ -361,16 +361,15 @@ export default function GoogleAdsSetupGuidePage() {
                     <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg p-3 border-2 border-blue-200">
                       <div className="flex items-start gap-2 mb-2">
                         <Badge className="bg-blue-600">Explorer Access</Badge>
-                        <Badge variant="outline" className="bg-yellow-100 border-yellow-300">可能自动升级</Badge>
                       </div>
                       <ul className="text-sm text-gray-700 space-y-1 ml-2">
                         <li className="flex items-start gap-2">
                           <span className="text-green-500 mt-0.5 font-bold">✓</span>
-                          <span><strong>可访问真实账号</strong>：Google 可能在几天内自动升级测试权限 Token，但不保证</span>
+                          <span><strong>可访问真实账号</strong></span>
                         </li>
                         <li className="flex items-start gap-2">
-                          <span className="text-green-500 mt-0.5">✓</span>
-                          <span>无需人工审核，系统自动判断</span>
+                          <span className="text-orange-500 mt-0.5">⏱</span>
+                          <span>需要申请或等待 Google 审核</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <span className="text-blue-500 mt-0.5">ℹ️</span>
@@ -423,7 +422,7 @@ export default function GoogleAdsSetupGuidePage() {
                   <Alert className="bg-green-50 border-green-200">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-sm">
-                      <strong>推荐策略：</strong>初次配置使用测试权限 Token，等待 Google 可能的自动升级到 Explorer Access（通常几天内，但不保证）。如需稳定使用或 Keyword Planner API，建议申请 Basic/Standard Access 或使用 OAuth 授权方式。
+                      <strong>推荐策略：</strong>如需访问真实账号，建议直接申请 Basic/Standard Access 或使用 OAuth 授权方式，避免测试权限的限制。
                     </AlertDescription>
                   </Alert>
 
@@ -495,7 +494,7 @@ export default function GoogleAdsSetupGuidePage() {
                 <div>
                   <h4 className="font-semibold mb-2">Q: Developer Token 审核需要多久？</h4>
                   <p className="text-sm text-gray-600">
-                    <strong>测试权限</strong>（Test Access）立即可用；Google 可能在几天内自动升级到 <strong>Explorer Access</strong>，但不保证；<strong>Basic/Standard Access</strong> 需要申请审核（1-3 个工作日）。
+                    <strong>测试权限</strong>（Test Access）立即可用，但仅能访问测试账号；<strong>Basic/Standard Access</strong> 需要申请审核（1-3 个工作日），可访问真实账号。
                   </p>
                 </div>
                 <div>
@@ -591,32 +590,19 @@ export default function GoogleAdsSetupGuidePage() {
                     <p className="text-sm text-gray-700 font-semibold mb-2">这是正常的！原因：</p>
                     <ul className="text-sm text-gray-600 space-y-1 ml-2">
                       <li>• 新创建的 Developer Token 默认是 Test Account Access 级别</li>
-                      <li>• Google 可能会在<strong>几天内自动升级到 Explorer Access</strong>，但不保证</li>
-                      <li>• Explorer Access 可以访问真实账号（限制 2,880 operations/day）</li>
+                      <li>• Test Account Access 仅能访问测试账号，无法访问真实账号</li>
+                      <li>• 需要申请 Basic Access 或更高级别才能访问真实账号</li>
                     </ul>
                   </div>
 
                   <p className="text-sm text-gray-600 mb-2">
-                    <strong>解决方法（3 种选择）：</strong>
+                    <strong>解决方法（2 种选择）：</strong>
                   </p>
                   <div className="space-y-3 ml-2">
                     <div className="flex items-start gap-2">
                       <span className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold">推荐</span>
                       <div>
-                        <strong className="text-sm text-green-700">等待 Google 可能的自动升级（1-7天）</strong>
-                        <p className="text-xs text-gray-600 mt-1">
-                          无需任何操作，Google 可能会自动将您的 Token 升级到 <strong>Explorer Access</strong>，但不保证。升级后可访问真实账号，每日限额 2,880 次操作（足够日常使用）。
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          💡 可在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">API Center</a> 查看 Token 状态
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <span className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</span>
-                      <div>
-                        <strong className="text-sm">申请 Basic/Standard Access</strong>
+                        <strong className="text-sm text-green-700">申请 Basic/Standard Access</strong>
                         <p className="text-xs text-gray-600 mt-1">
                           访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">API Center</a>，点击"Apply for Basic Access"或"Apply for Standard Access"。审核通常需要 1-3 个工作日。
                         </p>
@@ -628,7 +614,7 @@ export default function GoogleAdsSetupGuidePage() {
                     </div>
 
                     <div className="flex items-start gap-2">
-                      <span className="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">3</span>
+                      <span className="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</span>
                       <div>
                         <strong className="text-sm">使用测试 MCC 账号</strong>
                         <p className="text-xs text-gray-600 mt-1">
@@ -641,7 +627,7 @@ export default function GoogleAdsSetupGuidePage() {
                   <Alert className="mt-3 bg-green-50 border-green-200">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-sm">
-                      <strong>推荐策略：</strong>继续使用当前配置，等待 Google 可能的自动升级到 Explorer Access（通常几天内，但不保证）。如需稳定使用、Keyword Planner API 或更高限额，建议申请 Basic/Standard Access 或使用 OAuth 授权方式。<br/>
+                      <strong>推荐策略：</strong>如需访问真实账号，建议直接申请 Basic/Standard Access 或使用 OAuth 授权方式。<br/>
                       详见上方 <a href="#" className="text-blue-600 hover:underline" onClick={(e) => { e.preventDefault(); document.querySelector('.border-blue-200.bg-blue-50\\/30')?.scrollIntoView({ behavior: 'smooth' }); }}>Developer Token 访问级别说明</a>
                     </AlertDescription>
                   </Alert>
