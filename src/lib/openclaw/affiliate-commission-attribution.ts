@@ -104,6 +104,8 @@ type NormalizedCommissionEntry = {
   reportDate: string
   commission: number
   currency: string
+  eventId: string
+  normalizedBrand: string | null
   sourceOrderId: string | null
   sourceMid: string | null
   sourceAsin: string | null
@@ -111,6 +113,27 @@ type NormalizedCommissionEntry = {
   sourceLinkId: string | null
   sourceNormId: string | null
   raw: unknown
+}
+
+type ExistingEventOutcome = {
+  attributedCommission: number
+  unattributedCommission: number
+  offerIds: Set<number>
+  campaignIds: Set<number>
+}
+
+type OfferContext = {
+  offerId: number
+  normalizedBrand: string | null
+  asins: Set<string>
+}
+
+type CampaignAttributionCandidate = {
+  campaignId: number
+  offerId: number
+  normalizedBrand: string | null
+  cost: number
+  clicks: number
 }
 
 function roundTo(value: number, decimals = 4): number {
@@ -124,6 +147,12 @@ function normalizeText(value: unknown): string | null {
   if (value === null || value === undefined) return null
   const trimmed = String(value).trim()
   return trimmed || null
+}
+
+function normalizeBrand(value: unknown): string | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  return text.toLowerCase()
 }
 
 function normalizeAsin(value: unknown): string | null {
@@ -176,6 +205,112 @@ function extractPartnerboostNormIdFromRaw(raw: unknown): string | null {
   return normalizePartnerboostNormId(
     getObjectFieldByAliases(raw, ['norm_id', 'normId', 'normid'])
   )
+}
+
+function extractBrandFromRaw(raw: unknown): string | null {
+  return normalizeBrand(
+    getObjectFieldByAliases(raw, [
+      'brand',
+      'brand_name',
+      'brandName',
+      'advert_name',
+      'advertName',
+      'merchant_name',
+      'merchantName',
+      'seller_name',
+      'sellerName',
+    ])
+  )
+}
+
+function deriveAffiliateEventId(params: {
+  platform: AffiliatePlatform
+  reportDate: string
+  commission: number
+  sourceOrderId?: string | null
+  sourceMid?: string | null
+  sourceAsin?: string | null
+  raw?: unknown
+}): string {
+  const rawId = normalizeText(getObjectFieldByAliases(params.raw, ['id', 'event_id', 'eventId']))
+  if (rawId) return `${params.platform}|${rawId}`
+
+  return [
+    params.platform,
+    normalizeText(params.reportDate) || '-',
+    normalizeText(params.sourceOrderId) || '-',
+    normalizeText(params.sourceMid) || '-',
+    normalizeText(params.sourceAsin) || '-',
+    roundTo(Number(params.commission) || 0).toFixed(4),
+  ].join('|')
+}
+
+function buildStoredRawPayload(params: {
+  raw: unknown
+  eventId: string
+  attributionRule?: string | null
+  normalizedBrand?: string | null
+}): unknown {
+  const metadata = {
+    _autoads_event_id: params.eventId,
+    _autoads_attribution_rule: params.attributionRule || null,
+    _autoads_attribution_brand: params.normalizedBrand || null,
+  }
+
+  if (params.raw && typeof params.raw === 'object' && !Array.isArray(params.raw)) {
+    return {
+      ...(params.raw as Record<string, unknown>),
+      ...metadata,
+    }
+  }
+
+  return {
+    ...metadata,
+    value: params.raw ?? null,
+  }
+}
+
+function extractYmdFromDateLike(value: unknown): string | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10)
+
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+
+function expandEventIds(eventIds: string[]): string[] {
+  const expanded = new Set<string>()
+  for (const eventId of eventIds) {
+    const normalized = normalizeText(eventId)
+    if (!normalized) continue
+    expanded.add(normalized)
+    const separatorIndex = normalized.indexOf('|')
+    if (separatorIndex > 0 && separatorIndex < normalized.length - 1) {
+      expanded.add(normalized.slice(separatorIndex + 1))
+    }
+  }
+  return Array.from(expanded)
+}
+
+function canonicalizeStoredEventId(platform: unknown, eventId: unknown): string | null {
+  const normalizedEventId = normalizeText(eventId)
+  if (!normalizedEventId) return null
+  if (normalizedEventId.includes('|')) return normalizedEventId
+  const normalizedPlatform = normalizeText(platform)
+  if (!normalizedPlatform) return normalizedEventId
+  return `${normalizedPlatform}|${normalizedEventId}`
+}
+
+function getStoredEventIdSql(dbType: DatabaseAdapter['type'], rawColumn = 'raw_payload'): string {
+  if (dbType === 'postgres') {
+    return `COALESCE(NULLIF(TRIM(${rawColumn}->>'_autoads_event_id'), ''), NULLIF(TRIM(${rawColumn}->>'id'), ''))`
+  }
+
+  return `COALESCE(NULLIF(TRIM(json_extract(${rawColumn}, '$._autoads_event_id')), ''), NULLIF(TRIM(json_extract(${rawColumn}, '$.id')), ''))`
 }
 
 function extractAsinFromUrlLike(value: unknown): string | null {
@@ -959,6 +1094,235 @@ async function queryHistoricalCampaignFallbackMaps(params: {
   return result
 }
 
+async function queryExistingEventOutcomes(params: {
+  db: DatabaseAdapter
+  userId: number
+  eventIds: string[]
+}): Promise<Map<string, ExistingEventOutcome>> {
+  const result = new Map<string, ExistingEventOutcome>()
+  if (params.eventIds.length === 0) return result
+
+  const eventIdExpr = getStoredEventIdSql(params.db.type)
+  const queryEventIds = expandEventIds(params.eventIds)
+
+  for (const eventIdChunk of chunkArray(queryEventIds, 100)) {
+    const placeholders = eventIdChunk.map(() => '?').join(', ')
+    const attributedRows = await params.db.query<{
+      platform: string | null
+      event_id: string | null
+      offer_id: number | null
+      campaign_id: number | null
+      commission_amount: number
+    }>(
+      `
+        SELECT
+          platform,
+          ${eventIdExpr} AS event_id,
+          offer_id,
+          campaign_id,
+          commission_amount
+        FROM affiliate_commission_attributions
+        WHERE user_id = ?
+          AND ${eventIdExpr} IN (${placeholders})
+      `,
+      [params.userId, ...eventIdChunk]
+    )
+
+    for (const row of attributedRows) {
+      const eventId = canonicalizeStoredEventId(row.platform, row.event_id)
+      if (!eventId) continue
+
+      const existing = result.get(eventId) || {
+        attributedCommission: 0,
+        unattributedCommission: 0,
+        offerIds: new Set<number>(),
+        campaignIds: new Set<number>(),
+      }
+      existing.attributedCommission = roundTo(existing.attributedCommission + (Number(row.commission_amount) || 0))
+
+      const offerId = Number(row.offer_id)
+      if (Number.isFinite(offerId)) existing.offerIds.add(offerId)
+
+      const campaignId = Number(row.campaign_id)
+      if (Number.isFinite(campaignId)) existing.campaignIds.add(campaignId)
+
+      result.set(eventId, existing)
+    }
+
+    try {
+      const failureRows = await params.db.query<{
+        platform: string | null
+        event_id: string | null
+        commission_amount: number
+      }>(
+        `
+          SELECT
+            platform,
+            ${eventIdExpr} AS event_id,
+            commission_amount
+          FROM openclaw_affiliate_attribution_failures
+          WHERE user_id = ?
+            AND ${eventIdExpr} IN (${placeholders})
+        `,
+        [params.userId, ...eventIdChunk]
+      )
+
+      for (const row of failureRows) {
+        const eventId = canonicalizeStoredEventId(row.platform, row.event_id)
+        if (!eventId) continue
+
+        const existing = result.get(eventId) || {
+          attributedCommission: 0,
+          unattributedCommission: 0,
+          offerIds: new Set<number>(),
+          campaignIds: new Set<number>(),
+        }
+        existing.unattributedCommission = roundTo(existing.unattributedCommission + (Number(row.commission_amount) || 0))
+        result.set(eventId, existing)
+      }
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (!/openclaw_affiliate_attribution_failures/i.test(message) || !/(no such table|does not exist)/i.test(message)) {
+        throw error
+      }
+    }
+  }
+
+  return result
+}
+
+async function queryOfferContexts(params: {
+  db: DatabaseAdapter
+  userId: number
+}): Promise<Map<number, OfferContext>> {
+  const contexts = new Map<number, OfferContext>()
+  const offerNotDeletedCondition = params.db.type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const offerRows = await params.db.query<{
+    id: number
+    brand: string | null
+    url: string | null
+    final_url: string | null
+    affiliate_link: string | null
+  }>(
+    `
+      SELECT id, brand, url, final_url, affiliate_link
+      FROM offers
+      WHERE user_id = ?
+        AND ${offerNotDeletedCondition}
+    `,
+    [params.userId]
+  )
+
+  for (const row of offerRows) {
+    const offerId = Number(row.id)
+    if (!Number.isFinite(offerId)) continue
+
+    const asins = new Set<string>()
+    const urlAsin = extractAsinFromUrlLike(row.url)
+    const finalUrlAsin = extractAsinFromUrlLike(row.final_url)
+    const affiliateLinkAsin = extractAsinFromUrlLike(row.affiliate_link)
+
+    if (urlAsin) asins.add(urlAsin)
+    if (finalUrlAsin) asins.add(finalUrlAsin)
+    if (affiliateLinkAsin) asins.add(affiliateLinkAsin)
+
+    contexts.set(offerId, {
+      offerId,
+      normalizedBrand: normalizeBrand(row.brand),
+      asins,
+    })
+  }
+
+  const productRows = await params.db.query<{
+    offer_id: number
+    asin: string | null
+  }>(
+    `
+      SELECT apol.offer_id, ap.asin
+      FROM affiliate_product_offer_links apol
+      INNER JOIN affiliate_products ap ON ap.id = apol.product_id
+      WHERE apol.user_id = ?
+        AND ap.user_id = ?
+    `,
+    [params.userId, params.userId]
+  )
+
+  for (const row of productRows) {
+    const offerId = Number(row.offer_id)
+    const asin = normalizeAsin(row.asin)
+    if (!Number.isFinite(offerId) || !asin) continue
+
+    const context = contexts.get(offerId)
+    if (!context) continue
+    context.asins.add(asin)
+  }
+
+  return contexts
+}
+
+async function queryCampaignAttributionCandidates(params: {
+  db: DatabaseAdapter
+  userId: number
+  reportDate: string
+  lookbackDays: number
+}): Promise<CampaignAttributionCandidate[]> {
+  const campaignNotDeletedCondition = params.db.type === 'postgres'
+    ? '(c.is_deleted = false OR c.is_deleted IS NULL)'
+    : '(c.is_deleted = 0 OR c.is_deleted IS NULL)'
+  const offerNotDeletedCondition = params.db.type === 'postgres'
+    ? '(o.is_deleted = false OR o.is_deleted IS NULL)'
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
+
+  const startDate = shiftYmd(params.reportDate, -(Math.max(1, params.lookbackDays) - 1))
+  const rows = await params.db.query<{
+    campaign_id: number
+    offer_id: number
+    brand: string | null
+    created_at: string | null
+    cost: number
+    clicks: number
+  }>(
+    `
+      SELECT
+        c.id AS campaign_id,
+        c.offer_id AS offer_id,
+        o.brand AS brand,
+        CAST(c.created_at AS TEXT) AS created_at,
+        COALESCE(SUM(cp.cost), 0) AS cost,
+        COALESCE(SUM(cp.clicks), 0) AS clicks
+      FROM campaigns c
+      INNER JOIN offers o ON o.id = c.offer_id
+      LEFT JOIN campaign_performance cp
+        ON cp.campaign_id = c.id
+       AND cp.user_id = ?
+       AND cp.date >= ?
+       AND cp.date <= ?
+      WHERE c.user_id = ?
+        AND ${campaignNotDeletedCondition}
+        AND ${offerNotDeletedCondition}
+      GROUP BY c.id, c.offer_id, o.brand, c.created_at
+    `,
+    [params.userId, startDate, params.reportDate, params.userId]
+  )
+
+  return rows
+    .filter((row) => {
+      const createdYmd = extractYmdFromDateLike(row.created_at)
+      return !createdYmd || createdYmd <= params.reportDate
+    })
+    .map((row) => ({
+      campaignId: Number(row.campaign_id),
+      offerId: Number(row.offer_id),
+      normalizedBrand: normalizeBrand(row.brand),
+      cost: Math.max(0, Number(row.cost) || 0),
+      clicks: Math.max(0, Number(row.clicks) || 0),
+    }))
+    .filter((row) => Number.isFinite(row.campaignId) && Number.isFinite(row.offerId))
+}
+
 export async function persistAffiliateCommissionAttributions(params: {
   userId: number
   reportDate: string
@@ -975,6 +1339,7 @@ export async function persistAffiliateCommissionAttributions(params: {
 
       const sourceLink = normalizeText(entry.sourceLink)
       const sourceMid = normalizeMidForPlatform(entry.platform, entry.sourceMid)
+      const sourceAsin = normalizeAsin(entry.sourceAsin)
       const sourceLinkId = entry.platform === 'partnerboost'
         ? derivePartnerboostLinkId({
             sourceLinkId: entry.sourceLinkId,
@@ -985,15 +1350,26 @@ export async function persistAffiliateCommissionAttributions(params: {
       const sourceNormId = entry.platform === 'partnerboost'
         ? extractPartnerboostNormIdFromRaw(entry.raw)
         : null
+      const reportDate = normalizeText(entry.reportDate) || params.reportDate
 
       return {
         platform: entry.platform,
-        reportDate: normalizeText(entry.reportDate) || params.reportDate,
+        reportDate,
         commission,
         currency: normalizeText(entry.currency)?.toUpperCase() || 'USD',
+        eventId: deriveAffiliateEventId({
+          platform: entry.platform,
+          reportDate,
+          commission,
+          sourceOrderId: entry.sourceOrderId,
+          sourceMid,
+          sourceAsin,
+          raw: entry.raw,
+        }),
+        normalizedBrand: extractBrandFromRaw(entry.raw),
         sourceOrderId: normalizeText(entry.sourceOrderId),
         sourceMid,
-        sourceAsin: normalizeAsin(entry.sourceAsin),
+        sourceAsin,
         sourceLink,
         sourceLinkId,
         sourceNormId,
@@ -1015,8 +1391,6 @@ export async function persistAffiliateCommissionAttributions(params: {
     })
 
     if (existingSummary) {
-      // Historical lock should prevent accidental overwrite, but when existing rows are only
-      // partially attributed and today's fetched total is higher, we should allow recompute.
       const shouldKeepExisting =
         totalCommission <= 0
         || existingSummary.attributedCommission + ATTRIBUTION_EPSILON >= totalCommission
@@ -1039,22 +1413,6 @@ export async function persistAffiliateCommissionAttributions(params: {
   }
 
   if (normalizedEntries.length === 0) {
-    await db.exec(
-      `DELETE FROM affiliate_commission_attributions WHERE user_id = ? AND report_date = ?`,
-      [params.userId, params.reportDate]
-    )
-    try {
-      await db.exec(
-        `DELETE FROM openclaw_affiliate_attribution_failures WHERE user_id = ? AND report_date = ?`,
-        [params.userId, params.reportDate]
-      )
-    } catch (error: any) {
-      const message = String(error?.message || '')
-      if (!/openclaw_affiliate_attribution_failures/i.test(message) || !/(no such table|does not exist)/i.test(message)) {
-        throw error
-      }
-    }
-
     return {
       reportDate: params.reportDate,
       totalCommission: 0,
@@ -1066,507 +1424,182 @@ export async function persistAffiliateCommissionAttributions(params: {
     }
   }
 
-  const midsByPlatform = new Map<AffiliatePlatform, string[]>()
-  const asinsByPlatform = new Map<AffiliatePlatform, string[]>()
-  const linkIdsByPlatform = new Map<AffiliatePlatform, string[]>()
+  const existingOutcomes = await queryExistingEventOutcomes({
+    db,
+    userId: params.userId,
+    eventIds: normalizedEntries.map((entry) => entry.eventId),
+  })
+
+  const freshEntries: NormalizedCommissionEntry[] = []
+  const attributedOfferIds = new Set<number>()
+  const attributedCampaignIds = new Set<number>()
+  let existingAttributedCommission = 0
+  let existingUnattributedCommission = 0
 
   for (const entry of normalizedEntries) {
-    if (entry.sourceMid) {
-      const list = midsByPlatform.get(entry.platform) || []
-      if (!list.includes(entry.sourceMid)) {
-        list.push(entry.sourceMid)
-        midsByPlatform.set(entry.platform, list)
-      }
+    const existingOutcome = existingOutcomes.get(entry.eventId)
+    if (!existingOutcome) {
+      freshEntries.push(entry)
+      continue
     }
 
-    if (entry.sourceAsin) {
-      const list = asinsByPlatform.get(entry.platform) || []
-      if (!list.includes(entry.sourceAsin)) {
-        list.push(entry.sourceAsin)
-        asinsByPlatform.set(entry.platform, list)
-      }
+    existingAttributedCommission = roundTo(existingAttributedCommission + existingOutcome.attributedCommission)
+    existingUnattributedCommission = roundTo(existingUnattributedCommission + existingOutcome.unattributedCommission)
+    for (const offerId of existingOutcome.offerIds) {
+      attributedOfferIds.add(offerId)
     }
-
-    if (entry.sourceLinkId) {
-      const list = linkIdsByPlatform.get(entry.platform) || []
-      if (!list.includes(entry.sourceLinkId)) {
-        list.push(entry.sourceLinkId)
-        linkIdsByPlatform.set(entry.platform, list)
-      }
+    for (const campaignId of existingOutcome.campaignIds) {
+      attributedCampaignIds.add(campaignId)
     }
   }
-
-  const productIdsByPlatformMid = new Map<string, number[]>()
-  const productIdsByPlatformAsin = new Map<string, number[]>()
-  const productIdsByPlatformLinkId = new Map<string, number[]>()
-  const allProductIds = new Set<number>()
-
-  for (const platform of ['partnerboost', 'yeahpromos'] as AffiliatePlatform[]) {
-    const mids = midsByPlatform.get(platform) || []
-    const asins = asinsByPlatform.get(platform) || []
-
-    const productRows = await queryProductIdentifierRows({
-      userId: params.userId,
-      platform,
-      mids,
-      asins,
-    })
-
-    for (const row of productRows) {
-      const productId = Number(row.id)
-      if (!Number.isFinite(productId)) continue
-      allProductIds.add(productId)
-
-      const mid = normalizeMidForPlatform(platform, row.mid)
-      if (mid) {
-        const key = `${platform}|mid|${mid}`
-        const existing = productIdsByPlatformMid.get(key) || []
-        if (!existing.includes(productId)) {
-          existing.push(productId)
-          productIdsByPlatformMid.set(key, existing)
-        }
-      }
-
-      const asin = normalizeAsin(row.asin)
-      if (asin) {
-        const key = `${platform}|asin|${asin}`
-        const existing = productIdsByPlatformAsin.get(key) || []
-        if (!existing.includes(productId)) {
-          existing.push(productId)
-          productIdsByPlatformAsin.set(key, existing)
-        }
-      }
-    }
-  }
-
-  const partnerboostLinkIdMap = await queryPartnerboostProductIdsByLinkIds({
-    userId: params.userId,
-    linkIds: linkIdsByPlatform.get('partnerboost') || [],
-  })
-  for (const [linkId, productIds] of partnerboostLinkIdMap.entries()) {
-    const key = `partnerboost|linkid|${linkId}`
-    productIdsByPlatformLinkId.set(key, productIds)
-    for (const productId of productIds) {
-      allProductIds.add(productId)
-    }
-  }
-
-  const offerLinksByProduct = await queryOfferLinksByProductIds(
-    params.userId,
-    Array.from(allProductIds)
-  )
-
-  const allOfferIds = new Set<number>()
-  for (const offerIds of offerLinksByProduct.values()) {
-    for (const offerId of offerIds) {
-      allOfferIds.add(offerId)
-    }
-  }
-
-  const fallbackOfferIdsByAsin = await queryActiveOfferIdsByAsins({
-    userId: params.userId,
-    asins: normalizedEntries
-      .map((entry) => entry.sourceAsin)
-      .filter((asin): asin is string => Boolean(asin)),
-  })
-  const fallbackOfferIdsByPartnerboostLinkId = await queryActiveOfferIdsByPartnerboostLinkIds({
-    userId: params.userId,
-    linkIds: normalizedEntries
-      .filter((entry) => entry.platform === 'partnerboost')
-      .map((entry) => entry.sourceLinkId)
-      .filter((linkId): linkId is string => Boolean(linkId)),
-  })
-  for (const offerIds of fallbackOfferIdsByAsin.values()) {
-    for (const offerId of offerIds) {
-      allOfferIds.add(offerId)
-    }
-  }
-  for (const offerIds of fallbackOfferIdsByPartnerboostLinkId.values()) {
-    for (const offerId of offerIds) {
-      allOfferIds.add(offerId)
-    }
-  }
-
-  const campaignWeightsByOffer = await queryCampaignWeights({
-    userId: params.userId,
-    reportDate: params.reportDate,
-    offerIds: Array.from(allOfferIds),
-  })
-  const historicalFallbackMaps = await queryHistoricalCampaignFallbackMaps({
-    userId: params.userId,
-    reportDate: params.reportDate,
-  })
 
   const rowsToInsert: AttributionRow[] = []
   const failureRows: AttributionFailureRow[] = []
-  const inferredOfferLinkKeys = new Set<string>()
-  const attributedOfferIds = new Set<number>()
-  const attributedCampaignIds = new Set<number>()
-  const runtimeFallbackMaps: HistoricalCampaignFallbackMaps = {
-    byOrderId: new Map<string, CampaignTarget[]>(),
-    byMid: new Map<string, CampaignTarget[]>(),
-    byAsin: new Map<string, CampaignTarget[]>(),
-    byNormId: new Map<string, CampaignTarget[]>(),
-    byOfferId: new Map<number, CampaignTarget[]>(),
-  }
-  let attributedCommission = 0
-  type NormalizedAttributionEntry = typeof normalizedEntries[number]
 
-  const allocateEntryToCampaignTargets = (paramsForAllocation: {
-    entry: typeof normalizedEntries[number]
-    amount: number
-    targets: CampaignTarget[]
-    fallbackOfferId?: number | null
-  }): CampaignTarget[] => {
-    const targets = mergeCampaignTargets(paramsForAllocation.targets)
-    if (targets.length === 0) return []
-
-    const shares = buildWeightedShares(
-      paramsForAllocation.amount,
-      targets.map((target) => target.weight)
-    )
-
-    const allocatedTargets: CampaignTarget[] = []
-    targets.forEach((target, index) => {
-      const campaignAmount = shares[index] || 0
-      if (campaignAmount <= 0) return
-
-      const targetOfferId = Number(target.offerId)
-      const fallbackOfferId = Number(paramsForAllocation.fallbackOfferId)
-      const offerId =
-        Number.isFinite(targetOfferId)
-          ? targetOfferId
-          : (Number.isFinite(fallbackOfferId) ? fallbackOfferId : null)
-
-      if (Number.isFinite(Number(offerId))) {
-        attributedOfferIds.add(Number(offerId))
-      }
-      attributedCampaignIds.add(target.campaignId)
-
-      rowsToInsert.push({
-        userId: params.userId,
-        reportDate: params.reportDate,
-        platform: paramsForAllocation.entry.platform,
-        sourceOrderId: paramsForAllocation.entry.sourceOrderId,
-        sourceMid: paramsForAllocation.entry.sourceMid,
-        sourceAsin: paramsForAllocation.entry.sourceAsin,
-        offerId: Number.isFinite(Number(offerId)) ? Number(offerId) : null,
-        campaignId: target.campaignId,
-        commissionAmount: campaignAmount,
-        currency: paramsForAllocation.entry.currency,
-        rawPayload: toDbJsonObjectField(paramsForAllocation.entry.raw ?? null, db.type, null),
-      })
-      attributedCommission = roundTo(attributedCommission + campaignAmount)
-      allocatedTargets.push({
-        campaignId: target.campaignId,
-        offerId: Number.isFinite(Number(offerId)) ? Number(offerId) : null,
-        weight: campaignAmount,
-      })
+  if (freshEntries.length > 0) {
+    const offerContexts = await queryOfferContexts({ db, userId: params.userId })
+    const campaignCandidates = await queryCampaignAttributionCandidates({
+      db,
+      userId: params.userId,
+      reportDate: params.reportDate,
+      lookbackDays: 7,
     })
 
-    return mergeCampaignTargets(allocatedTargets)
-  }
+    const asinToCampaigns = new Map<string, CampaignAttributionCandidate[]>()
+    const brandToCampaigns = new Map<string, CampaignAttributionCandidate[]>()
+    const asinToBrands = new Map<string, Set<string>>()
 
-  const registerRuntimeTargets = (entry: typeof normalizedEntries[number], targets: CampaignTarget[]) => {
-    if (!targets || targets.length === 0) return
-
-    const orderId = normalizeOrderId(entry.sourceOrderId)
-    const mid = entry.sourceMid ? `${entry.platform}|mid|${entry.sourceMid}` : null
-    const asin = entry.sourceAsin ? `${entry.platform}|asin|${entry.sourceAsin}` : null
-    const normId = entry.platform === 'partnerboost' && entry.sourceNormId
-      ? `${entry.platform}|norm|${entry.sourceNormId}`
-      : null
-
-    pushTargetsByStringKey(runtimeFallbackMaps.byOrderId, orderId, targets)
-    pushTargetsByStringKey(runtimeFallbackMaps.byMid, mid, targets)
-    pushTargetsByStringKey(runtimeFallbackMaps.byAsin, asin, targets)
-    pushTargetsByStringKey(runtimeFallbackMaps.byNormId, normId, targets)
-
-    for (const target of targets) {
-      pushTargetsByOfferId(runtimeFallbackMaps.byOfferId, target.offerId, [target])
-    }
-  }
-
-  const getUniqueOfferIdFromTargets = (targets: CampaignTarget[]): number | null => {
-    const offerIds = Array.from(
-      new Set(
-        targets
-          .map((target) => Number(target.offerId))
-          .filter((offerId) => Number.isFinite(offerId))
-      )
-    )
-
-    if (offerIds.length !== 1) return null
-    return offerIds[0]
-  }
-
-  const getDeterministicTargets = (targets?: CampaignTarget[]): CampaignTarget[] => {
-    if (!targets || targets.length === 0) return []
-    const merged = mergeCampaignTargets(targets)
-    const uniqueOfferId = getUniqueOfferIdFromTargets(merged)
-    if (!Number.isFinite(Number(uniqueOfferId))) return []
-    return merged
-  }
-
-  const resolveFallbackCampaignTargets = (paramsForResolve: {
-    entry: typeof normalizedEntries[number]
-    preferredOfferId?: number | null
-  }): CampaignTarget[] => {
-    const entry = paramsForResolve.entry
-    const orderId = normalizeOrderId(entry.sourceOrderId)
-    if (orderId) {
-      const runtimeByOrder = runtimeFallbackMaps.byOrderId.get(orderId)
-      if (runtimeByOrder && runtimeByOrder.length > 0) return runtimeByOrder
-
-      const historicalByOrder = historicalFallbackMaps.byOrderId.get(orderId)
-      if (historicalByOrder && historicalByOrder.length > 0) return historicalByOrder
-    }
-
-    const preferredOfferId = Number(paramsForResolve.preferredOfferId)
-    if (Number.isFinite(preferredOfferId)) {
-      const runtimeByOffer = runtimeFallbackMaps.byOfferId.get(preferredOfferId)
-      if (runtimeByOffer && runtimeByOffer.length > 0) return runtimeByOffer
-
-      const historicalByOffer = historicalFallbackMaps.byOfferId.get(preferredOfferId)
-      if (historicalByOffer && historicalByOffer.length > 0) return historicalByOffer
-    }
-
-    if (entry.sourceMid) {
-      const key = `${entry.platform}|mid|${entry.sourceMid}`
-      const runtimeByMid = getDeterministicTargets(runtimeFallbackMaps.byMid.get(key))
-      if (runtimeByMid && runtimeByMid.length > 0) return runtimeByMid
-
-      const historicalByMid = getDeterministicTargets(historicalFallbackMaps.byMid.get(key))
-      if (historicalByMid && historicalByMid.length > 0) return historicalByMid
-    }
-
-    if (entry.platform === 'partnerboost' && entry.sourceNormId) {
-      const key = `${entry.platform}|norm|${entry.sourceNormId}`
-      const runtimeByNormId = getDeterministicTargets(runtimeFallbackMaps.byNormId.get(key))
-      if (runtimeByNormId && runtimeByNormId.length > 0) return runtimeByNormId
-
-      const historicalByNormId = getDeterministicTargets(historicalFallbackMaps.byNormId.get(key))
-      if (historicalByNormId && historicalByNormId.length > 0) return historicalByNormId
-    }
-
-    if (entry.sourceAsin) {
-      const key = `${entry.platform}|asin|${entry.sourceAsin}`
-      const runtimeByAsin = getDeterministicTargets(runtimeFallbackMaps.byAsin.get(key))
-      if (runtimeByAsin && runtimeByAsin.length > 0) return runtimeByAsin
-
-      const historicalByAsin = getDeterministicTargets(historicalFallbackMaps.byAsin.get(key))
-      if (historicalByAsin && historicalByAsin.length > 0) return historicalByAsin
-    }
-
-    return []
-  }
-
-  const getDirectMatchedOfferCount = (entry: NormalizedAttributionEntry): number => {
-    const matchedProductIds = new Set<number>()
-    const matchedProductIdsFromLinkId = new Set<number>()
-
-    if (entry.sourceLinkId) {
-      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
-      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
-        matchedProductIdsFromLinkId.add(productId)
+    for (const [offerId, offerContext] of offerContexts.entries()) {
+      for (const asin of offerContext.asins) {
+        const brands = asinToBrands.get(asin) || new Set<string>()
+        if (offerContext.normalizedBrand) brands.add(offerContext.normalizedBrand)
+        asinToBrands.set(asin, brands)
       }
-    }
 
-    const hasPartnerboostLinkHit = entry.platform === 'partnerboost' && matchedProductIdsFromLinkId.size > 0
-    if (hasPartnerboostLinkHit) {
-      for (const productId of matchedProductIdsFromLinkId) {
-        matchedProductIds.add(productId)
-      }
-    }
+      const matchingCampaigns = campaignCandidates.filter((candidate) => candidate.offerId === offerId)
+      for (const candidate of matchingCampaigns) {
+        if (candidate.normalizedBrand) {
+          const current = brandToCampaigns.get(candidate.normalizedBrand) || []
+          current.push(candidate)
+          brandToCampaigns.set(candidate.normalizedBrand, current)
+        }
 
-    if (!hasPartnerboostLinkHit && entry.sourceMid) {
-      const key = `${entry.platform}|mid|${entry.sourceMid}`
-      for (const productId of productIdsByPlatformMid.get(key) || []) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
-      const key = `${entry.platform}|asin|${entry.sourceAsin}`
-      for (const productId of productIdsByPlatformAsin.get(key) || []) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceLinkId) {
-      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
-      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    const matchedOfferIds = new Set<number>()
-    for (const productId of matchedProductIds) {
-      for (const offerId of offerLinksByProduct.get(productId) || []) {
-        matchedOfferIds.add(offerId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
-      for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
-        matchedOfferIds.add(offerId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.platform === 'partnerboost' && entry.sourceLinkId) {
-      for (const offerId of fallbackOfferIdsByPartnerboostLinkId.get(entry.sourceLinkId) || []) {
-        matchedOfferIds.add(offerId)
-      }
-    }
-
-    return matchedOfferIds.size
-  }
-
-  const entryPriorities = new Map<NormalizedAttributionEntry, {
-    directOfferMatches: number
-    hasOrderId: number
-    commission: number
-    originalIndex: number
-  }>()
-
-  normalizedEntries.forEach((entry, originalIndex) => {
-    entryPriorities.set(entry, {
-      directOfferMatches: getDirectMatchedOfferCount(entry),
-      hasOrderId: normalizeOrderId(entry.sourceOrderId) ? 1 : 0,
-      commission: Number(entry.commission) || 0,
-      originalIndex,
-    })
-  })
-
-  // Prioritize direct offer matches first so runtime fallbacks are seeded before
-  // processing unresolved rows from the same order/mid/asin.
-  const prioritizedEntries = [...normalizedEntries].sort((a, b) => {
-    const priorityA = entryPriorities.get(a)!
-    const priorityB = entryPriorities.get(b)!
-
-    const directOfferDelta = priorityB.directOfferMatches - priorityA.directOfferMatches
-    if (directOfferDelta !== 0) return directOfferDelta
-
-    const orderIdDelta = priorityB.hasOrderId - priorityA.hasOrderId
-    if (orderIdDelta !== 0) return orderIdDelta
-
-    const commissionDelta = priorityB.commission - priorityA.commission
-    if (commissionDelta !== 0) return commissionDelta
-
-    return priorityA.originalIndex - priorityB.originalIndex
-  })
-
-  for (const entry of prioritizedEntries) {
-    const matchedProductIds = new Set<number>()
-    const matchedProductIdsFromAsin = new Set<number>()
-    const matchedProductIdsFromLinkId = new Set<number>()
-
-    if (entry.sourceLinkId) {
-      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
-      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
-        matchedProductIdsFromLinkId.add(productId)
-      }
-    }
-
-    const hasPartnerboostLinkHit = entry.platform === 'partnerboost' && matchedProductIdsFromLinkId.size > 0
-
-    if (hasPartnerboostLinkHit) {
-      for (const productId of matchedProductIdsFromLinkId) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceMid) {
-      const key = `${entry.platform}|mid|${entry.sourceMid}`
-      for (const productId of productIdsByPlatformMid.get(key) || []) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceAsin) {
-      const key = `${entry.platform}|asin|${entry.sourceAsin}`
-      for (const productId of productIdsByPlatformAsin.get(key) || []) {
-        matchedProductIds.add(productId)
-        matchedProductIdsFromAsin.add(productId)
-      }
-    }
-
-    if (!hasPartnerboostLinkHit && entry.sourceLinkId) {
-      const key = `${entry.platform}|linkid|${entry.sourceLinkId}`
-      for (const productId of productIdsByPlatformLinkId.get(key) || []) {
-        matchedProductIds.add(productId)
-      }
-    }
-
-    const matchedOfferIds = new Set<number>()
-    const explicitMatchedOfferIds = new Set<number>()
-    for (const productId of matchedProductIds) {
-      for (const offerId of offerLinksByProduct.get(productId) || []) {
-        matchedOfferIds.add(offerId)
-        explicitMatchedOfferIds.add(offerId)
-      }
-    }
-
-    const fallbackMatchedOfferIds = new Set<number>()
-    const shouldApplyAsinFallback = Boolean(entry.sourceAsin) && !hasPartnerboostLinkHit
-    if (shouldApplyAsinFallback && entry.sourceAsin) {
-      for (const offerId of fallbackOfferIdsByAsin.get(entry.sourceAsin) || []) {
-        matchedOfferIds.add(offerId)
-        fallbackMatchedOfferIds.add(offerId)
-      }
-    }
-
-    const shouldApplyLinkIdFallback =
-      !hasPartnerboostLinkHit
-      && entry.platform === 'partnerboost'
-      && Boolean(entry.sourceLinkId)
-    if (shouldApplyLinkIdFallback && entry.sourceLinkId) {
-      for (const offerId of fallbackOfferIdsByPartnerboostLinkId.get(entry.sourceLinkId) || []) {
-        matchedOfferIds.add(offerId)
-        explicitMatchedOfferIds.add(offerId)
-      }
-    }
-
-    if (fallbackMatchedOfferIds.size > 0 && matchedProductIdsFromAsin.size > 0) {
-      for (const productId of matchedProductIdsFromAsin) {
-        const currentLinkedOfferIds = offerLinksByProduct.get(productId) || []
-        for (const offerId of fallbackMatchedOfferIds) {
-          if (currentLinkedOfferIds.includes(offerId)) continue
-          inferredOfferLinkKeys.add(`${productId}:${offerId}`)
-          currentLinkedOfferIds.push(offerId)
-          offerLinksByProduct.set(productId, currentLinkedOfferIds)
-          explicitMatchedOfferIds.add(offerId)
+        for (const asin of offerContext.asins) {
+          const current = asinToCampaigns.get(asin) || []
+          current.push(candidate)
+          asinToCampaigns.set(asin, current)
         }
       }
     }
 
-    const offerIds = Array.from(matchedOfferIds)
-    if (offerIds.length === 0) {
-      const fallbackTargets = resolveFallbackCampaignTargets({ entry })
-      if (fallbackTargets.length > 0) {
-        const allocatedTargets = allocateEntryToCampaignTargets({
-          entry,
-          amount: entry.commission,
-          targets: fallbackTargets,
+    const appendAttributionRows = (paramsForAppend: {
+      entry: NormalizedCommissionEntry
+      candidates: CampaignAttributionCandidate[]
+      attributionRule: 'asin_match' | 'brand_equal_split'
+    }) => {
+      const uniqueCandidates = mergeCampaignTargets(
+        paramsForAppend.candidates.map((candidate) => ({
+          campaignId: candidate.campaignId,
+          offerId: candidate.offerId,
+          weight: 1,
+        }))
+      ).map((target) => {
+        const source = paramsForAppend.candidates.find((candidate) => candidate.campaignId === target.campaignId)
+        return {
+          campaignId: target.campaignId,
+          offerId: Number(target.offerId),
+          cost: Math.max(0, Number(source?.cost) || 0),
+          clicks: Math.max(0, Number(source?.clicks) || 0),
+        }
+      })
+
+      const totalCost = uniqueCandidates.reduce((sum, candidate) => sum + candidate.cost, 0)
+      const totalClicks = uniqueCandidates.reduce((sum, candidate) => sum + candidate.clicks, 0)
+
+      const weights = paramsForAppend.attributionRule === 'brand_equal_split'
+        ? uniqueCandidates.map(() => 1)
+        : uniqueCandidates.map((candidate) => {
+            if (totalCost > 0) return candidate.cost
+            if (totalClicks > 0) return candidate.clicks
+            return 1
+          })
+
+      const shares = buildWeightedShares(paramsForAppend.entry.commission, weights)
+      uniqueCandidates.forEach((candidate, index) => {
+        const amount = shares[index] || 0
+        if (amount <= 0) return
+
+        attributedOfferIds.add(candidate.offerId)
+        attributedCampaignIds.add(candidate.campaignId)
+        rowsToInsert.push({
+          userId: params.userId,
+          reportDate: params.reportDate,
+          platform: paramsForAppend.entry.platform,
+          sourceOrderId: paramsForAppend.entry.sourceOrderId,
+          sourceMid: paramsForAppend.entry.sourceMid,
+          sourceAsin: paramsForAppend.entry.sourceAsin,
+          offerId: candidate.offerId,
+          campaignId: candidate.campaignId,
+          commissionAmount: amount,
+          currency: paramsForAppend.entry.currency,
+          rawPayload: toDbJsonObjectField(buildStoredRawPayload({
+            raw: paramsForAppend.entry.raw,
+            eventId: paramsForAppend.entry.eventId,
+            attributionRule: paramsForAppend.attributionRule,
+            normalizedBrand: paramsForAppend.entry.normalizedBrand,
+          }), db.type, null),
         })
-        registerRuntimeTargets(entry, allocatedTargets)
+      })
+    }
+
+    for (const entry of freshEntries) {
+      const sourceAsin = entry.sourceAsin
+      const matchedAsinCandidates = sourceAsin
+        ? [...(asinToCampaigns.get(sourceAsin) || [])]
+        : []
+
+      const brandFilteredAsinCandidates = entry.normalizedBrand
+        ? matchedAsinCandidates.filter((candidate) => candidate.normalizedBrand === entry.normalizedBrand)
+        : matchedAsinCandidates
+
+      const directCandidates = brandFilteredAsinCandidates.length > 0
+        ? brandFilteredAsinCandidates
+        : matchedAsinCandidates
+
+      if (directCandidates.length > 0) {
+        appendAttributionRows({
+          entry,
+          candidates: directCandidates,
+          attributionRule: 'asin_match',
+        })
         continue
       }
 
-      const hasAnyIdentifier = Boolean(
-        entry.sourceMid
-        || entry.sourceAsin
-        || entry.sourceLinkId
-        || entry.sourceLink
-      )
+      const inferredBrands = new Set<string>()
+      if (entry.normalizedBrand) inferredBrands.add(entry.normalizedBrand)
+      if (sourceAsin) {
+        for (const brand of asinToBrands.get(sourceAsin) || []) {
+          inferredBrands.add(brand)
+        }
+      }
 
-      const baseReasonCode: AffiliateAttributionBaseFailureReasonCode = !hasAnyIdentifier
+      const brandCandidates = Array.from(inferredBrands)
+        .flatMap((brand) => brandToCampaigns.get(brand) || [])
+        .filter((candidate, index, list) => list.findIndex((item) => item.campaignId === candidate.campaignId) === index)
+
+      if (brandCandidates.length > 0) {
+        appendAttributionRows({
+          entry,
+          candidates: brandCandidates,
+          attributionRule: 'brand_equal_split',
+        })
+        continue
+      }
+
+      const hasIdentifier = Boolean(entry.sourceAsin || entry.normalizedBrand || entry.sourceMid || entry.sourceLinkId || entry.sourceLink)
+      const baseReasonCode: AffiliateAttributionBaseFailureReasonCode = !hasIdentifier
         ? 'missing_identifier'
-        : (matchedProductIds.size === 0 ? 'product_mapping_miss' : 'offer_mapping_miss')
-      const reasonCode = resolveAffiliateAttributionFailureReasonCode({
-        baseReasonCode,
-        reportDate: params.reportDate,
-      })
+        : (sourceAsin ? 'campaign_mapping_miss' : 'offer_mapping_miss')
 
       failureRows.push({
         userId: params.userId,
@@ -1579,7 +1612,10 @@ export async function persistAffiliateCommissionAttributions(params: {
         offerId: null,
         commissionAmount: entry.commission,
         currency: entry.currency,
-        reasonCode,
+        reasonCode: resolveAffiliateAttributionFailureReasonCode({
+          baseReasonCode,
+          reportDate: params.reportDate,
+        }),
         reasonDetail: buildFailureReasonDetail({
           reportDate: params.reportDate,
           sourceMid: entry.sourceMid,
@@ -1587,117 +1623,17 @@ export async function persistAffiliateCommissionAttributions(params: {
           sourceLinkId: entry.sourceLinkId,
           sourceNormId: entry.sourceNormId,
         }),
-        rawPayload: entry.raw ?? null,
+        rawPayload: buildStoredRawPayload({
+          raw: entry.raw,
+          eventId: entry.eventId,
+          attributionRule: 'unattributed',
+          normalizedBrand: entry.normalizedBrand,
+        }),
       })
-      continue
     }
-
-    const offerWeights = offerIds.map((offerId) => {
-      const baseWeight = aggregateOfferWeight(campaignWeightsByOffer.get(offerId) || [])
-      return explicitMatchedOfferIds.has(offerId) ? baseWeight * 2 : baseWeight
-    })
-
-    const offerShares = buildWeightedShares(
-      entry.commission,
-      offerWeights
-    )
-
-    offerIds.forEach((offerId, offerIndex) => {
-      const offerAmount = offerShares[offerIndex] || 0
-      if (offerAmount <= 0) return
-
-      const campaigns = campaignWeightsByOffer.get(offerId) || []
-      if (campaigns.length === 0) {
-        const fallbackTargets = resolveFallbackCampaignTargets({
-          entry,
-          preferredOfferId: offerId,
-        })
-        if (fallbackTargets.length > 0) {
-          const allocatedTargets = allocateEntryToCampaignTargets({
-            entry,
-            amount: offerAmount,
-            targets: fallbackTargets,
-            fallbackOfferId: offerId,
-          })
-          registerRuntimeTargets(entry, allocatedTargets)
-          return
-        }
-
-        failureRows.push({
-          userId: params.userId,
-          reportDate: params.reportDate,
-          platform: entry.platform,
-          sourceOrderId: entry.sourceOrderId,
-          sourceMid: entry.sourceMid,
-          sourceAsin: entry.sourceAsin,
-          sourceLinkId: entry.sourceLinkId,
-          offerId,
-          commissionAmount: offerAmount,
-          currency: entry.currency,
-          reasonCode: 'campaign_mapping_miss',
-          reasonDetail: buildFailureReasonDetail({
-            reportDate: params.reportDate,
-            sourceMid: entry.sourceMid,
-            sourceAsin: entry.sourceAsin,
-            sourceLinkId: entry.sourceLinkId,
-            sourceNormId: entry.sourceNormId,
-            offerId,
-          }),
-          rawPayload: entry.raw ?? null,
-        })
-        rowsToInsert.push({
-          userId: params.userId,
-          reportDate: params.reportDate,
-          platform: entry.platform,
-          sourceOrderId: entry.sourceOrderId,
-          sourceMid: entry.sourceMid,
-          sourceAsin: entry.sourceAsin,
-          offerId,
-          campaignId: null,
-          commissionAmount: offerAmount,
-          currency: entry.currency,
-          rawPayload: toDbJsonObjectField(entry.raw ?? null, db.type, null),
-        })
-        attributedOfferIds.add(offerId)
-        attributedCommission = roundTo(attributedCommission + offerAmount)
-        return
-      }
-
-      const allocatedTargets = allocateEntryToCampaignTargets({
-        entry,
-        amount: offerAmount,
-        targets: campaigns.map((campaign) => ({
-          campaignId: campaign.campaignId,
-          offerId,
-          weight: campaign.weight,
-        })),
-        fallbackOfferId: offerId,
-      })
-      registerRuntimeTargets(entry, allocatedTargets)
-    })
   }
 
   await db.transaction(async () => {
-    await db.exec(
-      `DELETE FROM affiliate_commission_attributions WHERE user_id = ? AND report_date = ?`,
-      [params.userId, params.reportDate]
-    )
-
-    for (const key of inferredOfferLinkKeys) {
-      const [productIdRaw, offerIdRaw] = key.split(':')
-      const productId = Number(productIdRaw)
-      const offerId = Number(offerIdRaw)
-      if (!Number.isFinite(productId) || !Number.isFinite(offerId)) continue
-      await db.exec(
-        `
-          INSERT INTO affiliate_product_offer_links (user_id, product_id, offer_id, created_via)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT (user_id, product_id, offer_id) DO NOTHING
-        `,
-        [params.userId, productId, offerId, 'asin_fallback']
-      )
-    }
-
     for (const row of rowsToInsert) {
       await db.exec(
         `
@@ -1723,11 +1659,6 @@ export async function persistAffiliateCommissionAttributions(params: {
     }
 
     try {
-      await db.exec(
-        `DELETE FROM openclaw_affiliate_attribution_failures WHERE user_id = ? AND report_date = ?`,
-        [params.userId, params.reportDate]
-      )
-
       for (const row of failureRows) {
         await db.exec(
           `
@@ -1763,18 +1694,18 @@ export async function persistAffiliateCommissionAttributions(params: {
     }
   })
 
-  const normalizedAttributedCommission = roundTo(
+  const newAttributedCommission = roundTo(
     rowsToInsert.reduce((sum, row) => sum + (Number(row.commissionAmount) || 0), 0)
   )
-  const normalizedUnattributedCommission = roundTo(
-    Math.max(0, totalCommission - normalizedAttributedCommission)
+  const newUnattributedCommission = roundTo(
+    failureRows.reduce((sum, row) => sum + (Number(row.commissionAmount) || 0), 0)
   )
 
   return {
     reportDate: params.reportDate,
     totalCommission,
-    attributedCommission: normalizedAttributedCommission,
-    unattributedCommission: normalizedUnattributedCommission,
+    attributedCommission: roundTo(existingAttributedCommission + newAttributedCommission),
+    unattributedCommission: roundTo(existingUnattributedCommission + newUnattributedCommission),
     attributedOffers: attributedOfferIds.size,
     attributedCampaigns: attributedCampaignIds.size,
     writtenRows: rowsToInsert.length,
