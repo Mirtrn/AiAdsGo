@@ -413,10 +413,10 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                   <TableHead className="w-[50px]">选择</TableHead>
                   <TableHead className="w-[220px]">账号名称</TableHead>
                   <TableHead>账号ID</TableHead>
-                  <TableHead className="w-[120px] whitespace-nowrap">状态</TableHead>
-                  <TableHead className="w-[140px] whitespace-nowrap">推荐</TableHead>
+                  <TableHead className="w-[80px] whitespace-nowrap">状态</TableHead>
+                  <TableHead className="w-[90px] whitespace-nowrap">推荐</TableHead>
                   <TableHead>账户余额</TableHead>
-                  <TableHead>已关联Offer</TableHead>
+                  <TableHead className="w-[200px]">已关联Offer</TableHead>
                   <TableHead>时区</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -456,10 +456,10 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{account.customerId}</TableCell>
-                      <TableCell className="w-[120px] whitespace-nowrap">
+                      <TableCell className="w-[80px] whitespace-nowrap">
                         {getAccountStatusBadge(account.status)}
                       </TableCell>
-                      <TableCell className="w-[140px] whitespace-nowrap">
+                      <TableCell className="w-[90px] whitespace-nowrap">
                         {/* 🔓 KISS优化(2025-12-12): 优先级标识 */}
                         {account.priority === 'current' && (
                           <Badge className="bg-green-100 text-green-800 border-green-300">
@@ -479,7 +479,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                       <TableCell className="text-sm">
                         {formatBalance(account.accountBalance, account.currencyCode)}
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="w-[200px] text-sm">
                         {account.linkedOffers && account.linkedOffers.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
                             {account.linkedOffers.map((linkedOffer) => (
