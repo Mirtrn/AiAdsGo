@@ -332,7 +332,7 @@ const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 30000
 const DEFAULT_YP_DELTA_MAX_PAGES = 20
 const MAX_YP_SYNC_MAX_PAGES = 50000
 const MAX_YP_EMPTY_PAGE_STREAK = 3
-// 连续多少页没有新商品时切换市场（避免在已抓完的市场无限翻页）
+// 连续多少页返回空列表时切换市场（避免在已抓完的市场无限翻页）
 const MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE = 10
 const DEFAULT_YP_SKIP_FAILED_PAGES = true // 默认跳过连续失败的页面，避免因服务器端问题导致整个同步中止
 const DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS = 4500
@@ -3663,7 +3663,6 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
     }
 
     try {
-      const itemsBeforeFetch = items.length
       const parsed = await fetchYeahPromosProductsHtmlPage({
         template: currentTemplate,
         page: currentPage,
@@ -3674,13 +3673,13 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       items.push(...parsed.items)
       fetchedPages += 1
 
-      // 检查本页是否有新商品
-      const hasNewItemsInPage = items.length > itemsBeforeFetch
+      // 检查本页是否返回了商品
+      const pageHasItems = parsed.items.length > 0
 
-      if (!hasNewItemsInPage) {
+      if (!pageHasItems) {
         consecutiveEmptyPagesInScope += 1
         console.log(
-          `[yeahpromos] scope=${currentTemplate.scope} page=${currentPage} returned no new items (${consecutiveEmptyPagesInScope}/${MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE})`
+          `[yeahpromos] scope=${currentTemplate.scope} page=${currentPage} returned empty (${consecutiveEmptyPagesInScope}/${MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE})`
         )
       } else {
         consecutiveEmptyPagesInScope = 0
@@ -3691,7 +3690,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
 
       // 切换市场的条件：
       // 1. 页面明确标记没有商品且返回空列表
-      // 2. 连续多页没有新商品（避免在已抓完的市场无限翻页）
+      // 2. 连续多页返回空列表（避免在已抓完的市场无限翻页）
       // 3. 页面没有下一页链接
       const shouldSwitchScope =
         (parsed.noProductsFound && parsed.items.length === 0) ||
@@ -3701,7 +3700,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       if (shouldSwitchScope) {
         if (consecutiveEmptyPagesInScope >= MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE) {
           console.log(
-            `[yeahpromos] switching from scope=${currentTemplate.scope} to next scope: ${consecutiveEmptyPagesInScope} consecutive pages with no new items`
+            `[yeahpromos] switching from scope=${currentTemplate.scope} to next scope: ${consecutiveEmptyPagesInScope} consecutive empty pages`
           )
         }
         scopeIndex += 1
