@@ -333,13 +333,13 @@ export default function ROIAnalyticsPage() {
                             <div className="space-x-2">
                               <Button
                                 variant="ghost"
-                                size="xs"
+                                size="sm"
                                 onClick={handleCancelCustomDateRange}
                               >
                                 取消
                               </Button>
                               <Button
-                                size="xs"
+                                size="sm"
                                 onClick={handleApplyCustomDateRange}
                               >
                                 应用
