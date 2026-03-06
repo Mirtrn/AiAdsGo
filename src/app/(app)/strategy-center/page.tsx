@@ -1618,7 +1618,7 @@ export default function StrategyCenterPage() {
             )}
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <Table className="min-w-[1320px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="min-w-[1320px]">
                 <TableHeader className="bg-slate-50/80">
                   <TableRow className="hover:bg-slate-50/80">
                     <TableHead className="w-[44px] text-xs font-semibold text-slate-600">

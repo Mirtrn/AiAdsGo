@@ -3007,7 +3007,7 @@ export default function OpenClawPage() {
               )}
               {pendingCommandRuns.length > 0 && (
                 <>
-                  <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                  <Table className="[&_thead_th]:bg-white">
                     <TableHeader>
                       <TableRow>
                         <TableHead>创建时间</TableHead>
@@ -3180,7 +3180,7 @@ export default function OpenClawPage() {
                   <div>
                     <div className="text-sm font-semibold text-slate-700 mb-2">Channel 状态</div>
                     {gatewayHealth?.channelOrder?.length ? (
-                      <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                      <Table className="[&_thead_th]:bg-white">
                         <TableHeader>
                           <TableRow>
                             <TableHead>Channel</TableHead>
@@ -3261,7 +3261,7 @@ export default function OpenClawPage() {
                           </label>
                         </div>
                         {gatewayVisibleSkills.length > 0 ? (
-                          <Table className="table-fixed [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                          <Table className="table-fixed [&_thead_th]:bg-white">
                             <TableHeader>
                               <TableRow>
                                 <TableHead className="w-[34%]">技能</TableHead>
@@ -3386,7 +3386,7 @@ export default function OpenClawPage() {
                     </div>
                   )}
 
-                  <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                  <Table className="[&_thead_th]:bg-white">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-[20%]">文件</TableHead>
@@ -3937,7 +3937,7 @@ export default function OpenClawPage() {
               <div className="flex justify-between items-center">
                 <Button onClick={handleCreateToken}>生成新Token</Button>
               </div>
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <TableHead>名称</TableHead>
@@ -4089,7 +4089,7 @@ export default function OpenClawPage() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <Table className="table-fixed min-w-[1460px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                  <Table className="table-fixed min-w-[1460px] [&_thead_th]:bg-white">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="h-8 w-[86px] whitespace-nowrap">时间</TableHead>
@@ -4477,7 +4477,7 @@ export default function OpenClawPage() {
               )}
 
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <Table className="min-w-[1320px] [&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+                <Table className="min-w-[1320px] [&_thead_th]:bg-white">
                   <TableHeader className="bg-slate-50/80">
                     <TableRow className="hover:bg-slate-50/80">
                       <TableHead className="w-[44px] text-xs font-semibold text-slate-600">
@@ -5076,7 +5076,7 @@ export default function OpenClawPage() {
               <CardDescription>收益口径：联盟佣金归因（未归因佣金将以 Unattributed 行展示）</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Offer</TableHead>
@@ -5132,7 +5132,7 @@ export default function OpenClawPage() {
               <CardDescription>按佣金收入排序（未归因佣金将单列展示）</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <TableHead>名称</TableHead>
@@ -5176,7 +5176,7 @@ export default function OpenClawPage() {
               <CardDescription>OpenClaw 调用 AutoAds 的操作日志</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <TableHead>时间</TableHead>

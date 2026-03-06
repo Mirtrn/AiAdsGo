@@ -2078,7 +2078,7 @@ export default function Step4PublishSummary({
           {existingCampaigns.length > 0 && (
             <div className="my-4">
               <h4 className="text-sm font-medium mb-2">当前激活的广告系列：</h4>
-              <Table className="[&_thead_th]:sticky [&_thead_th]:top-16 [&_thead_th]:z-20 [&_thead_th]:bg-white">
+              <Table className="[&_thead_th]:bg-white">
                 <TableHeader>
                   <TableRow>
                     <TableHead>广告系列名称</TableHead>
