@@ -137,13 +137,15 @@ describe('GET /api/dashboard/kpis', () => {
       }
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        // Dashboard KPIs should align with campaigns performance/trends and
+        // affiliate backend reconciliation. We always exclude
+        // `campaign_mapping_miss` but include pending misses within the
+        // grace window, so the SQL only needs the base exclusion filter.
         expect(sql).toContain("COALESCE(reason_code, '') <> ?")
-        expect(sql).toContain("COALESCE(reason_code, '') NOT IN")
+        expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
         expect(params).toEqual(
           expect.arrayContaining([
             'campaign_mapping_miss',
-            'pending_product_mapping_miss',
-            'pending_offer_mapping_miss',
           ])
         )
         unattributedCallCount += 1
