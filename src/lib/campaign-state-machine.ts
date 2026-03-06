@@ -101,8 +101,6 @@ export function buildCampaignTransitionPatch(
     case 'OFFLINE':
       return {
         status: 'REMOVED',
-        isDeleted: true,
-        deletedAt: nowToken,
         removedReason: payload?.removedReason || 'offline',
       }
 

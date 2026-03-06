@@ -164,10 +164,11 @@ function resolveConfiguredMaxCpc(maxCpc: unknown, campaignConfig: unknown): numb
   return toPositiveNumberOrNull(parsedConfig?.maxCpcBid)
 }
 
+// "Deleted" here仅表示软删除(is_deleted)，而不是业务上的“下线(REMOVED)”
+// 下线后的广告系列仍然需要出现在 /campaigns 列表中，因此只按 isDeleted 过滤
 function isCampaignRemovedOrDeleted(campaign: any): boolean {
-  const removedStatus = String(campaign?.status || '').toUpperCase() === 'REMOVED'
   const deletedFlag = campaign?.isDeleted === true || campaign?.isDeleted === 1
-  return removedStatus || deletedFlag
+  return deletedFlag
 }
 
 function getCampaignRoasValue(campaign: any): number | null {

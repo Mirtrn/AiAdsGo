@@ -40,12 +40,10 @@ describe('campaign-state-machine', () => {
     dbFns.query.mockResolvedValue([])
   })
 
-  it('normalizes OFFLINE action to removed + deleted semantics', () => {
+  it('normalizes OFFLINE action to removed-only semantics', () => {
     const patch = normalizeCampaignTransitionPatch(buildCampaignTransitionPatch('OFFLINE'))
 
     expect(patch.status).toBe('REMOVED')
-    expect(patch.isDeleted).toBe(true)
-    expect(patch.deletedAt).toBe('NOW')
     expect(patch.removedReason).toBe('offline')
   })
 

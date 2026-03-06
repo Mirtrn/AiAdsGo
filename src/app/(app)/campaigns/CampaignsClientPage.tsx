@@ -338,10 +338,10 @@ export default function CampaignsClientPage({
   const [offlineAccountIssueMessage, setOfflineAccountIssueMessage] = useState<string | null>(null)
   const [offlineAccountIssueStatus, setOfflineAccountIssueStatus] = useState<string | null>(null)
 
+  // 仅将软删除(isDeleted)视为"已删除"，REMOVED 视为"已下线"仍展示
   const isCampaignDeleted = (campaign: Campaign) => {
     const deletedFlag = campaign.isDeleted === true || campaign.isDeleted === 1
-    const removedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
-    return deletedFlag || removedStatus
+    return deletedFlag
   }
   const isOfferDeleted = (campaign: Campaign) => campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
   const getCampaignGoogleId = (campaign: Campaign) => campaign.googleCampaignId || campaign.campaignId
@@ -664,20 +664,15 @@ export default function CampaignsClientPage({
     const uniqueIds = Array.from(new Set(ids))
     if (uniqueIds.length === 0) return
     const idSet = new Set(uniqueIds)
-    const shouldKeepVisible = showDeletedCampaigns && (statusFilter === 'all' || statusFilter === 'REMOVED')
-
     setCampaigns((prev) => {
-      if (shouldKeepVisible) {
-        return prev.map((campaign) => {
-          if (!idSet.has(campaign.id)) return campaign
-          if (String(campaign.status || '').toUpperCase() === 'REMOVED') return campaign
-          return {
-            ...campaign,
-            status: 'REMOVED',
-          }
-        })
-      }
-      return prev.filter((campaign) => !idSet.has(campaign.id))
+      return prev.map((campaign) => {
+        if (!idSet.has(campaign.id)) return campaign
+        if (String(campaign.status || '').toUpperCase() === 'REMOVED') return campaign
+        return {
+          ...campaign,
+          status: 'REMOVED',
+        }
+      })
     })
 
     setSelectedCampaignSnapshots((prev) => {
@@ -697,11 +692,7 @@ export default function CampaignsClientPage({
 
       return changed ? next : prev
     })
-
-    if (isServerPagingMode && !shouldKeepVisible) {
-      setServerTotal((prev) => Math.max(0, prev - uniqueIds.length))
-    }
-  }, [isServerPagingMode, showDeletedCampaigns, statusFilter])
+  }, [isServerPagingMode])
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -3397,6 +3388,9 @@ export default function CampaignsClientPage({
                 <p>
                   您确定要永久删除已移除广告系列{' '}
                   <strong className="text-gray-900">{deleteRemovedTarget?.campaignName || '-'}</strong> 吗？
+                </p>
+                <p className="text-sm text-red-700">
+                  此操作会从列表中彻底移除，不可恢复。
                 </p>
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                   <p className="font-medium mb-1">删除后将会：</p>
