@@ -12,8 +12,6 @@ const GLOBAL_AI_KEYS = new Set([
 ])
 
 const USER_SCOPED_KEYS = new Set([
-  'yeahpromos_token',
-  'yeahpromos_site_id',
   'yeahpromos_page',
   'yeahpromos_limit',
   'yeahpromos_request_delay_ms',
@@ -21,8 +19,6 @@ const USER_SCOPED_KEYS = new Set([
   'yeahpromos_rate_limit_base_delay_ms',
   'yeahpromos_rate_limit_max_delay_ms',
   'yeahpromos_marketplace_templates_json',
-  'partnerboost_base_url',
-  'partnerboost_token',
   'partnerboost_products_page_size',
   'partnerboost_products_page',
   'partnerboost_products_default_filter',
@@ -77,9 +73,6 @@ const USER_SCOPED_KEYS = new Set([
   'feishu_bitable_table_name',
   'openclaw_strategy_enabled',
   'openclaw_strategy_cron',
-  'openclaw_affiliate_sync_enabled',
-  'openclaw_affiliate_sync_interval_hours',
-  'openclaw_affiliate_sync_mode',
   'gateway_auth_rate_limit_json',
   'gateway_tools_json',
 ])

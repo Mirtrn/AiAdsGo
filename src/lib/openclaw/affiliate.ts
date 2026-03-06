@@ -1,4 +1,4 @@
-import { getOpenclawSettingsMap, parseBoolean, parseNumber } from '@/lib/openclaw/settings'
+import { getOpenclawSettingsWithAffiliateSyncMap, parseBoolean, parseNumber } from '@/lib/openclaw/settings'
 import { resolvePartnerboostCountryCode } from '@/lib/affiliate-products'
 
 type PartnerboostAssociateItem = {
@@ -28,7 +28,7 @@ function normalizeUrl(value?: string | null): string | null {
 }
 
 export async function fetchPartnerboostAssociates(userId: number): Promise<PartnerboostAssociateItem[]> {
-  const settings = await getOpenclawSettingsMap(userId)
+  const settings = await getOpenclawSettingsWithAffiliateSyncMap(userId)
   const token = (settings.partnerboost_token || '').trim()
   if (!token) return []
 
@@ -68,7 +68,7 @@ export async function fetchPartnerboostLinkByAsin(params: {
   asin: string
   countryCode?: string | null
 }): Promise<PartnerboostLinkResult | null> {
-  const settings = await getOpenclawSettingsMap(params.userId)
+  const settings = await getOpenclawSettingsWithAffiliateSyncMap(params.userId)
   const token = (settings.partnerboost_token || '').trim()
   if (!token) return null
 
@@ -106,7 +106,7 @@ export async function fetchPartnerboostLinkByAsin(params: {
 }
 
 export async function fetchYeahPromosMerchants(userId: number): Promise<YeahPromosMerchant[]> {
-  const settings = await getOpenclawSettingsMap(userId)
+  const settings = await getOpenclawSettingsWithAffiliateSyncMap(userId)
   const token = (settings.yeahpromos_token || '').trim()
   if (!token) return []
 

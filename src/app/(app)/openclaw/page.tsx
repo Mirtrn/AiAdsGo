@@ -177,19 +177,6 @@ type StrategyRecommendationsResponse = {
   error?: string
 }
 
-type AffiliateSyncTriggerResponse = {
-  success: boolean
-  trigger?: 'manual'
-  syncMode?: 'incremental' | 'realtime'
-  backfillDays?: number
-  reportDates?: string[]
-  queuedCount?: number
-  queueTaskIds?: string[]
-  message?: string
-  code?: string
-  error?: string
-}
-
 type StrategyRecommendationStatusFilter =
   | 'actionable'
   | 'all'
@@ -457,7 +444,6 @@ type OpenclawCommandRunsResponse = {
 
 const HIGH_RISK_COMMAND_LOOKBACK_DAYS = 7
 const HIGH_RISK_COMMAND_PAGE_LIMIT = 10
-const AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS = 7
 const REPORT_TREND_RANGE_OPTIONS = [
   { days: 7, label: '过去7天（含今天）' },
   { days: 14, label: '过去14天（含今天）' },
@@ -523,18 +509,6 @@ const FEISHU_BASIC_EXAMPLE_VALUES: Record<string, string> = {
   feishu_strict_auto_bind: 'true',
 }
 
-const AFFILIATE_MINIMAL_USER_KEYS = [
-  'yeahpromos_token',
-  'yeahpromos_site_id',
-  'partnerboost_token',
-] as const
-
-const AFFILIATE_SYNC_USER_KEYS = [
-  'openclaw_affiliate_sync_enabled',
-  'openclaw_affiliate_sync_interval_hours',
-  'openclaw_affiliate_sync_mode',
-] as const
-
 const PARTNERBOOST_USER_KEYS = [
   'partnerboost_base_url',
   'partnerboost_products_country_code',
@@ -554,16 +528,9 @@ const STRATEGY_MINIMAL_USER_KEYS = [
 ] as const
 
 const FEISHU_CHAT_USER_KEYS = [...FEISHU_CHAT_MINIMAL_USER_KEYS, ...FEISHU_CHAT_COMMUNICATION_USER_KEYS] as const
-const AFFILIATE_USER_KEYS = [
-  ...AFFILIATE_MINIMAL_USER_KEYS,
-  'partnerboost_base_url',
-  ...AFFILIATE_SYNC_USER_KEYS,
-] as const
 
 const USER_KEYS = new Set([
   ...AI_GLOBAL_KEYS,
-  ...AFFILIATE_MINIMAL_USER_KEYS,
-  ...AFFILIATE_SYNC_USER_KEYS,
   ...PARTNERBOOST_USER_KEYS,
   'partnerboost_products_page_size',
   'partnerboost_products_page',
@@ -587,9 +554,6 @@ const USER_DEFAULT_VALUES: Record<string, string> = {
   feishu_require_tenant_key: 'true',
   feishu_strict_auto_bind: 'true',
   partnerboost_base_url: 'https://app.partnerboost.com',
-  openclaw_affiliate_sync_enabled: 'false',
-  openclaw_affiliate_sync_interval_hours: '1',
-  openclaw_affiliate_sync_mode: 'incremental',
   openclaw_strategy_enabled: 'false',
   openclaw_strategy_cron: '0 9 * * *',
 }
@@ -1084,7 +1048,6 @@ export default function OpenClawPage() {
   } = usePagination({ initialPageSize: 10 })
   const [loading, setLoading] = useState(true)
   const [savingUser, setSavingUser] = useState(false)
-  const [affiliateSyncTriggering, setAffiliateSyncTriggering] = useState(false)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null)
   const [gatewayLoading, setGatewayLoading] = useState(false)
   const [gatewayReloading, setGatewayReloading] = useState(false)
@@ -1716,22 +1679,6 @@ export default function OpenClawPage() {
         }
       }
 
-      const isSavingAffiliateSettings = !selectedKeySet || AFFILIATE_USER_KEYS.some((key) => selectedKeySet.has(key))
-      if (isSavingAffiliateSettings) {
-        const syncEnabled = isTruthy(normalizedUserValues.openclaw_affiliate_sync_enabled, false)
-        normalizedUserValues.openclaw_affiliate_sync_enabled = syncEnabled ? 'true' : 'false'
-
-        const syncIntervalRaw = String(normalizedUserValues.openclaw_affiliate_sync_interval_hours || '').trim()
-        const syncIntervalParsed = Number(syncIntervalRaw || USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours)
-        if (!Number.isFinite(syncIntervalParsed) || syncIntervalParsed <= 0) {
-          toast.error('联盟成交/佣金同步间隔必须为正整数（小时）')
-          return
-        }
-        normalizedUserValues.openclaw_affiliate_sync_interval_hours = String(Math.min(24, Math.max(1, Math.round(syncIntervalParsed))))
-
-        const syncModeRaw = String(normalizedUserValues.openclaw_affiliate_sync_mode || '').trim().toLowerCase()
-        normalizedUserValues.openclaw_affiliate_sync_mode = syncModeRaw === 'realtime' ? 'realtime' : 'incremental'
-      }
     }
     const updates = Object.entries(normalizedUserValues)
       .filter(([key]) => USER_KEYS.has(key))
@@ -1773,48 +1720,6 @@ export default function OpenClawPage() {
       toast.error(error?.message || '保存失败')
     } finally {
       setSavingUser(false)
-    }
-  }
-
-  const handleTriggerAffiliateSync = async () => {
-    const hasAffiliateUnsavedChanges = hasUserDirtyFields(AFFILIATE_USER_KEYS)
-    if (hasAffiliateUnsavedChanges) {
-      toast.error('请先保存联盟平台配置后再触发手动同步')
-      return
-    }
-
-    // 联盟佣金存在平台侧滞后更新，手动同步统一以“今日”为截止日回补近N天，
-    // 避免因当前报表日期停留在历史日而遗漏最近窗口数据。
-    const targetDate = parseLocalDate()
-    setAffiliateSyncTriggering(true)
-    try {
-      const response = await fetch('/api/openclaw/affiliate-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          date: targetDate,
-          days: AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS,
-        }),
-      })
-      const payload = await response.json().catch(() => null) as AffiliateSyncTriggerResponse | null
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || '手动触发联盟佣金同步失败')
-      }
-
-      const normalizedReportDates = Array.isArray(payload.reportDates)
-        ? payload.reportDates.filter((item) => typeof item === 'string' && item.trim())
-        : []
-      const displayRange = normalizedReportDates.length > 0
-        ? `${normalizedReportDates[0]} ~ ${normalizedReportDates[normalizedReportDates.length - 1]}`
-        : targetDate
-
-      toast.success(payload.message || `联盟佣金同步任务已入队（${displayRange}）`)
-      setRefreshKey(prev => prev + 1)
-    } catch (error: any) {
-      toast.error(error?.message || '手动触发联盟佣金同步失败')
-    } finally {
-      setAffiliateSyncTriggering(false)
     }
   }
 
@@ -2871,7 +2776,6 @@ export default function OpenClawPage() {
   const aiSectionDirty = canEditAiSettings && aiDirty
   const feishuChatDirty = hasUserDirtyFields(FEISHU_CHAT_USER_KEYS)
   const pendingCommandCount = pendingCommandRunsTotal
-  const affiliateDirty = hasUserDirtyFields(AFFILIATE_USER_KEYS)
   const strategyDirty = hasUserDirtyFields(STRATEGY_MINIMAL_USER_KEYS)
 
   const feishuHealthRows = feishuHealthData?.rows || []
@@ -3550,12 +3454,12 @@ export default function OpenClawPage() {
             <CardHeader>
               <CardTitle>功能拆分提示</CardTitle>
               <CardDescription>
-                联盟平台配置已迁移到「商品管理」，策略中心与飞书相关配置已迁移到「策略中心」。
+                联盟平台配置已迁移到「Settings / 联盟同步」，策略中心与飞书相关配置已迁移到「策略中心」。
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              <Link href="/products" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                前往商品管理
+              <Link href="/settings?category=affiliate_sync" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                前往联盟同步设置
               </Link>
               <Link href="/strategy-center" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                 前往策略中心
@@ -3803,122 +3707,22 @@ export default function OpenClawPage() {
             </CardContent>
           </Card>
 
-          <Card className="hidden">
+          <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                联盟平台
-                {affiliateDirty && <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" aria-label="联盟平台配置未保存" />}
-              </CardTitle>
-              <CardDescription>按平台分行填写：YeahPromos 与 PartnerBoost，避免参数混填</CardDescription>
+              <CardTitle>联盟平台</CardTitle>
+              <CardDescription>联盟配置已迁移到系统设置页，OpenClaw 页面仅保留只读入口。</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                只需填写你要启用的平台参数；未填写的平台不会参与本次联盟商品补全。
+            <CardContent className="space-y-4">
+              <div className="rounded-md border bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                请前往 <span className="font-mono">/settings?category=affiliate_sync</span> 维护联盟凭证与佣金同步参数。
               </div>
-
-              <div className="space-y-4">
-                <div className="rounded-md border px-4 py-3 space-y-3">
-                  <div className="text-sm font-medium">YeahPromos</div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <InputWithLabel
-                      label="Token"
-                      type="password"
-                      required={Boolean((userValues.yeahpromos_site_id || '').trim())}
-                      value={userValues.yeahpromos_token || ''}
-                      onChange={(v) => setUserValue('yeahpromos_token', v)}
-                    />
-                    <InputWithLabel
-                      label="Site ID"
-                      required={Boolean((userValues.yeahpromos_token || '').trim())}
-                      value={userValues.yeahpromos_site_id || ''}
-                      onChange={(v) => setUserValue('yeahpromos_site_id', v)}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-md border px-4 py-3 space-y-3">
-                  <div className="text-sm font-medium">PartnerBoost</div>
-                  <p className="text-xs text-slate-500">Base URL 默认已填，可直接使用。</p>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <InputWithLabel
-                      label="Token"
-                      type="password"
-                      value={userValues.partnerboost_token || ''}
-                      onChange={(v) => setUserValue('partnerboost_token', v)}
-                    />
-                    <InputWithLabel
-                      label="Base URL（可选）"
-                      value={userValues.partnerboost_base_url || ''}
-                      onChange={(v) => setUserValue('partnerboost_base_url', v)}
-                      placeholder="https://app.partnerboost.com"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-md border px-4 py-3 space-y-3">
-                <div className="text-sm font-medium">联盟成交 / 佣金数据同步</div>
-                <p className="text-xs text-slate-500">
-                  参考系统配置“广告数据自动同步”：按间隔刷新当日佣金快照，并支持 Feishu 查询实时拉取。
-                </p>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <SwitchWithLabel
-                    label="启用自动同步"
-                    checked={isTruthy(userValues.openclaw_affiliate_sync_enabled, false)}
-                    onChange={(val) => setUserValue('openclaw_affiliate_sync_enabled', val ? 'true' : 'false')}
-                  />
-                  <InputWithLabel
-                    label="同步间隔（小时）"
-                    value={userValues.openclaw_affiliate_sync_interval_hours || USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours}
-                    onChange={(v) => setUserValue('openclaw_affiliate_sync_interval_hours', v)}
-                    placeholder={USER_DEFAULT_VALUES.openclaw_affiliate_sync_interval_hours}
-                  />
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">同步模式</label>
-                    <Select
-                      value={userValues.openclaw_affiliate_sync_mode || USER_DEFAULT_VALUES.openclaw_affiliate_sync_mode}
-                      onValueChange={(v) => setUserValue('openclaw_affiliate_sync_mode', v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择模式" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="incremental">incremental（推荐）</SelectItem>
-                        <SelectItem value="realtime">realtime（Feishu实时）</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1">
-                  <div>incremental：每小时任务按配置间隔回补近7天佣金快照（覆盖平台滞后更新）。</div>
-                  <div>realtime：在上述基础上，Feishu 查询日报默认强制实时拉取联盟佣金。</div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleTriggerAffiliateSync}
-                    disabled={savingUser || affiliateSyncTriggering || affiliateDirty}
-                    title={affiliateDirty ? '请先保存联盟平台配置后再触发手动同步' : undefined}
-                  >
-                    {affiliateSyncTriggering
-                      ? '同步触发中...'
-                      : `手动触发同步（近${AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS}天）`}
-                  </Button>
-                  <span className="text-xs text-slate-500">
-                    以今日为截止日回补近{AFFILIATE_MANUAL_SYNC_BACKFILL_DAYS}天联盟佣金，并写入 /campaigns 口径。
-                  </span>
-                </div>
-              </div>
-
               <div className="flex justify-end">
-                <Button
-                  onClick={() => saveSettings({ scope: 'user', keys: [...AFFILIATE_USER_KEYS], successMessage: '联盟平台配置已保存' })}
-                  disabled={savingUser}
+                <Link
+                  href="/settings?category=affiliate_sync"
+                  className={buttonVariants({ variant: 'outline' })}
                 >
-                  {savingUser ? '保存中...' : affiliateDirty ? '保存联盟平台配置 *' : '保存联盟平台配置'}
-                </Button>
+                  前往 Settings 配置
+                </Link>
               </div>
             </CardContent>
           </Card>

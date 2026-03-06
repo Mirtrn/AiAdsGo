@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildOpenclawDailyReport, getOrCreateDailyReport } from '@/lib/openclaw/reports'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
-import { getOpenclawSettingsMap } from '@/lib/openclaw/settings'
+import { getAffiliateSyncSettingsMap } from '@/lib/openclaw/settings'
 
 function parseBooleanQuery(value: string | null): boolean {
   if (!value) return false
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
   if (!forceRefresh && auth.authType === 'gateway-binding') {
     const channel = String(request.headers.get('x-openclaw-channel') || '').trim().toLowerCase()
     if (channel === 'feishu') {
-      const settings = await getOpenclawSettingsMap(auth.userId)
+      const settings = await getAffiliateSyncSettingsMap(auth.userId)
       const syncMode = normalizeAffiliateSyncMode(settings.openclaw_affiliate_sync_mode)
       if (syncMode === 'realtime') {
         forceRefresh = true

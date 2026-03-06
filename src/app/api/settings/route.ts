@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 确保所有核心分类都存在（即使没有配置值）
-    const coreCategories = ['google_ads', 'ai', 'proxy', 'system']
+    const coreCategories = ['google_ads', 'ai', 'proxy', 'system', 'affiliate_sync']
     for (const category of coreCategories) {
       if (!groupedSettings[category]) {
         groupedSettings[category] = []

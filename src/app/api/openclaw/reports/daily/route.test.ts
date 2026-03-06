@@ -12,7 +12,7 @@ const reportFns = vi.hoisted(() => ({
 }))
 
 const settingsFns = vi.hoisted(() => ({
-  getOpenclawSettingsMap: vi.fn(),
+  getAffiliateSyncSettingsMap: vi.fn(),
 }))
 
 vi.mock('@/lib/openclaw/request-auth', () => ({
@@ -25,7 +25,7 @@ vi.mock('@/lib/openclaw/reports', () => ({
 }))
 
 vi.mock('@/lib/openclaw/settings', () => ({
-  getOpenclawSettingsMap: settingsFns.getOpenclawSettingsMap,
+  getAffiliateSyncSettingsMap: settingsFns.getAffiliateSyncSettingsMap,
 }))
 
 describe('openclaw reports daily route', () => {
@@ -45,7 +45,7 @@ describe('openclaw reports daily route', () => {
         isRange: true,
       },
     })
-    settingsFns.getOpenclawSettingsMap.mockResolvedValue({})
+    settingsFns.getAffiliateSyncSettingsMap.mockResolvedValue({})
   })
 
   it('returns 403 when request user cannot be resolved', async () => {
@@ -82,7 +82,7 @@ describe('openclaw reports daily route', () => {
       authType: 'gateway-binding',
     })
 
-    settingsFns.getOpenclawSettingsMap.mockResolvedValue({
+    settingsFns.getAffiliateSyncSettingsMap.mockResolvedValue({
       openclaw_affiliate_sync_mode: 'realtime',
     })
 
@@ -95,7 +95,7 @@ describe('openclaw reports daily route', () => {
     const payload = await res.json()
 
     expect(res.status).toBe(200)
-    expect(settingsFns.getOpenclawSettingsMap).toHaveBeenCalledWith(11)
+    expect(settingsFns.getAffiliateSyncSettingsMap).toHaveBeenCalledWith(11)
     expect(reportFns.getOrCreateDailyReport).toHaveBeenCalledWith(11, '2026-02-09', { forceRefresh: true })
     expect(payload.forceRefreshApplied).toBe(true)
     expect(payload.forceRefreshReason).toBe('feishu_mode')
@@ -107,7 +107,7 @@ describe('openclaw reports daily route', () => {
       authType: 'gateway-binding',
     })
 
-    settingsFns.getOpenclawSettingsMap.mockResolvedValue({
+    settingsFns.getAffiliateSyncSettingsMap.mockResolvedValue({
       openclaw_affiliate_sync_mode: 'incremental',
     })
 

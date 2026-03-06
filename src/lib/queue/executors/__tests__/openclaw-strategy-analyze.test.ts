@@ -112,8 +112,16 @@ describe('executeOpenclawStrategy analyze-only mode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    dbFns.db.queryOne.mockResolvedValue({ openclaw_enabled: 1 })
-    dbFns.getDatabase.mockResolvedValue(dbFns.db as any)
+    dbFns.db.queryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT is_active, package_expires_at FROM users')) {
+        return { is_active: 1, package_expires_at: null }
+      }
+      if (sql.includes('SELECT strategy_center_enabled FROM users')) {
+        return { strategy_center_enabled: 1 }
+      }
+      return null
+    })
+    dbFns.getDatabase.mockReturnValue(dbFns.db as any)
 
     configFns.getOpenclawStrategyConfig.mockResolvedValue({
       enabled: true,
@@ -213,6 +221,30 @@ describe('executeOpenclawStrategy analyze-only mode', () => {
     configFns.getOpenclawStrategyConfig.mockResolvedValue({
       enabled: false,
       cron: '0 9 * * *',
+    })
+
+    const result = await executeOpenclawStrategy(buildTask({
+      userId: 9,
+      mode: 'auto',
+      trigger: 'cron',
+      kind: 'analyze_recommendations',
+    }))
+
+    expect(result.success).toBe(true)
+    expect(result.skipped).toBe(true)
+    expect(recommendationFns.getStrategyRecommendations).not.toHaveBeenCalled()
+    expect(storeFns.createStrategyRun).not.toHaveBeenCalled()
+  })
+
+  it('skips analyze task when strategy center gate is disabled', async () => {
+    dbFns.db.queryOne.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT is_active, package_expires_at FROM users')) {
+        return { is_active: 1, package_expires_at: null }
+      }
+      if (sql.includes('SELECT strategy_center_enabled FROM users')) {
+        return { strategy_center_enabled: 0 }
+      }
+      return null
     })
 
     const result = await executeOpenclawStrategy(buildTask({

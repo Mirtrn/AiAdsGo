@@ -11,6 +11,7 @@ import {
   type ProductSummaryCachePayload,
 } from '@/lib/products-cache'
 import { getYeahPromosSessionCookieForSync } from '@/lib/yeahpromos-session'
+import { resolveAffiliateSettingCategory } from '@/lib/openclaw/settings'
 import axios from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { fetchProxyIp } from '@/lib/proxy/fetch-proxy-ip'
@@ -2167,7 +2168,8 @@ function formatCommissionForOffer(product: AffiliateProduct): string | undefined
 async function getUserScopedSettingMap(userId: number, keys: string[]): Promise<Record<string, string>> {
   const values = await Promise.all(
     keys.map(async (key) => {
-      const record = await getUserOnlySetting('openclaw', key, userId)
+      const category = resolveAffiliateSettingCategory(key)
+      const record = await getUserOnlySetting(category, key, userId)
       return [key, (record?.value || '').trim()] as const
     })
   )

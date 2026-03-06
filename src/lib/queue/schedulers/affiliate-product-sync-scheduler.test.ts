@@ -289,18 +289,17 @@ describe('AffiliateProductSyncScheduler YP support', () => {
     expect(scheduler.enqueueSyncTask).not.toHaveBeenCalled()
   })
 
-  it('uses openclaw global interval as PB delta fallback when platform-specific interval is absent', async () => {
+  it('uses default PB delta interval when platform-specific interval is absent', async () => {
     const scheduler = new AffiliateProductSyncScheduler() as any
 
     const dbQueryMock = vi.fn().mockResolvedValue([
-      { key: 'affiliate_pb_last_delta_sync_at', value: '2026-02-23T22:00:00.000Z' },
+      { key: 'affiliate_pb_last_delta_sync_at', value: '2026-02-23T18:00:00.000Z' },
       { key: 'affiliate_pb_last_full_sync_at', value: '2026-02-24T00:00:00.000Z' },
     ])
-    const dbQueryOneMock = vi.fn().mockResolvedValue({ value: '1' })
     mocks.getDatabase.mockResolvedValue({
       type: 'postgres',
       query: dbQueryMock,
-      queryOne: dbQueryOneMock,
+      queryOne: vi.fn().mockResolvedValue(undefined),
       exec: vi.fn().mockResolvedValue({ changes: 1 }),
     })
 
@@ -328,10 +327,6 @@ describe('AffiliateProductSyncScheduler YP support', () => {
         mode: 'delta',
       })
     )
-    expect(dbQueryOneMock).toHaveBeenCalledWith(
-      expect.stringContaining("category = 'openclaw'"),
-      [5, 'openclaw_affiliate_sync_interval_hours']
-    )
     expect(dbQueryMock).toHaveBeenCalledWith(
       expect.stringContaining("key IN (?, ?, ?, ?)"),
       [
@@ -344,13 +339,12 @@ describe('AffiliateProductSyncScheduler YP support', () => {
     )
   })
 
-  it('passes openclaw global interval fallback into YP schedule config when PB is not configured', async () => {
+  it('loads YP schedule config directly when PB is not configured', async () => {
     const scheduler = new AffiliateProductSyncScheduler() as any
 
     vi.spyOn(scheduler, 'hasActiveSyncRun').mockResolvedValue(false)
     vi.spyOn(scheduler, 'enqueueSyncTask').mockResolvedValue(undefined)
     vi.spyOn(scheduler, 'upsertUserSystemSetting').mockResolvedValue(undefined)
-    vi.spyOn(scheduler, 'loadOpenclawGlobalDeltaIntervalMinutes').mockResolvedValue(60)
     vi.spyOn(scheduler, 'loadLatestCompletedRunTimesByPlatform').mockResolvedValue({
       lastDeltaAt: null,
       lastFullAt: null,
@@ -384,7 +378,7 @@ describe('AffiliateProductSyncScheduler YP support', () => {
     const queued = await scheduler.scheduleForUser(6, new Date('2026-02-24T01:30:00.000Z'))
 
     expect(queued).toBe(true)
-    expect(ypScheduleSpy).toHaveBeenCalledWith(6, 60)
+    expect(ypScheduleSpy).toHaveBeenCalledWith(6)
     expect(scheduler.enqueueSyncTask).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 6,
@@ -464,6 +458,24 @@ describe('AffiliateProductSyncScheduler YP support', () => {
 
     expect(mocks.getLatestFailedAffiliateProductSyncRun).not.toHaveBeenCalled()
     expect(enqueueMock).toHaveBeenCalled()
+  })
+
+  it('filters scheduler users by product_management_enabled gate', async () => {
+    const dbQueryMock = vi.fn().mockResolvedValue([{ id: 9 }, { id: 12 }])
+    mocks.getDatabase.mockResolvedValue({
+      type: 'postgres',
+      query: dbQueryMock,
+      queryOne: vi.fn().mockResolvedValue(undefined),
+      exec: vi.fn().mockResolvedValue({ changes: 1 }),
+    })
+
+    const scheduler = new AffiliateProductSyncScheduler() as any
+    const userIds = await scheduler.listEligibleUsers()
+
+    expect(userIds).toEqual([9, 12])
+    expect(dbQueryMock).toHaveBeenCalledWith(
+      expect.stringContaining('product_management_enabled = TRUE')
+    )
   })
 
   it('runs raw_json retirement maintenance during periodic checks', async () => {

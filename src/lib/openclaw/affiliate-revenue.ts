@@ -3,7 +3,7 @@ import {
   type AffiliateCommissionRawEntry,
   type AffiliatePlatform,
 } from '@/lib/openclaw/affiliate-commission-attribution'
-import { getOpenclawSettingsMap, parseNumber } from '@/lib/openclaw/settings'
+import { getOpenclawSettingsWithAffiliateSyncMap, parseNumber } from '@/lib/openclaw/settings'
 
 type PlatformQueryError = {
   platform: AffiliatePlatform | 'attribution'
@@ -831,7 +831,7 @@ export async function fetchAffiliateCommissionRevenue(params: {
   userId: number
   reportDate: string
 }): Promise<AffiliateCommissionRevenue> {
-  const settings = await getOpenclawSettingsMap(params.userId)
+  const settings = await getOpenclawSettingsWithAffiliateSyncMap(params.userId)
   const reportDate = normalizeYmdDate(params.reportDate)
 
   const configuredPlatforms: AffiliatePlatform[] = []

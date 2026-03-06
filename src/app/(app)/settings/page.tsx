@@ -239,6 +239,44 @@ const SETTING_METADATA: Record<string, {
     placeholder: '输入代理URL（例如：https://api.iprocket.io/api?username=...）'
   },
 
+  // Affiliate Sync
+  'affiliate_sync.yeahpromos_token': {
+    label: 'YeahPromos Token',
+    description: '用于拉取 YeahPromos 联盟商品与佣金数据',
+    placeholder: '输入 YeahPromos Token',
+  },
+  'affiliate_sync.yeahpromos_site_id': {
+    label: 'YeahPromos Site ID',
+    description: 'YeahPromos 站点标识，与 Token 配对使用',
+    placeholder: '输入 Site ID',
+  },
+  'affiliate_sync.partnerboost_token': {
+    label: 'PartnerBoost Token',
+    description: '用于拉取 PartnerBoost 联盟商品与佣金数据',
+    placeholder: '输入 PartnerBoost Token',
+  },
+  'affiliate_sync.partnerboost_base_url': {
+    label: 'PartnerBoost Base URL',
+    description: 'PartnerBoost API 地址，默认无需修改',
+    placeholder: 'https://app.partnerboost.com',
+    defaultValue: 'https://app.partnerboost.com',
+  },
+  'affiliate_sync.openclaw_affiliate_sync_interval_hours': {
+    label: '佣金同步间隔（小时）',
+    description: '联盟佣金快照自动同步间隔，建议 1-24',
+    placeholder: '例如: 1',
+    defaultValue: '1',
+  },
+  'affiliate_sync.openclaw_affiliate_sync_mode': {
+    label: '佣金同步模式',
+    description: 'incremental：按间隔回补；realtime：Feishu 查询优先实时拉取',
+    options: [
+      { value: 'incremental', label: 'incremental（推荐）' },
+      { value: 'realtime', label: 'realtime' },
+    ],
+    defaultValue: 'incremental',
+  },
+
   // System
   'system.currency': {
     label: '默认货币',
@@ -332,6 +370,14 @@ const CATEGORY_FIELDS: Record<string, {
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
   ],
+  affiliate_sync: [
+    { key: 'yeahpromos_token', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'yeahpromos_site_id', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'partnerboost_token', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'partnerboost_base_url', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'openclaw_affiliate_sync_interval_hours', dataType: 'number', isSensitive: false, isRequired: false },
+    { key: 'openclaw_affiliate_sync_mode', dataType: 'string', isSensitive: false, isRequired: false },
+  ],
   system: [
     { key: 'currency', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'language', dataType: 'string', isSensitive: false, isRequired: false },
@@ -388,6 +434,12 @@ const CATEGORY_CONFIG: Record<string, {
     icon: Globe,
     description: '配置网络代理，解决API访问受限问题',
     color: 'text-green-600'
+  },
+  affiliate_sync: {
+    label: '联盟同步',
+    icon: Key,
+    description: '配置联盟平台凭证与佣金同步策略',
+    color: 'text-amber-600'
   },
   system: {
     label: '系统设置',
@@ -528,7 +580,7 @@ export default function SettingsPage() {
       const initialFormData: Record<string, Record<string, string>> = {}
 
       // 遍历所有分类
-      for (const category of ['google_ads', 'ai', 'proxy', 'system']) {
+      for (const category of ['google_ads', 'ai', 'proxy', 'affiliate_sync', 'system']) {
         initialFormData[category] = {}
         const backendSettings = (data.settings[category] as Setting[]) || []
         const backendMap = new Map<string, Setting>(backendSettings.map((s: Setting) => [s.key, s]))
@@ -1685,8 +1737,8 @@ export default function SettingsPage() {
         </Card>
 
         <div className="space-y-6">
-          {/* 定义分类显示顺序：Google Ads → AI引擎 → 代理设置 → 系统设置 */}
-          {['google_ads', 'ai', 'proxy', 'system'].map((category) => {
+          {/* 定义分类显示顺序：Google Ads → AI引擎 → 代理设置 → 联盟同步 → 系统设置 */}
+          {['google_ads', 'ai', 'proxy', 'affiliate_sync', 'system'].map((category) => {
             // 使用getMergedCategorySettings合并后端数据和前端定义的字段
             // 即使数据库中没有数据，也能显示所有配置字段
             const backendSettings = settings[category] || []

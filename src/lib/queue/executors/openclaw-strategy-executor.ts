@@ -1633,14 +1633,14 @@ async function executeStrategyRecommendationAnalyzeTask(
   const userId = Number(task.data?.userId || task.userId)
   await assertUserExecutionAllowed(userId, { source: `openclaw-strategy:${task.id}:analyze` })
   const db = await getDatabase()
-  const userAccess = await db.queryOne<{ openclaw_enabled: boolean | number }>(
-    'SELECT openclaw_enabled FROM users WHERE id = ?',
+  const userAccess = await db.queryOne<{ strategy_center_enabled: boolean | number }>(
+    'SELECT strategy_center_enabled FROM users WHERE id = ?',
     [userId]
   )
-  const openclawEnabled = userAccess
-    ? ((userAccess.openclaw_enabled as any) === true || (userAccess.openclaw_enabled as any) === 1)
+  const strategyCenterEnabled = userAccess
+    ? ((userAccess.strategy_center_enabled as any) === true || (userAccess.strategy_center_enabled as any) === 1)
     : false
-  if (!openclawEnabled) {
+  if (!strategyCenterEnabled) {
     return { success: true, skipped: true }
   }
 

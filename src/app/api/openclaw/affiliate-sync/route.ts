@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveOpenclawRequestUser } from '@/lib/openclaw/request-auth'
 import { formatOpenclawLocalDate, normalizeOpenclawReportDate } from '@/lib/openclaw/report-date'
-import { getOpenclawSettingsMap } from '@/lib/openclaw/settings'
+import { getOpenclawSettingsWithAffiliateSyncMap } from '@/lib/openclaw/settings'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 
 export const dynamic = 'force-dynamic'
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   const reportDates = buildBackfillDates(reportDate, backfillDays)
 
   try {
-    const settings = await getOpenclawSettingsMap(auth.userId)
+    const settings = await getOpenclawSettingsWithAffiliateSyncMap(auth.userId)
     const partnerboostToken = String(settings.partnerboost_token || '').trim()
     const yeahpromosToken = String(settings.yeahpromos_token || '').trim()
     const yeahpromosSiteId = String(settings.yeahpromos_site_id || '').trim()

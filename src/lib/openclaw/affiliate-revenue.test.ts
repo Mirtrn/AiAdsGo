@@ -1,12 +1,12 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
-  getOpenclawSettingsMapMock: vi.fn(),
+  getOpenclawSettingsWithAffiliateSyncMapMock: vi.fn(),
   persistAffiliateCommissionAttributionsMock: vi.fn(),
 }))
 
 vi.mock('@/lib/openclaw/settings', () => ({
-  getOpenclawSettingsMap: hoisted.getOpenclawSettingsMapMock,
+  getOpenclawSettingsWithAffiliateSyncMap: hoisted.getOpenclawSettingsWithAffiliateSyncMapMock,
   parseNumber: (value: unknown, fallback = 0) => {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : fallback
@@ -41,7 +41,7 @@ describe('fetchAffiliateCommissionRevenue partnerboost commission sync', () => {
   beforeEach(() => {
     vi.resetAllMocks()
 
-    hoisted.getOpenclawSettingsMapMock.mockResolvedValue({
+    hoisted.getOpenclawSettingsWithAffiliateSyncMapMock.mockResolvedValue({
       partnerboost_token: 'pb-token',
       partnerboost_base_url: 'https://app.partnerboost.com',
       yeahpromos_token: '',
@@ -268,7 +268,7 @@ describe('fetchAffiliateCommissionRevenue yeahpromos transaction parsing', () =>
   beforeEach(() => {
     vi.resetAllMocks()
 
-    hoisted.getOpenclawSettingsMapMock.mockResolvedValue({
+    hoisted.getOpenclawSettingsWithAffiliateSyncMapMock.mockResolvedValue({
       partnerboost_token: '',
       yeahpromos_token: 'yp-token',
       yeahpromos_site_id: '11767',

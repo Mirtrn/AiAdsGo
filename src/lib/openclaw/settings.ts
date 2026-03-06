@@ -3,6 +3,21 @@ import { getUserOnlySettingsByCategory, getSettingsByCategory, type SettingValue
 
 export type OpenclawSettingMap = Record<string, string | null>
 
+const AFFILIATE_SYNC_KEYS = [
+  'yeahpromos_token',
+  'yeahpromos_site_id',
+  'partnerboost_token',
+  'partnerboost_base_url',
+  'openclaw_affiliate_sync_interval_hours',
+  'openclaw_affiliate_sync_mode',
+] as const
+
+export const AFFILIATE_SYNC_SETTING_KEYS = new Set<string>(AFFILIATE_SYNC_KEYS)
+
+export function resolveAffiliateSettingCategory(key: string): 'affiliate_sync' | 'openclaw' {
+  return AFFILIATE_SYNC_SETTING_KEYS.has(String(key || '').trim()) ? 'affiliate_sync' : 'openclaw'
+}
+
 export function buildSettingMap(settings: SettingValue[]): OpenclawSettingMap {
   return settings.reduce<OpenclawSettingMap>((acc, setting) => {
     acc[setting.key] = setting.value
@@ -53,6 +68,30 @@ export async function getOpenclawSettingsMap(userId?: number): Promise<OpenclawS
     ? await getUserOnlySettingsByCategory('openclaw', userId)
     : await getSettingsByCategory('openclaw')
   return buildSettingMap(settings)
+}
+
+export async function getAffiliateSyncSettingsMap(userId?: number): Promise<OpenclawSettingMap> {
+  const settings = userId
+    ? await getUserOnlySettingsByCategory('affiliate_sync', userId)
+    : await getSettingsByCategory('affiliate_sync')
+  return buildSettingMap(settings)
+}
+
+export async function getOpenclawSettingsWithAffiliateSyncMap(userId?: number): Promise<OpenclawSettingMap> {
+  const [openclawSettings, affiliateSyncSettings] = await Promise.all([
+    getOpenclawSettingsMap(userId),
+    getAffiliateSyncSettingsMap(userId),
+  ])
+
+  const sanitizedOpenclawSettings: OpenclawSettingMap = { ...openclawSettings }
+  for (const key of AFFILIATE_SYNC_SETTING_KEYS) {
+    delete sanitizedOpenclawSettings[key]
+  }
+
+  return {
+    ...sanitizedOpenclawSettings,
+    ...affiliateSyncSettings,
+  }
 }
 
 export function readSecretFile(filePath?: string | null): string | undefined {

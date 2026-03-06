@@ -15,7 +15,7 @@
 import cron from 'node-cron'
 import { getDatabase, getSQLiteDatabase } from './lib/db'
 import { getQueueManagerForTaskType } from './lib/queue/queue-routing'
-import { getOpenclawSettingsMap } from './lib/openclaw/settings'
+import { getOpenclawSettingsWithAffiliateSyncMap } from './lib/openclaw/settings'
 // 🔄 已迁移到统一队列系统
 import { triggerDataSync, triggerBackup, triggerLinkCheck, triggerCleanup } from './lib/queue-triggers'
 import { getUserAuthType, getGoogleAdsCredentials } from './lib/google-ads-oauth'
@@ -208,7 +208,7 @@ async function refreshOpenclawStrategySchedules() {
         AND ss.user_id IS NOT NULL
         AND ss.key IN ('openclaw_strategy_enabled', 'openclaw_strategy_cron')
         AND ${userEligibleCondition}
-        AND u.openclaw_enabled = ?
+        AND u.strategy_center_enabled = ?
       GROUP BY ss.user_id
   `, [true])
 
@@ -649,32 +649,16 @@ async function openclawAffiliateRevenueSnapshotTask() {
   const latestReportDate = reportDates[reportDates.length - 1]
 
   try {
-    const rows = await db.query<{
-      user_id: number
-      sync_enabled: string | null
-      sync_interval_hours: string | null
-      sync_mode: string | null
-    }>(`
+    const rows = await db.query<{ user_id: number }>(`
       SELECT
-        u.id as user_id,
-        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_enabled' THEN ss.value END) as sync_enabled,
-        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_interval_hours' THEN ss.value END) as sync_interval_hours,
-        MAX(CASE WHEN ss.key = 'openclaw_affiliate_sync_mode' THEN ss.value END) as sync_mode
+        u.id as user_id
       FROM users u
-      LEFT JOIN system_settings ss ON ss.user_id = u.id
-        AND ss.category = 'openclaw'
-        AND ss.key IN (
-          'openclaw_affiliate_sync_enabled',
-          'openclaw_affiliate_sync_interval_hours',
-          'openclaw_affiliate_sync_mode'
-        )
       WHERE ${userEligibleCondition}
-        AND u.openclaw_enabled = ?
       GROUP BY u.id
-    `, [true])
+    `)
 
     if (!rows || rows.length === 0) {
-      log('📭 未找到可刷新的 OpenClaw 用户')
+      log('📭 未找到可刷新的用户')
       return
     }
 
@@ -682,24 +666,15 @@ async function openclawAffiliateRevenueSnapshotTask() {
 
     let queuedUsers = 0
     let queuedTasks = 0
-    let skippedDisabled = 0
     let skippedIntervalDates = 0
     let skippedNoPlatform = 0
     let failedCount = 0
     const nowMs = Date.now()
 
     for (const row of rows) {
-      const syncEnabled = row.sync_enabled === null || row.sync_enabled === undefined || String(row.sync_enabled).trim() === ''
-        ? false
-        : parseBoolean(row.sync_enabled)
-      if (!syncEnabled) {
-        skippedDisabled += 1
-        continue
-      }
-
       // 重要：联盟 token 属于敏感配置，数据库中 value 可能为空，仅 encrypted_value 有值。
       // 必须走 settings 层解密读取，否则会误判“未配置平台”，导致同步任务不入队。
-      const openclawSettings = await getOpenclawSettingsMap(row.user_id)
+      const openclawSettings = await getOpenclawSettingsWithAffiliateSyncMap(row.user_id)
       const partnerboostToken = String(openclawSettings.partnerboost_token || '').trim()
       const yeahpromosToken = String(openclawSettings.yeahpromos_token || '').trim()
       const yeahpromosSiteId = String(openclawSettings.yeahpromos_site_id || '').trim()
@@ -716,13 +691,13 @@ async function openclawAffiliateRevenueSnapshotTask() {
         Math.max(
           1,
           parsePositiveInt(
-            String(openclawSettings.openclaw_affiliate_sync_interval_hours || row.sync_interval_hours || ''),
+            String(openclawSettings.openclaw_affiliate_sync_interval_hours || ''),
             1
           )
         )
       )
       const syncMode = normalizeAffiliateSyncMode(
-        String(openclawSettings.openclaw_affiliate_sync_mode || row.sync_mode || '')
+        String(openclawSettings.openclaw_affiliate_sync_mode || '')
       )
 
       const existingRows = await db.query<{ report_date: string; payload_json: string | null }>(
@@ -781,7 +756,7 @@ async function openclawAffiliateRevenueSnapshotTask() {
       }
     }
 
-    log(`🧾 OpenClaw 联盟佣金快照刷新入队完成 - 窗口: ${firstReportDate}~${latestReportDate}(${reportDates.length}天), 入队用户: ${queuedUsers}/${rows.length}, 入队任务: ${queuedTasks}, 跳过禁用: ${skippedDisabled}, 跳过未配置平台: ${skippedNoPlatform}, 跳过间隔(按日期): ${skippedIntervalDates}, 失败: ${failedCount}`)
+    log(`🧾 OpenClaw 联盟佣金快照刷新入队完成 - 窗口: ${firstReportDate}~${latestReportDate}(${reportDates.length}天), 入队用户: ${queuedUsers}/${rows.length}, 入队任务: ${queuedTasks}, 跳过未配置平台: ${skippedNoPlatform}, 跳过间隔(按日期): ${skippedIntervalDates}, 失败: ${failedCount}`)
   } catch (error) {
     logError('❌ OpenClaw 联盟佣金快照任务执行失败:', error)
   }
