@@ -332,6 +332,8 @@ const DEFAULT_YP_RATE_LIMIT_MAX_DELAY_MS = 30000
 const DEFAULT_YP_DELTA_MAX_PAGES = 20
 const MAX_YP_SYNC_MAX_PAGES = 50000
 const MAX_YP_EMPTY_PAGE_STREAK = 3
+// 连续多少页没有新商品时切换市场（避免在已抓完的市场无限翻页）
+const MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE = 10
 const DEFAULT_YP_SKIP_FAILED_PAGES = true // 默认跳过连续失败的页面，避免因服务器端问题导致整个同步中止
 const DEFAULT_YP_PRODUCTS_REQUEST_DELAY_MS = 4500
 const MIN_YP_PRODUCTS_REQUEST_DELAY_MS = 1500
@@ -3625,6 +3627,7 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
   )
   let fetchedPages = 0
   let consecutiveScopeFailureCount = 0
+  let consecutiveEmptyPagesInScope = 0  // 当前市场连续空页面计数
 
   const items: NormalizedAffiliateProduct[] = []
   let lastFetchProgressCount = 0
@@ -3655,10 +3658,12 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       scopeIndex += 1
       page = 1
       consecutiveScopeFailureCount = 0
+      consecutiveEmptyPagesInScope = 0
       continue
     }
 
     try {
+      const itemsBeforeFetch = items.length
       const parsed = await fetchYeahPromosProductsHtmlPage({
         template: currentTemplate,
         page: currentPage,
@@ -3669,15 +3674,42 @@ async function fetchYeahPromosPromotableProductsWithMeta(params: {
       items.push(...parsed.items)
       fetchedPages += 1
 
+      // 检查本页是否有新商品
+      const hasNewItemsInPage = items.length > itemsBeforeFetch
+
+      if (!hasNewItemsInPage) {
+        consecutiveEmptyPagesInScope += 1
+        console.log(
+          `[yeahpromos] scope=${currentTemplate.scope} page=${currentPage} returned no new items (${consecutiveEmptyPagesInScope}/${MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE})`
+        )
+      } else {
+        consecutiveEmptyPagesInScope = 0
+      }
+
       const parsedNextPage = parsed.nextPage
       const hasNextPage = Number.isFinite(parsedNextPage as number) && (parsedNextPage as number) > currentPage
-      const scopeHasMore = hasNextPage && !(parsed.noProductsFound && parsed.items.length === 0)
-      if (scopeHasMore) {
-        page = parsedNextPage as number
-        consecutiveScopeFailureCount = 0
-      } else {
+
+      // 切换市场的条件：
+      // 1. 页面明确标记没有商品且返回空列表
+      // 2. 连续多页没有新商品（避免在已抓完的市场无限翻页）
+      // 3. 页面没有下一页链接
+      const shouldSwitchScope =
+        (parsed.noProductsFound && parsed.items.length === 0) ||
+        consecutiveEmptyPagesInScope >= MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE ||
+        !hasNextPage
+
+      if (shouldSwitchScope) {
+        if (consecutiveEmptyPagesInScope >= MAX_YP_CONSECUTIVE_EMPTY_PAGES_PER_SCOPE) {
+          console.log(
+            `[yeahpromos] switching from scope=${currentTemplate.scope} to next scope: ${consecutiveEmptyPagesInScope} consecutive pages with no new items`
+          )
+        }
         scopeIndex += 1
         page = 1
+        consecutiveScopeFailureCount = 0
+        consecutiveEmptyPagesInScope = 0
+      } else {
+        page = parsedNextPage as number
         consecutiveScopeFailureCount = 0
       }
     } catch (error: any) {
