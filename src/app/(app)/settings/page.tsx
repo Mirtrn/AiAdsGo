@@ -1855,7 +1855,10 @@ export default function SettingsPage() {
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <div className="font-semibold mb-1">服务账号认证</div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="font-semibold">服务账号认证</div>
+                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300">即将下线</Badge>
+                          </div>
                           <div className="text-sm text-gray-600">适合 MCC 账号管理多个子账号</div>
                         </button>
                       </div>

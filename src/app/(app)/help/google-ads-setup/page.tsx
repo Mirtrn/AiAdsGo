@@ -27,10 +27,11 @@ export default function GoogleAdsSetupGuidePage() {
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
-              <div className="border rounded-lg p-4 hover:border-blue-300 transition-colors">
+              <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/50">
                 <div className="flex items-center gap-2 mb-3">
                   <Badge>方式一</Badge>
                   <h3 className="font-semibold">OAuth 用户授权</h3>
+                  <Badge variant="outline" className="text-xs bg-blue-100">推荐</Badge>
                 </div>
                 <ul className="space-y-2 text-sm">
                   <li className="flex items-start gap-2">
@@ -42,17 +43,17 @@ export default function GoogleAdsSetupGuidePage() {
                     <span>需要浏览器授权（一次性）</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
-                    <span>需要申请"基本访问权限" Developer Token</span>
+                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <span>支持 Keyword Planner API（需"基本访问权限"）</span>
                   </li>
                 </ul>
               </div>
 
-              <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50/50">
+              <div className="border rounded-lg p-4 hover:border-gray-300 transition-colors bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-3">
                   <Badge variant="secondary">方式二</Badge>
                   <h3 className="font-semibold">服务账号认证</h3>
-                  <Badge variant="outline" className="text-xs bg-blue-100">推荐</Badge>
+                  <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">即将下线</Badge>
                 </div>
                 <ul className="space-y-2 text-sm">
                   <li className="flex items-start gap-2">
@@ -64,8 +65,8 @@ export default function GoogleAdsSetupGuidePage() {
                     <span>无需用户交互，自动化程度高</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>Developer Token 会<strong>自动升级</strong>到 Explorer Access</span>
+                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <span>不支持 Keyword Planner API</span>
                   </li>
                 </ul>
               </div>
@@ -271,7 +272,7 @@ export default function GoogleAdsSetupGuidePage() {
                     <div>
                       <h4 className="font-medium">申请 Developer Token</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token（初始为测试权限，Google 会在几天内自动升级到 Explorer Access）
+                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token（初始为测试权限，可能在几天内自动升级到 Explorer Access，但不保证）
                       </p>
                     </div>
                   </div>
@@ -299,7 +300,7 @@ export default function GoogleAdsSetupGuidePage() {
 
                 <Alert className="mt-4 bg-blue-50 border-blue-200">
                   <AlertDescription>
-                    <strong>提示：</strong>初次申请会获得测试权限的 Developer Token，Google 通常会在几天内自动升级到 Explorer Access（可访问真实账号）
+                    <strong>提示：</strong>初次申请会获得测试权限的 Developer Token，Google 可能会在几天内自动升级到 Explorer Access（可访问真实账号），但不保证。如需稳定使用，建议申请 Basic Access 或使用 OAuth 授权方式。
                   </AlertDescription>
                 </Alert>
 
@@ -307,6 +308,13 @@ export default function GoogleAdsSetupGuidePage() {
                   <AlertCircle className="h-4 w-4 text-amber-500" />
                   <AlertDescription>
                     <strong>功能限制：</strong>服务账号模式无法使用 Keyword Planner API（需要 Basic Access 权限）。关键词搜索量查询将返回默认值，不影响广告创建和投放等核心功能。如需精确搜索量数据，请使用 OAuth 授权模式。
+                  </AlertDescription>
+                </Alert>
+
+                <Alert className="mt-4 bg-orange-50 border-orange-200">
+                  <AlertCircle className="h-4 w-4 text-orange-500" />
+                  <AlertDescription>
+                    <strong>即将下线：</strong>服务账号认证方式将在未来版本中逐步下线，建议新用户优先使用 OAuth 授权方式。
                   </AlertDescription>
                 </Alert>
               </CardContent>
@@ -353,12 +361,12 @@ export default function GoogleAdsSetupGuidePage() {
                     <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg p-3 border-2 border-blue-200">
                       <div className="flex items-start gap-2 mb-2">
                         <Badge className="bg-blue-600">Explorer Access</Badge>
-                        <Badge variant="outline" className="bg-yellow-100 border-yellow-300">自动升级</Badge>
+                        <Badge variant="outline" className="bg-yellow-100 border-yellow-300">可能自动升级</Badge>
                       </div>
                       <ul className="text-sm text-gray-700 space-y-1 ml-2">
                         <li className="flex items-start gap-2">
                           <span className="text-green-500 mt-0.5 font-bold">✓</span>
-                          <span><strong>可访问真实账号</strong>：Google 可能在几天内自动升级测试权限 Token</span>
+                          <span><strong>可访问真实账号</strong>：Google 可能在几天内自动升级测试权限 Token，但不保证</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <span className="text-green-500 mt-0.5">✓</span>
@@ -415,7 +423,7 @@ export default function GoogleAdsSetupGuidePage() {
                   <Alert className="bg-green-50 border-green-200">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-sm">
-                      <strong>推荐策略：</strong>初次配置使用测试权限 Token，等待 Google 自动升级到 Explorer Access（通常几天内）。如需 Keyword Planner API 或更高限额，再申请 Basic/Standard Access。
+                      <strong>推荐策略：</strong>初次配置使用测试权限 Token，等待 Google 可能的自动升级到 Explorer Access（通常几天内，但不保证）。如需稳定使用或 Keyword Planner API，建议申请 Basic/Standard Access 或使用 OAuth 授权方式。
                     </AlertDescription>
                   </Alert>
 
@@ -481,13 +489,13 @@ export default function GoogleAdsSetupGuidePage() {
                 <div>
                   <h4 className="font-semibold mb-2">Q: 我应该选择哪种配置方式？</h4>
                   <p className="text-sm text-gray-600">
-                    如果您只管理自己的 Google Ads 账号，选择 <strong>OAuth 方式</strong>；如果您使用 MCC 账号管理多个子账号，推荐使用<strong>服务账号方式</strong>。
+                    <strong>推荐使用 OAuth 方式</strong>。无论是管理自己的账号还是 MCC 账号，OAuth 都能提供更稳定的功能支持（包括 Keyword Planner API）。服务账号方式将在未来版本中逐步下线。
                   </p>
                 </div>
                 <div>
                   <h4 className="font-semibold mb-2">Q: Developer Token 审核需要多久？</h4>
                   <p className="text-sm text-gray-600">
-                    <strong>测试权限</strong>（Test Access）立即可用；Google 会在几天内自动升级到 <strong>Explorer Access</strong>；<strong>Basic/Standard Access</strong> 需要申请审核（1-3 个工作日）。
+                    <strong>测试权限</strong>（Test Access）立即可用；Google 可能在几天内自动升级到 <strong>Explorer Access</strong>，但不保证；<strong>Basic/Standard Access</strong> 需要申请审核（1-3 个工作日）。
                   </p>
                 </div>
                 <div>
@@ -583,7 +591,7 @@ export default function GoogleAdsSetupGuidePage() {
                     <p className="text-sm text-gray-700 font-semibold mb-2">这是正常的！原因：</p>
                     <ul className="text-sm text-gray-600 space-y-1 ml-2">
                       <li>• 新创建的 Developer Token 默认是 Test Account Access 级别</li>
-                      <li>• Google 通常会在<strong>几天内自动升级到 Explorer Access</strong></li>
+                      <li>• Google 可能会在<strong>几天内自动升级到 Explorer Access</strong>，但不保证</li>
                       <li>• Explorer Access 可以访问真实账号（限制 2,880 operations/day）</li>
                     </ul>
                   </div>
@@ -595,9 +603,9 @@ export default function GoogleAdsSetupGuidePage() {
                     <div className="flex items-start gap-2">
                       <span className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold">推荐</span>
                       <div>
-                        <strong className="text-sm text-green-700">等待 Google 自动升级（1-7天）</strong>
+                        <strong className="text-sm text-green-700">等待 Google 可能的自动升级（1-7天）</strong>
                         <p className="text-xs text-gray-600 mt-1">
-                          无需任何操作，Google 会自动将您的 Token 升级到 <strong>Explorer Access</strong>。升级后可访问真实账号，每日限额 2,880 次操作（足够日常使用）。
+                          无需任何操作，Google 可能会自动将您的 Token 升级到 <strong>Explorer Access</strong>，但不保证。升级后可访问真实账号，每日限额 2,880 次操作（足够日常使用）。
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
                           💡 可在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">API Center</a> 查看 Token 状态
@@ -633,7 +641,7 @@ export default function GoogleAdsSetupGuidePage() {
                   <Alert className="mt-3 bg-green-50 border-green-200">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
                     <AlertDescription className="text-sm">
-                      <strong>推荐策略：</strong>继续使用当前配置，等待 Google 自动升级到 Explorer Access（通常几天内）。如需 Keyword Planner API 或更高限额，再申请 Basic/Standard Access。<br/>
+                      <strong>推荐策略：</strong>继续使用当前配置，等待 Google 可能的自动升级到 Explorer Access（通常几天内，但不保证）。如需稳定使用、Keyword Planner API 或更高限额，建议申请 Basic/Standard Access 或使用 OAuth 授权方式。<br/>
                       详见上方 <a href="#" className="text-blue-600 hover:underline" onClick={(e) => { e.preventDefault(); document.querySelector('.border-blue-200.bg-blue-50\\/30')?.scrollIntoView({ behavior: 'smooth' }); }}>Developer Token 访问级别说明</a>
                     </AlertDescription>
                   </Alert>
