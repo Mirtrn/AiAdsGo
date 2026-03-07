@@ -6817,14 +6817,26 @@ export async function updateAffiliateProductSyncRun(params: {
   values.push(new Date().toISOString())
   values.push(params.runId)
 
-  await db.exec(
-    `
-      UPDATE affiliate_product_sync_runs
-      SET ${updates.join(', ')}
-      WHERE id = ?
-    `,
-    values
-  )
+  try {
+    const result = await db.exec(
+      `
+        UPDATE affiliate_product_sync_runs
+        SET ${updates.join(', ')}
+        WHERE id = ?
+      `,
+      values
+    )
+
+    // Log status updates for debugging
+    if (params.status) {
+      console.log(`[affiliate-sync] Updated run #${params.runId} status to '${params.status}'`)
+    }
+
+    return result
+  } catch (error: any) {
+    console.error(`[affiliate-sync] Failed to update run #${params.runId}:`, error?.message || error)
+    throw error
+  }
 }
 
 export async function getAffiliateProductSyncRunById(params: {
