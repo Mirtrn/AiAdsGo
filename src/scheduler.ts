@@ -24,6 +24,7 @@ import { resolveBackupDir } from './lib/backup'
 import { buildUserExecutionEligibleSql } from './lib/user-execution-eligibility'
 // [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
 // import { runABTestMonitor } from './scheduler/ab-test-monitor'
+import { detectAndFixZombieSyncTasks } from './lib/queue/affiliate-sync-zombie-detector'
 import fs from 'fs'
 import path from 'path'
 
@@ -1054,6 +1055,34 @@ function startScheduler() {
   })
   cron.schedule('*/10 * * * *', async () => {
     await refreshOpenclawStrategySchedules()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+
+  // 任务10: 僵尸同步任务自动清理（每小时）
+  cron.schedule('0 * * * *', async () => {
+    try {
+      log('🧟 开始检测并修复僵尸同步任务...')
+      const result = await detectAndFixZombieSyncTasks({ autoFix: true, dryRun: false })
+
+      if (result.zombieTasks.length > 0) {
+        log(`🧟 发现 ${result.zombieTasks.length} 个僵尸任务，已修复 ${result.fixedCount} 个`)
+
+        // 记录详细信息
+        for (const task of result.zombieTasks) {
+          log(`  - 任务 #${task.id}: ${task.platform} | ${task.status} | ${task.processedItems}/${task.totalItems} | ${task.reason}`)
+        }
+
+        if (result.errors.length > 0) {
+          logError(`🧟 修复过程中出现 ${result.errors.length} 个错误`, result.errors.join('; '))
+        }
+      } else {
+        log('✅ 未发现僵尸同步任务')
+      }
+    } catch (error: any) {
+      logError('❌ 僵尸任务检测失败:', error)
+    }
   }, {
     scheduled: true,
     timezone: 'Asia/Shanghai'

@@ -312,6 +312,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
 
         await updateAffiliateProductSyncRun({
           runId: data.runId,
+          status: 'running', // ✅ 确保状态始终为 running
           totalItems: baseTotalItems + toSafeCount(progress.totalFetched),
           createdCount: baseCreatedCount + toSafeCount(progress.createdCount),
           updatedCount: baseUpdatedCount + toSafeCount(progress.updatedCount),
@@ -329,6 +330,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
 
         await updateAffiliateProductSyncRun({
           runId: data.runId,
+          status: 'running', // ✅ 确保状态始终为 running
           totalItems: baseTotalItems + toSafeCount(checkpoint.totalFetched),
           createdCount: baseCreatedCount + toSafeCount(checkpoint.createdCount),
           updatedCount: baseUpdatedCount + toSafeCount(checkpoint.updatedCount),
@@ -367,7 +369,7 @@ export async function executeAffiliateProductSync(task: Task<AffiliateProductSyn
 
       await updateAffiliateProductSyncRun({
         runId: data.runId,
-        status: 'queued',
+        status: 'running', // ✅ 修复：保持 running 状态，不要重置为 queued
         totalItems: finalTotalItems,
         createdCount: finalCreatedCount,
         updatedCount: finalUpdatedCount,

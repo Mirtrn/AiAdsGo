@@ -539,7 +539,8 @@ export async function PUT(
       }
 
       // 更新每个Ad Group的CPC
-      const cpcMicros = Math.round(newCpc * 1000000) // 转换为微单位
+      // 🔧 修复(2026-03-07): 确保micros值是10000的倍数（Google Ads计费单位要求）
+      const cpcMicros = Math.round(newCpc * 100) * 10000 // 转换为微单位并确保是10000的倍数
 
       const adGroupOperations = adGroups.map((adGroup: any) => ({
         update: {
@@ -573,7 +574,8 @@ export async function PUT(
       })
     } else if (biddingStrategyType === 'TARGET_SPEND') {
       // TARGET_SPEND: 历史上的 Maximize Clicks（设置 target_spend.cpc_bid_ceiling_micros）
-      const cpcMicros = Math.round(newCpc * 1000000)
+      // 🔧 修复(2026-03-07): 确保micros值是10000的倍数（Google Ads计费单位要求）
+      const cpcMicros = Math.round(newCpc * 100) * 10000
 
       if (useServiceAccount) {
         await updateCampaignPython({
@@ -618,7 +620,8 @@ export async function PUT(
       })
     } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
       // MAXIMIZE_CLICKS: 这里统一按 TARGET_SPEND 处理（发布时即使用 TARGET_SPEND + target_spend ceiling）
-      const cpcMicros = Math.round(newCpc * 1000000)
+      // 🔧 修复(2026-03-07): 确保micros值是10000的倍数（Google Ads计费单位要求）
+      const cpcMicros = Math.round(newCpc * 100) * 10000
 
       if (useServiceAccount) {
         await updateCampaignPython({
@@ -663,7 +666,8 @@ export async function PUT(
       })
     } else if (biddingStrategyType === 'TARGET_CPA') {
       // Target CPA: 更新目标CPA
-      const cpaMicros = Math.round(newCpc * 1000000)
+      // 🔧 修复(2026-03-07): 确保micros值是10000的倍数（Google Ads计费单位要求）
+      const cpaMicros = Math.round(newCpc * 100) * 10000
 
       const campaignOperation = {
         update: {

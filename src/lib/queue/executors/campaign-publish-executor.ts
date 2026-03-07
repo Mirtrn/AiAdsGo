@@ -489,6 +489,8 @@ export async function executeCampaignPublish(
     // 🔧 修复(2025-12-26): 确保CPC是计费单位的倍数（10000微单位）
     const rawCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
     const effectiveMaxCpcBid = Math.round(rawCpcBid * 100) / 100  // 四舍五入到0.01
+    // 🔧 修复(2026-03-07): 确保micros值是10000的倍数（Google Ads计费单位要求）
+    const cpcBidMicros = Math.round(effectiveMaxCpcBid * 100) * 10000  // 转换为micros并确保是10000的倍数
 
     // 使用关联命名规范（优先）或规范化命名或回退到占位符
     const campaignName = task.data.naming?.associativeCampaignName
@@ -505,7 +507,7 @@ export async function executeCampaignPublish(
         budgetAmount: campaignConfig.budgetAmount,
         budgetType: campaignConfig.budgetType,
         biddingStrategy: campaignConfig.biddingStrategy,
-        cpcBidCeilingMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用用户配置或货币默认值
+        cpcBidCeilingMicros: cpcBidMicros, // 🔥 使用用户配置或货币默认值（已确保是10000的倍数）
         targetCountry: campaignConfig.targetCountry,
         targetLanguage: campaignConfig.targetLanguage,
         finalUrlSuffix: creative.finalUrlSuffix || undefined,
@@ -559,7 +561,7 @@ export async function executeCampaignPublish(
         refreshToken: refreshToken,
         campaignId: googleCampaignId,
         adGroupName: adGroupName, // 🔥 使用规范化命名
-        cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
+        cpcBidMicros: cpcBidMicros, // 🔥 使用相同的货币适配CPC（已确保是10000的倍数）
         status: 'ENABLED',
         accountId: adsAccount.id,
         userId,

@@ -739,7 +739,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       errors.push('CPC出价必须大于0')
     }
     // 🔧 修复(2025-12-26): 验证CPC是计费单位的倍数
-    const cpcMicros = Math.round(config.maxCpcBid * 1000000)
+    // 🔧 修复(2026-03-07): 使用正确的转换方式确保是10000的倍数
+    const cpcMicros = Math.round(config.maxCpcBid * 100) * 10000
     if (cpcMicros % 10000 !== 0) {
       errors.push(`CPC出价必须是计费单位的倍数（0.01 ${accountCurrency}）`)
     }
