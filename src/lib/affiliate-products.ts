@@ -729,12 +729,41 @@ function parseHttpStatusFromErrorMessage(message: string): number | undefined {
 function isTransientHttpStatus(responseStatus?: number): boolean {
   const status = Number(responseStatus)
   if (!Number.isFinite(status)) return false
+
+  // 408 Request Timeout - 可重试
   if (status === 408) return true
-  return status >= 500 && status <= 599
+
+  // 5xx 服务端错误 - 可重试
+  if (status >= 500 && status <= 599) return true
+
+  // 4xx 客户端错误 - 不可重试
+  // 特别是 407 Proxy Authentication Required（代理认证失败）
+  // 401 Unauthorized, 403 Forbidden, 404 Not Found 等都不应重试
+  return false
 }
 
 function isTransientNetworkErrorMessage(message: string): boolean {
   const normalized = message.toLowerCase()
+
+  // ❌ 代理认证错误 - 不可重试（配额用完或凭证失效）
+  if (normalized.includes('407') || normalized.includes('proxy authentication required')) {
+    return false
+  }
+
+  // ❌ 代理配额/余额错误 - 不可重试
+  if (
+    normalized.includes('business abnormality') ||
+    normalized.includes('account abnormal') ||
+    normalized.includes('insufficient balance') ||
+    normalized.includes('no credit') ||
+    normalized.includes('quota exceeded') ||
+    normalized.includes('配额') ||
+    normalized.includes('余额不足')
+  ) {
+    return false
+  }
+
+  // ✅ 临时网络错误 - 可重试
   return normalized.includes('fetch failed')
     || normalized.includes('network error')
     || normalized.includes('socket hang up')
@@ -754,6 +783,45 @@ function isJsonParseErrorMessage(message: string): boolean {
     || normalized.includes('is not valid json')
     || normalized.includes('json parse')
     || (normalized.includes('unexpected token') && normalized.includes('json'))
+}
+
+/**
+ * 检测代理相关的致命错误（不应重试）
+ * 包括：407认证失败、配额用完、账户异常等
+ */
+function isProxyFatalError(error: unknown): boolean {
+  if (!error) return false
+
+  const message = String((error as any)?.message || '')
+  const normalized = message.toLowerCase()
+
+  // 407 Proxy Authentication Required
+  if (normalized.includes('407') || normalized.includes('proxy authentication required')) {
+    return true
+  }
+
+  // IPRocket 业务异常
+  if (
+    normalized.includes('business abnormality') ||
+    normalized.includes('account abnormal') ||
+    normalized.includes('risk control') ||
+    normalized.includes('contact customer service')
+  ) {
+    return true
+  }
+
+  // 代理配额/余额不足
+  if (
+    normalized.includes('insufficient balance') ||
+    normalized.includes('no credit') ||
+    normalized.includes('quota exceeded') ||
+    normalized.includes('配额用完') ||
+    normalized.includes('余额不足')
+  ) {
+    return true
+  }
+
+  return false
 }
 
 function isPartnerboostRateLimited(payloadStatusCode: number | null, payloadStatusMessage: string, responseStatus?: number): boolean {
@@ -789,6 +857,10 @@ function isPartnerboostRateLimitError(error: unknown): boolean {
 
 function isPartnerboostTransientError(error: unknown): boolean {
   if (!error) return false
+
+  // ❌ 代理致命错误 - 不可重试
+  if (isProxyFatalError(error)) return false
+
   const raw = error as {
     message?: string
     status?: {
@@ -836,6 +908,10 @@ function isYeahPromosRateLimited(code: number | null, message: string, responseS
 
 function isYeahPromosTransientError(error: unknown): boolean {
   if (!error) return false
+
+  // ❌ 代理致命错误 - 不可重试
+  if (isProxyFatalError(error)) return false
+
   const raw = error as {
     message?: string
     status?: {
