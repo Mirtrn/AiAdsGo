@@ -301,6 +301,12 @@ export async function updateSetting(
   // 确定是否需要加密
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = metadata.is_sensitive === true || metadata.is_sensitive === 1
+
+  // 🔥 阻止保存空的敏感字段（防止加密空字符串导致验证失败）
+  if (isSensitive && (!normalizedValue || normalizedValue.trim() === '')) {
+    throw new Error(`敏感字段 ${category}.${key} 不能为空`)
+  }
+
   const configValue = isSensitive ? null : normalizedValue
   const encryptedValue = isSensitive ? encrypt(normalizedValue) : null
 
