@@ -2418,6 +2418,13 @@ async function fetchJsonOrThrow<T>(url: string, init: RequestInit, errorPrefix: 
   const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 220)
 
   if (!response.ok) {
+    // 特殊处理 407 Proxy Authentication Required
+    if (response.status === 407) {
+      throw new Error(
+        `${errorPrefix} (407): 代理认证失败 - IPRocket配额可能已用完或凭证失效，请检查代理服务余额和配置`
+      )
+    }
+
     throw new Error(`${errorPrefix} (${response.status}): ${snippet || '请求失败'}`)
   }
 
@@ -2478,6 +2485,13 @@ async function fetchPartnerboostJsonWithRateLimitRetry<T extends { status?: { co
       responseStatus = parseHttpStatusFromErrorMessage(message)
       const payloadStatusCode = normalizePartnerboostStatusCode(error?.status?.code)
       const payloadStatusMessage = String(error?.status?.msg || message)
+
+      // ❌ 检测代理致命错误（不可重试）
+      if (isProxyFatalError(error)) {
+        console.error(`[partnerboost] 代理致命错误，停止重试: ${message}`)
+        throw error
+      }
+
       const isRateLimited = isPartnerboostRateLimited(payloadStatusCode, payloadStatusMessage, responseStatus)
       const isTransient = !isRateLimited && isPartnerboostTransientError(error)
 
@@ -2542,6 +2556,13 @@ async function fetchYeahPromosJsonWithRateLimitRetry<T extends {
       const message = String(error?.message || '')
       const statusMatch = message.match(/\((\d{3})\):/)
       responseStatus = statusMatch ? Number(statusMatch[1]) : undefined
+
+      // ❌ 检测代理致命错误（不可重试）
+      if (isProxyFatalError(error)) {
+        console.error(`[yeahpromos] 代理致命错误，停止重试: ${message}`)
+        throw error
+      }
+
       const isRateLimited = isYeahPromosRateLimited(null, message, responseStatus)
       const isTransient = !isRateLimited && isYeahPromosTransientError(error)
 
