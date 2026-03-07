@@ -274,7 +274,7 @@ const SETTING_METADATA: Record<string, {
   },
   'affiliate_sync.openclaw_affiliate_sync_mode': {
     label: '佣金同步模式',
-    description: '仍然保留：incremental 走快照缓存；realtime 会让飞书/即时查询优先实时刷新佣金数据',
+    description: 'incremental 使用快照缓存；realtime 优先实时刷新佣金数据',
     options: [
       { value: 'incremental', label: 'incremental（快照缓存，推荐）' },
       { value: 'realtime', label: 'realtime（飞书查询优先实时）' },
