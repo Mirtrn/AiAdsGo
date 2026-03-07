@@ -6762,6 +6762,17 @@ export async function updateAffiliateProductSyncRun(params: {
   const updates: string[] = []
   const values: any[] = []
 
+  // Log all update parameters for debugging
+  console.log(`[affiliate-sync] updateAffiliateProductSyncRun called for run #${params.runId}:`, {
+    status: params.status,
+    totalItems: params.totalItems,
+    createdCount: params.createdCount,
+    updatedCount: params.updatedCount,
+    cursorPage: params.cursorPage,
+    cursorScope: params.cursorScope,
+    hasHeartbeat: params.lastHeartbeatAt !== undefined,
+  })
+
   if (params.status !== undefined) {
     updates.push('status = ?')
     values.push(params.status)
@@ -6818,7 +6829,7 @@ export async function updateAffiliateProductSyncRun(params: {
   values.push(params.runId)
 
   try {
-    const result = await db.exec(
+    await db.exec(
       `
         UPDATE affiliate_product_sync_runs
         SET ${updates.join(', ')}
@@ -6831,8 +6842,6 @@ export async function updateAffiliateProductSyncRun(params: {
     if (params.status) {
       console.log(`[affiliate-sync] Updated run #${params.runId} status to '${params.status}'`)
     }
-
-    return result
   } catch (error: any) {
     console.error(`[affiliate-sync] Failed to update run #${params.runId}:`, error?.message || error)
     throw error
