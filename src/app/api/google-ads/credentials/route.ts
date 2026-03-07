@@ -108,20 +108,22 @@ export async function GET(request: NextRequest) {
     let hasServiceAccount = false
     let serviceAccountId: string | null = null
     let serviceAccountName: string | null = null
+    let serviceAccountApiAccessLevel: string | null = null
     try {
       const db = await getDatabase()
       const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
       const serviceAccount = await db.queryOne(`
-        SELECT id, name FROM google_ads_service_accounts
+        SELECT id, name, api_access_level FROM google_ads_service_accounts
         WHERE user_id = ? AND ${isActiveCondition}
         ORDER BY created_at DESC
         LIMIT 1
-      `, [userId]) as { id: string; name: string } | undefined
+      `, [userId]) as { id: string; name: string; api_access_level?: string } | undefined
 
       if (serviceAccount) {
         hasServiceAccount = true
         serviceAccountId = serviceAccount.id
         serviceAccountName = serviceAccount.name
+        serviceAccountApiAccessLevel = serviceAccount.api_access_level || null
       }
     } catch (err) {
       console.error('检查服务账号配置失败:', err)
@@ -141,6 +143,21 @@ export async function GET(request: NextRequest) {
 
     const auth = await getUserAuthType(userId)
 
+    // 确定 API 访问级别（优先使用 OAuth 凭证的配置，其次使用服务账号的配置）
+    let apiAccessLevel = 'explorer' // 默认值
+    if (credentials) {
+      // 从 google_ads_credentials 表获取
+      const db = await getDatabase()
+      const credRow = await db.queryOne(`
+        SELECT api_access_level FROM google_ads_credentials WHERE user_id = ? LIMIT 1
+      `, [userId]) as { api_access_level?: string } | undefined
+      if (credRow?.api_access_level) {
+        apiAccessLevel = credRow.api_access_level
+      }
+    } else if (serviceAccountApiAccessLevel) {
+      apiAccessLevel = serviceAccountApiAccessLevel
+    }
+
     // 返回凭证状态（不返回完整的敏感信息）
     return NextResponse.json({
       success: true,
@@ -154,6 +171,7 @@ export async function GET(request: NextRequest) {
         serviceAccountId,
         serviceAccountName,
         authType: auth.authType,
+        apiAccessLevel,
         lastVerifiedAt: credentials?.last_verified_at,
         isActive: credentials?.is_active === 1,
         createdAt: credentials?.created_at,
@@ -223,6 +241,82 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(
       {
         error: '删除Google Ads凭证失败',
+        message: error.message || '未知错误'
+      },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * PATCH /api/google-ads/credentials
+ * 更新Google Ads API访问级别
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    // 验证用户身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json(
+        { error: '未授权访问' },
+        { status: 401 }
+      )
+    }
+
+    const userId = authResult.user.userId
+    const body = await request.json()
+    const { apiAccessLevel } = body
+
+    // 验证参数
+    if (!apiAccessLevel || !['test', 'basic', 'explorer'].includes(apiAccessLevel)) {
+      return NextResponse.json(
+        { error: '无效的API访问级别，必须是 test、basic 或 explorer' },
+        { status: 400 }
+      )
+    }
+
+    const db = await getDatabase()
+    const auth = await getUserAuthType(userId)
+
+    // 根据认证类型更新对应的表
+    if (auth.authType === 'oauth') {
+      // 更新 OAuth 凭证的 API 访问级别
+      await db.exec(`
+        UPDATE google_ads_credentials
+        SET api_access_level = ?
+        WHERE user_id = ?
+      `, [apiAccessLevel, userId])
+    } else if (auth.authType === 'service_account') {
+      // 更新服务账号的 API 访问级别
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+      await db.exec(`
+        UPDATE google_ads_service_accounts
+        SET api_access_level = ?
+        WHERE user_id = ? AND ${isActiveCondition}
+      `, [apiAccessLevel, userId])
+    } else {
+      return NextResponse.json(
+        { error: '未找到有效的Google Ads凭证配置' },
+        { status: 404 }
+      )
+    }
+
+    console.log(`✅ 已更新API访问级别: ${apiAccessLevel}`)
+    console.log(`   用户: ${authResult.user.email}`)
+    console.log(`   认证类型: ${auth.authType}`)
+
+    return NextResponse.json({
+      success: true,
+      message: 'API访问级别已更新',
+      data: { apiAccessLevel }
+    })
+
+  } catch (error: any) {
+    console.error('更新API访问级别失败:', error)
+
+    return NextResponse.json(
+      {
+        error: '更新API访问级别失败',
         message: error.message || '未知错误'
       },
       { status: 500 }

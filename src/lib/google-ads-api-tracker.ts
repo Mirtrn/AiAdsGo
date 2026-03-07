@@ -11,7 +11,13 @@
 
 import { getDatabase } from './db'
 
-const DEFAULT_EXPLORER_DAILY_QUOTA_LIMIT = 2880
+const QUOTA_LIMITS = {
+  test: 0,        // Test access: 只能访问测试账号，生产环境配额为0
+  explorer: 2880,
+  basic: 15000,
+} as const
+
+const DEFAULT_EXPLORER_DAILY_QUOTA_LIMIT = QUOTA_LIMITS.explorer
 
 function parsePositiveInt(value: unknown): number | null {
   const n = Number(value)
@@ -25,6 +31,39 @@ async function resolveDailyQuotaLimit(userId: number): Promise<number> {
 
   try {
     const db = getDatabase()
+
+    // 首先尝试从用户的 Google Ads 凭证中获取 API 访问级别
+    const credentialsRow = await db.queryOne(`
+      SELECT api_access_level
+      FROM google_ads_credentials
+      WHERE user_id = ?
+      LIMIT 1
+    `, [userId]) as { api_access_level?: string } | undefined
+
+    if (credentialsRow?.api_access_level) {
+      const level = credentialsRow.api_access_level.toLowerCase()
+      if (level === 'test') return QUOTA_LIMITS.test
+      if (level === 'basic') return QUOTA_LIMITS.basic
+      if (level === 'explorer') return QUOTA_LIMITS.explorer
+    }
+
+    // 如果没有 OAuth 凭证，尝试从服务账号获取
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+    const serviceAccountRow = await db.queryOne(`
+      SELECT api_access_level
+      FROM google_ads_service_accounts
+      WHERE user_id = ? AND ${isActiveCondition}
+      LIMIT 1
+    `, [userId]) as { api_access_level?: string } | undefined
+
+    if (serviceAccountRow?.api_access_level) {
+      const level = serviceAccountRow.api_access_level.toLowerCase()
+      if (level === 'test') return QUOTA_LIMITS.test
+      if (level === 'basic') return QUOTA_LIMITS.basic
+      if (level === 'explorer') return QUOTA_LIMITS.explorer
+    }
+
+    // 最后尝试从 system_settings 获取
     const row = await db.queryOne(`
       SELECT value
       FROM system_settings
@@ -85,6 +124,7 @@ export interface ApiUsageRecord {
 
 /**
  * 记录API调用
+ * 如果调用失败，尝试从错误消息中检测API访问级别
  */
 export async function trackApiUsage(record: ApiUsageRecord): Promise<void> {
   try {
@@ -117,6 +157,20 @@ export async function trackApiUsage(record: ApiUsageRecord): Promise<void> {
       record.errorMessage || null,
       today
     ])
+
+    // 🆕 如果API调用失败且有错误消息，尝试检测访问级别
+    if (!record.isSuccess && record.errorMessage) {
+      try {
+        const { detectAndUpdateFromError } = await import('./google-ads-access-level-detector')
+        const { getUserAuthType } = await import('./google-ads-oauth')
+
+        const auth = await getUserAuthType(record.userId)
+        await detectAndUpdateFromError(record.userId, auth.authType, record.errorMessage)
+      } catch (detectError) {
+        // 不影响主流程
+        console.debug('尝试从错误检测访问级别失败:', detectError)
+      }
+    }
   } catch (error) {
     // 不阻塞主流程，但记录错误
     console.error('Failed to track API usage:', error)
