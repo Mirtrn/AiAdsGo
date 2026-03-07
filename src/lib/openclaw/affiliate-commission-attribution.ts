@@ -152,7 +152,22 @@ function normalizeText(value: unknown): string | null {
 function normalizeBrand(value: unknown): string | null {
   const text = normalizeText(value)
   if (!text) return null
-  return text.toLowerCase()
+
+  let normalized = text.toLowerCase().trim()
+
+  // Remove common suffixes
+  normalized = normalized
+    .replace(/\s+(inc|llc|ltd|co|corp|corporation)\.?$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Brand alias mapping for known variations
+  // This helps match brands like "Squatty" and "Squatty Potty"
+  const aliases: Record<string, string> = {
+    'squatty': 'squatty potty',
+  }
+
+  return aliases[normalized] || normalized
 }
 
 function normalizeAsin(value: unknown): string | null {
@@ -1191,6 +1206,56 @@ async function queryExistingEventOutcomes(params: {
   return result
 }
 
+/**
+ * Fetch ASIN brand information from affiliate platforms for ASINs not in user's Offers.
+ * This enhances brand fallback attribution without requiring product sync.
+ *
+ * Uses global product pool (user_id=1) for both PartnerBoost and YeahPromos platforms.
+ * This pool is maintained for commission attribution purposes only.
+ */
+async function fetchAsinBrandsFromAffiliatePlatform(params: {
+  userId: number
+  asins: string[]
+  platform: AffiliatePlatform
+  db: DatabaseAdapter
+}): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+
+  if (params.asins.length === 0) {
+    return result
+  }
+
+  try {
+    // Query global product pool (user_id=1) for both platforms
+    // This pool contains products from all affiliate platforms for attribution purposes
+    const placeholders = params.asins.map(() => '?').join(',')
+    const rows = await params.db.query<{ asin: string; brand: string }>(
+      `
+        SELECT DISTINCT asin, brand
+        FROM affiliate_products
+        WHERE platform = ?
+          AND user_id = 1
+          AND asin IN (${placeholders})
+          AND brand IS NOT NULL
+      `,
+      [params.platform, ...params.asins]
+    )
+
+    for (const row of rows) {
+      const normalizedAsin = normalizeAsin(row.asin)
+      const brand = row.brand?.trim()
+      if (normalizedAsin && brand) {
+        result.set(normalizedAsin, brand)
+      }
+    }
+  } catch (error) {
+    // Log error but don't fail attribution - just skip enhancement
+    console.warn(`[attribution] Failed to fetch ASIN brands from global pool (${params.platform}):`, error)
+  }
+
+  return result
+}
+
 async function queryOfferContexts(params: {
   db: DatabaseAdapter
   userId: number
@@ -1515,6 +1580,70 @@ export async function persistAffiliateCommissionAttributions(params: {
       brands.add(brand)
       asinToBrands.set(asin, brands)
     }
+
+    // NEW: Enhance asinToBrands with brand info from affiliate platform API
+    // Collect ASINs from commission entries that are not in any Offer
+    const commissionAsins = new Set<string>()
+    for (const entry of freshEntries) {
+      if (entry.sourceAsin) {
+        const normalizedAsin = normalizeAsin(entry.sourceAsin)
+        if (normalizedAsin) commissionAsins.add(normalizedAsin)
+      }
+    }
+
+    // Find ASINs that are not in any Offer context
+    const missingAsins: string[] = []
+    for (const asin of commissionAsins) {
+      let foundInOffer = false
+      for (const context of offerContexts.values()) {
+        if (context.asins.has(asin)) {
+          foundInOffer = true
+          break
+        }
+      }
+      if (!foundInOffer) {
+        missingAsins.push(asin)
+      }
+    }
+
+    // Fetch brand information from affiliate platform API for missing ASINs
+    if (missingAsins.length > 0) {
+      const platformAsins = new Map<AffiliatePlatform, string[]>()
+
+      // Group ASINs by platform based on commission entries
+      for (const entry of freshEntries) {
+        if (!entry.sourceAsin) continue
+        const normalizedAsin = normalizeAsin(entry.sourceAsin)
+        if (!normalizedAsin || !missingAsins.includes(normalizedAsin)) continue
+
+        const asinsForPlatform = platformAsins.get(entry.platform) || []
+        if (!asinsForPlatform.includes(normalizedAsin)) {
+          asinsForPlatform.push(normalizedAsin)
+        }
+        platformAsins.set(entry.platform, asinsForPlatform)
+      }
+
+      // Fetch brand info from each platform
+      for (const [platform, asins] of platformAsins.entries()) {
+        const asinBrandMap = await fetchAsinBrandsFromAffiliatePlatform({
+          userId: params.userId,
+          asins,
+          platform,
+          db,
+        })
+
+        // Merge into asinToBrands
+        for (const [asin, brand] of asinBrandMap.entries()) {
+          const normalizedBrand = normalizeBrand(brand)
+          if (!normalizedBrand) continue
+
+          const brands = asinToBrands.get(asin) || new Set<string>()
+          brands.add(normalizedBrand)
+          asinToBrands.set(asin, brands)
+        }
+      }
+    }
+
 
     const appendAttributionRows = (paramsForAppend: {
       entry: NormalizedCommissionEntry
