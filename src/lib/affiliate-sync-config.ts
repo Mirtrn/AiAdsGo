@@ -1,5 +1,5 @@
 export const DEFAULT_PARTNERBOOST_BASE_URL = 'https://app.partnerboost.com'
-export const DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS = '1'
+export const DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS = '6'
 
 export const FIXED_AFFILIATE_SYNC_SETTINGS = {
   partnerboost_base_url: DEFAULT_PARTNERBOOST_BASE_URL,
