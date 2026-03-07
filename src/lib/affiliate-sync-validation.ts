@@ -63,6 +63,9 @@ async function validatePartnerboostConfig(input: AffiliateSyncValidationInput): 
     } : {}
     const statusCode = Number(payload.status?.code)
 
+    // Log for debugging
+    console.log('[PartnerBoost validation] Response:', { statusCode, msg: payload.status?.msg, hasData: !!payload.data })
+
     if (!Number.isFinite(statusCode) || statusCode !== 0) {
       return {
         platform: 'partnerboost',
@@ -116,20 +119,37 @@ async function validateYeahPromosConfig(input: AffiliateSyncValidationInput): Pr
     }
 
     const payload = text ? JSON.parse(text) as {
-      Code?: number
-      code?: number
+      Code?: number | string
+      code?: number | string
       Data?: unknown[]
       data?: unknown[]
       Msg?: string
       msg?: string
+      status?: string
     } : {}
 
     const code = payload.Code ?? payload.code
-    if (code && code !== 100000) {
+    const codeNum = Number(code)
+
+    // Log for debugging
+    console.log('[YeahPromos validation] Response:', { code, codeNum, msg: payload.Msg || payload.msg, status: payload.status })
+
+    // Check if code exists and is not 100000 (success code)
+    // If code is undefined/null, treat as success (some responses may not include code field)
+    if (code != null && codeNum !== 100000) {
       return {
         platform: 'yeahpromos',
         valid: false,
         message: `YeahPromos 验证失败：${payload.Msg || payload.msg || code}`,
+      }
+    }
+
+    // Additional check: if status field exists and indicates error
+    if (payload.status && String(payload.status).toUpperCase() === 'ERROR') {
+      return {
+        platform: 'yeahpromos',
+        valid: false,
+        message: `YeahPromos 验证失败：${payload.Msg || payload.msg || payload.status}`,
       }
     }
 
