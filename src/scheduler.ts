@@ -288,6 +288,28 @@ async function urlSwapSchedulerTask() {
 }
 
 /**
+ * 任务0.2: 联盟商品同步调度
+ * 频率: 每10分钟执行一次
+ * 🔄 检查并触发 PartnerBoost/YeahPromos 商品同步任务
+ */
+async function affiliateProductSyncSchedulerTask() {
+  log('🛍️ 开始执行联盟商品同步调度...')
+
+  try {
+    const { getAffiliateProductSyncScheduler } = await import('./lib/queue/schedulers/affiliate-product-sync-scheduler')
+    const scheduler = getAffiliateProductSyncScheduler()
+
+    // 调用内部检查方法（通过反射访问私有方法）
+    // @ts-ignore - 访问私有方法
+    await scheduler.checkAndScheduleSync()
+
+    log('🛍️ 联盟商品同步调度完成')
+  } catch (error) {
+    logError('❌ 联盟商品同步调度执行失败:', error)
+  }
+}
+
+/**
  * 任务1: 数据同步任务
  * 频率：根据用户在/settings页面配置的sync_interval_hours执行
  * 🔄 已迁移到统一队列系统，按用户配置执行
@@ -930,6 +952,7 @@ function startScheduler() {
   log('📅 任务调度计划:')
   log('  - 补点击任务: 每小时整点 (0 * * * *)')
   log('  - 换链接任务: 每分钟 (* * * * *)')
+  log('  - 联盟商品同步: 每10分钟 (*/10 * * * *)')
   log('  - 数据同步: 每5分钟检查，按用户间隔触发（默认6小时）')
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
@@ -963,6 +986,17 @@ function startScheduler() {
     timezone: 'Asia/Shanghai'
   })
   log(`✅ 换链接任务调度已启动 (cron: ${urlSwapCheckCron})`)
+
+  // 任务0.2: 每10分钟执行联盟商品同步调度
+  // 🔥 修复：添加到 scheduler 进程作为双保险，确保持续运行
+  const affiliateProductSyncCron = process.env.AFFILIATE_PRODUCT_SYNC_CRON || '*/10 * * * *'
+  cron.schedule(affiliateProductSyncCron, async () => {
+    await affiliateProductSyncSchedulerTask()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+  log(`✅ 联盟商品同步调度已启动 (cron: ${affiliateProductSyncCron})`)
 
   // 任务1: 高频检查 + 按用户间隔触发同步（避免固定整点导致的延迟）
   const dataSyncCheckCron = process.env.DATA_SYNC_CHECK_CRON || '*/5 * * * *'
