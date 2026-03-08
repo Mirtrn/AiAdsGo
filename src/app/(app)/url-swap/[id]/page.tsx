@@ -79,7 +79,24 @@ export default function UrlSwapTaskDetailPage() {
 
   const formatDateTime = (dateValue: string | null): string => {
     if (!dateValue) return '-';
-    return new Date(dateValue).toLocaleString('zh-CN');
+    try {
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    } catch (error) {
+      console.error('日期格式化失败:', dateValue, error);
+      return '-';
+    }
   };
 
   const formatDate = (dateValue: string | null): string => {
