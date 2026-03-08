@@ -180,17 +180,18 @@ interface HostMetricsPayload {
 
 interface SchedulerStatus {
   urlSwapScheduler: {
-    isRunning: boolean
-    checkIntervalMs: number
-    checkIntervalMinutes: number
-    lastCheckAt: string | null
-    lastCheckResult: {
-      processed: number
-      executed: number
-      skipped: number
-      errors: number
-    } | null
+    status: 'healthy' | 'warning' | 'error'
+    message: string
+    metrics: {
+      enabledTasks: number
+      overdueTasks: number
+      recentQueuedTasks: number
+      lastQueuedAt: string | null
+      checkInterval: string
+      schedulerProcess: string
+    }
   }
+  note?: string
 }
 
 const formatPct = (value: number | null | undefined) => {
@@ -953,71 +954,98 @@ export default function QueueManagementPage() {
 
             {schedulerStatus && (
               <div className="space-y-4">
+                {schedulerStatus.note && (
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                    ℹ️ {schedulerStatus.note}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* URL Swap Scheduler */}
                   <div className="border border-gray-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-medium text-gray-900">换链接调度器</h3>
                       <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${
-                        schedulerStatus.urlSwapScheduler.isRunning
+                        schedulerStatus.urlSwapScheduler.status === 'healthy'
                           ? 'bg-green-100 text-green-700'
+                          : schedulerStatus.urlSwapScheduler.status === 'warning'
+                          ? 'bg-yellow-100 text-yellow-700'
                           : 'bg-red-100 text-red-700'
                       }`}>
                         <div className={`w-2 h-2 rounded-full ${
-                          schedulerStatus.urlSwapScheduler.isRunning ? 'bg-green-600' : 'bg-red-600'
+                          schedulerStatus.urlSwapScheduler.status === 'healthy'
+                            ? 'bg-green-600'
+                            : schedulerStatus.urlSwapScheduler.status === 'warning'
+                            ? 'bg-yellow-600'
+                            : 'bg-red-600'
                         }`} />
-                        {schedulerStatus.urlSwapScheduler.isRunning ? '运行中' : '已停止'}
+                        {schedulerStatus.urlSwapScheduler.status === 'healthy' ? '正常' :
+                         schedulerStatus.urlSwapScheduler.status === 'warning' ? '警告' : '异常'}
                       </div>
+                    </div>
+
+                    <div className="mb-3 text-sm text-gray-700">
+                      {schedulerStatus.urlSwapScheduler.message}
                     </div>
 
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="text-gray-500">调度进程:</span>
                         <span className="font-medium text-gray-900">
-                          {Math.round(schedulerStatus.urlSwapScheduler.checkIntervalMs / 1000)}秒
+                          {schedulerStatus.urlSwapScheduler.metrics.schedulerProcess}
                         </span>
                       </div>
 
-                      {schedulerStatus.urlSwapScheduler.lastCheckAt && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">最后检查:</span>
-                          <span className="font-medium text-gray-900">
-                            {formatDateTime(schedulerStatus.urlSwapScheduler.lastCheckAt)}
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="font-medium text-gray-900">
+                          {schedulerStatus.urlSwapScheduler.metrics.checkInterval}
+                        </span>
+                      </div>
 
-                      {schedulerStatus.urlSwapScheduler.lastCheckResult && (
-                        <div className="mt-3 pt-3 border-t border-gray-200">
-                          <p className="text-gray-500 mb-2">最后执行结果:</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-blue-50 rounded px-2 py-1">
-                              <span className="text-xs text-blue-600">处理: </span>
-                              <span className="text-xs font-medium text-blue-900">
-                                {schedulerStatus.urlSwapScheduler.lastCheckResult.processed}
-                              </span>
-                            </div>
-                            <div className="bg-green-50 rounded px-2 py-1">
-                              <span className="text-xs text-green-600">执行: </span>
-                              <span className="text-xs font-medium text-green-900">
-                                {schedulerStatus.urlSwapScheduler.lastCheckResult.executed}
-                              </span>
-                            </div>
-                            <div className="bg-gray-50 rounded px-2 py-1">
-                              <span className="text-xs text-gray-600">跳过: </span>
-                              <span className="text-xs font-medium text-gray-900">
-                                {schedulerStatus.urlSwapScheduler.lastCheckResult.skipped}
-                              </span>
-                            </div>
-                            <div className="bg-red-50 rounded px-2 py-1">
-                              <span className="text-xs text-red-600">错误: </span>
-                              <span className="text-xs font-medium text-red-900">
-                                {schedulerStatus.urlSwapScheduler.lastCheckResult.errors}
-                              </span>
-                            </div>
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <p className="text-gray-500 mb-2">任务统计:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-blue-50 rounded px-2 py-1">
+                            <span className="text-xs text-blue-600">启用任务: </span>
+                            <span className="text-xs font-medium text-blue-900">
+                              {schedulerStatus.urlSwapScheduler.metrics.enabledTasks}
+                            </span>
                           </div>
+                          <div className={`rounded px-2 py-1 ${
+                            schedulerStatus.urlSwapScheduler.metrics.overdueTasks > 0
+                              ? 'bg-red-50'
+                              : 'bg-green-50'
+                          }`}>
+                            <span className={`text-xs ${
+                              schedulerStatus.urlSwapScheduler.metrics.overdueTasks > 0
+                                ? 'text-red-600'
+                                : 'text-green-600'
+                            }`}>逾期任务: </span>
+                            <span className={`text-xs font-medium ${
+                              schedulerStatus.urlSwapScheduler.metrics.overdueTasks > 0
+                                ? 'text-red-900'
+                                : 'text-green-900'
+                            }`}>
+                              {schedulerStatus.urlSwapScheduler.metrics.overdueTasks}
+                            </span>
+                          </div>
+                          <div className="bg-gray-50 rounded px-2 py-1">
+                            <span className="text-xs text-gray-600">近5分钟入队: </span>
+                            <span className="text-xs font-medium text-gray-900">
+                              {schedulerStatus.urlSwapScheduler.metrics.recentQueuedTasks}
+                            </span>
+                          </div>
+                          {schedulerStatus.urlSwapScheduler.metrics.lastQueuedAt && (
+                            <div className="bg-gray-50 rounded px-2 py-1 col-span-2">
+                              <span className="text-xs text-gray-600">最后入队: </span>
+                              <span className="text-xs font-medium text-gray-900">
+                                {new Date(schedulerStatus.urlSwapScheduler.metrics.lastQueuedAt).toLocaleString('zh-CN')}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
                 </div>
