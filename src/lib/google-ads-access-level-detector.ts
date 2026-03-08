@@ -53,7 +53,7 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
 
   try {
     // 获取用户的 Google Ads 凭证
-    const credentials = await db.get<{
+    const credentials = await db.queryOne<{
       client_id: string
       client_secret: string
       developer_token: string
