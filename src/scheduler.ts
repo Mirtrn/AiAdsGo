@@ -269,6 +269,25 @@ async function clickFarmSchedulerTask() {
 }
 
 /**
+ * 任务0.1: 换链接任务调度
+ * 频率: 每分钟执行一次
+ * 🔄 已迁移到统一队列系统，自动检查并执行待处理的换链接任务
+ */
+async function urlSwapSchedulerTask() {
+  log('🔄 开始执行换链接任务调度...')
+
+  try {
+    // 直接调用内部触发函数
+    const { triggerAllUrlSwapTasks } = await import('./lib/url-swap-scheduler')
+    const result = await triggerAllUrlSwapTasks()
+
+    log(`🔄 换链接任务调度完成 - 处理: ${result.processed}, 入队: ${result.executed}, 跳过: ${result.skipped}, 错误: ${result.errors}`)
+  } catch (error) {
+    logError('❌ 换链接任务调度执行失败:', error)
+  }
+}
+
+/**
  * 任务1: 数据同步任务
  * 频率：根据用户在/settings页面配置的sync_interval_hours执行
  * 🔄 已迁移到统一队列系统，按用户配置执行
@@ -910,6 +929,7 @@ function startScheduler() {
   log('🚀 定时任务调度器启动')
   log('📅 任务调度计划:')
   log('  - 补点击任务: 每小时整点 (0 * * * *)')
+  log('  - 换链接任务: 每分钟 (* * * * *)')
   log('  - 数据同步: 每5分钟检查，按用户间隔触发（默认6小时）')
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
@@ -932,6 +952,17 @@ function startScheduler() {
     // 不指定时区，使用系统默认 UTC
     // 每个任务的执行时间范围由其自身的 timezone 配置决定
   })
+
+  // 任务0.1: 每分钟执行换链接任务调度
+  // 🔥 修复：从 Next.js 进程迁移到独立 scheduler 进程，确保持续运行
+  const urlSwapCheckCron = process.env.URL_SWAP_CHECK_CRON || '* * * * *'
+  cron.schedule(urlSwapCheckCron, async () => {
+    await urlSwapSchedulerTask()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+  log(`✅ 换链接任务调度已启动 (cron: ${urlSwapCheckCron})`)
 
   // 任务1: 高频检查 + 按用户间隔触发同步（避免固定整点导致的延迟）
   const dataSyncCheckCron = process.env.DATA_SYNC_CHECK_CRON || '*/5 * * * *'
