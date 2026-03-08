@@ -47,7 +47,7 @@ import type { TrendChartData, TrendChartMetric } from '@/components/charts/Trend
 import {
   getCampaignStatusLabel,
 } from '@/lib/i18n-constants'
-import { formatCurrency } from '@/lib/currency'
+import { convertCurrency, formatCurrency } from '@/lib/currency'
 import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
 
 const TrendChart = dynamic(
@@ -199,6 +199,23 @@ const calculateCampaignRoas = (campaign: Campaign): number | null => {
   const cost = getCampaignCostValue(campaign)
   if (commission === null || cost === null || cost <= 0) return null
   return Math.round((commission / cost) * 100) / 100
+}
+
+const convertAmountForDisplay = (amount: number, fromCurrency: string, toCurrency: string): number => {
+  if (!Number.isFinite(amount)) return 0
+
+  const sourceCurrency = String(fromCurrency || '').trim().toUpperCase()
+  const targetCurrency = String(toCurrency || '').trim().toUpperCase()
+
+  if (!sourceCurrency || !targetCurrency || sourceCurrency === targetCurrency) {
+    return amount
+  }
+
+  try {
+    return convertCurrency(amount, sourceCurrency, targetCurrency)
+  } catch {
+    return amount
+  }
 }
 
 const formatCampaignRoas = (campaign: Campaign): string => {
@@ -464,6 +481,30 @@ export default function CampaignsClientPage({
   const summaryCommissionCurrency = summary?.currency && summary.currency !== 'MIXED'
     ? String(summary.currency)
     : trendsCurrencyValue
+  const summaryDisplayCurrency = String(trendsCurrencyValue || defaultCurrency)
+  const summaryTotalCommissionDisplay = convertAmountForDisplay(
+    summaryTotalCommission,
+    summaryCommissionCurrency,
+    summaryDisplayCurrency
+  )
+  const summaryAttributedCommissionDisplay = convertAmountForDisplay(
+    summaryAttributedCommission,
+    summaryCommissionCurrency,
+    summaryDisplayCurrency
+  )
+  const summaryUnattributedCommissionDisplay = convertAmountForDisplay(
+    summaryUnattributedCommission,
+    summaryCommissionCurrency,
+    summaryDisplayCurrency
+  )
+  const summaryCostCurrency = summary?.currency && summary.currency !== 'MIXED'
+    ? String(summary.currency)
+    : summaryDisplayCurrency
+  const summaryTotalCostDisplay = convertAmountForDisplay(
+    Number(summary?.totalCostUsd ?? 0),
+    summaryCostCurrency,
+    summaryDisplayCurrency
+  )
   const costBreakdown = trendsCostsByCurrency.length > 0
     ? trendsCostsByCurrency
     : (
@@ -2285,7 +2326,7 @@ export default function CampaignsClientPage({
                     <p className="text-sm font-medium text-gray-600">总花费({trendsCurrencyValue})</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {formatCurrencyDashboard(
-                        Number(trendsTotalsConverted?.cost ?? summary?.totalCostUsd ?? 0),
+                        Number(trendsTotalsConverted?.cost ?? summaryTotalCostDisplay),
                         String(trendsCurrencyValue || defaultCurrency)
                       )}
                     </p>
@@ -2314,7 +2355,7 @@ export default function CampaignsClientPage({
                     <p className="text-sm font-medium text-gray-600">总佣金({trendsCurrencyValue})</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {formatCurrencyDashboard(
-                        Number(trendsTotalsConverted?.commission ?? summaryTotalCommission),
+                        Number(trendsTotalsConverted?.commission ?? summaryTotalCommissionDisplay),
                         String(trendsCurrencyValue || defaultCurrency)
                       )}
                     </p>
@@ -2322,14 +2363,14 @@ export default function CampaignsClientPage({
                       <>
                         <p className="text-xs mt-1 text-gray-500">
                           可归因: {formatCurrencyDashboard(
-                            summaryAttributedCommission,
-                            summaryCommissionCurrency
+                            summaryAttributedCommissionDisplay,
+                            summaryDisplayCurrency
                           )}
                         </p>
                         <p className={`text-xs mt-1 ${summaryUnattributedCommission > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
                           未归因: {formatCurrencyDashboard(
-                            summaryUnattributedCommission,
-                            summaryCommissionCurrency
+                            summaryUnattributedCommissionDisplay,
+                            summaryDisplayCurrency
                           )}
                         </p>
                       </>

@@ -141,17 +141,9 @@ export async function GET(request: NextRequest) {
       [userId, startDateStr, endDateStr]
     )
 
-    const currencies = currencyRows
+    const costCurrencies = currencyRows
       .map((r) => normalizeCurrency(r.currency))
       .filter((v, idx, arr) => arr.indexOf(v) === idx)
-
-    const hasMixedCurrency = currencies.length > 1
-    const reportingCurrencies = requestedCurrency && currencies.includes(requestedCurrency)
-      ? [requestedCurrency]
-      : currencies
-    const reportingCurrency = reportingCurrencies.length === 1
-      ? reportingCurrencies[0]
-      : (reportingCurrencies[0] || BASE_CURRENCY)
 
     const adTrends = await db.query<any>(
       `
@@ -228,11 +220,31 @@ export async function GET(request: NextRequest) {
       queryUnattributedCommissionTrends(),
     ])
 
+    const commissionCurrencies = Array.from(new Set([
+      ...attributedCommissionTrends.map((row) => normalizeCurrency(row.currency)),
+      ...unattributedCommissionTrends.map((row) => normalizeCurrency(row.currency)),
+    ]))
+    const availableCurrencies = Array.from(new Set([
+      ...costCurrencies,
+      ...commissionCurrencies,
+    ]))
+    const isFilteredByCurrency = Boolean(requestedCurrency && availableCurrencies.includes(requestedCurrency))
+    const reportingCostCurrencies = isFilteredByCurrency
+      ? [String(requestedCurrency)]
+      : costCurrencies
+    const reportingCommissionCurrencies = isFilteredByCurrency
+      ? [String(requestedCurrency)]
+      : availableCurrencies
+    const reportingCurrency = isFilteredByCurrency
+      ? String(requestedCurrency)
+      : (reportingCostCurrencies[0] || reportingCommissionCurrencies[0] || BASE_CURRENCY)
+    const hasMixedCurrency = availableCurrencies.length > 1
+
     const adMap = new Map<string, Map<string, { impressions: number; clicks: number; cost: number }>>()
     for (const row of adTrends) {
       const date = normalizeDateKey(row.date)
       const currency = normalizeCurrency(row.currency)
-      if (!reportingCurrencies.includes(currency)) continue
+      if (!reportingCostCurrencies.includes(currency)) continue
 
       const byCurrency = adMap.get(date) ?? new Map<string, { impressions: number; clicks: number; cost: number }>()
       byCurrency.set(currency, {
@@ -248,7 +260,7 @@ export async function GET(request: NextRequest) {
       for (const row of rows) {
         const date = normalizeDateKey(row.date)
         const currency = normalizeCurrency(row.currency)
-        if (!reportingCurrencies.includes(currency)) continue
+        if (!reportingCommissionCurrencies.includes(currency)) continue
 
         const commission = Number(row.commission) || 0
         const byCurrency = commissionMap.get(date) ?? new Map<string, number>()
@@ -292,22 +304,26 @@ export async function GET(request: NextRequest) {
       let costBase = 0
       let commissionBase = 0
 
-      reportingCurrencies.forEach((currency) => {
+      reportingCostCurrencies.forEach((currency) => {
         const ad = adByCurrency.get(currency)
         const currencyCost = Number(ad?.cost) || 0
         const currencyImpressions = Number(ad?.impressions) || 0
         const currencyClicks = Number(ad?.clicks) || 0
-        const currencyCommission = Number(commissionByCurrency.get(currency)) || 0
 
         row[`cost_${currency}`] = roundTo2(currencyCost)
-        row[`commission_${currency}`] = roundTo2(currencyCommission)
 
         impressions += currencyImpressions
         clicks += currencyClicks
         costBase += convertToBase(currencyCost, currency)
-        commissionBase += convertToBase(currencyCommission, currency)
 
         costTotalsByCurrency.set(currency, (costTotalsByCurrency.get(currency) || 0) + currencyCost)
+      })
+
+      reportingCommissionCurrencies.forEach((currency) => {
+        const currencyCommission = Number(commissionByCurrency.get(currency)) || 0
+
+        row[`commission_${currency}`] = roundTo2(currencyCommission)
+        commissionBase += convertToBase(currencyCommission, currency)
         commissionTotalsByCurrency.set(currency, (commissionTotalsByCurrency.get(currency) || 0) + currencyCommission)
       })
 
@@ -337,11 +353,11 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    const costsByCurrency = reportingCurrencies.map((currency) => ({
+    const costsByCurrency = reportingCostCurrencies.map((currency) => ({
       currency,
       amount: roundTo2(costTotalsByCurrency.get(currency) || 0),
     }))
-    const commissionsByCurrency = reportingCurrencies.map((currency) => ({
+    const commissionsByCurrency = reportingCommissionCurrencies.map((currency) => ({
       currency,
       amount: roundTo2(commissionTotalsByCurrency.get(currency) || 0),
     }))
@@ -358,8 +374,8 @@ export async function GET(request: NextRequest) {
         days: rangeDays,
       },
       summary: {
-        currency: reportingCurrencies.length > 1 ? 'MIXED' : reportingCurrency,
-        currencies: reportingCurrencies,
+        currency: reportingCostCurrencies.length > 1 ? 'MIXED' : reportingCurrency,
+        currencies: reportingCostCurrencies,
         hasMixedCurrency,
         baseCurrency: BASE_CURRENCY,
         totalsConverted: {

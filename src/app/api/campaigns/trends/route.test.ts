@@ -169,6 +169,45 @@ describe('GET /api/campaigns/trends', () => {
     expect(data.trends.find((row: any) => row.date === '2026-02-24')?.commission).toBe(3)
   })
 
+  it('keeps converted commission totals when commission currency is absent from ad cost currencies', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
+        return [{ currency: 'USD', cost: 42.33 }]
+      }
+      if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY DATE(date), COALESCE(currency')) {
+        return [{ date: '2026-03-07', currency: 'USD', impressions: 345, clicks: 39, cost: 42.33 }]
+      }
+      if (sql.includes('FROM affiliate_commission_attributions')) {
+        return [{ date: '2026-03-07', currency: 'CNY', commission: 118.02 }]
+      }
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
+        return []
+      }
+      throw new Error(`unexpected sql: ${sql}`)
+    })
+
+    dbFns.getDatabase.mockResolvedValue({ query })
+
+    const req = new NextRequest('http://localhost/api/campaigns/trends?start_date=2026-03-07&end_date=2026-03-07')
+    const res = await GET(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.summary?.currencies).toEqual(['USD'])
+    expect(data.summary?.commissionsByCurrency).toEqual([
+      expect.objectContaining({ currency: 'USD', amount: 0 }),
+      expect.objectContaining({ currency: 'CNY', amount: 118.02 }),
+    ])
+    expect(Number(data.summary?.totalsConverted?.commission)).toBeGreaterThan(17)
+    expect(Number(data.summary?.totalsConverted?.roas)).toBeCloseTo(0.4, 2)
+
+    const day = data.trends.find((row: any) => row.date === '2026-03-07')
+    expect(day?.commission_USD).toBe(0)
+    expect(day?.commission_CNY).toBe(118.02)
+    expect(Number(day?.commission)).toBeGreaterThan(17)
+  })
+
   it('applies optional single-currency filter while keeping converted totals', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
