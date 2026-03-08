@@ -10,7 +10,10 @@
  */
 
 // 标记是否为构建阶段或测试环境
-const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build'
+// 🔥 修复：只在真正的构建阶段跳过验证，不能在运行时跳过
+// Next.js 构建时会设置 NEXT_PHASE，但某些部署环境可能在运行时也保留这个变量
+// 因此需要同时检查 NODE_ENV !== 'production' 来确保只在构建时跳过
+const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build' && process.env.NODE_ENV !== 'production'
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'
 const SKIP_VALIDATION = IS_BUILD_TIME || IS_TEST_ENV
 
@@ -21,6 +24,7 @@ function getRequiredEnvVar(name: string, minLength?: number): string {
   const value = process.env[name]
 
   // 构建时或测试时返回占位符，避免失败
+  // 🔥 生产环境运行时永远不跳过验证，即使 NEXT_PHASE 存在
   if (SKIP_VALIDATION) {
     return 'placeholder-for-build-or-test'.padEnd(minLength || 32, '0')
   }
