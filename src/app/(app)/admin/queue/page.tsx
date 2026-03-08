@@ -178,6 +178,21 @@ interface HostMetricsPayload {
   sampleIntervalSec: number
 }
 
+interface SchedulerStatus {
+  urlSwapScheduler: {
+    isRunning: boolean
+    checkIntervalMs: number
+    checkIntervalMinutes: number
+    lastCheckAt: string | null
+    lastCheckResult: {
+      processed: number
+      executed: number
+      skipped: number
+      errors: number
+    } | null
+  }
+}
+
 const formatPct = (value: number | null | undefined) => {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-'
   return `${value.toFixed(1)}%`
@@ -364,6 +379,8 @@ export default function QueueManagementPage() {
   const [hostMetricsHistory, setHostMetricsHistory] = useState<HostMetricsHistoryPoint[]>([])
   const [hostMetricsHistoryWindowSec, setHostMetricsHistoryWindowSec] = useState<number>(300)
   const [hostMetricsError, setHostMetricsError] = useState<string | null>(null)
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
+  const [schedulerLoading, setSchedulerLoading] = useState(false)
   const hostMetricsInFlight = useRef(false)
 
   const fetchHostMetrics = async (showSuccessToast = false) => {
@@ -526,6 +543,43 @@ export default function QueueManagementPage() {
     }
   }, [activeTab])
 
+  // 获取调度器状态
+  const fetchSchedulerStatus = useCallback(async () => {
+    try {
+      setSchedulerLoading(true)
+      const result = await fetchWithRetry('/api/queue/scheduler')
+
+      if (result.success && result.data?.data) {
+        setSchedulerStatus(result.data.data)
+      }
+    } catch (error) {
+      console.error('获取调度器状态失败:', error)
+    } finally {
+      setSchedulerLoading(false)
+    }
+  }, [])
+
+  // 手动触发调度器
+  const triggerScheduler = useCallback(async () => {
+    try {
+      setSchedulerLoading(true)
+      const response = await fetch('/api/queue/scheduler', { method: 'POST' })
+      const result = await response.json()
+
+      if (result.success) {
+        toast.success(`调度器执行完成：处理 ${result.data.processed}，入队 ${result.data.executed}`)
+        // 刷新调度器状态和队列统计
+        await Promise.all([fetchSchedulerStatus(), fetchStats()])
+      } else {
+        toast.error(result.error || '触发调度器失败')
+      }
+    } catch (error: any) {
+      toast.error(error.message || '触发调度器失败')
+    } finally {
+      setSchedulerLoading(false)
+    }
+  }, [fetchSchedulerStatus, fetchStats])
+
   // 排序处理函数
   const handleSort = (key: string) => {
     setSortConfig(prev => ({
@@ -655,6 +709,15 @@ export default function QueueManagementPage() {
     }, 10_000)
     return () => clearInterval(interval)
   }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'monitor') return
+    void fetchSchedulerStatus()
+    const interval = setInterval(() => {
+      void fetchSchedulerStatus()
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [activeTab, fetchSchedulerStatus])
 
   // 当每页显示数量或用户数据变化时，重新计算分页
   useEffect(() => {
@@ -859,6 +922,107 @@ export default function QueueManagementPage() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Scheduler Health Check */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">调度器健康检查</h2>
+                <p className="text-sm text-gray-500">
+                  监控后台调度器运行状态和执行情况
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={triggerScheduler}
+                disabled={schedulerLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${schedulerLoading ? 'animate-spin' : ''}`} />
+                {schedulerLoading ? '触发中...' : '手动触发'}
+              </Button>
+            </div>
+
+            {schedulerLoading && !schedulerStatus && (
+              <div className="text-center py-8 text-gray-500">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
+                <p>加载调度器状态...</p>
+              </div>
+            )}
+
+            {schedulerStatus && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* URL Swap Scheduler */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-medium text-gray-900">换链接调度器</h3>
+                      <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${
+                        schedulerStatus.urlSwapScheduler.isRunning
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                          schedulerStatus.urlSwapScheduler.isRunning ? 'bg-green-600' : 'bg-red-600'
+                        }`} />
+                        {schedulerStatus.urlSwapScheduler.isRunning ? '运行中' : '已停止'}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="font-medium text-gray-900">
+                          {Math.round(schedulerStatus.urlSwapScheduler.checkIntervalMs / 1000)}秒
+                        </span>
+                      </div>
+
+                      {schedulerStatus.urlSwapScheduler.lastCheckAt && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">最后检查:</span>
+                          <span className="font-medium text-gray-900">
+                            {formatDateTime(schedulerStatus.urlSwapScheduler.lastCheckAt)}
+                          </span>
+                        </div>
+                      )}
+
+                      {schedulerStatus.urlSwapScheduler.lastCheckResult && (
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <p className="text-gray-500 mb-2">最后执行结果:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-blue-50 rounded px-2 py-1">
+                              <span className="text-xs text-blue-600">处理: </span>
+                              <span className="text-xs font-medium text-blue-900">
+                                {schedulerStatus.urlSwapScheduler.lastCheckResult.processed}
+                              </span>
+                            </div>
+                            <div className="bg-green-50 rounded px-2 py-1">
+                              <span className="text-xs text-green-600">执行: </span>
+                              <span className="text-xs font-medium text-green-900">
+                                {schedulerStatus.urlSwapScheduler.lastCheckResult.executed}
+                              </span>
+                            </div>
+                            <div className="bg-gray-50 rounded px-2 py-1">
+                              <span className="text-xs text-gray-600">跳过: </span>
+                              <span className="text-xs font-medium text-gray-900">
+                                {schedulerStatus.urlSwapScheduler.lastCheckResult.skipped}
+                              </span>
+                            </div>
+                            <div className="bg-red-50 rounded px-2 py-1">
+                              <span className="text-xs text-red-600">错误: </span>
+                              <span className="text-xs font-medium text-red-900">
+                                {schedulerStatus.urlSwapScheduler.lastCheckResult.errors}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Host Metrics (Container) */}

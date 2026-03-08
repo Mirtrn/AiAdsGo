@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
         urlSwapScheduler: {
           isRunning: status.isRunning,
           checkIntervalMs: status.checkIntervalMs,
-          checkIntervalMinutes: status.checkIntervalMs / 60 / 1000
+          checkIntervalMinutes: status.checkIntervalMs / 60 / 1000,
+          lastCheckAt: status.lastCheckAt,
+          lastCheckResult: status.lastCheckResult
         }
       }
     })

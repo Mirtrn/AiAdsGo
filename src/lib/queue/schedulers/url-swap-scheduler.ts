@@ -48,6 +48,8 @@ export class UrlSwapScheduler {
   private intervalHandle: NodeJS.Timeout | null = null
   private startupTimeoutHandle: NodeJS.Timeout | null = null
   private isRunning: boolean = false
+  private lastCheckAt: Date | null = null
+  private lastCheckResult: { processed: number; executed: number; skipped: number; errors: number } | null = null
   private readonly CHECK_INTERVAL_MS = 1 * 60 * 1000  // 每1分钟检查一次，确保任务及时执行
   private readonly RUN_ON_START = parseBooleanEnv(process.env.QUEUE_URL_SWAP_RUN_ON_START, true)
   private readonly STARTUP_DELAY_MS = parseNonNegativeIntEnv(
@@ -176,6 +178,10 @@ export class UrlSwapScheduler {
       const { triggerAllUrlSwapTasks } = await import('../../url-swap-scheduler')
       const result = await triggerAllUrlSwapTasks()
 
+      // 记录检查结果
+      this.lastCheckAt = new Date()
+      this.lastCheckResult = result
+
       const elapsedMs = Date.now() - checkStartAt
       console.log(`\n✅ URL Swap检查完成（耗时${elapsedMs}ms）:`)
       console.log(`   - 已处理: ${result.processed}`)
@@ -191,10 +197,17 @@ export class UrlSwapScheduler {
   /**
    * 获取调度器状态
    */
-  getStatus(): { isRunning: boolean; checkIntervalMs: number } {
+  getStatus(): {
+    isRunning: boolean
+    checkIntervalMs: number
+    lastCheckAt: string | null
+    lastCheckResult: { processed: number; executed: number; skipped: number; errors: number } | null
+  } {
     return {
       isRunning: this.isRunning,
-      checkIntervalMs: this.CHECK_INTERVAL_MS
+      checkIntervalMs: this.CHECK_INTERVAL_MS,
+      lastCheckAt: this.lastCheckAt ? this.lastCheckAt.toISOString() : null,
+      lastCheckResult: this.lastCheckResult
     }
   }
 }
