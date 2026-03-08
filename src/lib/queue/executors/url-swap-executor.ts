@@ -639,8 +639,30 @@ export async function executeUrlSwapTask(
     let errorType: UrlSwapErrorType = 'other'
     let enhancedMessage = rawMessage
 
-    // 检测推广链接解析失败
+    // 检测 IPRocket 代理服务商业务错误（优先级最高，需要特殊处理）
     if (
+      rawMessage.includes('IPRocket') &&
+      (rawMessage.includes('Business abnormality') ||
+       rawMessage.includes('business error') ||
+       rawMessage.includes('contact customer service'))
+    ) {
+      errorType = 'link_resolution'
+      enhancedMessage =
+        `🔴 IPRocket 代理服务商返回业务异常\n\n` +
+        `可能原因：\n` +
+        `1. 账户配额已用完 - 请检查 IPRocket 账户余额和流量\n` +
+        `2. 账户被暂停或限制 - 请联系 IPRocket 客服确认账户状态\n` +
+        `3. 触发风控限制 - 请降低请求频率或更换代理服务商\n` +
+        `4. 服务商临时故障 - 请稍后重试\n\n` +
+        `建议操作：\n` +
+        `✓ 登录 IPRocket 控制台检查账户状态\n` +
+        `✓ 考虑更换代理服务商（Oxylabs、Bright Data 等）\n` +
+        `✓ 或暂时禁用部分任务，降低请求频率\n` +
+        `✓ 修复后在任务详情页重新启用任务\n\n` +
+        `原始错误: ${rawMessage}`
+    }
+    // 检测推广链接解析失败
+    else if (
       rawMessage.includes('resolve') ||
       rawMessage.includes('affiliate') ||
       rawMessage.includes('推广链接格式') ||
