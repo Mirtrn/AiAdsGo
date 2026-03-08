@@ -48,7 +48,7 @@ export class UrlSwapScheduler {
   private intervalHandle: NodeJS.Timeout | null = null
   private startupTimeoutHandle: NodeJS.Timeout | null = null
   private isRunning: boolean = false
-  private readonly CHECK_INTERVAL_MS = 5 * 60 * 1000  // 每5分钟检查一次（与Cron间隔一致）
+  private readonly CHECK_INTERVAL_MS = 1 * 60 * 1000  // 每1分钟检查一次，确保任务及时执行
   private readonly RUN_ON_START = parseBooleanEnv(process.env.QUEUE_URL_SWAP_RUN_ON_START, true)
   private readonly STARTUP_DELAY_MS = parseNonNegativeIntEnv(
     process.env.QUEUE_URL_SWAP_STARTUP_DELAY_MS,
