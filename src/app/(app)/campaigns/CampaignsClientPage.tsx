@@ -1244,7 +1244,7 @@ export default function CampaignsClientPage({
       }
 
       applyLocalCampaignDeletion([campaignId])
-      showSuccess('删除草稿成功', `已删除草稿广告系列“${campaignName}”`)
+      showSuccess('删除草稿成功', `已删除草稿广告系列"${campaignName}"`)
       void fetchCampaigns({ silent: true })
     } catch (err: any) {
       showError('删除草稿失败', err?.message || '网络错误')
@@ -1293,7 +1293,7 @@ export default function CampaignsClientPage({
       }
 
       applyLocalCampaignDeletion([campaignId])
-      showSuccess('删除广告系列成功', `已永久删除“${campaignName}”`)
+      showSuccess('删除广告系列成功', `已永久删除"${campaignName}"`)
       void fetchCampaigns({ silent: true })
     } catch (err: any) {
       showError('删除广告系列失败', err?.message || '网络错误')
@@ -1435,7 +1435,11 @@ export default function CampaignsClientPage({
   }
 
   const getRemovedCampaigns = (list: Campaign[]) =>
-    list.filter((campaign) => String(campaign.status || '').toUpperCase() === 'REMOVED')
+    list.filter((campaign) => {
+      const isRemovedStatus = String(campaign.status || '').toUpperCase() === 'REMOVED'
+      const adsAccountUnavailable = campaign.adsAccountAvailable === false
+      return isRemovedStatus || adsAccountUnavailable
+    })
 
   const buildBatchDeleteFailureSummary = (failures: BatchDeleteFailure[]): string =>
     failures
@@ -1697,7 +1701,7 @@ export default function CampaignsClientPage({
       const selectedCampaigns = await getSelectedCampaigns()
       const removedCampaigns = getRemovedCampaigns(selectedCampaigns)
       if (removedCampaigns.length === 0) {
-        showError('批量删除失败', '仅已移除广告系列可批量删除')
+        showError('批量删除失败', '仅已移除或Ads账号已解绑的广告系列可批量删除')
         return
       }
 
@@ -1719,7 +1723,7 @@ export default function CampaignsClientPage({
 
       const removedCampaigns = getRemovedCampaigns(selectedCampaigns)
       if (removedCampaigns.length === 0) {
-        showError('批量删除失败', '仅已移除广告系列可批量删除')
+        showError('批量删除失败', '仅已移除或Ads账号已解绑的广告系列可批量删除')
         return
       }
 
@@ -1783,24 +1787,24 @@ export default function CampaignsClientPage({
       const skippedCount = selectedCampaigns.length - removedCampaigns.length
       if (failures.length === 0) {
         const desc = skippedCount > 0
-          ? `已删除 ${successIds.length} 个已移除广告系列，跳过 ${skippedCount} 个未移除广告系列`
-          : `已删除 ${successIds.length} 个已移除广告系列`
+          ? `已删除 ${successIds.length} 个广告系列，跳过 ${skippedCount} 个不可删除的广告系列`
+          : `已删除 ${successIds.length} 个广告系列`
         showSuccess('批量删除成功', desc)
         return
       }
 
       if (successIds.length > 0) {
-        showSuccess('批量删除部分成功', `已删除 ${successIds.length} 个已移除广告系列`)
+        showSuccess('批量删除部分成功', `已删除 ${successIds.length} 个广告系列`)
       }
 
       const failureSummary = buildBatchDeleteFailureSummary(failures)
       const skippedNote = skippedCount > 0
-        ? `\n另有 ${skippedCount} 个未移除广告系列已跳过。`
+        ? `\n另有 ${skippedCount} 个不可删除的广告系列已跳过。`
         : ''
 
       showError(
         '批量删除失败',
-        `${failures.length}/${removedCampaigns.length} 个已移除广告系列删除失败：\n${failureSummary}${skippedNote}`
+        `${failures.length}/${removedCampaigns.length} 个广告系列删除失败：\n${failureSummary}${skippedNote}`
       )
     } catch (err: any) {
       if (err?.message === 'UNAUTHORIZED') return
@@ -2254,14 +2258,14 @@ export default function CampaignsClientPage({
               )}
             </div>
             <div className="flex items-center gap-3">
-              {/* 批量删除按钮 - 多选后显示，仅已移除可删除 */}
+              {/* 批量删除按钮 - 多选后显示，仅已移除或账号已解绑可删除 */}
               {hasBatchOfflineSelection && (
                 <Button
                   variant="destructive"
                   size="sm"
                   onClick={() => void handleOpenBatchDeleteDialog()}
                   disabled={batchDeleteSubmitting || selectedRemovedCampaignCount === 0}
-                  title={selectedRemovedCampaignCount > 0 ? '批量删除已移除广告系列' : '仅已移除广告系列可删除'}
+                  title={selectedRemovedCampaignCount > 0 ? '批量删除已移除或账号已解绑的广告系列' : '仅已移除或账号已解绑的广告系列可删除'}
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   {batchDeleteSubmitting
@@ -3244,19 +3248,19 @@ export default function CampaignsClientPage({
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  将永久删除选中项中状态为“已移除”的{' '}
+                  将永久删除选中项中状态为"已移除"或"账号已解绑"的{' '}
                   <strong className="text-gray-900">{selectedRemovedCampaignCount}</strong>{' '}
                   个广告系列。
                 </p>
                 {selectedCampaignIds.size > selectedRemovedCampaignCount && (
                   <p className="text-sm text-amber-700">
-                    另外 {selectedCampaignIds.size - selectedRemovedCampaignCount} 个未移除广告系列会被自动跳过。
+                    另外 {selectedCampaignIds.size - selectedRemovedCampaignCount} 个不可删除的广告系列会被自动跳过。
                   </p>
                 )}
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                   <p className="font-medium mb-1">批量删除将会：</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>永久删除这些已移除广告系列</li>
+                    <li>永久删除这些广告系列</li>
                     <li>删除后不再显示在当前列表</li>
                     <li>此操作不可恢复</li>
                   </ul>
