@@ -78,7 +78,7 @@ function inferBrandAwareMatchType(
 }
 
 function isSearchVolumeUnavailableReason(reason: unknown): boolean {
-  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+  return reason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 function hasSearchVolumeUnavailableFlag(
@@ -666,8 +666,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
       let results = primaryResults
       if (primaryResults.some((kw: any) =>
-        kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-        kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+        kw?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
       )) {
         volumeUnavailableFromPlanner = true
         if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true
@@ -717,8 +716,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         }
         results = Array.from(merged.values())
         if (supplementalResults.some((kw: any) =>
-          kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-          kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+          kw?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
         )) {
           volumeUnavailableFromPlanner = true
           if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true
@@ -874,8 +872,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
           if (canonical && allKeywords.has(canonical)) {
             const existing = allKeywords.get(canonical)!
             if (
-              vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-              vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+              vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
             ) {
               volumeUnavailableFromPlanner = true
               if (plannerDecision) plannerDecision.volumeUnavailableFromPlanner = true

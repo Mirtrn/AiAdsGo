@@ -24,7 +24,7 @@ export interface KeywordWithVolume {
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
   intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 /**

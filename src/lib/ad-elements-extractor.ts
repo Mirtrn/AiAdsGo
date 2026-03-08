@@ -788,8 +788,7 @@ async function extractFromSingleProduct(
     })
 
     const metricsUnavailable = volumeData.some((vol: any) =>
-      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
     )
 
     // 过滤搜索量过低的关键字（纯品牌词豁免）
@@ -1016,8 +1015,7 @@ async function extractFromStore(
     })
 
     const metricsUnavailable = volumeData.some((vol: any) =>
-      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
     )
     const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
     const filteredKeywords = metricsUnavailable

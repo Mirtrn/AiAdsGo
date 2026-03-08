@@ -2154,7 +2154,7 @@ export interface KeywordWithVolume {
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' | 'KEYWORD_POOL' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
   intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 export interface KeywordSupplementationReport {
@@ -2816,7 +2816,7 @@ interface ExtractedKeywordForMerge {
   searchVolume: number
   competition?: string
   competitionIndex?: number
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 interface MergeExtractedKeywordsInput {
@@ -2834,7 +2834,7 @@ interface MergeExtractedKeywordsOutput {
 }
 
 function isSearchVolumeUnavailableReason(reason: unknown): boolean {
-  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+  return reason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 function hasSearchVolumeUnavailableFlag(
@@ -3103,11 +3103,10 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
   console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词 (matchType=PHRASE)`)
 
   const volumeDataUnavailable = keywordsWithVolume.some(kw =>
-    kw.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-    kw.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+    kw.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
   )
   if (volumeDataUnavailable) {
-    console.log(`   ⚠️ 搜索量数据不可用（developer token 无 Basic/Standard access 或 服务账号限制），跳过搜索量过滤`)
+    console.log(`   ⚠️ 搜索量数据不可用（developer token 为 Test/Explorer 权限），跳过搜索量过滤`)
   }
 
   const dynamicNonBrandMinSearchVolume = resolveNonBrandMinSearchVolumeByBrandKeywordCount(

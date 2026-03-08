@@ -25,7 +25,7 @@ export interface KeywordWithVolume {
   competitionIndex?: number
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 /**

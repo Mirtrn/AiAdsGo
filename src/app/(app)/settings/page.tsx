@@ -107,16 +107,6 @@ interface GoogleAdsCredentialStatus {
   isActive?: boolean
 }
 
-interface GoogleAdsTestCredentialStatus {
-  hasCredentials: boolean
-  hasRefreshToken: boolean
-  loginCustomerId?: string
-  lastVerifiedAt?: string | null
-  isActive?: boolean
-  createdAt?: string
-  updatedAt?: string
-}
-
 // 代理配置支持的国家列表（使用全局映射 + ROW其他地区选项）
 const SUPPORTED_COUNTRIES = [
   ...getCountryOptionsForUI(),
@@ -176,27 +166,6 @@ const SETTING_METADATA: Record<string, {
     description: 'Google Ads API 开发者令牌。必须与 Client ID 在同一个 GCP Project 中申请，否则会报错',
     placeholder: '输入 Developer Token',
     helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
-  },
-  // Google Ads - 测试权限 MCC 诊断（与现有 OAuth 用户授权隔离）
-  'google_ads.test_login_customer_id': {
-    label: '【测试】Login Customer ID (MCC账户ID)',
-    description: '仅用于“测试权限/Test access” MCC 调用诊断，不影响现有 OAuth 用户授权。格式：10位数字（不含连字符）',
-    placeholder: '例如: 1234567890',
-  },
-  'google_ads.test_client_id': {
-    label: '【测试】OAuth Client ID',
-    description: '测试诊断专用 OAuth Client ID（建议使用独立的测试 GCP Project/Client）。不影响现有 OAuth 用户授权。',
-    placeholder: '例如: 123456789-xxx.apps.googleusercontent.com',
-  },
-  'google_ads.test_client_secret': {
-    label: '【测试】OAuth Client Secret',
-    description: '测试诊断专用 OAuth Client Secret。不影响现有 OAuth 用户授权。',
-    placeholder: '输入测试 Client Secret',
-  },
-  'google_ads.test_developer_token': {
-    label: '【测试】Developer Token',
-    description: '测试权限/Test access 的 Developer Token，用于验证只能访问测试账号的限制。',
-    placeholder: '输入测试 Developer Token',
   },
 
   // AI - Gemini 服务商选择
@@ -484,15 +453,6 @@ export default function SettingsPage() {
   const [showGoogleAdsAccounts, setShowGoogleAdsAccounts] = useState(false)
   const [verifyingGoogleAds, setVerifyingGoogleAds] = useState(false)
   const [startingOAuth, setStartingOAuth] = useState(false)
-  const [googleAdsTestCredentialStatus, setGoogleAdsTestCredentialStatus] = useState<GoogleAdsTestCredentialStatus | null>(null)
-  const [startingTestOAuth, setStartingTestOAuth] = useState(false)
-  const [savingTestGoogleAdsConfig, setSavingTestGoogleAdsConfig] = useState(false)
-  const [clearingTestGoogleAdsCredentials, setClearingTestGoogleAdsCredentials] = useState(false)
-  const [clearTestGoogleAdsCredentialsConfirmOpen, setClearTestGoogleAdsCredentialsConfirmOpen] = useState(false)
-  const [diagnosingTestMcc, setDiagnosingTestMcc] = useState(false)
-  const [showTestMccSection, setShowTestMccSection] = useState(false)
-  const [testProbeCustomerId, setTestProbeCustomerId] = useState('')
-  const [testMccDiagnoseResult, setTestMccDiagnoseResult] = useState<any | null>(null)
   const [googleAdsAuthMethod, setGoogleAdsAuthMethod] = useState<'oauth' | 'service_account'>('oauth')
   const [serviceAccountForm, setServiceAccountForm] = useState({
     name: '',
@@ -787,150 +747,6 @@ export default function SettingsPage() {
     }
   }
 
-  const fetchGoogleAdsTestCredentialStatus = async () => {
-    try {
-      const response = await fetch('/api/google-ads/test-credentials', {
-        credentials: 'include',
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setGoogleAdsTestCredentialStatus(data.data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch Google Ads test credential status:', err)
-    }
-  }
-
-  const handleSaveGoogleAdsTestConfig = async () => {
-    const isValidValue = (v: string | undefined) => v && v.trim() !== '' && v !== '············'
-
-    const loginCustomerId = formData.google_ads?.['test_login_customer_id']
-    const clientId = formData.google_ads?.['test_client_id']
-    const clientSecret = formData.google_ads?.['test_client_secret']
-    const developerToken = formData.google_ads?.['test_developer_token']
-
-    if (!isValidValue(loginCustomerId)) {
-      toast.error('【测试】Login Customer ID (MCC账户ID) 是必填项')
-      return
-    }
-    if (!isValidValue(clientId)) {
-      toast.error('【测试】OAuth Client ID 是必填项')
-      return
-    }
-    if (!isValidValue(clientSecret)) {
-      toast.error('【测试】OAuth Client Secret 是必填项')
-      return
-    }
-    if (!isValidValue(developerToken)) {
-      toast.error('【测试】Developer Token 是必填项')
-      return
-    }
-
-    try {
-      setSavingTestGoogleAdsConfig(true)
-
-      const keys = ['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'] as const
-      const updates = keys
-        .map((key) => {
-          const value = formData.google_ads?.[key] || ''
-          if (!value || value.trim() === '' || value === '············') return null
-          return { category: 'google_ads', key, value }
-        })
-        .filter(Boolean)
-
-      if (updates.length === 0) {
-        toast.info('未检测到测试配置变更')
-        return
-      }
-
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      })
-
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || '保存失败')
-
-      toast.success('Google Ads 测试配置保存成功')
-      await refreshCategorySettings('google_ads')
-      setEditingField(null)
-    } catch (err: any) {
-      toast.error(err.message || '保存失败')
-    } finally {
-      setSavingTestGoogleAdsConfig(false)
-    }
-  }
-
-  const handleStartGoogleAdsTestOAuth = async () => {
-    try {
-      setStartingTestOAuth(true)
-      const response = await fetch('/api/google-ads/test-oauth/start', {
-        credentials: 'include'
-      })
-
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.error || '启动测试OAuth失败')
-      }
-
-      window.location.href = data.data.auth_url
-    } catch (err: any) {
-      toast.error(err.message || '启动测试OAuth失败')
-      setStartingTestOAuth(false)
-    }
-  }
-
-  const clearGoogleAdsTestCredentialsNow = async () => {
-    try {
-      setClearingTestGoogleAdsCredentials(true)
-      const response = await fetch('/api/google-ads/test-credentials', {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || '清除失败')
-      clearGoogleAdsFormFields(['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'])
-      toast.success('测试 OAuth 授权与测试配置已清除')
-      setTestMccDiagnoseResult(null)
-      await fetchGoogleAdsTestCredentialStatus()
-    } catch (err: any) {
-      toast.error(err.message || '清除失败')
-    } finally {
-      setClearingTestGoogleAdsCredentials(false)
-    }
-  }
-
-  const handleDiagnoseGoogleAdsTestMcc = async () => {
-    try {
-      setDiagnosingTestMcc(true)
-      setTestMccDiagnoseResult(null)
-
-      const response = await fetch('/api/google-ads/test-mcc/diagnose', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          probeCustomerId: testProbeCustomerId?.trim() ? testProbeCustomerId.trim() : undefined,
-          maxCustomers: 20,
-        })
-      })
-
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.message || data.error || '诊断失败')
-      }
-
-      setTestMccDiagnoseResult(data.data)
-      toast.success('测试MCC诊断完成')
-    } catch (err: any) {
-      toast.error(err.message || '诊断失败')
-    } finally {
-      setDiagnosingTestMcc(false)
-    }
-  }
-
   // Google Ads OAuth 授权
   const handleStartGoogleAdsOAuth = async () => {
     const clientId = formData.google_ads?.client_id
@@ -1031,7 +847,6 @@ export default function SettingsPage() {
   // 初始化时获取 Google Ads 凭证状态
   useEffect(() => {
     fetchGoogleAdsCredentialStatus()
-    fetchGoogleAdsTestCredentialStatus()
   }, [])
 
   const handleSave = async (category: string) => {
@@ -1447,18 +1262,6 @@ export default function SettingsPage() {
 
   const hasServiceAccountConfigToDelete = Boolean(googleAdsCredentialStatus?.serviceAccountId)
 
-  const hasGoogleAdsTestConfigToClear = (() => {
-    const isSet = (key: string): boolean => {
-      const raw = formData.google_ads?.[key]
-      if (!raw) return false
-      if (raw === '············') return true
-      return raw.trim().length > 0
-    }
-
-    return Boolean(googleAdsTestCredentialStatus?.hasRefreshToken) ||
-      ['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'].some(isSet)
-  })()
-
   const requestDeleteCurrentGoogleAdsConfig = () => {
     if (googleAdsAuthMethod === 'oauth') {
       if (!hasOAuthConfigToDelete) {
@@ -1785,33 +1588,7 @@ export default function SettingsPage() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* 清除测试 OAuth 授权：弹窗确认 1 次（不影响真实 OAuth / 服务账号） */}
-        <AlertDialog open={clearTestGoogleAdsCredentialsConfirmOpen} onOpenChange={setClearTestGoogleAdsCredentialsConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>确认清除测试 OAuth 授权与测试配置？</AlertDialogTitle>
-              <AlertDialogDescription>
-                将撤销并清除“测试权限 MCC 诊断”使用的测试 OAuth 授权（测试 Refresh Token），并删除已保存的测试配置项（测试 MCC ID / 测试 Client ID/Secret / 测试 Developer Token）。不会影响真实 OAuth 用户授权或服务账号配置。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={clearingTestGoogleAdsCredentials}>取消</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={clearingTestGoogleAdsCredentials}
-                onClick={async (e) => {
-                  e.preventDefault()
-                  await clearGoogleAdsTestCredentialsNow()
-                  setClearTestGoogleAdsCredentialsConfirmOpen(false)
-                }}
-              >
-                {clearingTestGoogleAdsCredentials ? '清除中...' : '确认清除'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <div className="mb-8">
+        <div className=”mb-8”>
           <h1 className="page-title">系统配置</h1>
           <p className="page-subtitle">管理 API 密钥、代理设置和系统偏好</p>
         </div>
@@ -1991,12 +1768,12 @@ export default function SettingsPage() {
 
                         {/* 提示信息 */}
                         {googleAdsCredentialStatus.apiAccessLevel === 'test' && (
-                          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                          <div className="mt-3 p-3 bg-blue-50 border border-blue-300 rounded-lg">
                             <div className="flex items-start gap-2">
-                              <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                              <div className="text-xs text-red-700">
-                                <p className="font-medium mb-1">⚠️ 当前为测试权限</p>
-                                <p>您的 Developer Token 仅限测试账号使用。访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-800">Google Ads API Center</a> 申请升级到 Basic 或 Standard 权限。</p>
+                              <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                              <div className="text-xs text-blue-700">
+                                <p className="font-medium mb-1">💡 当前为测试权限 - 可以立即开始测试</p>
+                                <p>您的 Developer Token 目前仅限测试账号使用。<strong>建议立即开始测试产品功能</strong>，同时访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800 font-semibold">Google Ads API Center</a> 申请升级到 Basic 或 Standard 权限（审核 1-3 个工作日）。真实的 API 调用记录有助于提高审批通过率，权限升级后自动生效，无需重新配置。</p>
                               </div>
                             </div>
                           </div>
@@ -2240,178 +2017,6 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     )}
-
-                    {/* 测试权限 MCC 诊断（与现有 OAuth 用户授权隔离） */}
-                    <div className="border-t pt-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="font-semibold text-lg">测试权限 MCC 诊断</h3>
-                          <p className="text-sm text-gray-600 mt-1">
-                            用于验证“测试权限/Test access” Developer Token 的调用限制；不会写入 <span className="font-mono">google_ads_accounts</span>，也不会覆盖现有 OAuth 用户授权。
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-shrink-0 whitespace-nowrap min-w-20"
-                          onClick={() => setShowTestMccSection(!showTestMccSection)}
-                        >
-                          {showTestMccSection ? (
-                            <>
-                              <ChevronUp className="w-4 h-4 mr-1" />
-                              收起
-                            </>
-                          ) : (
-                            <>
-                              <ChevronDown className="w-4 h-4 mr-1" />
-                              展开
-                            </>
-                          )}
-                        </Button>
-                      </div>
-
-                      {showTestMccSection && (
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-                            {(['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'] as const).map((key) => {
-                              const setting: Setting = {
-                                key,
-                                value: formData.google_ads?.[key] || '',
-                                dataType: 'string',
-                                isSensitive: key !== 'test_login_customer_id',
-                                isRequired: true,
-                                validationStatus: null,
-                                validationMessage: null,
-                                description: null,
-                              }
-
-                              const metaKey = `google_ads.${key}`
-                              const metadata = SETTING_METADATA[metaKey]
-
-                              return (
-                                <div key={key}>
-                                  <div className="space-y-2">
-                                    <Label className="label-text flex items-center gap-2">
-                                      {metadata?.label || key}
-                                      <span className="text-caption text-red-500">*必填</span>
-                                    </Label>
-                                    <p className="helper-text flex items-start gap-1">
-                                      <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                      {metadata?.description || '无描述'}
-                                    </p>
-                                    {renderInput('google_ads', setting)}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {googleAdsTestCredentialStatus?.hasCredentials ? (
-                              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                                  <span className="font-semibold text-green-700">已完成测试OAuth授权</span>
-                                </div>
-                                {googleAdsTestCredentialStatus.loginCustomerId && (
-                                  <p className="text-sm text-green-700">
-                                    测试 MCC ID: <span className="font-mono">{googleAdsTestCredentialStatus.loginCustomerId}</span>
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <AlertCircle className="w-5 h-5 text-amber-600" />
-                                  <span className="font-semibold text-amber-700">未完成测试OAuth授权</span>
-                                </div>
-                                <p className="text-sm text-amber-700">
-                                  请先保存测试配置并完成测试 OAuth 授权
-                                </p>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              onClick={handleSaveGoogleAdsTestConfig}
-                              disabled={savingTestGoogleAdsConfig}
-                              variant="outline"
-                              size="sm"
-                            >
-                              {savingTestGoogleAdsConfig ? '保存中...' : '保存测试配置'}
-                            </Button>
-
-                            <Button
-                              onClick={handleStartGoogleAdsTestOAuth}
-                              disabled={startingTestOAuth}
-                              size="sm"
-                            >
-                              {startingTestOAuth ? (
-                                <>
-                                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                                  启动中...
-                                </>
-                              ) : (
-                                <>
-                                  <Key className="w-4 h-4 mr-2" />
-                                  启动测试 OAuth 授权
-                                </>
-                              )}
-                            </Button>
-
-                            <Button
-                              onClick={() => setClearTestGoogleAdsCredentialsConfirmOpen(true)}
-                              variant="outline"
-                              size="sm"
-                              disabled={!hasGoogleAdsTestConfigToClear || clearingTestGoogleAdsCredentials}
-                            >
-                              清除测试 OAuth 授权
-                            </Button>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
-                            <div>
-                              <Label className="label-text">可选：探测一个非测试账号 Customer ID</Label>
-                              <p className="helper-text flex items-start gap-1 mt-1">
-                                <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                用于观察测试权限 Token 对非测试账号的失败表现（常见 PERMISSION_DENIED）
-                              </p>
-                              <Input
-                                value={testProbeCustomerId}
-                                onChange={(e) => setTestProbeCustomerId(e.target.value)}
-                                placeholder="例如: 1234567890"
-                                className="mt-2"
-                              />
-                            </div>
-                            <div className="flex items-end gap-2">
-                              <Button
-                                onClick={handleDiagnoseGoogleAdsTestMcc}
-                                disabled={diagnosingTestMcc}
-                                size="sm"
-                              >
-                                {diagnosingTestMcc ? (
-                                  <>
-                                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                                    诊断中...
-                                  </>
-                                ) : (
-                                  '运行诊断'
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-
-                          {testMccDiagnoseResult && (
-                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                              <pre className="text-xs bg-white border rounded p-3 overflow-auto max-h-80">
-                                {JSON.stringify(testMccDiagnoseResult, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
 
                     {/* 可访问的账户列表 */}
                     {googleAdsCredentialStatus?.hasCredentials && (

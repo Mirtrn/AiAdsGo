@@ -338,7 +338,7 @@ function prioritizeBucketKeywords(keywords: PoolKeywordData[]): PoolKeywordData[
 }
 
 function isSearchVolumeUnavailableReason(reason: unknown): boolean {
-  return reason === 'DEV_TOKEN_TEST_ONLY' || reason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+  return reason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 function hasSearchVolumeUnavailableFlag(
@@ -399,7 +399,7 @@ export interface PoolKeywordData {
   source: string
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
   isPureBrand?: boolean   // 🔥 2025-12-29 新增：标记是否为纯品牌词（豁免搜索量过滤）
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 /**
@@ -1803,11 +1803,10 @@ export async function clusterKeywordsByIntent(
       )
 
       // 过滤掉搜索量为0的关键词（API未返回数据）
-      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+      // 🔧 修复(2025-12-26): Developer Token 为 Test/Explorer 权限时无法获取搜索量，保留所有关键词
       // 🔧 修复(2026-01-21): 区分"API限制"和"关键词本身无搜索量"，避免保留无效的模板化关键词
       const disableSearchVolumeFilter = metricsResults.some((kw: any) =>
-        kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-        kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+        kw?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
       )
       const hasAnyVolume = metricsResults.some((kw: any) => kw.avgMonthlySearches > 0)
       let validKeywords: string[]

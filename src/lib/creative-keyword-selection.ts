@@ -16,7 +16,7 @@ export interface CreativeKeywordLike {
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
   lowTopPageBid?: number
   highTopPageBid?: number
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 export interface SelectCreativeKeywordsInput {

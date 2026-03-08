@@ -35,7 +35,7 @@ export interface UnifiedKeywordData {
   highTopPageBid: number
   source: 'BRAND' | 'CATEGORY' | 'FEATURE' | 'EXPANSION'
   matchType: 'EXACT' | 'PHRASE' | 'BROAD'
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 /**
@@ -1318,8 +1318,7 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
     )
 
     disableSearchVolumeFilter = volumes.some((vol: any) =>
-      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
     )
     if (volumes.length > 0 && !disableSearchVolumeFilter) {
       metricsAvailable = true
@@ -1582,8 +1581,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
     )
 
     disableSearchVolumeFilter = volumes.some((vol: any) =>
-      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
     )
 
     // 更新搜索量（只更新前1000个）
@@ -1632,8 +1630,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
       )
 
       if (volumes.some((vol: any) =>
-        vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-        vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+        vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
       )) {
         disableSearchVolumeFilter = true
       }
@@ -2095,8 +2092,7 @@ export async function expandKeywordsWithSeeds(params: {
           )
 
           if (volumes.some((vol: any) =>
-            vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
-            vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+            vol?.volumeUnavailableReason === 'DEV_TOKEN_INSUFFICIENT_ACCESS'
           )) {
             disableSearchVolumeFilter = true
           }

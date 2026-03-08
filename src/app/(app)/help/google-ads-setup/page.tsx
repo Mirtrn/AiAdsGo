@@ -36,15 +36,15 @@ export default function GoogleAdsSetupGuidePage() {
                 <ul className="space-y-2 text-sm">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>适合管理<strong>自己的</strong> Google Ads 账号</span>
+                    <span>通过浏览器授权，安全可靠</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>需要浏览器授权（一次性）</span>
+                    <span>支持 Keyword Planner API（需 Basic 或 Standard 访问权限）</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>支持 Keyword Planner API（需"基本访问权限"）</span>
+                    <span>适合单个账号或 MCC 账号</span>
                   </li>
                 </ul>
               </div>
@@ -58,15 +58,15 @@ export default function GoogleAdsSetupGuidePage() {
                 <ul className="space-y-2 text-sm">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>适合 MCC 账号<strong>管理多个子账号</strong></span>
+                    <span>服务器到服务器认证，无需用户交互</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>无需用户交互，自动化程度高</span>
+                    <span>适合自动化场景和后台任务</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                    <span>不支持 Keyword Planner API</span>
+                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <span>支持 Keyword Planner API（需 Basic 或 Standard 访问权限）</span>
                   </li>
                 </ul>
               </div>
@@ -85,36 +85,40 @@ export default function GoogleAdsSetupGuidePage() {
             <Card>
               <CardHeader>
                 <CardTitle>配置步骤</CardTitle>
-                <CardDescription>适合管理自己的 Google Ads 账号</CardDescription>
+                <CardDescription>通过用户授权访问 Google Ads 账号。Keyword Planner API 需要 Developer Token 具有 Basic 或 Standard 访问权限。</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-sm font-semibold">0</div>
-                    <div className="flex-1">
-                      <h4 className="font-medium">先跑一遍“测试权限”诊断（强烈建议）</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        在向 Google 申请 MCC 的<strong>基本访问权限</strong>之前，建议先使用“测试权限/Test access”的 Token 完成一次真实调用，既能验证配置无误，也能触发测试调用记录，提高后续审批通过率。
+                <div className=”space-y-4”>
+                  <div className=”flex items-start gap-3”>
+                    <div className=”flex-shrink-0 w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-sm font-semibold”>0</div>
+                    <div className=”flex-1”>
+                      <h4 className=”font-medium”>建议先使用测试权限（Test Access）进行功能测试</h4>
+                      <p className=”text-sm text-gray-600 mt-1”>
+                        在向 Google 申请<strong>基本访问权限（Basic Access）</strong>之前，建议先使用”测试权限（Test Access）”的 Developer Token 完成 OAuth 配置并测试产品功能。这样既能验证配置无误，也能通过真实调用记录提高后续审批通过率。
                       </p>
-                      <div className="text-sm text-gray-600 mt-2 space-y-2">
-                        <p>操作路径：<strong>/settings</strong> → <strong>Google Ads API</strong> → <strong>测试权限 MCC 诊断</strong></p>
-                        <ul className="ml-4 list-disc space-y-1">
-                          <li>填写并保存 4 个【测试】配置（测试 MCC ID / 测试 Client ID / 测试 Client Secret / 测试 Developer Token）</li>
-                          <li>点击“启动测试 OAuth 授权”，完成授权后回到设置页</li>
-                          <li>点击“运行诊断”（可选填写一个非测试账号 Customer ID 观察预期失败表现）</li>
+                      <div className=”text-sm text-gray-600 mt-2 space-y-2”>
+                        <p className=”font-medium text-blue-700”>使用测试权限的优势：</p>
+                        <ul className=”ml-4 list-disc space-y-1”>
+                          <li>立即可用，无需等待审核</li>
+                          <li>可以验证 OAuth 配置是否正确</li>
+                          <li>可以测试产品的核心功能（使用测试账号）</li>
+                          <li>真实的 API 调用记录有助于提高权限申请通过率</li>
+                          <li>权限升级后无需重新配置，自动生效</li>
                         </ul>
-                        <p className="text-xs text-gray-500">
-                          提示：测试 OAuth 客户端的“已授权的重定向 URI”需包含
-                          <code className="bg-gray-100 px-2 py-0.5 rounded text-xs ml-1">https://www.autoads.dev/api/google-ads/test-oauth/callback</code>
+                        <p className=”text-xs text-gray-500 mt-2”>
+                          <strong>提示：</strong>使用测试权限时，只能访问测试账号。完成配置验证和功能测试后，可以同时向 Google 申请 Basic/Standard 权限，无需等待审批结果。
+                        </p>
+                        <p className=”text-xs text-amber-600 mt-2”>
+                          <strong>注意：</strong>Test Access 和 Explorer Access 权限无法使用 Keyword Planner API 获取搜索量数据，需要申请 Basic Access 或 Standard Access 才能使用该功能。
                         </p>
                       </div>
                     </div>
                   </div>
 
-	                  <div className="flex items-start gap-3">
-	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">1</div>
+	                  <div className=”flex items-start gap-3”>
+	                    <div className=”flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold”>1</div>
 	                    <div>
-	                      <h4 className="font-medium">创建 GCP 项目并启用 API</h4>
+	                      <h4 className=”font-medium”>创建 GCP 项目并启用 API</h4>
 	                      <p className="text-sm text-gray-600 mt-1">
 	                        访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建项目，然后在"API和服务"→"库"中搜索并启用 <strong>Google Ads API</strong>
 	                      </p>
@@ -217,10 +221,10 @@ export default function GoogleAdsSetupGuidePage() {
                   </div>
                 </div>
 
-                <Alert className="mt-4 bg-orange-50 border-orange-200">
-                  <AlertCircle className="h-4 w-4 text-orange-500" />
+                <Alert className=”mt-4 bg-blue-50 border-blue-200”>
+                  <AlertCircle className=”h-4 w-4 text-blue-600” />
                   <AlertDescription>
-                    OAuth 方式正式使用需要"基本访问权限"或更高级别的 Developer Token；测试权限仅用于上述“测试权限 MCC 诊断”
+                    <strong>提示：</strong>OAuth 方式正式使用需要”基本访问权限”或更高级别的 Developer Token。建议先使用测试权限进行配置验证，同时向 Google 申请更高权限（审核 1-3 个工作日）。权限升级后自动生效，无需重新配置。
                   </AlertDescription>
                 </Alert>
               </CardContent>
@@ -233,7 +237,7 @@ export default function GoogleAdsSetupGuidePage() {
             <Card>
               <CardHeader>
                 <CardTitle>配置步骤</CardTitle>
-                <CardDescription>适合 MCC 账号管理多个子账号</CardDescription>
+                <CardDescription>服务器到服务器认证，适合自动化场景</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">

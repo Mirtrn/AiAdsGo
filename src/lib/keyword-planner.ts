@@ -37,7 +37,7 @@ interface KeywordVolume {
   lowTopPageBid: number
   highTopPageBid: number
   /** 搜索量数据是否可用（如 developer token 无 Basic/Standard access 时不可用） */
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
   requestedCountry?: string
   effectiveCountry?: string
   usedProxyGeo?: boolean
@@ -462,11 +462,42 @@ export async function getKeywordSearchVolumes(
         let skipCachingDueToUnavailable = false
 
         try {
-          if (config.authType === 'service_account') {
-            // 🚫 服务账号模式不支持 Keyword Planner API（需要 Basic Access 权限）
-            // 优雅降级：返回默认值而不是抛出错误
-            console.warn('[KeywordPlanner] 服务账号模式不支持 Keyword Planner API，返回默认搜索量值')
-            console.warn('[KeywordPlanner] 建议切换到 OAuth 授权模式以获取精确搜索量数据')
+          // 检查 Developer Token 的访问级别
+          let apiAccessLevel: string | undefined
+          try {
+            // 首先尝试从 OAuth 凭证获取
+            const credentialsRow = await db.queryOne(`
+              SELECT api_access_level
+              FROM google_ads_credentials
+              WHERE user_id = ?
+              LIMIT 1
+            `, [userId]) as { api_access_level?: string } | undefined
+
+            if (credentialsRow?.api_access_level) {
+              apiAccessLevel = credentialsRow.api_access_level.toLowerCase()
+            } else if (config.authType === 'service_account') {
+              // 如果是服务账号模式，从服务账号表获取
+              const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+              const serviceAccountRow = await db.queryOne(`
+                SELECT api_access_level
+                FROM google_ads_service_accounts
+                WHERE user_id = ? AND ${isActiveCondition}
+                LIMIT 1
+              `, [userId]) as { api_access_level?: string } | undefined
+
+              if (serviceAccountRow?.api_access_level) {
+                apiAccessLevel = serviceAccountRow.api_access_level.toLowerCase()
+              }
+            }
+          } catch (error) {
+            console.error('[KeywordPlanner] Failed to fetch api_access_level:', error)
+          }
+
+          // Test 和 Explorer 权限无法使用 Keyword Planner API
+          if (apiAccessLevel === 'test' || apiAccessLevel === 'explorer') {
+            console.warn(`[KeywordPlanner] Developer Token 访问级别为 ${apiAccessLevel}，无法使用 Keyword Planner API`)
+            console.warn('[KeywordPlanner] 需要 Basic Access 或 Standard Access 权限才能获取精确搜索量数据')
+            console.warn('[KeywordPlanner] 申请地址: https://developers.google.com/google-ads/api/docs/access-levels')
 
             // 为所有关键词返回默认值
             for (const keyword of needApiKeywords) {
@@ -477,7 +508,7 @@ export async function getKeywordSearchVolumes(
                 competitionIndex: 0,
                 lowTopPageBid: 0,
                 highTopPageBid: 0,
-                volumeUnavailableReason: 'SERVICE_ACCOUNT_UNSUPPORTED',
+                volumeUnavailableReason: 'DEV_TOKEN_INSUFFICIENT_ACCESS',
                 requestedCountry,
                 effectiveCountry,
                 usedProxyGeo,
@@ -489,8 +520,8 @@ export async function getKeywordSearchVolumes(
 
             apiSuccess = true // 标记为成功，避免记录为API错误
           } else {
-            // OAuth认证模式
-            console.log('[KeywordPlanner] Using OAuth authentication...')
+            // Developer Token 具有 Basic 或 Standard Access 权限，可以使用 Keyword Planner API
+            console.log(`[KeywordPlanner] Developer Token 访问级别: ${apiAccessLevel || 'unknown'}, 认证方式: ${config.authType || 'oauth'}`)
 
             // 刷新 access token 以确保有效
             try {
@@ -652,7 +683,7 @@ export async function getKeywordSearchVolumes(
                           competitionIndex: 0,
                           lowTopPageBid: 0,
                           highTopPageBid: 0,
-                          volumeUnavailableReason: 'DEV_TOKEN_TEST_ONLY',
+                          volumeUnavailableReason: 'DEV_TOKEN_INSUFFICIENT_ACCESS',
                           requestedCountry,
                           effectiveCountry,
                           usedProxyGeo,

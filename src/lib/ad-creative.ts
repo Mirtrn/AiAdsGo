@@ -27,7 +27,7 @@ export interface KeywordWithVolume {
   competitionIndex?: number
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' | 'KEYWORD_POOL' // 数据来源标记 (2026-01-19: 添加 KEYWORD_POOL)
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
-  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
+  volumeUnavailableReason?: 'DEV_TOKEN_INSUFFICIENT_ACCESS'
 }
 
 /**
@@ -265,7 +265,7 @@ function normalizeKeywordsWithVolume(
         : undefined
     const volumeUnavailableReason =
       volumeUnavailableReasonRaw &&
-      ['SERVICE_ACCOUNT_UNSUPPORTED', 'DEV_TOKEN_TEST_ONLY'].includes(
+      ['DEV_TOKEN_INSUFFICIENT_ACCESS'].includes(
         volumeUnavailableReasonRaw
       )
         ? (volumeUnavailableReasonRaw as KeywordWithVolume['volumeUnavailableReason'])
