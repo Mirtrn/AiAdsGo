@@ -478,6 +478,17 @@ export async function executeUrlSwapTask(
         if (hasUpdates && !hasSuccess) {
           throw new Error('Google Ads 更新失败（所有目标均未更新成功）')
         }
+
+        // 🔥 修复：即使 URL 未变化，也记录历史，确保统计数据口径一致
+        await recordSwapHistory(taskId, {
+          swapped_at: new Date().toISOString(),
+          previous_final_url: currentUrlFromDb,
+          previous_final_url_suffix: currentSuffixFromDb,
+          new_final_url: resolved.finalUrl,
+          new_final_url_suffix: resolved.finalUrlSuffix,
+          success: true
+        })
+
         await updateTaskAfterManualAdvance(taskId, nextCursor)
       }
 

@@ -156,7 +156,9 @@ async function getBrowserFromPool(proxyUrl?: string, targetCountry?: string): Pr
   }
 
   const pool = getPlaywrightPool()
-  const { browser, context, instanceId } = await pool.acquire(proxyUrl, proxyCredentials, targetCountry)
+  // 🔥 换链接任务允许使用代理凭证缓存（allowCredentialsCache = true）
+  // 因为换链接只是解析 URL，不涉及点击行为，同一个代理 IP 多次使用影响不大
+  const { browser, context, instanceId } = await pool.acquire(proxyUrl, proxyCredentials, targetCountry, true)
 
   return { browser, context, instanceId, fromPool: true }
 }

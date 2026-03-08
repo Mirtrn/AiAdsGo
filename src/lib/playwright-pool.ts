@@ -13,6 +13,64 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright'
 import { maskProxyUrl } from './proxy/validate-url'
 
 /**
+ * 🔥 代理凭证缓存
+ * 目的：减少 IPRocket API 调用频率
+ * 策略：缓存代理凭证 5 分钟，避免频繁调用 API
+ */
+interface ProxyCredentialsCache {
+  credentials: {
+    host: string
+    port: number
+    username: string
+    password: string
+    fullAddress: string
+  }
+  cachedAt: number
+  expiresAt: number
+}
+
+const proxyCredentialsCache = new Map<string, ProxyCredentialsCache>()
+const PROXY_CREDENTIALS_CACHE_DURATION = 5 * 60 * 1000 // 5 分钟
+
+/**
+ * 获取缓存的代理凭证（如果未过期）
+ */
+function getCachedProxyCredentials(proxyUrl: string): ProxyCredentialsCache['credentials'] | null {
+  const cached = proxyCredentialsCache.get(proxyUrl)
+  if (!cached) return null
+
+  const now = Date.now()
+  if (now >= cached.expiresAt) {
+    // 缓存已过期，清除
+    proxyCredentialsCache.delete(proxyUrl)
+    return null
+  }
+
+  const remainingTime = Math.floor((cached.expiresAt - now) / 1000)
+  console.log(`🔥 [代理凭证缓存] 命中: ${cached.credentials.fullAddress} (剩余 ${remainingTime}s)`)
+  return cached.credentials
+}
+
+/**
+ * 缓存代理凭证
+ */
+function cacheProxyCredentials(proxyUrl: string, credentials: any): void {
+  const now = Date.now()
+  proxyCredentialsCache.set(proxyUrl, {
+    credentials: {
+      host: credentials.host,
+      port: credentials.port,
+      username: credentials.username,
+      password: credentials.password,
+      fullAddress: credentials.fullAddress || `${credentials.host}:${credentials.port}`,
+    },
+    cachedAt: now,
+    expiresAt: now + PROXY_CREDENTIALS_CACHE_DURATION,
+  })
+  console.log(`🔥 [代理凭证缓存] 已缓存: ${credentials.fullAddress || `${credentials.host}:${credentials.port}`} (5分钟)`)
+}
+
+/**
  * 连接池配置
  * 🔥 2025-12-12 内存优化：
  * - 减少最大实例数：10 → 5（配合深度抓取复用Context优化）
@@ -448,8 +506,14 @@ class PlaywrightPool {
    * @param proxyUrl - 代理API URL（会调用getProxyIp获取凭证）
    * @param proxyCredentials - 直接传入的代理凭证（来自代理池缓存，跳过API调用）
    * @param targetCountry - 目标国家（用于动态语言配置）
+   * @param allowCredentialsCache - 是否允许使用代理凭证缓存（默认 false，确保每次获取新 IP）
    */
-  async acquire(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+  async acquire(
+    proxyUrl?: string,
+    proxyCredentials?: { host: string; port: number; username: string; password: string },
+    targetCountry?: string,
+    allowCredentialsCache: boolean = false
+  ): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
     // 生成proxyKey用于实例匹配
     const proxyKey = proxyCredentials
       ? `${proxyCredentials.host}:${proxyCredentials.port}`
@@ -504,7 +568,7 @@ class PlaywrightPool {
 
     if (canCreateForProxy && canCreateGlobal) {
       // 直接创建新实例
-      return await this.createAndRegisterInstance(proxyUrl, proxyCredentials, targetCountry)
+      return await this.createAndRegisterInstance(proxyUrl, proxyCredentials, targetCountry, allowCredentialsCache)
     }
 
     // 3. 尝试清理空闲实例腾出空间
@@ -512,13 +576,13 @@ class PlaywrightPool {
       await this.cleanupIdleInstances()
 
       if (this.instances.size < POOL_CONFIG.maxInstances) {
-        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry)
+        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry, allowCredentialsCache)
       }
 
       // 清理最旧的实例
       await this.cleanupOldestInstance()
       if (this.instances.size < POOL_CONFIG.maxInstances) {
-        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry)
+        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry, allowCredentialsCache)
       }
     }
 
@@ -546,14 +610,19 @@ class PlaywrightPool {
   /**
    * 创建并注册新实例
    */
-  private async createAndRegisterInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+  private async createAndRegisterInstance(
+    proxyUrl?: string,
+    proxyCredentials?: { host: string; port: number; username: string; password: string },
+    targetCountry?: string,
+    allowCredentialsCache: boolean = false
+  ): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
     const proxyKey = proxyCredentials
       ? `${proxyCredentials.host}:${proxyCredentials.port}`
       : (proxyUrl || 'no-proxy')
     const instanceId = this.generateInstanceId()
 
     console.log(`🚀 创建新Playwright实例: ${instanceId} (${formatProxyKeyForLog(proxyKey)})`)
-    const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials, targetCountry)
+    const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials, targetCountry, allowCredentialsCache)
 
     const instance: BrowserInstance = {
       id: instanceId,
@@ -676,7 +745,12 @@ class PlaywrightPool {
   /**
    * 创建新的浏览器实例
    */
-  private async createInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
+  private async createInstance(
+    proxyUrl?: string,
+    proxyCredentials?: { host: string; port: number; username: string; password: string },
+    targetCountry?: string,
+    allowCredentialsCache: boolean = false
+  ): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
     // 🔥 代理必须在browser.launch时配置，无法在newContext时动态配置
     let launchOptions: any = {
       headless: true,
@@ -696,14 +770,31 @@ class PlaywrightPool {
     let proxy: any = null
     if (proxyCredentials) {
       proxy = proxyCredentials
-      console.log(`🔒 [缓存] 使用代理: ${proxy.host}:${proxy.port}`)
+      console.log(`🔒 [代理池] 使用代理: ${proxy.host}:${proxy.port}`)
     } else if (proxyUrl) {
-      // 如果提供了代理URL，获取代理凭证并在launch时配置
-      const { getProxyIp } = await import('./proxy/fetch-proxy-ip')
-      // 🔥 严禁降级为直连，代理获取失败应该抛出错误（需求10）
-      // 🔥 P1修复: 每次都获取新IP，避免重复使用被封禁的代理
-      proxy = await getProxyIp(proxyUrl, true) // forceRefresh=true 总是获取新IP
-      console.log(`🔒 [独立] 使用代理: ${proxy.host}:${proxy.port}`)
+      // 🔥 根据 allowCredentialsCache 参数决定是否使用缓存
+      // - 换链接任务: allowCredentialsCache = true，可以使用缓存
+      // - 补点击任务: allowCredentialsCache = false，每次获取新 IP
+      const cachedProxy = allowCredentialsCache ? getCachedProxyCredentials(proxyUrl) : null
+
+      if (cachedProxy) {
+        proxy = cachedProxy
+        console.log(`🔒 [凭证缓存] 使用代理: ${proxy.host}:${proxy.port}`)
+      } else {
+        // 缓存未命中或不允许使用缓存，调用 API 获取新凭证
+        const { getProxyIp } = await import('./proxy/fetch-proxy-ip')
+        // 🔥 严禁降级为直连，代理获取失败应该抛出错误（需求10）
+        // 🔥 P1修复: 每次都获取新IP，避免重复使用被封禁的代理
+        proxy = await getProxyIp(proxyUrl, true) // forceRefresh=true 总是获取新IP
+
+        // 🔥 只有允许缓存时才缓存代理凭证
+        if (allowCredentialsCache) {
+          cacheProxyCredentials(proxyUrl, proxy)
+          console.log(`🔒 [API+缓存] 使用代理: ${proxy.host}:${proxy.port}`)
+        } else {
+          console.log(`🔒 [API独立] 使用代理: ${proxy.host}:${proxy.port} (不缓存)`)
+        }
+      }
     }
 
     if (proxy) {

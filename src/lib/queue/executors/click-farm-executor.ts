@@ -90,9 +90,11 @@ async function resolveProxyAddress(proxyUrl: string): Promise<string | null> {
   const trimmed = proxyUrl.trim()
   if (!trimmed) return null
 
-  // 优先支持“代理provider URL”（如 IPRocket API / Oxylabs / Abcproxy 等），统一解析成真实代理IP再使用。
+  // 优先支持”代理provider URL”（如 IPRocket API / Oxylabs / Abcproxy 等），统一解析成真实代理IP再使用。
   if (ProxyProviderRegistry.isSupported(trimmed)) {
-    const creds = await getProxyIp(trimmed, false)
+    // 🔥 补点击任务必须每次获取新的代理 IP，确保每次点击使用不同的 IP
+    // forceRefresh=true: 不使用缓存，每次调用 API 获取新 IP
+    const creds = await getProxyIp(trimmed, true)
     return `http://${creds.username}:${creds.password}@${creds.host}:${creds.port}`
   }
 

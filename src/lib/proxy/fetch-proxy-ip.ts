@@ -5,6 +5,80 @@ import axios from 'axios'
 import { shouldRetry, getRetryDelay, ProxyError, ProxyHealthCheckError } from './proxy-errors'
 
 /**
+ * 🔥 全局 IPRocket API 调用频率限制
+ *
+ * 问题：IPRocket API 有频率限制，50ms 间隔会在第 6 次调用后触发"业务异常"错误
+ * 解决：添加全局调用队列，确保调用间隔 >= 100ms
+ */
+interface ThrottleQueueItem {
+  execute: () => Promise<void>
+  resolve: (value: any) => void
+  reject: (error: any) => void
+}
+
+const iprocketCallQueue: ThrottleQueueItem[] = []
+let lastIprocketCallTime = 0
+let isProcessingQueue = false
+const MIN_IPROCKET_CALL_INTERVAL = 100 // 最小调用间隔 100ms
+
+/**
+ * IPRocket API 调用频率限制包装器
+ */
+async function throttleIprocketCall<T>(providerName: string, fn: () => Promise<T>): Promise<T> {
+  // 只对 IPRocket 进行频率限制
+  if (providerName !== 'IPRocket') {
+    return fn()
+  }
+
+  return new Promise((resolve, reject) => {
+    const execute = async () => {
+      try {
+        const now = Date.now()
+        const timeSinceLastCall = now - lastIprocketCallTime
+
+        if (timeSinceLastCall < MIN_IPROCKET_CALL_INTERVAL) {
+          const waitTime = MIN_IPROCKET_CALL_INTERVAL - timeSinceLastCall
+          console.log(`⏳ [IPRocket 频率限制] 等待 ${waitTime}ms...`)
+          await new Promise(r => setTimeout(r, waitTime))
+        }
+
+        lastIprocketCallTime = Date.now()
+        const result = await fn()
+        resolve(result)
+      } catch (error) {
+        reject(error)
+      }
+    }
+
+    // 加入队列
+    iprocketCallQueue.push({ execute, resolve, reject })
+
+    // 如果没有正在处理队列，开始处理
+    if (!isProcessingQueue) {
+      processIprocketQueue()
+    }
+  })
+}
+
+/**
+ * 处理 IPRocket API 调用队列
+ */
+async function processIprocketQueue(): Promise<void> {
+  if (isProcessingQueue) return
+
+  isProcessingQueue = true
+
+  while (iprocketCallQueue.length > 0) {
+    const item = iprocketCallQueue.shift()
+    if (item) {
+      await item.execute()
+    }
+  }
+
+  isProcessingQueue = false
+}
+
+/**
  * 代理凭证信息
  */
 export interface HealthCheckResult {
@@ -219,8 +293,10 @@ export async function fetchProxyIp(
     try {
       console.log(`🔍 [${provider.name} ${attempt}/${maxRetries}] 开始获取...`)
 
-      // 使用Provider提取凭证
-      const credentials = await provider.extractCredentials(proxyUrl)
+      // 🔥 使用频率限制包装器调用 Provider 提取凭证
+      const credentials = await throttleIprocketCall(provider.name, () =>
+        provider.extractCredentials(proxyUrl)
+      )
 
       // 🔥 P0优化：阻塞式健康检查，失败时重试获取新代理
       if (!skipHealthCheck) {
