@@ -15,6 +15,7 @@
  */
 
 import type { Task, TaskExecutor } from '../types'
+import { analyzeProxyError } from './proxy-error-handler'
 
 /**
  * Scrape 任务数据接口
@@ -57,12 +58,17 @@ export function createScrapeExecutor(): TaskExecutor<ScrapeTaskData> {
 
       console.log(`✅ [ScrapeExecutor] 抓取任务完成: Offer #${offerId}`)
     } catch (error: any) {
-      console.error(`❌ [ScrapeExecutor] 抓取任务失败: Offer #${offerId}`, error.message)
+      const errorAnalysis = analyzeProxyError(error)
+      const errorMessage = errorAnalysis.isProxyError
+        ? errorAnalysis.enhancedMessage
+        : error.message
+
+      console.error(`❌ [ScrapeExecutor] 抓取任务失败: Offer #${offerId}`, errorMessage)
 
       // 更新 offer 状态为失败
       try {
         const { updateOfferScrapeStatus } = await import('@/lib/offers')
-        await updateOfferScrapeStatus(offerId, userId, 'failed', error.message)
+        await updateOfferScrapeStatus(offerId, userId, 'failed', errorMessage)
       } catch (updateError) {
         console.error(`   更新状态失败:`, updateError)
       }

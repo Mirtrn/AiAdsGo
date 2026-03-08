@@ -387,7 +387,9 @@ export async function executeClickFarmTask(
     try {
       proxyAddress = await resolveProxyAddress(proxyUrl)
     } catch (e: any) {
-      console.error(`[ClickFarm] 代理解析失败: ${maskProxyUrl(proxyUrl)} - ${e?.message || String(e)}`)
+      const errorAnalysis = analyzeProxyError(e)
+      console.error(`[ClickFarm] 代理解析失败: ${maskProxyUrl(proxyUrl)}`)
+      console.error(`错误详情: ${errorAnalysis.enhancedMessage}`)
     }
     if (!proxyAddress) {
       console.error(`[ClickFarm] 代理URL解析失败: ${maskProxyUrl(proxyUrl)}`);

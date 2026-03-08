@@ -17,6 +17,7 @@ import { dailyLinkCheck } from '@/lib/risk-alerts'
 import { resolveAffiliateLink } from '@/lib/url-resolver'
 import { getDatabase } from '@/lib/db'
 import { getProxyForCountry } from '../user-proxy-loader'
+import { analyzeProxyError } from './proxy-error-handler'
 
 /**
  * Link Check 任务数据接口
@@ -77,9 +78,12 @@ async function validateLinkWithResolver(
       }
     }
   } catch (error: any) {
+    const errorAnalysis = analyzeProxyError(error)
     return {
       isValid: false,
-      error: error.message || '链接解析失败'
+      error: errorAnalysis.isProxyError
+        ? errorAnalysis.enhancedMessage
+        : (error.message || '链接解析失败')
     }
   }
 }
