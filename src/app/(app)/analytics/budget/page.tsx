@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError } from '@/lib/toast-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import { useBudgetAnalytics } from '@/lib/hooks/useAnalytics'
 import { formatCurrency } from '@/lib/currency'
+import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
 
 
 type BudgetAnalyticsTimeRange = '7' | '14' | '30' | 'custom'
@@ -112,8 +113,9 @@ export default function BudgetAnalyticsPage() {
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
-  const [isCustomRangePanelOpen, setIsCustomRangePanelOpen] = useState(false)
   const [reportCurrency, setReportCurrency] = useState<string | null>(null)
+  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
+  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // Use SWR for data fetching with automatic caching
   const { data, currencyInfo, error, isLoading: loading, refresh } = useBudgetAnalytics(startDate, endDate, reportCurrency)
@@ -140,69 +142,67 @@ export default function BudgetAnalyticsPage() {
 
   const handleSelectPresetRange = (days: Exclude<BudgetAnalyticsTimeRange, 'custom'>) => {
     setTimeRange(days)
-    setIsCustomRangePanelOpen(false)
     applyPresetRange(days)
   }
 
-  const openCustomRange = () => {
-    if (isCustomRangePanelOpen) {
-      setIsCustomRangePanelOpen(false)
-      return
+  const formatDateInputValue = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
+      }
     }
 
+    input.focus()
+    input.click()
+  }
+
+  const openCustomRange = () => {
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
-    } else if (startDate && endDate) {
-      setCustomStartDate(startDate)
-      setCustomEndDate(endDate)
-    } else {
+    } else if (!customStartDate && !customEndDate) {
       const end = new Date()
       const start = new Date(end)
       start.setDate(start.getDate() - 6)
-      setCustomStartDate(start.toISOString().split('T')[0])
-      setCustomEndDate(end.toISOString().split('T')[0])
+      setCustomStartDate(formatDateInputValue(start))
+      setCustomEndDate(formatDateInputValue(end))
     }
 
-    setIsCustomRangePanelOpen(true)
+    window.setTimeout(() => {
+      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
+    }, 0)
   }
 
   const handleCustomStartDateChange = (value: string) => {
     setCustomStartDate(value)
+    if (!value) return
+
+    window.setTimeout(() => {
+      openNativeDatePicker(customEndDateInputRef.current)
+    }, 0)
   }
 
   const handleCustomEndDateChange = (value: string) => {
     setCustomEndDate(value)
-  }
+    if (!customStartDate || !value) return
+    if (customStartDate > value) return
 
-  const handleApplyCustomDateRange = () => {
-    if (!customStartDate || !customEndDate) {
-      showError('时间范围无效', '请同时选择开始日期和结束日期')
-      return
-    }
-
-    if (customStartDate > customEndDate) {
-      showError('时间范围无效', '结束日期不能早于开始日期')
-      return
-    }
-
-    setAppliedCustomRange({ startDate: customStartDate, endDate: customEndDate })
+    setAppliedCustomRange({ startDate: customStartDate, endDate: value })
     setStartDate(customStartDate)
-    setEndDate(customEndDate)
+    setEndDate(value)
     setTimeRange('custom')
-    setIsCustomRangePanelOpen(false)
-  }
-
-  const handleCancelCustomDateRange = () => {
-    if (appliedCustomRange) {
-      setCustomStartDate(appliedCustomRange.startDate)
-      setCustomEndDate(appliedCustomRange.endDate)
-    } else {
-      setCustomStartDate('')
-      setCustomEndDate('')
-    }
-
-    setIsCustomRangePanelOpen(false)
   }
 
 
@@ -277,7 +277,7 @@ export default function BudgetAnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">加载中...</p>
@@ -288,7 +288,7 @@ export default function BudgetAnalyticsPage() {
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600">无法加载预算分析数据</p>
           <Button className="mt-4" onClick={() => refresh()}>
@@ -301,7 +301,7 @@ export default function BudgetAnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-slate-50">
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
@@ -315,78 +315,56 @@ export default function BudgetAnalyticsPage() {
               <h1 className="text-xl font-bold text-gray-900">预算分析</h1>
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">时间范围:</span>
-                <div className="flex bg-white rounded-lg border p-1">
-                  {(['7', '14', '30'] as const).map((d) => (
-                    <Button
-                      key={d}
-                      variant={timeRange === d ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => handleSelectPresetRange(d)}
-                      className="h-7 px-3 text-xs"
-                    >
-                      {d}天
-                    </Button>
-                  ))}
-                  <div className="relative inline-flex ml-1">
-                    <Button
-                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-3 text-xs max-w-[220px]"
-                      onClick={openCustomRange}
-                    >
-                      <CalendarDays className="w-3 h-3 mr-1" />
-                      <span className="truncate">{customRangeLabel}</span>
-                    </Button>
-                    {isCustomRangePanelOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-[280px] rounded-md border bg-white shadow-lg p-3 z-20">
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="date"
-                              value={customStartDate}
-                              onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                              className="h-8 flex-1 text-[11px]"
-                              max={customEndDate || undefined}
-                            />
-                            <span className="text-xs text-gray-500">至</span>
-                            <Input
-                              type="date"
-                              value={customEndDate}
-                              onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                              className="h-8 flex-1 text-[11px]"
-                              min={customStartDate || undefined}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-gray-500">
-                            {customStartDate && customEndDate ? (
-                              <span>
-                                已选择 {customStartDate} ~ {customEndDate}
-                              </span>
-                            ) : (
-                              <span>请选择开始日期和结束日期</span>
-                            )}
-                            <div className="space-x-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleCancelCustomDateRange}
-                              >
-                                取消
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handleApplyCustomDateRange}
-                              >
-                                应用
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              {/* 刷新按钮 */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refresh()}
+                disabled={loading}
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+              {/* 时间范围 */}
+              <div className="flex bg-white rounded-lg border p-1">
+                {(['7', '14', '30'] as const).map((d) => (
+                  <Button
+                    key={d}
+                    variant={timeRange === d ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => handleSelectPresetRange(d)}
+                    className="h-7 px-3 text-xs"
+                  >
+                    {d}天
+                  </Button>
+                ))}
+                <div className="relative inline-flex">
+                  <Button
+                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-3 text-xs max-w-[220px]"
+                    onClick={openCustomRange}
+                  >
+                    <CalendarDays className="w-3 h-3 mr-1" />
+                    <span className="truncate">{customRangeLabel}</span>
+                  </Button>
+                  <input
+                    ref={customStartDateInputRef}
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                  <input
+                    ref={customEndDateInputRef}
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
                 </div>
               </div>
               {availableCurrencies.length > 1 && (
@@ -401,10 +379,6 @@ export default function BudgetAnalyticsPage() {
                   </SelectContent>
                 </Select>
               )}
-              <Button variant="outline" onClick={() => refresh()} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                刷新
-              </Button>
               <Button onClick={exportData}>
                 <Download className="h-4 w-4 mr-2" />
                 导出报告

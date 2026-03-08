@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError } from '@/lib/toast-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,9 +14,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LazyROITrendChart, LazyCampaignROIChart, LazyOfferROIChart } from '@/components/LazyChartLoader'
-import { Download, TrendingUp, TrendingDown, DollarSign, Target, Percent, RefreshCw, CalendarDays } from 'lucide-react'
+import { Download, TrendingUp, TrendingDown, DollarSign, Target, Percent, RefreshCw, CalendarDays, Coins } from 'lucide-react'
 import { useROIAnalytics } from '@/lib/hooks/useAnalytics'
 import { formatCurrency } from '@/lib/currency'
+import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
 
 
 type ROIAnalyticsTimeRange = '7' | '14' | '30' | 'custom'
@@ -84,8 +85,9 @@ export default function ROIAnalyticsPage() {
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
-  const [isCustomRangePanelOpen, setIsCustomRangePanelOpen] = useState(false)
   const [reportCurrency, setReportCurrency] = useState<string | null>(null)
+  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
+  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // Use SWR for data fetching with automatic caching
   const { data, currencyInfo, error, isLoading: loading, refresh } = useROIAnalytics(startDate, endDate, reportCurrency)
@@ -112,69 +114,67 @@ export default function ROIAnalyticsPage() {
 
   const handleSelectPresetRange = (days: Exclude<ROIAnalyticsTimeRange, 'custom'>) => {
     setTimeRange(days)
-    setIsCustomRangePanelOpen(false)
     applyPresetRange(days)
   }
 
-  const openCustomRange = () => {
-    if (isCustomRangePanelOpen) {
-      setIsCustomRangePanelOpen(false)
-      return
+  const formatDateInputValue = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const openNativeDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return
+    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
+    if (typeof inputWithPicker.showPicker === 'function') {
+      try {
+        inputWithPicker.showPicker()
+        return
+      } catch {
+        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
+      }
     }
 
+    input.focus()
+    input.click()
+  }
+
+  const openCustomRange = () => {
     if (appliedCustomRange) {
       setCustomStartDate(appliedCustomRange.startDate)
       setCustomEndDate(appliedCustomRange.endDate)
-    } else if (startDate && endDate) {
-      setCustomStartDate(startDate)
-      setCustomEndDate(endDate)
-    } else {
+    } else if (!customStartDate && !customEndDate) {
       const end = new Date()
       const start = new Date(end)
       start.setDate(start.getDate() - 6)
-      setCustomStartDate(start.toISOString().split('T')[0])
-      setCustomEndDate(end.toISOString().split('T')[0])
+      setCustomStartDate(formatDateInputValue(start))
+      setCustomEndDate(formatDateInputValue(end))
     }
 
-    setIsCustomRangePanelOpen(true)
+    window.setTimeout(() => {
+      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
+    }, 0)
   }
 
   const handleCustomStartDateChange = (value: string) => {
     setCustomStartDate(value)
+    if (!value) return
+
+    window.setTimeout(() => {
+      openNativeDatePicker(customEndDateInputRef.current)
+    }, 0)
   }
 
   const handleCustomEndDateChange = (value: string) => {
     setCustomEndDate(value)
-  }
+    if (!customStartDate || !value) return
+    if (customStartDate > value) return
 
-  const handleApplyCustomDateRange = () => {
-    if (!customStartDate || !customEndDate) {
-      showError('时间范围无效', '请同时选择开始日期和结束日期')
-      return
-    }
-
-    if (customStartDate > customEndDate) {
-      showError('时间范围无效', '结束日期不能早于开始日期')
-      return
-    }
-
-    setAppliedCustomRange({ startDate: customStartDate, endDate: customEndDate })
+    setAppliedCustomRange({ startDate: customStartDate, endDate: value })
     setStartDate(customStartDate)
-    setEndDate(customEndDate)
+    setEndDate(value)
     setTimeRange('custom')
-    setIsCustomRangePanelOpen(false)
-  }
-
-  const handleCancelCustomDateRange = () => {
-    if (appliedCustomRange) {
-      setCustomStartDate(appliedCustomRange.startDate)
-      setCustomEndDate(appliedCustomRange.endDate)
-    } else {
-      setCustomStartDate('')
-      setCustomEndDate('')
-    }
-
-    setIsCustomRangePanelOpen(false)
   }
 
 
@@ -197,36 +197,35 @@ export default function ROIAnalyticsPage() {
     const csvRows: string[] = []
 
     // Overall section
-    csvRows.push('ROI整体分析')
+    csvRows.push('ROAS整体分析')
     csvRows.push('指标,数值')
-    csvRows.push(`总成本,${moneyCsv(data.overall.totalCost)}`)
-    csvRows.push(`总收入,${moneyCsv(data.overall.totalRevenue)}`)
-    csvRows.push(`总利润,${moneyCsv(data.overall.totalProfit)}`)
-    csvRows.push(`ROI,${data.overall.roi}%`)
+    csvRows.push(`总花费,${moneyCsv(data.overall.totalCost)}`)
+    csvRows.push(`总佣金,${moneyCsv(data.overall.totalRevenue)}`)
+    csvRows.push(`ROAS,${data.overall.roi}x`)
     csvRows.push(`转化次数,${data.overall.conversions}`)
     csvRows.push('')
 
     // Trend section
-    csvRows.push('ROI趋势分析')
-    csvRows.push('日期,成本,收入,利润,ROI,转化次数')
+    csvRows.push('ROAS趋势分析')
+    csvRows.push('日期,花费,佣金,ROAS,转化次数')
     data.trend.forEach((row: ROIData['trend'][0]) => {
-      csvRows.push(`${row.date},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
+      csvRows.push(`${row.date},${row.cost},${row.revenue},${row.roi},${row.conversions}`)
     })
     csvRows.push('')
 
     // Campaign section
-    csvRows.push('Campaign ROI排名')
-    csvRows.push('Campaign名称,品牌,成本,收入,利润,ROI,转化次数')
+    csvRows.push('Campaign ROAS排名')
+    csvRows.push('Campaign名称,品牌,花费,佣金,ROAS,转化次数')
     data.byCampaign.forEach((row: ROIData['byCampaign'][0]) => {
-      csvRows.push(`${row.campaignName},${row.offerBrand},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
+      csvRows.push(`${row.campaignName},${row.offerBrand},${row.cost},${row.revenue},${row.roi},${row.conversions}`)
     })
     csvRows.push('')
 
     // Offer section
-    csvRows.push('Offer ROI分析')
-    csvRows.push('品牌,产品名称,成本,收入,利润,ROI,转化次数')
+    csvRows.push('Offer ROAS分析')
+    csvRows.push('品牌,产品名称,花费,佣金,ROAS,转化次数')
     data.byOffer.forEach((row: ROIData['byOffer'][0]) => {
-      csvRows.push(`${row.brand},${row.offerName},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
+      csvRows.push(`${row.brand},${row.offerName},${row.cost},${row.revenue},${row.roi},${row.conversions}`)
     })
 
     // Create and download file
@@ -234,13 +233,13 @@ export default function ROIAnalyticsPage() {
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = `roi-analysis-${startDate}-${endDate}.csv`
+    link.download = `roas-analysis-${startDate}-${endDate}.csv`
     link.click()
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">加载中...</p>
@@ -251,7 +250,7 @@ export default function ROIAnalyticsPage() {
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600">无法加载ROI分析数据</p>
           <Button className="mt-4" onClick={() => refresh()}>
@@ -264,7 +263,7 @@ export default function ROIAnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-slate-50">
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
@@ -275,81 +274,59 @@ export default function ROIAnalyticsPage() {
               >
                 ← 返回Dashboard
               </button>
-              <h1 className="text-xl font-bold text-gray-900">ROI分析</h1>
+              <h1 className="text-xl font-bold text-gray-900">ROAS分析</h1>
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">时间范围:</span>
-                <div className="flex bg-white rounded-lg border p-1">
-                  {(['7', '14', '30'] as const).map((d) => (
-                    <Button
-                      key={d}
-                      variant={timeRange === d ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => handleSelectPresetRange(d)}
-                      className="h-7 px-3 text-xs"
-                    >
-                      {d}天
-                    </Button>
-                  ))}
-                  <div className="relative inline-flex ml-1">
-                    <Button
-                      variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                      size="sm"
-                      className="h-7 px-3 text-xs max-w-[220px]"
-                      onClick={openCustomRange}
-                    >
-                      <CalendarDays className="w-3 h-3 mr-1" />
-                      <span className="truncate">{customRangeLabel}</span>
-                    </Button>
-                    {isCustomRangePanelOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-[280px] rounded-md border bg-white shadow-lg p-3 z-20">
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="date"
-                              value={customStartDate}
-                              onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                              className="h-8 flex-1 text-[11px]"
-                              max={customEndDate || undefined}
-                            />
-                            <span className="text-xs text-gray-500">至</span>
-                            <Input
-                              type="date"
-                              value={customEndDate}
-                              onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                              className="h-8 flex-1 text-[11px]"
-                              min={customStartDate || undefined}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-gray-500">
-                            {customStartDate && customEndDate ? (
-                              <span>
-                                已选择 {customStartDate} ~ {customEndDate}
-                              </span>
-                            ) : (
-                              <span>请选择开始日期和结束日期</span>
-                            )}
-                            <div className="space-x-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleCancelCustomDateRange}
-                              >
-                                取消
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handleApplyCustomDateRange}
-                              >
-                                应用
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              {/* 刷新按钮 */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refresh()}
+                disabled={loading}
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+              {/* 时间范围 */}
+              <div className="flex bg-white rounded-lg border p-1">
+                {(['7', '14', '30'] as const).map((d) => (
+                  <Button
+                    key={d}
+                    variant={timeRange === d ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => handleSelectPresetRange(d)}
+                    className="h-7 px-3 text-xs"
+                  >
+                    {d}天
+                  </Button>
+                ))}
+                <div className="relative inline-flex">
+                  <Button
+                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-3 text-xs max-w-[220px]"
+                    onClick={openCustomRange}
+                  >
+                    <CalendarDays className="w-3 h-3 mr-1" />
+                    <span className="truncate">{customRangeLabel}</span>
+                  </Button>
+                  <input
+                    ref={customStartDateInputRef}
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                  <input
+                    ref={customEndDateInputRef}
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
                 </div>
               </div>
               {availableCurrencies.length > 1 && (
@@ -364,10 +341,6 @@ export default function ROIAnalyticsPage() {
                   </SelectContent>
                 </Select>
               )}
-              <Button variant="outline" onClick={() => refresh()} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                刷新
-              </Button>
               <Button onClick={exportData}>
                 <Download className="h-4 w-4 mr-2" />
                 导出报告
@@ -383,7 +356,7 @@ export default function ROIAnalyticsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">总ROI</CardTitle>
+                <CardTitle className="text-sm font-medium">总ROAS</CardTitle>
                 {data.overall.roi >= 0 ? (
                   <TrendingUp className="h-4 w-4 text-green-600" />
                 ) : (
@@ -392,25 +365,25 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className={`text-2xl font-bold ${data.overall.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {data.overall.roi >= 0 ? '+' : ''}{(Number(data.overall.roi) || 0).toFixed(2)}%
+                  {(Number(data.overall.roi) || 0).toFixed(2)}x
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  投资回报率
+                  广告支出回报率
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">总利润</CardTitle>
-                <DollarSign className="h-4 w-4 text-indigo-600" />
+                <CardTitle className="text-sm font-medium">总佣金</CardTitle>
+                <Coins className="h-4 w-4 text-amber-600" />
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${(data.overall?.totalProfit ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {money(data.overall?.totalProfit ?? 0)}
+                <div className="text-2xl font-bold text-gray-900">
+                  {money(data.overall?.totalRevenue ?? 0)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  收入 {money(data.overall?.totalRevenue ?? 0)} - 成本 {money(data.overall?.totalCost ?? 0)}
+                  总花费 {money(data.overall?.totalCost ?? 0)}
                 </p>
               </CardContent>
             </Card>
@@ -432,7 +405,7 @@ export default function ROIAnalyticsPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">利润率</CardTitle>
+                <CardTitle className="text-sm font-medium">佣金率</CardTitle>
                 <Percent className="h-4 w-4 text-indigo-600" />
               </CardHeader>
               <CardContent>
@@ -440,14 +413,14 @@ export default function ROIAnalyticsPage() {
                   {(Number(data.efficiency.profitMargin) || 0).toFixed(2)}%
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  利润占收入比例
+                  佣金占花费比例
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">单次转化收入</CardTitle>
+                <CardTitle className="text-sm font-medium">单次转化佣金</CardTitle>
                 <DollarSign className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
@@ -476,30 +449,30 @@ export default function ROIAnalyticsPage() {
             </Card>
           </div>
 
-          {/* ROI Trend */}
+          {/* ROAS Trend */}
           <Card>
             <CardHeader>
-              <CardTitle>ROI趋势分析</CardTitle>
+              <CardTitle>ROAS趋势分析</CardTitle>
             </CardHeader>
             <CardContent>
               <LazyROITrendChart data={data.trend} currency={selectedCurrency} height={350} />
             </CardContent>
           </Card>
 
-          {/* Campaign ROI Ranking */}
+          {/* Campaign ROAS Ranking */}
           <Card>
             <CardHeader>
-              <CardTitle>Campaign ROI排名 (Top 10)</CardTitle>
+              <CardTitle>Campaign ROAS排名 (Top 10)</CardTitle>
             </CardHeader>
             <CardContent>
               <LazyCampaignROIChart data={data.byCampaign} currency={selectedCurrency} height={450} />
             </CardContent>
           </Card>
 
-          {/* Offer ROI Analysis */}
+          {/* Offer ROAS Analysis */}
           <Card>
             <CardHeader>
-              <CardTitle>Offer ROI分析</CardTitle>
+              <CardTitle>Offer ROAS分析</CardTitle>
             </CardHeader>
             <CardContent>
               <LazyOfferROIChart data={data.byOffer} currency={selectedCurrency} height={400} />
@@ -523,16 +496,13 @@ export default function ROIAnalyticsPage() {
                         品牌
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        成本
+                        花费
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        收入
+                        佣金
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        利润
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        ROI
+                        ROAS
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                         转化
@@ -556,11 +526,8 @@ export default function ROIAnalyticsPage() {
                         <td className="px-4 py-3 text-sm text-right text-green-600">
                           {money(Number(campaign.revenue) || 0)}
                         </td>
-                        <td className={`px-4 py-3 text-sm text-right font-semibold ${campaign.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {money(Number(campaign.profit) || 0)}
-                        </td>
                         <td className={`px-4 py-3 text-sm text-right font-bold ${campaign.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {campaign.roi >= 0 ? '+' : ''}{(Number(campaign.roi) || 0).toFixed(2)}%
+                          {(Number(campaign.roi) || 0).toFixed(2)}x
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
                           {campaign.conversions}
