@@ -13,6 +13,7 @@ import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry';
 import { maskProxyUrl } from '@/lib/proxy/validate-url';
 import { assertUserExecutionAllowed } from '@/lib/user-execution-eligibility';
 import { getHeapStatistics } from 'v8';
+import { analyzeProxyError } from './proxy-error-handler';
 
 /**
  * 补点击任务数据结构
@@ -365,7 +366,11 @@ export async function executeClickFarmTask(
         }
       }
     } catch (error: any) {
+      const errorAnalysis = analyzeProxyError(error)
       console.error(`[ClickFarm] 动态获取代理失败: ${error.message}`)
+      if (errorAnalysis.isIPRocketBusinessError) {
+        console.error(`[ClickFarm] IPRocket 业务错误详情:\n${errorAnalysis.enhancedMessage}`)
+      }
     }
   }
 

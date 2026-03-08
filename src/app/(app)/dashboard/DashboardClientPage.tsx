@@ -294,6 +294,23 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     return formatCurrency(current.cost, current.currency || 'USD')
   }
 
+  /**
+   * 🔧 新增(2026-03-08): 格式化佣金显示（支持多货币）
+   */
+  const formatCommissionDisplay = (kpiData: KPIData | null): string => {
+    if (!kpiData) return formatCurrency(0, 'USD')
+
+    const { current } = kpiData
+
+    // 多货币场景 - 显示为 MIXED
+    if (current.currency === 'MIXED') {
+      return formatCurrency(current.commission, 'MIXED')
+    }
+
+    // 单一货币场景
+    return formatCurrency(current.commission, current.currency || 'USD')
+  }
+
   const formatRoasDisplay = (kpiData: KPIData | null): string => {
     if (!kpiData) return '--'
     if (kpiData.current.currency === 'MIXED') return '--'
@@ -537,7 +554,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   <DollarSign className="w-6 h-6 text-purple-600" />
                 </div>
               </div>
-              {kpiData && (
+              {kpiData && kpiData.current.currency !== 'MIXED' && (
                 <div className="flex items-center gap-1 mt-3">
                   {kpiData.changes.cost >= 0 ? (
                     <TrendingUp className="w-4 h-4 text-red-500" />
@@ -550,6 +567,11 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>
               )}
+              {kpiData && kpiData.current.currency === 'MIXED' && (
+                <div className="flex items-center gap-1 mt-3">
+                  <span className="text-xs text-gray-500">多货币混合</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -560,14 +582,14 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                 <div>
                   <p className="text-sm text-gray-500 mb-1">总佣金</p>
                   <p className="text-2xl font-bold">
-                    {kpiData ? formatCurrency(kpiData.current.commission, kpiData.current.currency || 'USD') : '-'}
+                    {kpiData ? formatCommissionDisplay(kpiData) : '-'}
                   </p>
                 </div>
                 <div className="p-3 bg-amber-50 rounded-xl">
                   <Coins className="w-6 h-6 text-amber-600" />
                 </div>
               </div>
-              {kpiData && (
+              {kpiData && kpiData.current.currency !== 'MIXED' && (
                 <div className="flex items-center gap-1 mt-3">
                   {kpiData.changes.commission >= 0 ? (
                     <TrendingUp className="w-4 h-4 text-green-500" />
@@ -578,6 +600,11 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                     {kpiData.changes.commission >= 0 ? '+' : ''}{safeToFixed(kpiData.changes.commission, 1)}%
                   </span>
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                </div>
+              )}
+              {kpiData && kpiData.current.currency === 'MIXED' && (
+                <div className="flex items-center gap-1 mt-3">
+                  <span className="text-xs text-gray-500">多货币混合</span>
                 </div>
               )}
             </CardContent>
