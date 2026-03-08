@@ -86,10 +86,12 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     // 数据同步由独立 scheduler 进程负责，队列初始化阶段不再启动内置数据同步调度器
     console.log('⏭️ 跳过内置数据同步调度器（由独立 scheduler 进程负责）')
 
-    // 🔄 URL Swap调度器已迁移到独立 scheduler 进程（src/scheduler.ts）
-    // 原因：Next.js 进程在无流量时可能空闲，导致 setInterval 不可靠
-    // 解决方案：使用独立的 scheduler 进程通过 node-cron 每分钟触发检查
-    console.log('⏭️ 跳过内置 URL Swap 调度器（由独立 scheduler 进程负责）')
+    // 🔄 启动内置的URL Swap调度器（双保险：Next.js + scheduler 进程都运行）
+    // 原因：确保在任何环境下都有调度器运行，避免单点故障
+    // scheduler 进程通过 node-cron 每分钟触发，Next.js 进程通过 setInterval 每分钟检查
+    // 两者都会检查并跳过重复任务，不会造成冲突
+    const urlSwapScheduler = getUrlSwapScheduler()
+    urlSwapScheduler.start()
 
     // 🔄 启动内置的联盟商品同步调度器（PB：轻量+全量，YP：轻量+全量）
     const affiliateProductSyncScheduler = getAffiliateProductSyncScheduler()
@@ -97,7 +99,7 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
 
     console.log('✅ 统一队列系统已启动')
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
-    console.log('🔄 URL Swap调度器已迁移至独立 scheduler 进程')
+    console.log('🔄 URL Swap调度器已启动（双保险：Next.js + scheduler 进程）')
     console.log('🔄 联盟商品同步调度器已集成启动')
 
     // 🔧 修复(2025-01-01): 标记为已初始化
@@ -122,7 +124,9 @@ export async function shutdownQueue() {
   try {
     console.log('⏹️ 关闭队列系统...')
 
-    // URL Swap调度器已迁移到独立 scheduler 进程，此处无需停止
+    // 停止URL Swap调度器
+    const urlSwapScheduler = getUrlSwapScheduler()
+    urlSwapScheduler.stop()
 
     // 停止联盟商品同步调度器
     const affiliateProductSyncScheduler = getAffiliateProductSyncScheduler()
