@@ -2497,6 +2497,8 @@ export async function refreshStrategyRecommendations(params: {
   const task = (async () => {
     const db = await getDatabase()
     const isDeletedCondition = db.type === 'postgres' ? 'c.is_deleted = FALSE' : 'c.is_deleted = 0'
+    const adsAccountIsActiveCondition = db.type === 'postgres' ? 'gaa.is_active = TRUE' : 'gaa.is_active = 1'
+    const adsAccountIsDeletedCondition = db.type === 'postgres' ? 'gaa.is_deleted = FALSE' : 'gaa.is_deleted = 0'
 
     const campaigns = await db.query<CampaignRow>(
       `
@@ -2526,6 +2528,10 @@ export async function refreshStrategyRecommendations(params: {
         WHERE c.user_id = ?
           AND c.status = 'ENABLED'
           AND ${isDeletedCondition}
+          AND (
+            c.google_ads_account_id IS NULL
+            OR (gaa.id IS NOT NULL AND ${adsAccountIsActiveCondition} AND ${adsAccountIsDeletedCondition})
+          )
         ORDER BY c.created_at DESC
       `,
       [params.userId]
