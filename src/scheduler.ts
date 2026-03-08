@@ -272,6 +272,7 @@ async function clickFarmSchedulerTask() {
  * 任务0.1: 换链接任务调度
  * 频率: 每分钟执行一次
  * 🔄 已迁移到统一队列系统，自动检查并执行待处理的换链接任务
+ * 📍 唯一调度位置：只在 scheduler 进程运行（与补点击任务架构一致）
  */
 async function urlSwapSchedulerTask() {
   log('🔄 开始执行换链接任务调度...')
@@ -291,6 +292,7 @@ async function urlSwapSchedulerTask() {
  * 任务0.2: 联盟商品同步调度
  * 频率: 每10分钟执行一次
  * 🔄 检查并触发 PartnerBoost/YeahPromos 商品同步任务
+ * 📍 唯一调度位置：只在 scheduler 进程运行（与补点击任务架构一致）
  */
 async function affiliateProductSyncSchedulerTask() {
   log('🛍️ 开始执行联盟商品同步调度...')
@@ -977,7 +979,7 @@ function startScheduler() {
   })
 
   // 任务0.1: 每分钟执行换链接任务调度
-  // 🔥 修复：从 Next.js 进程迁移到独立 scheduler 进程，确保持续运行
+  // 📍 唯一调度位置：只在 scheduler 进程运行（与补点击任务架构一致）
   const urlSwapCheckCron = process.env.URL_SWAP_CHECK_CRON || '* * * * *'
   cron.schedule(urlSwapCheckCron, async () => {
     await urlSwapSchedulerTask()
@@ -988,7 +990,7 @@ function startScheduler() {
   log(`✅ 换链接任务调度已启动 (cron: ${urlSwapCheckCron})`)
 
   // 任务0.2: 每10分钟执行联盟商品同步调度
-  // 🔥 修复：添加到 scheduler 进程作为双保险，确保持续运行
+  // 📍 唯一调度位置：只在 scheduler 进程运行（与补点击任务架构一致）
   const affiliateProductSyncCron = process.env.AFFILIATE_PRODUCT_SYNC_CRON || '*/10 * * * *'
   cron.schedule(affiliateProductSyncCron, async () => {
     await affiliateProductSyncSchedulerTask()
