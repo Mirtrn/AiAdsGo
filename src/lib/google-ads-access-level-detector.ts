@@ -52,13 +52,36 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
   const now = new Date().toISOString()
 
   try {
+    // 获取用户的 Google Ads 凭证
+    const credentials = await db.get<{
+      client_id: string
+      client_secret: string
+      developer_token: string
+      refresh_token: string
+    }>(`
+      SELECT client_id, client_secret, developer_token, refresh_token
+      FROM google_ads_credentials
+      WHERE user_id = ?
+    `, [userId])
+
+    if (!credentials) {
+      throw new Error('未找到 Google Ads 凭证')
+    }
+
     // 获取Google Ads客户端
-    const client = await getGoogleAdsClient(userId)
+    const client = getGoogleAdsClient({
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
+      developer_token: credentials.developer_token
+    })
 
     // 尝试获取可访问的客户账户列表
     // 这是一个轻量级的API调用，用于检测权限
     try {
-      const customers = await client.listAccessibleCustomers()
+      const response = await client.listAccessibleCustomers(credentials.refresh_token)
+
+      // listAccessibleCustomers 返回 { resource_names: ['customers/123', ...] }
+      const resourceNames = response.resource_names || []
 
       // 如果能成功调用，说明至少有Explorer权限
       // 注意：我们无法直接从API响应中获取确切的访问级别
@@ -72,7 +95,7 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
         level: 'explorer',
         detectedAt: now,
         method: 'api_call',
-        details: `Successfully listed ${customers.length} accessible customers`
+        details: `Successfully listed ${resourceNames.length} accessible customers`
       }
     } catch (apiError: any) {
       // 从错误消息中检测访问级别
