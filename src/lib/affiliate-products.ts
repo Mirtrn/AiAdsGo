@@ -279,7 +279,8 @@ export class ConfigRequiredError extends Error {
   missingKeys: string[]
 
   constructor(platform: AffiliatePlatform, missingKeys: string[]) {
-    super(`${platform} 配置不完整`)
+    const keyList = missingKeys.join(', ')
+    super(`${platform} 配置不完整或解密失败: ${keyList}。请检查配置是否正确，或 ENCRYPTION_KEY 是否与加密时一致`)
     this.name = 'ConfigRequiredError'
     this.platform = platform
     this.missingKeys = missingKeys

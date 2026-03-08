@@ -211,12 +211,23 @@ export async function getSetting(category: string, key: string, userId?: number)
 
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+
+  let value: string | null = rawValue
+  if (isSensitive && setting.encrypted_value) {
+    const decrypted = decrypt(setting.encrypted_value)
+    if (decrypted === null) {
+      console.error(`[settings] 解密失败: category=${setting.category}, key=${setting.key}, user_id=${userId || 'global'}`)
+      // 解密失败时返回 null，让调用方知道配置不可用
+      value = null
+    } else {
+      value = decrypted
+    }
+  }
+
   return {
     category: setting.category,
     key: setting.key,
-    value: isSensitive && setting.encrypted_value
-      ? decrypt(setting.encrypted_value)
-      : rawValue,
+    value,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,
@@ -258,12 +269,23 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
 
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+
+  let value: string | null = rawValue
+  if (isSensitive && setting.encrypted_value) {
+    const decrypted = decrypt(setting.encrypted_value)
+    if (decrypted === null) {
+      console.error(`[settings] 解密失败: category=${setting.category}, key=${setting.key}, user_id=${userId || 'global'}`)
+      // 解密失败时返回 null，让调用方知道配置不可用
+      value = null
+    } else {
+      value = decrypted
+    }
+  }
+
   return {
     category: setting.category,
     key: setting.key,
-    value: isSensitive && setting.encrypted_value
-      ? decrypt(setting.encrypted_value)
-      : rawValue,
+    value,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,

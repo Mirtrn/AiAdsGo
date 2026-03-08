@@ -29,7 +29,8 @@ export function decrypt(encryptedData: string): string | null {
   try {
     const parts = encryptedData.split(':')
     if (parts.length !== 3) {
-      throw new Error('Invalid encrypted data format')
+      console.error('[crypto] 解密失败: 加密数据格式无效，应为 iv:authTag:encrypted 格式')
+      return null
     }
 
     const [ivHex, authTagHex, encrypted] = parts
@@ -45,7 +46,13 @@ export function decrypt(encryptedData: string): string | null {
 
     return decrypted
   } catch (error) {
-    console.error('解密失败:', error)
+    console.error('[crypto] 解密失败:', {
+      error: error instanceof Error ? error.message : String(error),
+      encryptedDataLength: encryptedData?.length,
+      encryptedDataPreview: encryptedData?.substring(0, 20) + '...',
+      encryptionKeyConfigured: !!ENCRYPTION_KEY,
+      encryptionKeyLength: ENCRYPTION_KEY?.length,
+    })
     return null
   }
 }
