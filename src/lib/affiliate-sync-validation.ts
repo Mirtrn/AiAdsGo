@@ -32,7 +32,7 @@ async function validatePartnerboostConfig(input: AffiliateSyncValidationInput): 
   const baseUrl = trimValue(input.partnerboostBaseUrl).replace(/\/+$/, '') || DEFAULT_PARTNERBOOST_BASE_URL
 
   try {
-    const response = await fetch(`${baseUrl}/api/datafeed/get_latest_associates_products`, {
+    const response = await fetch(`${baseUrl}/api/datafeed/get_fba_products`, {
       method: 'POST',
       cache: 'no-store',
       headers: {
@@ -42,8 +42,13 @@ async function validatePartnerboostConfig(input: AffiliateSyncValidationInput): 
         token,
         page_size: 1,
         page: 1,
+        default_filter: 0,
+        country_code: 'US',
+        relationship: 1,
+        is_original_currency: 0,
+        has_promo_code: 0,
+        has_acc: 0,
         filter_sexual_wellness: 0,
-        region: 'us',
       }),
       signal: AbortSignal.timeout(10000),
     })
@@ -59,7 +64,7 @@ async function validatePartnerboostConfig(input: AffiliateSyncValidationInput): 
 
     const payload = text ? JSON.parse(text) as {
       status?: { code?: number | string; msg?: string }
-      data?: { list?: unknown[] }
+      data?: { list?: unknown[] | Record<string, unknown> }
     } : {}
     const statusCode = Number(payload.status?.code)
 
@@ -74,7 +79,10 @@ async function validatePartnerboostConfig(input: AffiliateSyncValidationInput): 
       }
     }
 
-    const count = Array.isArray(payload.data?.list) ? payload.data.list.length : 0
+    const list = payload.data?.list
+    const count = Array.isArray(list)
+      ? list.length
+      : (list && typeof list === 'object' ? Object.keys(list).length : 0)
     return {
       platform: 'partnerboost',
       valid: true,
