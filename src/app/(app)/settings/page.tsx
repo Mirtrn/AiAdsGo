@@ -1529,7 +1529,7 @@ export default function SettingsPage() {
                     deletingServiceAccountId === deleteConfirmState.serviceAccountId)
                 }
                 onClick={async (e) => {
-                  // 保持弹窗打开以展示“删除中...”，完成后手动关闭
+                  // 保持弹窗打开以展示"删除中..."，完成后手动关闭
                   e.preventDefault()
                   const state = deleteConfirmState
                   if (!state) return
@@ -1588,7 +1588,7 @@ export default function SettingsPage() {
           </AlertDialogContent>
         </AlertDialog>
 
-        <div className=”mb-8”>
+        <div className="mb-8">
           <h1 className="page-title">系统配置</h1>
           <p className="page-subtitle">管理 API 密钥、代理设置和系统偏好</p>
         </div>
@@ -1603,7 +1603,7 @@ export default function SettingsPage() {
                 <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
                 <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
-                <li>• <strong>AI 引擎</strong>：统一使用 Gemini API，按“服务商 → 模型 → API Key”完成配置</li>
+                <li>• <strong>AI 引擎</strong>：统一使用 Gemini API，按"服务商 → 模型 → API Key"完成配置</li>
                 <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>
@@ -2307,7 +2307,7 @@ export default function SettingsPage() {
                         </div>
                         <div className="space-y-1 text-body-sm text-emerald-700">
                           <p>支持只配置一个联盟，也支持同时配置 PartnerBoost 与 YeahPromos。</p>
-                          <p>点击“验证配置”会分别实调已配置联盟的真实 API，确认 Token / Site ID 是否可用。</p>
+                          <p>点击"验证配置"会分别实调已配置联盟的真实 API，确认 Token / Site ID 是否可用。</p>
                         </div>
                       </div>
                     )}
