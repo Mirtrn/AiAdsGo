@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 /**
  * 检查 URL Swap 调度器健康状态
  */
-async function checkUrlSwapSchedulerHealth(db: any) {
+async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
   const now = new Date()
 
   // 1. 检查逾期任务数量
@@ -73,7 +73,7 @@ async function checkUrlSwapSchedulerHealth(db: any) {
         AND is_deleted = 0
     `
 
-  const overdueResult = await db.queryOne<{ count: number }>(overdueQuery)
+  const overdueResult = await db.queryOne(overdueQuery) as { count: number } | undefined
   const overdueCount = Number(overdueResult?.count || 0)
 
   // 2. 检查最近 5 分钟内是否有任务被入队
@@ -91,7 +91,7 @@ async function checkUrlSwapSchedulerHealth(db: any) {
         AND created_at >= datetime('now', '-5 minutes')
     `
 
-  const recentQueueResult = await db.queryOne<{ count: number; last_created_at: string | null }>(recentQueueQuery)
+  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
   const recentQueueCount = Number(recentQueueResult?.count || 0)
   const lastQueuedAt = recentQueueResult?.last_created_at
 
@@ -102,7 +102,7 @@ async function checkUrlSwapSchedulerHealth(db: any) {
     WHERE status = 'enabled'
       AND ${db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'}
   `
-  const enabledTasksResult = await db.queryOne<{ count: number }>(enabledTasksQuery)
+  const enabledTasksResult = await db.queryOne(enabledTasksQuery) as { count: number } | undefined
   const enabledTasksCount = Number(enabledTasksResult?.count || 0)
 
   // 判断健康状态
