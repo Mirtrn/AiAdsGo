@@ -7,7 +7,7 @@ import { getCommissionPerConversion as getOfferCommissionPerConversion } from '@
 
 /**
  * GET /api/analytics/roi
- * 获取ROI分析数据
+ * 获取ROAS分析数据（广告支出回报率）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
       commissionMap.set(id, getCommissionPerConversion(row.product_price, row.commission_payout, row.target_country))
     }
 
-    // 1. 整体ROI分析（按Offer汇总，避免SQL层混币种）
+    // 1. 整体ROAS分析（按Offer汇总，避免SQL层混币种）
     const totalsByOffer = await db.query<any>(`
       SELECT
         c.offer_id as offer_id,
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
     `, params)
 
     let totalCost = 0
-    let totalRevenue = 0
+    let totalCommission = 0
     let totalConversions = 0
 
     for (const row of (totalsByOffer || [])) {
@@ -163,15 +163,14 @@ export async function GET(request: NextRequest) {
 
       totalCost += cost
       totalConversions += conversions
-      totalRevenue += conversions * commission
+      totalCommission += conversions * commission
     }
 
-    const totalProfit = totalRevenue - totalCost
-    const overallRoiPercentage = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 0
-    const avgCommission = totalConversions > 0 ? (totalRevenue / totalConversions) : 0
+    const overallRoas = totalCost > 0 ? totalCommission / totalCost : 0
+    const avgCommission = totalConversions > 0 ? (totalCommission / totalConversions) : 0
 
-    // 2. 按日期的ROI趋势（按日期+Offer汇总后在代码层计算收入）
-    const roiTrendRaw = await db.query<any>(`
+    // 2. 按日期的ROAS趋势（按日期+Offer汇总后在代码层计算佣金）
+    const roasTrendRaw = await db.query<any>(`
       SELECT
         DATE(cp.date) as date,
         c.offer_id as offer_id,
@@ -184,43 +183,42 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `, params)
 
-    const trendMap = new Map<string, { cost: number; conversions: number; revenue: number }>()
-    for (const row of (roiTrendRaw || [])) {
+    const trendMap = new Map<string, { cost: number; conversions: number; commission: number }>()
+    for (const row of (roasTrendRaw || [])) {
       const date = String(row.date || '')
       if (!date) continue
 
       const cost = toNumber(row.cost)
       const conversions = toNumber(row.conversions)
       const offerIdKey = Number(row.offer_id)
-      const commission = commissionMap.get(offerIdKey) || 0
+      const commissionPerConv = commissionMap.get(offerIdKey) || 0
 
-      const existing = trendMap.get(date) || { cost: 0, conversions: 0, revenue: 0 }
+      const existing = trendMap.get(date) || { cost: 0, conversions: 0, commission: 0 }
       existing.cost += cost
       existing.conversions += conversions
-      existing.revenue += conversions * commission
+      existing.commission += conversions * commissionPerConv
       trendMap.set(date, existing)
     }
 
-    const roiTrendData = Array.from(trendMap.entries())
+    const roasTrendData = Array.from(trendMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, agg]) => {
         const cost = agg.cost
-        const revenue = agg.revenue
+        const commission = agg.commission
         const conversions = agg.conversions
-        const profit = revenue - cost
-        const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
+        const roas = cost > 0 ? commission / cost : 0
 
         return {
           date,
           cost: parseFloat(cost.toFixed(2)),
-          revenue: parseFloat(revenue.toFixed(2)),
-          profit: parseFloat(profit.toFixed(2)),
-          roi: parseFloat(roi.toFixed(2)),
+          revenue: parseFloat(commission.toFixed(2)),
+          profit: parseFloat((commission - cost).toFixed(2)),
+          roi: parseFloat(roas.toFixed(2)),
           conversions,
         }
       })
 
-    // 3. 按Campaign的ROI排名
+    // 3. 按Campaign的ROAS排名
     const campaignRows = await db.query<any>(`
       SELECT
         c.id as campaign_id,
@@ -239,18 +237,17 @@ export async function GET(request: NextRequest) {
       HAVING SUM(cp.conversions) > 0
     `, params)
 
-    const campaignRoiData = (campaignRows || [])
+    const campaignRoasData = (campaignRows || [])
       .map((row: any) => {
         const cost = toNumber(row.cost)
         const conversions = toNumber(row.conversions)
         const impressions = toNumber(row.impressions)
         const clicks = toNumber(row.clicks)
         const offerIdKey = Number(row.offer_id)
-        const commission = commissionMap.get(offerIdKey) || 0
-        const revenue = conversions * commission
+        const commissionPerConv = commissionMap.get(offerIdKey) || 0
+        const commission = conversions * commissionPerConv
 
-        const profit = revenue - cost
-        const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
+        const roas = cost > 0 ? commission / cost : 0
         const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
         const conversionRate = clicks > 0 ? (conversions / clicks) * 100 : 0
 
@@ -259,9 +256,9 @@ export async function GET(request: NextRequest) {
           campaignName: row.campaign_name,
           offerBrand: row.offer_brand,
           cost: parseFloat(cost.toFixed(2)),
-          revenue: parseFloat(revenue.toFixed(2)),
-          profit: parseFloat(profit.toFixed(2)),
-          roi: parseFloat(roi.toFixed(2)),
+          revenue: parseFloat(commission.toFixed(2)),
+          profit: parseFloat((commission - cost).toFixed(2)),
+          roi: parseFloat(roas.toFixed(2)),
           conversions,
           ctr: parseFloat(ctr.toFixed(2)),
           conversionRate: parseFloat(conversionRate.toFixed(2)),
@@ -272,7 +269,7 @@ export async function GET(request: NextRequest) {
       .sort((a: any, b: any) => (b.revenue || 0) - (a.revenue || 0))
       .slice(0, 10)
 
-    // 4. 按Offer的ROI分析
+    // 4. 按Offer的ROAS分析
     const offerRows = await db.query<any>(`
       SELECT
         o.id as offer_id,
@@ -289,15 +286,14 @@ export async function GET(request: NextRequest) {
       HAVING SUM(cp.conversions) > 0
     `, params)
 
-    const offerRoiData = (offerRows || [])
+    const offerRoasData = (offerRows || [])
       .map((row: any) => {
         const cost = toNumber(row.cost)
         const conversions = toNumber(row.conversions)
         const offerIdKey = Number(row.offer_id)
         const commissionAmount = commissionMap.get(offerIdKey) || 0
-        const revenue = conversions * commissionAmount
-        const profit = revenue - cost
-        const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
+        const commission = conversions * commissionAmount
+        const roas = cost > 0 ? commission / cost : 0
 
         return {
           offerId: offerIdKey,
@@ -306,9 +302,9 @@ export async function GET(request: NextRequest) {
           commissionAmount: parseFloat(commissionAmount.toFixed(2)),
           campaignCount: toNumber(row.campaign_count),
           cost: parseFloat(cost.toFixed(2)),
-          revenue: parseFloat(revenue.toFixed(2)),
-          profit: parseFloat(profit.toFixed(2)),
-          roi: parseFloat(roi.toFixed(2)),
+          revenue: parseFloat(commission.toFixed(2)),
+          profit: parseFloat((commission - cost).toFixed(2)),
+          roi: parseFloat(roas.toFixed(2)),
           conversions,
         }
       })
@@ -321,10 +317,10 @@ export async function GET(request: NextRequest) {
         ? parseFloat((totalCost / totalConversions).toFixed(2))
         : 0,
       revenuePerConversion: totalConversions > 0
-        ? parseFloat((totalRevenue / totalConversions).toFixed(2))
+        ? parseFloat((totalCommission / totalConversions).toFixed(2))
         : 0,
-      profitMargin: totalRevenue > 0
-        ? parseFloat(((totalProfit / totalRevenue) * 100).toFixed(2))
+      profitMargin: totalCommission > 0
+        ? parseFloat(((totalCommission - totalCost) / totalCommission * 100).toFixed(2))
         : 0,
       breakEvenPoint: avgCommission > 0
         ? parseFloat((totalCost / avgCommission).toFixed(0))
@@ -339,15 +335,15 @@ export async function GET(request: NextRequest) {
       data: {
         overall: {
           totalCost: parseFloat(totalCost.toFixed(2)),
-          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-          totalProfit: parseFloat(totalProfit.toFixed(2)),
-          roi: parseFloat(overallRoiPercentage.toFixed(2)),
+          totalRevenue: parseFloat(totalCommission.toFixed(2)),
+          totalProfit: parseFloat((totalCommission - totalCost).toFixed(2)),
+          roi: parseFloat(overallRoas.toFixed(2)),
           conversions: totalConversions,
           avgCommission: parseFloat(avgCommission.toFixed(2)),
         },
-        trend: roiTrendData,
-        byCampaign: campaignRoiData,
-        byOffer: offerRoiData,
+        trend: roasTrendData,
+        byCampaign: campaignRoasData,
+        byOffer: offerRoasData,
         efficiency: efficiencyMetrics,
       },
     })
