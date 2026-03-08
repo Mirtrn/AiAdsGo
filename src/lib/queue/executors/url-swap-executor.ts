@@ -736,6 +736,19 @@ async function updateTaskStats(
   const db = await getDatabase()
   const now = new Date().toISOString()
 
+  // 获取任务信息以计算下次执行时间
+  const taskRow = await db.queryOne<{ swap_interval_minutes: number }>(`
+    SELECT swap_interval_minutes FROM url_swap_tasks WHERE id = ?
+  `, [taskId])
+
+  if (!taskRow) {
+    console.error(`[url-swap-executor] 任务不存在: ${taskId}`)
+    return
+  }
+
+  const { calculateNextSwapAt } = await import('@/lib/url-swap-time')
+  const nextSwapAt = calculateNextSwapAt(taskRow.swap_interval_minutes)
+
   if (success) {
     await db.exec(`
       UPDATE url_swap_tasks
@@ -745,9 +758,10 @@ async function updateTaskStats(
           consecutive_failures = 0,
           error_message = NULL,
           error_at = NULL,
+          next_swap_at = ?,
           updated_at = ?
       WHERE id = ?
-    `, [now, taskId])
+    `, [nextSwapAt.toISOString(), now, taskId])
   } else {
     await db.exec(`
       UPDATE url_swap_tasks

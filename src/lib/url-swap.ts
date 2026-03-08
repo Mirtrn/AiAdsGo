@@ -858,8 +858,9 @@ export async function setTaskError(
     consecutive_failures: number
     failed_swaps: number
     total_swaps: number
+    swap_interval_minutes: number
   }>(`
-    SELECT consecutive_failures, failed_swaps, total_swaps
+    SELECT consecutive_failures, failed_swaps, total_swaps, swap_interval_minutes
     FROM url_swap_tasks
     WHERE id = ?
   `, [id])
@@ -902,7 +903,10 @@ export async function setTaskError(
     console.warn(`[url-swap] ⚠️ 任务失败但保持启用（连续失败${newConsecutiveFailures}/${URL_SWAP_ERROR_THRESHOLD}）: ${id}`)
   }
 
-  // 4. 更新数据库
+  // 4. 计算下次执行时间（即使失败也要推进时间，避免任务卡住）
+  const nextSwapAt = calculateNextSwapAt(task.swap_interval_minutes)
+
+  // 5. 更新数据库
   await db.exec(`
     UPDATE url_swap_tasks
     SET
@@ -910,9 +914,10 @@ export async function setTaskError(
       error_message = ?,
       error_at = ?,
       consecutive_failures = ?,
+      next_swap_at = ?,
       updated_at = ?
     WHERE id = ?
-  `, [newStatus, enhancedMessage, now, newConsecutiveFailures, now, id])
+  `, [newStatus, enhancedMessage, now, newConsecutiveFailures, nextSwapAt.toISOString(), now, id])
 
   console.log(`[url-swap] 任务错误已记录: ${id} (连续失败: ${newConsecutiveFailures}, 状态: ${newStatus})`)
 }
@@ -1060,7 +1065,11 @@ export async function updateTaskAfterManualAdvance(
   nextCursor: number
 ): Promise<void> {
   const db = await getDatabase()
+  const task = await getUrlSwapTaskById(taskId, 0)
+  if (!task) return
+
   const now = new Date().toISOString()
+  const nextSwapAt = calculateNextSwapAt(task.swap_interval_minutes)
 
   await db.exec(`
     UPDATE url_swap_tasks
@@ -1070,9 +1079,10 @@ export async function updateTaskAfterManualAdvance(
         error_message = NULL,
         error_at = NULL,
         manual_suffix_cursor = ?,
+        next_swap_at = ?,
         updated_at = ?
     WHERE id = ?
-  `, [nextCursor, now, taskId])
+  `, [nextCursor, nextSwapAt.toISOString(), now, taskId])
 }
 
 /**
