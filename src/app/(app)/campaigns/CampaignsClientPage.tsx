@@ -125,6 +125,8 @@ interface PerformanceSummary {
   currencies?: string[]
   hasMixedCurrency?: boolean
   costs?: Array<{ currency: string; amount: number }>
+  attributedCommissionsByCurrency?: Array<{ currency: string; amount: number }>
+  unattributedCommissionsByCurrency?: Array<{ currency: string; amount: number }>
   latestSyncAt?: string | null
   statusDistribution?: {
     enabled: number
@@ -216,6 +218,16 @@ const convertAmountForDisplay = (amount: number, fromCurrency: string, toCurrenc
   } catch {
     return amount
   }
+}
+
+const formatCurrencyWithCode = (amounts: Array<{ currency: string; amount: number }>, fallbackCurrency: string): string => {
+  if (!Array.isArray(amounts) || amounts.length === 0) {
+    return formatCurrencyDashboard(0, fallbackCurrency)
+  }
+
+  return amounts
+    .map(({ currency, amount }) => `${currency} ${formatCurrencyDashboard(amount, currency)}`)
+    .join(', ')
 }
 
 const formatCampaignRoas = (campaign: Campaign): string => {
@@ -523,6 +535,12 @@ export default function CampaignsClientPage({
         ? [{ currency: String(summary.currency), amount: summaryTotalCommission }]
         : []
     )
+  const mixedAttributedCommissionBreakdown = Array.isArray(summary?.attributedCommissionsByCurrency)
+    ? summary.attributedCommissionsByCurrency
+    : []
+  const mixedUnattributedCommissionBreakdown = Array.isArray(summary?.unattributedCommissionsByCurrency)
+    ? summary.unattributedCommissionsByCurrency
+    : []
   const customRangeLabel = appliedCustomRange
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
@@ -2375,7 +2393,14 @@ export default function CampaignsClientPage({
                         </p>
                       </>
                     ) : (
-                      <p className="text-xs mt-1 text-gray-500">跨币种场景不展示归因拆分</p>
+                      <>
+                        <p className="text-xs mt-1 text-gray-500">
+                          可归因: {formatCurrencyWithCode(mixedAttributedCommissionBreakdown, summaryDisplayCurrency)}
+                        </p>
+                        <p className={`text-xs mt-1 ${mixedUnattributedCommissionBreakdown.length > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                          未归因: {formatCurrencyWithCode(mixedUnattributedCommissionBreakdown, summaryDisplayCurrency)}
+                        </p>
+                      </>
                     )}
                     {summary?.currency !== 'MIXED' && summary.changes?.conversions !== null && summary.changes?.conversions !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.conversions >= 0 ? 'text-green-600' : 'text-red-600'}`}>

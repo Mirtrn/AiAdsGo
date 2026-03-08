@@ -476,6 +476,20 @@ describe('GET /api/campaigns/performance', () => {
         ]
       }
 
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('GROUP BY COALESCE(currency, \'USD\')')) {
+        return [
+          { currency: 'USD', total_commission: 9 },
+          { currency: 'CNY', total_commission: 4 },
+        ]
+      }
+
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures') && sql.includes('GROUP BY COALESCE(currency, \'USD\')')) {
+        return [
+          { currency: 'USD', total_commission: 1.5 },
+          { currency: 'CNY', total_commission: 2.5 },
+        ]
+      }
+
       throw new Error(`unexpected query sql: ${sql}`)
     })
 
@@ -508,6 +522,14 @@ describe('GET /api/campaigns/performance', () => {
     expect(res.status).toBe(200)
     expect(data.success).toBe(true)
     expect(data.summary?.currency).toBe('MIXED')
+    expect(data.summary?.attributedCommissionsByCurrency).toEqual([
+      { currency: 'USD', amount: 9 },
+      { currency: 'CNY', amount: 4 },
+    ])
+    expect(data.summary?.unattributedCommissionsByCurrency).toEqual([
+      { currency: 'USD', amount: 1.5 },
+      { currency: 'CNY', amount: 2.5 },
+    ])
     expect(data.campaigns?.[0]?.performanceCurrency).toBe('CNY')
     expect(data.campaigns?.[0]?.performance?.costLocal).toBe(30)
     expect(data.campaigns?.[0]?.performance?.cpcLocal).toBe(2)
@@ -589,6 +611,12 @@ describe('GET /api/campaigns/performance', () => {
         ]
       }
       if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('GROUP BY campaign_id, COALESCE(currency')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes("GROUP BY COALESCE(currency, 'USD')")) {
+        return []
+      }
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures') && sql.includes("GROUP BY COALESCE(currency, 'USD')")) {
         return []
       }
       throw new Error(`unexpected query sql: ${sql}`)
