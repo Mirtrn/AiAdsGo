@@ -8,6 +8,9 @@ echo "========================================"
 echo "🚀 AutoAds 服务启动初始化"
 echo "========================================"
 
+# 🔥 强制运行时环境变量验证（防止构建时的 NEXT_PHASE 泄漏导致跳过验证）
+export SKIP_ENV_VALIDATION=false
+
 # 检查数据库连接
 if [ -z "$DATABASE_URL" ]; then
     echo "❌ 错误: DATABASE_URL 环境变量未设置"

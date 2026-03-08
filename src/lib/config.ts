@@ -12,8 +12,12 @@
 // 标记是否为构建阶段或测试环境
 // 🔥 修复：只在真正的构建阶段跳过验证，不能在运行时跳过
 // Next.js 构建时会设置 NEXT_PHASE，但某些部署环境可能在运行时也保留这个变量
-// 因此需要同时检查 NODE_ENV !== 'production' 来确保只在构建时跳过
-const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build' && process.env.NODE_ENV !== 'production'
+//
+// 判断逻辑：
+// 1. NEXT_PHASE === 'phase-production-build' → 构建阶段
+// 2. 但如果同时存在 SKIP_ENV_VALIDATION=false → 强制验证（运行时场景）
+// 3. 测试环境也跳过验证
+const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build' && process.env.SKIP_ENV_VALIDATION !== 'false'
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'
 const SKIP_VALIDATION = IS_BUILD_TIME || IS_TEST_ENV
 
