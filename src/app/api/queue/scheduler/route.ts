@@ -30,20 +30,31 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     // 检查所有调度器的健康状态
-    const [urlSwapHealth, dataSyncHealth, affiliateSyncHealth, zombieCleanupHealth] = await Promise.all([
+    const [
+      clickFarmHealth,
+      urlSwapHealth,
+      dataSyncHealth,
+      affiliateSyncHealth,
+      zombieCleanupHealth,
+      openclawStrategyHealth
+    ] = await Promise.all([
+      checkClickFarmSchedulerHealth(db),
       checkUrlSwapSchedulerHealth(db),
       checkDataSyncSchedulerHealth(db),
       checkAffiliateSyncSchedulerHealth(db),
       checkZombieCleanupSchedulerHealth(db),
+      checkOpenclawStrategySchedulerHealth(db),
     ])
 
     return NextResponse.json({
       success: true,
       data: {
+        clickFarmScheduler: clickFarmHealth,
         urlSwapScheduler: urlSwapHealth,
         dataSyncScheduler: dataSyncHealth,
         affiliateSyncScheduler: affiliateSyncHealth,
         zombieCleanupScheduler: zombieCleanupHealth,
+        openclawStrategyScheduler: openclawStrategyHealth,
         note: '调度器运行在独立的 scheduler 进程中，此处显示的是通过任务执行情况推断的健康状态'
       }
     })
@@ -53,6 +64,63 @@ export async function GET(request: NextRequest) {
       { error: error.message || '获取调度器状态失败' },
       { status: 500 }
     )
+  }
+}
+
+/**
+ * 检查补点击调度器健康状态
+ */
+async function checkClickFarmSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
+  // 检查最近 2 小时内是否有补点击任务入队
+  const recentQueueQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'click-farm'
+        AND created_at >= NOW() - INTERVAL '2 hours'
+    `
+    : `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'click-farm'
+        AND created_at >= datetime('now', '-2 hours')
+    `
+
+  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
+  const recentQueueCount = Number(recentQueueResult?.count || 0)
+  const lastQueuedAt = recentQueueResult?.last_created_at
+
+  // 检查是否有启用的补点击任务
+  const enabledTasksQuery = `
+    SELECT COUNT(*) as count
+    FROM click_farm_tasks
+    WHERE status IN ('running', 'pending')
+      AND ${db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'}
+  `
+  const enabledTasksResult = await db.queryOne(enabledTasksQuery) as { count: number } | undefined
+  const enabledTasksCount = Number(enabledTasksResult?.count || 0)
+
+  let status: 'healthy' | 'warning' | 'error' = 'healthy'
+  let message = '调度器运行正常'
+
+  if (enabledTasksCount === 0) {
+    status = 'healthy'
+    message = '没有运行中的补点击任务'
+  } else if (recentQueueCount === 0) {
+    status = 'warning'
+    message = '最近 2 小时没有任务入队（可能任务未到执行时间）'
+  }
+
+  return {
+    status,
+    message,
+    metrics: {
+      enabledTasks: enabledTasksCount,
+      recentQueuedTasks: recentQueueCount,
+      lastQueuedAt,
+      checkInterval: '每小时',
+      schedulerProcess: 'scheduler 进程'
+    }
   }
 }
 
@@ -326,6 +394,66 @@ async function checkZombieCleanupSchedulerHealth(db: Awaited<ReturnType<typeof g
       potentialZombieTasks: zombieCount,
       recentFixedTasks: recentFixedCount,
       checkInterval: '每小时',
+      schedulerProcess: 'scheduler 进程'
+    }
+  }
+}
+
+/**
+ * 检查 OpenClaw 策略调度器健康状态
+ */
+async function checkOpenclawStrategySchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
+  // 检查最近 24 小时内是否有策略任务入队
+  const recentQueueQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'openclaw-strategy'
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `
+    : `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'openclaw-strategy'
+        AND created_at >= datetime('now', '-24 hours')
+    `
+
+  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
+  const recentQueueCount = Number(recentQueueResult?.count || 0)
+  const lastQueuedAt = recentQueueResult?.last_created_at
+
+  // 检查是否有启用策略中心的用户
+  const enabledUsersQuery = `
+    SELECT COUNT(DISTINCT u.id) as count
+    FROM users u
+    INNER JOIN system_settings ss ON ss.user_id = u.id
+    WHERE ${db.type === 'postgres' ? 'u.strategy_center_enabled = TRUE' : 'u.strategy_center_enabled = 1'}
+      AND ss.category = 'openclaw'
+      AND ss.key = 'openclaw_strategy_enabled'
+      AND ss.value IN ('true', '1', 'yes', 'on')
+  `
+  const enabledUsersResult = await db.queryOne(enabledUsersQuery) as { count: number } | undefined
+  const enabledUsersCount = Number(enabledUsersResult?.count || 0)
+
+  let status: 'healthy' | 'warning' | 'error' = 'healthy'
+  let message = '调度器运行正常'
+
+  if (enabledUsersCount === 0) {
+    status = 'healthy'
+    message = '没有启用策略中心的用户'
+  } else if (recentQueueCount === 0) {
+    status = 'warning'
+    message = '最近 24 小时没有任务入队（可能用户配置的执行时间未到）'
+  }
+
+  return {
+    status,
+    message,
+    metrics: {
+      enabledUsers: enabledUsersCount,
+      recentQueuedTasks: recentQueueCount,
+      lastQueuedAt,
+      checkInterval: '按用户配置',
       schedulerProcess: 'scheduler 进程'
     }
   }
