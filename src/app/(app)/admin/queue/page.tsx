@@ -191,6 +191,38 @@ interface SchedulerStatus {
       schedulerProcess: string
     }
   }
+  dataSyncScheduler: {
+    status: 'healthy' | 'warning' | 'error'
+    message: string
+    metrics: {
+      enabledUsers: number
+      recentQueuedTasks: number
+      lastQueuedAt: string | null
+      checkInterval: string
+      schedulerProcess: string
+    }
+  }
+  affiliateSyncScheduler: {
+    status: 'healthy' | 'warning' | 'error'
+    message: string
+    metrics: {
+      enabledUsers: number
+      recentQueuedTasks: number
+      lastQueuedAt: string | null
+      checkInterval: string
+      schedulerProcess: string
+    }
+  }
+  zombieCleanupScheduler: {
+    status: 'healthy' | 'warning' | 'error'
+    message: string
+    metrics: {
+      potentialZombieTasks: number
+      recentFixedTasks: number
+      checkInterval: string
+      schedulerProcess: string
+    }
+  }
   note?: string
 }
 
@@ -990,13 +1022,6 @@ export default function QueueManagementPage() {
 
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">调度进程:</span>
-                        <span className="font-medium text-gray-900">
-                          {schedulerStatus.urlSwapScheduler.metrics.schedulerProcess}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
                         <span className="text-gray-500">检查间隔:</span>
                         <span className="font-medium text-gray-900">
                           {schedulerStatus.urlSwapScheduler.metrics.checkInterval}
@@ -1044,6 +1069,199 @@ export default function QueueManagementPage() {
                               </span>
                             </div>
                           )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Data Sync Scheduler */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-medium text-gray-900">数据同步调度器</h3>
+                      <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${
+                        schedulerStatus.dataSyncScheduler.status === 'healthy'
+                          ? 'bg-green-100 text-green-700'
+                          : schedulerStatus.dataSyncScheduler.status === 'warning'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                          schedulerStatus.dataSyncScheduler.status === 'healthy'
+                            ? 'bg-green-600'
+                            : schedulerStatus.dataSyncScheduler.status === 'warning'
+                            ? 'bg-yellow-600'
+                            : 'bg-red-600'
+                        }`} />
+                        {schedulerStatus.dataSyncScheduler.status === 'healthy' ? '正常' :
+                         schedulerStatus.dataSyncScheduler.status === 'warning' ? '警告' : '异常'}
+                      </div>
+                    </div>
+
+                    <div className="mb-3 text-sm text-gray-700">
+                      {schedulerStatus.dataSyncScheduler.message}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="font-medium text-gray-900">
+                          {schedulerStatus.dataSyncScheduler.metrics.checkInterval}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <p className="text-gray-500 mb-2">任务统计:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-blue-50 rounded px-2 py-1">
+                            <span className="text-xs text-blue-600">启用用户: </span>
+                            <span className="text-xs font-medium text-blue-900">
+                              {schedulerStatus.dataSyncScheduler.metrics.enabledUsers}
+                            </span>
+                          </div>
+                          <div className="bg-gray-50 rounded px-2 py-1">
+                            <span className="text-xs text-gray-600">近1小时入队: </span>
+                            <span className="text-xs font-medium text-gray-900">
+                              {schedulerStatus.dataSyncScheduler.metrics.recentQueuedTasks}
+                            </span>
+                          </div>
+                          {schedulerStatus.dataSyncScheduler.metrics.lastQueuedAt && (
+                            <div className="bg-gray-50 rounded px-2 py-1 col-span-2">
+                              <span className="text-xs text-gray-600">最后入队: </span>
+                              <span className="text-xs font-medium text-gray-900">
+                                {new Date(schedulerStatus.dataSyncScheduler.metrics.lastQueuedAt).toLocaleString('zh-CN')}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Affiliate Sync Scheduler */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-medium text-gray-900">联盟商品同步调度器</h3>
+                      <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${
+                        schedulerStatus.affiliateSyncScheduler.status === 'healthy'
+                          ? 'bg-green-100 text-green-700'
+                          : schedulerStatus.affiliateSyncScheduler.status === 'warning'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                          schedulerStatus.affiliateSyncScheduler.status === 'healthy'
+                            ? 'bg-green-600'
+                            : schedulerStatus.affiliateSyncScheduler.status === 'warning'
+                            ? 'bg-yellow-600'
+                            : 'bg-red-600'
+                        }`} />
+                        {schedulerStatus.affiliateSyncScheduler.status === 'healthy' ? '正常' :
+                         schedulerStatus.affiliateSyncScheduler.status === 'warning' ? '警告' : '异常'}
+                      </div>
+                    </div>
+
+                    <div className="mb-3 text-sm text-gray-700">
+                      {schedulerStatus.affiliateSyncScheduler.message}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="font-medium text-gray-900">
+                          {schedulerStatus.affiliateSyncScheduler.metrics.checkInterval}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <p className="text-gray-500 mb-2">任务统计:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-blue-50 rounded px-2 py-1">
+                            <span className="text-xs text-blue-600">启用用户: </span>
+                            <span className="text-xs font-medium text-blue-900">
+                              {schedulerStatus.affiliateSyncScheduler.metrics.enabledUsers}
+                            </span>
+                          </div>
+                          <div className="bg-gray-50 rounded px-2 py-1">
+                            <span className="text-xs text-gray-600">近30分钟入队: </span>
+                            <span className="text-xs font-medium text-gray-900">
+                              {schedulerStatus.affiliateSyncScheduler.metrics.recentQueuedTasks}
+                            </span>
+                          </div>
+                          {schedulerStatus.affiliateSyncScheduler.metrics.lastQueuedAt && (
+                            <div className="bg-gray-50 rounded px-2 py-1 col-span-2">
+                              <span className="text-xs text-gray-600">最后入队: </span>
+                              <span className="text-xs font-medium text-gray-900">
+                                {new Date(schedulerStatus.affiliateSyncScheduler.metrics.lastQueuedAt).toLocaleString('zh-CN')}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Zombie Cleanup Scheduler */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-medium text-gray-900">僵尸任务清理调度器</h3>
+                      <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium ${
+                        schedulerStatus.zombieCleanupScheduler.status === 'healthy'
+                          ? 'bg-green-100 text-green-700'
+                          : schedulerStatus.zombieCleanupScheduler.status === 'warning'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
+                        <div className={`w-2 h-2 rounded-full ${
+                          schedulerStatus.zombieCleanupScheduler.status === 'healthy'
+                            ? 'bg-green-600'
+                            : schedulerStatus.zombieCleanupScheduler.status === 'warning'
+                            ? 'bg-yellow-600'
+                            : 'bg-red-600'
+                        }`} />
+                        {schedulerStatus.zombieCleanupScheduler.status === 'healthy' ? '正常' :
+                         schedulerStatus.zombieCleanupScheduler.status === 'warning' ? '警告' : '异常'}
+                      </div>
+                    </div>
+
+                    <div className="mb-3 text-sm text-gray-700">
+                      {schedulerStatus.zombieCleanupScheduler.message}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">检查间隔:</span>
+                        <span className="font-medium text-gray-900">
+                          {schedulerStatus.zombieCleanupScheduler.metrics.checkInterval}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <p className="text-gray-500 mb-2">任务统计:</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className={`rounded px-2 py-1 ${
+                            schedulerStatus.zombieCleanupScheduler.metrics.potentialZombieTasks > 0
+                              ? 'bg-yellow-50'
+                              : 'bg-green-50'
+                          }`}>
+                            <span className={`text-xs ${
+                              schedulerStatus.zombieCleanupScheduler.metrics.potentialZombieTasks > 0
+                                ? 'text-yellow-600'
+                                : 'text-green-600'
+                            }`}>潜在僵尸: </span>
+                            <span className={`text-xs font-medium ${
+                              schedulerStatus.zombieCleanupScheduler.metrics.potentialZombieTasks > 0
+                                ? 'text-yellow-900'
+                                : 'text-green-900'
+                            }`}>
+                              {schedulerStatus.zombieCleanupScheduler.metrics.potentialZombieTasks}
+                            </span>
+                          </div>
+                          <div className="bg-blue-50 rounded px-2 py-1">
+                            <span className="text-xs text-blue-600">近2小时修复: </span>
+                            <span className="text-xs font-medium text-blue-900">
+                              {schedulerStatus.zombieCleanupScheduler.metrics.recentFixedTasks}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>

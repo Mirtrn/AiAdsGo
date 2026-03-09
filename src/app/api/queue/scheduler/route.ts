@@ -29,13 +29,21 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase()
 
-    // 检查换链接任务的健康状态
-    const urlSwapHealth = await checkUrlSwapSchedulerHealth(db)
+    // 检查所有调度器的健康状态
+    const [urlSwapHealth, dataSyncHealth, affiliateSyncHealth, zombieCleanupHealth] = await Promise.all([
+      checkUrlSwapSchedulerHealth(db),
+      checkDataSyncSchedulerHealth(db),
+      checkAffiliateSyncSchedulerHealth(db),
+      checkZombieCleanupSchedulerHealth(db),
+    ])
 
     return NextResponse.json({
       success: true,
       data: {
         urlSwapScheduler: urlSwapHealth,
+        dataSyncScheduler: dataSyncHealth,
+        affiliateSyncScheduler: affiliateSyncHealth,
+        zombieCleanupScheduler: zombieCleanupHealth,
         note: '调度器运行在独立的 scheduler 进程中，此处显示的是通过任务执行情况推断的健康状态'
       }
     })
@@ -134,6 +142,190 @@ async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getData
       recentQueuedTasks: recentQueueCount,
       lastQueuedAt,
       checkInterval: '每分钟',
+      schedulerProcess: 'scheduler 进程'
+    }
+  }
+}
+
+/**
+ * 检查数据同步调度器健康状态
+ */
+async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
+  // 检查最近 1 小时内是否有数据同步任务入队
+  const recentQueueQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'data-sync'
+        AND created_at >= NOW() - INTERVAL '1 hour'
+    `
+    : `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'data-sync'
+        AND created_at >= datetime('now', '-1 hour')
+    `
+
+  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
+  const recentQueueCount = Number(recentQueueResult?.count || 0)
+  const lastQueuedAt = recentQueueResult?.last_created_at
+
+  // 检查是否有启用自动同步的用户
+  const enabledUsersQuery = `
+    SELECT COUNT(DISTINCT u.id) as count
+    FROM users u
+    WHERE COALESCE(
+      (SELECT value FROM system_settings
+       WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
+      'true'
+    ) = 'true'
+  `
+  const enabledUsersResult = await db.queryOne(enabledUsersQuery) as { count: number } | undefined
+  const enabledUsersCount = Number(enabledUsersResult?.count || 0)
+
+  let status: 'healthy' | 'warning' | 'error' = 'healthy'
+  let message = '调度器运行正常'
+
+  if (enabledUsersCount === 0) {
+    status = 'healthy'
+    message = '没有启用自动同步的用户'
+  } else if (recentQueueCount === 0) {
+    status = 'warning'
+    message = '最近 1 小时没有任务入队（可能是因为同步间隔较长）'
+  }
+
+  return {
+    status,
+    message,
+    metrics: {
+      enabledUsers: enabledUsersCount,
+      recentQueuedTasks: recentQueueCount,
+      lastQueuedAt,
+      checkInterval: '每小时',
+      schedulerProcess: 'scheduler 进程'
+    }
+  }
+}
+
+/**
+ * 检查联盟商品同步调度器健康状态
+ */
+async function checkAffiliateSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
+  // 检查最近 30 分钟内是否有联盟商品同步任务入队
+  const recentQueueQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'affiliate-product-sync'
+        AND created_at >= NOW() - INTERVAL '30 minutes'
+    `
+    : `
+      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
+      FROM queue_tasks
+      WHERE type = 'affiliate-product-sync'
+        AND created_at >= datetime('now', '-30 minutes')
+    `
+
+  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
+  const recentQueueCount = Number(recentQueueResult?.count || 0)
+  const lastQueuedAt = recentQueueResult?.last_created_at
+
+  // 检查是否有启用商品管理的用户
+  const enabledUsersQuery = `
+    SELECT COUNT(*) as count
+    FROM users
+    WHERE ${db.type === 'postgres' ? 'product_management_enabled = TRUE' : 'product_management_enabled = 1'}
+  `
+  const enabledUsersResult = await db.queryOne(enabledUsersQuery) as { count: number } | undefined
+  const enabledUsersCount = Number(enabledUsersResult?.count || 0)
+
+  let status: 'healthy' | 'warning' | 'error' = 'healthy'
+  let message = '调度器运行正常'
+
+  if (enabledUsersCount === 0) {
+    status = 'healthy'
+    message = '没有启用商品管理的用户'
+  } else if (recentQueueCount === 0) {
+    status = 'warning'
+    message = '最近 30 分钟没有任务入队（可能是因为同步间隔较长）'
+  }
+
+  return {
+    status,
+    message,
+    metrics: {
+      enabledUsers: enabledUsersCount,
+      recentQueuedTasks: recentQueueCount,
+      lastQueuedAt,
+      checkInterval: '每10分钟',
+      schedulerProcess: 'scheduler 进程'
+    }
+  }
+}
+
+/**
+ * 检查僵尸任务清理调度器健康状态
+ */
+async function checkZombieCleanupSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
+  // 检查最近 2 小时内是否有僵尸任务被修复
+  const recentFixedQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count
+      FROM affiliate_product_sync_runs
+      WHERE status = 'failed'
+        AND error_message LIKE '%僵尸任务%'
+        AND updated_at >= NOW() - INTERVAL '2 hours'
+    `
+    : `
+      SELECT COUNT(*) as count
+      FROM affiliate_product_sync_runs
+      WHERE status = 'failed'
+        AND error_message LIKE '%僵尸任务%'
+        AND updated_at >= datetime('now', '-2 hours')
+    `
+
+  const recentFixedResult = await db.queryOne(recentFixedQuery) as { count: number } | undefined
+  const recentFixedCount = Number(recentFixedResult?.count || 0)
+
+  // 检查当前是否有潜在的僵尸任务（运行超过2小时）
+  const zombieQuery = db.type === 'postgres'
+    ? `
+      SELECT COUNT(*) as count
+      FROM affiliate_product_sync_runs
+      WHERE status = 'running'
+        AND started_at < NOW() - INTERVAL '2 hours'
+    `
+    : `
+      SELECT COUNT(*) as count
+      FROM affiliate_product_sync_runs
+      WHERE status = 'running'
+        AND started_at < datetime('now', '-2 hours')
+    `
+
+  const zombieResult = await db.queryOne(zombieQuery) as { count: number } | undefined
+  const zombieCount = Number(zombieResult?.count || 0)
+
+  let status: 'healthy' | 'warning' | 'error' = 'healthy'
+  let message = '调度器运行正常'
+
+  if (zombieCount > 0) {
+    status = 'warning'
+    message = `发现 ${zombieCount} 个潜在僵尸任务，等待下次清理`
+  } else if (recentFixedCount > 0) {
+    status = 'healthy'
+    message = `最近 2 小时修复了 ${recentFixedCount} 个僵尸任务`
+  } else {
+    status = 'healthy'
+    message = '未发现僵尸任务'
+  }
+
+  return {
+    status,
+    message,
+    metrics: {
+      potentialZombieTasks: zombieCount,
+      recentFixedTasks: recentFixedCount,
+      checkInterval: '每小时',
       schedulerProcess: 'scheduler 进程'
     }
   }
