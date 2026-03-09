@@ -161,10 +161,28 @@ function normalizeBrand(value: unknown): string | null {
     .replace(/\s+/g, ' ')
     .trim()
 
+  // Remove store-related suffixes first (before country suffixes)
+  normalized = normalized
+    .replace(/\s+vc\s+store$/i, '')
+    .replace(/\s+official\s+store$/i, '')
+    .replace(/\s+store$/i, '')
+    .trim()
+
+  // Remove country/region suffixes to handle affiliate platform variations
+  // Examples: "Reolink DE" -> "reolink", "Roborock Amazon US" -> "roborock"
+  normalized = normalized
+    .replace(/\s+(de|fr|uk|us|it|es|ca|au|jp|cn|in|br|mx|nl|se|no|dk|fi|pl|cz|at|ch|be|ie|pt|gr|nz|sg|hk|tw|kr|th|my|ph|id|vn)$/i, '')
+    .replace(/\s+amazon\s+(de|fr|uk|us|it|es|ca|au|jp|cn|in|br|mx|nl|se|no|dk|fi|pl|cz|at|ch|be|ie|pt|gr|nz|sg|hk|tw|kr|th|my|ph|id|vn)$/i, '')
+    .replace(/[-_](de|fr|uk|us|it|es|ca|au|jp|cn|in|br|mx|nl|se|no|dk|fi|pl|cz|at|ch|be|ie|pt|gr|nz|sg|hk|tw|kr|th|my|ph|id|vn)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
   // Brand alias mapping for known variations
   // This helps match brands like "Squatty" and "Squatty Potty"
   const aliases: Record<string, string> = {
     'squatty': 'squatty potty',
+    'roborock amazon': 'roborock',
+    'ringconn': 'ringconn',
   }
 
   return aliases[normalized] || normalized

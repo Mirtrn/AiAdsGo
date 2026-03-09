@@ -452,4 +452,74 @@ describe('persistAffiliateCommissionAttributions simplified attribution', () => 
     const rawPayload = JSON.parse((attributionInsertCalls[0]?.[1] as any[])[10])
     expect(rawPayload._autoads_attribution_rule).toBe('brand_equal_split')
   })
+
+  it('normalizes brands with country suffixes for attribution matching', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM offers')) {
+        return [
+          { id: 6001, brand: 'Reolink', url: 'https://www.amazon.com/dp/B0REOLINK1', final_url: null, affiliate_link: null },
+          { id: 6002, brand: 'Roborock', url: 'https://www.amazon.com/dp/B0ROBOROCK1', final_url: null, affiliate_link: null },
+        ]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links apol')) {
+        // No direct ASIN links - force brand-based attribution
+        return []
+      }
+      if (sql.includes('FROM affiliate_products') && sql.includes('brand IS NOT NULL')) {
+        return [
+          { asin: 'B0REOLINK2', brand: 'Reolink UK' },
+          { asin: 'B0ROBOROCK2', brand: 'Roborock Amazon IT' },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          { campaign_id: 7001, offer_id: 6001, brand: 'Reolink', created_at: `${today}T00:00:00.000Z`, cost: 100, clicks: 50 },
+          { campaign_id: 7002, offer_id: 6002, brand: 'Roborock', created_at: `${today}T00:00:00.000Z`, cost: 80, clicks: 40 },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 11,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 25.0,
+          sourceAsin: 'B0REOLINK2',
+          raw: { id: 'evt-reolink-uk', brand: 'Reolink UK' },
+        },
+        {
+          platform: 'partnerboost',
+          reportDate: today,
+          commission: 35.0,
+          sourceAsin: 'B0ROBOROCK2',
+          raw: { id: 'evt-roborock-it', brand: 'Roborock Amazon IT' },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    // Should successfully attribute both commissions via brand normalization
+    expect(result.attributedCommission).toBe(60.0)
+    expect(result.unattributedCommission).toBe(0)
+    expect(result.attributedCampaigns).toBe(2)
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(2)
+
+    // Verify both commissions are attributed (campaign_id should not be null)
+    const campaignIds = attributionInsertCalls.map(([, params]) => (params as any[])[7])
+    expect(campaignIds).toContain(7001)
+    expect(campaignIds).toContain(7002)
+  })
 })
