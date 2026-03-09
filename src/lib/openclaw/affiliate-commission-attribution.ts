@@ -183,6 +183,9 @@ function normalizeBrand(value: unknown): string | null {
     'squatty': 'squatty potty',
     'roborock amazon': 'roborock',
     'ringconn': 'ringconn',
+    // Livionex rebranded to Livfresh, but affiliate platforms still use old name
+    'livionex': 'livfresh',
+    'livionex dental gel': 'livfresh',
   }
 
   return aliases[normalized] || normalized

@@ -544,11 +544,18 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">总花费</p>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-500 mb-1">
+                    总花费{kpiData?.current.currency && kpiData.current.currency !== 'MIXED' ? `(${kpiData.current.currency})` : ''}
+                  </p>
                   <p className="text-2xl font-bold">
                     {kpiData ? formatCostDisplay(kpiData) : '-'}
                   </p>
+                  {kpiData && kpiData.current.currency === 'MIXED' && kpiData.current.costs && kpiData.current.costs.length > 0 && (
+                    <p className="text-xs mt-1 text-gray-500">
+                      分币种: {formatMultiCurrency(kpiData.current.costs)}
+                    </p>
+                  )}
                 </div>
                 <div className="p-3 bg-purple-50 rounded-xl">
                   <DollarSign className="w-6 h-6 text-purple-600" />
@@ -579,8 +586,10 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">总佣金</p>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-500 mb-1">
+                    总佣金{kpiData?.current.currency && kpiData.current.currency !== 'MIXED' ? `(${kpiData.current.currency})` : ''}
+                  </p>
                   <p className="text-2xl font-bold">
                     {kpiData ? formatCommissionDisplay(kpiData) : '-'}
                   </p>
@@ -614,17 +623,20 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <p className="text-sm text-gray-500 mb-1">ROAS</p>
                   <p className="text-2xl font-bold">
                     {formatRoasDisplay(kpiData)}
                   </p>
+                  {kpiData && kpiData.current.currency === 'MIXED' && (
+                    <p className="text-xs mt-1 text-gray-500">多货币混合时不可用</p>
+                  )}
                 </div>
                 <div className="p-3 bg-indigo-50 rounded-xl">
                   <TrendingUp className="w-6 h-6 text-indigo-600" />
                 </div>
               </div>
-              {kpiData && (
+              {kpiData && kpiData.current.currency !== 'MIXED' && (
                 <div className="flex items-center gap-1 mt-3">
                   {kpiData.changes.roasInfinite ? (
                     <TrendingUp className="w-4 h-4 text-green-500" />
