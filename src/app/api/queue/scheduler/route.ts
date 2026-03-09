@@ -203,8 +203,8 @@ async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDat
   const queueManager = await getQueueManager()
   const stats = await queueManager.getStats()
 
-  const dataSyncQueued = stats.byType?.['data-sync'] || 0
-  const dataSyncRunning = stats.byTypeRunning?.['data-sync'] || 0
+  const dataSyncQueued = stats.byType?.['sync'] || 0
+  const dataSyncRunning = stats.byTypeRunning?.['sync'] || 0
 
   // 检查是否有启用自动同步的用户
   const enabledUsersQuery = `

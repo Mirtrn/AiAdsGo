@@ -615,7 +615,7 @@ export default function QueueManagementPage() {
         setSchedulerStatus(result.data.data)
         setSchedulerError(null)
       } else {
-        const errorMsg = result.data?.error || result.userMessage || '获取调度器状态失败'
+        const errorMsg = result.success ? '获取调度器状态失败' : (result.error || result.userMessage || '获取调度器状态失败')
         setSchedulerError(errorMsg)
         console.error('获取调度器状态失败:', errorMsg)
       }
