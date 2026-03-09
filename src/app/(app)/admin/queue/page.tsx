@@ -985,7 +985,7 @@ export default function QueueManagementPage() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">调度器健康检查</h2>
                 <p className="text-sm text-gray-500">
-                  监控后台调度器运行状态和执行情况
+                  监控后台定时调度器的运行状态和任务入队情况（不包括按需触发的队列任务，如 Offer 提取、广告创意生成等）
                 </p>
               </div>
               <Button
