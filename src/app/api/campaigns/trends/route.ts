@@ -181,10 +181,10 @@ export async function GET(request: NextRequest) {
 
     const queryUnattributedCommissionTrends = async (): Promise<any[]> => {
       const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter({
-        // Campaign trends should align with affiliate backend daily totals.
-        // Keep excluding campaign_mapping_miss (already recorded in attribution rows),
-        // but include pending misses within grace window.
+        // Include all unattributed commissions (including campaign_mapping_miss)
+        // to match affiliate backend daily totals
         includePendingWithinGrace: true,
+        includeAllFailures: true,
       })
       try {
         return await db.query<any>(

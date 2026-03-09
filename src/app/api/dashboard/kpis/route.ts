@@ -293,13 +293,11 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
         start: string
         end: string
       }): Promise<number> => {
-        // Keep dashboard KPI totals aligned with campaigns summary/trends
-        // and affiliate backend reconciliation. We include pending
-        // attribution failures within the grace window, while still
-        // excluding campaign_mapping_miss which is always counted
-        // separately.
+        // Include all unattributed commissions (including campaign_mapping_miss)
+        // to match affiliate backend totals and campaigns summary/trends
         const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter({
           includePendingWithinGrace: true,
+          includeAllFailures: true,
         })
         try {
           const row = await db.queryOne<{ total_commission: number }>(

@@ -104,7 +104,7 @@ describe('GET /api/dashboard/kpis', () => {
     )
   })
 
-  it('excludes in-window pending/campaign-miss failures when calculating commission totals', async () => {
+  it('includes all unattributed failures when calculating commission totals', async () => {
     cacheFns.getOrSet.mockReset()
 
     const query = vi.fn(async (sql: string) => {
@@ -138,16 +138,11 @@ describe('GET /api/dashboard/kpis', () => {
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
         // Dashboard KPIs should align with campaigns performance/trends and
-        // affiliate backend reconciliation. We always exclude
-        // `campaign_mapping_miss` but include pending misses within the
-        // grace window, so the SQL only needs the base exclusion filter.
-        expect(sql).toContain("COALESCE(reason_code, '') <> ?")
+        // affiliate backend reconciliation. We now include all unattributed
+        // failures (including campaign_mapping_miss) to match backend totals.
+        expect(sql).toContain('1 = 1')
+        expect(sql).not.toContain("COALESCE(reason_code, '') <> ?")
         expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
-        expect(params).toEqual(
-          expect.arrayContaining([
-            'campaign_mapping_miss',
-          ])
-        )
         unattributedCallCount += 1
         if (unattributedCallCount === 1) {
           return { total_commission: 2 }

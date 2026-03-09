@@ -99,7 +99,7 @@ describe('GET /api/campaigns/trends', () => {
     expect(day24.clicks).toBe(25)
   })
 
-  it('includes pending unattributed failures for campaign trend backend parity', async () => {
+  it('includes all unattributed failures for campaign trend backend parity', async () => {
     const query = vi.fn(async (sql: string, params: any[] = []) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
         return [{ currency: 'USD', cost: 40 }]
@@ -114,13 +114,9 @@ describe('GET /api/campaigns/trends', () => {
       }
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
-        expect(sql).toContain("COALESCE(reason_code, '') <> ?")
+        expect(sql).toContain('1 = 1')
+        expect(sql).not.toContain("COALESCE(reason_code, '') <> ?")
         expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
-        expect(params).toEqual(expect.arrayContaining(['campaign_mapping_miss']))
-        expect(params).not.toEqual(expect.arrayContaining([
-          'pending_product_mapping_miss',
-          'pending_offer_mapping_miss',
-        ]))
         return [{ date: '2026-02-27', currency: 'USD', commission: 5.99 }]
       }
 

@@ -768,8 +768,10 @@ export async function GET(request: NextRequest) {
       currency?: string
     }): Promise<number> => {
       const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter({
-        // Keep /campaigns summary consistent with trends and affiliate backend totals.
+        // Include all unattributed commissions (including campaign_mapping_miss)
+        // to match affiliate backend totals
         includePendingWithinGrace: true,
+        includeAllFailures: true,
       })
       const hasCurrencyFilter = Boolean(params.currency)
       try {
@@ -841,6 +843,7 @@ export async function GET(request: NextRequest) {
     }): Promise<Array<{ currency: string; amount: number }>> => {
       const unattributedFailureFilter = buildAffiliateUnattributedFailureFilter({
         includePendingWithinGrace: true,
+        includeAllFailures: true,
       })
       const hasCurrencyFilter = Boolean(params.currency)
       try {

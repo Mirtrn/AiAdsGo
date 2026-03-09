@@ -87,7 +87,7 @@ describe('GET /api/campaigns/performance', () => {
     }
   })
 
-  it('applies currency filter and excludes in-window pending/campaign-miss failures from total commission', async () => {
+  it('applies currency filter and includes all unattributed failures in total commission', async () => {
     const query = vi.fn(async (sql: string, params: any[] = []) => {
       if (sql.includes('FROM campaign_performance') && sql.includes('GROUP BY COALESCE(currency')) {
         return [
@@ -172,17 +172,9 @@ describe('GET /api/campaigns/performance', () => {
       }
 
       if (sql.includes('FROM openclaw_affiliate_attribution_failures')) {
-        expect(sql).toContain("COALESCE(reason_code, '') <> ?")
+        expect(sql).toContain('1 = 1')
+        expect(sql).not.toContain("COALESCE(reason_code, '') <> ?")
         expect(sql).not.toContain("COALESCE(reason_code, '') NOT IN")
-        expect(params).toEqual(
-          expect.arrayContaining([
-            'campaign_mapping_miss',
-          ])
-        )
-        expect(params).not.toEqual(expect.arrayContaining([
-          'pending_product_mapping_miss',
-          'pending_offer_mapping_miss',
-        ]))
         expect(params?.[params.length - 1]).toBe('CNY')
         unattributedCallCount += 1
         if (unattributedCallCount === 1) {
