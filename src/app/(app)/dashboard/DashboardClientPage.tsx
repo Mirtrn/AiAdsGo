@@ -670,10 +670,6 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
               )}
             </CardContent>
           </Card>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
         {/* API配额、AI Token成本 和 快速开始 - 新布局 */}
