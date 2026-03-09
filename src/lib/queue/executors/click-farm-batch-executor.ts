@@ -7,8 +7,8 @@ import { getDatabase } from '@/lib/db'
 import { getHeapStatistics } from 'v8'
 
 const DEFAULT_BATCH_SIZE = (() => {
-  const n = parseInt(process.env.CLICK_FARM_BATCH_SIZE || '20', 10)
-  return Number.isFinite(n) && n > 0 ? n : 20
+  const n = parseInt(process.env.CLICK_FARM_BATCH_SIZE || '10', 10)
+  return Number.isFinite(n) && n > 0 ? n : 10
 })()
 
 const MAX_BATCH_SIZE = (() => {
@@ -17,13 +17,13 @@ const MAX_BATCH_SIZE = (() => {
 })()
 
 const NEXT_BATCH_DELAY_MS = (() => {
-  const n = parseInt(process.env.CLICK_FARM_BATCH_DELAY_MS || '200', 10)
-  return Number.isFinite(n) && n >= 0 ? n : 200
+  const n = parseInt(process.env.CLICK_FARM_BATCH_DELAY_MS || '500', 10)
+  return Number.isFinite(n) && n >= 0 ? n : 500
 })()
 
 const CLICK_FARM_BATCH_HEAP_PRESSURE_PCT = (() => {
-  const n = parseFloat(process.env.CLICK_FARM_BATCH_HEAP_PRESSURE_PCT || '82')
-  if (!Number.isFinite(n)) return 82
+  const n = parseFloat(process.env.CLICK_FARM_BATCH_HEAP_PRESSURE_PCT || '90')
+  if (!Number.isFinite(n)) return 90
   return Math.min(95, Math.max(50, n))
 })()
 
@@ -140,6 +140,22 @@ export async function executeClickFarmBatchTask(
   const batchSize = normalizeBatchSize(task.data?.batchSize)
 
   if (isHeapPressureHigh()) {
+    const mem = process.memoryUsage()
+    const heap = getHeapStatistics()
+    const pct = ((mem.heapUsed / heap.heap_size_limit) * 100).toFixed(2)
+    console.warn(`[BatchExecutor] 内存压力过高，延迟批次任务`, {
+      clickFarmTaskId,
+      targetDate,
+      targetHour,
+      totalClicks,
+      dispatchedClicks,
+      remaining: remainingBefore,
+      heapUsed: `${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+      heapLimit: `${(heap.heap_size_limit / 1024 / 1024).toFixed(2)} MB`,
+      percentage: `${pct}%`,
+      threshold: `${CLICK_FARM_BATCH_HEAP_PRESSURE_PCT}%`,
+      delayMs: Math.max(1000, NEXT_BATCH_DELAY_MS)
+    })
     await requeueBatchTask(
       task,
       {
@@ -182,6 +198,17 @@ export async function executeClickFarmBatchTask(
 
   const newDispatched = dispatchedClicks + dispatched
   const remaining = Math.max(0, totalClicks - newDispatched)
+
+  console.log(`[BatchExecutor] 批次分发完成`, {
+    clickFarmTaskId,
+    targetDate,
+    targetHour,
+    totalClicks,
+    dispatchedThisBatch: dispatched,
+    totalDispatched: newDispatched,
+    remaining,
+    progress: `${((newDispatched / totalClicks) * 100).toFixed(1)}%`
+  })
 
   if (remaining > 0) {
     await requeueBatchTask(

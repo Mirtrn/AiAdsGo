@@ -140,8 +140,8 @@ const CLICK_FARM_INFLIGHT_HARD_CAP = (() => {
   return Number.isFinite(raw) && raw > 0 ? raw : 40
 })()
 const CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT = (() => {
-  const raw = parseFloat(process.env.CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT || '80')
-  if (!Number.isFinite(raw)) return 80
+  const raw = parseFloat(process.env.CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT || '90')
+  if (!Number.isFinite(raw)) return 90
   return Math.min(95, Math.max(50, raw))
 })()
 const clickFarmMaxInFlight = (() => {
@@ -334,7 +334,16 @@ export async function executeClickFarmTask(
 
   // 生产止血：当堆内存接近上限时，不再继续发起点击请求，避免触发进程 OOM。
   if (isHeapPressureHigh()) {
-    console.warn(`[ClickFarm] 内存压力过高，跳过执行: taskId=${taskId}`)
+    const mem = process.memoryUsage()
+    const heap = getHeapStatistics()
+    const pct = ((mem.heapUsed / heap.heap_size_limit) * 100).toFixed(2)
+    console.warn(`[ClickFarm] 内存压力过高，跳过执行`, {
+      taskId,
+      heapUsed: `${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+      heapLimit: `${(heap.heap_size_limit / 1024 / 1024).toFixed(2)} MB`,
+      percentage: `${pct}%`,
+      threshold: `${CLICK_FARM_EXECUTOR_HEAP_PRESSURE_PCT}%`
+    })
     try {
       await updateTaskStats(taskId, false, getScheduledHour())
     } catch {

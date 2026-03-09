@@ -26,19 +26,19 @@ interface TriggerResult {
 }
 
 const CLICK_FARM_BATCH_SIZE = (() => {
-  const n = parseInt(process.env.CLICK_FARM_BATCH_SIZE || '20', 10)
-  return Number.isFinite(n) && n > 0 ? n : 20
+  const n = parseInt(process.env.CLICK_FARM_BATCH_SIZE || '10', 10)
+  return Number.isFinite(n) && n > 0 ? n : 10
 })()
 
 const CLICK_FARM_BATCH_DELAY_MS = (() => {
-  const n = parseInt(process.env.CLICK_FARM_BATCH_DELAY_MS || '200', 10)
-  return Number.isFinite(n) && n >= 0 ? n : 200
+  const n = parseInt(process.env.CLICK_FARM_BATCH_DELAY_MS || '500', 10)
+  return Number.isFinite(n) && n >= 0 ? n : 500
 })()
 
 const MAX_SAFE_CLICKS_PER_HOUR = 1000
 const CLICK_FARM_HEAP_PRESSURE_THRESHOLD = (() => {
-  const n = parseFloat(process.env.CLICK_FARM_HEAP_PRESSURE_PCT || '85')
-  return Number.isFinite(n) && n > 0 ? n : 85
+  const n = parseFloat(process.env.CLICK_FARM_HEAP_PRESSURE_PCT || '90')
+  return Number.isFinite(n) && n > 0 ? n : 90
 })()
 
 const CLICK_FARM_REQUIRE_REDIS_IN_PRODUCTION =
@@ -364,6 +364,16 @@ export async function triggerTaskScheduling(
     : undefined;
 
   const todayInTimezone = getDateInTimezone(new Date(), task.timezone)
+
+  console.log(`[Trigger] 创建批次任务`, {
+    taskId: task.id,
+    targetDate: todayInTimezone,
+    targetHour: currentHour,
+    clickCount,
+    batchSize: normalizeBatchSize(process.env.CLICK_FARM_BATCH_SIZE),
+    refererType: refererConfig?.type || 'none'
+  })
+
   const batchEnqueue = await enqueueClickFarmBatchTask({
     task,
     clickCount,
