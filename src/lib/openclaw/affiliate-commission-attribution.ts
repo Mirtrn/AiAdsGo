@@ -1389,6 +1389,7 @@ async function queryCampaignAttributionCandidates(params: {
       WHERE c.user_id = ?
         AND ${campaignNotDeletedCondition}
         AND ${offerNotDeletedCondition}
+        AND c.status IN ('ENABLED', 'PAUSED')
       GROUP BY c.id, c.offer_id, o.brand, c.created_at
     `,
     [params.userId, startDate, params.reportDate, params.userId]

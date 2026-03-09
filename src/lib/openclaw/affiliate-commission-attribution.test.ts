@@ -522,4 +522,71 @@ describe('persistAffiliateCommissionAttributions simplified attribution', () => 
     expect(campaignIds).toContain(7001)
     expect(campaignIds).toContain(7002)
   })
+
+  it('maps Livionex brand to Livfresh via alias', async () => {
+    const today = formatLocalYmd(new Date())
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM affiliate_commission_attributions') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM openclaw_affiliate_attribution_failures') && sql.includes('AS event_id')) return []
+      if (sql.includes('FROM offers')) {
+        return [
+          { id: 6003, brand: 'Livfresh', url: 'https://www.amazon.com/dp/B0LIVFRESH1', final_url: null, affiliate_link: null },
+        ]
+      }
+      if (sql.includes('FROM affiliate_product_offer_links apol')) {
+        return []
+      }
+      if (sql.includes('FROM affiliate_products') && sql.includes('brand IS NOT NULL')) {
+        return [
+          { asin: 'B07PQYJBM3', brand: 'Livionex Dental Gel' },
+          { asin: 'B07PMTDY8G', brand: 'Livionex' },
+        ]
+      }
+      if (sql.includes('FROM campaigns c')) {
+        return [
+          { campaign_id: 7003, offer_id: 6003, brand: 'Livfresh', created_at: `${today}T00:00:00.000Z`, cost: 50, clicks: 25 },
+        ]
+      }
+      return []
+    })
+
+    const result = await persistAffiliateCommissionAttributions({
+      userId: 12,
+      reportDate: today,
+      entries: [
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 11.23,
+          sourceAsin: 'B07PQYJBM3',
+          raw: { id: 'evt-livionex-1', advert_name: 'Livionex Dental Gel' },
+        },
+        {
+          platform: 'yeahpromos',
+          reportDate: today,
+          commission: 5.62,
+          sourceAsin: 'B07PMTDY8G',
+          raw: { id: 'evt-livionex-2', advert_name: 'Livionex Dental Gel' },
+        },
+      ],
+      replaceExisting: true,
+      lockHistorical: false,
+    })
+
+    // Should successfully attribute both Livionex commissions to Livfresh
+    expect(result.attributedCommission).toBe(16.85)
+    expect(result.unattributedCommission).toBe(0)
+    expect(result.attributedCampaigns).toBe(1)
+
+    const attributionInsertCalls = exec.mock.calls.filter(([sql]) =>
+      typeof sql === 'string' && sql.includes('INSERT INTO affiliate_commission_attributions')
+    )
+    expect(attributionInsertCalls).toHaveLength(2)
+
+    // Verify both commissions are attributed to Livfresh campaign
+    const campaignIds = attributionInsertCalls.map(([, params]) => (params as any[])[7])
+    expect(campaignIds).toContain(7003)
+    expect(campaignIds.every((id) => id === 7003)).toBe(true)
+  })
 })
