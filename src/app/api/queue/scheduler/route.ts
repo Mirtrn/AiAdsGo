@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { triggerAllUrlSwapTasks } from '@/lib/url-swap-scheduler'
 import { getDatabase } from '@/lib/db'
+import { getQueueManager, getBackgroundQueueManager, isBackgroundQueueSplitEnabled } from '@/lib/queue'
 
 /**
  * GET - 获取调度器健康状态
@@ -71,24 +72,13 @@ export async function GET(request: NextRequest) {
  * 检查补点击调度器健康状态
  */
 async function checkClickFarmSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
-  // 检查最近 2 小时内是否有补点击任务入队
-  const recentQueueQuery = db.type === 'postgres'
-    ? `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'click-farm'
-        AND created_at >= NOW() - INTERVAL '2 hours'
-    `
-    : `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'click-farm'
-        AND created_at >= datetime('now', '-2 hours')
-    `
+  // 获取队列统计信息
+  const queueManager = await getQueueManager()
+  const stats = await queueManager.getStats()
 
-  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
-  const recentQueueCount = Number(recentQueueResult?.count || 0)
-  const lastQueuedAt = recentQueueResult?.last_created_at
+  // 检查最近入队的补点击任务数量
+  const clickFarmQueued = stats.byType?.['click-farm'] || 0
+  const clickFarmRunning = stats.byTypeRunning?.['click-farm'] || 0
 
   // 检查是否有启用的补点击任务
   const enabledTasksQuery = `
@@ -106,9 +96,9 @@ async function checkClickFarmSchedulerHealth(db: Awaited<ReturnType<typeof getDa
   if (enabledTasksCount === 0) {
     status = 'healthy'
     message = '没有运行中的补点击任务'
-  } else if (recentQueueCount === 0) {
+  } else if (clickFarmQueued === 0 && clickFarmRunning === 0) {
     status = 'warning'
-    message = '最近 2 小时没有任务入队（可能任务未到执行时间）'
+    message = '有启用的任务但队列中没有待执行任务（可能任务未到执行时间）'
   }
 
   return {
@@ -116,8 +106,9 @@ async function checkClickFarmSchedulerHealth(db: Awaited<ReturnType<typeof getDa
     message,
     metrics: {
       enabledTasks: enabledTasksCount,
-      recentQueuedTasks: recentQueueCount,
-      lastQueuedAt,
+      recentQueuedTasks: clickFarmQueued,
+      runningTasks: clickFarmRunning,
+      lastQueuedAt: null, // 队列管理器不提供时间戳信息
       checkInterval: '每小时',
       schedulerProcess: 'scheduler 进程'
     }
@@ -129,6 +120,13 @@ async function checkClickFarmSchedulerHealth(db: Awaited<ReturnType<typeof getDa
  */
 async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
   const now = new Date()
+
+  // 获取队列统计信息
+  const queueManager = await getQueueManager()
+  const stats = await queueManager.getStats()
+
+  const urlSwapQueued = stats.byType?.['url-swap'] || 0
+  const urlSwapRunning = stats.byTypeRunning?.['url-swap'] || 0
 
   // 1. 检查逾期任务数量
   const overdueQuery = db.type === 'postgres'
@@ -152,26 +150,7 @@ async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getData
   const overdueResult = await db.queryOne(overdueQuery) as { count: number } | undefined
   const overdueCount = Number(overdueResult?.count || 0)
 
-  // 2. 检查最近 5 分钟内是否有任务被入队
-  const recentQueueQuery = db.type === 'postgres'
-    ? `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'url-swap'
-        AND created_at >= NOW() - INTERVAL '5 minutes'
-    `
-    : `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'url-swap'
-        AND created_at >= datetime('now', '-5 minutes')
-    `
-
-  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
-  const recentQueueCount = Number(recentQueueResult?.count || 0)
-  const lastQueuedAt = recentQueueResult?.last_created_at
-
-  // 3. 检查是否有启用的任务
+  // 2. 检查是否有启用的任务
   const enabledTasksQuery = `
     SELECT COUNT(*) as count
     FROM url_swap_tasks
@@ -196,9 +175,9 @@ async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getData
       status = 'warning'
       message = `有 ${overdueCount} 个任务逾期未执行（可能刚启动或任务间隔较短）`
     }
-  } else if (recentQueueCount === 0 && enabledTasksCount > 0) {
+  } else if (urlSwapQueued === 0 && urlSwapRunning === 0 && enabledTasksCount > 0) {
     status = 'warning'
-    message = '最近 5 分钟没有任务入队，但可能是因为任务间隔较长'
+    message = '队列中没有待执行任务，但可能是因为任务间隔较长'
   }
 
   return {
@@ -207,8 +186,9 @@ async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getData
     metrics: {
       enabledTasks: enabledTasksCount,
       overdueTasks: overdueCount,
-      recentQueuedTasks: recentQueueCount,
-      lastQueuedAt,
+      recentQueuedTasks: urlSwapQueued,
+      runningTasks: urlSwapRunning,
+      lastQueuedAt: null,
       checkInterval: '每分钟',
       schedulerProcess: 'scheduler 进程'
     }
@@ -219,24 +199,12 @@ async function checkUrlSwapSchedulerHealth(db: Awaited<ReturnType<typeof getData
  * 检查数据同步调度器健康状态
  */
 async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
-  // 检查最近 1 小时内是否有数据同步任务入队
-  const recentQueueQuery = db.type === 'postgres'
-    ? `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'data-sync'
-        AND created_at >= NOW() - INTERVAL '1 hour'
-    `
-    : `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'data-sync'
-        AND created_at >= datetime('now', '-1 hour')
-    `
+  // 获取队列统计信息
+  const queueManager = await getQueueManager()
+  const stats = await queueManager.getStats()
 
-  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
-  const recentQueueCount = Number(recentQueueResult?.count || 0)
-  const lastQueuedAt = recentQueueResult?.last_created_at
+  const dataSyncQueued = stats.byType?.['data-sync'] || 0
+  const dataSyncRunning = stats.byTypeRunning?.['data-sync'] || 0
 
   // 检查是否有启用自动同步的用户
   const enabledUsersQuery = `
@@ -257,9 +225,9 @@ async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDat
   if (enabledUsersCount === 0) {
     status = 'healthy'
     message = '没有启用自动同步的用户'
-  } else if (recentQueueCount === 0) {
+  } else if (dataSyncQueued === 0 && dataSyncRunning === 0) {
     status = 'warning'
-    message = '最近 1 小时没有任务入队（可能是因为同步间隔较长）'
+    message = '队列中没有待执行任务（可能是因为同步间隔较长）'
   }
 
   return {
@@ -267,8 +235,9 @@ async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDat
     message,
     metrics: {
       enabledUsers: enabledUsersCount,
-      recentQueuedTasks: recentQueueCount,
-      lastQueuedAt,
+      recentQueuedTasks: dataSyncQueued,
+      runningTasks: dataSyncRunning,
+      lastQueuedAt: null,
       checkInterval: '每小时',
       schedulerProcess: 'scheduler 进程'
     }
@@ -279,24 +248,12 @@ async function checkDataSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDat
  * 检查联盟商品同步调度器健康状态
  */
 async function checkAffiliateSyncSchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
-  // 检查最近 30 分钟内是否有联盟商品同步任务入队
-  const recentQueueQuery = db.type === 'postgres'
-    ? `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'affiliate-product-sync'
-        AND created_at >= NOW() - INTERVAL '30 minutes'
-    `
-    : `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'affiliate-product-sync'
-        AND created_at >= datetime('now', '-30 minutes')
-    `
+  // 获取队列统计信息
+  const queueManager = await getQueueManager()
+  const stats = await queueManager.getStats()
 
-  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
-  const recentQueueCount = Number(recentQueueResult?.count || 0)
-  const lastQueuedAt = recentQueueResult?.last_created_at
+  const affiliateSyncQueued = stats.byType?.['affiliate-product-sync'] || 0
+  const affiliateSyncRunning = stats.byTypeRunning?.['affiliate-product-sync'] || 0
 
   // 检查是否有启用商品管理的用户
   const enabledUsersQuery = `
@@ -313,9 +270,9 @@ async function checkAffiliateSyncSchedulerHealth(db: Awaited<ReturnType<typeof g
   if (enabledUsersCount === 0) {
     status = 'healthy'
     message = '没有启用商品管理的用户'
-  } else if (recentQueueCount === 0) {
+  } else if (affiliateSyncQueued === 0 && affiliateSyncRunning === 0) {
     status = 'warning'
-    message = '最近 30 分钟没有任务入队（可能是因为同步间隔较长）'
+    message = '队列中没有待执行任务（可能是因为同步间隔较长）'
   }
 
   return {
@@ -323,8 +280,9 @@ async function checkAffiliateSyncSchedulerHealth(db: Awaited<ReturnType<typeof g
     message,
     metrics: {
       enabledUsers: enabledUsersCount,
-      recentQueuedTasks: recentQueueCount,
-      lastQueuedAt,
+      recentQueuedTasks: affiliateSyncQueued,
+      runningTasks: affiliateSyncRunning,
+      lastQueuedAt: null,
       checkInterval: '每10分钟',
       schedulerProcess: 'scheduler 进程'
     }
@@ -403,24 +361,12 @@ async function checkZombieCleanupSchedulerHealth(db: Awaited<ReturnType<typeof g
  * 检查 OpenClaw 策略调度器健康状态
  */
 async function checkOpenclawStrategySchedulerHealth(db: Awaited<ReturnType<typeof getDatabase>>) {
-  // 检查最近 24 小时内是否有策略任务入队
-  const recentQueueQuery = db.type === 'postgres'
-    ? `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'openclaw-strategy'
-        AND created_at >= NOW() - INTERVAL '24 hours'
-    `
-    : `
-      SELECT COUNT(*) as count, MAX(created_at) as last_created_at
-      FROM queue_tasks
-      WHERE type = 'openclaw-strategy'
-        AND created_at >= datetime('now', '-24 hours')
-    `
+  // 获取队列统计信息
+  const queueManager = await getQueueManager()
+  const stats = await queueManager.getStats()
 
-  const recentQueueResult = await db.queryOne(recentQueueQuery) as { count: number; last_created_at: string | null } | undefined
-  const recentQueueCount = Number(recentQueueResult?.count || 0)
-  const lastQueuedAt = recentQueueResult?.last_created_at
+  const openclawStrategyQueued = stats.byType?.['openclaw-strategy'] || 0
+  const openclawStrategyRunning = stats.byTypeRunning?.['openclaw-strategy'] || 0
 
   // 检查是否有启用策略中心的用户
   const enabledUsersQuery = `
@@ -441,9 +387,9 @@ async function checkOpenclawStrategySchedulerHealth(db: Awaited<ReturnType<typeo
   if (enabledUsersCount === 0) {
     status = 'healthy'
     message = '没有启用策略中心的用户'
-  } else if (recentQueueCount === 0) {
+  } else if (openclawStrategyQueued === 0 && openclawStrategyRunning === 0) {
     status = 'warning'
-    message = '最近 24 小时没有任务入队（可能用户配置的执行时间未到）'
+    message = '队列中没有待执行任务（可能用户配置的执行时间未到）'
   }
 
   return {
@@ -451,8 +397,9 @@ async function checkOpenclawStrategySchedulerHealth(db: Awaited<ReturnType<typeo
     message,
     metrics: {
       enabledUsers: enabledUsersCount,
-      recentQueuedTasks: recentQueueCount,
-      lastQueuedAt,
+      recentQueuedTasks: openclawStrategyQueued,
+      runningTasks: openclawStrategyRunning,
+      lastQueuedAt: null,
       checkInterval: '按用户配置',
       schedulerProcess: 'scheduler 进程'
     }

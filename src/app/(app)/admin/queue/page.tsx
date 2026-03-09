@@ -185,6 +185,7 @@ interface SchedulerStatus {
     metrics: {
       enabledTasks: number
       recentQueuedTasks: number
+      runningTasks?: number
       lastQueuedAt: string | null
       checkInterval: string
       schedulerProcess: string
@@ -197,6 +198,7 @@ interface SchedulerStatus {
       enabledTasks: number
       overdueTasks: number
       recentQueuedTasks: number
+      runningTasks?: number
       lastQueuedAt: string | null
       checkInterval: string
       schedulerProcess: string
@@ -208,6 +210,7 @@ interface SchedulerStatus {
     metrics: {
       enabledUsers: number
       recentQueuedTasks: number
+      runningTasks?: number
       lastQueuedAt: string | null
       checkInterval: string
       schedulerProcess: string
@@ -219,6 +222,7 @@ interface SchedulerStatus {
     metrics: {
       enabledUsers: number
       recentQueuedTasks: number
+      runningTasks?: number
       lastQueuedAt: string | null
       checkInterval: string
       schedulerProcess: string
@@ -240,6 +244,7 @@ interface SchedulerStatus {
     metrics: {
       enabledUsers: number
       recentQueuedTasks: number
+      runningTasks?: number
       lastQueuedAt: string | null
       checkInterval: string
       schedulerProcess: string
@@ -436,6 +441,7 @@ export default function QueueManagementPage() {
   const [hostMetricsError, setHostMetricsError] = useState<string | null>(null)
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
   const [schedulerLoading, setSchedulerLoading] = useState(false)
+  const [schedulerError, setSchedulerError] = useState<string | null>(null)
   const hostMetricsInFlight = useRef(false)
 
   const fetchHostMetrics = async (showSuccessToast = false) => {
@@ -602,12 +608,20 @@ export default function QueueManagementPage() {
   const fetchSchedulerStatus = useCallback(async () => {
     try {
       setSchedulerLoading(true)
+      setSchedulerError(null)
       const result = await fetchWithRetry('/api/queue/scheduler')
 
       if (result.success && result.data?.data) {
         setSchedulerStatus(result.data.data)
+        setSchedulerError(null)
+      } else {
+        const errorMsg = result.data?.error || result.userMessage || '获取调度器状态失败'
+        setSchedulerError(errorMsg)
+        console.error('获取调度器状态失败:', errorMsg)
       }
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error.message || '获取调度器状态时发生未知错误'
+      setSchedulerError(errorMsg)
       console.error('获取调度器状态失败:', error)
     } finally {
       setSchedulerLoading(false)
@@ -618,6 +632,7 @@ export default function QueueManagementPage() {
   const triggerScheduler = useCallback(async () => {
     try {
       setSchedulerLoading(true)
+      setSchedulerError(null)
       const response = await fetch('/api/queue/scheduler', { method: 'POST' })
       const result = await response.json()
 
@@ -1003,6 +1018,26 @@ export default function QueueManagementPage() {
               <div className="text-center py-8 text-gray-500">
                 <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
                 <p>加载调度器状态...</p>
+              </div>
+            )}
+
+            {schedulerError && !schedulerStatus && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">获取调度器状态失败</p>
+                    <p className="mt-1">{schedulerError}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={fetchSchedulerStatus}
+                      className="mt-2"
+                    >
+                      重试
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
 
