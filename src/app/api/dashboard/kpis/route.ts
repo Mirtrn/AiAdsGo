@@ -380,14 +380,13 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
       }
 
       const roasAvailable = !isMultiCurrency
-      if (roasAvailable) {
-        const currentRoas = calculateRoas(current.commission, current.cost)
-        const previousRoas = calculateRoas(previous.commission, previous.cost)
-        current.roas = currentRoas.value
-        current.roasInfinite = currentRoas.infinite
-        previous.roas = previousRoas.value
-        previous.roasInfinite = previousRoas.infinite
-      }
+      // 🔧 修改(2026-03-10): 多货币时也计算ROAS（基于转换后的USD总额），与Campaigns页面保持一致
+      const currentRoas = calculateRoas(current.commission, current.cost)
+      const previousRoas = calculateRoas(previous.commission, previous.cost)
+      current.roas = currentRoas.value
+      current.roasInfinite = currentRoas.infinite
+      previous.roas = previousRoas.value
+      previous.roasInfinite = previousRoas.infinite
 
       if (current.impressions > 0) {
         current.ctr = (current.clicks / current.impressions) * 100

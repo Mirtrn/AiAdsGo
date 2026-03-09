@@ -279,15 +279,16 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
 
   /**
    * 🔧 新增(2025-12-30): 格式化费用显示（支持多货币）
+   * 🔧 修改(2026-03-10): 多货币时显示转换后的USD总额，与Campaigns页面保持一致
    */
   const formatCostDisplay = (kpiData: KPIData | null): string => {
     if (!kpiData) return formatCurrency(0, 'USD')
 
     const { current } = kpiData
 
-    // 多货币场景
-    if (current.currency === 'MIXED' && current.costs && current.costs.length > 0) {
-      return formatMultiCurrency(current.costs)
+    // 多货币场景 - 显示转换后的USD总额
+    if (current.currency === 'MIXED') {
+      return formatCurrency(current.cost, 'USD')
     }
 
     // 单一货币场景
@@ -296,32 +297,39 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
 
   /**
    * 🔧 新增(2026-03-08): 格式化佣金显示（支持多货币）
+   * 🔧 修改(2026-03-10): 多货币时显示转换后的USD总额，与Campaigns页面保持一致
    */
   const formatCommissionDisplay = (kpiData: KPIData | null): string => {
     if (!kpiData) return formatCurrency(0, 'USD')
 
     const { current } = kpiData
 
-    // 多货币场景 - 显示为 MIXED
+    // 多货币场景 - 显示转换后的USD总额
     if (current.currency === 'MIXED') {
-      return formatCurrency(current.commission, 'MIXED')
+      return formatCurrency(current.commission, 'USD')
     }
 
     // 单一货币场景
     return formatCurrency(current.commission, current.currency || 'USD')
   }
 
+  /**
+   * 🔧 修改(2026-03-10): 多货币时也计算ROAS，与Campaigns页面保持一致
+   */
   const formatRoasDisplay = (kpiData: KPIData | null): string => {
     if (!kpiData) return '--'
-    if (kpiData.current.currency === 'MIXED') return '--'
+    // 多货币时也计算ROAS（基于转换后的USD金额）
     if (kpiData.current.roasInfinite) return '∞'
     if (kpiData.current.roas === null || kpiData.current.roas === undefined) return '--'
     return `${safeToFixed(kpiData.current.roas, 2)}x`
   }
 
+  /**
+   * 🔧 修改(2026-03-10): 多货币时也显示ROAS变化，与Campaigns页面保持一致
+   */
   const formatRoasChangeText = (kpiData: KPIData | null): string => {
     if (!kpiData) return '--'
-    if (kpiData.current.currency === 'MIXED') return '--'
+    // 多货币时也显示ROAS变化
     if (kpiData.changes.roasInfinite) return '∞'
     if (kpiData.changes.roas === null || kpiData.changes.roas === undefined) return '--'
     const value = Number(kpiData.changes.roas)
@@ -546,7 +554,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="text-sm text-gray-500 mb-1">
-                    总花费{kpiData?.current.currency && kpiData.current.currency !== 'MIXED' ? `(${kpiData.current.currency})` : ''}
+                    总花费(USD)
                   </p>
                   <p className="text-2xl font-bold">
                     {kpiData ? formatCostDisplay(kpiData) : '-'}
@@ -576,7 +584,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
               )}
               {kpiData && kpiData.current.currency === 'MIXED' && (
                 <div className="flex items-center gap-1 mt-3">
-                  <span className="text-xs text-gray-500">多货币混合</span>
+                  <span className="text-xs text-gray-500">-- 环比</span>
                 </div>
               )}
             </CardContent>
@@ -588,7 +596,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="text-sm text-gray-500 mb-1">
-                    总佣金{kpiData?.current.currency && kpiData.current.currency !== 'MIXED' ? `(${kpiData.current.currency})` : ''}
+                    总佣金(USD)
                   </p>
                   <p className="text-2xl font-bold">
                     {kpiData ? formatCommissionDisplay(kpiData) : '-'}
@@ -613,7 +621,7 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
               )}
               {kpiData && kpiData.current.currency === 'MIXED' && (
                 <div className="flex items-center gap-1 mt-3">
-                  <span className="text-xs text-gray-500">多货币混合</span>
+                  <span className="text-xs text-gray-500">-- 环比</span>
                 </div>
               )}
             </CardContent>
@@ -628,37 +636,40 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   <p className="text-2xl font-bold">
                     {formatRoasDisplay(kpiData)}
                   </p>
-                  {kpiData && kpiData.current.currency === 'MIXED' && (
-                    <p className="text-xs mt-1 text-gray-500">多货币混合时不可用</p>
-                  )}
                 </div>
                 <div className="p-3 bg-indigo-50 rounded-xl">
                   <TrendingUp className="w-6 h-6 text-indigo-600" />
                 </div>
               </div>
-              {kpiData && kpiData.current.currency !== 'MIXED' && (
+              {kpiData && (
                 <div className="flex items-center gap-1 mt-3">
-                  {kpiData.changes.roasInfinite ? (
-                    <TrendingUp className="w-4 h-4 text-green-500" />
-                  ) : typeof kpiData.changes.roas === 'number' ? (
-                    kpiData.changes.roas >= 0 ? (
+                  {kpiData.current.currency === 'MIXED' ? (
+                    <span className="text-xs text-gray-500">-- 环比</span>
+                  ) : kpiData.changes.roasInfinite ? (
+                    <>
                       <TrendingUp className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-red-500" />
-                    )
+                      <span className="text-sm font-medium text-green-600">{formatRoasChangeText(kpiData)}</span>
+                      <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                    </>
+                  ) : typeof kpiData.changes.roas === 'number' ? (
+                    <>
+                      {kpiData.changes.roas >= 0 ? (
+                        <TrendingUp className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <TrendingDown className="w-4 h-4 text-red-500" />
+                      )}
+                      <span className={`text-sm font-medium ${kpiData.changes.roas >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatRoasChangeText(kpiData)}
+                      </span>
+                      <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                    </>
                   ) : (
-                    <span className="w-4 h-4" />
+                    <span className="text-xs text-gray-500">-- 环比</span>
                   )}
-                  <span className={`text-sm font-medium ${
-                    kpiData.changes.roasInfinite
-                      ? 'text-green-600'
-                      : typeof kpiData.changes.roas === 'number'
-                        ? (kpiData.changes.roas >= 0 ? 'text-green-600' : 'text-red-600')
-                        : 'text-gray-500'
-                  }`}>
-                    {formatRoasChangeText(kpiData)}
-                  </span>
-                  <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
                 </div>
               )}
             </CardContent>
