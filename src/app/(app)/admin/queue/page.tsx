@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ArrowUp, ArrowUpDown, ArrowDown, Cpu, HardDrive, Network } from 'lucide-react'
+import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUp, ArrowUpDown, ArrowDown, Cpu, HardDrive, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -442,6 +442,7 @@ export default function QueueManagementPage() {
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null)
   const [schedulerLoading, setSchedulerLoading] = useState(false)
   const [schedulerError, setSchedulerError] = useState<string | null>(null)
+  const [schedulerCollapsed, setSchedulerCollapsed] = useState(true)
   const hostMetricsInFlight = useRef(false)
 
   const fetchHostMetrics = async (showSuccessToast = false) => {
@@ -781,13 +782,13 @@ export default function QueueManagementPage() {
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'monitor') return
+    if (activeTab !== 'monitor' || schedulerCollapsed) return
     void fetchSchedulerStatus()
     const interval = setInterval(() => {
       void fetchSchedulerStatus()
-    }, 30_000)
+    }, 60_000)
     return () => clearInterval(interval)
-  }, [activeTab, fetchSchedulerStatus])
+  }, [activeTab, schedulerCollapsed, fetchSchedulerStatus])
 
   // 当每页显示数量或用户数据变化时，重新计算分页
   useEffect(() => {
@@ -997,12 +998,22 @@ export default function QueueManagementPage() {
           {/* Scheduler Health Check */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">调度器健康检查</h2>
-                <p className="text-sm text-gray-500">
-                  监控后台定时调度器的运行状态和任务入队情况（不包括按需触发的队列任务，如 Offer 提取、广告创意生成等）
-                </p>
-              </div>
+              <button
+                onClick={() => setSchedulerCollapsed(!schedulerCollapsed)}
+                className="flex items-center gap-2 flex-1 text-left group"
+              >
+                {schedulerCollapsed ? (
+                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0" />
+                )}
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">调度器健康检查</h2>
+                  <p className="text-sm text-gray-500">
+                    监控后台定时调度器的运行状态和任务入队情况（不包括按需触发的队列任务，如 Offer 提取、广告创意生成等）
+                  </p>
+                </div>
+              </button>
               <Button
                 variant="outline"
                 size="sm"
@@ -1014,34 +1025,36 @@ export default function QueueManagementPage() {
               </Button>
             </div>
 
-            {schedulerLoading && !schedulerStatus && (
-              <div className="text-center py-8 text-gray-500">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
-                <p>加载调度器状态...</p>
-              </div>
-            )}
-
-            {schedulerError && !schedulerStatus && (
-              <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">获取调度器状态失败</p>
-                    <p className="mt-1">{schedulerError}</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={fetchSchedulerStatus}
-                      className="mt-2"
-                    >
-                      重试
-                    </Button>
+            {!schedulerCollapsed && (
+              <>
+                {schedulerLoading && !schedulerStatus && (
+                  <div className="text-center py-8 text-gray-500">
+                    <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
+                    <p>加载调度器状态...</p>
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {schedulerStatus && (
+                {schedulerError && !schedulerStatus && (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">获取调度器状态失败</p>
+                        <p className="mt-1">{schedulerError}</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={fetchSchedulerStatus}
+                          className="mt-2"
+                        >
+                          重试
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {schedulerStatus && (
               <div className="space-y-4">
                 {schedulerStatus.note && (
                   <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
@@ -1451,6 +1464,8 @@ export default function QueueManagementPage() {
                   </div>
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
 
