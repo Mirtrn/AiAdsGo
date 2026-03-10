@@ -34,6 +34,7 @@ import {
 import { useBudgetAnalytics } from '@/lib/hooks/useAnalytics'
 import { formatCurrency } from '@/lib/currency'
 import { formatCurrency as formatCurrencyDashboard, formatMultiCurrency } from '@/lib/utils'
+import { DateRangePicker, type DateRange } from '@/components/ui/date-range-picker'
 
 
 type BudgetAnalyticsTimeRange = '7' | '14' | '30' | 'custom'
@@ -110,12 +111,9 @@ export default function BudgetAnalyticsPage() {
     return date.toISOString().split('T')[0]
   })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
   const [reportCurrency, setReportCurrency] = useState<string | null>(null)
-  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
-  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // Use SWR for data fetching with automatic caching
   const { data, currencyInfo, error, isLoading: loading, refresh } = useBudgetAnalytics(startDate, endDate, reportCurrency)
@@ -152,56 +150,24 @@ export default function BudgetAnalyticsPage() {
     return `${year}-${month}-${day}`
   }
 
-  const openNativeDatePicker = (input: HTMLInputElement | null) => {
-    if (!input) return
-    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
-    if (typeof inputWithPicker.showPicker === 'function') {
-      try {
-        inputWithPicker.showPicker()
-        return
-      } catch {
-        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
-      }
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (!range?.from || !range?.to) {
+      setDateRange(range)
+      return
     }
 
-    input.focus()
-    input.click()
-  }
+    const startDateStr = formatDateInputValue(range.from)
+    const endDateStr = formatDateInputValue(range.to)
 
-  const openCustomRange = () => {
-    if (appliedCustomRange) {
-      setCustomStartDate(appliedCustomRange.startDate)
-      setCustomEndDate(appliedCustomRange.endDate)
-    } else if (!customStartDate && !customEndDate) {
-      const end = new Date()
-      const start = new Date(end)
-      start.setDate(start.getDate() - 6)
-      setCustomStartDate(formatDateInputValue(start))
-      setCustomEndDate(formatDateInputValue(end))
-    }
+    if (startDateStr > endDateStr) return
 
-    window.setTimeout(() => {
-      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
-    }, 0)
-  }
-
-  const handleCustomStartDateChange = (value: string) => {
-    setCustomStartDate(value)
-    if (!value) return
-
-    window.setTimeout(() => {
-      openNativeDatePicker(customEndDateInputRef.current)
-    }, 0)
-  }
-
-  const handleCustomEndDateChange = (value: string) => {
-    setCustomEndDate(value)
-    if (!customStartDate || !value) return
-    if (customStartDate > value) return
-
-    setAppliedCustomRange({ startDate: customStartDate, endDate: value })
-    setStartDate(customStartDate)
-    setEndDate(value)
+    setDateRange(range)
+    setAppliedCustomRange({
+      startDate: startDateStr,
+      endDate: endDateStr,
+    })
+    setStartDate(startDateStr)
+    setEndDate(endDateStr)
     setTimeRange('custom')
   }
 
@@ -325,47 +291,29 @@ export default function BudgetAnalyticsPage() {
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </Button>
               {/* 时间范围 */}
-              <div className="flex bg-white rounded-lg border p-1">
+              <div className="flex bg-white rounded-lg border p-1 gap-1">
                 {(['7', '14', '30'] as const).map((d) => (
                   <Button
                     key={d}
                     variant={timeRange === d ? 'default' : 'ghost'}
                     size="sm"
                     onClick={() => handleSelectPresetRange(d)}
-                    className="h-7 px-3 text-xs"
+                    className="h-8 px-4 text-sm whitespace-nowrap"
                   >
                     {d}天
                   </Button>
                 ))}
-                <div className="relative inline-flex">
-                  <Button
-                    variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                    size="sm"
-                    className="h-7 px-3 text-xs max-w-[220px]"
-                    onClick={openCustomRange}
-                  >
-                    <CalendarDays className="w-3 h-3 mr-1" />
-                    <span className="truncate">{customRangeLabel}</span>
-                  </Button>
-                  <input
-                    ref={customStartDateInputRef}
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
-                    tabIndex={-1}
-                    aria-hidden="true"
-                  />
-                  <input
-                    ref={customEndDateInputRef}
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
-                    tabIndex={-1}
-                    aria-hidden="true"
-                  />
-                </div>
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={handleDateRangeChange}
+                  placeholder={customRangeLabel}
+                  variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                  size="sm"
+                  maxDate={new Date()}
+                  showPresets={true}
+                  showClearButton={true}
+                  className="w-auto"
+                />
               </div>
               {availableCurrencies.length > 1 && (
                 <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>

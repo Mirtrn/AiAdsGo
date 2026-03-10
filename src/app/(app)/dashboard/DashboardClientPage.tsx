@@ -27,6 +27,7 @@ import {
   CalendarDays,
 } from 'lucide-react'
 import { formatCurrency, formatMultiCurrency } from '@/lib/utils'
+import { DateRangePicker, type DateRange } from '@/components/ui/date-range-picker'
 
 interface KPIData {
   current: {
@@ -125,8 +126,7 @@ const formatDateInputValue = (date: Date): string => {
 export default function DashboardClientPage({ dashboardDeferEnabled = false }: DashboardClientPageProps) {
   const router = useRouter()
   const [timeRange, setTimeRange] = useState<DashboardTimeRange>('7')
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
   const [appliedCustomRange, setAppliedCustomRange] = useState<{ startDate: string; endDate: string } | null>(null)
   const [kpiData, setKpiData] = useState<KPIData | null>(null)
   const [risks, setRisks] = useState<RiskAlert[]>([])
@@ -136,8 +136,6 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
   const [deferredWidgetsMounted, setDeferredWidgetsMounted] = useState(!dashboardDeferEnabled)
   const fetchAbortRef = useRef<AbortController | null>(null)
   const fetchSeqRef = useRef(0)
-  const customStartDateInputRef = useRef<HTMLInputElement | null>(null)
-  const customEndDateInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!dashboardDeferEnabled) {
@@ -341,54 +339,24 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
 
-  const openNativeDatePicker = (input: HTMLInputElement | null) => {
-    if (!input) return
-    const inputWithPicker = input as HTMLInputElement & { showPicker?: () => void }
-    if (typeof inputWithPicker.showPicker === 'function') {
-      try {
-        inputWithPicker.showPicker()
-        return
-      } catch {
-        // showPicker 在部分浏览器中可能要求明确用户手势，失败后回退到 focus/click。
-      }
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (!range?.from || !range?.to) {
+      setDateRange(range)
+      return
     }
 
-    input.focus()
-    input.click()
-  }
+    const startDate = formatDateInputValue(range.from)
+    const endDate = formatDateInputValue(range.to)
 
-  const openCustomRange = () => {
-    if (appliedCustomRange) {
-      setCustomStartDate(appliedCustomRange.startDate)
-      setCustomEndDate(appliedCustomRange.endDate)
-    } else if (!customStartDate && !customEndDate) {
-      const end = new Date()
-      const start = new Date(end)
-      start.setDate(start.getDate() - 6)
-      setCustomStartDate(formatDateInputValue(start))
-      setCustomEndDate(formatDateInputValue(end))
+    if (startDate > endDate) {
+      return
     }
 
-    window.setTimeout(() => {
-      openNativeDatePicker(customStartDateInputRef.current || customEndDateInputRef.current)
-    }, 0)
-  }
-
-  const handleCustomStartDateChange = (value: string) => {
-    setCustomStartDate(value)
-    if (!value) return
-
-    window.setTimeout(() => {
-      openNativeDatePicker(customEndDateInputRef.current)
-    }, 0)
-  }
-
-  const handleCustomEndDateChange = (value: string) => {
-    setCustomEndDate(value)
-    if (!customStartDate || !value) return
-    if (customStartDate > value) return
-
-    setAppliedCustomRange({ startDate: customStartDate, endDate: value })
+    setDateRange(range)
+    setAppliedCustomRange({
+      startDate,
+      endDate,
+    })
     setTimeRange('custom')
   }
 
@@ -452,35 +420,17 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
                   {d}天
                 </Button>
               ))}
-              <div className="relative inline-flex">
-                <Button
-                  variant={timeRange === 'custom' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-3 text-xs max-w-[220px]"
-                  onClick={openCustomRange}
-                >
-                  <CalendarDays className="w-3 h-3 mr-1" />
-                  <span className="truncate">{customRangeLabel}</span>
-                </Button>
-                <input
-                  ref={customStartDateInputRef}
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                  className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-                <input
-                  ref={customEndDateInputRef}
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                  className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-              </div>
+              <DateRangePicker
+                value={dateRange}
+                onChange={handleDateRangeChange}
+                placeholder={customRangeLabel}
+                variant={timeRange === 'custom' ? 'default' : 'ghost'}
+                size="sm"
+                maxDate={new Date()}
+                showPresets={true}
+                showClearButton={true}
+                className="w-auto"
+              />
             </div>
           </div>
         </div>
