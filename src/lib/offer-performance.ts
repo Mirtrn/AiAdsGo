@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { convertCurrency } from './currency'
 
 /**
  * Offer Performance Analytics
@@ -14,7 +15,9 @@ export interface OfferPerformanceSummary {
   clicks: number
   conversions: number
   commission: number
+  commission_currency: string
   cost: number
+  cost_currency: string
   ctr: number
   avg_cpc: number
   conversion_rate: number
@@ -31,7 +34,9 @@ export interface OfferPerformanceTrend {
   clicks: number
   conversions: number
   commission: number
+  commission_currency: string
   cost: number
+  cost_currency: string
   ctr: number
   conversion_rate: number
   commission_per_click: number
@@ -45,8 +50,9 @@ export interface CampaignPerformanceComparison {
   clicks: number
   conversions: number
   commission: number
+  commission_currency: string
   cost: number
-  currency?: string
+  cost_currency: string
   ctr: number
   cpc: number
   conversion_rate: number
@@ -161,23 +167,19 @@ export async function getOfferCurrencyInfo(
 export async function getOfferPerformanceSummary(
   offerId: number,
   userId: number,
-  daysBack: number = 30,
-  currency?: string
+  daysBack: number = 30
 ): Promise<OfferPerformanceSummary> {
   const db = await getDatabase()
   const { startDateStr, endDateStr } = getDateRange(daysBack)
 
-  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
-  const params = currency
-    ? [offerId, userId, startDateStr, endDateStr, currency]
-    : [offerId, userId, startDateStr, endDateStr]
-
+  // 查询广告数据（不转换货币，保持原始数据）
   const summary = await db.queryOne(`
     SELECT
       COUNT(DISTINCT cp.campaign_id) as campaign_count,
       SUM(cp.impressions) as impressions,
       SUM(cp.clicks) as clicks,
       SUM(cp.cost) as cost,
+      COALESCE(MAX(cp.currency), MAX(gaa.currency), 'CNY') as cost_currency,
       CASE
         WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
         ELSE 0
@@ -193,11 +195,13 @@ export async function getOfferPerformanceSummary(
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-      ${currencyCondition}
-  `, params) as any
+  `, [offerId, userId, startDateStr, endDateStr]) as any
 
+  // 查询佣金数据（不转换货币，保持原始数据）
   const commissionData = await db.queryOne(`
-    SELECT COALESCE(SUM(aca.commission_amount), 0) AS commission
+    SELECT
+      COALESCE(SUM(aca.commission_amount), 0) AS commission,
+      COALESCE(MAX(aca.currency), 'USD') as commission_currency
     FROM affiliate_commission_attributions aca
     WHERE aca.user_id = ?
       AND aca.offer_id = ?
@@ -216,7 +220,9 @@ export async function getOfferPerformanceSummary(
     clicks,
     conversions: roundTo2(commission),
     commission: roundTo2(commission),
+    commission_currency: String(commissionData?.commission_currency || 'USD'),
     cost: Number(summary?.cost) || 0,
+    cost_currency: String(summary?.cost_currency || 'CNY'),
     ctr: Number(summary?.ctr) || 0,
     avg_cpc: Number(summary?.avg_cpc) || 0,
     conversion_rate: roundTo2(commissionPerClick),
@@ -231,23 +237,19 @@ export async function getOfferPerformanceSummary(
 export async function getOfferPerformanceTrend(
   offerId: number,
   userId: number,
-  daysBack: number = 30,
-  currency?: string
+  daysBack: number = 30
 ): Promise<OfferPerformanceTrend[]> {
   const db = await getDatabase()
   const { startDateStr, endDateStr } = getDateRange(daysBack)
 
-  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
-  const params = currency
-    ? [offerId, userId, startDateStr, endDateStr, currency]
-    : [offerId, userId, startDateStr, endDateStr]
-
+  // 查询广告趋势数据（不转换货币）
   const adTrends = await db.query(`
     SELECT
       cp.date as date,
       SUM(cp.impressions) as impressions,
       SUM(cp.clicks) as clicks,
       SUM(cp.cost) as cost,
+      COALESCE(MAX(cp.currency), MAX(gaa.currency), 'CNY') as cost_currency,
       CASE
         WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
         ELSE 0
@@ -259,15 +261,16 @@ export async function getOfferPerformanceTrend(
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-      ${currencyCondition}
     GROUP BY cp.date
     ORDER BY cp.date ASC
-  `, params) as any[]
+  `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
+  // 查询佣金趋势数据（不转换货币）
   const commissionTrends = await db.query(`
     SELECT
       aca.report_date as date,
-      COALESCE(SUM(aca.commission_amount), 0) as commission
+      COALESCE(SUM(aca.commission_amount), 0) as commission,
+      COALESCE(MAX(aca.currency), 'USD') as commission_currency
     FROM affiliate_commission_attributions aca
     WHERE aca.user_id = ?
       AND aca.offer_id = ?
@@ -281,6 +284,7 @@ export async function getOfferPerformanceTrend(
     impressions: number
     clicks: number
     cost: number
+    cost_currency: string
     ctr: number
   }>()
   for (const row of adTrends) {
@@ -290,15 +294,19 @@ export async function getOfferPerformanceTrend(
       impressions: Number(row?.impressions) || 0,
       clicks: Number(row?.clicks) || 0,
       cost: Number(row?.cost) || 0,
+      cost_currency: String(row?.cost_currency || 'CNY'),
       ctr: Number(row?.ctr) || 0,
     })
   }
 
-  const commissionMap = new Map<string, number>()
+  const commissionMap = new Map<string, { commission: number; commission_currency: string }>()
   for (const row of commissionTrends) {
     const date = normalizeDateKey(row?.date)
     if (!date) continue
-    commissionMap.set(date, Number(row?.commission) || 0)
+    commissionMap.set(date, {
+      commission: Number(row?.commission) || 0,
+      commission_currency: String(row?.commission_currency || 'USD'),
+    })
   }
 
   const dateSet = new Set<string>([
@@ -310,8 +318,9 @@ export async function getOfferPerformanceTrend(
 
   return dates.map((date) => {
     const ad = adMap.get(date)
+    const commissionData = commissionMap.get(date)
     const clicks = ad?.clicks || 0
-    const commission = commissionMap.get(date) || 0
+    const commission = commissionData?.commission || 0
     const commissionPerClick = clicks > 0 ? commission / clicks : 0
 
     return {
@@ -320,7 +329,9 @@ export async function getOfferPerformanceTrend(
       clicks,
       conversions: roundTo2(commission),
       commission: roundTo2(commission),
+      commission_currency: commissionData?.commission_currency || 'USD',
       cost: ad?.cost || 0,
+      cost_currency: ad?.cost_currency || 'CNY',
       ctr: ad?.ctr || 0,
       conversion_rate: roundTo2(commissionPerClick),
       commission_per_click: roundTo2(commissionPerClick),
@@ -331,17 +342,12 @@ export async function getOfferPerformanceTrend(
 export async function getCampaignPerformanceComparison(
   offerId: number,
   userId: number,
-  daysBack: number = 30,
-  currency?: string
+  daysBack: number = 30
 ): Promise<CampaignPerformanceComparison[]> {
   const db = await getDatabase()
   const { startDateStr, endDateStr } = getDateRange(daysBack)
 
-  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
-  const params = currency
-    ? [offerId, userId, startDateStr, endDateStr, currency]
-    : [offerId, userId, startDateStr, endDateStr]
-
+  // 查询所有 Campaign 的广告数据（不转换货币）
   const campaigns = await db.query(`
     SELECT
       cp.campaign_id,
@@ -350,7 +356,7 @@ export async function getCampaignPerformanceComparison(
       SUM(cp.impressions) as impressions,
       SUM(cp.clicks) as clicks,
       SUM(cp.cost) as cost,
-      COALESCE(MAX(cp.currency), gaa.currency, 'USD') as currency,
+      COALESCE(MAX(cp.currency), gaa.currency, 'CNY') as cost_currency,
       CASE
         WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
         ELSE 0
@@ -366,15 +372,16 @@ export async function getCampaignPerformanceComparison(
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-      ${currencyCondition}
     GROUP BY cp.campaign_id, c.campaign_name, c.google_campaign_id, gaa.currency
     ORDER BY SUM(cp.clicks) DESC
-  `, params) as any[]
+  `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
+  // 查询每个 Campaign 的佣金数据（不转换货币）
   const commissionRows = await db.query(`
     SELECT
       aca.campaign_id,
-      COALESCE(SUM(aca.commission_amount), 0) AS commission
+      COALESCE(SUM(aca.commission_amount), 0) AS commission,
+      COALESCE(MAX(aca.currency), 'USD') as commission_currency
     FROM affiliate_commission_attributions aca
     WHERE aca.user_id = ?
       AND aca.offer_id = ?
@@ -382,19 +389,27 @@ export async function getCampaignPerformanceComparison(
       AND aca.report_date <= ?
       AND aca.campaign_id IS NOT NULL
     GROUP BY aca.campaign_id
-  `, [userId, offerId, startDateStr, endDateStr]) as Array<{ campaign_id: number; commission: number }>
+  `, [userId, offerId, startDateStr, endDateStr]) as Array<{
+    campaign_id: number
+    commission: number
+    commission_currency: string
+  }>
 
-  const commissionByCampaign = new Map<number, number>()
+  const commissionByCampaign = new Map<number, { commission: number; commission_currency: string }>()
   for (const row of commissionRows) {
     const campaignId = Number(row.campaign_id)
     if (!Number.isFinite(campaignId)) continue
-    commissionByCampaign.set(campaignId, Number(row.commission) || 0)
+    commissionByCampaign.set(campaignId, {
+      commission: Number(row.commission) || 0,
+      commission_currency: String(row.commission_currency || 'USD'),
+    })
   }
 
   const mapped = campaigns.map((row) => {
     const campaignId = Number(row.campaign_id)
     const clicks = Number(row.clicks) || 0
-    const commission = commissionByCampaign.get(campaignId) || 0
+    const commissionData = commissionByCampaign.get(campaignId)
+    const commission = commissionData?.commission || 0
     const commissionPerClick = clicks > 0 ? commission / clicks : 0
 
     return {
@@ -405,8 +420,9 @@ export async function getCampaignPerformanceComparison(
       clicks,
       conversions: roundTo2(commission),
       commission: roundTo2(commission),
+      commission_currency: commissionData?.commission_currency || 'USD',
       cost: Number(row.cost) || 0,
-      currency: row.currency || 'USD',
+      cost_currency: String(row.cost_currency || 'CNY'),
       ctr: Number(row.ctr) || 0,
       cpc: Number(row.cpc) || 0,
       conversion_rate: roundTo2(commissionPerClick),
@@ -424,19 +440,15 @@ export async function calculateOfferROI(
   offerId: number,
   userId: number,
   avgOrderValue: number,
-  daysBack: number = 30,
-  currency?: string
+  daysBack: number = 30
 ): Promise<OfferROI> {
   const db = await getDatabase()
   const { startDateStr, endDateStr } = getDateRange(daysBack)
 
-  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
-  const params = currency
-    ? [offerId, userId, startDateStr, endDateStr, currency]
-    : [offerId, userId, startDateStr, endDateStr]
-
-  const adData = await db.queryOne(`
+  // 查询广告成本数据，按货币分组
+  const adDataRows = await db.query(`
     SELECT
+      COALESCE(cp.currency, gaa.currency, 'CNY') as currency,
       SUM(cp.cost) as total_cost
     FROM campaigns c
     LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
@@ -445,23 +457,58 @@ export async function calculateOfferROI(
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-      ${currencyCondition}
-  `, params) as any
+    GROUP BY COALESCE(cp.currency, gaa.currency, 'CNY')
+  `, [offerId, userId, startDateStr, endDateStr]) as Array<{ currency: string; total_cost: number }>
 
-  const commissionData = await db.queryOne(`
-    SELECT COALESCE(SUM(aca.commission_amount), 0) AS total_commission
+  // 将所有成本转换为 USD
+  let totalCostUsd = 0
+  for (const row of adDataRows) {
+    const costAmount = Number(row.total_cost) || 0
+    const costCurrency = String(row.currency || 'CNY').trim()
+
+    if (costAmount > 0) {
+      try {
+        const converted = convertCurrency(costAmount, costCurrency, 'USD')
+        totalCostUsd += converted
+      } catch (error) {
+        console.warn(`Failed to convert cost from ${costCurrency} to USD:`, error)
+        totalCostUsd += costAmount
+      }
+    }
+  }
+
+  // 查询佣金数据，按货币分组
+  const commissionRows = await db.query(`
+    SELECT
+      aca.currency,
+      COALESCE(SUM(aca.commission_amount), 0) AS commission
     FROM affiliate_commission_attributions aca
     WHERE aca.user_id = ?
       AND aca.offer_id = ?
       AND aca.report_date >= ?
       AND aca.report_date <= ?
-  `, [userId, offerId, startDateStr, endDateStr]) as any
+    GROUP BY aca.currency
+  `, [userId, offerId, startDateStr, endDateStr]) as Array<{ currency: string; commission: number }>
 
-  const totalCostUsd = Number(adData?.total_cost) || 0
-  const totalCommission = Number(commissionData?.total_commission) || 0
+  // 将所有佣金转换为 USD
+  let totalCommissionUsd = 0
+  for (const row of commissionRows) {
+    const commissionAmount = Number(row.commission) || 0
+    const commissionCurrency = String(row.currency || 'USD').trim()
+
+    if (commissionAmount > 0) {
+      try {
+        const converted = convertCurrency(commissionAmount, commissionCurrency, 'USD')
+        totalCommissionUsd += converted
+      } catch (error) {
+        console.warn(`Failed to convert commission from ${commissionCurrency} to USD:`, error)
+        totalCommissionUsd += commissionAmount
+      }
+    }
+  }
 
   void avgOrderValue
-  const totalRevenueUsd = totalCommission
+  const totalRevenueUsd = totalCommissionUsd
   const profitUsd = totalRevenueUsd - totalCostUsd
   const roiPercentage = totalCostUsd > 0 ? (profitUsd / totalCostUsd) * 100 : 0
 
@@ -470,7 +517,7 @@ export async function calculateOfferROI(
     total_revenue_usd: roundTo2(totalRevenueUsd),
     roi_percentage: roundTo2(roiPercentage),
     profit_usd: roundTo2(profitUsd),
-    conversions: roundTo2(totalCommission),
-    commission: roundTo2(totalCommission),
+    conversions: roundTo2(totalCommissionUsd),
+    commission: roundTo2(totalCommissionUsd),
   }
 }

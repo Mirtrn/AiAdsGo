@@ -8,6 +8,10 @@ import { getOfferCurrencyInfo, getOfferPerformanceTrend } from '@/lib/offer-perf
  *
  * 获取 Offer 趋势数据（按日期聚合，转化口径改为佣金）
  *
+ * 注意：
+ * - 广告花费和佣金保持原始货币（CNY 和 USD）
+ * - 不支持货币选择
+ *
  * Query Parameters:
  * - daysBack: number (可选，默认30天)
  */
@@ -34,8 +38,6 @@ export async function GET(
 
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
-    const requestedCurrencyRaw = searchParams.get('currency')
-    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     const endDate = new Date()
     const startDate = new Date()
@@ -45,11 +47,7 @@ export async function GET(
     const endDateStr = endDate.toISOString().split('T')[0]
 
     const currencyInfo = await getOfferCurrencyInfo(offerId, userId, daysBack)
-    const reportingCurrency = requestedCurrency && currencyInfo.currencies.includes(requestedCurrency)
-      ? requestedCurrency
-      : currencyInfo.currency
-
-    const trends = await getOfferPerformanceTrend(offerId, userId, daysBack, reportingCurrency)
+    const trends = await getOfferPerformanceTrend(offerId, userId, daysBack)
 
     const formattedTrends = trends.map((row) => {
       const cost = Number(row.cost) || 0
@@ -62,7 +60,9 @@ export async function GET(
         clicks,
         conversions: Math.round((Number(row.conversions) || 0) * 100) / 100,
         commission: Math.round((Number(row.commission) || 0) * 100) / 100,
+        commissionCurrency: row.commission_currency || 'USD',
         costUsd: Math.round(cost * 100) / 100,
+        costCurrency: row.cost_currency || 'CNY',
         ctr: Math.round((Number(row.ctr) || 0) * 100) / 100,
         conversionRate: Math.round((Number(row.conversion_rate) || 0) * 100) / 100,
         commissionPerClick: Math.round((Number(row.commission_per_click) || 0) * 100) / 100,
@@ -73,7 +73,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       trends: formattedTrends,
-      currency: reportingCurrency,
+      currency: currencyInfo.currency,
       currencies: currencyInfo.currencies,
       hasMixedCurrency: currencyInfo.hasMixedCurrency,
       offer: {
