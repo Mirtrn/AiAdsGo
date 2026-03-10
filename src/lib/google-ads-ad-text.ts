@@ -16,7 +16,7 @@ export const GOOGLE_ADS_PROHIBITED_SYMBOLS = [
   '⚡', '🔥', '💎',           // decorative emoji
   '👍', '👎',                 // gestures
   '”', '”', '”', '„', '‟', '«', '»', // double curly quotes (observed SYMBOLS policy hits)
-  ''', ''',                  // single curly quotes (observed SYMBOLS policy hits)
+  '\u2018', '\u2019',        // single curly quotes (observed SYMBOLS policy hits)
   '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉', // subscript digits
   '；',                      // fullwidth semicolon
   '|',                       // pipe (can trigger SYMBOLS policy in some contexts)
