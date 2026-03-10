@@ -15,9 +15,11 @@ export const GOOGLE_ADS_PROHIBITED_SYMBOLS = [
   '❤', '♥', '♡',             // hearts
   '⚡', '🔥', '💎',           // decorative emoji
   '👍', '👎',                 // gestures
-  '"', '“', '”', '„', '‟', '«', '»', // quote-like symbols (observed SYMBOLS policy hits)
+  '”', '”', '”', '„', '‟', '«', '»', // double curly quotes (observed SYMBOLS policy hits)
+  ''', ''',                  // single curly quotes (observed SYMBOLS policy hits)
   '₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉', // subscript digits
   '；',                      // fullwidth semicolon
+  '|',                       // pipe (can trigger SYMBOLS policy in some contexts)
 ]
 
 const EMOJI_REGEX = /[\p{Extended_Pictographic}]/gu

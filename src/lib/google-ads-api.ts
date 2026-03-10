@@ -2691,12 +2691,13 @@ export function ensureKeywordsInHeadlines(
   // 生成包含关键词的新标题模板
   const generateKeywordHeadline = (keyword: string, brand: string): string => {
     // 多种模板，确保多样性
+    // 注意：避免使用 "-" 和 "|" 等可能触发 Google Ads SYMBOLS 政策的符号
     const templates = [
-      `${keyword} - ${brand}`,           // "smart ring - Ringconn"
-      `Shop ${keyword} Now`,             // "Shop smart ring Now"
-      `${keyword} | Official Store`,     // "smart ring | Official Store"
-      `Best ${keyword} Deals`,           // "Best smart ring Deals"
       `${brand} ${keyword}`,             // "Ringconn smart ring"
+      `Shop ${keyword} Now`,             // "Shop smart ring Now"
+      `Best ${keyword} Deals`,           // "Best smart ring Deals"
+      `${keyword} by ${brand}`,          // "smart ring by Ringconn"
+      `Get ${keyword} Today`,            // "Get smart ring Today"
     ]
 
     // 选择一个不超过30字符的模板
