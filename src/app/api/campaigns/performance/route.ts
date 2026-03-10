@@ -691,9 +691,16 @@ export async function GET(request: NextRequest) {
       start: string
       end: string
     }): Promise<Agg> => {
-      const row = await db.queryOne<any>(
+      // 🔧 修复(2026-03-11): 多货币时需要按货币分组，转换为USD后再相加
+      const rows = await db.query<{
+        currency: string | null
+        impressions: number | null
+        clicks: number | null
+        cost: number | null
+      }>(
         `
           SELECT
+            currency,
             COALESCE(SUM(impressions), 0) as impressions,
             COALESCE(SUM(clicks), 0) as clicks,
             COALESCE(SUM(cost), 0) as cost
@@ -701,14 +708,28 @@ export async function GET(request: NextRequest) {
           WHERE user_id = ?
             AND date >= ?
             AND date <= ?
+          GROUP BY currency
         `,
         [userId, params.start, params.end]
       )
 
+      let totalImpressions = 0
+      let totalClicks = 0
+      let totalCostUsd = 0
+
+      for (const row of rows) {
+        totalImpressions += Number(row.impressions) || 0
+        totalClicks += Number(row.clicks) || 0
+        const cost = Number(row.cost) || 0
+        const currency = normalizeCurrency(row.currency)
+        // 将每个货币的花费转换为USD
+        totalCostUsd += convertToBase(cost, currency)
+      }
+
       return {
-        impressions: Number(row?.impressions) || 0,
-        clicks: Number(row?.clicks) || 0,
-        cost: Number(row?.cost) || 0,
+        impressions: totalImpressions,
+        clicks: totalClicks,
+        cost: totalCostUsd,
       }
     }
 

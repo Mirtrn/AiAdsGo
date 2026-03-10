@@ -5,6 +5,7 @@ import { apiCache, generateCacheKey } from '@/lib/api-cache'
 import { withPerformanceMonitoring } from '@/lib/api-performance'
 import { buildAffiliateUnattributedFailureFilter } from '@/lib/openclaw/affiliate-attribution-failures'
 import { isPerformanceReleaseEnabled } from '@/lib/feature-flags'
+import { convertCurrency } from '@/lib/currency'
 
 /**
  * KPI数据响应
@@ -344,7 +345,23 @@ const getHandler = withPerformanceMonitoring<any>(async (request: NextRequest) =
 
       const totalImpressions = currentData.reduce((sum, row) => sum + (Number(row?.impressions) || 0), 0)
       const totalClicks = currentData.reduce((sum, row) => sum + (Number(row?.clicks) || 0), 0)
-      const totalCost = currentData.reduce((sum, row) => sum + (Number(row?.cost) || 0), 0)
+
+      // 🔧 修复(2026-03-11): 多货币时需要先转换为USD再相加
+      const totalCost = isMultiCurrency
+        ? currentData.reduce((sum, row) => {
+            const cost = Number(row?.cost) || 0
+            const currency = row?.currency || 'USD'
+            try {
+              // 将每个货币的花费转换为USD
+              const costInUSD = convertCurrency(cost, currency, 'USD')
+              return sum + costInUSD
+            } catch (error) {
+              console.warn(`货币转换失败: ${currency} -> USD, 使用原值`, error)
+              return sum + cost
+            }
+          }, 0)
+        : currentData.reduce((sum, row) => sum + (Number(row?.cost) || 0), 0)
+
       const totalCommission = currentAttributedCommissionTotal + currentUnattributedCommissionTotal
 
       const current = {

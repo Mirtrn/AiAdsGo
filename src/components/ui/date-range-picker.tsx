@@ -150,7 +150,7 @@ export function DateRangePicker({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent className="w-auto p-0 z-[100]" align="start">
           <div className="flex">
             {showPresets && (
               <div className="flex flex-col gap-1 border-r p-3 pr-4">
