@@ -911,7 +911,16 @@ export function filterKeywordQuality(
     const isPlannerSource = typeof kw.source === 'string' && kw.source.toUpperCase().startsWith('KEYWORD_PLANNER')
     const allowPlannerNonBrand = allowNonBrandFromPlanner && isPlannerSource
 
+    // 🆕 高性能搜索词豁免：基于真实表现数据，跳过质量过滤
+    const isHighPerformingSearchTerm = typeof kw.source === 'string' && kw.source === 'SEARCH_TERM_HIGH_PERFORMING'
+
     let removeReason: string | null = null
+
+    // 🔥 高性能搜索词豁免所有过滤规则（已被真实数据验证）
+    if (isHighPerformingSearchTerm) {
+      filtered.push(kw)
+      continue
+    }
 
     // 🔧 修复(2026-01-21): 过滤搜索量为0且来源为CLUSTERED的关键词
     // 这些是模板化生成的关键词，没有真实搜索���
