@@ -68,8 +68,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<R
       platform,
       strategy: body?.strategy,
     })
-    // 默认从头跑，避免手动全量误续跑历史失败游标（例如旧 run 卡在坏页）。
-    const resumeFailedRun = parseBooleanFlag(body?.resumeFailedRun, false)
+    // 默认启用续跑，提升用户体验，避免重复从0开始
+    // 用户可通过 resumeFailedRun: false 强制从头开始
+    const resumeFailedRun = parseBooleanFlag(body?.resumeFailedRun, true)
 
     const configCheck = await checkAffiliatePlatformConfig(userId, platform)
     if (!configCheck.configured) {

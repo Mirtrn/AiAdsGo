@@ -271,6 +271,14 @@ export class AffiliateProductSyncScheduler {
       return false
     }
 
+    // ✅ 新增：检查YP登录态是否有效，避免调度无效任务
+    const { getYeahPromosSessionState } = await import('@/lib/yeahpromos-session')
+    const ypSession = await getYeahPromosSessionState(userId)
+    if (!ypSession.hasSession) {
+      // 登录态缺失或过期，跳过调度
+      return false
+    }
+
     const ypHasActiveRun = await this.hasActiveSyncRun(userId, 'yeahpromos')
     if (ypHasActiveRun) {
       return false

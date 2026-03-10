@@ -34,7 +34,7 @@ export type ZombieTaskDetectionResult = {
 }
 
 const MAX_RUNNING_HOURS = 48 // 超过48小时视为异常
-const MAX_HEARTBEAT_GAP_HOURS = 2 // 心跳超过2小时未更新视为异常
+const MAX_HEARTBEAT_GAP_HOURS = 0.5 // 心跳超过30分钟未更新视为异常（YP登录态失效通常立即体现）
 
 /**
  * 检测并修复僵尸同步任务
@@ -122,6 +122,10 @@ export async function detectAndFixZombieSyncTasks(options: {
         shouldMarkAsFailed = !shouldMarkAsCompleted
       } else if (task.hours_since_heartbeat && task.hours_since_heartbeat > MAX_HEARTBEAT_GAP_HOURS) {
         reason = `心跳超时：最后心跳距今${task.hours_since_heartbeat.toFixed(1)}小时（完成度${completionRate}%）`
+        // YP平台心跳超时很可能是登录态失效导致
+        if (task.platform === 'yeahpromos') {
+          reason += ' - 可能是YP登录态失效，请重新采集登录态后再试'
+        }
         shouldMarkAsFailed = true
       }
 
