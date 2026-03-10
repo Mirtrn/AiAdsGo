@@ -296,8 +296,140 @@ export function classifySearchTermFeedbackTerms(
 }
 
 /**
+ * 🆕 阶段1: 获取用户品牌级别高性能搜索词
+ * 从同一用户的其他 Offer（同品牌）中获取高性能搜索词
+ */
+async function getUserBrandLevelHighPerformingTerms(params: {
+  userId: number
+  brandName: string
+  excludeOfferId: number
+  targetCountry?: string
+  lookbackDays?: number
+  maxTerms?: number
+}): Promise<string[]> {
+  const db = await getDatabase()
+  const lookbackDays = Math.max(3, Math.min(60, params.lookbackDays ?? DEFAULT_LOOKBACK_DAYS))
+  const maxTerms = Math.max(5, Math.min(20, params.maxTerms ?? 10))
+
+  const isDeletedCondition = db.type === 'postgres' ? 'COALESCE(c.is_deleted, FALSE) = FALSE' : 'COALESCE(c.is_deleted, 0) = 0'
+  const dateExpr = `date('now', '-${lookbackDays} days')`
+
+  const rows = await db.query<SearchTermFeedbackAggregateRow>(
+    `SELECT
+       str.search_term,
+       SUM(str.impressions) AS impressions,
+       SUM(str.clicks) AS clicks,
+       SUM(str.cost) AS cost,
+       SUM(str.conversions) AS conversions,
+       SUM(str.conversion_value) AS conversion_value
+     FROM search_term_reports str
+     JOIN campaigns c ON c.id = str.campaign_id
+     JOIN offers o ON o.id = c.offer_id
+     WHERE str.user_id = ?
+       AND o.brand = ?
+       AND o.id != ?
+       AND o.target_country = COALESCE(?, o.target_country)
+       AND ${isDeletedCondition}
+       AND str.date >= ${dateExpr}
+     GROUP BY str.search_term
+     HAVING SUM(str.clicks) >= ${HIGH_PERFORMING_MIN_CLICKS}
+     ORDER BY SUM(str.clicks) DESC`,
+    [params.userId, params.brandName, params.excludeOfferId, params.targetCountry || null]
+  )
+
+  const terms: string[] = []
+  for (const row of rows) {
+    const term = sanitizeSearchTerm(row.search_term)
+    if (!isUsableSearchTerm(term)) continue
+
+    const impressions = Number(row.impressions || 0)
+    const clicks = Number(row.clicks || 0)
+    const conversions = Number(row.conversions || 0)
+    const ctr = impressions > 0 ? clicks / impressions : 0
+    const conversionRate = clicks > 0 ? conversions / clicks : 0
+
+    const highByCtr = clicks >= HIGH_PERFORMING_MIN_CLICKS && ctr >= HIGH_PERFORMING_MIN_CTR
+    const highByConversion = conversions >= HIGH_PERFORMING_MIN_CONVERSIONS && conversionRate >= HIGH_PERFORMING_MIN_CONVERSION_RATE
+
+    if (highByCtr || highByConversion) {
+      terms.push(term)
+      if (terms.length >= maxTerms) break
+    }
+  }
+
+  return terms
+}
+
+/**
+ * 🆕 阶段2: 获取全局品牌级别高性能搜索词
+ * 从所有用户的同品牌 Offer 中聚合高性能搜索词（k-匿名性保护）
+ */
+async function getGlobalBrandLevelHighPerformingTerms(params: {
+  brandName: string
+  targetCountry?: string
+  lookbackDays?: number
+  maxTerms?: number
+  minUsers?: number
+}): Promise<Array<{
+  term: string
+  userCount: number
+  avgCtr: number
+  totalClicks: number
+}>> {
+  const db = await getDatabase()
+  const lookbackDays = Math.max(3, Math.min(60, params.lookbackDays ?? DEFAULT_LOOKBACK_DAYS))
+  const maxTerms = Math.max(5, Math.min(20, params.maxTerms ?? 10))
+  const minUsers = Math.max(2, params.minUsers ?? 2) // k-匿名性：至少2个用户
+
+  const isDeletedCondition = db.type === 'postgres' ? 'COALESCE(c.is_deleted, FALSE) = FALSE' : 'COALESCE(c.is_deleted, 0) = 0'
+  const dateExpr = `date('now', '-${lookbackDays} days')`
+
+  // 聚合查询：计算平均 CTR 和用户数
+  const avgCtrExpr = db.type === 'postgres'
+    ? 'AVG(str.clicks::float / NULLIF(str.impressions, 0))'
+    : 'AVG(CAST(str.clicks AS REAL) / NULLIF(str.impressions, 0))'
+
+  const rows = await db.query<{
+    search_term: string
+    user_count: number
+    avg_ctr: number
+    total_clicks: number
+    total_conversions: number
+  }>(
+    `SELECT
+       str.search_term,
+       COUNT(DISTINCT str.user_id) AS user_count,
+       ${avgCtrExpr} AS avg_ctr,
+       SUM(str.clicks) AS total_clicks,
+       SUM(str.conversions) AS total_conversions
+     FROM search_term_reports str
+     JOIN campaigns c ON c.id = str.campaign_id
+     JOIN offers o ON o.id = c.offer_id
+     WHERE o.brand = ?
+       AND o.target_country = COALESCE(?, o.target_country)
+       AND ${isDeletedCondition}
+       AND str.date >= ${dateExpr}
+     GROUP BY str.search_term
+     HAVING COUNT(DISTINCT str.user_id) >= ?
+       AND SUM(str.clicks) >= 15
+       AND ${avgCtrExpr} >= ${HIGH_PERFORMING_MIN_CTR}
+     ORDER BY user_count DESC, avg_ctr DESC
+     LIMIT ?`,
+    [params.brandName, params.targetCountry || null, minUsers, maxTerms]
+  )
+
+  return rows.map(row => ({
+    term: sanitizeSearchTerm(row.search_term),
+    userCount: Number(row.user_count || 0),
+    avgCtr: Number(row.avg_ctr || 0),
+    totalClicks: Number(row.total_clicks || 0)
+  })).filter(item => isUsableSearchTerm(item.term))
+}
+
+/**
  * Build search term feedback hints from search term reports.
  * 🆕 Now includes high-performing terms for positive reinforcement.
+ * 🆕 阶段1+2: 分层回退策略（Offer → 用户品牌 → 全局品牌）
  * - hardNegativeTerms: clear spend waste by clicks/cost + poor efficiency (CPC/CTR)
  * - softSuppressTerms: moderate inefficiency that should be deprioritized in copy
  * - highPerformingTerms: strong CTR/conversion signals for keyword expansion
@@ -315,6 +447,16 @@ export async function getSearchTermFeedbackHints(params: {
   const isDeletedCondition = db.type === 'postgres' ? 'COALESCE(c.is_deleted, FALSE) = FALSE' : 'COALESCE(c.is_deleted, 0) = 0'
   const dateExpr = `date('now', '-${lookbackDays} days')`
 
+  // 获取 Offer 信息（用于品牌级别回退）
+  const offer = await db.queryOne<{ brand: string; target_country: string }>(
+    'SELECT brand, target_country FROM offers WHERE id = ? AND user_id = ?',
+    [params.offerId, params.userId]
+  )
+
+  if (!offer) {
+    throw new Error(`Offer ${params.offerId} not found for user ${params.userId}`)
+  }
+
   const currencyRows = await db.query<CurrencyAggregateRow>(
     `SELECT
        COALESCE(gaa.currency, 'USD') AS currency,
@@ -330,6 +472,7 @@ export async function getSearchTermFeedbackHints(params: {
   )
   const dominantCurrency = String(currencyRows[0]?.currency || 'USD').trim().toUpperCase()
 
+  // 🎯 阶段1: Offer 级别数据（最精准）
   const rows = await db.query<SearchTermFeedbackAggregateRow>(
     `SELECT
        str.search_term,
@@ -354,10 +497,76 @@ export async function getSearchTermFeedbackHints(params: {
     maxTerms
   })
 
+  let highPerformingTerms = classified.highPerformingTerms
+  const offerLevelCount = highPerformingTerms.length
+
+  // 🎯 阶段2: 用户品牌级别回退（同用户其他 Offer）
+  if (highPerformingTerms.length < 5) {
+    try {
+      const userBrandTerms = await getUserBrandLevelHighPerformingTerms({
+        userId: params.userId,
+        brandName: offer.brand,
+        excludeOfferId: params.offerId,
+        targetCountry: offer.target_country,
+        lookbackDays,
+        maxTerms: 10
+      })
+
+      // 去重并合并
+      const existingTerms = new Set(highPerformingTerms.map(t => t.toLowerCase()))
+      const newTerms = userBrandTerms.filter(t => !existingTerms.has(t.toLowerCase()))
+      highPerformingTerms = [...highPerformingTerms, ...newTerms].slice(0, maxTerms)
+
+      if (newTerms.length > 0) {
+        console.log(`🔄 用户品牌级别回退: 添加 ${newTerms.length} 个高性能词 (来自同用户其他 Offer)`)
+      }
+    } catch (error) {
+      console.warn('⚠️ 用户品牌级别回退失败:', error)
+    }
+  }
+
+  const userBrandLevelCount = highPerformingTerms.length - offerLevelCount
+
+  // 🎯 阶段3: 全局品牌级别回退（所有用户聚合）
+  if (highPerformingTerms.length < 5) {
+    try {
+      const globalBrandTerms = await getGlobalBrandLevelHighPerformingTerms({
+        brandName: offer.brand,
+        targetCountry: offer.target_country,
+        lookbackDays,
+        maxTerms: 10,
+        minUsers: 2 // k-匿名性：至少2个用户
+      })
+
+      // 去重并合并
+      const existingTerms = new Set(highPerformingTerms.map(t => t.toLowerCase()))
+      const newTerms = globalBrandTerms
+        .filter(item => !existingTerms.has(item.term.toLowerCase()))
+        .map(item => item.term)
+
+      highPerformingTerms = [...highPerformingTerms, ...newTerms].slice(0, maxTerms)
+
+      if (newTerms.length > 0) {
+        console.log(`🌍 全局品牌级别回退: 添加 ${newTerms.length} 个高性能词 (来自 ${globalBrandTerms[0]?.userCount || 0}+ 用户验证)`)
+      }
+    } catch (error) {
+      console.warn('⚠️ 全局品牌级别回退失败:', error)
+    }
+  }
+
+  const globalBrandLevelCount = highPerformingTerms.length - offerLevelCount - userBrandLevelCount
+
+  // 输出统计信息
+  console.log(`📊 高性能搜索词来源统计:`)
+  console.log(`   - Offer 级别: ${offerLevelCount} 个`)
+  console.log(`   - 用户品牌级别: ${userBrandLevelCount} 个`)
+  console.log(`   - 全局品牌级别: ${globalBrandLevelCount} 个`)
+  console.log(`   - 总计: ${highPerformingTerms.length} 个`)
+
   return {
     hardNegativeTerms: classified.hardNegativeTerms,
     softSuppressTerms: classified.softSuppressTerms,
-    highPerformingTerms: classified.highPerformingTerms,
+    highPerformingTerms,
     lookbackDays,
     sourceRows: classified.sourceRows
   }
