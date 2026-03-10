@@ -207,6 +207,7 @@ export async function POST(
     let searchTermFeedbackHints: {
       hardNegativeTerms?: string[]
       softSuppressTerms?: string[]
+      highPerformingTerms?: string[]
     } | undefined
 
     try {
@@ -216,10 +217,11 @@ export async function POST(
       })
       searchTermFeedbackHints = {
         hardNegativeTerms: hints.hardNegativeTerms,
-        softSuppressTerms: hints.softSuppressTerms
+        softSuppressTerms: hints.softSuppressTerms,
+        highPerformingTerms: hints.highPerformingTerms
       }
       console.log(
-        `🔁 搜索词反馈已加载: hard=${hints.hardNegativeTerms.length}, soft=${hints.softSuppressTerms.length}, rows=${hints.sourceRows}`
+        `🔁 搜索词反馈已加载: high=${hints.highPerformingTerms.length}, hard=${hints.hardNegativeTerms.length}, soft=${hints.softSuppressTerms.length}, rows=${hints.sourceRows}`
       )
     } catch (hintError: any) {
       console.warn(`⚠️ 搜索词反馈读取失败，继续默认生成: ${hintError?.message || 'unknown error'}`)

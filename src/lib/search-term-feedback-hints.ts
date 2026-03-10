@@ -3,6 +3,7 @@ import { getDatabase } from './db'
 export interface SearchTermFeedbackHints {
   hardNegativeTerms: string[]
   softSuppressTerms: string[]
+  highPerformingTerms: string[]
   lookbackDays: number
   sourceRows: number
 }
@@ -12,11 +13,14 @@ export interface SearchTermFeedbackAggregateRow {
   impressions: number
   clicks: number
   cost: number
+  conversions?: number
+  conversion_value?: number
 }
 
 export interface SearchTermFeedbackClassifyResult {
   hardNegativeTerms: string[]
   softSuppressTerms: string[]
+  highPerformingTerms: string[]
   sourceRows: number
 }
 
@@ -41,6 +45,8 @@ interface AdaptiveThresholds {
 
 const DEFAULT_LOOKBACK_DAYS = 14
 const DEFAULT_MAX_TERMS = 24
+
+// 负向反馈阈值
 const HARD_MIN_CLICKS = 10
 const HARD_MIN_IMPRESSIONS_FOR_CTR = 400
 const HARD_MAX_CTR = 0.012 // 1.2%
@@ -48,6 +54,12 @@ const HARD_MAX_CTR = 0.012 // 1.2%
 const SOFT_MIN_CLICKS = 6
 const SOFT_MIN_IMPRESSIONS_FOR_CTR = 250
 const SOFT_MAX_CTR = 0.018 // 1.8%
+
+// 🆕 正向反馈阈值
+const HIGH_PERFORMING_MIN_CLICKS = 5
+const HIGH_PERFORMING_MIN_CTR = 0.03 // 3%
+const HIGH_PERFORMING_MIN_CONVERSIONS = 2
+const HIGH_PERFORMING_MIN_CONVERSION_RATE = 0.05 // 5%
 
 const DEFAULT_FALLBACK_CPC_BY_CURRENCY: Record<string, number> = {
   USD: 0.9,
@@ -213,6 +225,7 @@ export function classifySearchTermFeedbackTerms(
 
   const hardNegativeTerms: string[] = []
   const softSuppressTerms: string[] = []
+  const highPerformingTerms: string[] = []
 
   for (const row of rows) {
     const term = sanitizeSearchTerm(row.search_term)
@@ -221,8 +234,23 @@ export function classifySearchTermFeedbackTerms(
     const impressions = Number(row.impressions || 0)
     const clicks = Number(row.clicks || 0)
     const cost = Number(row.cost || 0)
+    const conversions = Number(row.conversions || 0)
     const cpc = clicks > 0 ? cost / clicks : 0
     const ctr = impressions > 0 ? clicks / impressions : 0
+    const conversionRate = clicks > 0 ? conversions / clicks : 0
+
+    // 🆕 High performing: strong CTR and conversion signals
+    const highByCtr =
+      clicks >= HIGH_PERFORMING_MIN_CLICKS &&
+      ctr >= HIGH_PERFORMING_MIN_CTR
+    const highByConversion =
+      conversions >= HIGH_PERFORMING_MIN_CONVERSIONS &&
+      conversionRate >= HIGH_PERFORMING_MIN_CONVERSION_RATE
+
+    if (highByCtr || highByConversion) {
+      highPerformingTerms.push(term)
+      continue // Skip negative classification for high performers
+    }
 
     // Hard negative: high spend/click volume with clearly weak efficiency signal.
     const hardByCpc =
@@ -257,20 +285,22 @@ export function classifySearchTermFeedbackTerms(
   const soft = dedupe(softSuppressTerms)
     .filter(term => !hard.includes(term))
     .slice(0, maxTerms)
+  const high = dedupe(highPerformingTerms).slice(0, maxTerms)
 
   return {
     hardNegativeTerms: hard,
     softSuppressTerms: soft,
+    highPerformingTerms: high,
     sourceRows: rows.length
   }
 }
 
 /**
- * Build lightweight hard/soft suppression hints from search term reports.
- * This module intentionally does NOT depend on conversions signal, because some
- * accounts run with missing/always-zero conversion tracking.
+ * Build search term feedback hints from search term reports.
+ * 🆕 Now includes high-performing terms for positive reinforcement.
  * - hardNegativeTerms: clear spend waste by clicks/cost + poor efficiency (CPC/CTR)
  * - softSuppressTerms: moderate inefficiency that should be deprioritized in copy
+ * - highPerformingTerms: strong CTR/conversion signals for keyword expansion
  */
 export async function getSearchTermFeedbackHints(params: {
   offerId: number
@@ -305,7 +335,9 @@ export async function getSearchTermFeedbackHints(params: {
        str.search_term,
        SUM(str.impressions) AS impressions,
        SUM(str.clicks) AS clicks,
-       SUM(str.cost) AS cost
+       SUM(str.cost) AS cost,
+       SUM(str.conversions) AS conversions,
+       SUM(str.conversion_value) AS conversion_value
      FROM search_term_reports str
      JOIN campaigns c ON c.id = str.campaign_id
      WHERE str.user_id = ?
@@ -325,6 +357,7 @@ export async function getSearchTermFeedbackHints(params: {
   return {
     hardNegativeTerms: classified.hardNegativeTerms,
     softSuppressTerms: classified.softSuppressTerms,
+    highPerformingTerms: classified.highPerformingTerms,
     lookbackDays,
     sourceRows: classified.sourceRows
   }

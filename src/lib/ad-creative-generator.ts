@@ -82,6 +82,7 @@ export type RetryFailureType = 'evidence_fail' | 'intent_fail' | 'format_fail'
 export interface SearchTermFeedbackHintsInput {
   hardNegativeTerms?: string[]
   softSuppressTerms?: string[]
+  highPerformingTerms?: string[]
 }
 
 interface PromptRuntimeGuidanceOptions {
@@ -1095,29 +1096,34 @@ function buildRetryFailureGuidanceSection(retryFailureType?: RetryFailureType): 
 
 function buildSearchTermFeedbackGuidanceSection(
   hints?: SearchTermFeedbackHintsInput
-): { hardTerms: string[]; softTerms: string[]; section: string } {
+): { hardTerms: string[]; softTerms: string[]; highTerms: string[]; section: string } {
   const hardTerms = normalizeSearchTermHintsTerms(hints?.hardNegativeTerms, 12)
   const softTerms = normalizeSearchTermHintsTerms(hints?.softSuppressTerms, 12)
+  const highTerms = normalizeSearchTermHintsTerms(hints?.highPerformingTerms, 12)
 
-  if (hardTerms.length === 0 && softTerms.length === 0) {
-    return { hardTerms, softTerms, section: '' }
+  if (hardTerms.length === 0 && softTerms.length === 0 && highTerms.length === 0) {
+    return { hardTerms, softTerms, highTerms, section: '' }
   }
 
   const lines: string[] = [
     '## 🔁 SEARCH-TERM FEEDBACK (RECENT PERFORMANCE)',
-    '- Use this feedback only to improve relevance; do not change business positioning.'
+    '- Use this feedback to improve relevance and keyword selection.'
   ]
 
+  if (highTerms.length > 0) {
+    lines.push(`- ✅ HIGH-PERFORMING TERMS: ${highTerms.join(', ')} (prioritize these themes and related keywords).`)
+  }
   if (hardTerms.length > 0) {
-    lines.push(`- HARD EXCLUDE TERMS: ${hardTerms.join(', ')} (do not use in copy or generated keywords).`)
+    lines.push(`- ❌ HARD EXCLUDE TERMS: ${hardTerms.join(', ')} (do not use in copy or generated keywords).`)
   }
   if (softTerms.length > 0) {
-    lines.push(`- SOFT SUPPRESS TERMS: ${softTerms.join(', ')} (deprioritize unless absolutely necessary).`)
+    lines.push(`- ⚠️ SOFT SUPPRESS TERMS: ${softTerms.join(', ')} (deprioritize unless absolutely necessary).`)
   }
 
   return {
     hardTerms,
     softTerms,
+    highTerms,
     section: lines.join('\n')
   }
 }
@@ -6906,9 +6912,21 @@ export async function generateAdCreative(
   }
   normalizedExtractedKeywords = policySafeExtractedKeywords.items
 
-  // 🆕 v4.10: 桶关键词优先，然后是增强关键词，最后是基础关键词
+  // 🆕 处理高性能搜索词（从实际广告表现中学习）
+  let searchTermKeywords: Array<{ keyword: string; searchVolume: number; source: string; priority: string }> = []
+  if (options?.searchTermFeedbackHints?.highPerformingTerms && options.searchTermFeedbackHints.highPerformingTerms.length > 0) {
+    searchTermKeywords = options.searchTermFeedbackHints.highPerformingTerms.map(term => ({
+      keyword: term,
+      searchVolume: 0, // 搜索词没有预估搜索量，但有真实表现数据
+      source: 'SEARCH_TERM_HIGH_PERFORMING',
+      priority: 'HIGH' // 高性能搜索词优先级高
+    }))
+    console.log(`🔍 添加 ${searchTermKeywords.length} 个高性能搜索词作为关键词候选`)
+  }
+
+  // 🆕 v4.10: 桶关键词优先，然后是高性能搜索词，增强关键词，最后是基础关键词
   // 🔥 优化(2025-12-22): 使用Google Ads标准化规则去重
-  let mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...normalizedExtractedKeywords]
+  let mergedKeywords = [...bucketKeywordsNormalized, ...searchTermKeywords, ...normalizedEnhancedKeywords, ...normalizedExtractedKeywords]
   const policySafeMergedKeywords = sanitizeKeywordObjectsForGoogleAdsPolicy(mergedKeywords, { mode: policyGuardMode })
   if (policySafeMergedKeywords.changedCount > 0 || policySafeMergedKeywords.droppedCount > 0) {
     console.log(
@@ -6922,8 +6940,9 @@ export async function generateAdCreative(
     mergedKeywords,
     kw => kw.keyword,
     kw => {
-      // 优先级：桶关键词 > 增强关键词 > 基础关键词
+      // 优先级：桶关键词 > 高性能搜索词 > 增强关键词 > 基础关键词
       if (kw.source === 'KEYWORD_POOL') return 100
+      if (kw.source === 'SEARCH_TERM_HIGH_PERFORMING') return 80
       if (kw.source === 'AI_ENHANCED') return 50
       return 10 // 'EXTRACTED' 或其他
     }
