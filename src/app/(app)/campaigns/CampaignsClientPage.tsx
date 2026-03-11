@@ -382,6 +382,9 @@ export default function CampaignsClientPage({
   const formatMoney = (value: number, currencyCode: string = defaultCurrency) =>
     formatCurrency(value, currencyCode)
   const trendsCurrencyValue = trendsBaseCurrency || defaultCurrency
+  const trendsOverviewDescription = `说明：花费按原币种堆叠，佣金/CPC/ROAS 按 ${trendsCurrencyValue} 统一折算`
+  const trafficTrendDescription = `左轴：展示，右轴：点击+佣金(${trendsCurrencyValue})`
+  const costTrendDescription = `左轴：花费(原币种)+佣金(${trendsCurrencyValue})，右轴：CPC/ROAS(${trendsCurrencyValue})`
   const formatTrendsMoney = (value: number) => formatCurrency(value, trendsCurrencyValue)
   const trafficTrendMetrics: TrendChartMetric[] = [
     { key: 'impressions', label: '展示', color: 'hsl(217, 91%, 60%)', yAxisId: 'left' },
@@ -2447,7 +2450,7 @@ export default function CampaignsClientPage({
             </div>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            花费按原币种堆叠展示，CPC/ROAS/佣金按 {trendsCurrencyValue} 统一折算。
+            {trendsOverviewDescription}
           </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
@@ -2457,7 +2460,7 @@ export default function CampaignsClientPage({
                 data={trendsData}
                 metrics={trafficTrendMetrics}
                 title="流量趋势"
-                description={`展示(左轴) / 点击(右轴) / 佣金统一折算(${trendsCurrencyValue})`}
+                description={trafficTrendDescription}
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={() => void fetchTrends()}
@@ -2486,7 +2489,7 @@ export default function CampaignsClientPage({
                 data={trendsData}
                 metrics={costTrendMetrics}
                 title="成本趋势"
-                description={`花费按原币种堆叠 + 佣金统一折算(${trendsCurrencyValue})(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
+                description={costTrendDescription}
                 loading={trendsLoading}
                 error={trendsError}
                 onRetry={() => void fetchTrends()}
@@ -3088,7 +3091,7 @@ export default function CampaignsClientPage({
               data={trendsData}
               metrics={trafficTrendMetrics}
               title="流量趋势"
-              description={`展示(左轴) / 点击(右轴) / 佣金统一折算(${trendsCurrencyValue})`}
+              description={trafficTrendDescription}
               loading={trendsLoading}
               error={trendsError}
               onRetry={() => void fetchTrends()}
@@ -3103,7 +3106,7 @@ export default function CampaignsClientPage({
               data={trendsData}
               metrics={costTrendMetrics}
               title="成本趋势"
-              description={`花费按原币种堆叠 + 佣金统一折算(${trendsCurrencyValue})(左轴) / CPC·ROAS统一折算(${trendsCurrencyValue})(右轴)`}
+              description={costTrendDescription}
               loading={trendsLoading}
               error={trendsError}
               onRetry={() => void fetchTrends()}
