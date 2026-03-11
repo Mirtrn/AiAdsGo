@@ -111,6 +111,86 @@ function getKeywordsFromExtractedElements(extractedElements: any): Array<{ keywo
 }
 
 /**
+ * 🎯 根据bucket类型构建intent策略指导
+ */
+function buildIntentStrategySection(
+  bucket: 'A' | 'B' | 'C' | 'D' | 'S' | undefined,
+  scenarioCount: number,
+  questionCount: number,
+  quantitativeCount: number
+): string {
+  if (!bucket) return ''
+
+  const bucketStrategies = {
+    A: {
+      name: '品牌/信任导向',
+      keywordRatio: 40,
+      intentRatio: 60,
+      focus: '信任证据、数据驱动、官方认证',
+      distribution: '40% 关键词密集型 + 30% 数据驱动 + 20% 问答式（解决信任顾虑） + 10% 品牌信任'
+    },
+    B: {
+      name: '场景+功能导向',
+      keywordRatio: 30,
+      intentRatio: 70,
+      focus: '场景痛点引入、功能解法、真实使用场景',
+      distribution: '30% 关键词密集型 + 40% 场景化 + 20% 问答式（痛点→解法） + 10% 数据驱动'
+    },
+    D: {
+      name: '转化/价值导向',
+      keywordRatio: 40,
+      intentRatio: 60,
+      focus: '可验证价值点、促销优惠、强CTA',
+      distribution: '40% 关键词密集型 + 30% 数据驱动（价值证明） + 20% 问答式（价值对比） + 10% 促销/CTA'
+    }
+  }
+
+  const strategy = bucketStrategies[bucket as 'A' | 'B' | 'D']
+  if (!strategy) return ''
+
+  return `
+## 🎯 Intent-Driven Strategy for Bucket ${bucket} (${strategy.name})
+
+**核心原则**: 关键词相关性 + 意图理解 = 最佳效果
+
+**Headline生成策略 (15个headlines分配)**:
+${strategy.distribution}
+
+**策略重点**: ${strategy.focus}
+
+**数据可用性**:
+- 用户场景: ${scenarioCount}个
+- 用户问题: ${questionCount}个
+- 量化数据: ${quantitativeCount}个
+
+**生成要求**:
+1. **关键词密集型 (${strategy.keywordRatio}%)**: 用于broad match和高流量搜索
+   - 必须包含核心关键词，用于宽泛搜索
+   - 例如: "Smart Watch Fitness Tracker GPS Heart Rate Monitor"
+
+2. **场景化/数据驱动/价值点 (${strategy.intentRatio}%)**: 基于真实评论数据
+   - 使用上述"用户真实场景"、"用户常问问题"、"量化数据亮点"
+   - 例如: "Perfect for Hiking: 3-Day Battery + GPS Tracking"
+   - 例如: "18-Hour Battery Life - Verified by 5000+ Reviews"
+
+3. **问答式headlines**: 回答用户具体问题或顾虑
+   - 基于"用户常问问题"和"用户痛点"
+   - 例如: "Worried About Battery? 72-Hour Runtime Guaranteed"
+   - ⚠️ 避免过多问号（Google Ads SYMBOLS政策），优先使用陈述句
+
+**Google Ads合规**:
+- 仍需遵守字符限制 (30/90)
+- 仍需evidence-only claims（只使用评论中验证的数据）
+- 避免SYMBOLS政策违规（问号不超过3个）
+
+**RSA优势**:
+- Google会根据搜索词自动选择最相关的headline组合
+- 宽泛搜索 → 展示关键词密集型headlines
+- 长尾/高意图搜索 → 展示场景化/问答式headlines
+`
+}
+
+/**
  * 🎯 构建完整的提示变量
  * 整合所有数据源
  */
@@ -163,6 +243,67 @@ async function buildPromptVariables(
   const extractedKeywords = getKeywordsFromExtractedElements(extractedElements)
   if (extractedKeywords.length > 0) {
     variables.extracted_keywords_section = `\n**从产品页面提取的关键词**:\n${extractedKeywords.map(k => k.keyword).join(', ')}\n`
+  }
+
+  // 🎯 Intent-driven optimization: 注入场景数据
+  try {
+    // 解析场景数据
+    const scenarios = offer.user_scenarios ? JSON.parse(offer.user_scenarios) : []
+    const painPoints = offer.pain_points ? JSON.parse(offer.pain_points) : []
+    const userQuestions = offer.user_questions ? JSON.parse(offer.user_questions) : []
+
+    // 解析review_analysis中的量化数据
+    let quantitativeHighlights: any[] = []
+    if (offer.review_analysis) {
+      try {
+        const reviewAnalysis = JSON.parse(offer.review_analysis)
+        quantitativeHighlights = reviewAnalysis.quantitativeHighlights || []
+      } catch (e) {
+        console.warn('[Prompt] 解析review_analysis失败:', e)
+      }
+    }
+
+    // 构建场景section
+    if (scenarios.length > 0) {
+      variables.user_scenarios_section = `\n## 📊 用户真实场景 (从评论中提取)\n\n${scenarios.map((s: any, i: number) =>
+        `${i+1}. **${s.scenario}** (提及频率: ${s.frequency}, 来源: ${s.source})`
+      ).join('\n')}\n\n**这些是真实用户在评论中提到的使用场景，优先级高于假设的关键词。**\n`
+      console.log(`[Prompt] 🎯 注入场景数据: ${scenarios.length}个场景`)
+    }
+
+    // 构建用户问题section
+    if (userQuestions.length > 0) {
+      const topQuestions = userQuestions.slice(0, 10)
+      variables.user_questions_section = `\n## ❓ 用户常问问题 (从评论和痛点提取)\n\n${topQuestions.map((q: any, i: number) =>
+        `${i+1}. ${q.question} (优先级: ${q.priority}, 类型: ${q.category})`
+      ).join('\n')}\n\n**这些问题来自真实用户评论，是高意图搜索的来源。**\n`
+      console.log(`[Prompt] 🎯 注入用户问题: ${topQuestions.length}个问题`)
+    }
+
+    // 构建痛点section
+    if (painPoints.length > 0) {
+      variables.pain_points_section = `\n## ⚠️ 用户痛点 (从评论中提取)\n\n${painPoints.map((p: string, i: number) => `${i+1}. ${p}`).join('\n')}\n`
+      console.log(`[Prompt] 🎯 注入痛点数据: ${painPoints.length}个痛点`)
+    }
+
+    // 构建量化数据section
+    if (quantitativeHighlights.length > 0) {
+      variables.quantitative_highlights_section = `\n## 📈 量化数据亮点 (评论中的具体数字)\n\n${quantitativeHighlights.map((h: any, i: number) =>
+        `${i+1}. ${h.metric}: ${h.value}${h.adCopy ? ` (广告文案: "${h.adCopy}")` : ''}`
+      ).join('\n')}\n\n**这些是用户在评论中提到的具体数字，可以直接用于headlines。**\n`
+      console.log(`[Prompt] 🎯 注入量化数据: ${quantitativeHighlights.length}个数据点`)
+    }
+
+    // 根据bucket类型构建intent策略section
+    const bucket = options.bucket
+    if (bucket && (scenarios.length > 0 || userQuestions.length > 0 || quantitativeHighlights.length > 0)) {
+      variables.intent_strategy_section = buildIntentStrategySection(bucket, scenarios.length, userQuestions.length, quantitativeHighlights.length)
+      console.log(`[Prompt] 🎯 应用Bucket ${bucket}的intent策略`)
+    }
+
+  } catch (error) {
+    console.warn('[Prompt] 解析场景数据失败（非致命）:', error)
+    // 降级：继续使用纯关键词模式
   }
 
   // TODO: 其他sections可以逐步添加

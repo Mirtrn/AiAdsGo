@@ -12,12 +12,13 @@ import { extractOffer } from '@/lib/offer-extraction-core'
 import { getDatabase } from '@/lib/db'
 import { executeAIAnalysis } from '@/lib/ai-analysis-service'
 import { getTargetLanguage, normalizeBrandName } from '@/lib/offer-utils'
-import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
+import { createOffer, updateOfferScrapeStatus, updateOffer } from '@/lib/offers'
 import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
 import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
 import { filterNavigationLabels } from '@/lib/scrape-text-filters'
 import { parsePrice } from '@/lib/pricing-utils'
 import { toDbJsonObjectField } from '@/lib/json-field'
+import { extractScenariosFromReviews } from '@/lib/scenario-extractor'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -637,6 +638,32 @@ export async function executeOfferExtraction(
           scraped_data: JSON.stringify(extractResult.data),
           page_type: pageTypeToPersist,
         })
+
+        // 🎯 Intent-driven optimization: Auto-extract scenarios from review_analysis
+        // Graceful degradation: If no review data, these fields remain null
+        if (aiAnalysisResult?.reviewAnalysis) {
+          try {
+            const reviewAnalysisJson = JSON.stringify(aiAnalysisResult.reviewAnalysis)
+            const extractedScenarios = extractScenariosFromReviews(reviewAnalysisJson)
+
+            // Only update if we extracted meaningful data
+            if (extractedScenarios.scenarios.length > 0 ||
+                extractedScenarios.painPoints.length > 0 ||
+                extractedScenarios.userQuestions.length > 0) {
+              await updateOffer(createdOfferId, task.user_id, {
+                user_scenarios: JSON.stringify(extractedScenarios.scenarios),
+                pain_points: JSON.stringify(extractedScenarios.painPoints),
+                user_questions: JSON.stringify(extractedScenarios.userQuestions),
+                scenario_analyzed_at: new Date().toISOString()
+              })
+              console.log(`✅ 场景数据已提取: offer_id=${createdOfferId}, scenarios=${extractedScenarios.scenarios.length}, questions=${extractedScenarios.userQuestions.length}`)
+            }
+          } catch (scenarioError: any) {
+            console.error(`⚠️ 场景提取失败（非致命）: ${scenarioError.message}`)
+            // Non-fatal: continue without scenario data (graceful degradation)
+          }
+        }
+
         console.log(`✅ AI分析结果已更新到Offer: offer_id=${createdOfferId}`)
       } catch (offerError: any) {
         console.error(`❌ 更新Offer AI分析结果失败: ${task.id}:`, offerError.message)

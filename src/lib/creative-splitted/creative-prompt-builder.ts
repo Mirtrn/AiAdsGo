@@ -95,6 +95,24 @@ export async function buildPrompt(
   let prompt = injectVariables(template, variables)
   console.log('[buildPrompt] 变量注入完成')
 
+  // 🎯 Intent-driven optimization: 注入场景数据sections
+  if (variables.user_scenarios_section) {
+    prompt += '\n' + variables.user_scenarios_section
+  }
+  if (variables.user_questions_section) {
+    prompt += '\n' + variables.user_questions_section
+  }
+  if (variables.pain_points_section) {
+    prompt += '\n' + variables.pain_points_section
+  }
+  if (variables.quantitative_highlights_section) {
+    prompt += '\n' + variables.quantitative_highlights_section
+  }
+  if (variables.intent_strategy_section) {
+    prompt += '\n' + variables.intent_strategy_section
+    console.log('[buildPrompt] 🎯 Intent-driven策略已注入')
+  }
+
   // 3. 添加多样性约束（批量生成时）
   if (options.excludeHeadlines && options.excludeHeadlines.length > 0) {
     const diversitySection = `

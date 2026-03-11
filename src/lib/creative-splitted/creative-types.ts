@@ -106,6 +106,12 @@ export interface PromptVariables {
   market_positioning: string
   tone_of_voice: string
   call_to_action: string
+  // 🎯 Intent-driven optimization fields
+  user_scenarios_section?: string
+  user_questions_section?: string
+  pain_points_section?: string
+  quantitative_highlights_section?: string
+  intent_strategy_section?: string
 }
 
 /**

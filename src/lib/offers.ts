@@ -50,6 +50,11 @@ export interface Offer {
   review_analysis: string | null
   competitor_analysis: string | null
   visual_analysis: string | null
+  // Intent-driven optimization: 从review_analysis自动提取的场景数据
+  user_scenarios: string | null  // JSON: [{scenario, frequency, keywords, source}]
+  pain_points: string | null     // JSON: [string]
+  user_questions: string | null  // JSON: [{question, priority, category}]
+  scenario_analyzed_at: string | null
   // 需求34: 广告元素提取结果字段
   extracted_keywords: string | null
   extracted_headlines: string | null
