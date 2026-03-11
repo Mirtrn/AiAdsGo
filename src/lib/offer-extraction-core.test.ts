@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/url-resolver-enhanced', () => ({
   resolveAffiliateLink: vi.fn(),
@@ -79,6 +79,10 @@ function createAmazonProductMock(overrides: Record<string, any> = {}) {
 }
 
 describe('extractOffer brand fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('falls back to domain brand when independent product scraping times out', async () => {
     const { extractOffer } = await import('@/lib/offer-extraction-core')
     const { resolveAffiliateLink } = await import('@/lib/url-resolver-enhanced')
@@ -188,5 +192,93 @@ describe('extractOffer brand fallback', () => {
       .toBe('https://www.amazon.com/dp/B09RF5MPGK?maas=abc&aa_campaignid=123')
     expect(vi.mocked(scrapeAmazonProduct).mock.calls[1]?.[0])
       .toBe('https://www.amazon.com/dp/B09RF5MPGK')
+  })
+
+  it('falls back to Playwright for independent products when light scrape richness is insufficient', async () => {
+    const { extractOffer } = await import('@/lib/offer-extraction-core')
+    const { resolveAffiliateLink } = await import('@/lib/url-resolver-enhanced')
+    const { extractProductInfo } = await import('@/lib/scraper')
+    const { scrapeIndependentProduct } = await import('@/lib/stealth-scraper')
+    const { getProxyUrlForCountry } = await import('@/lib/settings')
+
+    vi.mocked(getProxyUrlForCountry).mockResolvedValue('https://proxy-provider.example/api?cc=US')
+    vi.mocked(resolveAffiliateLink).mockResolvedValue({
+      finalUrl: 'https://handwovenlamp.com/products/rattan-pendant-light-wabi-sabi-style-retro-dining-room-chandelier',
+      finalUrlSuffix: 'source_type=sales_plugin_af',
+      brand: null,
+      redirectCount: 1,
+      redirectChain: ['https://handwovenlamp.com/products/slug?source_type=sales_plugin_af'],
+      pageTitle: 'Rattan Pendant Light Wabi Sabi Style Retro Dining Room Chandelier',
+      statusCode: 200,
+      resolveMethod: 'playwright',
+      proxyUsed: 'US',
+    })
+
+    vi.mocked(extractProductInfo).mockResolvedValue({
+      productName: 'Rattan Pendant Light Wabi Sabi Style Retro Dining Room Chandelier',
+      rawProductTitle: 'Rattan Pendant Light Wabi Sabi Style Retro Dining Room Chandelier',
+      rawAboutThisItem: [],
+      productDescription: 'This round pendant light is made of natural rattan and wood.',
+      productPrice: '$329.99 USD',
+      productCategory: null,
+      productFeatures: [],
+      brandName: 'handwovenlamp',
+      imageUrls: [],
+      metaTitle: null,
+      metaDescription: null,
+    })
+
+    vi.mocked(scrapeIndependentProduct).mockResolvedValue({
+      productName: 'Rattan Pendant Light Wabi Sabi Style Retro Dining Room Chandelier',
+      rawProductTitle: 'Rattan Pendant Light Wabi Sabi Style Retro Dining Room Chandelier',
+      rawAboutThisItem: ['Brand: Handwovenlamp', 'Material: Rattan, Wood'],
+      productDescription: 'This round pendant light is made of natural rattan and wood.',
+      productPrice: '$329.99 USD',
+      originalPrice: null,
+      discount: null,
+      brandName: 'Handwovenlamp',
+      features: ['Hand-woven rattan body', 'Adjustable cord length'],
+      imageUrls: ['https://img.example.com/1.jpg'],
+      technicalDetails: { Material: 'Rattan, Wood', Certification: 'UL' },
+      category: 'Pendant Light',
+      rating: '5',
+      reviewCount: '42',
+      availability: 'In Stock',
+      reviews: ['Amazing shades!!!! Seller was super helpful and items arrived looking just like the photo!'],
+      reviewHighlights: ['RECOMMEND!: Amazing shades!!!! Seller was super helpful and items arrived looking just like the photo!'],
+      topReviews: ['RECOMMEND!: Amazing shades!!!! Seller was super helpful and items arrived looking just like the photo!'],
+      structuredReviews: [{
+        rating: 5,
+        date: '2025-08-07',
+        author: 'Patricia Adrian-Hanson',
+        title: 'RECOMMEND!',
+        body: 'Amazing shades!!!! Seller was super helpful and items arrived looking just like the photo!',
+        verifiedBuyer: false,
+      }],
+      qaPairs: [{
+        question: 'Is the 80CM able to be mounted with a slanted ceiling?',
+        answer: 'Yes, it can be installed on slanted ceilings. Hope it helps you!',
+      }],
+      socialProof: [
+        { metric: 'rating', value: '5' },
+        { metric: 'reviews', value: '42' },
+      ],
+      coreFeatures: ['Hand-woven rattan body'],
+      secondaryFeatures: ['Adjustable cord length'],
+    })
+
+    const result = await extractOffer({
+      affiliateLink: 'https://handwovenlamp.com/products/slug?source_type=sales_plugin_af',
+      targetCountry: 'US',
+      userId: 1,
+      skipWarmup: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(vi.mocked(scrapeIndependentProduct)).toHaveBeenCalledTimes(1)
+    expect(result.data?.reviewCount).toBe('42')
+    expect(result.data?.topReviews?.[0]).toContain('Amazing shades')
+    expect(result.data?.reviews?.[0]?.author).toBe('Patricia Adrian-Hanson')
+    expect(result.data?.specifications).toEqual({ Material: 'Rattan, Wood', Certification: 'UL' })
   })
 })

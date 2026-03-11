@@ -116,6 +116,129 @@ function normalizeBrandToken(token: string): string {
     .trim()
 }
 
+type CommentApiSummary = {
+  total?: number
+  score?: number
+}
+
+type CommentApiReviewItem = {
+  title?: string | null
+  content?: string | null
+  nickname?: string | null
+  score?: number | null
+  time?: number | null
+  imageList?: string[] | null
+}
+
+type CommentApiMessageItem = {
+  content?: string | null
+  replyList?: Array<{ content?: string | null }>
+}
+
+type CapturedCommentApiData = {
+  summary?: CommentApiSummary
+  reviewList?: CommentApiReviewItem[]
+  messageList?: CommentApiMessageItem[]
+}
+
+function normalizeCommentApiResponse(payload: any): any | null {
+  if (!payload || typeof payload !== 'object') return null
+  return payload?.data && typeof payload.data === 'object' ? payload.data : payload
+}
+
+function buildCommentApiReviewHighlights(reviews: CommentApiReviewItem[]): string[] {
+  const highlights: string[] = []
+  for (const review of reviews) {
+    const title = cleanText(review.title || '')
+    const content = cleanText(review.content || '')
+    const line = title && content ? `${title}: ${content}` : (title || content)
+    if (!line || line.length < 12) continue
+    if (!highlights.includes(line)) highlights.push(line)
+    if (highlights.length >= 5) break
+  }
+  return highlights
+}
+
+function mergeCapturedCommentApiData(
+  productData: IndependentProductData,
+  captured: CapturedCommentApiData
+): IndependentProductData {
+  const summary = captured.summary
+  const reviewList = Array.isArray(captured.reviewList) ? captured.reviewList : []
+  const messageList = Array.isArray(captured.messageList) ? captured.messageList : []
+
+  const structuredReviews = reviewList
+    .map((item) => {
+      const body = cleanText(item.content || '')
+      const title = cleanText(item.title || '')
+      const author = cleanText(item.nickname || '')
+      const rating = Number(item.score || 0)
+      if (!body && !title) return null
+      return {
+        rating: Number.isFinite(rating) && rating > 0 ? rating : 0,
+        date: typeof item.time === 'number' && Number.isFinite(item.time)
+          ? new Date(item.time).toISOString().slice(0, 10)
+          : '',
+        author: author || 'Anonymous',
+        title,
+        body,
+        verifiedBuyer: false,
+        images: Array.isArray(item.imageList) ? item.imageList.filter(Boolean) : undefined,
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => !!item && (item.body.length > 0 || item.title.length > 0))
+
+  const reviewTexts = structuredReviews
+    .map((review) => cleanText(review.body || review.title || ''))
+    .filter(Boolean)
+
+  const topReviews = structuredReviews
+    .map((review) => {
+      const body = cleanText(review.body)
+      const title = cleanText(review.title)
+      return title && body ? `${title}: ${body}` : (title || body)
+    })
+    .filter(Boolean)
+    .slice(0, 10)
+
+  const qaPairs = messageList
+    .map((item) => {
+      const question = cleanText(item.content || '')
+      const answer = cleanText(item.replyList?.[0]?.content || '')
+      if (!question || !answer) return null
+      return { question, answer }
+    })
+    .filter((item): item is NonNullable<typeof item> => !!item)
+    .slice(0, 10)
+
+  const socialProof = [...(productData.socialProof || [])]
+  if (typeof summary?.score === 'number' && Number.isFinite(summary.score) && summary.score > 0) {
+    socialProof.push({ metric: 'rating', value: String(summary.score) })
+  }
+  if (typeof summary?.total === 'number' && Number.isFinite(summary.total) && summary.total > 0) {
+    socialProof.push({ metric: 'reviews', value: String(summary.total) })
+  }
+  if (qaPairs.length > 0) {
+    socialProof.push({ metric: 'questions', value: String(qaPairs.length) })
+  }
+
+  const reviewHighlights = buildCommentApiReviewHighlights(reviewList)
+
+  return {
+    ...productData,
+    rating: productData.rating || (typeof summary?.score === 'number' && summary.score > 0 ? String(summary.score) : null),
+    reviewCount: productData.reviewCount || (typeof summary?.total === 'number' && summary.total >= 0 ? String(summary.total) : null),
+    reviews: productData.reviews.length > 0 ? productData.reviews : reviewTexts.slice(0, 15),
+    topReviews: (productData.topReviews && productData.topReviews.length > 0) ? productData.topReviews : topReviews,
+    reviewHighlights: (productData.reviewHighlights && productData.reviewHighlights.length > 0)
+      ? productData.reviewHighlights
+      : reviewHighlights,
+    structuredReviews: structuredReviews.length > 0 ? structuredReviews : productData.structuredReviews,
+    qaPairs: qaPairs.length > 0 ? qaPairs : productData.qaPairs,
+    socialProof: socialProof.length > 0 ? socialProof : productData.socialProof,
+  }
+}
+
 /**
  * Scrape independent e-commerce store page
  * Extracts brand info and product listings for AI creative generation
@@ -450,6 +573,26 @@ export async function scrapeIndependentProduct(
         page = await browserResult.context.newPage()
         await configureStealthPage(page, targetCountry)
 
+        const capturedCommentApiData: CapturedCommentApiData = {}
+        page.on('response', async (res) => {
+          const resUrl = res.url()
+          if (!resUrl.includes('/api/gsv-comment-plugin/')) return
+
+          try {
+            const payload = normalizeCommentApiResponse(await res.json())
+            if (!payload) return
+            if (resUrl.includes('/comment/query/summary')) {
+              capturedCommentApiData.summary = payload as CommentApiSummary
+            } else if (resUrl.includes('/comment/query/list')) {
+              capturedCommentApiData.reviewList = Array.isArray(payload?.list) ? payload.list : []
+            } else if (resUrl.includes('/message/list')) {
+              capturedCommentApiData.messageList = Array.isArray(payload?.list) ? payload.list : []
+            }
+          } catch (responseError: any) {
+            console.warn(`⚠️ 评论接口响应解析失败: ${responseError?.message || responseError}`)
+          }
+        })
+
         await randomDelay(500, 1500)
 
         const response = await page.goto(url, {
@@ -554,7 +697,7 @@ export async function scrapeIndependentProduct(
           throw new Error(`Blocked productName detected: ${productData.productName}`)
         }
 
-        return productData
+        return mergeCapturedCommentApiData(productData, capturedCommentApiData)
       } finally {
         // 🔥 2025-12-12 内存优化：确保Page在finally中关闭，防止内存泄漏
         if (page) {
@@ -569,7 +712,7 @@ export async function scrapeIndependentProduct(
       lastError = error
       console.error(`❌ 独立站产品抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
 
-      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+      if (shouldRetryWithNewProxy(error) && proxyAttempt < maxProxyRetries) {
         await new Promise(resolve => setTimeout(resolve, 2000))
         continue
       }
@@ -630,6 +773,9 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
 
   // Extract features
   const features = extractFeatures($)
+  const technicalDetails = extractTechnicalDetails($)
+  const coreFeatures = features.slice(0, 5)
+  const secondaryFeatures = features.slice(5, 10)
 
   // Extract images
   const imageUrls = (() => {
@@ -663,6 +809,11 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
   // 3. 促销标签（Limited Offer, Flash Sale, Best Seller等）
   const badge = extractProductBadge($, platform)
 
+  const socialProof: Array<{ metric: string; value: string }> = []
+  if (rating) socialProof.push({ metric: 'rating', value: rating })
+  if (reviewCount) socialProof.push({ metric: 'reviews', value: reviewCount })
+  if (stockStatus) socialProof.push({ metric: 'inventory', value: stockStatus })
+
   return {
     productName,
     rawProductTitle: productName,
@@ -674,11 +825,15 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
     brandName: brandName ? normalizeBrandName(brandName) : null,
     features,
     imageUrls,
+    technicalDetails: Object.keys(technicalDetails).length > 0 ? technicalDetails : undefined,
     rating,
     reviewCount,
     availability,
     reviews,
     category,
+    coreFeatures: coreFeatures.length > 0 ? coreFeatures : undefined,
+    secondaryFeatures: secondaryFeatures.length > 0 ? secondaryFeatures : undefined,
+    socialProof: socialProof.length > 0 ? socialProof : undefined,
     // 🔥 增强的可选字段（有的话提取，没有也不强求）
     ...(stockStatus && { stockStatus }),
     ...(shippingInfo && { shippingInfo }),
@@ -794,14 +949,21 @@ function extractImages($: ReturnType<typeof import('cheerio').load>, baseUrl: st
     '[class*="product-image"] img',
     '[class*="ProductImage"] img',
     '[class*="gallery"] img',
+    '[class*="swiper"] img',
+    '[class*="thumb"] img',
+    'figure img',
     '.product img',
     '[data-product-image]',
+    'img[src*="/image/store/"]',
   ]
 
   for (const selector of imageSelectors) {
     $(selector).each((i, el) => {
       const src = $(el).attr('src') || $(el).attr('data-src')
-      if (src && !images.includes(src)) {
+      const alt = cleanText($(el).attr('alt') || '')
+      if (!src || src.startsWith('data:image')) return
+      if (alt && /logo|icon|payment|facebook|instagram|youtube/i.test(alt)) return
+      if (!images.includes(src)) {
         const fullUrl = src.startsWith('http') ? src : new URL(src, baseUrl).href
         images.push(fullUrl)
       }
@@ -820,7 +982,7 @@ function extractRatingAndReviews($: ReturnType<typeof import('cheerio').load>, p
   let reviewCount: string | null = null
 
   // Shopify-specific (using common review apps like Judge.me, Stamped, Loox)
-  if (platform === 'shopify') {
+  if (platform === 'shopify' || platform === 'myshopline') {
     // Judge.me
     rating = $('[class*="jdgm-prev-badge"]').attr('data-average-rating') ||
              $('[class*="jdgm"] [class*="rating"]').first().text().match(/[\d.]+/)?.[0] || null
@@ -940,6 +1102,34 @@ function extractProductReviews($: ReturnType<typeof import('cheerio').load>): st
   }
 
   return reviews.slice(0, 15)
+}
+
+function extractTechnicalDetails($: ReturnType<typeof import('cheerio').load>): Record<string, string> {
+  const technicalDetails: Record<string, string> = {}
+
+  $('table tr').each((_i, row) => {
+    const cells = $(row).find('th, td')
+    if (cells.length < 2) return
+    const key = cleanText($(cells[0]).text())
+    const value = cleanText($(cells[1]).text())
+    if (!key || !value) return
+    if (key.length > 80 || value.length > 240) return
+    technicalDetails[key] = value
+  })
+
+  $('p, li, div').each((_i, el) => {
+    const text = cleanText($(el).text())
+    if (!text || text.length > 260) return
+    const match = text.match(/^([^:]{2,50}):\s+(.{2,200})$/)
+    if (!match) return
+    const key = cleanText(match[1])
+    const value = cleanText(match[2])
+    if (!key || !value) return
+    if (isLikelyNavigationLabel(key) || isLikelyNavigationLabel(value)) return
+    technicalDetails[key] = value
+  })
+
+  return technicalDetails
 }
 
 /**
@@ -1187,6 +1377,14 @@ function extractBrandFromIndependentProduct(
  * Detect e-commerce platform from HTML
  */
 function detectPlatform($: ReturnType<typeof import('cheerio').load>): string | null {
+  if (
+    $('script[src*="myshopline.com"]').length > 0 ||
+    $('script[src*="front.myshopline.com"]').length > 0 ||
+    $('script[src*="plugin-product-comment"]').length > 0 ||
+    $('meta[property="og:site_name"]').attr('content')?.toLowerCase().includes('myshopline')
+  ) {
+    return 'myshopline'
+  }
   if ($('script[src*="cdn.shopify.com"]').length > 0 || $('[data-shopify]').length > 0) {
     return 'shopify'
   }

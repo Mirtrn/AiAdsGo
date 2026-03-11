@@ -175,6 +175,10 @@ export interface ScrapedProductData {
   socialProof?: Array<{ metric: string; value: string }>
   coreFeatures?: string[]      // 核心卖点
   secondaryFeatures?: string[] // 次要特性
+  rating?: string | null
+  reviewCount?: string | null
+  reviewHighlights?: string[]
+  topReviews?: string[]
   reviews?: Array<{            // 用户评论（Judge.me等评论系统）
     rating: number            // 评分 1-5
     date: string              // 日期

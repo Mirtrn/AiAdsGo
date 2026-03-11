@@ -216,6 +216,25 @@ export interface IndependentProductData {
   reviewHighlights?: string[]  // 🔥 新增：评价亮点总结
   topReviews?: string[]  // 🔥 新增：TOP评价（最有帮助的评价）
   reviewKeywords?: string[]  // 🔥 新增：评价关键词主题
+  structuredReviews?: Array<{
+    rating: number
+    date: string
+    author: string
+    title: string
+    body: string
+    verifiedBuyer: boolean
+    images?: string[]
+  }>
+  qaPairs?: Array<{
+    question: string
+    answer: string
+  }>
+  socialProof?: Array<{
+    metric: string
+    value: string
+  }>
+  coreFeatures?: string[]
+  secondaryFeatures?: string[]
 
   // 信任徽章和促销
   badge?: string | null  // 🔥 新增："Best Seller", "Featured", "Limited Edition"等

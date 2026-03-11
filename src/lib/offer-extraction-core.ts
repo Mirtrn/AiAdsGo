@@ -10,6 +10,7 @@
 
 import { resolveAffiliateLink, BATCH_MODE_RETRY_CONFIG, getProxyPool } from '@/lib/url-resolver-enhanced'
 import { extractProductInfo } from '@/lib/scraper'
+import type { ScrapedProductData } from '@/lib/scraper'
 import {
   scrapeAmazonStoreDeep,
   scrapeIndependentStoreDeep,  // 🔥 修改：使用深度抓取版本，与Amazon Store保持一致
@@ -364,6 +365,31 @@ function isAmazonProductDataInsufficient(
     && data.aboutThisItem.some((item) => typeof item === 'string' && item.trim().length > 0)
 
   return !hasValidBrand && !hasFeatures && !hasAboutThisItem
+}
+
+function shouldFallbackToRenderedIndependentProduct(data: ScrapedProductData | null | undefined): boolean {
+  if (!data) return true
+
+  const hasBrand = typeof data.brandName === 'string'
+    && data.brandName.trim().length > 0
+    && !isLikelyInvalidBrandName(data.brandName)
+  const hasProductName = typeof data.productName === 'string' && data.productName.trim().length > 0
+  const hasImages = Array.isArray(data.imageUrls) && data.imageUrls.some((item) => typeof item === 'string' && item.trim().length > 0)
+  const hasFeatureContent = Array.isArray(data.productFeatures)
+    && data.productFeatures.some((item) => typeof item === 'string' && item.trim().length > 0)
+  const hasStructuredReviews = Array.isArray(data.reviews) && data.reviews.length > 0
+  const hasReviewSignals = hasStructuredReviews
+    || !!(typeof data.rating === 'string' && data.rating.trim())
+    || !!(typeof data.reviewCount === 'string' && data.reviewCount.trim())
+    || !!(Array.isArray(data.topReviews) && data.topReviews.length > 0)
+  const hasSpecifications = !!(data.specifications && Object.keys(data.specifications).length > 0)
+  const hasDescription = typeof data.productDescription === 'string' && data.productDescription.trim().length >= 80
+
+  if (!hasProductName) return true
+  if (!hasBrand) return true
+  if (!hasImages) return true
+
+  return !hasFeatureContent && !hasReviewSignals && !hasSpecifications && !hasDescription
 }
 
 /**
@@ -770,9 +796,9 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           scrapedData = null
         }
 
-        // 🔥 检测是否需要JavaScript渲染：如果静态scraper返回的内容为空，则使用Playwright
-        if (!scrapedData || !scrapedData.brandName) {
-          console.warn('⚠️ 轻量级scraper返回数据不完整，尝试使用Playwright进行JavaScript渲染...')
+        // 🔥 检测是否需要JavaScript渲染：独立站单品若仅抓到浅层字段，继续走Playwright拿完整内容
+        if (shouldFallbackToRenderedIndependentProduct(scrapedData)) {
+          console.warn('⚠️ 轻量级scraper丰富度不足，尝试使用Playwright进行JavaScript渲染...')
 
           try {
             // 导入独立站产品scraper（Playwright版本）
@@ -794,12 +820,22 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
                 : (Array.isArray(independentProductData.features) ? independentProductData.features : []),
               productDescription: independentProductData.productDescription,
               productPrice: independentProductData.productPrice,
-              productCategory: null,
-              productFeatures: [],
+              productCategory: independentProductData.category,
+              productFeatures: independentProductData.features || [],
               brandName: independentProductData.brandName,
-              imageUrls: [],
-              metaTitle: null,
-              metaDescription: null,
+              imageUrls: independentProductData.imageUrls || [],
+              metaTitle: independentProductData.productName,
+              metaDescription: independentProductData.productDescription,
+              rating: independentProductData.rating,
+              reviewCount: independentProductData.reviewCount,
+              reviewHighlights: independentProductData.reviewHighlights,
+              topReviews: independentProductData.topReviews,
+              reviews: independentProductData.structuredReviews,
+              faqs: independentProductData.qaPairs,
+              specifications: independentProductData.technicalDetails,
+              socialProof: independentProductData.socialProof,
+              coreFeatures: independentProductData.coreFeatures,
+              secondaryFeatures: independentProductData.secondaryFeatures,
             }
 
             console.log(`✅ Playwright渲染成功: ${independentProductData.brandName || 'Unknown'}`)
@@ -1007,6 +1043,11 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           socialProof: scrapedData.socialProof,
           coreFeatures: scrapedData.coreFeatures,
           secondaryFeatures: scrapedData.secondaryFeatures,
+          rating: scrapedData.rating,
+          reviewCount: scrapedData.reviewCount,
+          reviewHighlights: scrapedData.reviewHighlights,
+          topReviews: scrapedData.topReviews,
+          technicalDetails: scrapedData.specifications,
           // 基础字段
           productFeatures: scrapedData.productFeatures,
           imageUrls: scrapedData.imageUrls,
