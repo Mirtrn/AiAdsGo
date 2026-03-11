@@ -650,7 +650,7 @@ export async function executeOfferExtraction(
             if (extractedScenarios.scenarios.length > 0 ||
                 extractedScenarios.painPoints.length > 0 ||
                 extractedScenarios.userQuestions.length > 0) {
-              await updateOffer(createdOfferId, task.user_id, {
+              await updateOffer(createdOfferId, task.userId, {
                 user_scenarios: JSON.stringify(extractedScenarios.scenarios),
                 pain_points: JSON.stringify(extractedScenarios.painPoints),
                 user_questions: JSON.stringify(extractedScenarios.userQuestions),

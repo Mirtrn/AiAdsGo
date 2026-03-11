@@ -198,6 +198,11 @@ export interface UpdateOfferInput {
   // v3.2架构：店铺/单品差异化分析字段
   ai_analysis_v32?: unknown
   page_type?: string
+  // Intent-driven optimization: 场景数据字段
+  user_scenarios?: string
+  pain_points?: string
+  user_questions?: string
+  scenario_analyzed_at?: string
 }
 
 /**
