@@ -456,6 +456,7 @@ function CreativeGenerationOverviewPanel(props: {
   const isGenerationLimitReached = completedCount >= CREATIVE_BUCKET_ORDER.length
   const activeProgress = Math.max(0, Math.min(100, generationProgress?.progress ?? 0))
   const hasActiveGeneration = Boolean(activeBucket && (generating || taskStatus === 'running' || generationProgress))
+  const isCompletedIdle = isGenerationLimitReached && !hasActiveGeneration
   const overallProgress = hasActiveGeneration
     ? Math.round(((completedCount + activeProgress / 100) / CREATIVE_BUCKET_ORDER.length) * 100)
     : Math.round((completedCount / CREATIVE_BUCKET_ORDER.length) * 100)
@@ -490,14 +491,14 @@ function CreativeGenerationOverviewPanel(props: {
     : hasActiveGeneration
       ? generationProgress?.message || '正在准备生成任务...'
       : isGenerationLimitReached
-        ? '3 个创意类型均已生成，可以直接对比并选择。'
+        ? '3 个创意类型均已生成，可直接对比并选择。'
         : completedCount > 0
           ? `下一次将生成${CREATIVE_BUCKET_META[getNextCreativeBucket(generatedBuckets) || 'A'].fullLabel}。`
           : '建议按 A → B → D 的顺序逐个生成，便于对比不同投放意图。'
 
   return (
     <Card className={toneClassName}>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className={`p-4 ${isCompletedIdle ? 'space-y-3' : 'space-y-4'}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -512,14 +513,14 @@ function CreativeGenerationOverviewPanel(props: {
             </div>
           </div>
 
-          <div className="min-w-[160px] rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-right shadow-sm">
+          <div className="min-w-[150px] rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-right shadow-sm">
             <div className="text-xs uppercase tracking-[0.2em] text-gray-400">Overall</div>
             <div className="mt-1 text-2xl font-semibold text-gray-900">{overallProgress}%</div>
             <div className="text-xs text-gray-500">{completedCount} / 3 已完成</div>
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className={`space-y-1.5 ${isCompletedIdle ? 'pb-0.5' : ''}`}>
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>整体完成度</span>
             <span className="font-medium text-gray-900">{overallProgress}%</span>
@@ -532,59 +533,74 @@ function CreativeGenerationOverviewPanel(props: {
           </div>
         </div>
 
-        <CreativeTypeProgress
-          generatedBuckets={generatedBuckets}
-          activeBucket={activeBucket}
-          offer={offer}
-        />
+        {!isCompletedIdle && (
+          <CreativeTypeProgress
+            generatedBuckets={generatedBuckets}
+            activeBucket={activeBucket}
+            offer={offer}
+          />
+        )}
 
-        <div className="rounded-xl border border-gray-200 bg-white/80 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <div className="font-medium text-gray-900">
-              {hasActiveGeneration && currentBucketMeta
-                ? `当前正在生成第 ${currentGenerationIndex} 个创意`
-                : '当前任务状态'}
-            </div>
-            {hasActiveGeneration && currentBucketMeta && (
-              <Badge variant="secondary" className="bg-purple-100 text-purple-700">
-                {currentBucketMeta.shortLabel}
-              </Badge>
-            )}
-            <span className="text-gray-600">进度 {hasActiveGeneration ? `${activeProgress}%` : isGenerationLimitReached ? '100%' : `${overallProgress}%`}</span>
-            <span className="text-gray-600">已用时 {formatElapsedTime(elapsedTime)}</span>
-            <span className="text-gray-600">阶段 {generationProgress?.step || '-'}</span>
-            <span className="text-gray-600">重试 {attemptText || '-'}</span>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${
-                  sseTimeout && taskStatus === 'running'
-                    ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                    : 'bg-gradient-to-r from-purple-500 to-blue-500'
-                }`}
-                style={{ width: `${hasActiveGeneration ? activeProgress : isGenerationLimitReached ? 100 : overallProgress}%` }}
-              />
-            </div>
-            <p className={`pr-1 text-sm ${
-              sseTimeout && taskStatus === 'running' ? 'text-amber-700' : 'text-gray-700'
-            }`}>
-              {hasActiveGeneration && currentBucketMeta
-                ? currentBucketMeta.fullLabel
-                : isGenerationLimitReached
-                  ? '全部创意已生成完成'
-                  : '点击右上角按钮继续生成下一类创意'}
-              {' · '}
-              {messageText}
-            </p>
-            {isGenerationLimitReached && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                <span className="font-medium">已达到生成上限：</span>
-                已生成3个创意类型（A:品牌/信任，B:场景+功能，D:转化/价值·全量关键词）。如需重新生成，请先删除对应类型创意。
+        {isCompletedIdle ? (
+          <div className="rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-900">
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                全部创意已生成完成，可直接对比并选择
+                <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">A 品牌/信任</span>
+                <span className="rounded-md bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">B 场景+功能</span>
+                <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">D 转化/价值</span>
               </div>
-            )}
+              <div className="text-sm text-gray-600">已用时 {formatElapsedTime(elapsedTime)}</div>
+            </div>
+            <div className="mt-2 rounded-lg border border-amber-200/70 bg-amber-50/60 px-3 py-1.5 text-sm text-amber-700">
+              <span className="font-medium">已达生成上限：</span>
+              需重生请先删除对应类型创意。
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 bg-white/80 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <div className="font-medium text-gray-900">
+                {hasActiveGeneration && currentBucketMeta
+                  ? `当前正在生成第 ${currentGenerationIndex} 个创意`
+                  : '当前任务状态'}
+              </div>
+              {hasActiveGeneration && currentBucketMeta && (
+                <Badge variant="secondary" className="bg-purple-100 text-purple-700">
+                  {currentBucketMeta.shortLabel}
+                </Badge>
+              )}
+              <span className="text-gray-600">已用时 {formatElapsedTime(elapsedTime)}</span>
+              <span className="text-gray-600">进度 {hasActiveGeneration ? `${activeProgress}%` : isGenerationLimitReached ? '100%' : `${overallProgress}%`}</span>
+              <span className="text-gray-600">阶段 {generationProgress?.step || '-'}</span>
+              <span className="text-gray-600">重试 {attemptText || '-'}</span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ease-out ${
+                    sseTimeout && taskStatus === 'running'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                      : 'bg-gradient-to-r from-purple-500 to-blue-500'
+                  }`}
+                  style={{ width: `${hasActiveGeneration ? activeProgress : isGenerationLimitReached ? 100 : overallProgress}%` }}
+                />
+              </div>
+              <p className={`pr-1 text-sm ${
+                sseTimeout && taskStatus === 'running' ? 'text-amber-700' : 'text-gray-700'
+              }`}>
+                {hasActiveGeneration && currentBucketMeta
+                  ? currentBucketMeta.fullLabel
+                  : isGenerationLimitReached
+                    ? '全部创意已生成完成'
+                    : '点击右上角按钮继续生成下一类创意'}
+                {' · '}
+                {messageText}
+              </p>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

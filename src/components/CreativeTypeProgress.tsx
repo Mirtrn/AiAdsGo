@@ -39,26 +39,25 @@ export function CreativeTypeProgress({ generatedBuckets, activeBucket, offer }: 
     <TooltipProvider>
       <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <h3 className="mb-2 text-sm font-medium text-gray-700">创意类型进度</h3>
-        <div className="flex items-start gap-3">
-          {buckets.map((bucket, index) => {
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {buckets.map((bucket) => {
             const isGenerated = generatedBuckets.includes(bucket.key)
             const isCurrent = highlightedBucket === bucket.key
             const isGenerating = activeBucket === bucket.key
 
             return (
-              <div key={bucket.key} className="flex items-center gap-3">
-                {/* 连接线 */}
-                {index > 0 && (
-                  <div className={`h-0.5 w-6 sm:w-8 ${
-                    generatedBuckets.includes(buckets[index - 1]?.key || '')
-                      ? 'bg-gray-300'
-                      : 'bg-gray-100'
-                  }`} />
-                )}
-
+              <div key={bucket.key} className="min-w-0">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex min-w-[40px] flex-col items-center gap-1">
+                    <div
+                      className={`flex h-full cursor-default flex-col items-center justify-center rounded-lg border px-2 py-2 text-center ${
+                        isGenerated
+                          ? 'border-green-200 bg-green-50/60'
+                          : isCurrent
+                            ? 'border-purple-200 bg-purple-50/50'
+                            : 'border-gray-200 bg-gray-50/60'
+                      }`}
+                    >
                       <div
                         className={`
                           relative flex h-9 w-9 items-center justify-center rounded-full
@@ -78,11 +77,12 @@ export function CreativeTypeProgress({ generatedBuckets, activeBucket, offer }: 
                         )}
                       </div>
                       <span className={`
-                        text-xs font-medium leading-none
+                        mt-1 text-xs font-semibold leading-none
                         ${isGenerated ? 'text-gray-900' : 'text-gray-500'}
                       `}>
                         {bucket.key}
                       </span>
+                      <span className="mt-1 line-clamp-1 text-[11px] text-gray-500">{bucket.label}</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
