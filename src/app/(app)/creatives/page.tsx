@@ -86,7 +86,6 @@ interface Sitelink {
 interface Creative {
   id: number
   offerId: number
-  version: number
   headlines: string[]
   descriptions: string[]
   keywords: string[]
@@ -97,6 +96,8 @@ interface Creative {
   path1: string | null
   path2: string | null
   aiModel: string
+  theme?: string | null
+  keywordBucket?: string | null
   score: number | null
   adGroupId: number | null
   adId: string | null
@@ -129,6 +130,50 @@ interface Summary {
 }
 
 type CreativesTimeRange = '7' | '14' | '30' | 'custom'
+
+const getCreativeTypeMeta = (creative: Creative): {
+  label: string
+  shortLabel?: string
+  className: string
+} => {
+  const bucket = String(creative.keywordBucket || '').toUpperCase()
+
+  if (bucket === 'A') {
+    return {
+      label: '品牌/信任',
+      shortLabel: 'A',
+      className: 'bg-blue-50 text-blue-700 border-blue-200'
+    }
+  }
+
+  if (bucket === 'B' || bucket === 'C') {
+    return {
+      label: '场景+功能',
+      shortLabel: 'B',
+      className: 'bg-green-50 text-green-700 border-green-200'
+    }
+  }
+
+  if (bucket === 'D' || bucket === 'S') {
+    return {
+      label: '转化/价值',
+      shortLabel: 'D',
+      className: 'bg-amber-50 text-amber-700 border-amber-200'
+    }
+  }
+
+  if (creative.theme && creative.theme.trim().length > 0) {
+    return {
+      label: creative.theme.trim(),
+      className: 'bg-gray-50 text-gray-700 border-gray-200'
+    }
+  }
+
+  return {
+    label: '未分类',
+    className: 'bg-gray-50 text-gray-500 border-gray-200'
+  }
+}
 
 export default function CreativesPage() {
   const router = useRouter()
@@ -176,7 +221,7 @@ export default function CreativesPage() {
   const [pageSize, setPageSize] = useState(10)
 
   // Sorting states
-  type SortField = 'id' | 'version' | 'score' | 'creationStatus' | 'createdAt'
+  type SortField = 'id' | 'score' | 'creationStatus' | 'createdAt'
   type SortDirection = 'asc' | 'desc' | null
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
@@ -243,10 +288,6 @@ export default function CreativesPage() {
           case 'id':
             aVal = a.id
             bVal = b.id
-            break
-          case 'version':
-            aVal = a.version
-            bVal = b.version
             break
           case 'score':
             aVal = a.score || 0
@@ -458,7 +499,7 @@ export default function CreativesPage() {
   const handleDelete = async (creative: Creative) => {
     const confirmed = await showConfirm(
       '确认删除',
-      `确定要删除版本 ${creative.version} 的创意吗？`
+      `确定要删除创意 #${creative.id} 吗？`
     )
 
     if (!confirmed) return
@@ -651,7 +692,7 @@ export default function CreativesPage() {
       const creativesWithAdId = creativesToDelete.filter(c => c.adId !== null)
 
       if (creativesWithAdId.length > 0) {
-        setBatchDeleteError(`以下 ${creativesWithAdId.length} 个创意已同步到Google Ads，无法删除：\n${creativesWithAdId.map(c => `创意 #${c.id} (版本 ${c.version})`).join('\n')}`)
+        setBatchDeleteError(`以下 ${creativesWithAdId.length} 个创意已同步到Google Ads，无法删除：\n${creativesWithAdId.map(c => `创意 #${c.id}`).join('\n')}`)
         setBatchDeleting(false)
         return
       }
@@ -1041,7 +1082,7 @@ export default function CreativesPage() {
                         />
                       </TableHead>
                       <SortableHeader field="id" className="w-[60px]">ID</SortableHeader>
-                      <SortableHeader field="version" className="w-[80px]">版本</SortableHeader>
+                      <TableHead className="w-[140px]">创意类型</TableHead>
                       <TableHead className="min-w-[300px]">标题预览</TableHead>
                       <SortableHeader field="score" className="w-[100px]">质量评分</SortableHeader>
                       <SortableHeader field="creationStatus" className="w-[100px]">同步状态</SortableHeader>
@@ -1050,8 +1091,11 @@ export default function CreativesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedCreatives.map((creative) => (
-                      <TableRow key={creative.id} className="hover:bg-gray-50/50">
+                    {paginatedCreatives.map((creative) => {
+                      const creativeType = getCreativeTypeMeta(creative)
+
+                      return (
+                        <TableRow key={creative.id} className="hover:bg-gray-50/50">
                         <TableCell>
                           <Checkbox
                             checked={selectedCreativeIds.has(creative.id)}
@@ -1062,7 +1106,10 @@ export default function CreativesPage() {
                           #{creative.id}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">v{creative.version}</Badge>
+                          <Badge variant="outline" className={creativeType.className}>
+                            {creativeType.shortLabel ? `${creativeType.shortLabel} · ` : ''}
+                            {creativeType.label}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
@@ -1140,8 +1187,9 @@ export default function CreativesPage() {
                             )}
                           </div>
                         </TableCell>
-                      </TableRow>
-                    ))}
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -1166,10 +1214,20 @@ export default function CreativesPage() {
 
       {/* Detail Dialog */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[96vw] max-w-6xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 lg:p-8">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              创意详情 - 版本 {selectedCreative?.version}
+              创意详情 #{selectedCreative?.id}
+              {selectedCreative && (() => {
+                const creativeType = getCreativeTypeMeta(selectedCreative)
+
+                return (
+                  <Badge variant="outline" className={creativeType.className}>
+                    {creativeType.shortLabel ? `${creativeType.shortLabel} · ` : ''}
+                    {creativeType.label}
+                  </Badge>
+                )
+              })()}
               {selectedCreative?.creationStatus === 'synced' && (
                 <Badge className="bg-green-600">已同步</Badge>
               )}

@@ -140,6 +140,80 @@ function formatMoney(value: unknown, currency: string): string {
   return `${roundTo2(toNumber(value, 0))} ${normalizeCurrencyCode(currency)}`
 }
 
+type BudgetCurrencyOverview = {
+  currency: string
+  totalBudget: number
+  totalSpent: number
+  remaining: number
+  activeCampaigns: number
+}
+
+type RoiCurrencyOverview = {
+  currency: string
+  cost: number
+  revenue: number
+  profit: number
+  roas: number | null
+  roi: number | null
+}
+
+function formatRatioValue(value: number | null, suffix: 'x' | '%'): string {
+  if (value === null || !Number.isFinite(value)) {
+    return '暂不可用'
+  }
+
+  return `${Number(value).toFixed(2)}${suffix}`
+}
+
+function buildRoiCurrencyOverview(params: {
+  budgetOverview: BudgetCurrencyOverview[]
+  affiliateBreakdown: Array<{ totalCommission?: number; currency?: string }>
+}): RoiCurrencyOverview[] {
+  const orderedCurrencies: string[] = []
+  const seenCurrencies = new Set<string>()
+  const costByCurrency = new Map<string, number>()
+  const revenueByCurrency = new Map<string, number>()
+
+  const trackCurrency = (currency: string) => {
+    if (!currency || seenCurrencies.has(currency)) return
+    seenCurrencies.add(currency)
+    orderedCurrencies.push(currency)
+  }
+
+  for (const item of params.budgetOverview) {
+    const currency = normalizeCurrencyCode(item.currency, '')
+    if (!currency) continue
+
+    trackCurrency(currency)
+    costByCurrency.set(currency, roundTo2((costByCurrency.get(currency) || 0) + toNumber(item.totalSpent, 0)))
+  }
+
+  for (const item of params.affiliateBreakdown) {
+    const currency = normalizeCurrencyCode(item.currency, '')
+    if (!currency) continue
+
+    trackCurrency(currency)
+    revenueByCurrency.set(currency, roundTo2((revenueByCurrency.get(currency) || 0) + toNumber(item.totalCommission, 0)))
+  }
+
+  return orderedCurrencies.map((currency) => {
+    const cost = roundTo2(costByCurrency.get(currency) || 0)
+    const revenue = roundTo2(revenueByCurrency.get(currency) || 0)
+    const profit = roundTo2(revenue - cost)
+    const roas = cost > 0 ? roundTo2(revenue / cost) : null
+    const roi = cost > 0 ? roundTo2((profit / cost) * 100) : null
+
+    return {
+      currency,
+      cost,
+      revenue,
+      profit,
+      roas,
+      roi,
+    }
+  })
+}
+
 function asObject(value: unknown): Record<string, any> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined
@@ -1723,6 +1797,74 @@ async function fetchWithGuard<T>(source: string, fn: () => Promise<T>, errors: D
   }
 }
 
+async function enrichBudgetWithMultiCurrencyOverview(params: {
+  userId: number
+  startDate: string
+  endDate: string
+  budget: any
+  errors: DailyReportPayload['errors']
+}): Promise<any> {
+  const budgetRoot = asObject(params.budget)
+  if (!budgetRoot) return params.budget
+
+  const currencies = Array.isArray(budgetRoot.currencies)
+    ? budgetRoot.currencies
+      .map((currency) => normalizeCurrencyCode(currency, ''))
+      .filter(Boolean)
+    : []
+
+  if (currencies.length <= 1) {
+    return params.budget
+  }
+
+  const responses = await Promise.all(
+    currencies.map((currency) =>
+      fetchWithGuard(
+        `analytics.budget.${currency}`,
+        () => fetchAutoadsJson({
+          userId: params.userId,
+          path: '/api/analytics/budget',
+          query: {
+            start_date: params.startDate,
+            end_date: params.endDate,
+            currency,
+          },
+        }),
+        params.errors
+      )
+    )
+  )
+
+  const multiCurrencyOverall: BudgetCurrencyOverview[] = responses
+    .map((response) => {
+      const responseRoot = asObject(response)
+      const overall = asObject(responseRoot?.data?.overall)
+      const currency = normalizeCurrencyCode(responseRoot?.currency, '')
+      if (!overall || !currency) return null
+
+      const totalBudget = roundTo2(toNumber(overall.totalBudget, 0))
+      const totalSpent = roundTo2(toNumber(overall.totalSpent, 0))
+
+      return {
+        currency,
+        totalBudget,
+        totalSpent,
+        remaining: roundTo2(toNumber(overall.remaining, totalBudget - totalSpent)),
+        activeCampaigns: Math.max(0, Math.round(toNumber(overall.activeCampaigns, 0))),
+      }
+    })
+    .filter((item): item is BudgetCurrencyOverview => item !== null)
+
+  if (multiCurrencyOverall.length <= 1) {
+    return params.budget
+  }
+
+  return {
+    ...budgetRoot,
+    multiCurrencyOverall,
+  }
+}
+
 export async function buildOpenclawDailyReport(
   userId: number,
   dateStr?: string,
@@ -1794,6 +1936,13 @@ export async function buildOpenclawDailyReport(
 
   let normalizedSummary: any = summary
   let normalizedKpis: any = kpis
+  const normalizedBudget = await enrichBudgetWithMultiCurrencyOverview({
+    userId,
+    startDate: reportStartDate,
+    endDate: reportEndDate,
+    budget,
+    errors,
+  })
 
   if (isDateRangeMode) {
     const rangeKpiSnapshot = await fetchWithGuard(
@@ -2024,7 +2173,7 @@ export async function buildOpenclawDailyReport(
     trends: enrichedSections?.trends || trends,
     roi: enrichedSections?.roi || normalizedRoi,
     campaigns,
-    budget,
+    budget: normalizedBudget,
     performance,
     actions,
     strategyActions,
@@ -2088,12 +2237,27 @@ export async function getOrCreateDailyReport(
         try {
           const parsed = JSON.parse(existing.payload_json) as DailyReportPayload
           const effectiveReportDate = normalizeOpenclawReportDate(parsed.date || reportDate)
+          const cachedDateRange = asObject(parsed.dateRange)
+          const cachedRangeStart = isIsoDateString(String(cachedDateRange?.startDate || '').trim())
+            ? String(cachedDateRange?.startDate)
+            : effectiveReportDate
+          const cachedRangeEnd = isIsoDateString(String(cachedDateRange?.endDate || '').trim())
+            ? String(cachedDateRange?.endDate)
+            : effectiveReportDate
           const enriched = await enrichReportCommissionSections({
             db,
             userId,
             reportDate: effectiveReportDate,
+            startDate: cachedRangeStart < cachedRangeEnd ? cachedRangeStart : undefined,
             trends: parsed.trends,
             roi: parsed.roi,
+          })
+          const normalizedBudget = await enrichBudgetWithMultiCurrencyOverview({
+            userId,
+            startDate: cachedRangeStart,
+            endDate: cachedRangeEnd,
+            budget: parsed.budget,
+            errors: parsed.errors,
           })
 
           const normalizedCachedReport: DailyReportPayload = {
@@ -2101,6 +2265,7 @@ export async function getOrCreateDailyReport(
             date: effectiveReportDate,
             trends: enriched.trends,
             roi: enriched.roi,
+            budget: normalizedBudget,
           }
           const normalizedPayloadJson = JSON.stringify(normalizedCachedReport)
           if (normalizedPayloadJson !== existing.payload_json) {
@@ -2224,12 +2389,37 @@ function formatReportMessage(report: DailyReportPayload): string {
     : []
   const roiCurrency = normalizeCurrencyCode(roiRoot?.currency, 'USD')
   const budgetCurrency = normalizeCurrencyCode(budgetRoot?.currency, roiCurrency)
+  const multiCurrencyBudgetOverview = Array.isArray(budgetRoot?.multiCurrencyOverall)
+    ? budgetRoot.multiCurrencyOverall
+      .map((item) => {
+        const row = asObject(item)
+        const currency = normalizeCurrencyCode(row?.currency, '')
+        if (!currency) return null
+
+        const totalBudget = roundTo2(toNumber(row?.totalBudget, 0))
+        const totalSpent = roundTo2(toNumber(row?.totalSpent, 0))
+
+        return {
+          currency,
+          totalBudget,
+          totalSpent,
+          remaining: roundTo2(toNumber(row?.remaining, totalBudget - totalSpent)),
+          activeCampaigns: Math.max(0, Math.round(toNumber(row?.activeCampaigns, 0))),
+        }
+      })
+      .filter((item): item is BudgetCurrencyOverview => item !== null)
+    : []
   const affiliateCurrencies = affiliateBreakdown
     .map((item) => normalizeCurrencyCode(item.currency, ''))
     .filter(Boolean)
   const affiliateCurrency = affiliateCurrencies.length > 0
     ? (new Set(affiliateCurrencies).size === 1 ? affiliateCurrencies[0] : 'MIXED')
     : roiCurrency
+  const multiCurrencyRoiOverview = buildRoiCurrencyOverview({
+    budgetOverview: multiCurrencyBudgetOverview,
+    affiliateBreakdown,
+  })
+  const hasMultiCurrencyRoiOverview = multiCurrencyRoiOverview.length > 1
   const profitCurrency = revenueAvailable && affiliateCurrency === roiCurrency
     ? roiCurrency
     : 'MIXED'
@@ -2295,15 +2485,37 @@ function formatReportMessage(report: DailyReportPayload): string {
   if (summary) {
     lines.push(`- 规模概览：Offer ${summary.totalOffers ?? 0} 个｜Campaign ${summary.totalCampaigns ?? 0} 个`)
   }
-  lines.push(`- 投放消耗：点击 ${dailyClicks} 次｜花费 ${formatMoney(dailyCost, dailyCostCurrency)}`)
+  if (multiCurrencyBudgetOverview.length > 1) {
+    const spentBreakdown = multiCurrencyBudgetOverview
+      .map((item) => formatMoney(item.totalSpent, item.currency))
+      .join('｜')
+    lines.push(`- 投放消耗：点击 ${dailyClicks} 次｜花费 ${spentBreakdown}`)
+  } else {
+    lines.push(`- 投放消耗：点击 ${dailyClicks} 次｜花费 ${formatMoney(dailyCost, dailyCostCurrency)}`)
+  }
   lines.push(`- ${isRangeMode ? '周期表现' : '当日表现'}：曝光 ${dailyImpressions}｜转化（Google Ads）${dailyConversions}｜联盟佣金记录 ${affiliateRecordCount}`)
 
   if (roi) {
     if (revenueAvailable) {
-      lines.push(
-        `- 佣金收入：${formatMoney(totalRevenue || 0, affiliateCurrency)}｜花费：${formatMoney(totalCost, roiCurrency)}｜利润：${formatMoney(roi.totalProfit, profitCurrency)}`
-      )
-      lines.push(`- ROAS：${(roas || 0).toFixed(2)}x｜ROI：${roi.roi ?? 0}%`)
+      if (hasMultiCurrencyRoiOverview) {
+        const overview = multiCurrencyRoiOverview
+          .map((item) =>
+            `${item.currency}：佣金 ${formatMoney(item.revenue, item.currency)}｜花费 ${formatMoney(item.cost, item.currency)}｜利润 ${formatMoney(item.profit, item.currency)}`
+          )
+          .join('；')
+        const returns = multiCurrencyRoiOverview
+          .map((item) =>
+            `${item.currency}：ROAS ${formatRatioValue(item.roas, 'x')}｜ROI ${formatRatioValue(item.roi, '%')}`
+          )
+          .join('；')
+        lines.push(`- ROI概览（多币种）：${overview}`)
+        lines.push(`- 回报率（多币种）：${returns}`)
+      } else {
+        lines.push(
+          `- 佣金收入：${formatMoney(totalRevenue || 0, affiliateCurrency)}｜花费：${formatMoney(totalCost, roiCurrency)}｜利润：${formatMoney(roi.totalProfit, profitCurrency)}`
+        )
+        lines.push(`- ROAS：${(roas || 0).toFixed(2)}x｜ROI：${roi.roi ?? 0}%`)
+      }
       lines.push('- 收入口径：联盟佣金（PartnerBoost / YeahPromos，Campaign/Offer级）')
 
       if (affiliateBreakdown.length > 0) {
@@ -2317,19 +2529,24 @@ function formatReportMessage(report: DailyReportPayload): string {
       }
 
       if (reconciliationHasGap) {
-        const reconciliationTotalRevenue = roundTo2(toNumber(affiliateReconciliation?.totalRevenue, totalRevenue || 0))
-        const reconciliationAttributedRevenue = roundTo2(
-          toNumber(
-            affiliateReconciliation?.attributedRevenue,
-            toNumber(roi?.affiliateAttribution?.attributedCommission, 0)
+        if (hasMultiCurrencyRoiOverview || affiliateCurrency === 'MIXED') {
+          const severityLabel = reconciliationSeverity === 'critical' ? '严重' : '预警'
+          lines.push(`- 佣金对账（${severityLabel}）：检测到归因缺口，多币种场景暂按币种拆分查看联盟拆分明细`)
+        } else {
+          const reconciliationTotalRevenue = roundTo2(toNumber(affiliateReconciliation?.totalRevenue, totalRevenue || 0))
+          const reconciliationAttributedRevenue = roundTo2(
+            toNumber(
+              affiliateReconciliation?.attributedRevenue,
+              toNumber(roi?.affiliateAttribution?.attributedCommission, 0)
+            )
           )
-        )
-        const reconciliationGap = roundTo2(toNumber(affiliateReconciliation?.gap, 0))
-        const reconciliationGapRatio = roundTo2(toNumber(affiliateReconciliation?.gapRatio, 0))
-        const severityLabel = reconciliationSeverity === 'critical' ? '严重' : '预警'
-        lines.push(
-          `- 佣金对账（${severityLabel}）：总佣金 ${formatMoney(reconciliationTotalRevenue, affiliateCurrency)}｜已归因 ${formatMoney(reconciliationAttributedRevenue, affiliateCurrency)}｜缺口 ${formatMoney(reconciliationGap, affiliateCurrency)}（${reconciliationGapRatio}%）`
-        )
+          const reconciliationGap = roundTo2(toNumber(affiliateReconciliation?.gap, 0))
+          const reconciliationGapRatio = roundTo2(toNumber(affiliateReconciliation?.gapRatio, 0))
+          const severityLabel = reconciliationSeverity === 'critical' ? '严重' : '预警'
+          lines.push(
+            `- 佣金对账（${severityLabel}）：总佣金 ${formatMoney(reconciliationTotalRevenue, affiliateCurrency)}｜已归因 ${formatMoney(reconciliationAttributedRevenue, affiliateCurrency)}｜缺口 ${formatMoney(reconciliationGap, affiliateCurrency)}（${reconciliationGapRatio}%）`
+          )
+        }
 
         if (reconciliationTopReasons.length > 0) {
           const reasonLine = reconciliationTopReasons
@@ -2345,14 +2562,28 @@ function formatReportMessage(report: DailyReportPayload): string {
         }
       }
     } else {
-      lines.push(`- 花费：${formatMoney(totalCost, roiCurrency)}`)
+      if (hasMultiCurrencyRoiOverview) {
+        const costBreakdown = multiCurrencyRoiOverview
+          .map((item) => formatMoney(item.cost, item.currency))
+          .join('｜')
+        lines.push(`- 花费：${costBreakdown}`)
+      } else {
+        lines.push(`- 花费：${formatMoney(totalCost, roiCurrency)}`)
+      }
       lines.push('- 佣金收入：暂不可用（等待联盟平台返回）')
       lines.push('- ROAS：暂不可用｜ROI：暂不可用')
       lines.push('- 收入口径：联盟佣金（Campaign/Offer级，严格模式不回退 AutoAds）')
     }
   }
 
-  if (report.budget?.data?.overall) {
+  if (multiCurrencyBudgetOverview.length > 1) {
+    const detail = multiCurrencyBudgetOverview
+      .map((item) =>
+        `${item.currency}：预算 ${formatMoney(item.totalBudget, item.currency)}｜已花费 ${formatMoney(item.totalSpent, item.currency)}｜剩余 ${formatMoney(item.remaining, item.currency)}`
+      )
+      .join('；')
+    lines.push(`- 预算概览（多币种）：${detail}`)
+  } else if (report.budget?.data?.overall) {
     const overall = report.budget.data.overall
     const budgetTotal = roundTo2(toNumber(overall.totalBudget, 0))
     const budgetSpent = roundTo2(toNumber(overall.totalSpent, 0))

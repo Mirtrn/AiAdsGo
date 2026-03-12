@@ -7,15 +7,14 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Star, RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2, HelpCircle } from 'lucide-react'
+import { RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2, HelpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { showError, showSuccess } from '@/lib/toast-utils'
-import { GEMINI_ACTIVE_MODEL } from '@/lib/gemini-models'
 import ScoreRadarChart from '@/components/charts/ScoreRadarChart'
 import { BonusScoreCard } from '@/components/BonusScoreCard'
 import { ConversionFeedbackForm } from '@/components/ConversionFeedbackForm'
@@ -128,6 +127,61 @@ interface Creative {
     }>
   }
 }
+
+type GenerationProgressState = {
+  step: string
+  progress: number
+  message: string
+  details?: any
+}
+
+type NormalizedCreativeBucket = 'A' | 'B' | 'D'
+
+const CREATIVE_BUCKET_ORDER: NormalizedCreativeBucket[] = ['A', 'B', 'D']
+
+const CREATIVE_BUCKET_META: Record<NormalizedCreativeBucket, {
+  shortLabel: string
+  fullLabel: string
+  buttonLabel: string
+}> = {
+  A: {
+    shortLabel: '品牌/信任',
+    fullLabel: '品牌/信任导向',
+    buttonLabel: '第 1 个创意：品牌/信任'
+  },
+  B: {
+    shortLabel: '场景+功能',
+    fullLabel: '场景+功能导向',
+    buttonLabel: '第 2 个创意：场景+功能'
+  },
+  D: {
+    shortLabel: '转化/价值',
+    fullLabel: '转化/价值导向'
+      + '·全量关键词',
+    buttonLabel: '第 3 个创意：转化/价值'
+  }
+}
+
+const normalizeCreativeBucket = (bucket: string | null | undefined): NormalizedCreativeBucket | null => {
+  const upper = String(bucket || '').toUpperCase()
+  if (upper === 'A') return 'A'
+  if (upper === 'B' || upper === 'C') return 'B'
+  if (upper === 'D' || upper === 'S') return 'D'
+  return null
+}
+
+const getNextCreativeBucket = (generatedBuckets: string[]): NormalizedCreativeBucket | null => {
+  const generatedBucketSet = new Set(
+    generatedBuckets
+      .map(bucket => normalizeCreativeBucket(bucket))
+      .filter((bucket): bucket is NormalizedCreativeBucket => bucket !== null)
+  )
+
+  return CREATIVE_BUCKET_ORDER.find(bucket => !generatedBucketSet.has(bucket)) ?? null
+}
+
+const formatElapsedTime = (seconds: number): string =>
+  `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`
 
 // 格式化搜索量显示
 const formatSearchVolume = (volume: number): string => {
@@ -378,6 +432,181 @@ const getErrorSolution = (errorMessage: string) => {
   }
 }
 
+function CreativeGenerationOverviewPanel(props: {
+  generatedBuckets: string[]
+  activeBucket: NormalizedCreativeBucket | null
+  generationProgress: GenerationProgressState | null
+  generating: boolean
+  elapsedTime: number
+  sseTimeout: boolean
+  taskStatus: 'running' | 'completed' | 'failed' | null
+  offer: any
+}) {
+  const {
+    generatedBuckets,
+    activeBucket,
+    generationProgress,
+    generating,
+    elapsedTime,
+    sseTimeout,
+    taskStatus,
+    offer
+  } = props
+  const completedCount = generatedBuckets.length
+  const activeProgress = Math.max(0, Math.min(100, generationProgress?.progress ?? 0))
+  const hasActiveGeneration = Boolean(activeBucket && (generating || taskStatus === 'running' || generationProgress))
+  const overallProgress = hasActiveGeneration
+    ? Math.round(((completedCount + activeProgress / 100) / CREATIVE_BUCKET_ORDER.length) * 100)
+    : Math.round((completedCount / CREATIVE_BUCKET_ORDER.length) * 100)
+  const currentGenerationIndex = activeBucket ? completedCount + 1 : null
+  const currentBucketMeta = activeBucket ? CREATIVE_BUCKET_META[activeBucket] : null
+  const attemptText = generationProgress?.details?.attempt
+    ? `第 ${generationProgress.details.attempt} / ${generationProgress.details.maxRetries || 3} 次尝试`
+    : null
+  const statusText = hasActiveGeneration
+    ? `已生成 ${completedCount}/3，正在生成第 ${currentGenerationIndex} 个创意`
+    : completedCount === CREATIVE_BUCKET_ORDER.length
+      ? '已完成 3/3 个创意类型'
+      : completedCount === 0
+        ? '尚未开始生成，请手动逐个生成 3 个创意类型'
+        : `已生成 ${completedCount}/3，下一个是第 ${completedCount + 1} 个创意`
+  const toneClassName = sseTimeout && taskStatus === 'running'
+    ? 'border-amber-200 bg-amber-50/80'
+    : hasActiveGeneration
+      ? 'border-purple-200 bg-gradient-to-br from-purple-50 via-white to-blue-50'
+      : completedCount === CREATIVE_BUCKET_ORDER.length
+        ? 'border-green-200 bg-green-50/70'
+        : 'border-gray-200 bg-white'
+  const statusBadgeClassName = sseTimeout && taskStatus === 'running'
+    ? 'bg-amber-100 text-amber-700 border-amber-200'
+    : hasActiveGeneration
+      ? 'bg-purple-100 text-purple-700 border-purple-200'
+      : completedCount === CREATIVE_BUCKET_ORDER.length
+        ? 'bg-green-100 text-green-700 border-green-200'
+        : 'bg-gray-100 text-gray-700 border-gray-200'
+  const messageText = sseTimeout && taskStatus === 'running'
+    ? '连接已中断，任务仍在后台继续，系统正在自动轮询恢复状态。'
+    : hasActiveGeneration
+      ? generationProgress?.message || '正在准备生成任务...'
+      : completedCount === CREATIVE_BUCKET_ORDER.length
+        ? '3 个创意类型均已生成，可以直接对比并选择。'
+        : completedCount > 0
+          ? `下一次将生成${CREATIVE_BUCKET_META[getNextCreativeBucket(generatedBuckets) || 'A'].fullLabel}。`
+          : '建议按 A → B → D 的顺序逐个生成，便于对比不同投放意图。'
+
+  return (
+    <Card className={toneClassName}>
+      <CardContent className="space-y-5 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className={statusBadgeClassName}>
+                {hasActiveGeneration ? '进行中' : completedCount === CREATIVE_BUCKET_ORDER.length ? '已完成' : '待开始'}
+              </Badge>
+              <span className="text-sm text-gray-500">Step 1 / 4</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">创意生成总进度</h3>
+              <p className="text-sm text-gray-600">{statusText}</p>
+            </div>
+          </div>
+
+          <div className="min-w-[180px] rounded-2xl border border-white/70 bg-white/90 px-4 py-3 text-right shadow-sm">
+            <div className="text-xs uppercase tracking-[0.2em] text-gray-400">Overall</div>
+            <div className="mt-1 text-3xl font-semibold text-gray-900">{overallProgress}%</div>
+            <div className="text-xs text-gray-500">{completedCount} / 3 已完成</div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <span>整体完成度</span>
+            <span className="font-medium text-gray-900">{overallProgress}%</span>
+          </div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-gray-200">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-purple-600 via-blue-500 to-cyan-500 transition-all duration-500 ease-out"
+              style={{ width: `${overallProgress}%` }}
+            />
+          </div>
+        </div>
+
+        <CreativeTypeProgress
+          generatedBuckets={generatedBuckets}
+          activeBucket={activeBucket}
+          offer={offer}
+        />
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border border-gray-200 bg-white/80 p-4 md:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  {hasActiveGeneration && currentBucketMeta
+                    ? `当前正在生成第 ${currentGenerationIndex} 个创意`
+                    : '当前任务状态'}
+                </div>
+                <div className="mt-1 text-sm text-gray-600">
+                  {hasActiveGeneration && currentBucketMeta
+                    ? currentBucketMeta.fullLabel
+                    : completedCount === CREATIVE_BUCKET_ORDER.length
+                      ? '全部创意已生成完成'
+                      : '点击右上角按钮继续生成下一类创意'}
+                </div>
+              </div>
+              {hasActiveGeneration && currentBucketMeta && (
+                <Badge variant="secondary" className="bg-purple-100 text-purple-700">
+                  {currentBucketMeta.shortLabel}
+                </Badge>
+              )}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{hasActiveGeneration ? '当前任务进度' : '状态'}</span>
+                <span>{hasActiveGeneration ? `${activeProgress}%` : completedCount === CREATIVE_BUCKET_ORDER.length ? '100%' : `${overallProgress}%`}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ease-out ${
+                    sseTimeout && taskStatus === 'running'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                      : 'bg-gradient-to-r from-purple-500 to-blue-500'
+                  }`}
+                  style={{ width: `${hasActiveGeneration ? activeProgress : completedCount === CREATIVE_BUCKET_ORDER.length ? 100 : overallProgress}%` }}
+                />
+              </div>
+              <p className={`text-sm ${
+                sseTimeout && taskStatus === 'running' ? 'text-amber-700' : 'text-gray-700'
+              }`}>
+                {messageText}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white/80 p-4">
+            <div className="text-sm font-medium text-gray-900">运行信息</div>
+            <div className="mt-3 space-y-2 text-sm text-gray-600">
+              <div className="flex items-center justify-between gap-4">
+                <span>已用时</span>
+                <span className="font-medium text-gray-900">{formatElapsedTime(elapsedTime)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>当前阶段</span>
+                <span className="font-medium text-gray-900">{generationProgress?.step || '-'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span>重试情况</span>
+                <span className="font-medium text-gray-900">{attemptText || '-'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Step1CreativeGeneration({ offer, onCreativeSelected, selectedCreative }: Props) {
   const router = useRouter()
   const [generating, setGenerating] = useState(false)
@@ -430,6 +659,21 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [pollingTimer, setPollingTimer] = useState<NodeJS.Timeout | null>(null)
   const [taskStatus, setTaskStatus] = useState<'running' | 'completed' | 'failed' | null>(null)
+  const nextBucket = getNextCreativeBucket(generatedBuckets)
+  const activeBucket = currentTaskId && (generating || taskStatus === 'running' || generationProgress)
+    ? nextBucket
+    : null
+  const nextBucketMeta = nextBucket ? CREATIVE_BUCKET_META[nextBucket] : null
+  const generateButtonLabel = generating && activeBucket
+    ? `正在生成${CREATIVE_BUCKET_META[activeBucket].buttonLabel}...`
+    : nextBucketMeta
+      ? `生成${nextBucketMeta.buttonLabel}`
+      : '已达生成上限'
+  const generateButtonTitle = generating && activeBucket
+    ? `${CREATIVE_BUCKET_META[activeBucket].fullLabel}正在生成中，请等待当前任务完成`
+    : nextBucketMeta
+      ? `生成${nextBucketMeta.fullLabel}`
+      : '已达到 3 个创意类型的生成上限'
 
   // 🆕 处理错误解决方案的操作
   const handleErrorAction = (action?: string) => {
@@ -487,9 +731,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         // 刷新创意列表
         await fetchExistingCreatives()
         showSuccess('✅ 生成完成', '广告创意已生成完成，请查看结果')
+        setSseTimeout(false)
         setGenerating(false)
         setGenerationProgress(null)
         setGenerationStartTime(null)
+        setCurrentTaskId(null)
         return 'completed'
       }
 
@@ -497,9 +743,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       if (task.status === 'failed') {
         const errorMessage = task.error || '任务执行失败'
         setGenerationError({ message: errorMessage, solution: getErrorSolution(errorMessage) })
+        setSseTimeout(false)
         setGenerating(false)
         setGenerationProgress(null)
         setGenerationStartTime(null)
+        setCurrentTaskId(null)
         return 'failed'
       }
 
@@ -699,6 +947,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         // 没有现有创意时，重置生成次数状态，允许重新生成
         setCreatives([])
         setGenerationCount(0)
+        setGeneratedBuckets([])
         setSelectedId(null)
       }
     } catch (error) {
@@ -707,9 +956,14 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   const handleGenerate = async () => {
+    let queuedTaskId: string | null = null
+    let shouldKeepTaskTracking = false
+
     try {
       setGenerating(true)
       setGenerationError(null)  // 🆕 清除之前的错误
+      setSseTimeout(false)
+      setTaskStatus(null)
       setGenerationStartTime(Date.now())
       setGenerationProgress({
         step: 'init',
@@ -754,9 +1008,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       }
 
       const { taskId } = await enqueueResponse.json()
+      queuedTaskId = taskId
       setCurrentTaskId(taskId)  // 🆕 保存taskId用于轮询
-      setSseTimeout(false)      // 🆕 重置超时状态
-      setTaskStatus(null)       // 🆕 重置任务状态
 
       // 🔥 Step 2: 订阅SSE流
       const response = await fetch(`/api/creative-tasks/${taskId}/stream`, {
@@ -775,12 +1028,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       const decoder = new TextDecoder()
       let buffer = ''
-      let sseClosedNormally = false  // 🆕 标记SSE是否正常关闭
-
       while (true) {
         const { done, value } = await reader.read()
         if (done) {
-          sseClosedNormally = true  // 🆕 正常完成
           break
         }
 
@@ -802,27 +1052,6 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 })
               } else if (data.type === 'result') {
                 // 生成成功
-                // 🔧 修复(2025-12-11): 使用 camelCase 字段名
-                const newCreative = {
-                  id: data.creative.id,
-                  ...data.creative,
-                  score: data.adStrength.score,
-                  scoreBreakdown: {
-                    diversity: data.adStrength.dimensions.diversity.score,
-                    relevance: data.adStrength.dimensions.relevance.score,
-                    engagement: data.adStrength.dimensions.completeness.score,
-                    quality: data.adStrength.dimensions.quality.score,
-                    clarity: data.adStrength.dimensions.compliance.score
-                  },
-                  scoreExplanation: data.adStrength.suggestions.join(' '),
-                  generationRound: generationCount + 1,
-                  theme: data.creative.theme || '品牌导向',
-                  aiModel: GEMINI_ACTIVE_MODEL,
-                  finalUrl: data.offer?.url || '',
-                  adStrength: data.adStrength,
-                  optimization: data.optimization
-                }
-
                 const rating = data.adStrength.rating
                 const score = data.adStrength.score
 
@@ -842,28 +1071,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   )
                 }
 
-                const allCreatives = [...creatives, newCreative]
-                const topCreatives = allCreatives
-                  .sort((a: any, b: any) => {
-                    // 首先按分数从高到低排序
-                    if (b.score !== a.score) {
-                      return b.score - a.score
-                    }
-                    // 若分数相同，按创建时间从新到旧排序
-                    const timeA = new Date(a.createdAt).getTime()
-                    const timeB = new Date(b.createdAt).getTime()
-                    return timeB - timeA
-                  })
-                  .slice(0, 3)
-
-                setCreatives(topCreatives)
-                // 🔧 修复(2025-12-24): 显示所有创意的总数,而不是简单+1
-                setGenerationCount(allCreatives.length)
-
-                // 🆕 v4.16: 更新已生成的bucket列表
-                if (newCreative.keywordBucket && !generatedBuckets.includes(newCreative.keywordBucket)) {
-                  setGeneratedBuckets([...generatedBuckets, newCreative.keywordBucket])
-                }
+                await fetchExistingCreatives()
               } else if (data.type === 'error') {
                 const message =
                   (typeof data.error === 'string' && data.error) ||
@@ -906,10 +1114,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         errorMessage.includes('网络连接'))
 
       // SSE超时或网络中断，但任务可能在后端继续运行
-      if ((isSSETimeout || isNetworkError) && currentTaskId) {
+      if ((isSSETimeout || isNetworkError) && queuedTaskId) {
+        shouldKeepTaskTracking = true
         setSseTimeout(true)
         setGenerating(false)
-        startPolling(currentTaskId)
+        startPolling(queuedTaskId)
         return
       }
 
@@ -918,7 +1127,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       showError(solution.title, solution.description)
     } finally {
       // 🆕 如果SSE正常完成或任务已完成，才清理状态
-      if (!sseTimeout) {
+      if (!shouldKeepTaskTracking) {
         setGenerating(false)
         setGenerationProgress(null)
         setGenerationStartTime(null)
@@ -956,27 +1165,6 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     if (score >= 80) return { label: '优秀', variant: 'default' as const, className: 'bg-green-600' }
     if (score >= 60) return { label: '良好', variant: 'secondary' as const, className: 'bg-yellow-500' }
     return { label: '待优化', variant: 'destructive' as const }
-  }
-
-  // 解析评分说明
-  const parseScoreExplanation = (explanation: string) => {
-    if (!explanation) return []
-
-    // 解析格式: "相关性 2.1/30: 相关性有待提升 质量 19.7/25: 文案质量良好..."
-    const regex = /([^\s]+)\s+([\d.]+)\/([\d.]+):\s*([^]+?)(?=\s+[^\s]+\s+[\d.]+\/[\d.]+:|$)/g
-    const items: Array<{ dimension: string; score: number; max: number; comment: string }> = []
-
-    let match
-    while ((match = regex.exec(explanation)) !== null) {
-      items.push({
-        dimension: match[1],
-        score: parseFloat(match[2]),
-        max: parseFloat(match[3]),
-        comment: match[4].trim()
-      })
-    }
-
-    return items
   }
 
   // 渲染可展开的列表
@@ -1048,48 +1236,42 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
           <Button
             onClick={handleGenerate}
-            disabled={generating || generationCount >= 3}
+            disabled={generating || generatedBuckets.length >= 3}
             className={`shadow-md border-0 ${
-              generationCount >= 3
+              generatedBuckets.length >= 3
                 ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-amber-500/20'
                 : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-purple-500/20'
             } text-white`}
-            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : (
-              generationCount === 0
-                ? '生成品牌/信任导向创意'
-                : generationCount === 1
-                  ? '生成场景+功能导向创意'
-                  : generationCount === 2
-                    ? '生成转化/价值导向创意'
-                    : '已达生成上限'
-            )}
+            title={generateButtonTitle}
           >
             {generating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                AI生成中...
+                {generateButtonLabel}
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                {generationCount === 0 ? '开始生成创意'
-                  : generationCount === 1 ? '生成场景+功能'
-                    : generationCount === 2 ? '生成转化/价值'
-                      : '已达生成上限'}
+                {generateButtonLabel}
               </>
             )}
           </Button>
         </div>
       </div>
 
-      {/* 🆕 v4.16: 创意类型进度指示器 */}
-      <CreativeTypeProgress
+      <CreativeGenerationOverviewPanel
         generatedBuckets={generatedBuckets}
+        activeBucket={activeBucket}
+        generationProgress={generationProgress}
+        generating={generating}
+        elapsedTime={elapsedTime}
+        sseTimeout={sseTimeout}
+        taskStatus={taskStatus}
         offer={offer}
       />
 
       {/* 🆕 生成次数上限提示 */}
-      {generationCount >= 3 && (
+      {generatedBuckets.length >= 3 && (
         <Alert className="border-amber-200 bg-amber-50">
           <AlertCircle className="h-4 w-4 text-amber-600" />
           <AlertDescription className="text-amber-700">
@@ -1282,9 +1464,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                     />
                   </div>
                   {/* 总耗时显示 */}
-                  <div className="flex justify-center mt-2">
+                      <div className="flex justify-center mt-2">
                     <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                      已用时: {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+                      已用时: {formatElapsedTime(elapsedTime)}
                     </span>
                   </div>
                 </div>
@@ -1382,11 +1564,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 </p>
                 <Button
                   onClick={handleGenerate}
-                  disabled={generating || generationCount >= 3}
+                  disabled={generating || generatedBuckets.length >= 3}
                   className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
                 >
                   <Wand2 className="w-4 h-4 mr-2" />
-                  立即生成
+                  {generateButtonLabel}
                 </Button>
               </>
             )}

@@ -4,6 +4,7 @@ const hoisted = vi.hoisted(() => ({
   queryMock: vi.fn(),
   queryOneMock: vi.fn(),
   execMock: vi.fn(),
+  fetchAutoadsJsonMock: vi.fn(),
   invokeOpenclawToolMock: vi.fn(),
   resolveUserFeishuAccountIdMock: vi.fn(),
   writeDailyReportToBitableMock: vi.fn(),
@@ -17,6 +18,10 @@ vi.mock('@/lib/db', () => ({
     queryOne: hoisted.queryOneMock,
     exec: hoisted.execMock,
   }),
+}))
+
+vi.mock('@/lib/openclaw/autoads-client', () => ({
+  fetchAutoadsJson: hoisted.fetchAutoadsJsonMock,
 }))
 
 vi.mock('@/lib/openclaw/gateway', () => ({
@@ -44,6 +49,7 @@ describe('sendDailyReportToFeishu', () => {
     hoisted.queryMock.mockReset()
     hoisted.queryOneMock.mockReset()
     hoisted.execMock.mockReset()
+    hoisted.fetchAutoadsJsonMock.mockReset()
     hoisted.invokeOpenclawToolMock.mockReset()
     hoisted.resolveUserFeishuAccountIdMock.mockReset()
     hoisted.writeDailyReportToBitableMock.mockReset()
@@ -51,6 +57,7 @@ describe('sendDailyReportToFeishu', () => {
 
     hoisted.queryMock.mockResolvedValue([])
     hoisted.execMock.mockResolvedValue({ changes: 1 })
+    hoisted.fetchAutoadsJsonMock.mockResolvedValue({})
     hoisted.invokeOpenclawToolMock.mockResolvedValue({ ok: true })
     hoisted.resolveUserFeishuAccountIdMock.mockResolvedValue(null)
     hoisted.writeDailyReportToBitableMock.mockResolvedValue(undefined)
@@ -215,6 +222,184 @@ describe('sendDailyReportToFeishu', () => {
     expect(message).toContain('- 当日表现：曝光 1707｜转化（Google Ads）38.52｜联盟佣金记录 0')
     expect(message).toContain('- 预算概览：预算 123.33 USD｜已花费 41.21 USD｜剩余 82.12 USD')
     expect(message).not.toContain('转化/佣金笔数')
+  })
+
+  it('includes all currencies in spend and budget sections when budget payload is mixed-currency', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-23',
+            generatedAt: '2026-02-23T09:00:00.000Z',
+            summary: {
+              kpis: {
+                totalOffers: 5,
+                totalCampaigns: 7,
+              },
+            },
+            dailySnapshot: {
+              impressions: 900,
+              clicks: 66,
+              cost: 15,
+              conversions: 2,
+            },
+            roi: {
+              data: {
+                overall: {
+                  totalCost: 15,
+                  totalRevenue: 0,
+                  totalProfit: -15,
+                  roi: -100,
+                  roas: 0,
+                  conversions: 2,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [],
+                  affiliateAttribution: {
+                    writtenRows: 0,
+                  },
+                },
+              },
+            },
+            budget: {
+              currency: 'CNY',
+              currencies: ['CNY', 'USD'],
+              hasMixedCurrency: true,
+              data: {
+                overall: {
+                  totalBudget: 130,
+                  totalSpent: 0,
+                  remaining: 130,
+                },
+              },
+              multiCurrencyOverall: [
+                {
+                  currency: 'CNY',
+                  totalBudget: 130,
+                  totalSpent: 0,
+                  remaining: 130,
+                },
+                {
+                  currency: 'USD',
+                  totalBudget: 75,
+                  totalSpent: 15,
+                  remaining: 60,
+                },
+              ],
+            },
+          }),
+        }
+      }
+      return undefined
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-23',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(message).toContain('- 投放消耗：点击 66 次｜花费 0 CNY｜15 USD')
+    expect(message).toContain('- 预算概览（多币种）：CNY：预算 130 CNY｜已花费 0 CNY｜剩余 130 CNY；USD：预算 75 USD｜已花费 15 USD｜剩余 60 USD')
+  })
+
+  it('expands cached mixed-currency roi summary by currency', async () => {
+    hoisted.queryOneMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT payload_json FROM openclaw_daily_reports')) {
+        return {
+          payload_json: JSON.stringify({
+            date: '2026-02-24',
+            generatedAt: '2026-02-24T09:00:00.000Z',
+            summary: {
+              kpis: {
+                totalOffers: 5,
+                totalCampaigns: 7,
+              },
+            },
+            dailySnapshot: {
+              impressions: 900,
+              clicks: 66,
+              cost: 15,
+              conversions: 2,
+            },
+            roi: {
+              currency: 'CNY',
+              data: {
+                overall: {
+                  totalCost: 15,
+                  totalRevenue: 25,
+                  totalProfit: 10,
+                  roi: 66.67,
+                  roas: 1.67,
+                  conversions: 2,
+                  revenueAvailable: true,
+                  affiliateBreakdown: [
+                    { platform: 'partnerboost', totalCommission: 0, records: 0, currency: 'CNY' },
+                    { platform: 'yeahpromos', totalCommission: 25, records: 2, currency: 'USD' },
+                  ],
+                  affiliateAttribution: {
+                    writtenRows: 2,
+                  },
+                },
+              },
+            },
+            budget: {
+              currency: 'CNY',
+              currencies: ['CNY', 'USD'],
+              hasMixedCurrency: true,
+              data: {
+                overall: {
+                  totalBudget: 130,
+                  totalSpent: 0,
+                  remaining: 130,
+                },
+              },
+            },
+          }),
+        }
+      }
+      return undefined
+    })
+    hoisted.fetchAutoadsJsonMock.mockImplementation(async ({ query }: { query?: Record<string, string> }) => {
+      if (query?.currency === 'CNY') {
+        return {
+          currency: 'CNY',
+          data: {
+            overall: {
+              totalBudget: 130,
+              totalSpent: 0,
+              remaining: 130,
+            },
+          },
+        }
+      }
+      if (query?.currency === 'USD') {
+        return {
+          currency: 'USD',
+          data: {
+            overall: {
+              totalBudget: 75,
+              totalSpent: 15,
+              remaining: 60,
+            },
+          },
+        }
+      }
+      return {}
+    })
+
+    await sendDailyReportToFeishu({
+      userId: 7,
+      target: 'ou_xxx',
+      date: '2026-02-24',
+    })
+
+    const message = String(hoisted.invokeOpenclawToolMock.mock.calls[0]?.[0]?.args?.message || '')
+    expect(hoisted.fetchAutoadsJsonMock).toHaveBeenCalledTimes(2)
+    expect(message).toContain('- ROI概览（多币种）：CNY：佣金 0 CNY｜花费 0 CNY｜利润 0 CNY；USD：佣金 25 USD｜花费 15 USD｜利润 10 USD')
+    expect(message).toContain('- 回报率（多币种）：CNY：ROAS 暂不可用｜ROI 暂不可用；USD：ROAS 1.67x｜ROI 66.67%')
+    expect(message).toContain('- 预算概览（多币种）：CNY：预算 130 CNY｜已花费 0 CNY｜剩余 130 CNY；USD：预算 75 USD｜已花费 15 USD｜剩余 60 USD')
+    expect(message).not.toContain('- 佣金收入：25 MIXED')
   })
 
   it('includes top strategy recommendations in daily report message', async () => {

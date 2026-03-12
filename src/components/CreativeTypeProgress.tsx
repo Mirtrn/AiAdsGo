@@ -5,11 +5,12 @@
  * ✅ KISS-3类型：显示3个创意类型的生成状态：已生成、待生成
  */
 
-import { CheckCircle2, Circle } from 'lucide-react'
+import { CheckCircle2, Circle, Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 
 interface CreativeTypeProgressProps {
   generatedBuckets: string[]
+  activeBucket?: string | null
   offer: {
     page_type?: string | null
   }
@@ -28,10 +29,11 @@ const STORE_BUCKETS = [
   { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA（全量关键词覆盖）', color: 'bg-amber-500' },
 ]
 
-export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypeProgressProps) {
+export function CreativeTypeProgress({ generatedBuckets, activeBucket, offer }: CreativeTypeProgressProps) {
   const linkType = offer.page_type || 'product'
   const buckets = linkType === 'store' ? STORE_BUCKETS : PRODUCT_BUCKETS
   const nextBucket = buckets.find(b => !generatedBuckets.includes(b.key))
+  const highlightedBucket = activeBucket || nextBucket?.key || null
 
   return (
     <TooltipProvider>
@@ -40,7 +42,8 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
         <div className="flex items-center gap-2">
           {buckets.map((bucket) => {
             const isGenerated = generatedBuckets.includes(bucket.key)
-            const isCurrent = !!nextBucket && nextBucket.key === bucket.key
+            const isCurrent = highlightedBucket === bucket.key
+            const isGenerating = activeBucket === bucket.key
 
             return (
               <Tooltip key={bucket.key}>
@@ -63,10 +66,13 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
                           ? `${bucket.color} text-white`
                           : 'bg-gray-100 text-gray-400'}
                         ${isCurrent && !isGenerated ? 'ring-2 ring-offset-2 ring-purple-500' : ''}
+                        ${isGenerating ? 'shadow-md shadow-purple-200' : ''}
                       `}
                     >
                       {isGenerated ? (
                         <CheckCircle2 className="w-5 h-5" />
+                      ) : isGenerating ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
                       ) : (
                         <Circle className="w-5 h-5" />
                       )}
@@ -87,6 +93,12 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
                   {isGenerated && (
                     <p className="text-xs text-green-600 mt-1">✓ 已生成</p>
                   )}
+                  {isGenerating && (
+                    <p className="text-xs text-purple-600 mt-1">生成中</p>
+                  )}
+                  {!isGenerated && !isGenerating && isCurrent && (
+                    <p className="text-xs text-gray-500 mt-1">下一步</p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             )
@@ -101,6 +113,10 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
           <span className="text-gray-500">
             {generatedBuckets.length === 3 ? (
               <span className="text-green-600 font-medium">全部完成</span>
+            ) : activeBucket ? (
+              <span className="text-purple-600 font-medium">
+                当前: {buckets.find(bucket => bucket.key === activeBucket)?.label || activeBucket}
+              </span>
             ) : generatedBuckets.length === 0 ? (
               <span className="text-gray-400">点击生成开始</span>
             ) : (
