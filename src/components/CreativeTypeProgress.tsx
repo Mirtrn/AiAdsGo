@@ -37,94 +37,95 @@ export function CreativeTypeProgress({ generatedBuckets, activeBucket, offer }: 
 
   return (
     <TooltipProvider>
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">创意类型进度</h3>
-        <div className="flex items-center gap-2">
-          {buckets.map((bucket) => {
+      <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <h3 className="mb-2 text-sm font-medium text-gray-700">创意类型进度</h3>
+        <div className="flex items-start gap-3">
+          {buckets.map((bucket, index) => {
             const isGenerated = generatedBuckets.includes(bucket.key)
             const isCurrent = highlightedBucket === bucket.key
             const isGenerating = activeBucket === bucket.key
 
             return (
-              <Tooltip key={bucket.key}>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2">
-                    {/* 连接线 */}
-                    {bucket.key !== 'A' && (
-                      <div className={`w-8 h-0.5 ${
-                        generatedBuckets.includes(buckets[buckets.findIndex(b => b.key === bucket.key) - 1]?.key || '')
-                          ? 'bg-gray-300'
-                          : 'bg-gray-100'
-                      }`} />
-                    )}
+              <div key={bucket.key} className="flex items-center gap-3">
+                {/* 连接线 */}
+                {index > 0 && (
+                  <div className={`h-0.5 w-6 sm:w-8 ${
+                    generatedBuckets.includes(buckets[index - 1]?.key || '')
+                      ? 'bg-gray-300'
+                      : 'bg-gray-100'
+                  }`} />
+                )}
 
-                    {/* 状态图标 */}
-                    <div
-                      className={`
-                        relative flex items-center justify-center w-10 h-10 rounded-full
-                        ${isGenerated
-                          ? `${bucket.color} text-white`
-                          : 'bg-gray-100 text-gray-400'}
-                        ${isCurrent && !isGenerated ? 'ring-2 ring-offset-2 ring-purple-500' : ''}
-                        ${isGenerating ? 'shadow-md shadow-purple-200' : ''}
-                      `}
-                    >
-                      {isGenerated ? (
-                        <CheckCircle2 className="w-5 h-5" />
-                      ) : isGenerating ? (
-                        <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
-                      ) : (
-                        <Circle className="w-5 h-5" />
-                      )}
-
-                      {/* 类型标签 */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex min-w-[40px] flex-col items-center gap-1">
+                      <div
+                        className={`
+                          relative flex h-9 w-9 items-center justify-center rounded-full
+                          ${isGenerated
+                            ? `${bucket.color} text-white`
+                            : 'bg-gray-100 text-gray-400'}
+                          ${isCurrent && !isGenerated ? 'ring-2 ring-offset-2 ring-purple-500' : ''}
+                          ${isGenerating ? 'shadow-md shadow-purple-200' : ''}
+                        `}
+                      >
+                        {isGenerated ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : isGenerating ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+                        ) : (
+                          <Circle className="h-4 w-4" />
+                        )}
+                      </div>
                       <span className={`
-                        absolute -bottom-6 text-xs font-medium whitespace-nowrap
+                        text-xs font-medium leading-none
                         ${isGenerated ? 'text-gray-900' : 'text-gray-500'}
                       `}>
                         {bucket.key}
                       </span>
                     </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-medium">{bucket.label}</p>
-                  <p className="text-xs text-gray-500">{bucket.description}</p>
-                  {isGenerated && (
-                    <p className="text-xs text-green-600 mt-1">✓ 已生成</p>
-                  )}
-                  {isGenerating && (
-                    <p className="text-xs text-purple-600 mt-1">生成中</p>
-                  )}
-                  {!isGenerated && !isGenerating && isCurrent && (
-                    <p className="text-xs text-gray-500 mt-1">下一步</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="font-medium">{bucket.label}</p>
+                    <p className="text-xs text-gray-500">{bucket.description}</p>
+                    {isGenerated && (
+                      <p className="mt-1 text-xs text-green-600">✓ 已生成</p>
+                    )}
+                    {isGenerating && (
+                      <p className="mt-1 text-xs text-purple-600">生成中</p>
+                    )}
+                    {!isGenerated && !isGenerating && isCurrent && (
+                      <p className="mt-1 text-xs text-gray-500">下一步</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             )
           })}
         </div>
 
         {/* 进度统计 */}
-        <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
-          <span className="text-gray-500">
-            已完成 <span className="font-medium text-gray-900">{generatedBuckets.length}</span> / 3 个创意类型
-          </span>
-          <span className="text-gray-500">
-            {generatedBuckets.length === 3 ? (
-              <span className="text-green-600 font-medium">全部完成</span>
-            ) : activeBucket ? (
-              <span className="text-purple-600 font-medium">
-                当前: {buckets.find(bucket => bucket.key === activeBucket)?.label || activeBucket}
-              </span>
-            ) : generatedBuckets.length === 0 ? (
-              <span className="text-gray-400">点击生成开始</span>
-            ) : (
-              <span className="text-purple-600">
-                下一个: {nextBucket?.label || '-'}
-              </span>
-            )}
-          </span>
+        <div className="mt-3 border-t border-gray-100 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-sm">
+            <span className="text-gray-500">
+              已完成 <span className="font-medium text-gray-900">{generatedBuckets.length}</span> / 3 个创意类型
+            </span>
+            <span className="pr-1 text-right text-gray-500">
+              {generatedBuckets.length === 3 ? (
+                <span className="font-medium text-green-600">全部完成</span>
+              ) : activeBucket ? (
+                <span className="font-medium text-purple-600">
+                  当前: {buckets.find(bucket => bucket.key === activeBucket)?.label || activeBucket}
+                </span>
+              ) : generatedBuckets.length === 0 ? (
+                <span className="text-gray-400">点击生成开始</span>
+              ) : (
+                <span className="text-purple-600">
+                  下一个: {nextBucket?.label || '-'}
+                </span>
+              )}
+            </span>
+          </div>
         </div>
       </div>
     </TooltipProvider>
