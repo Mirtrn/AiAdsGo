@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -181,7 +181,7 @@ function LoginForm() {
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                 <Zap className="w-6 h-6 text-white" />
               </div>
-              <span className="text-2xl font-bold tracking-tight">AutoAds</span>
+              <span className="text-2xl font-bold tracking-tight">AiAdsGo</span>
             </div>
           </div>
 
@@ -231,7 +231,7 @@ function LoginForm() {
                 ))}
               </div>
               <p className="text-slate-200 italic mb-4">
-                "AutoAds彻底改变了我们的投放流程。现在我们可以同时测试数百个Offer，而无需增加人手。"
+                "AiAdsGo彻底改变了我们的投放流程。现在我们可以同时测试数百个Offer，而无需增加人手。"
               </p>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold">
@@ -247,7 +247,7 @@ function LoginForm() {
 
           {/* Footer */}
           <div className="flex items-center justify-between text-sm text-slate-500">
-            <span>&copy; 2025 AutoAds Inc.</span>
+            <span>&copy; 2025 AiAdsGo Inc.</span>
             <div className="flex gap-4">
               <a href="#" className="hover:text-white transition-colors">隐私政策</a>
               <a href="#" className="hover:text-white transition-colors">服务条款</a>
@@ -267,7 +267,7 @@ function LoginForm() {
             </div>
             <h2 className="text-3xl font-bold text-slate-900 tracking-tight">欢迎回来</h2>
             <p className="text-slate-500">
-              请输入您的账号信息以继续使用 AutoAds
+              请输入您的账号信息以继续使用 AiAdsGo
             </p>
           </div>
 

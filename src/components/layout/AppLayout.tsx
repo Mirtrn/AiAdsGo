@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
@@ -423,7 +423,7 @@ export default function AppLayout({
       <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-slate-200 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-            AutoAds
+            AiAdsGo
           </h1>
         </div>
         <div className="flex items-center gap-4">
@@ -461,7 +461,7 @@ export default function AppLayout({
         <div className="h-16 flex items-center justify-between px-4 mb-2">
           {sidebarOpen && (
             <h1 className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-              AutoAds
+              AiAdsGo
             </h1>
           )}
         </div>

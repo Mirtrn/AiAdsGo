@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { Target, Zap, Users, TrendingUp } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
@@ -18,7 +18,7 @@ export default function AboutPage() {
           {/* Hero */}
           <div className="text-center mb-16">
             <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-4">
-              关于 AutoAds
+              关于 AiAdsGo
             </h1>
             <p className="text-xl text-slate-600 max-w-2xl mx-auto">
               我们致力于让 Google Ads 投放变得简单、高效、智能
@@ -30,14 +30,14 @@ export default function AboutPage() {
             <div className="bg-white rounded-3xl p-8 md:p-12 shadow-sm border border-slate-200">
               <h2 className="text-2xl font-bold text-slate-900 mb-6">我们的使命</h2>
               <p className="text-lg text-slate-600 leading-relaxed mb-6">
-                AutoAds 诞生于一个简单的想法：<span className="font-semibold text-slate-900">让每一位 Affiliate Marketer 都能轻松驾驭 Google Ads</span>。
+                AiAdsGo 诞生于一个简单的想法：<span className="font-semibold text-slate-900">让每一位 Affiliate Marketer 都能轻松驾驭 Google Ads</span>。
               </p>
               <p className="text-lg text-slate-600 leading-relaxed mb-6">
                 我们深知，传统的广告投放流程繁琐、耗时，需要大量的专业知识和经验。
                 很多优秀的产品因为缺乏有效的推广而被埋没，很多有潜力的营销人员因为技术门槛而望而却步。
               </p>
               <p className="text-lg text-slate-600 leading-relaxed">
-                AutoAds 的目标是打破这些壁垒，通过 AI 技术和自动化流程，
+                AiAdsGo 的目标是打破这些壁垒，通过 AI 技术和自动化流程，
                 让广告投放从"技术活"变成"简单事"，让每一分预算都能发挥最大价值。
               </p>
             </div>
@@ -51,7 +51,7 @@ export default function AboutPage() {
                 {
                   icon: Target,
                   title: "效率至上",
-                  description: "我们相信时间是最宝贵的资源。AutoAds 将原本需要数小时的工作压缩到10分钟内完成。",
+                  description: "我们相信时间是最宝贵的资源。AiAdsGo 将原本需要数小时的工作压缩到10分钟内完成。",
                   color: "blue"
                 },
                 {
@@ -92,13 +92,13 @@ export default function AboutPage() {
             <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 md:p-12 text-white">
               <h2 className="text-2xl font-bold mb-6">我们的团队</h2>
               <p className="text-lg text-slate-300 leading-relaxed mb-6">
-                AutoAds 团队由一群热爱技术、深耕数字营销领域的专业人士组成。
+                AiAdsGo 团队由一群热爱技术、深耕数字营销领域的专业人士组成。
                 我们拥有丰富的 Google Ads 投放经验和 AI 技术背景，
                 深刻理解 Affiliate Marketer 的痛点和需求。
               </p>
               <p className="text-lg text-slate-300 leading-relaxed">
                 我们不仅是产品的开发者，更是产品的使用者。
-                我们用自己的实战经验打磨每一个功能，确保 AutoAds 真正解决实际问题。
+                我们用自己的实战经验打磨每一个功能，确保 AiAdsGo 真正解决实际问题。
               </p>
             </div>
           </section>

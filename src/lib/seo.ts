@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SEO Metadata Configuration - P2-1优化
  * 统一管理网站SEO信息，确保品牌一致性
  */
@@ -9,10 +9,10 @@ import { Metadata } from 'next'
  * 基础SEO配置
  */
 export const baseSEO = {
-  siteName: 'AutoAds',
+  siteName: 'AiAdsGo',
   siteUrl: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
   locale: 'zh_CN',
-  author: 'AutoAds Team',
+  author: 'AiAdsGo Team',
   keywords: [
     'Google Ads',
     'Google Ads自动化',
@@ -40,7 +40,7 @@ export const ogImage = {
   url: '/logo.png', // 临时使用logo，建议替换为 /og-image.png (1200x630)
   width: 1200,
   height: 630,
-  alt: 'AutoAds - Google Ads AI广告自动化投放系统',
+  alt: 'AiAdsGo - Google Ads AI广告自动化投放系统',
 }
 
 /**
@@ -62,7 +62,7 @@ export function generateMetadata({
   noIndex?: boolean
 }): Metadata {
   const url = `${baseSEO.siteUrl}${path}`
-  const fullTitle = `${title} | AutoAds`
+  const fullTitle = `${title} | AiAdsGo`
   const image = customOgImage || ogImage
 
   return {
@@ -118,14 +118,14 @@ export const pageMetadata = {
   home: generateMetadata({
     title: 'Google Ads快速测试和一键优化营销平台',
     description:
-      'AutoAds - AI驱动的Google Ads自动化投放平台。自动生成高质量广告文案、获取真实Keyword Planner数据、数据驱动持续优化、构建"印钞机"增长飞轮。适合BB新人和独立工作室，最大化投放ROI。',
+      'AiAdsGo - AI驱动的Google Ads自动化投放平台。自动生成高质量广告文案、获取真实Keyword Planner数据、数据驱动持续优化、构建"印钞机"增长飞轮。适合BB新人和独立工作室，最大化投放ROI。',
     path: '/',
   }),
 
   // 登录页
   login: generateMetadata({
     title: '登录',
-    description: '登录AutoAds账户，开始使用AI驱动的Google Ads自动化投放平台',
+    description: '登录AiAdsGo账户，开始使用AI驱动的Google Ads自动化投放平台',
     path: '/login',
     noIndex: true, // 登录页不需要索引
   }),
@@ -134,16 +134,16 @@ export const pageMetadata = {
   about: generateMetadata({
     title: '关于我们',
     description:
-      '了解AutoAds团队和使命。我们致力于让Google Ads投放变得简单、高效、智能，帮助每一位Affiliate Marketer轻松驾驭Google Ads。',
+      '了解AiAdsGo团队和使命。我们致力于让Google Ads投放变得简单、高效、智能，帮助每一位Affiliate Marketer轻松驾驭Google Ads。',
     path: '/about',
-    keywords: ['关于AutoAds', '公司使命', '团队介绍', '核心价值观'],
+    keywords: ['关于AiAdsGo', '公司使命', '团队介绍', '核心价值观'],
   }),
 
   // 联系我们
   contact: generateMetadata({
     title: '联系我们',
     description:
-      '联系AutoAds团队，获取帮助支持和业务咨询。邮箱：support@autoads.dev，微信：AutoAds_Support。',
+      '联系AiAdsGo团队，获取帮助支持和业务咨询。邮箱：support@AiAdsGo.dev，微信：AiAdsGo_Support。',
     path: '/contact',
     keywords: ['联系方式', '客服支持', '技术咨询', '商务合作'],
   }),
@@ -152,7 +152,7 @@ export const pageMetadata = {
   privacy: generateMetadata({
     title: '隐私政策',
     description:
-      'AutoAds隐私政策。了解我们如何收集、使用和保护您的个人信息，确保数据安全和隐私保护。',
+      'AiAdsGo隐私政策。了解我们如何收集、使用和保护您的个人信息，确保数据安全和隐私保护。',
     path: '/privacy',
     keywords: ['隐私政策', '数据保护', '个人信息', '用户隐私'],
   }),
@@ -161,7 +161,7 @@ export const pageMetadata = {
   terms: generateMetadata({
     title: '服务条款',
     description:
-      'AutoAds服务条款。了解使用我们服务的相关规定、定价方案、退款政策等重要条款。',
+      'AiAdsGo服务条款。了解使用我们服务的相关规定、定价方案、退款政策等重要条款。',
     path: '/terms',
     keywords: ['服务条款', '使用协议', '定价方案', '退款政策'],
   }),
@@ -258,7 +258,7 @@ export const pageMetadata = {
   // 完成Google Ads设置
   googleAdsCompleteSetup: generateMetadata({
     title: '完成Google Ads设置',
-    description: '完成Google Ads账号授权和配置，开始使用AutoAds自动化投放功能。',
+    description: '完成Google Ads账号授权和配置，开始使用AiAdsGo自动化投放功能。',
     path: '/google-ads/complete-setup',
     noIndex: true,
   }),
@@ -266,7 +266,7 @@ export const pageMetadata = {
   // 设置
   settings: generateMetadata({
     title: '设置',
-    description: '管理账户设置、通知偏好、集成配置等。个性化您的AutoAds使用体验。',
+    description: '管理账户设置、通知偏好、集成配置等。个性化您的AiAdsGo使用体验。',
     path: '/settings',
     keywords: ['账户设置', '通知设置', '偏好配置'],
     noIndex: true,

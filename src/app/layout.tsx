@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+﻿import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
 import FrontendErrorReporter from '@/components/monitoring/FrontendErrorReporter'
@@ -25,8 +25,8 @@ const flagSnapshot = (() => {
 
 export const metadata: Metadata = {
   // P0-4: SEO优化 - 更精准的标题和描述
-  title: 'AutoAds - Google Ads快速测试和一键优化营销平台 | AI自动生成高质量广告文案',
-  description: 'AutoAds - AI驱动的Google Ads自动化投放平台。自动生成高质量广告文案、获取真实Keyword Planner数据、数据驱动持续优化、构建"印钞机"增长飞轮。适合BB新人和独立工作室，最大化投放ROI。',
+  title: 'AiAdsGo - Google Ads快速测试和一键优化营销平台 | AI自动生成高质量广告文案',
+  description: 'AiAdsGo - AI驱动的Google Ads自动化投放平台。自动生成高质量广告文案、获取真实Keyword Planner数据、数据驱动持续优化、构建"印钞机"增长飞轮。适合BB新人和独立工作室，最大化投放ROI。',
   keywords: [
     'Google Ads',
     'Google Ads自动化',
@@ -43,9 +43,9 @@ export const metadata: Metadata = {
     '印钞机组合',
     '增长飞轮',
   ],
-  authors: [{ name: 'AutoAds Team' }],
-  creator: 'AutoAds',
-  publisher: 'AutoAds',
+  authors: [{ name: 'AiAdsGo Team' }],
+  creator: 'AiAdsGo',
+  publisher: 'AiAdsGo',
   formatDetection: {
     email: false,
     address: false,
@@ -53,16 +53,16 @@ export const metadata: Metadata = {
   },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
   openGraph: {
-    title: 'AutoAds - Google Ads AI广告自动化投放系统',
+    title: 'AiAdsGo - Google Ads AI广告自动化投放系统',
     description: '自动化Offer管理、AI广告文案生成、真实关键词数据、增长飞轮，最大化投放ROI',
     url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    siteName: 'AutoAds',
+    siteName: 'AiAdsGo',
     images: [
       {
         url: '/assets/marketing/hero-demo.png', // P2-1: 使用 Hero Demo 作为 OG 图片
         width: 1200,
         height: 630,
-        alt: 'AutoAds - Google Ads AI广告自动化投放系统',
+        alt: 'AiAdsGo - Google Ads AI广告自动化投放系统',
       },
     ],
     locale: 'zh_CN',
@@ -70,7 +70,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'AutoAds - Google Ads AI广告自动化投放系统',
+    title: 'AiAdsGo - Google Ads AI广告自动化投放系统',
     description: '自动化Offer管理、AI广告文案生成、真实关键词数据，最大化投放ROI',
     images: ['/assets/marketing/hero-demo.png'],
   },

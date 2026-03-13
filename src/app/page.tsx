@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { ArrowRight, CheckCircle2, Star, Clock, Wand2 } from "lucide-react";
 
@@ -25,7 +25,7 @@ export default function MarketingHome() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2">
-              <img src="/logo.svg" alt="AutoAds" className="h-8 w-auto" />
+              <img src="/logo.svg" alt="AiAdsGo" className="h-8 w-auto" />
             </div>
             <nav className="hidden md:flex space-x-8">
               <a href="#value" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
@@ -81,7 +81,7 @@ export default function MarketingHome() {
               {/* Badge */}
               <div className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50/50 backdrop-blur-sm px-3 py-1 text-sm font-medium text-blue-700 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
                 <span className="flex h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse"></span>
-                AutoAds 2.0 全新发布
+                AiAdsGo 2.0 全新发布
               </div>
 
               {/* Main Heading */}
@@ -139,7 +139,7 @@ export default function MarketingHome() {
                 <div className="relative w-full h-full rounded-3xl overflow-hidden">
                   <img
                     src="/assets/marketing/hero-demo.png"
-                    alt="AutoAds 产品演示"
+                    alt="AiAdsGo 产品演示"
                     className="w-full h-full object-cover"
                     fetchPriority="high"
                     width={800}
@@ -226,14 +226,14 @@ export default function MarketingHome() {
               深受 1000+ 专业玩家信赖
             </h2>
             <p className="text-xl text-slate-600">
-              看看他们如何用 AutoAds 实现效率革命
+              看看他们如何用 AiAdsGo 实现效率革命
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
-                content: "以前周五接单周一要交付，整个周末都在熬夜写广告。现在用 AutoAds，10分钟搞定，周末照样出去玩！",
+                content: "以前周五接单周一要交付，整个周末都在熬夜写广告。现在用 AiAdsGo，10分钟搞定，周末照样出去玩！",
                 author: "Alex Chen",
                 role: "资深 Media Buyer",
                 initials: "AC",
@@ -418,7 +418,7 @@ export default function MarketingHome() {
             {/* Brand Column */}
             <div className="col-span-1 md:col-span-1">
               <div className="flex items-center gap-2 mb-6">
-                <img src="/logo-white.svg" alt="AutoAds" className="h-8 w-auto" />
+                <img src="/logo-white.svg" alt="AiAdsGo" className="h-8 w-auto" />
               </div>
               <p className="text-sm leading-relaxed mb-6">
                 专为 Affiliate Marketer 打造的 Google Ads
@@ -460,7 +460,7 @@ export default function MarketingHome() {
 
           <div className="mt-12 pt-8 border-t border-slate-900 text-center md:text-left flex flex-col md:flex-row justify-between items-center">
             <p className="text-sm text-slate-500">
-              &copy; {new Date().getFullYear()} AutoAds. All rights reserved.
+              &copy; {new Date().getFullYear()} AiAdsGo. All rights reserved.
             </p>
             <div className="mt-4 md:mt-0 flex space-x-6">
               <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">隐私政策</a>

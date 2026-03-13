@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import CountUp from "react-countup";
@@ -128,10 +128,10 @@ function ComparisonRow({
         />
       </div>
 
-      {/* AutoAds */}
+      {/* AiAdsGo */}
       <div className="col-span-5 md:col-span-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-slate-500">用 AutoAds</span>
+          <span className="text-sm text-slate-500">用 AiAdsGo</span>
           <span className="text-sm font-semibold text-emerald-600">
             {isVisible ? (
               item.after.value % 1 === 0 ? (
@@ -203,7 +203,7 @@ export function ComparisonChart() {
         {/* 标题 */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-            使用 AutoAds 前后对比
+            使用 AiAdsGo 前后对比
           </h2>
           <p className="text-xl text-slate-600">
             真实数据，一目了然
@@ -224,7 +224,7 @@ export function ComparisonChart() {
               </div>
               <div className="col-span-4 text-sm font-semibold text-emerald-500 flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-emerald-500" />
-                用 AutoAds
+                用 AiAdsGo
               </div>
               <div className="col-span-2 text-sm font-semibold text-slate-500 text-right">
                 提升

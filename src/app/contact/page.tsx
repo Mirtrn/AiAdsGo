@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { Mail, MessageCircle, Clock, MapPin } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
@@ -37,10 +37,10 @@ export default function ContactPage() {
                 发送邮件至我们的客服邮箱，我们将在 24 小时内回复
               </p>
               <a
-                href="mailto:support@autoads.dev"
+                href="mailto:support@AiAdsGo.dev"
                 className="text-blue-600 font-medium hover:text-blue-700 transition-colors"
               >
-                support@autoads.dev
+                support@AiAdsGo.dev
               </a>
             </div>
 
@@ -54,7 +54,7 @@ export default function ContactPage() {
                 添加微信客服，获取更快速的一对一支持
               </p>
               <span className="text-emerald-600 font-medium">
-                微信号：AutoAds_Support
+                微信号：AiAdsGo_Support
               </span>
             </div>
 
@@ -95,7 +95,7 @@ export default function ContactPage() {
               <div className="space-y-6">
                 {[
                   {
-                    q: "如何开始使用 AutoAds？",
+                    q: "如何开始使用 AiAdsGo？",
                     a: "注册账号后，您可以立即开始免费试用。只需粘贴您的推广链接，AI 将自动生成广告文案。"
                   },
                   {
@@ -126,7 +126,7 @@ export default function ContactPage() {
               <h2 className="text-2xl font-bold mb-4">还有其他问题？</h2>
               <p className="text-slate-300 mb-8">我们的团队随时准备为您解答</p>
               <a
-                href="mailto:support@autoads.dev"
+                href="mailto:support@AiAdsGo.dev"
                 className="inline-flex items-center px-8 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full hover:bg-blue-50 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
               >
                 发送邮件

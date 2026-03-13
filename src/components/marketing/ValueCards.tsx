@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useRef } from "react";
 import CountUp from "react-countup";
@@ -106,7 +106,7 @@ function TimeVisual({ isVisible }: { isVisible: boolean }) {
 
       <ArrowRight className="w-6 h-6 text-slate-400" />
 
-      {/* AutoAds */}
+      {/* AiAdsGo */}
       <div className="flex flex-col items-center flex-1">
         <div
           className={`w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center transition-all duration-700 ${
@@ -135,7 +135,7 @@ function CostVisual({ isVisible }: { isVisible: boolean }) {
         <span className="text-xs text-slate-500 mt-2">$400</span>
       </div>
 
-      {/* AutoAds */}
+      {/* AiAdsGo */}
       <div className="flex flex-col items-center">
         <div
           className={`w-12 bg-gradient-to-t from-emerald-500 to-emerald-400 rounded-t transition-all duration-1000 ease-out delay-300 ${
@@ -236,7 +236,7 @@ function DifficultyVisual({ isVisible }: { isVisible: boolean }) {
 
       <ArrowRight className="w-6 h-6 text-slate-400" />
 
-      {/* AutoAds - 简单 */}
+      {/* AiAdsGo - 简单 */}
       <div className="flex flex-col items-center">
         <div
           className={`w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center transition-all duration-700 delay-500 ${
@@ -437,7 +437,7 @@ export function ValueCards() {
         {/* 标题 */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-            为什么 1000+ 专业玩家选择 AutoAds？
+            为什么 1000+ 专业玩家选择 AiAdsGo？
           </h2>
           <p className="text-xl text-slate-600">
             4大核心价值，让你的广告投放效率翻倍

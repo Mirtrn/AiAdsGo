@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import {
@@ -28,7 +28,7 @@ interface Scenario {
       pain: string;
       time: string;
     };
-    withAutoAds: {
+    withAiAdsGo: {
       steps: string[];
       benefit: string;
       time: string;
@@ -58,7 +58,7 @@ const scenarios: Scenario[] = [
         pain: "整个周末泡汤，还不确定效果 😫",
         time: "12+ 小时",
       },
-      withAutoAds: {
+      withAiAdsGo: {
         steps: [
           "周五晚上：粘贴产品链接",
           "AI自动分析并生成广告",
@@ -91,7 +91,7 @@ const scenarios: Scenario[] = [
         pain: "效率低下，经常漏掉爆款机会 😰",
         time: "15+ 小时",
       },
-      withAutoAds: {
+      withAiAdsGo: {
         steps: [
           "批量导入5个Offer链接",
           "AI并行生成所有广告",
@@ -124,7 +124,7 @@ const scenarios: Scenario[] = [
         pain: "时间长+成本高+效果不确定 💸",
         time: "12小时 + $1500",
       },
-      withAutoAds: {
+      withAiAdsGo: {
         steps: [
           "选择目标国家：美、德、日",
           "AI自动本地化文案",
@@ -259,7 +259,7 @@ function ScenarioContent({
             </div>
           </div>
 
-          {/* 用 AutoAds */}
+          {/* 用 AiAdsGo */}
           <div
             className={`bg-emerald-50 rounded-2xl p-5 border border-emerald-100 transition-all duration-500 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
               }`}
@@ -267,11 +267,11 @@ function ScenarioContent({
           >
             <div className="flex items-center gap-2 mb-4">
               <Zap className="w-5 h-5 text-emerald-500" />
-              <span className="font-semibold text-emerald-700">🚀 用 AutoAds</span>
+              <span className="font-semibold text-emerald-700">🚀 用 AiAdsGo</span>
             </div>
 
             <div className="space-y-2 mb-4">
-              {scenario.story.withAutoAds.steps.map((step, index) => (
+              {scenario.story.withAiAdsGo.steps.map((step, index) => (
                 <TimelineStep
                   key={index}
                   step={step}
@@ -285,10 +285,10 @@ function ScenarioContent({
             <div className="pt-4 border-t border-emerald-200">
               <div className="text-xs text-emerald-500 mb-1">耗时</div>
               <div className="text-lg font-bold text-emerald-700">
-                {scenario.story.withAutoAds.time}
+                {scenario.story.withAiAdsGo.time}
               </div>
               <p className="text-sm text-emerald-600 mt-2">
-                {scenario.story.withAutoAds.benefit}
+                {scenario.story.withAiAdsGo.benefit}
               </p>
             </div>
           </div>
@@ -352,7 +352,7 @@ export function ScenarioTabs() {
         {/* 标题 */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-            3个真实场景，看 AutoAds 如何帮你赚钱
+            3个真实场景，看 AiAdsGo 如何帮你赚钱
           </h2>
           <p className="text-xl text-slate-600">
             选择你的场景，体验效率革命

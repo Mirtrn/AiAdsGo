@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -16,13 +16,13 @@ export function Onboarding({ open, onComplete }: OnboardingProps) {
 
   const steps = [
     {
-      title: '欢迎使用AutoAds',
+      title: '欢迎使用AiAdsGo',
       description: '智能Google Ads投放自动化平台',
       icon: Rocket,
       content: (
         <div className="space-y-4">
           <p className="text-gray-600">
-            AutoAds帮助您自动化Google Ads投放流程，从Offer创建到创意生成，再到投放效果分析。
+            AiAdsGo帮助您自动化Google Ads投放流程，从Offer创建到创意生成，再到投放效果分析。
           </p>
           <div className="grid grid-cols-2 gap-4 mt-6">
             <Card>
@@ -199,7 +199,7 @@ export function Onboarding({ open, onComplete }: OnboardingProps) {
       ),
     },
     {
-      title: '开始使用AutoAds！',
+      title: '开始使用AiAdsGo！',
       description: '您已准备好开始自动化投放',
       icon: CheckCircle2,
       content: (
@@ -208,7 +208,7 @@ export function Onboarding({ open, onComplete }: OnboardingProps) {
             <CheckCircle2 className="h-16 w-16 text-green-600 mx-auto mb-4" />
             <h4 className="font-semibold text-lg mb-2">准备就绪！</h4>
             <p className="text-gray-700">
-              您已了解AutoAds的核心功能，现在可以开始创建您的第一个Offer并生成广告创意了。
+              您已了解AiAdsGo的核心功能，现在可以开始创建您的第一个Offer并生成广告创意了。
             </p>
           </div>
           <div className="space-y-3">

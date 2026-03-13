@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
@@ -30,7 +30,7 @@ export default function PrivacyPage() {
               <section className="mb-10">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">1. 概述</h2>
                 <p className="text-slate-600 leading-relaxed mb-4">
-                  AutoAds（以下简称"我们"）非常重视用户的隐私保护。本隐私政策旨在向您说明我们如何收集、使用、存储和保护您的个人信息。
+                  AiAdsGo（以下简称"我们"）非常重视用户的隐私保护。本隐私政策旨在向您说明我们如何收集、使用、存储和保护您的个人信息。
                 </p>
                 <p className="text-slate-600 leading-relaxed">
                   使用我们的服务即表示您同意本隐私政策中描述的数据处理方式。如果您不同意本政策的任何部分，请停止使用我们的服务。
@@ -130,7 +130,7 @@ export default function PrivacyPage() {
                   如果您对本隐私政策有任何疑问或需要行使您的权利，请通过以下方式联系我们：
                 </p>
                 <p className="text-slate-600 mt-4">
-                  邮箱：<a href="mailto:privacy@autoads.dev" className="text-blue-600 hover:text-blue-700">privacy@autoads.dev</a>
+                  邮箱：<a href="mailto:privacy@AiAdsGo.dev" className="text-blue-600 hover:text-blue-700">privacy@AiAdsGo.dev</a>
                 </p>
               </section>
             </div>

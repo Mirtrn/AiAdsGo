@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 
 export function MarketingFooter() {
   return (
@@ -8,7 +8,7 @@ export function MarketingFooter() {
           {/* Brand Column */}
           <div className="col-span-1 md:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-6">
-              <img src="/logo-white.svg" alt="AutoAds" className="h-8 w-auto" />
+              <img src="/logo-white.svg" alt="AiAdsGo" className="h-8 w-auto" />
             </Link>
             <p className="text-sm leading-relaxed mb-6">
               专为 Affiliate Marketer 打造的 Google Ads
@@ -50,7 +50,7 @@ export function MarketingFooter() {
 
         <div className="mt-12 pt-8 border-t border-slate-900 text-center md:text-left flex flex-col md:flex-row justify-between items-center">
           <p className="text-sm text-slate-500">
-            &copy; {new Date().getFullYear()} AutoAds. All rights reserved.
+            &copy; {new Date().getFullYear()} AiAdsGo. All rights reserved.
           </p>
           <div className="mt-4 md:mt-0 flex space-x-6">
             <Link href="/privacy" className="text-sm text-slate-500 hover:text-white transition-colors">隐私政策</Link>

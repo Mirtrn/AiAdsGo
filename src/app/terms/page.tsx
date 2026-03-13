@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
@@ -30,7 +30,7 @@ export default function TermsPage() {
               <section className="mb-10">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">1. 服务协议</h2>
                 <p className="text-slate-600 leading-relaxed mb-4">
-                  欢迎使用 AutoAds（以下简称"本服务"）。本服务条款（以下简称"本条款"）是您与 AutoAds 之间关于使用本服务的法律协议。
+                  欢迎使用 AiAdsGo（以下简称"本服务"）。本服务条款（以下简称"本条款"）是您与 AiAdsGo 之间关于使用本服务的法律协议。
                 </p>
                 <p className="text-slate-600 leading-relaxed">
                   使用本服务即表示您已阅读、理解并同意接受本条款的约束。如果您不同意本条款的任何部分，请勿使用本服务。
@@ -40,7 +40,7 @@ export default function TermsPage() {
               <section className="mb-10">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">2. 服务描述</h2>
                 <p className="text-slate-600 leading-relaxed mb-4">
-                  AutoAds 是一个 Google Ads 自动化投放平台，提供以下服务：
+                  AiAdsGo 是一个 Google Ads 自动化投放平台，提供以下服务：
                 </p>
                 <ul className="list-disc list-inside text-slate-600 space-y-2 ml-4">
                   <li>AI 驱动的广告文案生成</li>
@@ -111,7 +111,7 @@ export default function TermsPage() {
               <section className="mb-10">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">7. 知识产权</h2>
                 <p className="text-slate-600 leading-relaxed mb-4">
-                  本服务的所有内容，包括但不限于软件、文本、图形、标识、图标等，均为 AutoAds 或其许可方的财产，受知识产权法保护。
+                  本服务的所有内容，包括但不限于软件、文本、图形、标识、图标等，均为 AiAdsGo 或其许可方的财产，受知识产权法保护。
                 </p>
                 <p className="text-slate-600 leading-relaxed">
                   您使用本服务生成的广告内容，其知识产权归您所有。但您授予我们非独占性许可，允许我们为提供服务目的使用这些内容。
@@ -135,7 +135,7 @@ export default function TermsPage() {
               <section className="mb-10">
                 <h2 className="text-xl font-bold text-slate-900 mb-4">9. 责任限制</h2>
                 <p className="text-slate-600 leading-relaxed">
-                  在法律允许的最大范围内，AutoAds 对因使用或无法使用本服务而产生的任何间接、附带、特殊、惩罚性或后果性损害不承担责任。
+                  在法律允许的最大范围内，AiAdsGo 对因使用或无法使用本服务而产生的任何间接、附带、特殊、惩罚性或后果性损害不承担责任。
                   我们的总责任不超过您在过去12个月内支付给我们的服务费用。
                 </p>
               </section>
@@ -156,7 +156,7 @@ export default function TermsPage() {
                 <h2 className="text-xl font-bold text-slate-900 mb-4">11. 争议解决</h2>
                 <p className="text-slate-600 leading-relaxed">
                   本条款受中华人民共和国法律管辖。因本条款引起的任何争议，双方应首先通过友好协商解决。
-                  协商不成的，任何一方均可向 AutoAds 所在地有管辖权的人民法院提起诉讼。
+                  协商不成的，任何一方均可向 AiAdsGo 所在地有管辖权的人民法院提起诉讼。
                 </p>
               </section>
 
@@ -166,7 +166,7 @@ export default function TermsPage() {
                   如果您对本服务条款有任何疑问，请通过以下方式联系我们：
                 </p>
                 <p className="text-slate-600 mt-4">
-                  邮箱：<a href="mailto:legal@autoads.dev" className="text-blue-600 hover:text-blue-700">legal@autoads.dev</a>
+                  邮箱：<a href="mailto:legal@AiAdsGo.dev" className="text-blue-600 hover:text-blue-700">legal@AiAdsGo.dev</a>
                 </p>
               </section>
             </div>
