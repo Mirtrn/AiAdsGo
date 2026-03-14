@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
     // 🔧 修复：只保留1个服务账号，先删除旧的，再插入新的
+    // 先解除 google_ads_accounts 对旧服务账号的外键引用，避免外键约束冲突
+    await db.exec(`
+      UPDATE google_ads_accounts
+      SET service_account_id = NULL
+      WHERE service_account_id IN (
+        SELECT id FROM google_ads_service_accounts WHERE user_id = ?
+      )
+    `, [user.id])
+
     await db.exec(`
       DELETE FROM google_ads_service_accounts
       WHERE user_id = ?
@@ -78,6 +87,14 @@ export async function DELETE(req: NextRequest) {
     }
 
     const db = getDatabase()
+
+    // 先解除 google_ads_accounts 对该服务账号的外键引用，避免外键约束冲突
+    await db.exec(`
+      UPDATE google_ads_accounts
+      SET service_account_id = NULL
+      WHERE service_account_id = ?
+    `, [id])
+
     await db.exec(`
       DELETE FROM google_ads_service_accounts
       WHERE id = ? AND user_id = ?
