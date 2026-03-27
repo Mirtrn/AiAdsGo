@@ -60,6 +60,7 @@ services:
       start_period: 40s
     networks:
       - autoads_network
+      - aiadsgo-network
     depends_on:
       - postgres
 
@@ -98,3 +99,5 @@ volumes:
 networks:
   autoads_network:
     driver: bridge
+  aiadsgo-network:
+    external: true
