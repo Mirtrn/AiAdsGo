@@ -15,6 +15,7 @@ const QUOTA_LIMITS = {
   test: 0,        // Test access: 只能访问测试账号，生产环境配额为0
   explorer: 2880,
   basic: 15000,
+  standard: 15000, // Standard Access 与 Basic Access 配额相同
 } as const
 
 const DEFAULT_EXPLORER_DAILY_QUOTA_LIMIT = QUOTA_LIMITS.explorer
@@ -44,6 +45,7 @@ async function resolveDailyQuotaLimit(userId: number): Promise<number> {
       const level = credentialsRow.api_access_level.toLowerCase()
       if (level === 'test') return QUOTA_LIMITS.test
       if (level === 'basic') return QUOTA_LIMITS.basic
+      if (level === 'standard') return QUOTA_LIMITS.standard
       if (level === 'explorer') return QUOTA_LIMITS.explorer
     }
 
@@ -60,6 +62,7 @@ async function resolveDailyQuotaLimit(userId: number): Promise<number> {
       const level = serviceAccountRow.api_access_level.toLowerCase()
       if (level === 'test') return QUOTA_LIMITS.test
       if (level === 'basic') return QUOTA_LIMITS.basic
+      if (level === 'standard') return QUOTA_LIMITS.standard
       if (level === 'explorer') return QUOTA_LIMITS.explorer
     }
 

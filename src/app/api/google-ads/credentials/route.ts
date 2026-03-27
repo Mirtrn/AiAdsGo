@@ -268,9 +268,9 @@ export async function PATCH(request: NextRequest) {
     const { apiAccessLevel } = body
 
     // 验证参数
-    if (!apiAccessLevel || !['test', 'basic', 'explorer'].includes(apiAccessLevel)) {
+    if (!apiAccessLevel || !['test', 'basic', 'standard', 'explorer'].includes(apiAccessLevel)) {
       return NextResponse.json(
-        { error: '无效的API访问级别，必须是 test、basic 或 explorer' },
+        { error: '无效的API访问级别，必须是 test、basic、standard 或 explorer' },
         { status: 400 }
       )
     }

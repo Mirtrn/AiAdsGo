@@ -102,7 +102,7 @@ interface GoogleAdsCredentialStatus {
   clientId?: string | null
   developerToken?: string | null
   loginCustomerId?: string
-  apiAccessLevel?: 'test' | 'explorer' | 'basic'
+  apiAccessLevel?: 'test' | 'explorer' | 'basic' | 'standard'
   lastVerifiedAt?: string
   isActive?: boolean
 }
@@ -1701,10 +1701,42 @@ export default function SettingsPage() {
                         <div className="mb-4">
                           <Label className="label-text mb-2 block">Google Ads API 访问级别</Label>
                           <p className="text-sm text-gray-600 mb-3">
-                            系统会自动检测您的 Developer Token 权限级别，并据此显示每日API调用次数上限
+                            系统会自动检测您的 Developer Token 权限级别，并据此显示每日API调用次数上限。如自动检测结果有误，可在下方手动修正。
                           </p>
+                          <div className="flex items-center gap-3">
+                            <select
+                              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={googleAdsCredentialStatus.apiAccessLevel || 'explorer'}
+                              onChange={async (e) => {
+                                const level = e.target.value
+                                try {
+                                  const res = await fetch('/api/google-ads/credentials', {
+                                    method: 'PATCH',
+                                    credentials: 'include',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ apiAccessLevel: level }),
+                                  })
+                                  if (res.ok) {
+                                    toast.success(`已将访问级别更新为 ${level}`)
+                                    fetchGoogleAdsCredentialStatus()
+                                  } else {
+                                    const d = await res.json()
+                                    toast.error(d.error || '更新失败')
+                                  }
+                                } catch {
+                                  toast.error('更新访问级别失败')
+                                }
+                              }}
+                            >
+                              <option value="test">Test Access</option>
+                              <option value="explorer">Explorer Access</option>
+                              <option value="basic">Basic Access</option>
+                              <option value="standard">Standard Access</option>
+                            </select>
+                            <span className="text-xs text-gray-500">手动修正访问级别</span>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                           {/* Test Access */}
                           <div className={`p-4 border-2 rounded-lg ${
                             googleAdsCredentialStatus.apiAccessLevel === 'test'
@@ -1762,6 +1794,26 @@ export default function SettingsPage() {
                             </div>
                             <div className="text-xs text-gray-500">
                               生产环境推荐
+                            </div>
+                          </div>
+
+                          {/* Standard Access */}
+                          <div className={`p-4 border-2 rounded-lg ${
+                            googleAdsCredentialStatus.apiAccessLevel === 'standard'
+                              ? 'border-purple-500 bg-purple-50'
+                              : 'border-gray-200 bg-gray-50'
+                          }`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="font-semibold text-gray-900">Standard Access</div>
+                              {googleAdsCredentialStatus.apiAccessLevel === 'standard' && (
+                                <CheckCircle2 className="w-5 h-5 text-purple-600" />
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-600 mb-2">
+                              每日调用上限：<span className="font-semibold text-gray-900">15,000 次</span>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              生产环境推荐，完整权限
                             </div>
                           </div>
                         </div>

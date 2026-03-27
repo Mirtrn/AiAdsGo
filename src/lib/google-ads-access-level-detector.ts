@@ -6,7 +6,7 @@
 import { getDatabase } from './db'
 import { getGoogleAdsClient } from './google-ads-api'
 
-export type ApiAccessLevel = 'test' | 'explorer' | 'basic'
+export type ApiAccessLevel = 'test' | 'explorer' | 'basic' | 'standard'
 
 interface AccessLevelDetectionResult {
   level: ApiAccessLevel
@@ -51,6 +51,32 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
   const db = await getDatabase()
   const now = new Date().toISOString()
 
+  // 先读取数据库中已存储的访问级别，避免自动检测降级覆盖用户手动设置的更高权限
+  let storedLevel: ApiAccessLevel | null = null
+  try {
+    const credRow = await db.queryOne<{ api_access_level?: string }>(
+      `SELECT api_access_level FROM google_ads_credentials WHERE user_id = ? LIMIT 1`,
+      [userId]
+    )
+    if (credRow?.api_access_level) {
+      storedLevel = credRow.api_access_level as ApiAccessLevel
+    } else {
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+      const saRow = await db.queryOne<{ api_access_level?: string }>(
+        `SELECT api_access_level FROM google_ads_service_accounts WHERE user_id = ? AND ${isActiveCondition} LIMIT 1`,
+        [userId]
+      )
+      if (saRow?.api_access_level) {
+        storedLevel = saRow.api_access_level as ApiAccessLevel
+      }
+    }
+  } catch (_) {
+    // 忽略读取错误，继续检测
+  }
+
+  // 如果已存储 basic 或 standard，API 成功调用时不降级
+  const isHigherThanExplorer = storedLevel === 'basic' || storedLevel === 'standard'
+
   try {
     // 获取用户的 Google Ads 凭证
     const credentials = await db.queryOne<{
@@ -83,16 +109,13 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
       // listAccessibleCustomers 返回 { resource_names: ['customers/123', ...] }
       const resourceNames = response.resource_names || []
 
-      // 如果能成功调用，说明至少有Explorer权限
-      // 注意：我们无法直接从API响应中获取确切的访问级别
-      // 但可以通过后续的API调用来推断
-
-      // 默认假设是Explorer（最常见的情况）
-      // 如果用户有Basic权限，通常不会有问题
-      // 如果是Test权限，后续的API调用会失败并被检测到
+      // API 调用成功说明至少有 Explorer 权限。
+      // 注意：无法从该 API 响应直接区分 Explorer / Basic / Standard。
+      // 若已存储更高权限（basic / standard），保持原值不降级。
+      const level: ApiAccessLevel = isHigherThanExplorer ? (storedLevel as ApiAccessLevel) : 'explorer'
 
       return {
-        level: 'explorer',
+        level,
         detectedAt: now,
         method: 'api_call',
         details: `Successfully listed ${resourceNames.length} accessible customers`
@@ -111,13 +134,14 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
         }
       }
 
-      // 如果无法从错误中检测，默认返回explorer
-      console.warn('无法从API错误中检测访问级别，使用默认值:', errorMessage)
+      // 如果无法从错误中检测，保留已存储的级别或默认 explorer
+      const fallbackLevel: ApiAccessLevel = isHigherThanExplorer ? (storedLevel as ApiAccessLevel) : 'explorer'
+      console.warn('无法从API错误中检测访问级别，使用当前存储值:', fallbackLevel, '| 原始错误:', errorMessage)
       return {
-        level: 'explorer',
+        level: fallbackLevel,
         detectedAt: now,
         method: 'default',
-        details: 'Could not detect from error, using default'
+        details: 'Could not detect from error, using stored/default'
       }
     }
   } catch (error: any) {
@@ -136,12 +160,13 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
       }
     }
 
-    // 默认返回explorer
+    // 保留已存储的级别或默认 explorer
+    const fallbackLevel: ApiAccessLevel = isHigherThanExplorer ? (storedLevel as ApiAccessLevel) : 'explorer'
     return {
-      level: 'explorer',
+      level: fallbackLevel,
       detectedAt: now,
       method: 'default',
-      details: 'Detection failed, using default'
+      details: 'Detection failed, using stored/default'
     }
   }
 }
