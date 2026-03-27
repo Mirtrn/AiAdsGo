@@ -6,8 +6,8 @@
 
 -- 为 google_ads_credentials 表添加 api_access_level 字段
 ALTER TABLE google_ads_credentials
-ADD COLUMN api_access_level TEXT DEFAULT 'explorer' CHECK (api_access_level IN ('test', 'explorer', 'basic'));
+ADD COLUMN api_access_level TEXT DEFAULT 'explorer' CHECK (api_access_level IN ('test', 'explorer', 'basic', 'standard'));
 
 -- 为 google_ads_service_accounts 表添加 api_access_level 字段
 ALTER TABLE google_ads_service_accounts
-ADD COLUMN api_access_level TEXT DEFAULT 'explorer' CHECK (api_access_level IN ('test', 'explorer', 'basic'));
+ADD COLUMN api_access_level TEXT DEFAULT 'explorer' CHECK (api_access_level IN ('test', 'explorer', 'basic', 'standard'));
