@@ -172,7 +172,18 @@ export async function detectApiAccessLevel(userId: number): Promise<AccessLevelD
 }
 
 /**
+ * API访问级别权重（用于比较高低）
+ */
+const ACCESS_LEVEL_WEIGHT: Record<ApiAccessLevel, number> = {
+  test: 0,
+  explorer: 1,
+  basic: 2,
+  standard: 3,
+}
+
+/**
  * 更新用户的API访问级别
+ * 🔒 不降级保护：只有新级别 >= 当前存储级别时才更新，防止自动检测将手动设置的高权限覆盖为低权限
  */
 export async function updateApiAccessLevel(
   userId: number,
@@ -180,6 +191,37 @@ export async function updateApiAccessLevel(
   authType: 'oauth' | 'service_account'
 ): Promise<void> {
   const db = await getDatabase()
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+
+  // 先读取当前存储的级别，防止降级
+  let currentLevel: ApiAccessLevel | null = null
+  try {
+    if (authType === 'oauth') {
+      const row = await db.queryOne<{ api_access_level?: string }>(
+        `SELECT api_access_level FROM google_ads_credentials WHERE user_id = ? LIMIT 1`,
+        [userId]
+      )
+      if (row?.api_access_level) {
+        currentLevel = row.api_access_level as ApiAccessLevel
+      }
+    } else {
+      const row = await db.queryOne<{ api_access_level?: string }>(
+        `SELECT api_access_level FROM google_ads_service_accounts WHERE user_id = ? AND ${isActiveCondition} LIMIT 1`,
+        [userId]
+      )
+      if (row?.api_access_level) {
+        currentLevel = row.api_access_level as ApiAccessLevel
+      }
+    }
+  } catch (_) {
+    // 读取失败则忽略，继续写入
+  }
+
+  // 🔒 不降级检查：如果当前已经是更高级别，不允许降级
+  if (currentLevel && ACCESS_LEVEL_WEIGHT[currentLevel] > ACCESS_LEVEL_WEIGHT[level]) {
+    console.log(`⚠️ 拒绝降级用户 ${userId} 的API访问级别: ${currentLevel} → ${level}（保持 ${currentLevel}）`)
+    return
+  }
 
   if (authType === 'oauth') {
     await db.exec(`
@@ -188,7 +230,6 @@ export async function updateApiAccessLevel(
       WHERE user_id = ?
     `, [level, userId])
   } else {
-    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
     await db.exec(`
       UPDATE google_ads_service_accounts
       SET api_access_level = ?, updated_at = CURRENT_TIMESTAMP
@@ -196,7 +237,7 @@ export async function updateApiAccessLevel(
     `, [level, userId])
   }
 
-  console.log(`✅ 已更新用户 ${userId} 的API访问级别: ${level}`)
+  console.log(`✅ 已更新用户 ${userId} 的API访问级别: ${currentLevel ?? 'null'} → ${level}`)
 }
 
 /**
