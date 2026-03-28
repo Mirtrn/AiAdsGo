@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       name: 'auth_token',
       value: result.token,
       httpOnly: true, // 防止JavaScript访问，防XSS攻击
-      secure: process.env.NODE_ENV === 'production', // 生产环境强制HTTPS
+      secure: process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production', // 支持 COOKIE_SECURE=false 覆盖
       sameSite: 'lax', // CSRF保护
       maxAge: 60 * 60 * 24 * 7, // 7天过期
       path: '/', // 全站可用

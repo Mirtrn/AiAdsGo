@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
       name: 'auth_token',
       value: newToken,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7天过期
       path: '/',

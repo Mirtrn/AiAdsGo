@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       name: 'auth_token',
       value: '',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 0, // 立即过期
       path: '/',
