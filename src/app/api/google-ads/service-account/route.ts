@@ -26,7 +26,13 @@ export async function POST(req: NextRequest) {
     const id = crypto.randomUUID()
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
-    // 🔧 修复：只保留1个服务账号，先删除旧的，再插入新的
+    // 🔧 修复：只保留1个服务账号，先读取旧的访问级别，再删除，再插入新的
+    // 先读取旧服务账号的 api_access_level，避免重新保存时丢失已设置的等级
+    const oldRecord = await db.queryOne(`
+      SELECT api_access_level FROM google_ads_service_accounts WHERE user_id = ? LIMIT 1
+    `, [user.id]) as { api_access_level?: string } | undefined
+    const preservedAccessLevel = oldRecord?.api_access_level || 'explorer'
+
     // 先解除 google_ads_accounts 对旧服务账号的外键引用，避免外键约束冲突
     await db.exec(`
       UPDATE google_ads_accounts
@@ -45,9 +51,9 @@ export async function POST(req: NextRequest) {
       INSERT INTO google_ads_service_accounts (
         id, user_id, name, mcc_customer_id, developer_token,
         service_account_email, private_key, project_id,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
-    `, [id, user.id, name, mccCustomerId, developerToken, clientEmail, encryptedPrivateKey, projectId])
+        api_access_level, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
+    `, [id, user.id, name, mccCustomerId, developerToken, clientEmail, encryptedPrivateKey, projectId, preservedAccessLevel])
 
     return NextResponse.json({ success: true, id })
   } catch (error: any) {
