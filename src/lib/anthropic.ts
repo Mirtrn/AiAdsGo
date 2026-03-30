@@ -174,7 +174,8 @@ export async function checkAnthropicConnection(userId: number, apiKey?: string):
             'anthropic-version': ANTHROPIC_API_VERSION,
           },
           body: JSON.stringify({
-            model: 'claude-haiku-4-5',
+            // 🔧 使用官方 Haiku 4.5 完整模型 ID（最快最便宜，适合连接测试）
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 5,
             messages: [{ role: 'user', content: 'Hi' }],
           }),

@@ -1671,7 +1671,7 @@ export default function SettingsPage() {
                 <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
                 <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
-                <li>• <strong>AI 引擎</strong>：统一使用 Gemini API，按"服务商 → 模型 → API Key"完成配置</li>
+                <li>• <strong>AI 引擎</strong>：支持 Gemini（Google）、OpenAI（GPT）、Anthropic（Claude）三种提供商，先选择提供商再填写对应 API Key 即可</li>
                 <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>

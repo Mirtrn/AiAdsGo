@@ -26,14 +26,24 @@ export type OpenAIModel = typeof OPENAI_SUPPORTED_MODELS[number]
 export const OPENAI_DEFAULT_MODEL: OpenAIModel = 'gpt-4o'
 
 // ─── Anthropic Claude 模型 ──────────────────────────────────────
+// 🔧 修复：使用 Anthropic 官方文档中的真实模型 ID
+// 参考: https://docs.anthropic.com/en/docs/about-claude/models
+// 别名（无日期后缀）由 Anthropic 官方维护，始终指向最新快照，可直接使用
 export const ANTHROPIC_SUPPORTED_MODELS = [
-  'claude-opus-4-5',
-  'claude-sonnet-4-5',
-  'claude-haiku-4-5',
-  'claude-3-7-sonnet-20250219',
+  // ─── 最新一代（推荐使用）───────────────────────────
+  'claude-opus-4-6',              // Claude Opus 4.6 - 最强，$5/$25 per MTok
+  'claude-sonnet-4-6',            // Claude Sonnet 4.6 - 速度/智能最佳平衡，$3/$15 per MTok
+  'claude-haiku-4-5-20251001',    // Claude Haiku 4.5 - 最快，$1/$5 per MTok
+  // ─── 旧版（仍可用）────────────────────────────────
+  'claude-opus-4-5-20251101',     // Claude Opus 4.5，$5/$25 per MTok
+  'claude-sonnet-4-5-20250929',   // Claude Sonnet 4.5，$3/$15 per MTok
+  'claude-opus-4-1-20250805',     // Claude Opus 4.1，$15/$75 per MTok
+  'claude-sonnet-4-20250514',     // Claude Sonnet 4，$3/$15 per MTok
+  'claude-opus-4-20250514',       // Claude Opus 4，$15/$75 per MTok
 ] as const
 export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
-export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-opus-4-5'
+// 默认使用 Sonnet 4.6：速度与智能最佳平衡，成本合理
+export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
 export type AIProvider = 'gemini' | 'openai' | 'anthropic'

@@ -36,8 +36,17 @@ import { filterKeywordQuality } from '../keyword-quality-filter'
 async function getKeywordsForPrompt(offerId: number, options: GenerateAdCreativeOptions): Promise<string[]> {
   try {
     // 使用新的统一 API 获取关键词
+    // 🔧 修复：getKeywords 只接受 'A' | 'B' | 'C' | 'ALL'，
+    //   'D' 和 'S' 都需要映射到 'ALL'（获取全部桶的关键词）
+    const rawBucket = options.bucket
+    const mappedBucket: 'A' | 'B' | 'C' | 'ALL' =
+      rawBucket === 'A' ? 'A'
+      : rawBucket === 'B' ? 'B'
+      : rawBucket === 'C' ? 'C'
+      : 'ALL'  // D / S / undefined 统一映射到 ALL
+
     const result = await getKeywords(offerId, {
-      bucket: (options.bucket === 'S' ? 'ALL' : options.bucket) as 'A' | 'B' | 'C' | 'ALL' || 'ALL',
+      bucket: mappedBucket,
       minSearchVolume: 100,
       maxKeywords: 50
     })

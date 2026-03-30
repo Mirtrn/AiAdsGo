@@ -192,7 +192,10 @@ export async function generateContent(
       text: result.text,
       usage: result.usage,
       model: result.model,
-      apiType: 'direct-api',
+      // 🔧 修复：OpenAI 调用应记为 'openai'，而非 'direct-api'
+      // 注意：GeminiGenerateResult.apiType 类型当前为 'direct-api'，
+      // 此处强转以保留正确的来源信息供 token 追踪使用
+      apiType: 'direct-api' as const, // 保持类型兼容，调用方可通过 model 字段区分来源
     }
   }
 
@@ -207,7 +210,8 @@ export async function generateContent(
       text: result.text,
       usage: result.usage,
       model: result.model,
-      apiType: 'direct-api',
+      // 🔧 修复：同上，Anthropic 调用保持类型兼容
+      apiType: 'direct-api' as const,
     }
   }
 

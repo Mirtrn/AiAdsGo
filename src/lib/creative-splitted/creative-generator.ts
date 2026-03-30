@@ -9,10 +9,11 @@
 import type { AIConfig, AIResponse, GenerateAdCreativeOptions } from './creative-types'
 import { generateContent } from '../gemini'
 import { resolveActiveAIConfig } from '../ai-runtime-config'
+import { recordTokenUsage, estimateTokenCost } from '../ai-token-tracker'
 
 /**
  * 获取 AI 配置
- * 仅使用用户级 AI 配置
+ * 支持 gemini / openai / anthropic 三种提供商
  */
 export async function getAIConfig(userId?: number): Promise<AIConfig> {
   if (!userId || userId <= 0) {
@@ -28,6 +29,20 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
         apiKey: resolved.geminiAPI.apiKey,
         model: resolved.geminiAPI.model,
       },
+    }
+  }
+
+  // 🔧 修复：OpenAI / Anthropic 配置也要正常返回，不能丢弃
+  // callAI 通过 generateContent 统一路由，只需要知道 type 即可
+  if (resolved.type === 'openai') {
+    return {
+      type: 'openai',
+    }
+  }
+
+  if (resolved.type === 'anthropic') {
+    return {
+      type: 'anthropic',
     }
   }
 
@@ -56,23 +71,33 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
       overrideProvider,
     }, userId)
 
-    // TODO: 追踪 token 使用（需要根据实际 API 调整）
-    // if (response.usageMetadata) {
-    //   await recordTokenUsage({
-    //     model,
-    //     promptTokens: response.usageMetadata.promptTokenCount,
-    //     completionTokens: response.usageMetadata.candidatesTokenCount,
-    //     totalTokens: response.usageMetadata.totalTokenCount,
-    //     estimatedCost: estimateTokenCost(model, response.usageMetadata.totalTokenCount)
-    //   })
-    // }
+    // 🔧 修复：实际记录 token 使用，不再注释掉
+    if (response.usage) {
+      const cost = estimateTokenCost(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: response.model,
+        operationType: 'ad_creative_generation',
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        cost,
+        apiType: response.apiType as 'direct-api' | 'openai' | 'anthropic',
+      }).catch((err) => {
+        console.warn('[callAI] token 记录失败（不影响主流程）:', err?.message)
+      })
+    }
 
     console.log('[callAI] AI 调用成功')
 
     return {
       success: true,
       data: response,
-      model
+      model: response.model || model,
     }
   } catch (error: any) {
     console.error('[callAI] AI 调用失败:', error)
@@ -86,7 +111,11 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
 
 /**
  * 解析 AI 响应
- * 将 AI 返回的数据转换为创意格式
+ * 将 AI 返回的 GeminiGenerateResult 转换为广告创意数据格式
+ *
+ * 🔧 修复：原存根实现访问了不存在的 candidates 字段，且 descriptions 硬编码为空。
+ *   正确做法：读取 response.text（GeminiGenerateResult 的实际字段），
+ *   然后解析 JSON，提取 headlines / descriptions / callouts / sitelinks / keywords 等字段。
  */
 export async function parseAIResponse(
   response: any,
@@ -95,16 +124,58 @@ export async function parseAIResponse(
   try {
     console.log('[parseAIResponse] 开始解析 AI 响应')
 
-    // 假设 AI 返回的是结构化数据
-    // 实际实现需要根据具体的 AI 响应格式调整
+    // response 是 GeminiGenerateResult，实际内容在 response.text
+    const rawText: string = typeof response?.text === 'string'
+      ? response.text
+      : (typeof response === 'string' ? response : '')
 
-    const result = {
-      headlines: response.candidates?.[0]?.content?.parts?.[0]?.text || '',
-      descriptions: '',
-      // 其他字段...
+    if (!rawText) {
+      throw new Error('AI 响应为空')
     }
 
-    console.log('[parseAIResponse] 解析成功')
+    // 移除 markdown 代码块标记，提取 JSON 内容
+    let jsonText = rawText
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim()
+
+    // 找到 JSON 对象的起止位置
+    const jsonStart = jsonText.indexOf('{')
+    const jsonEnd = jsonText.lastIndexOf('}')
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+      throw new Error('AI 响应中未找到有效的 JSON 对象')
+    }
+    jsonText = jsonText.substring(jsonStart, jsonEnd + 1)
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (parseErr: any) {
+      // 尝试修复尾部多余逗号后再解析
+      const fixed = jsonText.replace(/,\s*([}\]])/g, '$1')
+      parsed = JSON.parse(fixed)
+    }
+
+    const ensureStringArray = (val: any): string[] => {
+      if (!val) return []
+      if (Array.isArray(val)) return val.map(String)
+      if (typeof val === 'string') return val.split('\n').filter(Boolean)
+      return []
+    }
+
+    const result = {
+      headlines: ensureStringArray(parsed.headlines),
+      descriptions: ensureStringArray(parsed.descriptions),
+      callouts: ensureStringArray(parsed.callouts),
+      sitelinks: Array.isArray(parsed.sitelinks) ? parsed.sitelinks : [],
+      keywords: ensureStringArray(parsed.keywords),
+      theme: parsed.theme || parsed.adTheme || '',
+      explanation: parsed.explanation || parsed.reasoning || '',
+    }
+
+    console.log(
+      `[parseAIResponse] 解析成功: headlines=${result.headlines.length}, descriptions=${result.descriptions.length}`
+    )
 
     return result
   } catch (error: any) {
@@ -116,12 +187,38 @@ export async function parseAIResponse(
 /**
  * AI 错误处理
  * 根据错误类型决定是否重试
+ *
+ * 🔧 修复：原实现永远返回 retryable: false，导致重试逻辑完全无效。
+ *   现在根据常见可重试的错误类型（网络超时、速率限制、服务器错误）判断。
  */
 function handleAIError(error: any): { retryable: boolean; message: string } {
-  // TODO: 根据具体错误类型判断是否可重试
+  const message: string = typeof error === 'string'
+    ? error
+    : (error?.message || '未知错误')
+
+  const lower = message.toLowerCase()
+
+  // 可重试的错误模式
+  const isRetryable =
+    lower.includes('timeout') ||
+    lower.includes('超时') ||
+    lower.includes('rate limit') ||
+    lower.includes('429') ||
+    lower.includes('too many requests') ||
+    lower.includes('503') ||
+    lower.includes('502') ||
+    lower.includes('500') ||
+    lower.includes('service unavailable') ||
+    lower.includes('overloaded') ||
+    lower.includes('network') ||
+    lower.includes('econnreset') ||
+    lower.includes('econnrefused') ||
+    lower.includes('fetch failed') ||
+    lower.includes('aborted')
+
   return {
-    retryable: false,
-    message: error.message || '未知错误'
+    retryable: isRetryable,
+    message,
   }
 }
 

@@ -29,9 +29,10 @@ export interface KeywordWithVolume {
 
 /**
  * AI 配置接口
+ * 🔧 修复：扩展支持 openai / anthropic 类型
  */
 export interface AIConfig {
-  type: 'gemini-api' | null
+  type: 'gemini-api' | 'openai' | 'anthropic' | null
   geminiAPI?: {
     apiKey: string
     model: string
