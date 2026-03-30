@@ -14,16 +14,24 @@ export type RelayModel = typeof RELAY_SUPPORTED_MODELS[number]
 export type AIModel = RelayModel
 
 // ─── OpenAI 模型 ───────────────────────────────────────────────
+// 🔧 更新：GPT-5.4 系列为当前旗舰（2026-03）
+// 参考: https://platform.openai.com/docs/models
 export const OPENAI_SUPPORTED_MODELS = [
+  // ─── GPT-5.4 系列（最新旗舰，推荐）─────────────────────────
+  'gpt-5.4',          // 旗舰：复杂推理/编程/Agent，$2.50/$15 per MTok，1M ctx
+  'gpt-5.4-mini',     // 强力 mini：编程/子 Agent，$0.75/$4.50 per MTok，400K ctx
+  'gpt-5.4-nano',     // 最便宜：高频简单任务，$0.20/$1.25 per MTok，400K ctx
+  // ─── GPT-4.x 系列（仍可用）──────────────────────────────────
   'gpt-4o',
   'gpt-4o-mini',
   'gpt-4.1',
   'gpt-4.1-mini',
+  // ─── o 系列推理模型──────────────────────────────────────────
   'o3',
   'o4-mini',
 ] as const
 export type OpenAIModel = typeof OPENAI_SUPPORTED_MODELS[number]
-export const OPENAI_DEFAULT_MODEL: OpenAIModel = 'gpt-4o'
+export const OPENAI_DEFAULT_MODEL: OpenAIModel = 'gpt-5.4'
 
 // ─── Anthropic Claude 模型 ──────────────────────────────────────
 // 🔧 修复：使用 Anthropic 官方文档中的真实模型 ID
