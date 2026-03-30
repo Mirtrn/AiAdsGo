@@ -38,21 +38,22 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
  * 调用 AI 模型
  * 统一的 AI 调用接口
  */
-export async function callAI(prompt: string, config: AIConfig, userId?: number): Promise<AIResponse> {
+export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'gemini' | 'openai' | 'anthropic'): Promise<AIResponse> {
   try {
-    console.log('[callAI] 开始调用 AI 模型')
+    console.log('[callAI] 开始调用 AI 模型', overrideProvider ? `(临时覆盖 provider: ${overrideProvider})` : '')
 
     if (!userId || userId <= 0) {
       throw new Error('缺少有效 userId，无法执行用户级 AI 调用')
     }
 
-    // 使用统一入口，模型由用户当前配置决定
+    // 使用统一入口，模型由用户当前配置决定；overrideProvider 优先级最高
     const model = config.geminiAPI?.model || 'unknown'
     const response = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,
       temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性
-      maxOutputTokens: 32768  // 保持较高值以防截断
+      maxOutputTokens: 32768,  // 保持较高值以防截断
+      overrideProvider,
     }, userId)
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）

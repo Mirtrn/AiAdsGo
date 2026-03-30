@@ -838,6 +838,8 @@ export async function generateAdCreatives(
     orientation?: 'brand' | 'product' | 'promo'
     validateServices?: boolean // P0-2: 是否验证服务真实性
     applyOptimizations?: boolean // 是否应用基于投放数据的优化
+    /** 临时覆盖 AI 提供商（不修改用户全局设置，仅此次生成生效） */
+    aiProvider?: 'gemini' | 'openai' | 'anthropic'
   }
 ): Promise<{
   headlines: string[]
@@ -1213,6 +1215,7 @@ ${currentOrientation === 'brand' ? `
       prompt: basePrompt,
       temperature: 0.7,
       maxOutputTokens: 32768,  // 保持较高值以防截断
+      overrideProvider: options?.aiProvider,  // 临时覆盖 AI 提供商
     }, options.userId)
 
     const text = result.text

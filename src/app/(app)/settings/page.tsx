@@ -25,6 +25,10 @@ import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import {
   GEMINI_ACTIVE_MODEL,
   RELAY_GPT_52_MODEL,
+  OPENAI_SUPPORTED_MODELS,
+  OPENAI_DEFAULT_MODEL,
+  ANTHROPIC_SUPPORTED_MODELS,
+  ANTHROPIC_DEFAULT_MODEL,
   isModelSupportedByProvider,
   normalizeModelForProvider,
 } from '@/lib/gemini-models'
@@ -168,10 +172,22 @@ const SETTING_METADATA: Record<string, {
     helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
   },
 
+  // AI - 主提供商选择
+  'ai.ai_provider': {
+    label: 'AI 提供商',
+    description: '选择用于生成广告创意、产品分析的 AI 服务商。选择后在下方配置对应的 API Key',
+    options: [
+      { value: 'gemini', label: '🌐 Gemini（Google）' },
+      { value: 'openai', label: '🤖 OpenAI（GPT）' },
+      { value: 'anthropic', label: '🔮 Anthropic（Claude）' },
+    ],
+    defaultValue: 'gemini'
+  },
+
   // AI - Gemini 服务商选择
   'ai.gemini_provider': {
-    label: '服务商',
-    description: '第1步：先选择服务商。官方适合海外网络；第三方中转适合国内网络',
+    label: 'Gemini 服务商',
+    description: '官方适合海外网络；第三方中转适合国内网络',
     options: [
       { value: 'official', label: '🌐 Gemini 官方' },
       { value: 'relay', label: '⚡ 第三方中转' }
@@ -180,15 +196,15 @@ const SETTING_METADATA: Record<string, {
   },
   // AI - Gemini API端点（只读）
   'ai.gemini_endpoint': {
-    label: 'API端点',
+    label: 'Gemini API端点',
     description: '根据当前服务商 + AI模型自动计算，不可手动修改',
     placeholder: '系统自动设置'
   },
   // AI - Gemini API配置
   'ai.gemini_api_key': {
     label: 'Gemini 官方 API Key',
-    description: 'Google Gemini 官方 API 密钥，用于 AI 创意生成',
-    placeholder: '输入官方 API Key',
+    description: 'Google Gemini 官方 API 密钥',
+    placeholder: '输入官方 API Key（AIza...）',
     helpLink: 'https://aistudio.google.com/app/api-keys'
   },
   'ai.gemini_relay_api_key': {
@@ -198,13 +214,41 @@ const SETTING_METADATA: Record<string, {
     helpLink: 'https://aicode.cat/register?ref=T6S73C2U'
   },
   'ai.gemini_model': {
-    label: 'AI模型',
-    description: '第2步：服务商确定后，再选择该服务商支持的模型',
+    label: 'Gemini 模型',
+    description: '服务商确定后，选择该服务商支持的模型',
     options: [
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
       { value: RELAY_GPT_52_MODEL, label: 'GPT-5.2（第三方中转专用）' },
     ],
     defaultValue: GEMINI_ACTIVE_MODEL
+  },
+
+  // AI - OpenAI 配置
+  'ai.openai_api_key': {
+    label: 'OpenAI API Key',
+    description: 'OpenAI 官方 API 密钥，用于调用 GPT 系列模型',
+    placeholder: '输入 OpenAI API Key（sk-...）',
+    helpLink: 'https://platform.openai.com/api-keys'
+  },
+  'ai.openai_model': {
+    label: 'OpenAI 模型',
+    description: '选择要使用的 GPT 模型',
+    options: OPENAI_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    defaultValue: OPENAI_DEFAULT_MODEL
+  },
+
+  // AI - Anthropic Claude 配置
+  'ai.anthropic_api_key': {
+    label: 'Anthropic API Key',
+    description: 'Anthropic 官方 API 密钥，用于调用 Claude 系列模型',
+    placeholder: '输入 Anthropic API Key（sk-ant-...）',
+    helpLink: 'https://console.anthropic.com/settings/keys'
+  },
+  'ai.anthropic_model': {
+    label: 'Claude 模型',
+    description: '选择要使用的 Claude 模型',
+    options: ANTHROPIC_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    defaultValue: ANTHROPIC_DEFAULT_MODEL
   },
 
   // Proxy - 新的多URL配置
@@ -336,11 +380,16 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true },
   ],
   ai: [
+    { key: 'ai_provider', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_provider', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'openai_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'openai_model', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'anthropic_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'anthropic_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -886,33 +935,52 @@ export default function SettingsPage() {
 
       // AI配置验证
       if (category === 'ai') {
-        const geminiProvider = formData.ai?.['gemini_provider']
-        if (!geminiProvider || geminiProvider.trim() === '') {
-          toast.error('请先选择服务商')
-          setSaving(false)
-          return
-        }
+        const aiProvider = formData.ai?.['ai_provider'] || 'gemini'
 
-        const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
-        if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
-          toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
-          setSaving(false)
-          return
-        }
-
-        if (geminiProvider === 'official') {
-          const geminiApiKey = formData.ai?.['gemini_api_key']
-          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
-            toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
+        if (aiProvider === 'openai') {
+          const openaiApiKey = formData.ai?.['openai_api_key']
+          if (!openaiApiKey || openaiApiKey.trim() === '' || openaiApiKey === '············') {
+            toast.error('使用 OpenAI 时，必须填写 OpenAI API Key（sk-...）')
             setSaving(false)
             return
           }
-        } else if (geminiProvider === 'relay') {
-          const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
-          if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
-            toast.error('使用第三方中转服务商时，必须填写中转 API Key')
+        } else if (aiProvider === 'anthropic') {
+          const anthropicApiKey = formData.ai?.['anthropic_api_key']
+          if (!anthropicApiKey || anthropicApiKey.trim() === '' || anthropicApiKey === '············') {
+            toast.error('使用 Anthropic Claude 时，必须填写 Anthropic API Key（sk-ant-...）')
             setSaving(false)
             return
+          }
+        } else {
+          // Gemini 验证
+          const geminiProvider = formData.ai?.['gemini_provider']
+          if (!geminiProvider || geminiProvider.trim() === '') {
+            toast.error('请先选择 Gemini 服务商')
+            setSaving(false)
+            return
+          }
+
+          const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
+          if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
+            toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
+            setSaving(false)
+            return
+          }
+
+          if (geminiProvider === 'official') {
+            const geminiApiKey = formData.ai?.['gemini_api_key']
+            if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
+              toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
+              setSaving(false)
+              return
+            }
+          } else if (geminiProvider === 'relay') {
+            const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
+            if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
+              toast.error('使用第三方中转服务商时，必须填写中转 API Key')
+              setSaving(false)
+              return
+            }
           }
         }
       }
@@ -2345,8 +2413,9 @@ export default function SettingsPage() {
                           <p className="font-semibold text-body-sm text-purple-800">AI配置顺序</p>
                         </div>
                         <div className="space-y-2 text-body-sm text-purple-700">
-                          <p>1. 先选服务商 2. 再选AI模型 3. 系统自动计算API端点 4. 填写当前服务商对应的API Key</p>
-                          <p className="text-purple-600">仅当前服务商对应的 API Key 会生效。</p>
+                          <p>1. 选择 AI 提供商（Gemini / OpenAI / Claude）</p>
+                          <p>2. 填写对应提供商的 API Key 和模型</p>
+                          <p className="text-purple-600">仅当前选中提供商的配置会生效，其他提供商的配置会保留但不会被调用。</p>
                         </div>
                       </div>
                     )}
@@ -2367,33 +2436,66 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
-                            const aiOrder = ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key', 'gemini_relay_api_key']
-                            return aiOrder.indexOf(a.key) - aiOrder.indexOf(b.key)
+                            const aiOrder = [
+                              'ai_provider',
+                              // Gemini 相关
+                              'gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key', 'gemini_relay_api_key',
+                              // OpenAI 相关
+                              'openai_api_key', 'openai_model',
+                              // Anthropic 相关
+                              'anthropic_api_key', 'anthropic_model',
+                            ]
+                            const ia = aiOrder.indexOf(a.key)
+                            const ib = aiOrder.indexOf(b.key)
+                            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
                           })
                         : categorySettings
                       ).map((setting: Setting) => {
                         const metaKey = `${category}.${setting.key}`
                         const metadata = SETTING_METADATA[metaKey]
 
-                        // AI配置按服务商显示对应 API Key
+                        // AI配置：根据选中的提供商决定显示哪些字段
                         if (category === 'ai') {
-                          const provider = formData.ai?.gemini_provider || 'official'
-                          const allowedKeys = provider === 'relay'
-                            ? ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_relay_api_key']
-                            : ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key']
+                          const aiProvider = formData.ai?.ai_provider || 'gemini'
 
-                          if (!allowedKeys.includes(setting.key)) {
-                            return null
+                          // ai_provider 始终显示
+                          if (setting.key === 'ai_provider') {
+                            // 始终显示
+                          } else if (aiProvider === 'openai') {
+                            // OpenAI 模式：只显示 OpenAI 相关字段
+                            if (!['openai_api_key', 'openai_model'].includes(setting.key)) {
+                              return null
+                            }
+                          } else if (aiProvider === 'anthropic') {
+                            // Anthropic 模式：只显示 Anthropic 相关字段
+                            if (!['anthropic_api_key', 'anthropic_model'].includes(setting.key)) {
+                              return null
+                            }
+                          } else {
+                            // Gemini 模式：显示 Gemini 相关字段
+                            const geminiProvider = formData.ai?.gemini_provider || 'official'
+                            const allowedGeminiKeys = geminiProvider === 'relay'
+                              ? ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_relay_api_key']
+                              : ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key']
+                            if (!allowedGeminiKeys.includes(setting.key)) {
+                              return null
+                            }
                           }
                         }
 
                       // 动态必填逻辑
                       const isRequired = (() => {
                         if (category === 'ai') {
-                          if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
-                          const provider = formData.ai?.gemini_provider || 'official'
-                          if (provider === 'official' && setting.key === 'gemini_api_key') return true
-                          if (provider === 'relay' && setting.key === 'gemini_relay_api_key') return true
+                          const aiProvider = formData.ai?.ai_provider || 'gemini'
+                          if (setting.key === 'ai_provider') return true
+                          if (aiProvider === 'openai' && setting.key === 'openai_api_key') return true
+                          if (aiProvider === 'anthropic' && setting.key === 'anthropic_api_key') return true
+                          if (aiProvider === 'gemini') {
+                            if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
+                            const geminiProvider = formData.ai?.gemini_provider || 'official'
+                            if (geminiProvider === 'official' && setting.key === 'gemini_api_key') return true
+                            if (geminiProvider === 'relay' && setting.key === 'gemini_relay_api_key') return true
+                          }
                         }
                         return setting.isRequired
                       })()

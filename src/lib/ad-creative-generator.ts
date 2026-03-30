@@ -6546,6 +6546,8 @@ export async function generateAdCreative(
     // 🆕 2025-12-16: 综合创意专用参数
     isSyntheticCreative?: boolean  // 是否为综合创意
     syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
+    // 🆕 多 AI Provider 支持：临时覆盖，优先级高于全局设置
+    aiProvider?: 'gemini' | 'openai' | 'anthropic'
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键
@@ -7051,7 +7053,8 @@ export async function generateAdCreative(
       temperature: 0.7,  // 🔧 从0.9降到0.7：减少输出不稳定性，避免随机生成过多内容
       maxOutputTokens: 32768,  // 🔧 2026-02-01: 降低上限以减少超时
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
-      responseMimeType: 'application/json'
+      responseMimeType: 'application/json',
+      overrideProvider: options?.aiProvider,  // 🆕 临时 AI Provider 覆盖（来自前端选择）
     }, userId)
   } finally {
     console.timeEnd(timerLabel)

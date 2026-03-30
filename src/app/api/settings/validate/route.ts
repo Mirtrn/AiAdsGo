@@ -62,6 +62,54 @@ export async function POST(request: NextRequest) {
 
         const { getUserOnlySetting } = await import('@/lib/settings')
 
+        // 🆕 读取当前 AI Provider 设置，决定验证哪个提供商
+        const aiProviderRaw = config.ai_provider
+          || (await getUserOnlySetting('ai', 'ai_provider', userIdNum))?.value
+          || 'gemini'
+
+        // ─── OpenAI 验证 ───────────────────────────────────────
+        if (aiProviderRaw === 'openai') {
+          let openaiApiKey: string
+          if (config.openai_api_key && config.openai_api_key !== '············') {
+            openaiApiKey = config.openai_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'openai_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 OpenAI API Key 配置' }, { status: 400 })
+            }
+            openaiApiKey = saved.value
+          }
+          const { checkOpenAIConnection } = await import('@/lib/openai')
+          // 传 apiKey 参数让 checkOpenAIConnection 直接用该 key 测试（无需已保存到 DB）
+          const ok = await checkOpenAIConnection(userIdNum, openaiApiKey)
+          result = ok
+            ? { valid: true, message: 'OpenAI API Key 验证成功 ✅' }
+            : { valid: false, message: 'OpenAI API Key 无效或无法连接，请检查密钥是否正确' }
+          break
+        }
+
+        // ─── Anthropic 验证 ────────────────────────────────────
+        if (aiProviderRaw === 'anthropic') {
+          let anthropicApiKey: string
+          if (config.anthropic_api_key && config.anthropic_api_key !== '············') {
+            anthropicApiKey = config.anthropic_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'anthropic_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 Anthropic API Key 配置' }, { status: 400 })
+            }
+            anthropicApiKey = saved.value
+          }
+          const { checkAnthropicConnection } = await import('@/lib/anthropic')
+          // 传 apiKey 参数让 checkAnthropicConnection 直接用该 key 测试（无需已保存到 DB）
+          const ok = await checkAnthropicConnection(userIdNum, anthropicApiKey)
+          result = ok
+            ? { valid: true, message: 'Anthropic Claude API Key 验证成功 ✅' }
+            : { valid: false, message: 'Anthropic API Key 无效或无法连接，请检查密钥是否正确' }
+          break
+        }
+
+        // ─── Gemini 验证（默认）───────────────────────────────
         let geminiApiKey: string
         let geminiRelayApiKey: string
         let selectedModel: string

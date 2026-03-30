@@ -217,8 +217,10 @@ export interface AdCreativeTaskData {
   offerId: number
   maxRetries?: number
   targetRating?: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR'
-  synthetic?: boolean  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
+  synthetic?: boolean  // 🔧 向后兼容：旧版"综合创意"标记（KISS-3类型方案中不再生成S桶）
   bucket?: 'A' | 'B' | 'C' | 'D' | 'S'
+  // 🆕 多 AI Provider 支持：前端临时覆盖，优先级高于全局设置
+  aiProvider?: 'gemini' | 'openai' | 'anthropic'
 }
 
 /**
@@ -233,6 +235,7 @@ export async function executeAdCreativeGeneration(
     targetRating = 'GOOD',
     synthetic = false,
     bucket,
+    aiProvider,
   } = task.data
   const db = getDatabase()
   const effectiveMaxRetries = Math.max(
@@ -443,7 +446,9 @@ export async function executeAdCreativeGeneration(
               bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
               bucketIntent: bucketInfo?.intent,
               bucketIntentEn: bucketInfo?.intentEn,
-              deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0)
+              deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0),
+              // 🆕 临时 AI Provider 覆盖（来自前端选择）
+              aiProvider: aiProvider || undefined,
             }
           )
         } finally {

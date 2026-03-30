@@ -16,7 +16,7 @@ export interface RecordTokenUsageParams {
   outputTokens: number
   totalTokens: number
   cost: number
-  apiType: 'direct-api'
+  apiType: 'direct-api' | 'openai' | 'anthropic'
 }
 
 /**
@@ -84,25 +84,44 @@ export function estimateTokenCost(
   inputTokens: number,
   outputTokens: number
 ): number {
-  // 根据模型确定定价
+  // 根据模型确定定价（美元 / 1K tokens）
   let inputCostPer1K: number
   let outputCostPer1K: number
 
-  if (model.includes('flash')) {
-    // Flash模型定价
+  // ─── OpenAI 定价 ──────────────────────────────────────────────
+  if (model.startsWith('gpt-4o-mini') || model.startsWith('gpt-4.1-mini')) {
+    inputCostPer1K = 0.00015
+    outputCostPer1K = 0.0006
+  } else if (model.startsWith('gpt-4o') || model.startsWith('gpt-4.1')) {
+    inputCostPer1K = 0.0025
+    outputCostPer1K = 0.01
+  } else if (model.startsWith('o3') || model.startsWith('o4')) {
+    inputCostPer1K = 0.01
+    outputCostPer1K = 0.04
+  // ─── Anthropic 定价 ───────────────────────────────────────────
+  } else if (model.includes('haiku')) {
+    inputCostPer1K = 0.00025
+    outputCostPer1K = 0.00125
+  } else if (model.includes('sonnet')) {
+    inputCostPer1K = 0.003
+    outputCostPer1K = 0.015
+  } else if (model.includes('opus')) {
+    inputCostPer1K = 0.015
+    outputCostPer1K = 0.075
+  // ─── Gemini 定价 ──────────────────────────────────────────────
+  } else if (model.includes('flash')) {
     inputCostPer1K = 0.000075
     outputCostPer1K = 0.0003
   } else if (model.includes('pro')) {
-    // Pro模型定价
     inputCostPer1K = 0.00125
     outputCostPer1K = 0.005
   } else {
-    // 默认使用Pro定价（保守估计）
+    // 默认使用 Pro 定价（保守估计）
     inputCostPer1K = 0.00125
     outputCostPer1K = 0.005
   }
 
-  // 计算成本
+  // 计算成本（美元）
   const inputCost = (inputTokens / 1000) * inputCostPer1K
   const outputCost = (outputTokens / 1000) * outputCostPer1K
   const totalCost = inputCost + outputCost

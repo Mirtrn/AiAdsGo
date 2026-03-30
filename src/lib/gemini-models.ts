@@ -13,6 +13,49 @@ export type GeminiModel = typeof OFFICIAL_SUPPORTED_MODELS[number]
 export type RelayModel = typeof RELAY_SUPPORTED_MODELS[number]
 export type AIModel = RelayModel
 
+// ─── OpenAI 模型 ───────────────────────────────────────────────
+export const OPENAI_SUPPORTED_MODELS = [
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'o3',
+  'o4-mini',
+] as const
+export type OpenAIModel = typeof OPENAI_SUPPORTED_MODELS[number]
+export const OPENAI_DEFAULT_MODEL: OpenAIModel = 'gpt-4o'
+
+// ─── Anthropic Claude 模型 ──────────────────────────────────────
+export const ANTHROPIC_SUPPORTED_MODELS = [
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-haiku-4-5',
+  'claude-3-7-sonnet-20250219',
+] as const
+export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
+export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-opus-4-5'
+
+// ─── 统一 AI 提供商类型 ─────────────────────────────────────────
+export type AIProvider = 'gemini' | 'openai' | 'anthropic'
+
+export function isValidOpenAIModel(model?: string | null): model is OpenAIModel {
+  return !!model && (OPENAI_SUPPORTED_MODELS as readonly string[]).includes(model)
+}
+
+export function isValidAnthropicModel(model?: string | null): model is AnthropicModel {
+  return !!model && (ANTHROPIC_SUPPORTED_MODELS as readonly string[]).includes(model)
+}
+
+export function normalizeOpenAIModel(model?: string | null): OpenAIModel {
+  if (isValidOpenAIModel(model)) return model
+  return OPENAI_DEFAULT_MODEL
+}
+
+export function normalizeAnthropicModel(model?: string | null): AnthropicModel {
+  if (isValidAnthropicModel(model)) return model
+  return ANTHROPIC_DEFAULT_MODEL
+}
+
 const DEPRECATED_MODEL_SET = new Set<string>(GEMINI_DEPRECATED_MODELS)
 const OFFICIAL_MODEL_SET = new Set<string>(OFFICIAL_SUPPORTED_MODELS)
 const RELAY_MODEL_SET = new Set<string>(RELAY_SUPPORTED_MODELS)

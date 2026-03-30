@@ -46,9 +46,17 @@ export async function POST(
   const {
     maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES,
     targetRating = 'GOOD',
-    synthetic = false,  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
+    synthetic = false,  // 🔧 向后兼容：旧版"综合创意"标记（KISS-3类型方案中不再生成S桶）
     bucket,
+    aiProvider,
   } = body
+  // 🆕 校验 aiProvider 合法值
+  const validAIProviders = ['gemini', 'openai', 'anthropic'] as const
+  type ValidAIProvider = typeof validAIProviders[number]
+  const normalizedAIProvider: ValidAIProvider | undefined =
+    aiProvider && validAIProviders.includes(aiProvider as ValidAIProvider)
+      ? (aiProvider as ValidAIProvider)
+      : undefined
   const normalizedMaxRetries = Math.max(
     0,
     Math.min(
@@ -198,6 +206,7 @@ export async function POST(
       targetRating: normalizedTargetRating,
       synthetic,  // 🔧 向后兼容：旧版标记（执行器会映射为D）
       bucket: requestedType || undefined,
+      aiProvider: normalizedAIProvider,  // 🆕 临时 AI Provider 覆盖（来自前端选择）
     }
 
     await queue.enqueue('ad-creative', taskData, parseInt(userId, 10), {

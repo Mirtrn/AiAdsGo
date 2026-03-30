@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2, HelpCircle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { showError, showSuccess } from '@/lib/toast-utils'
@@ -653,6 +654,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [selectedCreativeForFeedback, setSelectedCreativeForFeedback] = useState<number | null>(null)
   const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
 
+  // 🆕 临时 AI Provider 选择（优先级高于全局设置，留空则使用全局设置）
+  const [selectedAIProvider, setSelectedAIProvider] = useState<'default' | 'gemini' | 'openai' | 'anthropic'>('default')
+
   // 🆕 SSE超时处理状态
   const [sseTimeout, setSseTimeout] = useState(false)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
@@ -977,7 +981,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         credentials: 'include',
         body: JSON.stringify({
           maxRetries: 3,
-          targetRating: 'EXCELLENT'
+          targetRating: 'EXCELLENT',
+          // 🆕 临时 AI Provider 覆盖：'default' 表示使用全局设置
+          ...(selectedAIProvider !== 'default' ? { aiProvider: selectedAIProvider } : {}),
         })
       })
 
@@ -1232,6 +1238,34 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
               已生成类型: {generationCount}/3 | 展示最佳3个
             </Badge>
           )}
+
+          {/* 🆕 临时 AI Provider 选择器 */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <Select
+                    value={selectedAIProvider}
+                    onValueChange={(v) => setSelectedAIProvider(v as typeof selectedAIProvider)}
+                    disabled={generating}
+                  >
+                    <SelectTrigger className="w-36 h-9 text-sm bg-white border-gray-200 shadow-sm">
+                      <SelectValue placeholder="AI 提供商" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">🌐 全局设置</SelectItem>
+                      <SelectItem value="gemini">✨ Gemini</SelectItem>
+                      <SelectItem value="openai">🤖 OpenAI</SelectItem>
+                      <SelectItem value="anthropic">🧠 Claude</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-xs">
+                临时切换本次生成使用的 AI 模型。"全局设置"将使用【设置】页面中配置的默认 AI 提供商。
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           <Button
             onClick={handleGenerate}

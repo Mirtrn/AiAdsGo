@@ -130,10 +130,15 @@ function checkTokenUtilization(
 }
 
 /**
- * 统一的 Gemini 内容生成接口（仅用户级配置）
+ * 统一的 AI 内容生成接口（支持 Gemini / OpenAI / Anthropic）
+ *
+ * 路由逻辑：
+ * 1. 若调用时传入 overrideProvider，使用该提供商（临时覆盖，用于前端每次手动选择）
+ * 2. 否则读取用户 settings 中的 ai_provider（全局默认）
+ * 3. 再否则使用 Gemini（兜底）
  */
 export async function generateContent(
-  params: GeminiGenerateParams,
+  params: GeminiGenerateParams & { overrideProvider?: 'gemini' | 'openai' | 'anthropic' },
   userId: number
 ): Promise<GeminiGenerateResult> {
   if (!userId || typeof userId !== 'number' || userId <= 0) {
@@ -150,8 +155,63 @@ export async function generateContent(
     enableAutoModelSelection = true,
     responseSchema,
     responseMimeType,
+    overrideProvider,
   } = params
 
+  // ─── 判断实际使用的 AI 提供商 ───────────────────────────────
+  let activeProvider: 'gemini' | 'openai' | 'anthropic' = 'gemini'
+
+  if (overrideProvider) {
+    activeProvider = overrideProvider
+    console.log(`🔀 使用临时覆盖 provider: ${activeProvider} (User ${userId})`)
+  } else {
+    const providerSetting = await getUserOnlySetting('ai', 'ai_provider', userId)
+    const saved = providerSetting?.value
+    if (saved === 'openai' || saved === 'anthropic') {
+      activeProvider = saved
+    }
+  }
+
+  // ─── 路由到 OpenAI ─────────────────────────────────────────
+  if (activeProvider === 'openai') {
+    const { generateContent: openaiGenerate } = await import('./openai')
+    const result = await openaiGenerate(
+      {
+        prompt,
+        temperature,
+        maxOutputTokens,
+        timeoutMs,
+        operationType,
+        model: requestedModel,
+        // 若调用方使用 JSON MIME 类型，透传给 OpenAI JSON 模式
+        responseFormat: responseMimeType === 'application/json' ? 'json' : undefined,
+      },
+      userId
+    )
+    return {
+      text: result.text,
+      usage: result.usage,
+      model: result.model,
+      apiType: 'direct-api',
+    }
+  }
+
+  // ─── 路由到 Anthropic ──────────────────────────────────────
+  if (activeProvider === 'anthropic') {
+    const { generateContent: anthropicGenerate } = await import('./anthropic')
+    const result = await anthropicGenerate(
+      { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
+      userId
+    )
+    return {
+      text: result.text,
+      usage: result.usage,
+      model: result.model,
+      apiType: 'direct-api',
+    }
+  }
+
+  // ─── 路由到 Gemini（默认）─────────────────────────────────
   let finalModel: string
   if (enableAutoModelSelection && operationType) {
     const selection = await selectOptimalModel(operationType, userId, {
@@ -170,8 +230,8 @@ export async function generateContent(
   const hasGeminiAPI = await isGeminiAPIConfigured(userId)
   if (!hasGeminiAPI) {
     throw new Error(
-      `AI配置缺失：用户(ID=${userId})尚未配置 Gemini API。\n` +
-      `请在设置页面配置服务商与 API 密钥。\n` +
+      `AI配置缺失：用户(ID=${userId})尚未配置任何 AI 提供商。\n` +
+      `请在设置页面选择 AI 提供商（Gemini / OpenAI / Claude）并配置对应的 API 密钥。\n` +
       `注意：系统不支持全局AI配置，每个用户必须配置自己的AI凭证。`
     )
   }

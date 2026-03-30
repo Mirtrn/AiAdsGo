@@ -369,9 +369,9 @@ export async function generateAdCreative(
   // 5. 构建提示
   const prompt = await buildPrompt(variables, options)
 
-  // 6. 调用 AI
+  // 6. 调用 AI（options.aiProvider 临时覆盖全局设置）
   const aiConfig = await getAIConfig(userId)
-  const aiResponse = await callAI(prompt, aiConfig, userId)
+  const aiResponse = await callAI(prompt, aiConfig, userId, options.aiProvider)
 
   if (!aiResponse.success) {
     throw new Error(`AI调用失败: ${aiResponse.error}`)
