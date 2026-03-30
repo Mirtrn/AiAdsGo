@@ -939,14 +939,16 @@ export default function SettingsPage() {
 
         if (aiProvider === 'openai') {
           const openaiApiKey = formData.ai?.['openai_api_key']
-          if (!openaiApiKey || openaiApiKey.trim() === '' || openaiApiKey === '············') {
+          // 占位符 '············' 表示 Key 已保存，允许只更新其他字段（如 ai_provider/model）
+          if (!openaiApiKey || openaiApiKey.trim() === '') {
             toast.error('使用 OpenAI 时，必须填写 OpenAI API Key（sk-...）')
             setSaving(false)
             return
           }
         } else if (aiProvider === 'anthropic') {
           const anthropicApiKey = formData.ai?.['anthropic_api_key']
-          if (!anthropicApiKey || anthropicApiKey.trim() === '' || anthropicApiKey === '············') {
+          // 占位符 '············' 表示 Key 已保存，允许只更新其他字段（如 ai_provider/model）
+          if (!anthropicApiKey || anthropicApiKey.trim() === '') {
             toast.error('使用 Anthropic Claude 时，必须填写 Anthropic API Key（sk-ant-...）')
             setSaving(false)
             return
@@ -1089,7 +1091,14 @@ export default function SettingsPage() {
     setValidating(category)
 
     try {
-      let config = formData[category] || {}
+      let config: Record<string, string> = { ...(formData[category] || {}) }
+
+      // AI 分类：确保 ai_provider 始终传递有效值（避免服务端回退到 gemini 默认分支）
+      if (category === 'ai') {
+        if (!config.ai_provider || config.ai_provider.trim() === '') {
+          config.ai_provider = 'gemini'
+        }
+      }
 
       // 代理分类需要从 proxyUrls 状态获取数据
       if (category === 'proxy') {
