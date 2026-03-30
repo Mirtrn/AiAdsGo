@@ -1088,6 +1088,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           hotInsights: storeData.hotInsights,
           productCategories: storeData.productCategories,
           deepScrapeResults: storeData.deepScrapeResults,
+          // 🔥 修复（2026-03-18）：store页面用storeName作为productName后备，避免product_name字段为空
+          productName: storeData.storeName || undefined,
         }),
 
         // 独立站专属数据（可选）
@@ -1102,6 +1104,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           hotInsights: independentStoreData.hotInsights,  // 🔥 新增：热销洞察
           productCategories: (independentStoreData as any).productCategories,
           deepScrapeResults: independentStoreData.deepScrapeResults,  // 🔥 新增：深度抓取结果
+          // 🔥 修复（2026-03-18）：store页面用storeName作为productName后备，避免product_name字段为空
+          productName: independentStoreData.storeName || undefined,
         }),
 
         // 🔥 独立站增强：Google品牌词搜索补充数据

@@ -394,10 +394,26 @@ npm start
 
 ## 📖 文档
 
+### 部署文档
+- [Docker部署指南](./docs/deployment/DOCKER_DEPLOY_GUIDE.md) - Docker容器化部署
+- [快速开始指南](./docs/deployment/QUICK_START.md) - 项目快速启动
+- [远程部署指南](./docs/deployment/REMOTE_DEPLOY_GUIDE.md) - 远程服务器部署
+
+### 开发文档
 - [数据库初始化指南](./migrations/DATABASE_INITIALIZATION_GUIDE.md) - 完整的数据库设置和管理
 - [迁移整合报告](./migrations/MIGRATION_CONSOLIDATION_REPORT.md) - 数据库Schema历史和变更
-- [API文档](./docs/API.md) - API接口文档（如果有）
-- [部署指南](./docs/DEPLOYMENT.md) - 详细部署说明（如果有）
+- [Agent开发指南](./docs/development/AGENTS.md) - AI Agent开发规范
+- [Claude使用说明](./docs/development/CLAUDE.md) - Claude AI集成说明
+
+### 配置文档
+- [SSH密钥配置示例](./docs/configuration/SSH_KEY_CONFIG_EXAMPLE.md) - SSH密钥设置
+- [SSH连接故障排查](./docs/configuration/SSH_CONNECTION_TROUBLESHOOT.md) - SSH连接问题解决
+
+### 优化文档
+- [意图优化实施](./docs/optimization/INTENT_OPTIMIZATION_IMPLEMENTATION.md) - 关键词意图优化
+- [意图优化代码清单](./docs/optimization/INTENT_OPTIMIZATION_CODE_CHECKLIST.md) - 实施检查清单
+- [意图优化影响分析](./docs/optimization/INTENT_OPTIMIZATION_BUCKET_IMPACT.md) - 功能影响评估
+- [意图优化迁移](./docs/optimization/INTENT_OPTIMIZATION_MIGRATIONS.md) - 数据库迁移说明
 
 ---
 
