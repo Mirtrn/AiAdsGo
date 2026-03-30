@@ -358,16 +358,16 @@ export async function generateAdCreative(
     throw new Error('Offer不存在或无权访问')
   }
 
-  // 3. 读取提取的广告元素
+  // 3. 解析提取的广告元素（复用已查询的 offer 数据，避免重复查询）
+  // 🔧 修复：extracted_elements 在 SQLite 中是 JSON 字符串，需要解析；PostgreSQL jsonb 已自动解析为对象
   let extractedElements: any = {}
   try {
-    const elements = await db.queryOne(
-      'SELECT extracted_elements FROM offers WHERE id = ?',
-      [offerId]
-    )
-    extractedElements = elements?.extracted_elements || {}
+    const raw = offer.extracted_elements
+    if (raw) {
+      extractedElements = typeof raw === 'string' ? JSON.parse(raw) : raw
+    }
   } catch (error) {
-    console.warn('[generateAdCreative] 读取提取元素失败:', error)
+    console.warn('[generateAdCreative] 解析 extracted_elements 失败:', error)
   }
 
   // 4. 构建提示变量

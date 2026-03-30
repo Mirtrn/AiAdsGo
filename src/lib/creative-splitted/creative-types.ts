@@ -51,7 +51,7 @@ export interface GenerateAdCreativeOptions {
   diversityTheme?: string // 🆕 当前创意的差异化主题（价格/功能/评价/品牌）
   // 🆕 v4.10: 关键词池参数
   keywordPool?: any  // OfferKeywordPool
-  bucket?: 'A' | 'B' | 'C' | 'S'  // 🆕 2025-12-16: 添加S（综合）桶支持
+  bucket?: 'A' | 'B' | 'C' | 'D' | 'S'  // 🆕 2025-12-16: 添加S（综合）桶支持，D=转化/价值导向
   bucketKeywords?: string[]
   bucketIntent?: string
   bucketIntentEn?: string
