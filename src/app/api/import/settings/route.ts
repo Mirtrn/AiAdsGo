@@ -43,6 +43,8 @@ export async function POST(request: NextRequest) {
 
     const { settings } = validationResult.data
     const db = await getDatabase()
+    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
     // 不允许导入的敏感配置（安全考虑）
     const blockedKeys = [
@@ -93,13 +95,13 @@ export async function POST(request: NextRequest) {
             if (isSensitive) {
               await db.exec(`
                 UPDATE system_settings
-                SET encrypted_value = ?, value = NULL, updated_at = datetime('now')
+                SET encrypted_value = ?, value = NULL, updated_at = ${nowFunc}
                 WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?)
               `, [encrypt(config.value), category, configKey, userIdNum])
             } else {
               await db.exec(`
                 UPDATE system_settings
-                SET value = ?, updated_at = datetime('now')
+                SET value = ?, updated_at = ${nowFunc}
                 WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?)
               `, [config.value, category, configKey, userIdNum])
             }
@@ -108,12 +110,12 @@ export async function POST(request: NextRequest) {
             if (isSensitive) {
               await db.exec(`
                 INSERT INTO system_settings (user_id, category, key, encrypted_value, data_type, is_sensitive, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+                VALUES (?, ?, ?, ?, ?, 1, ${nowFunc}, ${nowFunc})
               `, [userIdNum, category, configKey, encrypt(config.value), config.dataType || 'string'])
             } else {
               await db.exec(`
                 INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+                VALUES (?, ?, ?, ?, ?, 0, ${nowFunc}, ${nowFunc})
               `, [userIdNum, category, configKey, config.value, config.dataType || 'string'])
             }
           }

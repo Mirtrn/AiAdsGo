@@ -337,6 +337,8 @@ async function upsertAccount(userId: number, account: {
   const db = await getDatabase()
   const activeValue = db.type === 'postgres' ? true : 1
   const notDeletedValue = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   // 检查是否已存在
   const existing = await db.queryOne(`
@@ -366,8 +368,8 @@ async function upsertAccount(userId: number, account: {
           identity_verification_completion_deadline_time = ?,
           identity_verification_overdue = ?,
           identity_verification_checked_at = ?,
-          last_sync_at = datetime('now'),
-          updated_at = datetime('now')
+          last_sync_at = ${nowFunc},
+          updated_at = ${nowFunc}
       WHERE id = ?
     `, [
       account.descriptive_name,
@@ -404,7 +406,7 @@ async function upsertAccount(userId: number, account: {
         identity_verification_overdue,
         identity_verification_checked_at,
         last_sync_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
     `, [
       userId,
       account.customer_id,
@@ -443,6 +445,8 @@ async function deactivateMissingAccounts(params: {
   const inactiveValue = db.type === 'postgres' ? false : 0
   const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFuncDeact = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   const scopeSqlParts: string[] = []
   const scopeParams: any[] = []
@@ -477,7 +481,7 @@ async function deactivateMissingAccounts(params: {
   const placeholders = missing.map(() => '?').join(', ')
   await db.exec(`
     UPDATE google_ads_accounts
-    SET is_active = ?, updated_at = datetime('now')
+    SET is_active = ?, updated_at = ${nowFuncDeact}
     WHERE user_id = ?
       AND ${isDeletedCheck}
       AND ${scopeSql}

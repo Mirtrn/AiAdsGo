@@ -29,6 +29,8 @@ export async function POST(
 
     const db = await getDatabase()
     const userId = authResult.user.userId
+    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
     // 验证Creative所有权
     const creative = await db.queryOne<{ user_id: number }>(
@@ -123,7 +125,7 @@ export async function POST(
         descriptions = ?,
         final_url = ?,
         final_url_suffix = ?,
-        updated_at = datetime('now')
+        updated_at = ${nowFunc}
       WHERE id = ?
     `, [
       JSON.stringify(headlines),

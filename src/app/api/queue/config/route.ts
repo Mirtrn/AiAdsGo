@@ -205,6 +205,8 @@ async function getQueueConfigFromDB(): Promise<typeof DEFAULT_QUEUE_CONFIG | nul
 async function saveQueueConfigToDB(config: typeof DEFAULT_QUEUE_CONFIG): Promise<void> {
   const db = await getDatabase()
   const configJson = JSON.stringify(normalizeQueueConfig(config))
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   // 检查是否已存在
   const existing = await db.queryOne<{ id: number }>(`
@@ -216,7 +218,7 @@ async function saveQueueConfigToDB(config: typeof DEFAULT_QUEUE_CONFIG): Promise
     // 更新现有配置
     await db.exec(`
       UPDATE system_settings
-      SET value = ?, updated_at = datetime('now')
+      SET value = ?, updated_at = ${nowFunc}
       WHERE category = 'queue' AND key = 'config' AND user_id IS NULL
     `, [configJson])
   } else {

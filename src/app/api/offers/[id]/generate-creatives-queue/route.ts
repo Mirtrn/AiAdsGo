@@ -143,6 +143,9 @@ export async function POST(
   try {
     const db = getDatabase()
 
+    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     // ✅ KISS-3类型：最多3个创意类型（A / B(含C) / D(含S)）
     // 只计算未删除的创意，并兼容历史bucket（C->B，S->D）
     const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
@@ -195,7 +198,7 @@ export async function POST(
       `INSERT INTO creative_tasks (
         id, user_id, offer_id, status, stage, progress, message,
         max_retries, target_rating, created_at, updated_at
-      ) VALUES (?, ?, ?, 'pending', 'init', 0, '准备开始生成...', ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, 'pending', 'init', 0, '准备开始生成...', ?, ?, ${nowFunc}, ${nowFunc})`,
       [taskId, parseInt(userId, 10), parseInt(id, 10), normalizedMaxRetries, normalizedTargetRating]
     )
 
