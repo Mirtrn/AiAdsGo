@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUrlSwapTaskById, updateTaskStatus } from '@/lib/url-swap';
 import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
+import { verifyAuth } from '@/lib/auth';
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -13,6 +14,11 @@ interface RouteParams {
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
+    const auth = await verifyAuth(request);
+    if (!auth.authenticated || auth.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 });
+    }
+
     const { id } = await params;
 
     // 验证任务存在

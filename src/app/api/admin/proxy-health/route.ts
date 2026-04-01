@@ -8,9 +8,15 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProxyPoolHealth, disableProxy, enableProxy } from '@/lib/url-resolver-enhanced'
+import { verifyAuth } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     // 获取代理池健康状态
     const health = getProxyPoolHealth()
 
@@ -33,6 +39,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { action, proxyUrl } = body
 

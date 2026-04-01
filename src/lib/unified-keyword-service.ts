@@ -1314,7 +1314,9 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
       allKeywords.slice(0, 1000).map(kw => kw.keyword),
       country,
       language,
-      userId
+      userId,
+      authType,
+      serviceAccountId
     )
 
     disableSearchVolumeFilter = volumes.some((vol: any) =>
@@ -1577,7 +1579,9 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
       topKeywordsForVolume,
       country,
       language,
-      userId
+      userId,
+      authType,
+      serviceAccountId
     )
 
     disableSearchVolumeFilter = volumes.some((vol: any) =>
@@ -1626,7 +1630,9 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
         brandSeedToQuery,
         country,
         language,
-        userId
+        userId,
+        authType,
+        serviceAccountId
       )
 
       if (volumes.some((vol: any) =>
@@ -1835,8 +1841,10 @@ export async function getKeywordVolumesForExisting(params: {
   userId?: number
   brandName?: string
   enableExpansion?: boolean  // 已废弃，忽略
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<UnifiedKeywordData[]> {
-  const { baseKeywords, country, language, userId, brandName } = params
+  const { baseKeywords, country, language, userId, brandName, authType, serviceAccountId } = params
 
   if (!baseKeywords || baseKeywords.length === 0) {
     return []
@@ -1850,7 +1858,9 @@ export async function getKeywordVolumesForExisting(params: {
       baseKeywords,
       country,
       language,
-      userId
+      userId,
+      authType,
+      serviceAccountId
     )
 
     // 转换为 UnifiedKeywordData 格式
@@ -2079,8 +2089,8 @@ export async function expandKeywordsWithSeeds(params: {
             country,
             language,
             userId,
-            undefined,
-            undefined,
+            authType,
+            serviceAccountId,
             onProgress
               ? (info: { message: string; current?: number; total?: number }) =>
                   onProgress({

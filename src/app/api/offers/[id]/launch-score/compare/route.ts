@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findLatestLaunchScore, parseLaunchScoreAnalysis } from '@/lib/launch-scores'
+import { findLaunchScoreByCreativeId, parseLaunchScoreAnalysis } from '@/lib/launch-scores'
 import { findAdCreativeById } from '@/lib/ad-creative'
 
 /**
@@ -59,9 +59,8 @@ export async function POST(
         )
       }
 
-      // 获取该Creative的最新Launch Score
-      // 注意：实际应用中可能需要根据creativeId查询，这里简化为使用offerId的最新评分
-      const score = await findLatestLaunchScore(offerId, parseInt(userId, 10))
+      // 获取该Creative的最新Launch Score（按creativeId精确查询）
+      const score = await findLaunchScoreByCreativeId(creativeId, parseInt(userId, 10))
 
       if (score) {
         const analysis = parseLaunchScoreAnalysis(score)

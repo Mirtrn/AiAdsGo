@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
+import { verifyAuth } from '@/lib/auth'
 
 /**
  * GET /api/admin/prompts
@@ -8,6 +9,11 @@ import { getInsertedId } from '@/lib/db-helpers'
  */
 export async function GET(request: NextRequest) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     const db = getDatabase()
 
     // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
@@ -110,6 +116,11 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     const body = await request.json()
     const {
       promptId,

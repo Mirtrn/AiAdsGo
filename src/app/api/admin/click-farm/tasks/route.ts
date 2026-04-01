@@ -4,9 +4,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
 import { estimateTraffic } from '@/lib/click-farm/distribution';
 
-// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
-const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
-
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get('x-user-id');
@@ -25,11 +22,14 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase();
 
+    // 🔧 PostgreSQL/SQLite布尔类型兼容性
+    const isDeletedFalse = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
     // 获取总数
     const countResult = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM click_farm_tasks
-      WHERE IS_DELETED_FALSE
+      WHERE ${isDeletedFalse}
     `, []);
 
     const total = countResult?.count || 0;
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       FROM click_farm_tasks t
       JOIN users u ON t.user_id = u.id
       LEFT JOIN offers o ON t.offer_id = o.id
-      WHERE t.IS_DELETED_FALSE
+      WHERE t.${isDeletedFalse}
       ORDER BY t.created_at DESC
       LIMIT ? OFFSET ?
     `, [limit, offset]);

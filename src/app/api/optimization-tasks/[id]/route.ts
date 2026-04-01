@@ -17,7 +17,7 @@ export async function PATCH(
 ) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -76,7 +76,7 @@ export async function DELETE(
 ) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

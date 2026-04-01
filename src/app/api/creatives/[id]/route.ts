@@ -92,7 +92,7 @@ export async function PUT(
     if (final_url !== undefined) updates.final_url = final_url
     if (score !== undefined) updates.score = score
 
-    const creative = updateAdCreative(parseInt(id, 10), parseInt(userId, 10), updates)
+    const creative = await updateAdCreative(parseInt(id, 10), parseInt(userId, 10), updates)
 
     if (!creative) {
       return NextResponse.json(
@@ -136,7 +136,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteAdCreative(parseInt(id, 10), parseInt(userId, 10))
+    const success = await deleteAdCreative(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

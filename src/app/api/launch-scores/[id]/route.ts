@@ -66,7 +66,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteLaunchScore(parseInt(id, 10), parseInt(userId, 10))
+    const success = await deleteLaunchScore(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

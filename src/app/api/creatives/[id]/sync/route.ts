@@ -109,7 +109,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新状态为pending
-    updateAdCreative(creative.id, parseInt(userId, 10), {
+    await updateAdCreative(creative.id, parseInt(userId, 10), {
       creation_status: 'pending',
       creation_error: undefined,
     })
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
 
       // 更新Creative，标记为已同步
-      updateAdCreative(creative.id, parseInt(userId, 10), {
+      await updateAdCreative(creative.id, parseInt(userId, 10), {
         ad_id: adResult.adId,
         creation_status: 'synced',
         creation_error: undefined,
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
     } catch (error: any) {
       // 同步失败，更新错误状态
-      updateAdCreative(creative.id, parseInt(userId, 10), {
+      await updateAdCreative(creative.id, parseInt(userId, 10), {
         creation_status: 'failed',
         creation_error: error.message || '同步到Google Ads失败',
       })

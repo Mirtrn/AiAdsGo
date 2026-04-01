@@ -17,7 +17,7 @@ import {
 export async function GET(request: NextRequest) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

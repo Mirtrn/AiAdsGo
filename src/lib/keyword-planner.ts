@@ -523,7 +523,68 @@ export async function getKeywordSearchVolumes(
             // Developer Token 具有 Basic 或 Standard Access 权限，可以使用 Keyword Planner API
             console.log(`[KeywordPlanner] Developer Token 访问级别: ${apiAccessLevel || 'unknown'}, 认证方式: ${config.authType || 'oauth'}`)
 
-            // 刷新 access token 以确保有效
+            // 🔧 修复(2026-04-01): 服务账号模式提前走 Python 服务，避免走 OAuth gRPC 路径导致
+            // "No access, refresh token, API key or refresh handler callback is set" 错误和 15 分钟超时
+            if (config.authType === 'service_account') {
+              console.log(`[KeywordPlanner] 服务账号模式：通过 Python 服务查询搜索量 (${needApiKeywords.length} 个关键词)`)
+              try {
+                const { getKeywordHistoricalMetricsPython } = await import('./python-ads-client')
+                const cleanCustomerId = config.customerId.replace(/-/g, '')
+                const geoTargetId = getGoogleAdsGeoTargetId(effectiveCountry)
+                const languageId = getGoogleAdsLanguageIdString(effectiveLanguage)
+                const result = await getKeywordHistoricalMetricsPython({
+                  userId: userId!,
+                  serviceAccountId: config.serviceAccountId,
+                  customerId: cleanCustomerId,
+                  keywords: needApiKeywords,
+                  language: `languageConstants/${languageId}`,
+                  geoTargetConstants: [`geoTargetConstants/${geoTargetId}`],
+                })
+                for (const metric of (result.results || [])) {
+                  const text: string = metric.text
+                  if (!text) continue
+                  apiVolumes.set(text.toLowerCase(), {
+                    keyword: text,
+                    avgMonthlySearches: metric.keyword_metrics?.avg_monthly_searches || 0,
+                    competition: (metric.keyword_metrics?.competition || 'UNKNOWN').toString(),
+                    competitionIndex: metric.keyword_metrics?.competition_index || 0,
+                    lowTopPageBid: (metric.keyword_metrics?.low_top_of_page_bid_micros || 0) / 1_000_000,
+                    highTopPageBid: (metric.keyword_metrics?.high_top_of_page_bid_micros || 0) / 1_000_000,
+                    requestedCountry,
+                    effectiveCountry,
+                    usedProxyGeo,
+                    requestedLanguage,
+                    effectiveLanguage,
+                    usedFallbackLanguage,
+                  })
+                }
+                apiSuccess = true
+                console.log(`[KeywordPlanner] Python 服务返回 ${result.results?.length || 0} 个搜索量结果`)
+              } catch (pyError: any) {
+                console.error('[KeywordPlanner] Python 服务搜索量查询失败，跳过:', pyError.message)
+                // 失败时为所有关键词返回 0，不阻断流程
+                for (const kw of needApiKeywords) {
+                  if (!apiVolumes.has(kw.toLowerCase())) {
+                    apiVolumes.set(kw.toLowerCase(), {
+                      keyword: kw,
+                      avgMonthlySearches: 0,
+                      competition: 'UNKNOWN',
+                      competitionIndex: 0,
+                      lowTopPageBid: 0,
+                      highTopPageBid: 0,
+                      requestedCountry,
+                      effectiveCountry,
+                      usedProxyGeo,
+                      requestedLanguage,
+                      effectiveLanguage,
+                      usedFallbackLanguage,
+                    })
+                  }
+                }
+                apiSuccess = false
+              }
+            } else {
+            // OAuth 模式：刷新 access token 以确保有效
             try {
               await refreshAccessToken(userId || 1)
               console.log('[KeywordPlanner] Access token refreshed successfully')
@@ -778,6 +839,7 @@ export async function getKeywordSearchVolumes(
                 apiSuccess = false
               }
             }
+            } // end else (OAuth mode)
           }
         } catch (error: any) {
           apiSuccess = false

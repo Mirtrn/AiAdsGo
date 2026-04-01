@@ -239,7 +239,7 @@ export default function CreativesPage() {
    * 处理401未授权错误 - 跳转到登录页
    */
   const handleUnauthorized = () => {
-    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    // auth_token 是 HttpOnly Cookie，JS 无法清除，由服务端 /api/auth/logout 负责
     const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
     router.push(`/login?redirect=${redirectUrl}`)
   }

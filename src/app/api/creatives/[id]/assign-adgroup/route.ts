@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新Creative的adGroupId
-    const updatedCreative = updateAdCreative(creative.id, parseInt(userId, 10), {
+    const updatedCreative = await updateAdCreative(creative.id, parseInt(userId, 10), {
       ad_group_id: adGroup.id,
     })
 

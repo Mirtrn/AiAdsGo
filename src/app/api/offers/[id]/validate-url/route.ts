@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyAuth } from '@/lib/auth'
 import { validateUrl } from '@/lib/scraper'
 
 /**
@@ -10,6 +11,12 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    // 验证用户身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { url } = body
 

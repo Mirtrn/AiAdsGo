@@ -12,11 +12,11 @@ import { dailyLinkCheck } from '@/lib/risk-alerts'
 
 export async function POST(request: NextRequest) {
   try {
-    // 验证Cron密钥（生产环境保护）
+    // 验证Cron密钥（必须配置 CRON_SECRET，否则拒绝所有请求）
     const authHeader = request.headers.get('authorization')
     const cronSecret = process.env.CRON_SECRET
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

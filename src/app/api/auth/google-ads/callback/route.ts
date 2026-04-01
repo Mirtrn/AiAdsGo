@@ -64,17 +64,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 如果没有customer_id，需要用户手动输入
+    // 如果没有customer_id，OAuth 流程不完整，不能将 token 暴露在 URL 中
+    // complete-setup 页面尚未实现，直接返回错误引导用户重试
     if (!customerId) {
-      // 将tokens临时存储在session或cookie中，让用户输入customer_id
       return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL}/google-ads/complete-setup?tokens=${encodeURIComponent(
-          JSON.stringify({
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-            expires_in: tokens.expires_in,
-          })
-        )}`
+        `${process.env.NEXT_PUBLIC_APP_URL}/settings?error=missing_customer_id`
       )
     }
 

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     // 单个创意评分
     if (creativeId) {
-      const score = scoreCreativePerformance(parseInt(creativeId), userId)
+      const score = await scoreCreativePerformance(parseInt(creativeId), userId)
 
       if (!score) {
         return NextResponse.json(

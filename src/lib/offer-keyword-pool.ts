@@ -4437,12 +4437,16 @@ export async function getSyntheticBucketKeywords(
   if (config.sortByVolume && allNonBrandKeywords.size > 0) {
     try {
       const { getKeywordVolumesForExisting } = await import('./unified-keyword-service')
+      // 🔧 修复(2026-04-01): 获取认证类型，确保服务账号用户走 Python 服务而非 gRPC
+      const syntheticAuth = await getUserAuthType(userId)
       const volumeData = await getKeywordVolumesForExisting({
         baseKeywords: Array.from(allNonBrandKeywords),
         country,
         language: 'en',  // TODO: 从offer获取语言
         userId,
-        brandName: pool.brandKeywords[0] ? (typeof pool.brandKeywords[0] === 'string' ? pool.brandKeywords[0] : pool.brandKeywords[0].keyword) : ''
+        brandName: pool.brandKeywords[0] ? (typeof pool.brandKeywords[0] === 'string' ? pool.brandKeywords[0] : pool.brandKeywords[0].keyword) : '',
+        authType: syntheticAuth.authType,
+        serviceAccountId: syntheticAuth.serviceAccountId,
       })
 
       // 构建搜索量映射（保留“搜索量不可用”标记）

@@ -12,7 +12,7 @@ export async function PATCH(
 ) {
   try {
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -39,7 +39,7 @@ export async function PATCH(
     }
 
     // 更新提示
-    const updated = updateAlertStatus(alertId, auth.user!.userId, status, note)
+    const updated = await updateAlertStatus(alertId, auth.user!.userId, status, note)
 
     if (!updated) {
       return NextResponse.json(

@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 import { getDecryptedCredentials } from '@/lib/google-ads-accounts'
@@ -27,6 +28,13 @@ export async function POST(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
+    // 验证用户身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+    const userId = authResult.user.userId
+
     const offerId = parseInt(context.params.id)
 
     if (isNaN(offerId)) {
@@ -38,12 +46,12 @@ export async function POST(
 
     const db = await getDatabase()
 
-    // 1. 获取Offer信息和用户ID
+    // 1. 获取Offer信息并验证所有权
     const offer = await db.queryOne(`
       SELECT id, user_id, offer_name
       FROM offers
-      WHERE id = ?
-    `, [offerId]) as { id: number; user_id: number; offer_name: string } | undefined
+      WHERE id = ? AND user_id = ?
+    `, [offerId, userId]) as { id: number; user_id: number; offer_name: string } | undefined
 
     if (!offer) {
       return NextResponse.json(

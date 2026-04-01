@@ -14,9 +14,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    // 获取limit参数，默认5
+    // 获取limit参数，默认5，防止 NaN 注入 SQL LIMIT
     const searchParams = request.nextUrl.searchParams
-    const limit = parseInt(searchParams.get('limit') || '5', 10)
+    const limitRaw = parseInt(searchParams.get('limit') || '5', 10)
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 5
 
     const db = await getDatabase()
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { verifyAuth } from '@/lib/auth'
 
 /**
  * GET /api/admin/prompts/[promptId]
@@ -10,6 +11,11 @@ export async function GET(
   { params }: { params: { promptId: string } }
 ) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     const { promptId } = params
     const db = getDatabase()
 
@@ -105,6 +111,11 @@ export async function PUT(
   { params }: { params: { promptId: string } }
 ) {
   try {
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
+      return NextResponse.json({ error: '需要管理员权限' }, { status: 403 })
+    }
+
     const { promptId } = params
     const body = await request.json()
     const { version } = body

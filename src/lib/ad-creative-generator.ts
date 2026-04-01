@@ -7189,12 +7189,16 @@ export async function generateAdCreative(
 
     // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
     const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
+    // 🔧 修复(2026-04-01): 获取认证类型，确保服务账号用户走 Python 服务而非 gRPC
+    const creativeVolumeAuth = await getUserAuthType(userId)
     const unifiedData = await getKeywordVolumesForExisting({
       baseKeywords: result.keywords,
       country: targetCountry,
       language,
       userId,
-      brandName
+      brandName,
+      authType: creativeVolumeAuth.authType,
+      serviceAccountId: creativeVolumeAuth.serviceAccountId,
     })
 
     // 🎯 修复：添加matchType字段（智能分配）+ lowTopPageBid/highTopPageBid竞价数据

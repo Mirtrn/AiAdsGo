@@ -16,7 +16,7 @@ export async function POST(
   try {
     // 验证用户身份
     const auth = await verifyAuth(request)
-    if (!auth) {
+    if (!auth.authenticated || !auth.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

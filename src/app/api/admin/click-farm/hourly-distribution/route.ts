@@ -4,9 +4,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
 import { parseJsonField } from '@/lib/json-field';
 
-// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
-const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
-
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get('x-user-id');
@@ -20,11 +17,14 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase();
 
+    // 🔧 PostgreSQL/SQLite布尔类型兼容性
+    const isDeletedFalse = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
     // 获取所有运行中任务的配置分布（汇总）
     const tasks = await db.query<any>(`
       SELECT hourly_distribution
       FROM click_farm_tasks
-      WHERE IS_DELETED_FALSE AND status IN ('running', 'completed')
+      WHERE ${isDeletedFalse} AND status IN ('running', 'completed')
     `, []);
 
     const hourlyConfigured = new Array(24).fill(0);

@@ -1710,7 +1710,7 @@ async function get(request: NextRequest) {
           o.brand,
           o.target_country,
           CASE
-            WHEN o.is_deleted = IS_DELETED_TRUE OR o.deleted_at IS NOT NULL THEN 0
+            WHEN o.IS_DELETED_TRUE OR o.deleted_at IS NOT NULL THEN 0
             ELSE 1
           END as is_active,
           COUNT(DISTINCT c.id) as campaign_count
