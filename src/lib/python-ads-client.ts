@@ -189,6 +189,20 @@ async function getServiceAccountAuth(userId: number, serviceAccountId?: string):
     throw new Error('Service account not found')
   }
 
+  // 🔧 修复(2026-04-02): 检测 privateKey 解密失败（null），通常是因为服务账号是用旧
+  // ENCRYPTION_KEY 加密的，当前 key 无法解密。需要用户在设置页面重新上传服务账号 JSON。
+  if (!sa.privateKey) {
+    logger.error('service_account_private_key_decrypt_failed', {
+      userId,
+      serviceAccountId: sa.id,
+      serviceAccountEmail: sa.serviceAccountEmail,
+      hint: 'privateKey decrypt() returned null — service account was likely encrypted with a different ENCRYPTION_KEY; user must re-upload the service account JSON',
+    })
+    throw new Error(
+      '服务账号私钥解密失败，请在「设置 → Google Ads 服务账号」页面重新上传服务账号 JSON 文件后再试。'
+    )
+  }
+
   // 🔧 修复(2025-12-29): 验证 Developer Token 权限等级
   const tokenValidation = validateDeveloperToken(sa.developerToken)
   if (tokenValidation.warnings.length > 0) {
@@ -212,7 +226,7 @@ async function getServiceAccountAuth(userId: number, serviceAccountId?: string):
     email: sa.serviceAccountEmail,
     // 🔧 修复(2026-04-02): Google服务账号JSON中私钥的换行符存储为字面量 \n（两个字符），
     // Python cryptography 库加载 PEM 文件需要真正的换行符，否则抛 MalformedFraming 错误
-    private_key: (sa.privateKey || '').replace(/\\n/g, '\n'),
+    private_key: sa.privateKey.replace(/\\n/g, '\n'),
     developer_token: sa.developerToken,
     // 🔧 修复(2025-12-26): 格式化 login_customer_id，移除空格和横杠
     login_customer_id: formatCustomerId(sa.mccCustomerId),
