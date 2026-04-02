@@ -57,6 +57,11 @@ export function createScrapeExecutor(): TaskExecutor<ScrapeTaskData> {
       await performScrapeAndAnalysis(offerId, userId, url, brand || '')
 
       console.log(`✅ [ScrapeExecutor] 抓取任务完成: Offer #${offerId}`)
+
+      // 🤖 抓取完成后自动触发 Bucket A 广告创意生成（静默，不影响抓取结果）
+      autoTriggerCreativeGeneration(offerId, userId).catch((err) => {
+        console.warn(`⚠️ [ScrapeExecutor] 自动触发创意生成失败（不影响抓取结果）: Offer #${offerId}`, err?.message || err)
+      })
     } catch (error: any) {
       const errorAnalysis = analyzeProxyError(error)
       const errorMessage = errorAnalysis.isProxyError
@@ -76,6 +81,105 @@ export function createScrapeExecutor(): TaskExecutor<ScrapeTaskData> {
       throw error
     }
   }
+}
+
+/**
+ * 抓取完成后自动触发 Bucket A 广告创意生成
+ *
+ * 触发条件（全部满足才入队）：
+ * 1. Bucket A 在 ad_creatives 表中无现有创意（未删除）
+ * 2. creative_tasks 表中无 pending/running 状态的任务（针对该 offer）
+ * 3. 用户 Google Ads 配置完整（缺失则跳过，不报错）
+ *
+ * 任何条件不满足均静默跳过，不抛出异常。
+ */
+async function autoTriggerCreativeGeneration(offerId: number, userId: number): Promise<void> {
+  console.log(`🤖 [ScrapeExecutor] 检查是否需要自动生成 Bucket A 创意: Offer #${offerId}`)
+
+  // 动态导入，避免循环依赖
+  const { getDatabase } = await import('@/lib/db')
+  const { getQueueManager } = await import('@/lib/queue')
+  const { getUserAuthType } = await import('@/lib/google-ads-oauth')
+  const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
+  const { AD_CREATIVE_MAX_AUTO_RETRIES } = await import('@/lib/ad-creative-quality-loop')
+
+  const db = getDatabase()
+  const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
+  // 检查 1：Bucket A 是否已有创意
+  const existingBucketA = await db.query<{ id: number }>(
+    `SELECT id FROM ad_creatives
+     WHERE offer_id = ? AND user_id = ? AND keyword_bucket IN ('A') AND ${isDeletedCheck}
+     LIMIT 1`,
+    [offerId, userId]
+  )
+  if (existingBucketA.length > 0) {
+    console.log(`⏭️ [ScrapeExecutor] Bucket A 已存在创意，跳过自动生成: Offer #${offerId}`)
+    return
+  }
+
+  // 检查 2：是否已有 pending/running 的创意任务
+  const activeTasks = await db.query<{ id: string }>(
+    `SELECT id FROM creative_tasks
+     WHERE offer_id = ? AND user_id = ? AND status IN ('pending', 'running')
+     LIMIT 1`,
+    [offerId, userId]
+  )
+  if (activeTasks.length > 0) {
+    console.log(`⏭️ [ScrapeExecutor] 已有进行中的创意任务，跳过自动生成: Offer #${offerId}, TaskId: ${activeTasks[0].id}`)
+    return
+  }
+
+  // 检查 3：Google Ads 配置是否完整
+  try {
+    const auth = await getUserAuthType(userId)
+    const googleAdsConfig = await getGoogleAdsConfig(userId, auth.authType, auth.serviceAccountId)
+    const isConfigComplete = auth.authType === 'service_account'
+      ? !!(googleAdsConfig?.developerToken && googleAdsConfig?.customerId)
+      : !!(googleAdsConfig?.developerToken && googleAdsConfig?.refreshToken && googleAdsConfig?.customerId)
+
+    if (!isConfigComplete) {
+      console.warn(`⏭️ [ScrapeExecutor] Google Ads 配置不完整，跳过自动生成创意: Offer #${offerId}, 用户 #${userId}`)
+      return
+    }
+  } catch (configError: any) {
+    console.warn(`⏭️ [ScrapeExecutor] 检查 Google Ads 配置时出错，跳过自动生成: ${configError?.message || configError}`)
+    return
+  }
+
+  // 所有条件通过，插入 creative_tasks 记录并入队
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const taskId = crypto.randomUUID()
+  const targetRating = 'GOOD'
+  const maxRetries = AD_CREATIVE_MAX_AUTO_RETRIES
+
+  await db.exec(
+    `INSERT INTO creative_tasks (
+      id, user_id, offer_id, status, stage, progress, message,
+      max_retries, target_rating, created_at, updated_at
+    ) VALUES (?, ?, ?, 'pending', 'init', 0, '抓取完成后自动生成...', ?, ?, ${nowFunc}, ${nowFunc})`,
+    [taskId, userId, offerId, maxRetries, targetRating]
+  )
+
+  const queue = getQueueManager()
+  await queue.enqueue(
+    'ad-creative',
+    {
+      offerId,
+      maxRetries,
+      targetRating,
+      synthetic: false,
+      bucket: 'A',
+    },
+    userId,
+    {
+      priority: 'normal',  // 自动生成使用普通优先级，不抢占手动任务
+      taskId,
+      maxRetries: 0,       // 禁用队列重试，由执行器内部控制多轮生成
+    }
+  )
+
+  console.log(`🚀 [ScrapeExecutor] 已自动触发 Bucket A 创意生成入队: Offer #${offerId}, TaskId: ${taskId}`)
 }
 
 /**
