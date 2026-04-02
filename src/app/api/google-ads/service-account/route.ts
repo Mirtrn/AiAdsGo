@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const { clientEmail, privateKey, projectId } = parseServiceAccountJson(serviceAccountJson)
     const encryptedPrivateKey = encrypt(privateKey)
 
-    const db = getDatabase()
+    const db = await getDatabase()
     const id = crypto.randomUUID()
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const db = getDatabase()
+  const db = await getDatabase()
   const accounts = await db.query(`
     SELECT id, name, mcc_customer_id, service_account_email, is_active, created_at
     FROM google_ads_service_accounts
@@ -92,7 +92,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 })
     }
 
-    const db = getDatabase()
+    const db = await getDatabase()
 
     // 先解除 google_ads_accounts 对该服务账号的外键引用，避免外键约束冲突
     await db.exec(`

@@ -210,7 +210,9 @@ async function getServiceAccountAuth(userId: number, serviceAccountId?: string):
 
   return {
     email: sa.serviceAccountEmail,
-    private_key: sa.privateKey || '',
+    // 🔧 修复(2026-04-02): Google服务账号JSON中私钥的换行符存储为字面量 \n（两个字符），
+    // Python cryptography 库加载 PEM 文件需要真正的换行符，否则抛 MalformedFraming 错误
+    private_key: (sa.privateKey || '').replace(/\\n/g, '\n'),
     developer_token: sa.developerToken,
     // 🔧 修复(2025-12-26): 格式化 login_customer_id，移除空格和横杠
     login_customer_id: formatCustomerId(sa.mccCustomerId),
