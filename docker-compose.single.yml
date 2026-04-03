@@ -63,6 +63,25 @@ services:
       - aiadsgo-network
     depends_on:
       - postgres
+      - redis
+
+  # Redis 队列缓存（启用 AOF 持久化 + volume，防止重启丢失队列任务）
+  redis:
+    image: redis:7-alpine
+    container_name: autoads_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - autoads_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # PostgreSQL 数据库（可选）
   # 如果使用外部数据库，可以注释掉此服务
@@ -94,6 +113,10 @@ volumes:
 
   # PostgreSQL 数据存储
   postgres_data:
+    driver: local
+
+  # Redis AOF 持久化数据
+  redis_data:
     driver: local
 
 networks:
