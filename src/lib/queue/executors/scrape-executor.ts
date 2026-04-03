@@ -118,15 +118,18 @@ async function autoTriggerCreativeGeneration(offerId: number, userId: number): P
     return
   }
 
-  // 检查 2：是否已有 pending/running 的创意任务
+  // 检查 2：是否已有 pending/running 的创意任务（仅检查30分钟内创建的，排除僵尸任务）
+  const activeTasksCondition = db.type === 'postgres'
+    ? `status IN ('pending', 'running') AND created_at > NOW() - INTERVAL '30 minutes'`
+    : `status IN ('pending', 'running') AND created_at > datetime('now', '-30 minutes')`
   const activeTasks = await db.query<{ id: string }>(
     `SELECT id FROM creative_tasks
-     WHERE offer_id = ? AND user_id = ? AND status IN ('pending', 'running')
+     WHERE offer_id = ? AND user_id = ? AND ${activeTasksCondition}
      LIMIT 1`,
     [offerId, userId]
   )
   if (activeTasks.length > 0) {
-    console.log(`⏭️ [ScrapeExecutor] 已有进行中的创意任务，跳过自动生成: Offer #${offerId}, TaskId: ${activeTasks[0].id}`)
+    console.log(`⏭️ [ScrapeExecutor] 已有进行中的创意任务（30分钟内），跳过自动生成: Offer #${offerId}, TaskId: ${activeTasks[0].id}`)
     return
   }
 

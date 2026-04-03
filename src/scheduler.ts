@@ -488,7 +488,7 @@ async function cleanupOldDataTask() {
       cleanupType: 'daily',
       retentionDays: 90,
       backupRetentionDays: 7,
-      targets: ['performance', 'sync_logs', 'backups', 'link_check_history']
+      targets: ['performance', 'sync_logs', 'backups', 'link_check_history', 'creative_tasks']
     })
     log(`📥 数据清理任务已入队: ${taskId}`)
   } catch (error) {
@@ -1149,6 +1149,39 @@ function startScheduler() {
       }
     } catch (error: any) {
       logError('❌ 僵尸任务检测失败:', error)
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+
+  // 任务11: creative_tasks 僵尸任务自动清理（每小时）
+  // 修复 Bug1：creative_tasks 缺少僵尸清理机制，pending/running 超过1小时的任务视为僵尸
+  cron.schedule('0 * * * *', async () => {
+    try {
+      log('🧟 [creative_tasks] 开始检测并修复僵尸创意任务...')
+      const db = await getDatabase()
+
+      const cutoffCondition = db.type === 'postgres'
+        ? `status IN ('pending', 'running') AND updated_at < NOW() - INTERVAL '1 hour'`
+        : `status IN ('pending', 'running') AND updated_at < datetime('now', '-1 hour')`
+
+      // 先查询受影响数量
+      const countResult = await db.query<{ cnt: number }>(
+        `SELECT COUNT(*) AS cnt FROM creative_tasks WHERE ${cutoffCondition}`
+      )
+      const zombieCount = Number(countResult[0]?.cnt ?? 0)
+
+      if (zombieCount > 0) {
+        await db.exec(
+          `UPDATE creative_tasks SET status = 'failed', error = '僵尸任务自动清理：任务超时（>1小时未完成）', message = '任务超时，已被系统自动标记为失败', updated_at = ${db.type === 'postgres' ? 'NOW()' : "datetime('now')"} WHERE ${cutoffCondition}`
+        )
+        log(`🧟 [creative_tasks] 已将 ${zombieCount} 个僵尸创意任务标记为 failed`)
+      } else {
+        log('✅ [creative_tasks] 未发现僵尸创意任务')
+      }
+    } catch (error: any) {
+      logError('❌ [creative_tasks] 僵尸任务检测失败:', error)
     }
   }, {
     scheduled: true,

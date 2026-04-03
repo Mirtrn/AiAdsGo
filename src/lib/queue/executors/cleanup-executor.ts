@@ -23,7 +23,7 @@ export interface CleanupTaskData {
   cleanupType: 'daily' | 'manual'
   retentionDays?: number  // 数据保留天数，默认90天
   backupRetentionDays?: number  // 备份保留天数，默认7天
-  targets?: Array<'performance' | 'sync_logs' | 'backups' | 'link_check_history'>
+  targets?: Array<'performance' | 'sync_logs' | 'backups' | 'link_check_history' | 'creative_tasks'>
 }
 
 /**
@@ -35,6 +35,7 @@ export interface CleanupTaskResult {
   deletedSyncLogs: number
   deletedBackupFiles: number
   deletedLinkCheckHistory: number
+  deletedCreativeTasks: number
   errorMessage?: string
   duration: number  // 清理耗时（毫秒）
 }
@@ -100,6 +101,7 @@ export function createCleanupExecutor(): TaskExecutor<CleanupTaskData, CleanupTa
       let deletedSyncLogs = 0
       let deletedBackupFiles = 0
       let deletedLinkCheckHistory = 0
+      let deletedCreativeTasks = 0
 
       // 清理campaign_performance表
       if (targets.includes('performance')) {
@@ -137,9 +139,21 @@ export function createCleanupExecutor(): TaskExecutor<CleanupTaskData, CleanupTa
         console.log(`   ✅ 删除 ${deletedBackupFiles} 个旧备份文件`)
       }
 
+      // 清理 creative_tasks 表中超过 retentionDays 天的已完成/失败记录
+      if (targets.includes('creative_tasks')) {
+        const ctCutoff = db.type === 'postgres'
+          ? `updated_at < NOW() - INTERVAL '${retentionDays} days'`
+          : `updated_at < datetime('now', '-${retentionDays} days')`
+        const result = await db.exec(
+          `DELETE FROM creative_tasks WHERE status IN ('completed', 'failed') AND ${ctCutoff}`
+        )
+        deletedCreativeTasks = result.changes || 0
+        console.log(`   ✅ 删除 ${deletedCreativeTasks} 条旧创意任务记录`)
+      }
+
       const duration = Date.now() - startTime
 
-      console.log(`✅ [CleanupExecutor] 数据清理完成: 性能数据=${deletedPerformanceRows}, 同步日志=${deletedSyncLogs}, 备份文件=${deletedBackupFiles}, 链接历史=${deletedLinkCheckHistory}, 耗时=${duration}ms`)
+      console.log(`✅ [CleanupExecutor] 数据清理完成: 性能数据=${deletedPerformanceRows}, 同步日志=${deletedSyncLogs}, 备份文件=${deletedBackupFiles}, 链接历史=${deletedLinkCheckHistory}, 创意任务=${deletedCreativeTasks}, 耗时=${duration}ms`)
 
       return {
         success: true,
@@ -147,6 +161,7 @@ export function createCleanupExecutor(): TaskExecutor<CleanupTaskData, CleanupTa
         deletedSyncLogs,
         deletedBackupFiles,
         deletedLinkCheckHistory,
+        deletedCreativeTasks,
         duration
       }
     } catch (error: any) {
@@ -159,6 +174,7 @@ export function createCleanupExecutor(): TaskExecutor<CleanupTaskData, CleanupTa
         deletedSyncLogs: 0,
         deletedBackupFiles: 0,
         deletedLinkCheckHistory: 0,
+        deletedCreativeTasks: 0,
         errorMessage: error.message,
         duration
       }
