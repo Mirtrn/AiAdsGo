@@ -64,11 +64,10 @@ export async function generateContent(
     operationType,
   } = params
 
-  // 读取用户配置
-  const [apiKeySetting, modelSetting, baseUrlSetting] = await Promise.all([
+  // 读取用户配置（base_url 固定为 openllmapi.com，不允许自定义）
+  const [apiKeySetting, modelSetting] = await Promise.all([
     getUserOnlySetting('ai', 'litellm_api_key', userId),
     getUserOnlySetting('ai', 'litellm_model', userId),
-    getUserOnlySetting('ai', 'litellm_base_url', userId),
   ])
 
   const apiKey = apiKeySetting?.value?.trim()
@@ -78,8 +77,8 @@ export async function generateContent(
     )
   }
 
-  // base_url 支持用户自定义，默认 openllmapi.com
-  const baseUrl = (baseUrlSetting?.value?.trim() || LITELLM_DEFAULT_BASE_URL).replace(/\/$/, '')
+  // base_url 固定为官方网关，不允许用户自定义
+  const baseUrl = LITELLM_DEFAULT_BASE_URL
   const endpoint = `${baseUrl}/v1/chat/completions`
 
   // 优先使用调用时传入的模型，否则用用户保存的，最后兜底默认

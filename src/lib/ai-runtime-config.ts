@@ -128,14 +128,13 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
 
   // ─── LiteLLM Gateway ──────────────────────────────────────────
   if (aiProvider === 'litellm') {
-    const [apiKeySetting, modelSetting, baseUrlSetting] = await Promise.all([
+    const [apiKeySetting, modelSetting] = await Promise.all([
       getUserOnlySetting('ai', 'litellm_api_key', userId),
       getUserOnlySetting('ai', 'litellm_model', userId),
-      getUserOnlySetting('ai', 'litellm_base_url', userId),
     ])
     const apiKey = apiKeySetting?.value || ''
     const model = normalizeLiteLLMModel(modelSetting?.value)
-    const baseUrl = (baseUrlSetting?.value?.trim() || LITELLM_DEFAULT_BASE_URL).replace(/\/$/, '')
+    const baseUrl = LITELLM_DEFAULT_BASE_URL
     if (apiKey) {
       return {
         type: 'litellm',

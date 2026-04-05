@@ -31,7 +31,6 @@ import {
   ANTHROPIC_DEFAULT_MODEL,
   LITELLM_SUPPORTED_MODELS,
   LITELLM_DEFAULT_MODEL,
-  LITELLM_DEFAULT_BASE_URL,
   isModelSupportedByProvider,
   normalizeModelForProvider,
 } from '@/lib/gemini-models'
@@ -261,11 +260,6 @@ const SETTING_METADATA: Record<string, {
     description: 'LiteLLM Gateway API Key，所有托管模型共用同一个 Key',
     placeholder: '输入 LiteLLM API Key（sk-...）',
   },
-  'ai.litellm_base_url': {
-    label: 'LiteLLM 网关地址',
-    description: `LiteLLM Gateway 的访问地址（不含 /v1 路径），默认 ${LITELLM_DEFAULT_BASE_URL}`,
-    placeholder: `${LITELLM_DEFAULT_BASE_URL}`,
-  },
   'ai.litellm_model': {
     label: 'LiteLLM 模型',
     description: '选择网关托管的模型（响应时间约 15-23s，适合非实时场景）',
@@ -413,7 +407,6 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'anthropic_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'anthropic_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'litellm_base_url', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
@@ -2486,7 +2479,7 @@ export default function SettingsPage() {
                               // Anthropic 相关
                               'anthropic_api_key', 'anthropic_model',
                               // LiteLLM 相关
-                              'litellm_api_key', 'litellm_base_url', 'litellm_model',
+                              'litellm_api_key', 'litellm_model',
                             ]
                             const ia = aiOrder.indexOf(a.key)
                             const ib = aiOrder.indexOf(b.key)
@@ -2516,7 +2509,7 @@ export default function SettingsPage() {
                             }
                           } else if (aiProvider === 'litellm') {
                             // LiteLLM 模式：只显示 LiteLLM 相关字段
-                            if (!['litellm_api_key', 'litellm_base_url', 'litellm_model'].includes(setting.key)) {
+                            if (!['litellm_api_key', 'litellm_model'].includes(setting.key)) {
                               return null
                             }
                           } else {
