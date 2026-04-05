@@ -138,7 +138,7 @@ function checkTokenUtilization(
  * 3. 再否则使用 Gemini（兜底）
  */
 export async function generateContent(
-  params: GeminiGenerateParams & { overrideProvider?: 'gemini' | 'openai' | 'anthropic' },
+  params: GeminiGenerateParams & { overrideProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' },
   userId: number
 ): Promise<GeminiGenerateResult> {
   if (!userId || typeof userId !== 'number' || userId <= 0) {
@@ -159,7 +159,7 @@ export async function generateContent(
   } = params
 
   // ─── 判断实际使用的 AI 提供商 ───────────────────────────────
-  let activeProvider: 'gemini' | 'openai' | 'anthropic' = 'gemini'
+  let activeProvider: 'gemini' | 'openai' | 'anthropic' | 'litellm' = 'gemini'
 
   if (overrideProvider) {
     activeProvider = overrideProvider
@@ -167,7 +167,7 @@ export async function generateContent(
   } else {
     const providerSetting = await getUserOnlySetting('ai', 'ai_provider', userId)
     const saved = providerSetting?.value
-    if (saved === 'openai' || saved === 'anthropic') {
+    if (saved === 'openai' || saved === 'anthropic' || saved === 'litellm') {
       activeProvider = saved
     }
   }
@@ -211,6 +211,21 @@ export async function generateContent(
       usage: result.usage,
       model: result.model,
       // 🔧 修复：同上，Anthropic 调用保持类型兼容
+      apiType: 'direct-api' as const,
+    }
+  }
+
+  // ─── 路由到 LiteLLM Gateway ────────────────────────────────
+  if (activeProvider === 'litellm') {
+    const { generateContent: litellmGenerate } = await import('./litellm')
+    const result = await litellmGenerate(
+      { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
+      userId
+    )
+    return {
+      text: result.text,
+      usage: result.usage,
+      model: result.model,
       apiType: 'direct-api' as const,
     }
   }

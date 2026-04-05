@@ -53,8 +53,29 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 // 默认使用 Sonnet 4.6：速度与智能最佳平衡，成本合理
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
+// ─── LiteLLM Gateway 模型 ───────────────────────────────────────
+// 测试验证通过的 4 个可用模型（2026-04）
+export const LITELLM_SUPPORTED_MODELS = [
+  'gemma4-26b',       // 文案质量最好，推荐默认 ~15s
+  'qwen-coder-32b',   // 格式规范 ~21s
+  'qwen3.5-27b',      // 简洁有力 ~23s
+  'mistral-small-24b',// 内容完整 ~23s
+] as const
+export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
+export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'gemma4-26b'
+export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
+
+export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {
+  return !!model && (LITELLM_SUPPORTED_MODELS as readonly string[]).includes(model)
+}
+
+export function normalizeLiteLLMModel(model?: string | null): LiteLLMModel {
+  if (isValidLiteLLMModel(model)) return model
+  return LITELLM_DEFAULT_MODEL
+}
+
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
-export type AIProvider = 'gemini' | 'openai' | 'anthropic'
+export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'litellm'
 
 export function isValidOpenAIModel(model?: string | null): model is OpenAIModel {
   return !!model && (OPENAI_SUPPORTED_MODELS as readonly string[]).includes(model)

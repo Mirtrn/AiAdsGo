@@ -29,6 +29,9 @@ import {
   OPENAI_DEFAULT_MODEL,
   ANTHROPIC_SUPPORTED_MODELS,
   ANTHROPIC_DEFAULT_MODEL,
+  LITELLM_SUPPORTED_MODELS,
+  LITELLM_DEFAULT_MODEL,
+  LITELLM_DEFAULT_BASE_URL,
   isModelSupportedByProvider,
   normalizeModelForProvider,
 } from '@/lib/gemini-models'
@@ -180,6 +183,7 @@ const SETTING_METADATA: Record<string, {
       { value: 'gemini', label: '🌐 Gemini（Google）' },
       { value: 'openai', label: '🤖 OpenAI（GPT）' },
       { value: 'anthropic', label: '🔮 Anthropic（Claude）' },
+      { value: 'litellm', label: '⚡ LiteLLM Gateway（自托管）' },
     ],
     defaultValue: 'gemini'
   },
@@ -249,6 +253,24 @@ const SETTING_METADATA: Record<string, {
     description: '选择要使用的 Claude 模型',
     options: ANTHROPIC_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
     defaultValue: ANTHROPIC_DEFAULT_MODEL
+  },
+
+  // AI - LiteLLM Gateway 配置
+  'ai.litellm_api_key': {
+    label: 'LiteLLM API Key',
+    description: 'LiteLLM Gateway API Key，所有托管模型共用同一个 Key',
+    placeholder: '输入 LiteLLM API Key（sk-...）',
+  },
+  'ai.litellm_base_url': {
+    label: 'LiteLLM 网关地址',
+    description: `LiteLLM Gateway 的访问地址（不含 /v1 路径），默认 ${LITELLM_DEFAULT_BASE_URL}`,
+    placeholder: `${LITELLM_DEFAULT_BASE_URL}`,
+  },
+  'ai.litellm_model': {
+    label: 'LiteLLM 模型',
+    description: '选择网关托管的模型（响应时间约 15-23s，适合非实时场景）',
+    options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    defaultValue: LITELLM_DEFAULT_MODEL
   },
 
   // Proxy - 新的多URL配置
@@ -390,6 +412,9 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'openai_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'anthropic_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'anthropic_model', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'litellm_base_url', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -950,6 +975,13 @@ export default function SettingsPage() {
           // 占位符 '············' 表示 Key 已保存，允许只更新其他字段（如 ai_provider/model）
           if (!anthropicApiKey || anthropicApiKey.trim() === '') {
             toast.error('使用 Anthropic Claude 时，必须填写 Anthropic API Key（sk-ant-...）')
+            setSaving(false)
+            return
+          }
+        } else if (aiProvider === 'litellm') {
+          const litellmApiKey = formData.ai?.['litellm_api_key']
+          if (!litellmApiKey || litellmApiKey.trim() === '') {
+            toast.error('使用 LiteLLM Gateway 时，必须填写 LiteLLM API Key')
             setSaving(false)
             return
           }
@@ -2453,6 +2485,8 @@ export default function SettingsPage() {
                               'openai_api_key', 'openai_model',
                               // Anthropic 相关
                               'anthropic_api_key', 'anthropic_model',
+                              // LiteLLM 相关
+                              'litellm_api_key', 'litellm_base_url', 'litellm_model',
                             ]
                             const ia = aiOrder.indexOf(a.key)
                             const ib = aiOrder.indexOf(b.key)
@@ -2480,6 +2514,11 @@ export default function SettingsPage() {
                             if (!['anthropic_api_key', 'anthropic_model'].includes(setting.key)) {
                               return null
                             }
+                          } else if (aiProvider === 'litellm') {
+                            // LiteLLM 模式：只显示 LiteLLM 相关字段
+                            if (!['litellm_api_key', 'litellm_base_url', 'litellm_model'].includes(setting.key)) {
+                              return null
+                            }
                           } else {
                             // Gemini 模式：显示 Gemini 相关字段
                             const geminiProvider = formData.ai?.gemini_provider || 'official'
@@ -2499,6 +2538,7 @@ export default function SettingsPage() {
                           if (setting.key === 'ai_provider') return true
                           if (aiProvider === 'openai' && setting.key === 'openai_api_key') return true
                           if (aiProvider === 'anthropic' && setting.key === 'anthropic_api_key') return true
+                          if (aiProvider === 'litellm' && setting.key === 'litellm_api_key') return true
                           if (aiProvider === 'gemini') {
                             if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
                             const geminiProvider = formData.ai?.gemini_provider || 'official'
