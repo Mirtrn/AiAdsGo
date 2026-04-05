@@ -109,6 +109,26 @@ export async function POST(request: NextRequest) {
           break
         }
 
+        // ─── LiteLLM 验证 ──────────────────────────────────────
+        if (aiProviderRaw === 'litellm') {
+          let litellmApiKey: string
+          if (config.litellm_api_key && config.litellm_api_key !== '············') {
+            litellmApiKey = config.litellm_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'litellm_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 LiteLLM API Key 配置' }, { status: 400 })
+            }
+            litellmApiKey = saved.value
+          }
+          const { checkLiteLLMConnection } = await import('@/lib/litellm')
+          const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey)
+          result = ok
+            ? { valid: true, message: 'LiteLLM Gateway 连接验证成功 ✅' }
+            : { valid: false, message: 'LiteLLM Gateway 连接失败，请检查 API Key 是否正确' }
+          break
+        }
+
         // ─── Gemini 验证（默认）───────────────────────────────
         let geminiApiKey: string
         let geminiRelayApiKey: string
