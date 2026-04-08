@@ -54,15 +54,19 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
 // ─── LiteLLM Gateway 模型 ───────────────────────────────────────
-// 测试验证通过的 4 个可用模型（2026-04）
+// 代理 openllmapi.com 实际支持的模型（2026-04 同步 Mac Mini 本地 Ollama）
 export const LITELLM_SUPPORTED_MODELS = [
-  'gemma4-26b',       // 文案质量最好，推荐默认 ~15s
-  'qwen-coder-32b',   // 格式规范 ~21s
-  'qwen3.5-27b',      // 简洁有力 ~23s
-  'mistral-small-24b',// 内容完整 ~23s
+  'qwen3.5-35b',      // 🏆 推荐默认：Qwen 最新一代最强通用（22GB），广告创意首选
+  'gemma4-26b',       // Google 通用（16.8GB），文案质量稳定
+  'qwen3.5-27b',      // Qwen 次强通用（16.2GB），速度/质量平衡
+  'qwen3-30b',        // Qwen3 MoE 轻量版（17.3GB），速度快，适合体力活
+  'qwen3-coder-30b',  // 编码专用（17.3GB）
+  'ads-fast',         // 广告快速版（alias）
+  'web-fast',         // 网页任务快速版（alias）
+  'code-fast',        // 代码任务快速版（alias）
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
-export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'gemma4-26b'
+export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'qwen3.5-35b'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
 export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {

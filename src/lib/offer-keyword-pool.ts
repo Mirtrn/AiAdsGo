@@ -40,7 +40,8 @@ import { classifyKeywordIntent } from './keyword-intent'
 import { parseJsonField, toDbJsonArrayField } from './json-field'
 
 const KEYWORD_CLUSTERING_MAX_OUTPUT_TOKENS = 16384
-const KEYWORD_CLUSTERING_TIMEOUT_MS = 90000
+// 🔧 2026-04: LiteLLM/Ollama 本地模型对复杂聚类 prompt 响应较慢，超时提升至 5 分钟
+const KEYWORD_CLUSTERING_TIMEOUT_MS = 300000
 const KEYWORD_CLUSTERING_INPUT_LIMIT = 500
 const KEYWORD_CLUSTERING_TRUNCATION_MARGIN = 32
 const KEYWORD_CLUSTERING_MAX_SPLIT_DEPTH = 3
@@ -63,7 +64,9 @@ function isGeminiTimeoutError(error: unknown): boolean {
   const code = typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: string }).code)
     : ''
-  return message.includes('timeout') || code === 'ECONNABORTED'
+  const lower = message.toLowerCase()
+  // 包含 AbortError（This operation was aborted）和标准超时
+  return lower.includes('timeout') || lower.includes('aborted') || lower.includes('abort') || code === 'ECONNABORTED'
 }
 
 function extractHttpStatusFromError(error: unknown): number | null {
@@ -110,7 +113,9 @@ function isTransientClusteringMessage(message: string): boolean {
     lower.includes('rate limit') ||
     lower.includes('稍后重试') ||
     lower.includes('服务不可用') ||
-    lower.includes('系统繁忙')
+    lower.includes('系统繁忙') ||
+    lower.includes('aborted') ||       // AbortError: This operation was aborted
+    lower.includes('abort')            // AbortController triggered
   )
 }
 

@@ -8,7 +8,7 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, type LiteLLMModel } from './gemini-models'
+import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, type LiteLLMModel } from './gemini-models'
 
 const DEFAULT_TIMEOUT_MS = 180_000 // LiteLLM 模型响应较慢，给 3 分钟超时
 
@@ -183,7 +183,7 @@ export async function checkLiteLLMConnection(
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: 'gemma4-26b',
+            model: LITELLM_DEFAULT_MODEL,
             max_tokens: 5,
             messages: [{ role: 'user', content: 'Hi' }],
           }),
