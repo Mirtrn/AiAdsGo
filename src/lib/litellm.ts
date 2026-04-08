@@ -167,7 +167,8 @@ export async function generateContent(
 export async function checkLiteLLMConnection(
   userId: number,
   apiKey?: string,
-  baseUrl?: string
+  baseUrl?: string,
+  model?: string
 ): Promise<boolean> {
   try {
     if (apiKey) {
@@ -175,6 +176,7 @@ export async function checkLiteLLMConnection(
       const endpoint = `${resolvedBase}/v1/chat/completions`
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 20_000)
+      const testModel = model ? normalizeLiteLLMModel(model) : LITELLM_DEFAULT_MODEL
       try {
         const resp = await fetch(endpoint, {
           method: 'POST',
@@ -183,14 +185,19 @@ export async function checkLiteLLMConnection(
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: LITELLM_DEFAULT_MODEL,
+            model: testModel,
             max_tokens: 5,
             messages: [{ role: 'user', content: 'Hi' }],
           }),
           signal: controller.signal,
         })
-        // 200 或 400（格式问题但 key 有效）均视为连接成功
-        return resp.ok || resp.status === 400
+        // 只有 2xx 才视为连接成功；400 表示服务端拒绝（模型未配置/路由缺失），不算成功
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '')
+          console.warn(`LiteLLM 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
+          return false
+        }
+        return true
       } finally {
         clearTimeout(timer)
       }

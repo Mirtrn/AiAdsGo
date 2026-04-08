@@ -121,11 +121,15 @@ export async function POST(request: NextRequest) {
             }
             litellmApiKey = saved.value
           }
+          // 使用用户选择的模型做验证，避免验证通过但实际模型不可用
+          const litellmModel = config.litellm_model
+            || (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
+            || undefined
           const { checkLiteLLMConnection } = await import('@/lib/litellm')
-          const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey)
+          const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
           result = ok
             ? { valid: true, message: 'LiteLLM Gateway 连接验证成功 ✅' }
-            : { valid: false, message: 'LiteLLM Gateway 连接失败，请检查 API Key 是否正确' }
+            : { valid: false, message: `LiteLLM Gateway 连接失败：模型 ${litellmModel || 'qwen3.5-35b'} 不可用，请换用其他模型或检查 API Key` }
           break
         }
 
