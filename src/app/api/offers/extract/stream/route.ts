@@ -275,8 +275,13 @@ export async function POST(req: NextRequest) {
               return
             }
 
-            // 只在updated_at变化时才推送
+            // 只在updated_at变化时才推送，否则发送心跳保持连接（防止 nginx 60s 超时截断）
             if (task.updated_at === lastUpdatedAt) {
+              try {
+                controller.enqueue(encoder.encode(': ping\n\n'))
+              } catch {
+                // 连接已关闭
+              }
               return
             }
 
