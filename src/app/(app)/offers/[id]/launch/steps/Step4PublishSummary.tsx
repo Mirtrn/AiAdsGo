@@ -974,6 +974,25 @@ export default function Step4PublishSummary({
           setPublishing(false)
           return
         }
+
+        // 🔥 处理 Google Ads API 限流错误 (429)
+        if (apiError.isRateLimited) {
+          setIsRateLimited(true)
+          setRateLimitInfo({
+            retryAfter: apiError.retryAfter || 3600,
+            message: apiError.message
+          })
+          addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+          addPublishStep('creating', 'Google Ads API 限流，请稍后再试', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: apiError.message,
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+
         throw new Error(apiError.message)
       }
 
@@ -1153,6 +1172,24 @@ export default function Step4PublishSummary({
           setPublishing(false)
           return
         }
+
+        // 🔥 处理 Google Ads API 限流错误 (429)
+        if (apiError.isRateLimited) {
+          setIsRateLimited(true)
+          setRateLimitInfo({
+            retryAfter: apiError.retryAfter || 3600,
+            message: apiError.message
+          })
+          addPublishStep('creating', 'Google Ads API 限流，请稍后再试', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: apiError.message,
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+
         throw new Error(apiError.message)
       }
 
