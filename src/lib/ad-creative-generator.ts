@@ -6547,7 +6547,7 @@ export async function generateAdCreative(
     isSyntheticCreative?: boolean  // 是否为综合创意
     syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
     // 🆕 多 AI Provider 支持：临时覆盖，优先级高于全局设置
-    aiProvider?: 'gemini' | 'openai' | 'anthropic'
+    aiProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm'
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键

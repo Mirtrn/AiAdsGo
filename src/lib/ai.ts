@@ -839,7 +839,7 @@ export async function generateAdCreatives(
     validateServices?: boolean // P0-2: 是否验证服务真实性
     applyOptimizations?: boolean // 是否应用基于投放数据的优化
     /** 临时覆盖 AI 提供商（不修改用户全局设置，仅此次生成生效） */
-    aiProvider?: 'gemini' | 'openai' | 'anthropic'
+    aiProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm'
   }
 ): Promise<{
   headlines: string[]
