@@ -5,6 +5,21 @@ import { useRouter } from 'next/navigation'
 import { getLanguageNameForCountry, getCountryOptionsForUI } from '@/lib/language-country-codes'
 import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
 
+async function safeJson(response: Response): Promise<any> {
+  const text = await response.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    const preview = text.slice(0, 200).replace(/\s+/g, ' ').trim()
+    return {
+      error: `服务器返回了非预期的响应（HTTP ${response.status}）`,
+      message: `服务器返回了非预期的响应（HTTP ${response.status}）`,
+      _rawPreview: preview,
+      _httpStatus: response.status,
+    }
+  }
+}
+
 export default function NewOfferPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -161,7 +176,7 @@ export default function NewOfferPage() {
         }),
       })
 
-      const data = await response.json()
+      const data = await safeJson(response)
 
       if (!response.ok) {
         throw new Error(data.error || '创建Offer失败')
@@ -181,7 +196,7 @@ export default function NewOfferPage() {
         const statusResponse = await fetch(`/api/offers/extract/status/${taskId}`, {
           credentials: 'include',
         })
-        const statusData = await statusResponse.json()
+        const statusData = await safeJson(statusResponse)
 
         if (!statusResponse.ok) {
           throw new Error(statusData.error || '查询任务状态失败')

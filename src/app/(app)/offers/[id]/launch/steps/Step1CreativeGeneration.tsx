@@ -1028,26 +1028,54 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       queuedTaskId = taskId
       setCurrentTaskId(taskId)  // 🆕 保存taskId用于轮询
 
-      // 🔥 Step 2: 订阅SSE流
-      const response = await fetch(`/api/creative-tasks/${taskId}/stream`, {
-        credentials: 'include'
-      })
+      // 🔥 Step 2: 订阅SSE流（带 15 分钟超时保护，防止 Gemini API 挂起时前端永远卡死）
+      const sseAbortController = new AbortController()
+      const SSE_TIMEOUT_MS = 15 * 60 * 1000 // 15 分钟
+      const sseTimeoutId = setTimeout(() => {
+        sseAbortController.abort()
+      }, SSE_TIMEOUT_MS)
+
+      let response: Response
+      try {
+        response = await fetch(`/api/creative-tasks/${taskId}/stream`, {
+          credentials: 'include',
+          signal: sseAbortController.signal,
+        })
+      } catch (fetchErr: any) {
+        clearTimeout(sseTimeoutId)
+        if (fetchErr?.name === 'AbortError') {
+          throw new Error('SSE timeout')
+        }
+        throw fetchErr
+      }
 
       if (!response.ok) {
+        clearTimeout(sseTimeoutId)
         throw new Error('无法订阅任务进度')
       }
 
       // 读取SSE流
       const reader = response.body?.getReader()
       if (!reader) {
+        clearTimeout(sseTimeoutId)
         throw new Error('无法读取响应流')
       }
 
       const decoder = new TextDecoder()
       let buffer = ''
       while (true) {
-        const { done, value } = await reader.read()
+        let done: boolean, value: Uint8Array | undefined
+        try {
+          ;({ done, value } = await reader.read())
+        } catch (readErr: any) {
+          clearTimeout(sseTimeoutId)
+          if (readErr?.name === 'AbortError') {
+            throw new Error('SSE timeout')
+          }
+          throw readErr
+        }
         if (done) {
+          clearTimeout(sseTimeoutId)
           break
         }
 

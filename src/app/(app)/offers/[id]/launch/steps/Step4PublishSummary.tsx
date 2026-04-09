@@ -34,6 +34,28 @@ import {
 import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
 import { CURRENCY_SYMBOLS } from '@/lib/currency'
 
+/**
+ * 安全地将 Response 解析为 JSON。
+ * 当后端返回 HTML 错误页（nginx 502/504 等）时，直接 response.json() 会抛出
+ * "Unexpected token '<'" 错误，导致整个发布流程崩溃。
+ * 此函数捕获解析失败，返回一个包含 HTTP 状态码和原始文本摘要的合成错误对象。
+ */
+async function safeResponseJson(response: Response): Promise<any> {
+  const text = await response.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    // HTML / 非 JSON 响应（nginx 502/504 等）
+    const preview = text.slice(0, 200).replace(/\s+/g, ' ').trim()
+    return {
+      error: `服务器返回了非预期的响应（HTTP ${response.status}）`,
+      message: `服务器返回了非预期的响应（HTTP ${response.status}）`,
+      _rawPreview: preview,
+      _httpStatus: response.status,
+    }
+  }
+}
+
 interface Props {
   offer: any
   selectedCreative: any
@@ -416,7 +438,7 @@ export default function Step4PublishSummary({
         })
       })
 
-      const data = await response.json()
+      const data = await safeResponseJson(response)
       const apiError = parseApiError(data)
 
       // 处理可能的错误
@@ -586,7 +608,7 @@ export default function Step4PublishSummary({
         })
       })
 
-      const data = await response.json()
+      const data = await safeResponseJson(response)
       const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况（422状态码）- 在卡片中显示而不是toast
@@ -868,7 +890,7 @@ export default function Step4PublishSummary({
         })
       })
 
-      const data = await response.json()
+      const data = await safeResponseJson(response)
       const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handleConfirmPauseAndPublish)
@@ -1051,7 +1073,7 @@ export default function Step4PublishSummary({
         })
       })
 
-      const data = await response.json()
+      const data = await safeResponseJson(response)
       const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handlePublishTogether)

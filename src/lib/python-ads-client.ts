@@ -1,4 +1,4 @@
-/**
+          /**
  * Python Google Ads Service 客户端
  * 用于服务账号模式的 Google Ads API 调用
  */
@@ -103,19 +103,41 @@ async function withTracking<T>(
       )
     }
 
-    logger.error(
-      'python_service_call',
-      {
-        userId,
-        requestId,
-        endpoint,
-        operationType,
-        customerId,
-        durationMs: Date.now() - startTime,
-        ok: false,
-      },
-      enhancedError
-    )
+    // BILLING_NOT_ON_MONTHLY_INVOICING 是预期错误（账户不支持身份验证接口），
+    // 调用方 fetchIdentityVerificationSnapshot 会优雅处理（返回 null），
+    // 降级为 warn 避免污染 error 日志
+    const isExpectedBillingError = errorMessage.includes('BILLING_NOT_ON_MONTHLY_INVOICING')
+
+    if (isExpectedBillingError) {
+      logger.warn(
+        'python_service_call_expected',
+        {
+          userId,
+          requestId,
+          endpoint,
+          operationType,
+          customerId,
+          durationMs: Date.now() - startTime,
+          ok: false,
+          expectedError: true,
+          reason: 'BILLING_NOT_ON_MONTHLY_INVOICING',
+        }
+      )
+    } else {
+      logger.error(
+        'python_service_call',
+        {
+          userId,
+          requestId,
+          endpoint,
+          operationType,
+          customerId,
+          durationMs: Date.now() - startTime,
+          ok: false,
+        },
+        enhancedError
+      )
+    }
 
     await trackApiUsage({
       userId,

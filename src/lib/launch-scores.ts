@@ -300,17 +300,13 @@ export async function createLaunchScore(
   const legacyBudgetScore = analysis.basicConfig.budgetScore || 0
   const legacyContentScore = analysis.adQuality.score || 0
 
-  const info = await db.exec(`
-    INSERT INTO launch_scores (
-      user_id, offer_id, total_score,
-      keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
-      keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
-      recommendations, calculated_at,
-      launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
-      launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
-      ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
+  // 🔧 修复(2026-04-09): 当三元组唯一键（ad_creative_id, content_hash, campaign_config_hash）
+  // 均不为 null 时，使用 INSERT OR IGNORE / ON CONFLICT DO NOTHING 避免重复发布时产生
+  // "duplicate key value violates unique constraint idx_launch_scores_creative_config" 错误。
+  // 冲突时直接返回已存在的缓存记录，行为与成功插入保持一致。
+  const hasUniqueKey = !!(options?.adCreativeId && options?.contentHash && options?.campaignConfigHash)
+
+  const insertValues = [
     userId,
     offerId,
     totalScore,
@@ -338,10 +334,105 @@ export async function createLaunchScore(
     JSON.stringify(allIssues),
     JSON.stringify(allSuggestions),
     options?.contentHash || null,
-    options?.campaignConfigHash || null
-  ])
+    options?.campaignConfigHash || null,
+  ]
 
-  const insertedId = getInsertedId(info, db.type)
+  let insertedId: number
+
+  if (hasUniqueKey && db.type === 'postgres') {
+    // PostgreSQL: ON CONFLICT DO NOTHING，冲突时不抛错，rows affected = 0
+    const info = await db.exec(`
+      INSERT INTO launch_scores (
+        user_id, offer_id, total_score,
+        keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+        keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
+        recommendations, calculated_at,
+        launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
+        launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
+        ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (ad_creative_id, content_hash, campaign_config_hash) DO NOTHING
+    `, insertValues)
+    const maybeId = getInsertedId(info, db.type)
+    if (maybeId) {
+      insertedId = maybeId
+    } else {
+      // 冲突：返回已存在记录
+      const existing = await findCachedLaunchScore(
+        options!.adCreativeId!,
+        options!.contentHash!,
+        options!.campaignConfigHash!,
+        userId
+      )
+      if (existing) return existing
+      // 极端情况：唯一键已存在但查不到（不应发生），fallback 普通插入
+      const fallbackInfo = await db.exec(`
+        INSERT INTO launch_scores (
+          user_id, offer_id, total_score,
+          keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+          keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
+          recommendations, calculated_at,
+          launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
+          launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
+          ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, insertValues)
+      insertedId = getInsertedId(fallbackInfo, db.type)
+    }
+  } else if (hasUniqueKey && db.type === 'sqlite') {
+    // SQLite: INSERT OR IGNORE，冲突时 lastInsertRowid = 0
+    const info = await db.exec(`
+      INSERT OR IGNORE INTO launch_scores (
+        user_id, offer_id, total_score,
+        keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+        keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
+        recommendations, calculated_at,
+        launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
+        launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
+        ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, insertValues)
+    const maybeId = getInsertedId(info, db.type)
+    if (maybeId) {
+      insertedId = maybeId
+    } else {
+      // 冲突：返回已存在记录
+      const existing = await findCachedLaunchScore(
+        options!.adCreativeId!,
+        options!.contentHash!,
+        options!.campaignConfigHash!,
+        userId
+      )
+      if (existing) return existing
+      const fallbackInfo = await db.exec(`
+        INSERT INTO launch_scores (
+          user_id, offer_id, total_score,
+          keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+          keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
+          recommendations, calculated_at,
+          launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
+          launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
+          ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, insertValues)
+      insertedId = getInsertedId(fallbackInfo, db.type)
+    }
+  } else {
+    // 无唯一键（ad_creative_id / contentHash / campaignConfigHash 任一为 null）：普通插入
+    const info = await db.exec(`
+      INSERT INTO launch_scores (
+        user_id, offer_id, total_score,
+        keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+        keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
+        recommendations, calculated_at,
+        launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
+        launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
+        ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, insertValues)
+    insertedId = getInsertedId(info, db.type)
+  }
+
   return (await findLaunchScoreById(insertedId, userId))!
 }
 

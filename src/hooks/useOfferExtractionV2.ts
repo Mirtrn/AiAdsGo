@@ -145,38 +145,73 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     setIsExtracting(true)
     setCurrentMessage('创建任务中...')
 
+    // 15 分钟超时：Offer 提取包含代理预热 + 页面抓取 + AI 分析，
+    // 正常最多约 5-8 分钟，15 分钟仍未完成视为后端挂起，终止连接。
+    const EXTRACTION_TIMEOUT_MS = 15 * 60 * 1000
+    let extractionTimeoutId: ReturnType<typeof setTimeout> | null = null
+
     try {
       console.log('📡 Starting unified SSE extraction for:', affiliateLink)
       setConnectionType('sse')
 
       abortControllerRef.current = new AbortController()
 
+      // 设置超时：15 分钟后中止 SSE 连接
+      extractionTimeoutId = setTimeout(() => {
+        console.warn('⏰ Offer extraction SSE timeout (15 min), aborting connection')
+        abortControllerRef.current?.abort()
+      }, EXTRACTION_TIMEOUT_MS)
+
       // 调用统一端点：POST /api/offers/extract/stream
       // 该端点会创建任务并直接返回SSE流
-      const response = await fetch('/api/offers/extract/stream', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          affiliate_link: affiliateLink,
-          target_country: targetCountry,
-          product_price: productPrice,
-          commission_type: commissionType,
-          commission_value: commissionValue,
-          commission_currency: commissionCurrency,
-          brand_name: brandName || undefined,
-          page_type: pageType || undefined,
-          store_product_links: storeProductLinks && storeProductLinks.length > 0 ? storeProductLinks : undefined,
-        }),
-        signal: abortControllerRef.current.signal
-      })
+      let response: Response
+      try {
+        response = await fetch('/api/offers/extract/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            affiliate_link: affiliateLink,
+            target_country: targetCountry,
+            product_price: productPrice,
+            commission_type: commissionType,
+            commission_value: commissionValue,
+            commission_currency: commissionCurrency,
+            brand_name: brandName || undefined,
+            page_type: pageType || undefined,
+            store_product_links: storeProductLinks && storeProductLinks.length > 0 ? storeProductLinks : undefined,
+          }),
+          signal: abortControllerRef.current.signal
+        })
+      } catch (fetchErr: any) {
+        if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
+        if (fetchErr?.name === 'AbortError') {
+          throw new Error('创建Offer超时（超过15分钟），请稍后在列表页确认任务是否已完成。')
+        }
+        // fetch 级别的网络错误（无响应）：给出更友好的提示
+        throw new Error(
+          `网络连接失败，请检查网络后重试。（${fetchErr?.message || 'network error'}）`
+        )
+      }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
+        // 尝试从响应体中提取错误信息
+        let errMsg = `服务器返回错误（HTTP ${response.status}）`
+        try {
+          const errData = await response.json()
+          if (errData?.error || errData?.message) {
+            errMsg = errData.error || errData.message
+          }
+        } catch {
+          // ignore JSON parse error for error response
+        }
+        throw new Error(errMsg)
       }
 
       if (!response.body) {
+        if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
         throw new Error('Response body is null')
       }
 
@@ -186,9 +221,19 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
       let buffer = ''
 
       while (true) {
-        const { done, value } = await reader.read()
+        let done: boolean, value: Uint8Array | undefined
+        try {
+          ;({ done, value } = await reader.read())
+        } catch (readErr: any) {
+          if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
+          if (readErr?.name === 'AbortError') {
+            throw new Error('创建Offer超时（超过15分钟），请稍后在列表页确认任务是否已完成。')
+          }
+          throw readErr
+        }
 
         if (done) {
+          if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
           console.log('✅ SSE stream completed')
           break
         }
@@ -316,10 +361,12 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
         }
       }
     } catch (err: any) {
-      // SSE失败
+      if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
+      // SSE失败（AbortError 由超时触发，已在上层转为友好消息抛出；
+      // 只有用户手动中止时 name==='AbortError' 才静默忽略）
       if (err.name !== 'AbortError') {
         console.error('SSE extraction failed:', err)
-        setError(err.message || '创建任务失败')
+        setError(err.message || '创建任务失败，请重试')
         setCurrentMessage('创建任务失败，请重试')
         setIsExtracting(false)
         cleanup()
