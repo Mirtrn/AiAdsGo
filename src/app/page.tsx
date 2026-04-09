@@ -10,7 +10,6 @@ import { ComparisonChart } from "@/components/marketing/ComparisonChart";
 import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
 import { ClickFarmHighlight } from "@/components/marketing/ClickFarmHighlight";
 import { UrlSwapHighlight } from "@/components/marketing/UrlSwapHighlight";
-import { ConsultCustomerDialogTrigger } from "@/components/marketing/ConsultCustomerDialogTrigger";
 
 export const metadata = pageMetadata.home;
 
@@ -34,14 +33,8 @@ export default function MarketingHome() {
               <a href="#workflow" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 使用流程
               </a>
-              <a href="#pricing" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                价格方案
-              </a>
               <a href="#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 客户案例
-              </a>
-              <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                免费补点击
               </a>
               <a href="#url-swap" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 自动换链接
@@ -298,88 +291,6 @@ export default function MarketingHome() {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Section */}
-      <section id="pricing" className="py-24 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-              简单透明的价格方案
-            </h2>
-            <p className="text-xl text-slate-600">
-              所有方案均包含完整功能。选择最适合你的时长
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto items-start">
-            {/* Annual Plan */}
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 hover:border-blue-300 transition-all duration-300">
-	              <h3 className="text-lg font-semibold text-slate-900 mb-2">年度会员</h3>
-	              <div className="flex items-baseline mb-6">
-	                <span className="text-4xl font-bold tracking-tight text-slate-900">¥6,999</span>
-	                <span className="text-slate-500 ml-1">/年</span>
-	              </div>
-              <p className="text-sm text-slate-600 mb-8">适合希望抓住 Q4 旺季的新手玩家</p>
-              <ul className="space-y-4 mb-8">
-                {["12个月使用权", "完整功能访问", "AI 智能文案", "真实关键词数据"].map((item) => (
-                  <li key={item} className="flex items-center text-sm text-slate-700">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 mr-3 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-blue-50 text-blue-700 font-semibold rounded-xl text-center hover:bg-blue-100 transition-colors">
-                立即开始
-              </ConsultCustomerDialogTrigger>
-            </div>
-
-            {/* Lifetime Plan */}
-            <div className="relative bg-slate-900 rounded-3xl p-8 shadow-2xl transform md:-translate-y-4 border border-slate-800">
-              <div className="absolute top-0 right-0 -mt-4 mr-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-lg">
-                最受欢迎
-              </div>
-	              <h3 className="text-lg font-semibold text-white mb-2">长期会员</h3>
-	              <div className="flex items-baseline mb-6">
-	                <span className="text-4xl font-bold tracking-tight text-white">¥11,999</span>
-	                <span className="text-slate-400 ml-1">/一次性</span>
-	              </div>
-              <p className="text-sm text-slate-400 mb-8">适合致力于长期发展的专业 Affiliate Marketer</p>
-              <ul className="space-y-4 mb-8">
-                {["长期使用权", "完整功能访问", "AI 智能文案", "真实关键词数据", "优先更新支持"].map((item) => (
-                  <li key={item} className="flex items-center text-sm text-slate-300">
-                    <CheckCircle2 className="w-5 h-5 text-blue-400 mr-3 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl text-center hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/50">
-                获取长期权限
-              </ConsultCustomerDialogTrigger>
-            </div>
-
-            {/* Enterprise Plan */}
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 hover:border-blue-300 transition-all duration-300">
-	              <h3 className="text-lg font-semibold text-slate-900 mb-2">私有化部署</h3>
-	              <div className="flex items-baseline mb-6">
-	                <span className="text-4xl font-bold tracking-tight text-slate-900">¥34,999</span>
-	                <span className="text-slate-500 ml-1">/授权</span>
-	              </div>
-              <p className="text-sm text-slate-600 mb-8">适合需要数据隐私和定制功能的独立工作室</p>
-              <ul className="space-y-4 mb-8">
-                {["私有化部署", "完整功能访问", "1年技术支持", "定制功能开发", "数据完全私有"].map((item) => (
-                  <li key={item} className="flex items-center text-sm text-slate-700">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 mr-3 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <ConsultCustomerDialogTrigger className="block w-full py-3 px-4 bg-white text-slate-900 border border-slate-200 font-semibold rounded-xl text-center hover:bg-slate-50 transition-colors">
-                联系销售
-              </ConsultCustomerDialogTrigger>
-            </div>
           </div>
         </div>
       </section>

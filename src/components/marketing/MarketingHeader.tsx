@@ -15,14 +15,8 @@ export function MarketingHeader() {
             <a href="/#workflow" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
               使用流程
             </a>
-            <a href="/#pricing" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-              价格方案
-            </a>
             <a href="/#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
               客户案例
-            </a>
-            <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-              免费补点击
             </a>
           </nav>
           <div className="flex items-center gap-4">
