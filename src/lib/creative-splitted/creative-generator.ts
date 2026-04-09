@@ -53,7 +53,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
  * 调用 AI 模型
  * 统一的 AI 调用接口
  */
-export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'gemini' | 'openai' | 'anthropic'): Promise<AIResponse> {
+export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm'): Promise<AIResponse> {
   try {
     console.log('[callAI] 开始调用 AI 模型', overrideProvider ? `(临时覆盖 provider: ${overrideProvider})` : '')
 
