@@ -117,9 +117,17 @@ export async function generateContent(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
-    throw new Error(
-      `LiteLLM API 请求失败 (${response.status}): ${errorText.substring(0, 300)}`
-    )
+    // 504/502 等网关错误可能返回 HTML 页面，直接展示 HTML 体验极差，改为友好提示
+    const isHtmlResponse = errorText.trimStart().startsWith('<')
+    let friendlyError: string
+    if (response.status === 504 || response.status === 502) {
+      friendlyError = `LiteLLM 网关超时 (${response.status})：请求超时，请稍后重试或检查网关服务状态。`
+    } else if (isHtmlResponse) {
+      friendlyError = `LiteLLM API 请求失败 (${response.status})：服务器返回了非预期响应，请检查网关地址和 API Key 配置。`
+    } else {
+      friendlyError = `LiteLLM API 请求失败 (${response.status}): ${errorText.substring(0, 300)}`
+    }
+    throw new Error(friendlyError)
   }
 
   const data = await response.json()

@@ -39,9 +39,9 @@ export async function POST(
     }
 
     // 🔧 修复(2025-12-30): 使用crypto.randomBytes生成密码学安全的随机密码
-    // 生成16字节随机数，转为base64编码，取前16个字符
-    const randomBytes = crypto.randomBytes(16)
-    const newPassword = randomBytes.toString('base64').slice(0, 16)
+    // 🔧 修复(2026-04-10): 改用hex编码避免base64产生 / + = 等特殊字符导致登录失败
+    const randomBytes = crypto.randomBytes(12)
+    const newPassword = randomBytes.toString('hex').slice(0, 16)
 
     // Hash password
     const hashedPassword = await bcryptHash(newPassword, 10)

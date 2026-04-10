@@ -1819,8 +1819,18 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 }): Promise<{ adId: string; resourceName: string }> {
   const authType = params.authType || 'oauth'
 
-  const sanitizedHeadlines = params.headlines.map(h => sanitizeGoogleAdsAdText(h, 30))
-  const sanitizedDescriptions = params.descriptions.map(d => sanitizeGoogleAdsAdText(d, 90))
+  // 去重防止 DUPLICATE_ASSET（Google Ads API 要求 headlines/descriptions 内部不能有相同文本）
+  const dedupeStrings = (arr: string[]): string[] => {
+    const seen = new Set<string>()
+    return arr.filter(v => {
+      const key = v.trim().toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  const sanitizedHeadlines = dedupeStrings(params.headlines.map(h => sanitizeGoogleAdsAdText(h, 30)))
+  const sanitizedDescriptions = dedupeStrings(params.descriptions.map(d => sanitizeGoogleAdsAdText(d, 90)))
   const sanitizedPath1 = params.path1 ? sanitizeGoogleAdsPath(params.path1, 15) : undefined
   const sanitizedPath2 = params.path2 ? sanitizeGoogleAdsPath(params.path2, 15) : undefined
   const sanitizedFinalUrlSuffix = params.finalUrlSuffix
