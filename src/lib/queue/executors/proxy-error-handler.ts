@@ -38,6 +38,36 @@ export interface ProxyErrorAnalysis {
  */
 export function analyzeProxyError(error: any): ProxyErrorAnalysis {
   const rawMessage = error?.message || String(error)
+  const errorName = error?.name || error?.constructor?.name || ''
+
+  // 检测代理健康检查失败（TCP连接失败，如 IPRocket 代理 IP 不可达）
+  const isHealthCheckFailed =
+    errorName === 'ProxyHealthCheckError' ||
+    rawMessage.includes('HEALTH_CHECK_FAILED') ||
+    rawMessage.includes('代理IP健康检查失败') ||
+    rawMessage.includes('TCP connection failed') ||
+    rawMessage.includes('代理TCP连接失败') ||
+    (rawMessage.includes('TCP') && rawMessage.includes('连接失败'))
+
+  if (isHealthCheckFailed) {
+    return {
+      isProxyError: true,
+      isIPRocketBusinessError: false,
+      enhancedMessage:
+        `⚠️ 代理IP健康检查失败（TCP连接不通）\n\n` +
+        `可能原因：\n` +
+        `1. 代理服务商返回的IP已失效或被目标站封禁\n` +
+        `2. 代理服务账户配额耗尽，服务商返回了错误地址\n` +
+        `3. 代理服务器暂时过载或网络抖动\n\n` +
+        `建议操作：\n` +
+        `✓ 检查代理服务商账户余额和配额\n` +
+        `✓ 稍后重试（代理IP会自动轮换）\n` +
+        `✓ 若持续失败，联系代理服务商确认账户状态\n\n` +
+        `原始错误: ${rawMessage}`,
+      originalMessage: rawMessage,
+      suggestions: ['检查代理账户配额', '稍后重试', '联系代理服务商']
+    }
+  }
 
   // 检测 IPRocket 业务错误（最高优先级）
   const isIPRocketBusinessError =

@@ -19,6 +19,7 @@ import { filterNavigationLabels } from '@/lib/scrape-text-filters'
 import { parsePrice } from '@/lib/pricing-utils'
 import { toDbJsonObjectField } from '@/lib/json-field'
 import { extractScenariosFromReviews } from '@/lib/scenario-extractor'
+import { analyzeProxyError } from './proxy-error-handler'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -695,7 +696,13 @@ export async function executeOfferExtraction(
 
     return resultWithOfferId
   } catch (error: any) {
-    console.error(`❌ Offer提取任务失败: ${task.id}:`, error.message)
+    // 使用代理错误分析器生成更友好的错误信息
+    const proxyAnalysis = analyzeProxyError(error)
+    const userFacingMessage = proxyAnalysis.isProxyError
+      ? proxyAnalysis.enhancedMessage
+      : (error.message || '提取失败')
+
+    console.error(`❌ Offer提取任务失败: ${task.id}:`, userFacingMessage)
 
     // 更新任务为失败状态
     await db.exec(`
@@ -708,11 +715,17 @@ export async function executeOfferExtraction(
         updated_at = ${nowFunc}
       WHERE id = ?
     `, [
-      error.message,
-      toDbJson({ message: error.message, stack: error.stack }),
+      userFacingMessage,
+      toDbJson({ message: userFacingMessage, originalMessage: error.message, stack: error.stack, isProxyError: proxyAnalysis.isProxyError }),
       task.id
     ])
 
+    // 抛出带有增强消息的错误，让调用层也能看到明确原因
+    if (proxyAnalysis.isProxyError && userFacingMessage !== error.message) {
+      const enhanced = new Error(userFacingMessage)
+      enhanced.stack = error.stack
+      throw enhanced
+    }
     throw error
   }
 }
