@@ -20,7 +20,7 @@ import { getDatabase } from '@/lib/db'
 import { parseJsonField } from '@/lib/json-field'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 900 // 15分钟，与任务最大执行时间对齐
 
 interface OfferTask {
   id: string
@@ -188,7 +188,7 @@ export async function GET(
           }
         })
 
-        // 超时保护：2分钟后自动关闭
+        // 超时保护：15分钟后自动关闭（与任务最大执行时间对齐，避免排队等待时SSE提前断开）
         setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
@@ -204,7 +204,7 @@ export async function GET(
             controller.close()
             isClosed = true
           }
-        }, 120000)
+        }, 900000)
       }
     })
 
