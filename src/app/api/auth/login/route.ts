@@ -32,7 +32,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { username, password } = validationResult.data
+    // trim 用户名，防止前后空格导致匹配失败
+    const username = validationResult.data.username.trim()
+    const { password } = validationResult.data
 
     // P0：速率限制检查（IP级别 + 用户名级别）
     try {

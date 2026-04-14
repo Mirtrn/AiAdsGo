@@ -193,17 +193,18 @@ export async function POST(request: NextRequest) {
     // Default password: auto11@20ads
     const defaultPassword = 'auto11@20ads'
 
-    // 如果提供了username，检查是否已存在
-    if (username) {
+    // 如果提供了username，trim后再检查是否已存在（防止前后空格导致重复/登录失败）
+    const trimmedUsername = username ? username.trim() : undefined
+    if (trimmedUsername) {
       const db = getDatabase()
-      const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
+      const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [trimmedUsername])
       if (existingUser) {
         return NextResponse.json({ error: '用户名已存在，请重新生成' }, { status: 400 })
       }
     }
 
     const newUser = await createUser({
-      username: username || undefined, // 让createUser自动生成
+      username: trimmedUsername || undefined, // 让createUser自动生成
       displayName: displayName || undefined,
       email: email || undefined, // 可选字段
       password: defaultPassword,

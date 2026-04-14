@@ -162,8 +162,8 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     passwordHash = await hashPassword(input.password)
   }
 
-  // 如果没有提供用户名，自动生成
-  const username = input.username || await generateUniqueUsername()
+  // 如果没有提供用户名，自动生成；trim 防止前后空格导致登录失败
+  const username = (input.username ? input.username.trim() : null) || await generateUniqueUsername()
   const role = input.role || 'user'
   const shouldEnableOpenclaw = role === 'admin'
   const shouldEnableProducts = role === 'admin'
