@@ -235,7 +235,7 @@ export default function ClickFarmTaskModal({
   // 该effect只负责设置selectedOfferId,distribution由useEffect(line 142-148)统一管理
   // 🔧 修复P1-1(2025-12-30): 添加selectedOfferId到依赖数组,避免闭包陈旧值
   useLayoutEffect(() => {
-    console.log('[ClickFarmTaskModal] useLayoutEffect EXECUTE: open=', open, 'preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length, 'selectedOfferId=', selectedOfferId);
+    console.log('[ClickFarmTaskModal] useLayoutEffect EXECUTE: open=', open, 'preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length, 'selectedOfferId=', selectedOfferId, 'isEditMode=', isEditMode);
     if (!open) return;
 
     // 如果有 preSelectedOfferId 且 offers 已加载，选中它
@@ -245,8 +245,10 @@ export default function ClickFarmTaskModal({
         console.log('[ClickFarmTaskModal] useLayoutEffect: 选中 offer id =', offer.id, 'name =', offer.name);
         setSelectedOfferId(preSelectedOfferId);
       }
-    } else if (!preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
-      // 如果没有 preSelectedOfferId，选择第一个 offer
+    } else if (!preSelectedOfferId && !isEditMode && offers.length > 0 && !selectedOfferId) {
+      // 🔧 修复竞态条件(2026-04-19): 编辑模式下不自动选第一个offer
+      // 编辑模式的selectedOfferId由loadTaskData()负责设置，避免与loadOffers()产生竞态
+      // 新建模式下才自动选第一个offer
       console.log('[ClickFarmTaskModal] useLayoutEffect: 无 preSelectedOfferId，选择第一个 offer');
       setSelectedOfferId(offers[0].id);
       // 异步加载辅助数据(代理检查、时区设置)
@@ -254,7 +256,7 @@ export default function ClickFarmTaskModal({
         console.error('[ClickFarmTaskModal] loadAuxiliaryData 错误', e);
       });
     }
-  }, [open, preSelectedOfferId, offers.length, selectedOfferId]);
+  }, [open, preSelectedOfferId, offers.length, selectedOfferId, isEditMode]);
 
   // 🔧 修复(2025-12-30): 删除重复的useEffect,统一由第142-148行的useEffect管理distribution生成
   // 原代码在此处有重复的useEffect,导致distribution被设置两次,引发竞态条件
@@ -319,7 +321,9 @@ export default function ClickFarmTaskModal({
     console.log('[ClickFarmTaskModal] loadOffersList: API返回', offersData.length, '个offers');
     setOffers(offersData);
 
-    if (offersData.length > 0) {
+    if (offersData.length > 0 && !editTaskId) {
+      // 🔧 修复竞态条件(2026-04-19): 编辑模式下不自动选第一个offer
+      // 编辑模式的selectedOfferId由loadTaskData()负责设置，此处设置会覆盖正确值
       setSelectedOfferId(offersData[0].id);
       // 🔧 修复(2025-12-30): 异步加载辅助数据,不阻塞主流程
       loadAuxiliaryData(offersData[0], offersData).catch(e => {
