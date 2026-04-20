@@ -2,7 +2,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClickFarmTaskById, restartClickFarmTask } from '@/lib/click-farm';
-import { hasEnabledCampaignForOffer } from '@/lib/click-farm/campaign-health-guard';
 import { notifyTaskResumed } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
@@ -34,23 +33,6 @@ export async function POST(
     if (!['stopped', 'paused'].includes(task.status)) {
       return NextResponse.json(
         { error: 'invalid_status', message: '只能重启stopped或paused状态的任务' },
-        { status: 400 }
-      );
-    }
-
-    // 新增：重启前先校验关联 Offer 是否存在可用的 ENABLED Campaign
-    // 避免先重启成功，随后又被调度器立即打回 no_campaign
-    const enabledCampaignExists = await hasEnabledCampaignForOffer({
-      userId: userIdNum,
-      offerId: task.offer_id,
-    });
-    if (!enabledCampaignExists) {
-      return NextResponse.json(
-        {
-          error: 'campaign_required',
-          message: '当前 Offer 没有可用的已启用 Campaign，请先发布并启用至少一个 Campaign 后再重启任务',
-          suggestion: '请前往 Campaign 页面确认该 Offer 至少有一个状态为 ENABLED 的 Campaign',
-        },
         { status: 400 }
       );
     }
