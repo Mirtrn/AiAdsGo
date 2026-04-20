@@ -10,7 +10,6 @@ import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getDatabase } from '@/lib/db';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
-import { hasEnabledCampaignForOffer } from '@/lib/click-farm/campaign-health-guard'
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 import type { UnifiedQueueManager } from '@/lib/queue/unified-queue-manager';
 import { getHeapStatistics } from 'v8';
@@ -224,22 +223,6 @@ export async function triggerTaskScheduling(
     return { taskId, status: 'skipped', message: `任务状态为 ${task.status}，无需调度` };
   }
 
-  const hasEnabledCampaign = await hasEnabledCampaignForOffer({
-    db,
-    userId: task.user_id,
-    offerId: task.offer_id,
-  })
-
-  if (!hasEnabledCampaign) {
-    await pauseClickFarmTask(
-      task.id,
-      'no_campaign',
-      '未检测到可用Campaign，系统自动暂停，请先发布广告后重启任务'
-    )
-    await notifyTaskPaused(task.user_id, task.id, 'no_campaign', '未检测到可用Campaign，任务已自动暂停')
-    return { taskId, status: 'paused', message: '未检测到可用Campaign，任务已暂停' }
-  }
-
   // 检查是否到了开始日期
   if (task.scheduled_start_date) {
     const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
@@ -421,16 +404,63 @@ export async function triggerTaskScheduling(
  * 触发所有待处理任务的调度
  * 用于定时任务调用
  */
+/**
+ * 清理僵尸 running 任务：将超过 2 小时未更新的 running 状态任务重置为 pending。
+ * 防止因进程崩溃、重启等原因导致任务卡在 running 状态无法再次执行。
+ */
+async function cleanupZombieRunningTasks(): Promise<number> {
+  const db = getDatabase()
+  try {
+    const zombieThresholdHours = (() => {
+      const n = parseFloat(process.env.CLICK_FARM_ZOMBIE_THRESHOLD_HOURS || '2')
+      return Number.isFinite(n) && n > 0 ? n : 2
+    })()
+
+    // 使用 RETURNING id 统计受影响行数（db.query 返回 T[]，不带 rowCount）
+    let rows: { id: string }[]
+    if (db.type === 'postgres') {
+      rows = await db.query<{ id: string }>(
+        `UPDATE click_farm_tasks
+         SET status = 'pending', next_run_at = NULL, updated_at = NOW()
+         WHERE status = 'running'
+           AND updated_at < NOW() - INTERVAL '${zombieThresholdHours} hours'
+         RETURNING id`
+      )
+    } else {
+      rows = await db.query<{ id: string }>(
+        `UPDATE click_farm_tasks
+         SET status = 'pending', next_run_at = NULL, updated_at = datetime('now')
+         WHERE status = 'running'
+           AND updated_at < datetime('now', '-${zombieThresholdHours} hours')
+         RETURNING id`
+      )
+    }
+
+    const cleanedCount = rows.length
+    if (cleanedCount > 0) {
+      console.log(`[TriggerAll] 🧹 自动清理僵尸 running 任务: ${cleanedCount} 个（超过 ${zombieThresholdHours}h 未更新）已重置为 pending`)
+    }
+    return cleanedCount
+  } catch (err) {
+    console.error('[TriggerAll] ⚠️ 僵尸任务清理失败:', err)
+    return 0
+  }
+}
+
 export async function triggerAllPendingTasks(): Promise<{
   processed: number;
   queued: number;
   paused: number;
   skipped: number;
+  zombieCleaned: number;
 }> {
+  // 先清理僵尸 running 任务，防止积累阻塞调度
+  const zombieCleaned = await cleanupZombieRunningTasks()
+
   const tasks = await getPendingTasks();
   console.log(`[TriggerAll] 开始执行，找到 ${tasks.length} 个待处理任务，当前时间: ${new Date().toISOString()}`);
 
-  const results = { processed: 0, queued: 0, paused: 0, skipped: 0 };
+  const results = { processed: 0, queued: 0, paused: 0, skipped: 0, zombieCleaned };
 
   for (const task of tasks) {
     results.processed++;
