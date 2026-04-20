@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') || 'all'
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    const db = getDatabase()
+    const db = await getDatabase()
 
     // 根据类型获取不同的任务日志
     let backups: any[] = []
@@ -34,53 +34,80 @@ export async function GET(request: NextRequest) {
 
     if (type === 'all' || type === 'backup') {
       // 🔧 修复(2025-12-11): 使用 AS 别名返回 camelCase 字段
-      backups = await db.query(`
+      // 🔧 修复(2026-04-21): PostgreSQL 会把未加引号别名转为全小写，改用手动映射
+      const rawBackups = await db.query(`
         SELECT
           id,
-          backup_filename AS backupFilename,
-          backup_path AS backupPath,
-          file_size_bytes AS fileSizeBytes,
+          backup_filename,
+          backup_path,
+          file_size_bytes,
           status,
-          error_message AS errorMessage,
-          backup_type AS backupType,
-          created_at AS createdAt,
-          'backup' as taskType
+          error_message,
+          backup_type,
+          created_at
         FROM backup_logs
         ORDER BY created_at DESC
-        LIMIT ?
+        LIMIT $1
       `, [limit]) as any[]
+      backups = rawBackups.map((r: any) => ({
+        id: r.id,
+        backupFilename: r.backup_filename,
+        backupPath: r.backup_path,
+        fileSizeBytes: r.file_size_bytes,
+        status: r.status,
+        errorMessage: r.error_message,
+        backupType: r.backup_type,
+        createdAt: r.created_at,
+        taskType: 'backup',
+      }))
     }
 
     if (type === 'all' || type === 'sync') {
       // 🔧 修复(2025-12-11): 使用 AS 别名返回 camelCase 字段
-      syncLogs = await db.query(`
+      // 🔧 修复(2026-04-21): PostgreSQL 会把未加引号别名转为全小写，改用手动映射
+      const rawSyncLogs = await db.query(`
         SELECT
           sl.id,
-          sl.user_id AS userId,
-          sl.google_ads_account_id AS googleAdsAccountId,
-          sl.sync_type AS syncType,
+          sl.user_id,
+          sl.google_ads_account_id,
+          sl.sync_type,
           sl.status,
-          sl.record_count AS recordCount,
-          sl.duration_ms AS durationMs,
-          sl.error_message AS errorMessage,
-          sl.started_at AS startedAt,
-          sl.completed_at AS completedAt,
+          sl.record_count,
+          sl.duration_ms,
+          sl.error_message,
+          sl.started_at,
+          sl.completed_at,
           u.username,
-          ga.customer_id AS customerId,
-          'sync' as taskType
+          ga.customer_id
         FROM sync_logs sl
         LEFT JOIN users u ON sl.user_id = u.id
         LEFT JOIN google_ads_accounts ga ON sl.google_ads_account_id = ga.id
         ORDER BY sl.started_at DESC
-        LIMIT ?
+        LIMIT $1
       `, [limit]) as any[]
+      syncLogs = rawSyncLogs.map((r: any) => ({
+        id: r.id,
+        userId: r.user_id,
+        googleAdsAccountId: r.google_ads_account_id,
+        syncType: r.sync_type,
+        status: r.status,
+        recordCount: r.record_count,
+        durationMs: r.duration_ms,
+        errorMessage: r.error_message,
+        startedAt: r.started_at,
+        completedAt: r.completed_at,
+        username: r.username,
+        customerId: r.customer_id,
+        taskType: 'sync',
+      }))
     }
 
     // 统计信息
+    // 🔧 修复(2026-04-21): skipped 状态属于正常（云备份接管），计入成功率
     const backupStats = await db.queryOne(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+        SUM(CASE WHEN status IN ('success', 'skipped') THEN 1 ELSE 0 END) as success,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
         SUM(CASE WHEN status = 'success' THEN file_size_bytes ELSE 0 END) as total_size_bytes,
         MAX(created_at) as last_run
