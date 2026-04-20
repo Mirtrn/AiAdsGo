@@ -428,9 +428,21 @@ export default function AdminScheduledTasksPage() {
                   <div className="space-y-3">
                     {/* 合并备份和同步日志，按时间排序 */}
                     {[...backups.slice(0, 5), ...syncLogs.slice(0, 5)]
+                      .map((item: any) => ({
+                        // 🔧 修复(2026-04-21): PostgreSQL 返回全小写字段名，统一规范化
+                        id: item.id,
+                        taskType: item.taskType || item.tasktype || 'unknown',
+                        status: item.status,
+                        backupFilename: item.backupFilename || item.backupfilename || null,
+                        createdAt: item.createdAt || item.createdat || null,
+                        startedAt: item.startedAt || item.startedat || null,
+                        username: item.username || null,
+                        userId: item.userId || item.userid || null,
+                        recordCount: item.recordCount ?? item.recordcount ?? null,
+                      }))
                       .sort((a, b) => {
-                        const dateA = new Date('createdAt' in a ? a.createdAt : a.startedAt)
-                        const dateB = new Date('createdAt' in b ? b.createdAt : b.startedAt)
+                        const dateA = new Date(a.taskType === 'backup' ? a.createdAt : a.startedAt)
+                        const dateB = new Date(b.taskType === 'backup' ? b.createdAt : b.startedAt)
                         return dateB.getTime() - dateA.getTime()
                       })
                       .slice(0, 10)
@@ -445,11 +457,11 @@ export default function AdminScheduledTasksPage() {
                             <div>
                               <p className="text-sm font-medium text-gray-900">
                                 {item.taskType === 'backup'
-                                  ? (item as Backup).backupFilename || '数据库备份'
-                                  : `用户 ${(item as SyncLog).username || (item as SyncLog).userId} - ${(item as SyncLog).recordCount} 条记录`}
+                                  ? (item.backupFilename || '数据库备份')
+                                  : `用户 ${item.username || item.userId || '系统'} - ${item.recordCount ?? '-'} 条记录`}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {'createdAt' in item ? formatDateTime(item.createdAt) : formatDateTime((item as SyncLog).startedAt)}
+                                {formatDateTime(item.taskType === 'backup' ? item.createdAt : item.startedAt)}
                               </p>
                             </div>
                           </div>
