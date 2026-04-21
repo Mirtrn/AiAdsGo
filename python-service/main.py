@@ -1008,52 +1008,194 @@ class CreateKeywordsRequest(BaseModel):
     keywords: List[KeywordData]
 
 
+def _extract_policy_violation_indices(exc) -> List[int]:
+    """从 GoogleAdsException 中提取政策违规的关键词 operations 索引列表"""
+    indices: List[int] = []
+    try:
+        failure = None
+        if hasattr(exc, 'failure'):
+            failure = exc.failure
+        elif hasattr(exc, 'args'):
+            for arg in exc.args:
+                if hasattr(arg, 'errors'):
+                    failure = arg
+                    break
+
+        if failure is None:
+            return indices
+
+        for error in getattr(failure, 'errors', []):
+            error_code = getattr(error, 'error_code', None)
+            if not error_code:
+                continue
+            # policy_violation_error 非 UNSPECIFIED(0) 即为政策违规
+            pve = getattr(error_code, 'policy_violation_error', None)
+            if pve is None:
+                continue
+            pve_name = str(pve)
+            if 'UNSPECIFIED' in pve_name or pve_name == '0':
+                continue
+
+            location = getattr(error, 'location', None)
+            if not location:
+                continue
+            for elem in getattr(location, 'field_path_elements', []):
+                if getattr(elem, 'field_name', '') == 'operations':
+                    idx = getattr(elem, 'index', None)
+                    if idx is not None:
+                        indices.append(int(idx))
+                    break
+    except Exception as ex:
+        logger.debug(f"_extract_policy_violation_indices failed: {ex}")
+    return list(set(indices))
+
+
+def _extract_policy_info_for_index(exc, operation_index: int) -> Dict[str, Any]:
+    """提取指定 operations[index] 的政策违规详情"""
+    info: Dict[str, Any] = {}
+    try:
+        failure = None
+        if hasattr(exc, 'failure'):
+            failure = exc.failure
+        elif hasattr(exc, 'args'):
+            for arg in exc.args:
+                if hasattr(arg, 'errors'):
+                    failure = arg
+                    break
+        if failure is None:
+            return info
+
+        for error in getattr(failure, 'errors', []):
+            error_code = getattr(error, 'error_code', None)
+            if not error_code:
+                continue
+            pve = getattr(error_code, 'policy_violation_error', None)
+            if pve is None:
+                continue
+            pve_name = str(pve)
+            if 'UNSPECIFIED' in pve_name or pve_name == '0':
+                continue
+
+            location = getattr(error, 'location', None)
+            if not location:
+                continue
+            matched = False
+            for elem in getattr(location, 'field_path_elements', []):
+                if getattr(elem, 'field_name', '') == 'operations':
+                    if getattr(elem, 'index', -1) == operation_index:
+                        matched = True
+                    break
+            if not matched:
+                continue
+
+            details = getattr(error, 'details', None)
+            pvd = getattr(details, 'policy_violation_details', None) if details else None
+            if pvd:
+                key = getattr(pvd, 'key', None)
+                if key:
+                    info['policy_name'] = getattr(key, 'policy_name', '')
+                info['description'] = getattr(pvd, 'external_policy_description', '')
+                info['is_exemptible'] = bool(getattr(pvd, 'is_exemptible', False))
+            break
+    except Exception as ex:
+        logger.debug(f"_extract_policy_info_for_index failed: {ex}")
+    return info
+
+
+def _build_keyword_operations(client, request: "CreateKeywordsRequest", active_keywords: List[KeywordData]) -> List[Any]:
+    """根据关键词列表构建 AdGroupCriterionOperation 列表"""
+    operations = []
+    for kw in active_keywords:
+        operation = client.get_type("AdGroupCriterionOperation")
+        criterion = operation.create
+        criterion.ad_group = request.ad_group_resource_name
+        criterion.status = client.enums.AdGroupCriterionStatusEnum[kw.status]
+
+        if kw.is_negative:
+            criterion.negative = True
+            criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
+                kw.negative_keyword_match_type or 'EXACT'
+            ]
+        else:
+            criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[kw.match_type]
+
+        sanitized_text = sanitize_keyword(kw.text)
+        logger.info(f"Keyword sanitization: '{kw.text}' -> '{sanitized_text}'")
+        criterion.keyword.text = sanitized_text
+
+        if kw.final_url:
+            criterion.final_urls.append(kw.final_url)
+
+        operations.append(operation)
+    return operations
+
+
 @app.post("/api/google-ads/keywords/create")
 async def create_keywords(request: CreateKeywordsRequest):
-    """批量创建关键词"""
+    """批量创建关键词（自动移除政策违规关键词并重试）"""
     user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         ad_group_criterion_service = client.get_service("AdGroupCriterionService")
 
-        operations = []
-        for kw in request.keywords:
-            operation = client.get_type("AdGroupCriterionOperation")
-            criterion = operation.create
-            criterion.ad_group = request.ad_group_resource_name
-            criterion.status = client.enums.AdGroupCriterionStatusEnum[kw.status]
+        active_keywords = list(request.keywords)
+        removed_keywords: List[Dict[str, Any]] = []
+        max_retries = len(request.keywords)  # 最多移除次数不超过原始关键词数
 
-            if kw.is_negative:
-                criterion.negative = True
-                # 负向词使用指定的匹配类型，默认 EXACT
-                criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
-                    kw.negative_keyword_match_type or 'EXACT'
-                ]
-            else:
-                criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
-                    kw.match_type
-                ]
+        for _attempt in range(max_retries + 1):
+            if not active_keywords:
+                break
 
-            # 清理关键词，移除Google Ads不支持的特殊字符
-            sanitized_text = sanitize_keyword(kw.text)
-            logger.info(f"Keyword sanitization: '{kw.text}' -> '{sanitized_text}'")
-            criterion.keyword.text = sanitized_text
+            operations = _build_keyword_operations(client, request, active_keywords)
 
-            if kw.final_url:
-                criterion.final_urls.append(kw.final_url)
+            try:
+                response = ad_group_criterion_service.mutate_ad_group_criteria(
+                    customer_id=request.customer_id, operations=operations
+                )
+                # 成功，返回结果（含本次累积被移除的关键词）
+                return {
+                    "results": [
+                        {"resource_name": result.resource_name} for result in response.results
+                    ],
+                    "removed_keywords": removed_keywords,
+                }
 
-            operations.append(operation)
+            except Exception as e:
+                violation_indices = _extract_policy_violation_indices(e)
+                if not violation_indices:
+                    # 非政策违规错误，直接上抛
+                    raise
 
-        response = ad_group_criterion_service.mutate_ad_group_criteria(
-            customer_id=request.customer_id, operations=operations
-        )
+                # 按倒序移除违规关键词（避免索引偏移）
+                for idx in sorted(violation_indices, reverse=True):
+                    if 0 <= idx < len(active_keywords):
+                        kw = active_keywords[idx]
+                        policy_info = _extract_policy_info_for_index(e, idx)
+                        policy_name = policy_info.get('policy_name', 'POLICY_VIOLATION')
+                        description = policy_info.get('description', '')
+                        is_exemptible = policy_info.get('is_exemptible', False)
+                        removed_keywords.append({
+                            "text": kw.text,
+                            "policy_name": policy_name,
+                            "policy_description": description,
+                            "is_exemptible": is_exemptible,
+                        })
+                        logger.warning(
+                            f"[user_id={user_id}] 关键词政策违规，已移除: "
+                            f"'{kw.text}' (policy={policy_name}, exemptible={is_exemptible})"
+                        )
+                        active_keywords.pop(idx)
 
-        return {
-            "results": [
-                {"resource_name": result.resource_name} for result in response.results
-            ]
-        }
+        # 所有关键词均被移除
+        if not active_keywords:
+            logger.warning(f"[user_id={user_id}] 所有关键词均因政策违规被移除，返回空结果")
+            return {"results": [], "removed_keywords": removed_keywords}
 
+        # 不应到达这里，兜底 raise
+        raise RuntimeError("create_keywords: unexpected exit from retry loop")
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create keywords error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

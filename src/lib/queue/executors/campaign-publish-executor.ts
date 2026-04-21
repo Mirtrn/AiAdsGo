@@ -831,11 +831,14 @@ export async function executeCampaignPublish(
     console.log(`\n🔄 开始串行执行Keywords + Ad（避免并发冲突）...`)
     const serialStartTime = Date.now()
 
+    // 收集政策违规被自动移除的关键词（非致命，但需告知用户）
+    const policyRemovedKeywords: Array<{ text: string; policy_name: string }> = []
+
     // 12.1 添加正向关键词
     let keywordsCount = 0
     if (keywordOperations.length > 0) {
       totalApiOperations += keywordOperations.length
-      await runWithLoginCustomerFallbackAndHeartbeat(
+      const kwResult = await runWithLoginCustomerFallbackAndHeartbeat(
         '创建正向关键词',
         (loginCustomerId) => createGoogleAdsKeywordsBatch({
           customerId: adsAccount.customer_id,
@@ -849,6 +852,11 @@ export async function executeCampaignPublish(
           serviceAccountId: auth.serviceAccountId,
         })
       )
+      // 收集被政策移除的正向关键词
+      const removedPositive = (kwResult as any)?.removedKeywords
+      if (Array.isArray(removedPositive) && removedPositive.length > 0) {
+        policyRemovedKeywords.push(...removedPositive.map((k: any) => ({ text: k.text, policy_name: k.policy_name })))
+      }
       keywordsCount = keywordOperations.length
       console.log(`  ✅ [串行1/3] 成功添加${keywordsCount}个关键词`)
     }
@@ -857,7 +865,7 @@ export async function executeCampaignPublish(
     let negativeKeywordsCount = 0
     if (negativeKeywordOperations.length > 0) {
       totalApiOperations += negativeKeywordOperations.length
-      await runWithLoginCustomerFallbackAndHeartbeat(
+      const negKwResult = await runWithLoginCustomerFallbackAndHeartbeat(
         '创建否定关键词',
         (loginCustomerId) => createGoogleAdsKeywordsBatch({
           customerId: adsAccount.customer_id,
@@ -871,6 +879,11 @@ export async function executeCampaignPublish(
           serviceAccountId: auth.serviceAccountId,
         })
       )
+      // 收集被政策移除的否定关键词
+      const removedNegative = (negKwResult as any)?.removedKeywords
+      if (Array.isArray(removedNegative) && removedNegative.length > 0) {
+        policyRemovedKeywords.push(...removedNegative.map((k: any) => ({ text: k.text, policy_name: k.policy_name })))
+      }
       negativeKeywordsCount = negativeKeywordOperations.length
       console.log(`  ✅ [串行2/3] 成功添加${negativeKeywordsCount}个否定关键词`)
     }
@@ -1027,9 +1040,22 @@ export async function executeCampaignPublish(
     // 🔧 修复(2026-01-05): 核心成功但Extensions失败时，仍计为成功，只记录警告信息
     let finalCreationError: string | null = null
 
+    const warningParts: string[] = []
+
+    // 政策违规被自动移除的关键词（对用户可见）
+    if (policyRemovedKeywords.length > 0) {
+      const removedNames = policyRemovedKeywords.map(k => `"${k.text}"(${k.policy_name})`).join(', ')
+      warningParts.push(`以下关键词因违反 Google Ads 政策已被系统自动移除，广告已正常上传：${removedNames}`)
+      console.warn(`⚠️ 政策违规自动移除关键词: ${removedNames}`)
+    }
+
     if (extensionsErrors.length > 0) {
       // 核心成功但Extensions失败 → 记录警告信息，不改变成功状态
-      finalCreationError = `[警告] ${extensionsErrors.join('; ')}`
+      warningParts.push(extensionsErrors.join('; '))
+    }
+
+    if (warningParts.length > 0) {
+      finalCreationError = `[警告] ${warningParts.join(' | ')}`
     }
 
     const campaignStateBeforePersist = await db.queryOne<{

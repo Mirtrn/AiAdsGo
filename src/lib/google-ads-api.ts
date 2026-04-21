@@ -1668,7 +1668,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
   loginCustomerId?: string  // 🔧 添加MCC权限参数
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
-}): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
+}): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }> & { removedKeywords?: import('./python-ads-client').RemovedKeywordInfo[] }> {
   const authType = params.authType || 'oauth'
 
   const logKeywordNormalization = (
@@ -1702,10 +1702,10 @@ export async function createGoogleAdsKeywordsBatch(params: {
       .filter((x): x is { kw: (typeof params.keywords)[number]; originalIndex: number; normalizedText: string } => Boolean(x))
 
     if (keywordInputs.length === 0) {
-      return []
+      return Object.assign([], { removedKeywords: [] })
     }
 
-    const resourceNames = await createKeywordsPython({
+    const { resourceNames, removedKeywords } = await createKeywordsPython({
       userId: params.userId,
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
@@ -1720,11 +1720,20 @@ export async function createGoogleAdsKeywordsBatch(params: {
       })),
     })
 
-    return resourceNames.map((resourceName, index) => ({
+    const results = resourceNames.map((resourceName, index) => ({
       keywordId: resourceName.split('/').pop() || '',
       resourceName,
-      keywordText: params.keywords[keywordInputs[index].originalIndex].keywordText,
+      keywordText: params.keywords[keywordInputs[index]?.originalIndex ?? index]?.keywordText ?? '',
     }))
+
+    if (removedKeywords.length > 0) {
+      console.warn(
+        `[Keyword] 政策违规已自动移除 ${removedKeywords.length} 个关键词: ` +
+        removedKeywords.map(k => `"${k.text}"(${k.policy_name})`).join(', ')
+      )
+    }
+
+    return Object.assign(results, { removedKeywords })
   }
 
   // OAuth模式：使用原有逻辑

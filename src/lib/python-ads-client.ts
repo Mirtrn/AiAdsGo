@@ -478,8 +478,16 @@ export async function createAdGroupPython(params: {
   })
 }
 
+export interface RemovedKeywordInfo {
+  text: string
+  policy_name: string
+  policy_description: string
+  is_exemptible: boolean
+}
+
 /**
  * 批量创建关键词（服务账号模式）
+ * 返回值包含 resourceNames 以及被政策自动移除的关键词列表
  */
 export async function createKeywordsPython(params: {
   userId: number
@@ -495,7 +503,7 @@ export async function createKeywordsPython(params: {
     negativeKeywordMatchType?: 'BROAD' | 'PHRASE' | 'EXACT'
   }>
   requestId?: string
-}): Promise<string[]> {
+}): Promise<{ resourceNames: string[]; removedKeywords: RemovedKeywordInfo[] }> {
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/keywords/create', params.requestId, async () => {
     const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
     const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/keywords/create`, {
@@ -513,7 +521,9 @@ export async function createKeywordsPython(params: {
     }, {
       headers: getPythonRequestHeaders(params.userId, params.requestId),
     })
-    return response.data.results.map((r: any) => r.resource_name)
+    const resourceNames: string[] = response.data.results.map((r: any) => r.resource_name)
+    const removedKeywords: RemovedKeywordInfo[] = response.data.removed_keywords || []
+    return { resourceNames, removedKeywords }
   })
 }
 
