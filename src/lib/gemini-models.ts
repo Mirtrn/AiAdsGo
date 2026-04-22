@@ -56,39 +56,34 @@ export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 // ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
 // 代理 openllmapi.com（New-API + OpenRouter）
 // 模型 ID 经 https://openrouter.ai/api/v1/models 核验，2026-04 同步
-// 仅保留最新版本对话模型，推理/思考模型已移除
+// 规则：仅保留纯对话类模型，删除推理类（r1/thinking/k2.5）和图像类（image/pro-image）
 export const LITELLM_SUPPORTED_MODELS = [
-  // ─── MoonShot Kimi ─────────────────────────────────────────
-  'moonshotai/kimi-k2.6',
-  'moonshotai/kimi-k2.5',
-  'moonshotai/kimi-k2',
+  // ─── MoonShot Kimi（对话类）────────────────────────────────
+  'moonshotai/kimi-k2.6',   // 最新版本
+  'moonshotai/kimi-k2',     // 基础版
 
-  // ─── MiniMax ───────────────────────────────────────────────
-  'minimax/minimax-m2.7',
-  'minimax/minimax-m2.5',
+  // ─── MiniMax（对话类）─────────────────────────────────────
+  'minimax/minimax-m2.7',   // 最新旗舰
+  'minimax/minimax-m2.5',   // 稳定版
   'minimax/minimax-m2.5:free',
 
-  // ─── DeepSeek ──────────────────────────────────────────────
-  'deepseek/deepseek-v3.2',     // 🏆 推荐默认：超高性价比，广告创意首选
+  // ─── DeepSeek（对话类）────────────────────────────────────
+  'deepseek/deepseek-v3.2', // 🏆 推荐默认：超高性价比，广告创意首选
 
-  // ─── OpenAI ────────────────────────────────────────────────
+  // ─── OpenAI GPT-5.4（对话类）──────────────────────────────
   'openai/gpt-5.4',
   'openai/gpt-5.4-mini',
   'openai/gpt-5.4-pro',
-  'openai/gpt-5.4-image-2',
   'openai/gpt-5.4-nano',
 
-  // ─── Anthropic ─────────────────────────────────────────────
+  // ─── Anthropic Claude（对话类）────────────────────────────
   'anthropic/claude-opus-4.7',
   'anthropic/claude-sonnet-4.6',
   'anthropic/claude-haiku-4.5',
 
-  // ─── Google ────────────────────────────────────────────────
+  // ─── Google Gemini（对话类）───────────────────────────────
   'google/gemini-3.1-pro-preview',
-  'google/gemini-3.1-flash-image-preview',
-  'google/gemini-3.1-flash-lite-preview',
   'google/gemini-3-flash-preview',
-  'google/gemini-3-pro-image-preview',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
