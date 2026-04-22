@@ -98,7 +98,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
         outputTokens: response.usage.outputTokens,
         totalTokens: response.usage.totalTokens,
         cost,
-        apiType: response.apiType as 'direct-api' | 'openai' | 'anthropic',
+        apiType: response.apiType as 'direct-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat',
       }).catch((err) => {
         console.warn('[callAI] token 记录失败（不影响主流程）:', err?.message)
       })

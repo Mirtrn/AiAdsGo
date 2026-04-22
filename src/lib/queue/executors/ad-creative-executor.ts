@@ -220,7 +220,7 @@ export interface AdCreativeTaskData {
   synthetic?: boolean  // 🔧 向后兼容：旧版"综合创意"标记（KISS-3类型方案中不再生成S桶）
   bucket?: 'A' | 'B' | 'C' | 'D' | 'S'
   // 🆕 多 AI Provider 支持：前端临时覆盖，优先级高于全局设置
-  aiProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm'
+  aiProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat'
 }
 
 /**
