@@ -54,11 +54,14 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
 // ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
-// 代理 openllmapi.com（New-API + OpenRouter），2026-04 同步更新
+// 代理 openllmapi.com（New-API + OpenRouter）
+// 模型 ID 经 https://openrouter.ai/api/v1/models 核验，2026-04 同步
+// 仅保留最新版本对话模型，推理/思考模型已移除
 export const LITELLM_SUPPORTED_MODELS = [
   // ─── MoonShot Kimi ─────────────────────────────────────────
   'moonshotai/kimi-k2.6',
   'moonshotai/kimi-k2.5',
+  'moonshotai/kimi-k2',
 
   // ─── MiniMax ───────────────────────────────────────────────
   'minimax/minimax-m2.7',
@@ -67,35 +70,25 @@ export const LITELLM_SUPPORTED_MODELS = [
 
   // ─── DeepSeek ──────────────────────────────────────────────
   'deepseek/deepseek-v3.2',     // 🏆 推荐默认：超高性价比，广告创意首选
-  'deepseek/deepseek-r1',
 
   // ─── OpenAI ────────────────────────────────────────────────
   'openai/gpt-5.4',
   'openai/gpt-5.4-mini',
   'openai/gpt-5.4-pro',
   'openai/gpt-5.4-image-2',
-  'openai/gpt-4o',
-  'openai/gpt-4o-mini',
+  'openai/gpt-5.4-nano',
 
   // ─── Anthropic ─────────────────────────────────────────────
   'anthropic/claude-opus-4.7',
   'anthropic/claude-sonnet-4.6',
   'anthropic/claude-haiku-4.5',
-  'anthropic/claude-3.7-sonnet',
 
   // ─── Google ────────────────────────────────────────────────
+  'google/gemini-3.1-pro-preview',
+  'google/gemini-3.1-flash-image-preview',
+  'google/gemini-3.1-flash-lite-preview',
   'google/gemini-3-flash-preview',
   'google/gemini-3-pro-image-preview',
-  'google/gemini-3.1-pro-preview',
-  'google/gemini-2.5-pro-preview-05-06',
-  'google/gemini-2.0-flash-001',
-
-  // ─── Meta Llama ────────────────────────────────────────────
-  'meta-llama/llama-4-maverick',
-  'meta-llama/llama-4-scout',
-
-  // ─── Qwen ──────────────────────────────────────────────────
-  'qwen/qwen3-235b-a22b',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
