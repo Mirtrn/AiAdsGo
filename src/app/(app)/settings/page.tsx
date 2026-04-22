@@ -259,7 +259,6 @@ const SETTING_METADATA: Record<string, {
     label: 'AiCodeCat API Key',
     description: '第三方中转服务 API 密钥，适合国内用户访问（aicode.cat）',
     placeholder: '输入 API Key（sk-...）',
-    helpLink: 'https://aicode.cat/register?ref=AIADSGO01',
   },
   'ai.aicodecat_model': {
     label: 'AiCodeCat 模型',
