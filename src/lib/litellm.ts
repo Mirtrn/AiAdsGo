@@ -1,16 +1,16 @@
 /**
- * LiteLLM Gateway 适配器
+ * New-API / LiteLLM Gateway 适配器
  *
- * 职责：封装 LiteLLM Gateway 的 OpenAI 兼容 API，输出格式与 GeminiGenerateResult 保持一致
- * 支持模型：gemma4-26b, qwen-coder-32b, qwen3.5-27b, mistral-small-24b
+ * 职责：封装 New-API（openllmapi.com）的 OpenAI 兼容 API，输出格式与 GeminiGenerateResult 保持一致
+ * 后端：calciumion/new-api + OpenRouter，支持 Kimi/DeepSeek/GPT/Claude/Gemini/Llama/Qwen 全系模型
  *
- * LiteLLM 暴露标准 OpenAI Chat Completions 格式，只需替换 base_url + api_key
+ * New-API 暴露标准 OpenAI Chat Completions 格式（/v1/chat/completions），只需替换 base_url + api_key
  */
 
 import { getUserOnlySetting } from './settings'
 import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, type LiteLLMModel } from './gemini-models'
 
-const DEFAULT_TIMEOUT_MS = 180_000 // LiteLLM 模型响应较慢，给 3 分钟超时
+const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
 
 export interface LiteLLMGenerateParams {
   model?: string
@@ -34,6 +34,7 @@ export interface LiteLLMGenerateResult {
 
 /**
  * 检查用户是否配置了 LiteLLM API Key
+ * 
  */
 export async function isLiteLLMConfigured(userId: number): Promise<boolean> {
   try {

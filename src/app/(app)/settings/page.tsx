@@ -257,12 +257,12 @@ const SETTING_METADATA: Record<string, {
   // AI - LiteLLM Gateway 配置
   'ai.litellm_api_key': {
     label: 'LiteLLM API Key',
-    description: 'LiteLLM Gateway API Key，所有托管模型共用同一个 Key',
-    placeholder: '输入 LiteLLM API Key（sk-...）',
+    description: 'New-API 网关 API Key（通过 openllmapi.com 接入 OpenRouter 全系模型）',
+    placeholder: '输入 API Key（sk-...）',
   },
   'ai.litellm_model': {
-    label: 'LiteLLM 模型',
-    description: '选择网关托管的模型（响应时间约 15-23s，适合非实时场景）',
+    label: 'New-API 模型',
+    description: '选择通过 New-API 网关调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
     options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
     defaultValue: LITELLM_DEFAULT_MODEL
   },

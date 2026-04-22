@@ -53,20 +53,50 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 // 默认使用 Sonnet 4.6：速度与智能最佳平衡，成本合理
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
-// ─── LiteLLM Gateway 模型 ───────────────────────────────────────
-// 代理 openllmapi.com 实际支持的模型（2026-04 同步 Mac Mini 本地 Ollama）
+// ─── LiteLLM / New-API Gateway 模型 ────────────────────────────
+// 代理 openllmapi.com（New-API + OpenRouter），2026-04 同步更新
 export const LITELLM_SUPPORTED_MODELS = [
-  'qwen3.5-35b',      // 🏆 推荐默认：Qwen 最新一代最强通用（22GB），广告创意首选
-  'gemma4-26b',       // Google 通用（16.8GB），文案质量稳定
-  'qwen3.5-27b',      // Qwen 次强通用（16.2GB），速度/质量平衡
-  'qwen3-30b',        // Qwen3 MoE 轻量版（17.3GB），速度快，适合体力活
-  'qwen3-coder-30b',  // 编码专用（17.3GB）
-  'ads-fast',         // 广告快速版（alias）
-  'web-fast',         // 网页任务快速版（alias）
-  'code-fast',        // 代码任务快速版（alias）
+  // ─── Moonshot / Kimi ───────────────────────────────────────
+  'moonshotai/kimi-k2.6',       // 🏆 推荐默认：Kimi 最强旗舰，广告创意首选
+  'moonshotai/kimi-k2.5',       // Kimi 上一代旗舰
+
+  // ─── MiniMax ───────────────────────────────────────────────
+  'minimax/minimax-m2.7',
+  'minimax/minimax-m2.5',
+
+  // ─── DeepSeek ──────────────────────────────────────────────
+  'deepseek/deepseek-v3.2',     // DeepSeek V3 最新，超高性价比
+  'deepseek/deepseek-r1',       // DeepSeek R1 推理模型
+
+  // ─── OpenAI ────────────────────────────────────────────────
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'openai/o3',
+  'openai/o4-mini',
+  'openai/o4-mini-high',
+
+  // ─── Anthropic ─────────────────────────────────────────────
+  'anthropic/claude-opus-4.7',
+  'anthropic/claude-sonnet-4.6',
+  'anthropic/claude-haiku-4.5',
+  'anthropic/claude-3.7-sonnet',
+
+  // ─── Google ────────────────────────────────────────────────
+  'google/gemini-3.1-pro-preview',
+  'google/gemini-3.1-flash-lite-preview',
+  'google/gemini-2.5-pro-preview-05-06',
+  'google/gemini-2.0-flash-001',
+
+  // ─── Meta Llama ────────────────────────────────────────────
+  'meta-llama/llama-4-maverick',
+  'meta-llama/llama-4-scout',
+
+  // ─── Qwen ──────────────────────────────────────────────────
+  'qwen/qwen3-235b-a22b',
+  'qwen/qwq-32b',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
-export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'qwen3.5-35b'
+export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'moonshotai/kimi-k2.6'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
 export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {
