@@ -75,7 +75,6 @@ export const LITELLM_SUPPORTED_MODELS = [
 
   // ─── Google ────────────────────────────────────────────────
   'google/gemini-3.1-pro-preview',
-  'google/gemini-3.1-flash-lite-preview',
   'google/gemini-2.5-pro-preview-05-06',
   'google/gemini-2.0-flash-001',
 
