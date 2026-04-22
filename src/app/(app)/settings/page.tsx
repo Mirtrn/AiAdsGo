@@ -190,41 +190,24 @@ const SETTING_METADATA: Record<string, {
     defaultValue: 'gemini'
   },
 
-  // AI - Gemini 服务商选择
-  'ai.gemini_provider': {
-    label: 'Gemini 服务商',
-    description: '官方适合海外网络；第三方中转适合国内网络',
-    options: [
-      { value: 'official', label: '🌐 Gemini 官方' },
-      { value: 'relay', label: '⚡ 第三方中转' }
-    ],
-    defaultValue: 'official'
-  },
   // AI - Gemini API端点（只读）
   'ai.gemini_endpoint': {
     label: 'Gemini API端点',
-    description: '根据当前服务商 + AI模型自动计算，不可手动修改',
+    description: '根据 AI 模型自动计算，不可手动修改',
     placeholder: '系统自动设置'
   },
-  // AI - Gemini API配置
+  // AI - Gemini API配置（仅官方）
   'ai.gemini_api_key': {
     label: 'Gemini 官方 API Key',
-    description: 'Google Gemini 官方 API 密钥',
+    description: 'Google Gemini 官方 API 密钥（需海外网络；国内用户请选择 OpenLLM 或 AiCodeCat）',
     placeholder: '输入官方 API Key（AIza...）',
     helpLink: 'https://aistudio.google.com/app/api-keys'
   },
-  'ai.gemini_relay_api_key': {
-    label: '第三方中转 API Key',
-    description: '第三方中转服务 API 密钥，适合国内用户访问',
-    placeholder: '输入中转服务 API Key',
-    helpLink: 'https://aicode.cat/register?ref=T6S73C2U'
-  },
   'ai.gemini_model': {
     label: 'Gemini 模型',
-    description: '服务商确定后，选择该服务商支持的模型',
+    description: '选择要使用的 Gemini 模型',
     options: [
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
-      { value: RELAY_GPT_52_MODEL, label: 'GPT-5.2（第三方中转专用）' },
     ],
     defaultValue: GEMINI_ACTIVE_MODEL
   },
@@ -266,7 +249,7 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.litellm_model': {
     label: 'OpenLLM 模型',
-    description: '选择通过 OpenLLM 中转调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
+    description: '选择通过 OpenLLM 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
     options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
     defaultValue: LITELLM_DEFAULT_MODEL
   },
@@ -280,7 +263,7 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.aicodecat_model': {
     label: 'AiCodeCat 模型',
-    description: '选择通过 AiCodeCat 中转调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
+    description: '选择通过 AiCodeCat 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
     options: AICODECAT_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
     defaultValue: AICODECAT_DEFAULT_MODEL
   },
@@ -1006,35 +989,12 @@ export default function SettingsPage() {
             return
           }
         } else {
-          // Gemini 验证
-          const geminiProvider = formData.ai?.['gemini_provider']
-          if (!geminiProvider || geminiProvider.trim() === '') {
-            toast.error('请先选择 Gemini 服务商')
+          // Gemini 验证（仅官方）
+          const geminiApiKey = formData.ai?.['gemini_api_key']
+          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
+            toast.error('使用 Gemini 时，必须填写 Gemini 官方 API Key')
             setSaving(false)
             return
-          }
-
-          const selectedModel = formData.ai?.['gemini_model'] || GEMINI_ACTIVE_MODEL
-          if (!isModelSupportedByProvider(selectedModel, geminiProvider)) {
-            toast.error(`当前服务商不支持模型 ${selectedModel}，请调整服务商或模型`)
-            setSaving(false)
-            return
-          }
-
-          if (geminiProvider === 'official') {
-            const geminiApiKey = formData.ai?.['gemini_api_key']
-            if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
-              toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
-              setSaving(false)
-              return
-            }
-          } else if (geminiProvider === 'relay') {
-            const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
-            if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
-              toast.error('使用第三方中转服务商时，必须填写中转 API Key')
-              setSaving(false)
-              return
-            }
           }
         }
       }
@@ -2547,11 +2507,8 @@ export default function SettingsPage() {
                               return null
                             }
                           } else {
-                            // Gemini 模式：显示 Gemini 相关字段
-                            const geminiProvider = formData.ai?.gemini_provider || 'official'
-                            const allowedGeminiKeys = geminiProvider === 'relay'
-                              ? ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_relay_api_key']
-                              : ['gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key']
+                            // Gemini 模式：只显示官方 API Key + 模型 + 端点，隐藏服务商选择和中转 Key
+                            const allowedGeminiKeys = ['gemini_model', 'gemini_endpoint', 'gemini_api_key']
                             if (!allowedGeminiKeys.includes(setting.key)) {
                               return null
                             }
@@ -2568,10 +2525,8 @@ export default function SettingsPage() {
                           if (aiProvider === 'litellm' && setting.key === 'litellm_api_key') return true
                           if (aiProvider === 'aicodecat' && setting.key === 'aicodecat_api_key') return true
                           if (aiProvider === 'gemini') {
-                            if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
-                            const geminiProvider = formData.ai?.gemini_provider || 'official'
-                            if (geminiProvider === 'official' && setting.key === 'gemini_api_key') return true
-                            if (geminiProvider === 'relay' && setting.key === 'gemini_relay_api_key') return true
+                            if (setting.key === 'gemini_model') return true
+                            if (setting.key === 'gemini_api_key') return true
                           }
                         }
                         return setting.isRequired
