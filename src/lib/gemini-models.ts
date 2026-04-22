@@ -104,13 +104,24 @@ export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 export const AICODECAT_BASE_URL = 'https://aicode.cat'
 export const AICODECAT_REGISTER_URL = 'https://aicode.cat/register?ref=AIADSGO01'
 // AiCodeCat 支持的模型（通过 /v1/models 接口获取，2026-04 同步）
+// 注意：不同账号权限不同，此列表为已知全集，用户按实际权限选择
 export const AICODECAT_SUPPORTED_MODELS = [
+  // ─── OpenAI ───────────────────────────────────────────────
   'gpt-5.4',
+  // ─── Anthropic Claude ─────────────────────────────────────
   'claude-opus-4-7',
   'claude-opus-4-6',
   'claude-sonnet-4-6',
   'claude-sonnet-4-5-20250929',
   'claude-haiku-4-5-20251001',
+  // ─── Google Gemini ────────────────────────────────────────
+  'gemini-3-pro-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
 ] as const
 export type AiCodeCatModel = typeof AICODECAT_SUPPORTED_MODELS[number]
 export const AICODECAT_DEFAULT_MODEL: AiCodeCatModel = 'claude-sonnet-4-6'
