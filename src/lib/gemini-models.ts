@@ -76,11 +76,6 @@ export const LITELLM_SUPPORTED_MODELS = [
   'openai/gpt-5.4-pro',
   'openai/gpt-5.4-nano',
 
-  // ─── Anthropic Claude（对话类）────────────────────────────
-  'anthropic/claude-opus-4.7',
-  'anthropic/claude-sonnet-4.6',
-  'anthropic/claude-haiku-4.5',
-
   // ─── Google Gemini（对话类）───────────────────────────────
   'google/gemini-3.1-pro-preview',
   'google/gemini-3-flash-preview',
