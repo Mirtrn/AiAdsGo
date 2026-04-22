@@ -55,35 +55,31 @@ export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
 // ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
 // 代理 openllmapi.com（New-API + OpenRouter），2026-04 同步更新
+// ⚠️ 此列表与 openllmapi.com 频道配置严格对应，请勿随意增删
 export const LITELLM_SUPPORTED_MODELS = [
-  // ─── DeepSeek（对话模型）───────────────────────────────────
-  'deepseek/deepseek-v3.2',     // 🏆 推荐默认：超高性价比，广告创意首选
+  // ─── MoonShot Kimi ─────────────────────────────────────────
+  'moonshotai/kimi-k2.6',
+  'moonshotai/kimi-k2.5',
 
   // ─── MiniMax ───────────────────────────────────────────────
   'minimax/minimax-m2.7',
   'minimax/minimax-m2.5',
+  'minimax/minimax-m2.5:free',  // 免费版
 
-  // ─── OpenAI（对话模型）─────────────────────────────────────
-  'openai/gpt-4o',
-  'openai/gpt-4o-mini',
+  // ─── DeepSeek ──────────────────────────────────────────────
+  'deepseek/deepseek-v3.2',     // 🏆 推荐默认：超高性价比，广告创意首选
+  'deepseek/deepseek-r1',       // 推理模型
 
-  // ─── Anthropic ─────────────────────────────────────────────
-  'anthropic/claude-opus-4.7',
-  'anthropic/claude-sonnet-4.6',
-  'anthropic/claude-haiku-4.5',
-  'anthropic/claude-3.7-sonnet',
+  // ─── OpenAI ────────────────────────────────────────────────
+  'openai/gpt-5.4',
+  'openai/gpt-5.4-mini',
+  'openai/gpt-5.4-pro',
+  'openai/gpt-5.4-image-2',     // 多模态（需频道配置价格）
 
   // ─── Google ────────────────────────────────────────────────
+  'google/gemini-3-flash-preview',
+  'google/gemini-3-pro-image-preview',
   'google/gemini-3.1-pro-preview',
-  'google/gemini-2.5-pro-preview-05-06',
-  'google/gemini-2.0-flash-001',
-
-  // ─── Meta Llama ────────────────────────────────────────────
-  'meta-llama/llama-4-maverick',
-  'meta-llama/llama-4-scout',
-
-  // ─── Qwen ──────────────────────────────────────────────────
-  'qwen/qwen3-235b-a22b',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
