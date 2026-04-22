@@ -5,4 +5,7 @@ sudo docker build -t autoads:single . >> /tmp/deploy2.log 2>&1
 sudo docker stop autoads >> /tmp/deploy2.log 2>&1 || true
 sudo docker rm autoads >> /tmp/deploy2.log 2>&1 || true
 sudo docker-compose -f docker-compose.single.yml up -d >> /tmp/deploy2.log 2>&1
+# 清理 Docker build cache 和未使用旧镜像，防止磁盘积累
+sudo docker builder prune -af >> /tmp/deploy2.log 2>&1
+sudo docker image prune -af >> /tmp/deploy2.log 2>&1
 echo "[DEPLOY_DONE $(date)]" >> /tmp/deploy2.log
