@@ -53,7 +53,7 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 // 默认使用 Sonnet 4.6：速度与智能最佳平衡，成本合理
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
-// ─── LiteLLM / New-API Gateway 模型 ────────────────────────────
+// ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
 // 代理 openllmapi.com（New-API + OpenRouter），2026-04 同步更新
 export const LITELLM_SUPPORTED_MODELS = [
   // ─── Moonshot / Kimi ───────────────────────────────────────
@@ -99,6 +99,23 @@ export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'moonshotai/kimi-k2.6'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
+// ─── AiCodeCat Gateway 模型 ────────────────────────────────────
+// 代理 aicode.cat（第三方中转），注册链接附带推广码
+export const AICODECAT_BASE_URL = 'https://aicode.cat'
+export const AICODECAT_REGISTER_URL = 'https://aicode.cat/register?ref=AIADSGO01'
+// AiCodeCat 支持与 OpenLLM 相同的模型列表（均为 OpenRouter 全系）
+export const AICODECAT_SUPPORTED_MODELS = LITELLM_SUPPORTED_MODELS
+export type AiCodeCatModel = LiteLLMModel
+export const AICODECAT_DEFAULT_MODEL: AiCodeCatModel = LITELLM_DEFAULT_MODEL
+
+export function isValidAiCodeCatModel(model?: string | null): model is AiCodeCatModel {
+  return isValidLiteLLMModel(model)
+}
+
+export function normalizeAiCodeCatModel(model?: string | null): AiCodeCatModel {
+  return normalizeLiteLLMModel(model)
+}
+
 export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {
   return !!model && (LITELLM_SUPPORTED_MODELS as readonly string[]).includes(model)
 }
@@ -109,7 +126,7 @@ export function normalizeLiteLLMModel(model?: string | null): LiteLLMModel {
 }
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
-export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'litellm'
+export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat'
 
 export function isValidOpenAIModel(model?: string | null): model is OpenAIModel {
   return !!model && (OPENAI_SUPPORTED_MODELS as readonly string[]).includes(model)

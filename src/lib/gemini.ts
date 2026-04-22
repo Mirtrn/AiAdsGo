@@ -138,7 +138,7 @@ function checkTokenUtilization(
  * 3. 再否则使用 Gemini（兜底）
  */
 export async function generateContent(
-  params: GeminiGenerateParams & { overrideProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' },
+  params: GeminiGenerateParams & { overrideProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat' },
   userId: number
 ): Promise<GeminiGenerateResult> {
   if (!userId || typeof userId !== 'number' || userId <= 0) {
@@ -159,7 +159,7 @@ export async function generateContent(
   } = params
 
   // ─── 判断实际使用的 AI 提供商 ───────────────────────────────
-  let activeProvider: 'gemini' | 'openai' | 'anthropic' | 'litellm' = 'gemini'
+  let activeProvider: 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat' = 'gemini'
 
   if (overrideProvider) {
     activeProvider = overrideProvider
@@ -167,7 +167,7 @@ export async function generateContent(
   } else {
     const providerSetting = await getUserOnlySetting('ai', 'ai_provider', userId)
     const saved = providerSetting?.value
-    if (saved === 'openai' || saved === 'anthropic' || saved === 'litellm') {
+    if (saved === 'openai' || saved === 'anthropic' || saved === 'litellm' || saved === 'aicodecat') {
       activeProvider = saved
     }
   }
@@ -215,10 +215,25 @@ export async function generateContent(
     }
   }
 
-  // ─── 路由到 LiteLLM Gateway ────────────────────────────────
+  // ─── 路由到 OpenLLM Gateway（LiteLLM）─────────────────────
   if (activeProvider === 'litellm') {
     const { generateContent: litellmGenerate } = await import('./litellm')
     const result = await litellmGenerate(
+      { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
+      userId
+    )
+    return {
+      text: result.text,
+      usage: result.usage,
+      model: result.model,
+      apiType: 'direct-api' as const,
+    }
+  }
+
+  // ─── 路由到 AiCodeCat Gateway ──────────────────────────────
+  if (activeProvider === 'aicodecat') {
+    const { generateContent: aicodecatGenerate } = await import('./aicodecat')
+    const result = await aicodecatGenerate(
       { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
       userId
     )

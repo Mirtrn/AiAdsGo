@@ -471,7 +471,20 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           console.warn('⚠️ 未配置代理URL，跳过预热步骤')
           trackStageProgress(progressCallback, proxyWarmupStartTime, 'proxy_warmup', 'completed', '未配置代理URL，跳过预热')
         } else {
-          const warmupSuccess = await warmupAffiliateLink(targetProxyUrl, affiliateLink)
+          // 🔥 修复（2026-04-14）：warmupAffiliateLink 内部使用 chromium.launch()，
+          // 如果 Chromium 进程挂起则永远不会 resolve，导致 proxy_warmup 阶段僵死。
+          // 加 60 秒超时保护，超时后直接跳过预热，不中断主流程。
+          const WARMUP_TIMEOUT_MS = 60000
+          const warmupTimeoutError = new Error('推广链接预热超时（60s），已跳过')
+          const warmupSuccess = await Promise.race([
+            warmupAffiliateLink(targetProxyUrl, affiliateLink),
+            new Promise<boolean>((_, reject) =>
+              setTimeout(() => reject(warmupTimeoutError), WARMUP_TIMEOUT_MS)
+            ),
+          ]).catch((err: any) => {
+            console.warn(`⚠️ 推广链接预热失败（${err.message}），继续后续流程`)
+            return false
+          })
 
           if (!warmupSuccess) {
             // 预热失败不中断流程，只记录警告

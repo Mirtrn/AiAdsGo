@@ -31,6 +31,8 @@ import {
   ANTHROPIC_DEFAULT_MODEL,
   LITELLM_SUPPORTED_MODELS,
   LITELLM_DEFAULT_MODEL,
+  AICODECAT_SUPPORTED_MODELS,
+  AICODECAT_DEFAULT_MODEL,
   isModelSupportedByProvider,
   normalizeModelForProvider,
 } from '@/lib/gemini-models'
@@ -182,7 +184,8 @@ const SETTING_METADATA: Record<string, {
       { value: 'gemini', label: '🌐 Gemini（Google）' },
       { value: 'openai', label: '🤖 OpenAI（GPT）' },
       { value: 'anthropic', label: '🔮 Anthropic（Claude）' },
-      { value: 'litellm', label: '⚡ LiteLLM Gateway（自托管）' },
+      { value: 'litellm', label: '⚡ OpenLLM（中转 · openllmapi.com）' },
+      { value: 'aicodecat', label: '🐱 AiCodeCat（中转 · aicode.cat）' },
     ],
     defaultValue: 'gemini'
   },
@@ -254,17 +257,32 @@ const SETTING_METADATA: Record<string, {
     defaultValue: ANTHROPIC_DEFAULT_MODEL
   },
 
-  // AI - LiteLLM Gateway 配置
+  // AI - OpenLLM Gateway（原 LiteLLM）配置
   'ai.litellm_api_key': {
-    label: 'LiteLLM API Key',
-    description: 'New-API 网关 API Key（通过 openllmapi.com 接入 OpenRouter 全系模型）',
+    label: 'OpenLLM API Key',
+    description: 'OpenLLM 中转服务 API 密钥，适合国内用户访问（openllmapi.com）',
     placeholder: '输入 API Key（sk-...）',
+    helpLink: 'https://openllmapi.com/register',
   },
   'ai.litellm_model': {
-    label: 'New-API 模型',
-    description: '选择通过 New-API 网关调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
+    label: 'OpenLLM 模型',
+    description: '选择通过 OpenLLM 中转调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
     options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
     defaultValue: LITELLM_DEFAULT_MODEL
+  },
+
+  // AI - AiCodeCat Gateway 配置
+  'ai.aicodecat_api_key': {
+    label: 'AiCodeCat API Key',
+    description: '第三方中转服务 API 密钥，适合国内用户访问（aicode.cat）',
+    placeholder: '输入 API Key（sk-...）',
+    helpLink: 'https://aicode.cat/register?ref=AIADSGO01',
+  },
+  'ai.aicodecat_model': {
+    label: 'AiCodeCat 模型',
+    description: '选择通过 AiCodeCat 中转调用的模型（OpenRouter 全系：Kimi/DeepSeek/GPT/Claude/Gemini 等）',
+    options: AICODECAT_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    defaultValue: AICODECAT_DEFAULT_MODEL
   },
 
   // Proxy - 新的多URL配置
@@ -408,6 +426,8 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'anthropic_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'aicodecat_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'aicodecat_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -974,7 +994,14 @@ export default function SettingsPage() {
         } else if (aiProvider === 'litellm') {
           const litellmApiKey = formData.ai?.['litellm_api_key']
           if (!litellmApiKey || litellmApiKey.trim() === '') {
-            toast.error('使用 LiteLLM Gateway 时，必须填写 LiteLLM API Key')
+            toast.error('使用 OpenLLM 时，必须填写 OpenLLM API Key')
+            setSaving(false)
+            return
+          }
+        } else if (aiProvider === 'aicodecat') {
+          const aicodecatApiKey = formData.ai?.['aicodecat_api_key']
+          if (!aicodecatApiKey || aicodecatApiKey.trim() === '') {
+            toast.error('使用 AiCodeCat 时，必须填写 AiCodeCat API Key')
             setSaving(false)
             return
           }
@@ -2478,8 +2505,10 @@ export default function SettingsPage() {
                               'openai_api_key', 'openai_model',
                               // Anthropic 相关
                               'anthropic_api_key', 'anthropic_model',
-                              // LiteLLM 相关
+                              // OpenLLM（LiteLLM）相关
                               'litellm_api_key', 'litellm_model',
+                              // AiCodeCat 相关
+                              'aicodecat_api_key', 'aicodecat_model',
                             ]
                             const ia = aiOrder.indexOf(a.key)
                             const ib = aiOrder.indexOf(b.key)
@@ -2508,8 +2537,13 @@ export default function SettingsPage() {
                               return null
                             }
                           } else if (aiProvider === 'litellm') {
-                            // LiteLLM 模式：只显示 LiteLLM 相关字段
+                            // OpenLLM 模式：只显示 LiteLLM 相关字段
                             if (!['litellm_api_key', 'litellm_model'].includes(setting.key)) {
+                              return null
+                            }
+                          } else if (aiProvider === 'aicodecat') {
+                            // AiCodeCat 模式：只显示 AiCodeCat 相关字段
+                            if (!['aicodecat_api_key', 'aicodecat_model'].includes(setting.key)) {
                               return null
                             }
                           } else {
@@ -2532,6 +2566,7 @@ export default function SettingsPage() {
                           if (aiProvider === 'openai' && setting.key === 'openai_api_key') return true
                           if (aiProvider === 'anthropic' && setting.key === 'anthropic_api_key') return true
                           if (aiProvider === 'litellm' && setting.key === 'litellm_api_key') return true
+                          if (aiProvider === 'aicodecat' && setting.key === 'aicodecat_api_key') return true
                           if (aiProvider === 'gemini') {
                             if (setting.key === 'gemini_provider' || setting.key === 'gemini_model') return true
                             const geminiProvider = formData.ai?.gemini_provider || 'official'

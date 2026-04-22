@@ -32,7 +32,7 @@ export interface KeywordWithVolume {
  * 🔧 修复：扩展支持 openai / anthropic 类型
  */
 export interface AIConfig {
-  type: 'gemini-api' | 'openai' | 'anthropic' | null
+  type: 'gemini-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat' | null
   geminiAPI?: {
     apiKey: string
     model: string

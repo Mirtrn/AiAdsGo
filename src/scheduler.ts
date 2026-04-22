@@ -262,7 +262,7 @@ async function clickFarmSchedulerTask() {
     const { triggerAllPendingTasks } = await import('./lib/click-farm/click-farm-scheduler-trigger')
     const result = await triggerAllPendingTasks()
 
-    log(`🖱️ 补点击任务调度完成 - 处理: ${result.processed}, 入队: ${result.queued}, 跳过: ${result.skipped}, 暂停: ${result.paused}`)
+    log(`🖱️ 补点击任务调度完成 - 处理: ${result.processed}, 入队: ${result.queued}, 跳过: ${result.skipped}, 暂停: ${result.paused}, 僵尸清理: ${result.zombieCleaned}`)
   } catch (error) {
     logError('❌ 补点击任务调度执行失败:', error)
   }

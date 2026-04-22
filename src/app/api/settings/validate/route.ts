@@ -5,7 +5,7 @@ import {
 } from '@/lib/settings'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
-import { normalizeGeminiModel } from '@/lib/gemini-models'
+import { normalizeGeminiModel, LITELLM_DEFAULT_MODEL, AICODECAT_DEFAULT_MODEL } from '@/lib/gemini-models'
 import { getAffiliateSyncSettingsMap } from '@/lib/openclaw/settings'
 import { validateAffiliateSyncConfig } from '@/lib/affiliate-sync-validation'
 
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
           break
         }
 
-        // ─── LiteLLM 验证 ──────────────────────────────────────
+        // ─── OpenLLM（LiteLLM）验证 ───────────────────────────
         if (aiProviderRaw === 'litellm') {
           let litellmApiKey: string
           if (config.litellm_api_key && config.litellm_api_key !== '············') {
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
           } else {
             const saved = await getUserOnlySetting('ai', 'litellm_api_key', userIdNum)
             if (!saved?.value) {
-              return NextResponse.json({ error: '请先保存 LiteLLM API Key 配置' }, { status: 400 })
+              return NextResponse.json({ error: '请先保存 OpenLLM API Key 配置' }, { status: 400 })
             }
             litellmApiKey = saved.value
           }
@@ -128,8 +128,31 @@ export async function POST(request: NextRequest) {
           const { checkLiteLLMConnection } = await import('@/lib/litellm')
           const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
           result = ok
-            ? { valid: true, message: 'LiteLLM Gateway 连接验证成功 ✅' }
-            : { valid: false, message: `LiteLLM Gateway 连接失败：模型 ${litellmModel || 'qwen3.5-35b'} 不可用，请换用其他模型或检查 API Key` }
+            ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
+            : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel || LITELLM_DEFAULT_MODEL} 不可用，请换用其他模型或检查 API Key` }
+          break
+        }
+
+        // ─── AiCodeCat 验证 ────────────────────────────────────
+        if (aiProviderRaw === 'aicodecat') {
+          let aicodecatApiKey: string
+          if (config.aicodecat_api_key && config.aicodecat_api_key !== '············') {
+            aicodecatApiKey = config.aicodecat_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'aicodecat_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 AiCodeCat API Key 配置' }, { status: 400 })
+            }
+            aicodecatApiKey = saved.value
+          }
+          const aicodecatModel = config.aicodecat_model
+            || (await getUserOnlySetting('ai', 'aicodecat_model', userIdNum))?.value
+            || undefined
+          const { checkAiCodeCatConnection } = await import('@/lib/aicodecat')
+          const ok = await checkAiCodeCatConnection(userIdNum, aicodecatApiKey, undefined, aicodecatModel)
+          result = ok
+            ? { valid: true, message: 'AiCodeCat 连接验证成功 ✅' }
+            : { valid: false, message: `AiCodeCat 连接失败：模型 ${aicodecatModel || AICODECAT_DEFAULT_MODEL} 不可用，请换用其他模型或检查 API Key` }
           break
         }
 

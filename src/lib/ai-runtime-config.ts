@@ -4,20 +4,23 @@ import {
   OPENAI_DEFAULT_MODEL,
   ANTHROPIC_DEFAULT_MODEL,
   LITELLM_DEFAULT_BASE_URL,
+  AICODECAT_BASE_URL,
   type AIModel,
   type OpenAIModel,
   type AnthropicModel,
   type LiteLLMModel,
+  type AiCodeCatModel,
   type AIProvider,
   normalizeModelForProvider,
   normalizeOpenAIModel,
   normalizeAnthropicModel,
   normalizeLiteLLMModel,
+  normalizeAiCodeCatModel,
 } from './gemini-models'
 import { getUserOnlySetting } from './settings'
 
 export interface ResolvedAIConfig {
-  type: 'gemini-api' | 'openai' | 'anthropic' | 'litellm' | null
+  type: 'gemini-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat' | null
   /** 当 type=gemini-api 时有效 */
   provider: GeminiProvider
   model: AIModel
@@ -42,6 +45,12 @@ export interface ResolvedAIConfig {
   litellmAPI?: {
     apiKey: string
     model: LiteLLMModel
+    baseUrl: string
+  }
+  /** 当 type=aicodecat 时有效 */
+  aicodecatAPI?: {
+    apiKey: string
+    model: AiCodeCatModel
     baseUrl: string
   }
 }
@@ -76,12 +85,13 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
     }
   }
 
-  // 读取主 AI 提供商选择（gemini / openai / anthropic / litellm，默认 gemini）
+  // 读取主 AI 提供商选择（gemini / openai / anthropic / litellm / aicodecat，默认 gemini）
   const aiProviderSetting = await getUserOnlySetting('ai', 'ai_provider', userId)
   const aiProvider: AIProvider = (
     aiProviderSetting?.value === 'openai' ||
     aiProviderSetting?.value === 'anthropic' ||
-    aiProviderSetting?.value === 'litellm'
+    aiProviderSetting?.value === 'litellm' ||
+    aiProviderSetting?.value === 'aicodecat'
       ? aiProviderSetting.value
       : 'gemini'
   )
@@ -126,7 +136,7 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
     return { type: null, provider: fallbackProvider, model: fallbackModel, endpoint: fallbackEndpoint }
   }
 
-  // ─── LiteLLM Gateway ──────────────────────────────────────────
+  // ─── LiteLLM / OpenLLM Gateway ────────────────────────────────
   if (aiProvider === 'litellm') {
     const [apiKeySetting, modelSetting] = await Promise.all([
       getUserOnlySetting('ai', 'litellm_api_key', userId),
@@ -142,6 +152,27 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
         model: fallbackModel,
         endpoint: `${baseUrl}/v1/chat/completions`,
         litellmAPI: { apiKey, model, baseUrl },
+      }
+    }
+    return { type: null, provider: fallbackProvider, model: fallbackModel, endpoint: fallbackEndpoint }
+  }
+
+  // ─── AiCodeCat Gateway ────────────────────────────────────────
+  if (aiProvider === 'aicodecat') {
+    const [apiKeySetting, modelSetting] = await Promise.all([
+      getUserOnlySetting('ai', 'aicodecat_api_key', userId),
+      getUserOnlySetting('ai', 'aicodecat_model', userId),
+    ])
+    const apiKey = apiKeySetting?.value || ''
+    const model = normalizeAiCodeCatModel(modelSetting?.value)
+    const baseUrl = AICODECAT_BASE_URL
+    if (apiKey) {
+      return {
+        type: 'aicodecat',
+        provider: fallbackProvider,
+        model: fallbackModel,
+        endpoint: `${baseUrl}/v1/chat/completions`,
+        aicodecatAPI: { apiKey, model, baseUrl },
       }
     }
     return { type: null, provider: fallbackProvider, model: fallbackModel, endpoint: fallbackEndpoint }

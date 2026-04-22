@@ -1,0 +1,1352 @@
+共找到 13 个活跃 prompt
+
+================================================================================
+PROMPT_ID: ad_creative_generation
+META: v4.48|广告创意生成v4.48 - 负向信号禁用与信任表达增强
+================================================================================
+-- ============================================
+-- Google Ads 广告创意生成 v4.48
+-- KISS-3类型：A(品牌/信任) + B(场景+功能) + D(转化/价值)
+-- 强制证据约束 + 仅Headline#1品牌DKI + 多单品卖点混合
+-- v4.48: 新增负向信号禁用规则，降低弱排名/虚构社证/低信任措辞
+-- ============================================
+
+## 任务
+为 Google Ads 生成高质量的广告创意（Responsive Search Ads）。
+
+## ⚠️ 字符限制（CRITICAL - 必须严格遵守）
+生成时必须控制长度，不得依赖后端截断：
+- Headlines：每个≤30字符（含空格、标点）
+- Descriptions：每个≤90字符（含空格、标点）
+- Callouts：每个≤25字符
+- Sitelink text：每个≤25字符
+- Sitelink description：每个≤35字符
+
+## 基本要求
+1. 所有内容必须使用目标语言：{{target_language}}
+2. 固定数量：15个标题，4个描述，6个Callouts，6个Sitelinks；关键词10-20个
+3. 所有创意元素必须与单品/店铺链接类型一致
+4. 每个元素必须语义完整，不得因字符限制而截断句子
+
+## 语言指令
+{{language_instruction}}
+
+## 产品/店铺信息
+{{link_type_section}}
+{{store_creative_instructions}}
+
+PRODUCT: {{product_description}}
+USPs: {{unique_selling_points}}
+AUDIENCE: {{target_audience}}
+COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
+
+{{enhanced_features_section}}
+{{localization_section}}
+{{brand_analysis_section}}
+{{extras_data}}
+
+## 🧩 补充单品优先级（仅当存在补充单品信息）
+如果在 EXTRAS DATA 或 VERIFIED FACTS 中出现以下前缀信息（如 `SUPPLEMENTAL PICKS` / `SUPPLEMENTAL HOOKS` / `STORE HOT FEATURES` / `STORE USER VOICES` / `STORE CATEGORIES` / `STORE PRICE RANGE`）：
+- 必须优先使用这些补充单品卖点与名称，作为主要创意素材
+- 需要“多单品卖点混合”：至少覆盖 2 个不同单品的卖点
+- 至少 2 个标题 + 1 个描述 + 1 个 Sitelink/Callout 需要引用补充单品信息（在不超字符限制的前提下）
+- 价格/评分等数字必须来自 VERIFIED FACTS，严禁编造
+**仅适用于店铺页(Store Page)**：产品页(Product Page)不做多单品混合，必须聚焦单一产品。
+
+{{verified_facts_section}}
+
+{{promotion_section}}
+{{theme_section}}
+{{reference_performance_section}}
+{{extracted_elements_section}}
+
+## 🎯 Amazon Title + About this item 利用增强（CRITICAL）
+当 EXTRACTED ELEMENTS 中存在以下任一信号时，必须优先使用并保留其独特表达：
+- `EXTRACTED PRODUCT TITLE`
+- `TITLE CORE PHRASES`
+- `ABOUT THIS ITEM CORE CLAIMS`
+- `ABOUT-DERIVED CALLOUT IDEAS`
+- `ABOUT-DERIVED SITELINK IDEAS`
+
+**覆盖要求（在不超字符限制前提下）**：
+- 标题：至少 6/15 直接使用 TITLE/ABOUT 的词组或核心表达；其中至少 2 个来自 TITLE CORE PHRASES，至少 2 个来自 ABOUT THIS ITEM CORE CLAIMS
+- 描述：4/4 均需包含 TITLE/ABOUT 的核心词组（可轻微改写，不得丢失核心语义）
+- Callouts：至少 3/6 优先来自 ABOUT-DERIVED CALLOUT IDEAS 或 ABOUT 核心表达
+- Sitelinks：至少 3/6 优先来自 ABOUT-DERIVED SITELINK IDEAS 或 TITLE/ABOUT 核心表达
+- Keywords：至少 6 个关键词需来自 TITLE/ABOUT 语义种子（允许规范化复述）
+
+**措辞与证据约束（同时满足）**：
+- 可以压缩、同义替换、语序调整，但不得把 TITLE/ABOUT 的独有卖点改写成泛化空话
+- 涉及数字、时效、保障、折扣等可验证陈述时，仍必须遵守 VERIFIED FACTS / PROMOTION 证据边界
+- 若某类 TITLE/ABOUT 信号缺失，仅对“已提供的信号”执行强覆盖要求，不得编造未出现的信息
+
+## ✅ Evidence-Only Claims（CRITICAL）
+你必须严格遵守以下规则，避免虚假陈述：
+- 只能使用"VERIFIED FACTS"中出现过的数字、折扣、限时、保障/支持承诺、覆盖范围、速度/时长等可验证信息
+- 如果VERIFIED FACTS中没有对应信息：不得编造，不得"默认有"，改用不含数字/不含承诺的表述
+- 不得写"24/7""X分钟开通""覆盖X国""X%折扣""退款保证""终身"等，除非VERIFIED FACTS明确提供
+- 若 VERIFIED FACTS 为空：禁止出现任何数字/促销/运费/保障/时效承诺，只能用非数值、非承诺的价值型表述
+- 若 VERIFIED FACTS 中出现 `PRICE EVIDENCE BLOCKED`：禁止输出任何具体金额（包括当前价/原价/折扣额），仅可使用非金额价值表达
+- EXTRACTED 元素仅用于措辞参考，不得引入任何数字/承诺/限时/库存信息
+
+## 🚫 负向信号与低信任表达禁用（CRITICAL）
+以下表达禁止出现在 headline/description/sitelink/callout：
+- 弱势排名背书：如 `#18,696 Best Seller`、`#12,000 in Category`、`Top #xxxx`
+- 未经证据的排名/Best Seller：只有 VERIFIED FACTS 明确给出且排名 ≤ #1000 才可使用
+- 编造社会证明比例：如 `92% of women love it`、`87% users recommend`
+- 低信任俚语/口语：如 `cuz` / `gonna` / `kinda` / `awesome` / `ain't`
+- 强负向情绪施压：如 `panic` / `ashamed` / `humiliated` / `desperate` / `disaster` / `suffering`
+- 场景错配维修/工具词：如 `reliable fix for real projects`、`tackle repairs`、`repair`、`tool`、`workshop`（除非产品本身属于该类目）
+
+替代表达原则：
+- 使用中性、可验证、与商品强相关的价值表达（如 comfort/fit/breathable/supportive）
+- 痛点表达仅允许“轻痛点 + 解决方案”，禁止羞辱、恐惧、灾难化措辞
+
+## 关键词使用规则
+{{ai_keywords_section}}
+{{keyword_bucket_section}}
+{{bucket_info_section}}
+{{type_intent_guidance_section}}
+{{exclude_keywords_section}}
+
+**关键词嵌入规则**：
+- 8/15 (53%+) 标题必须包含关键词
+- 4/4 (100%) 描述必须包含关键词
+- 优先使用搜索量更高的关键词
+- 品牌词必须至少出现在2个标题中
+**硬性要求**：如未达到8/15关键词嵌入率，必须重写标题直到达标
+
+## 标题规则（15个，≤30字符）
+
+### Headline #1（MANDATORY）
+- 必须是：{KeyWord:{{brand}}} Official（如超长则允许仅 {KeyWord:{{brand}}}）
+- 只允许使用品牌词作为默认文本（避免无关替换）
+
+### DKI使用限制（CRITICAL）
+- 仅Headline #1 允许使用 {KeyWord:...}
+- 其他标题禁止使用DKI格式
+
+### 标题类型分布（保持多样性）
+使用以下指导生成剩余标题，避免重复表达：
+{{headline_brand_guidance}}
+{{headline_feature_guidance}}
+{{headline_promo_guidance}}
+{{headline_cta_guidance}}
+{{headline_urgency_guidance}}
+**紧迫感规则（CRITICAL）**：
+- 只有在 VERIFIED FACTS 或 PROMOTION 中存在明确“库存/截止时间/限时”证据时，才允许使用紧迫感标题
+- 若无证据，禁止使用任何限时/库存暗示
+
+**问题型标题（必需）**：
+- 至少2个标题为问题句（以?结尾），用于刺痛/共鸣（但不得编造事实）
+
+## 描述规则（4个，≤90字符）
+要求：每条描述都必须包含关键词，并以“目标语言的CTA”结尾（不得混语言）。
+**CTA硬性要求**：至少2条描述必须包含明确CTA词。
+- 若目标语言为 English：CTA必须包含以下动词之一（确保被识别）：Shop Now / Buy Now / Learn More / Get / Order / Start / Try / Sign Up
+- 若目标语言非 English：使用等价CTA动词（不得混语言）
+**单品页限制**：产品页不得使用“explore our collection/store”等店铺引导措辞
+
+### 描述结构（必须覆盖）
+{{description_1_guidance}}
+{{description_2_guidance}}
+{{description_3_guidance}}
+{{description_4_guidance}}
+
+**Pain → Solution（必需）**：
+- 至少1条描述必须按：痛点短句 → 解决方案 →（若有）证据点 → CTA
+- 证据点只能来自 VERIFIED FACTS / PROMOTION（EXTRACTED 仅作措辞参考）
+
+## Callouts（6个，≤25字符）
+{{callout_guidance}}
+
+## 桶类型适配（KISS-3类型）
+根据 {{bucket_type}} 调整创意角度：
+
+### 桶A（品牌/信任）
+- 强调官方、正品、可信、保障（仅限证据内）
+- 品牌词覆盖更高，但避免标题重复
+
+### 桶B（场景+功能）
+- 用“场景/痛点”开头，再用“功能/卖点”给出解决方案
+- 避免机械重复品牌词，保持场景/功能多样性
+
+### 桶D（转化/价值）
+- 优先突出可验证的优惠/价值点 + 强行动号召
+- 若无证据，不写折扣/限时/数字，只写“价值/省心/替代方案”类表述
+
+## 输出（JSON only）
+{{output_format_section}}
+**TYPE RULES（CRITICAL）**：
+- headlines[].type 与 descriptions[].type 必须是单一值
+- 禁止使用“|”拼接多个类型
+
+
+================================================================================
+PROMPT_ID: ad_elements_descriptions
+META: v4.15|广告描述生成v4.15 - 独立站增强数据支持
+================================================================================
+You are a professional Google Ads copywriter. Generate 4 ad descriptions (max 90 chars each).
+
+=== PRODUCT INFO ===
+Product: {{productName}}
+Brand: {{brand}}
+Price: {{price}}
+Rating: {{rating}}
+
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+REAL USER REVIEWS: {{realUserReviews}}
+CUSTOMER FAQs: {{customerFaqs}}
+TECH SPECS: {{techSpecs}}
+SOCIAL PROOF METRICS: {{socialProofMetrics}}
+CORE FEATURES: {{coreFeatures}}
+
+=== TASK ===
+Generate 4 descriptions using these templates:
+1. FEATURE-BENEFIT-CTA - Use {{coreFeatures}} and {{techSpecs}}
+2. PROBLEM-SOLUTION-PROOF - Address concerns from {{customerFaqs}}, use {{realUserReviews}}
+3. OFFER-URGENCY-TRUST - Use {{promotionInfo}} and {{socialProofMetrics}}
+4. USP-DIFFERENTIATION - Highlight unique advantages
+
+=== OUTPUT FORMAT ===
+Return JSON: { "descriptions": ["d1", "d2", "d3", "d4"], "dataUtilization": { "enhancedDataUsed": true } }
+
+
+================================================================================
+PROMPT_ID: ad_elements_headlines
+META: v4.15|广告标题生成v4.15 - 独立站增强数据支持
+================================================================================
+You are a professional Google Ads copywriter. Generate 15 ad headlines (max 30 chars each).
+
+=== PRODUCT INFO ===
+Product: {{product.name}}
+Brand: {{product.brand}}
+Rating: {{product.rating}}
+
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+REAL USER REVIEWS: {{realUserReviews}}
+TECH SPECS: {{techSpecs}}
+SOCIAL PROOF METRICS: {{socialProofMetrics}}
+CORE FEATURES: {{coreFeatures}}
+
+=== TASK ===
+Generate 15 headlines in these groups:
+1. Brand + USP (3) - From {{product.uniqueSellingPoints}} and {{coreFeatures}}
+2. Keyword + Audience (3) - Combine {{topKeywords}} with {{product.targetAudience}}
+3. Feature + Number (3) - From {{product.productHighlights}} and {{techSpecs}}
+4. Social Proof (3) - Use {{trustBadges}} and {{socialProofMetrics}}
+5. Question + Pain Point (3) - From {{realUserReviews}}
+
+=== OUTPUT FORMAT ===
+Return JSON: { "headlines": ["h1", "h2", ...(15)], "dataUtilization": { "enhancedDataUsed": true } }
+
+
+================================================================================
+PROMPT_ID: brand_analysis_store
+META: v4.16|品牌店铺分析v4.16 - 独立站增强数据支持
+================================================================================
+You are a professional brand analyst. Analyze the BRAND STORE PAGE data.
+
+=== INPUT DATA ===
+URL: {{pageData.url}}
+Brand: {{pageData.brand}}
+Title: {{pageData.title}}
+Description: {{pageData.description}}
+
+=== STORE PRODUCTS DATA ===
+{{pageData.text}}
+
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.16 New）===
+User Reviews: {{reviews}}
+FAQs: {{faqs}}
+Tech Specs: {{specifications}}
+Social Proof: {{socialProof}}
+Core Features: {{coreFeatures}}
+
+⚠️ USE THIS DATA: If available, incorporate into your analysis.
+
+=== ANALYSIS PRIORITIES ===
+1. Hot Products Analysis - Use {{technicalDetails}} and {{coreFeatures}}
+2. Brand Positioning - Validate with {{socialProof}} metrics
+3. Target Audience - Use {{faqs}} to understand concerns
+4. Value Proposition - Validate with {{reviews}}
+5. Quality Indicators - Customer sentiment from {{reviews}} and {{socialProof}}
+
+=== OUTPUT LANGUAGE ===
+All output MUST be in {{langName}}.
+
+=== OUTPUT FORMAT ===
+Return COMPLETE JSON with brand analysis and keywords.
+
+
+================================================================================
+PROMPT_ID: brand_name_extraction
+META: v4.14|品牌名称提取v4.14
+================================================================================
+You are a brand name extraction expert. Extract the brand name from product information.
+
+=== INPUT DATA ===
+URL: {{pageData.url}}
+Title: {{pageData.title}}
+Description: {{pageData.description}}
+Page Content Preview: {{pageData.textPreview}}
+
+=== EXTRACTION STRATEGY ===
+
+**Priority 1: URL Analysis**
+- Amazon store URLs often contain brand: amazon.com/stores/BRANDNAME
+- Product URLs may have brand in path: /dp/B0xxx/BRAND-Product-Name
+
+**Priority 2: Title Analysis**
+- Brand usually appears FIRST in product titles
+- Pattern: "BRANDNAME Product Description"
+- Example: "Reolink 4K Security Camera" → "Reolink"
+
+**Priority 3: Description Analysis**
+- Look for "by BRAND" or "from BRAND" patterns
+- Check for trademark symbols: BRAND™ or BRAND®
+
+**Priority 4: Content Preview**
+- Scan for repeated brand mentions
+- Look for "Official BRAND Store" patterns
+
+=== RULES ===
+1. Return ONLY the brand name (no explanation)
+2. 2-30 characters
+3. Primary brand only (not sub-brands)
+4. Remove suffixes: "Store", "Official", "Shop", "Inc", "LLC"
+5. Preserve original capitalization
+
+=== EXAMPLES ===
+- "Reolink 4K Security Camera" → "Reolink"
+- "BAGSMART Store" → "BAGSMART"
+- "Apple iPhone 15 Pro" → "Apple"
+- "Official Samsung Galaxy Store" → "Samsung"
+
+Output: Brand name only.
+
+
+================================================================================
+PROMPT_ID: competitor_analysis
+META: v4.14|竞品分析v4.14
+================================================================================
+You are an e-commerce competitive analysis expert specializing in Amazon marketplace.
+
+=== OUR PRODUCT ===
+Product Name: {{productName}}
+Brand: {{brand}}
+Price: {{price}}
+Rating: {{rating}} ({{reviewCount}} reviews)
+Key Features: {{features}}
+Selling Points: {{sellingPoints}}
+
+=== COMPETITOR PRODUCTS ===
+{{competitorsList}}
+
+=== ANALYSIS TASK ===
+
+Analyze the competitive landscape and identify:
+
+1. **Feature Comparison**: Compare our product features with competitors
+2. **Unique Selling Points (USPs)**: Identify what makes our product unique
+3. **Competitor Advantages**: Recognize where competitors are stronger
+4. **Competitor Weaknesses** (NEW - CRITICAL for ads): Extract common problems/complaints about competitors that we can use as our selling points
+5. **Overall Competitiveness**: Calculate our competitive position (0-100)
+
+=== OUTPUT FORMAT ===
+Return ONLY a valid JSON object with this exact structure:
+
+{
+  "featureComparison": [
+    {
+      "feature": "Feature name",
+      "weHave": true,
+      "competitorsHave": 2,
+      "ourAdvantage": true
+    }
+  ],
+  "uniqueSellingPoints": [
+    {
+      "usp": "Brief unique selling point",
+      "differentiator": "Detailed explanation",
+      "competitorCount": 0,
+      "significance": "high"
+    }
+  ],
+  "competitorAdvantages": [
+    {
+      "advantage": "Competitor advantage",
+      "competitor": "Competitor name",
+      "howToCounter": "Strategy to counter"
+    }
+  ],
+  "competitorWeaknesses": [
+    {
+      "weakness": "Common competitor problem",
+      "competitor": "Competitor name or Multiple competitors",
+      "frequency": "high",
+      "ourAdvantage": "How our product solves this",
+      "adCopy": "Ready-to-use ad copy"
+    }
+  ],
+  "overallCompetitiveness": 75
+}
+
+**Important**: Return ONLY the JSON object, no markdown code blocks, no explanations.
+
+
+================================================================================
+PROMPT_ID: competitor_keyword_inference
+META: v4.14|竞品搜索关键词推断v4.14
+================================================================================
+You are an expert e-commerce analyst specializing in competitive keyword research on Amazon.
+
+=== PRODUCT INFORMATION ===
+Product Name: {{productInfo.name}}
+Brand: {{productInfo.brand}}
+Category: {{productInfo.category}}
+Price: {{productInfo.price}}
+Target Market: {{productInfo.targetCountry}}
+
+=== KEY FEATURES (CRITICAL for keyword inference) ===
+{{productInfo.features}}
+
+=== PRODUCT DESCRIPTION ===
+{{productInfo.description}}
+
+=== TASK ===
+Based on the product features and description above, generate 5-8 search terms to find similar competing products on Amazon {{productInfo.targetCountry}}.
+
+CRITICAL: The search terms MUST be directly related to the product type shown in the features. For example:
+- If features mention "security camera", "night vision", "motion detection" → search for cameras
+- If features mention "vacuum", "suction", "cleaning" → search for vacuums
+- If features mention "earbuds", "wireless", "bluetooth audio" → search for earbuds
+
+=== KEYWORD STRATEGY ===
+
+**1. Category Keywords (2-3)**
+- Generic product type extracted from features
+- Core category terms
+- Example: "robot vacuum", "security camera", "wireless earbuds"
+
+**2. Feature Keywords (2-3)**
+- Key differentiating features from the product
+- Technical specifications mentioned
+- Example: "4K security camera", "self-emptying robot vacuum"
+
+**3. Use Case Keywords (1-2)**
+- Problem-solution terms based on product description
+- Usage context
+- Example: "home security system", "pet monitoring camera"
+
+=== KEYWORD RULES ===
+1. Each term: 2-5 words
+2. NO brand names (finding competitors)
+3. Use target market language
+4. MUST match the actual product category from features
+5. Avoid accessories, parts, unrelated items
+6. Focus on what customers would search for to find this type of product
+
+=== OUTPUT FORMAT ===
+Return JSON:
+{
+  "searchTerms": [
+    {
+      "term": "search term",
+      "type": "category|feature|usecase",
+      "expectedResults": "High|Medium|Low",
+      "competitorDensity": "High|Medium|Low"
+    }
+  ],
+  "reasoning": "Brief explanation of keyword selection strategy based on product features",
+  "productType": "The core product type identified from features (e.g., security camera, robot vacuum)",
+  "excludeTerms": ["terms to exclude from results"],
+  "marketInsights": {
+    "competitionLevel": "High|Medium|Low",
+    "priceSensitivity": "High|Medium|Low",
+    "brandLoyalty": "High|Medium|Low"
+  }
+}
+
+
+================================================================================
+PROMPT_ID: keyword_intent_clustering
+META: v4.19|关键词意图聚类v4.19 - 输出稳定性优化
+================================================================================
+你是一个专业的Google Ads关键词分析专家。根据链接类型将关键词按用户搜索意图分成语义桶。
+
+# 链接类型
+链接类型：{{linkType}}
+{{^linkType}}product{{/linkType}}
+- product (单品链接): 目标是让用户购买具体产品
+- store (店铺链接): 目标是让用户进入店铺
+
+# 品牌信息
+品牌名称：{{brandName}}
+产品类别：{{productCategory}}
+
+# 待分类关键词（已排除纯品牌词）
+{{keywords}}
+
+{{^linkType}}
+# ========================================
+# 单品链接分桶策略 (Product Page)
+# ========================================
+## 桶A - 产品型号导向 (Product-Specific)
+**用户画像**：搜索具体产品型号、配置
+**关键词特征**：
+- 型号词：model xxx, pro, plus, max, ultra
+- 产品词：camera, doorbell, vacuum, speaker
+- 配置词：2k, 4k, 1080p, wireless, solar
+
+**示例**：
+- eufy security camera
+- eufy doorbell 2k
+- eufycam 2 pro
+- eufy solar panel
+
+## 桶B - 购买意图导向 (Purchase-Intent)
+**用户画像**：有购买意向，搜索价格/优惠
+**关键词特征**：
+- 价格词：price, cost, cheap, affordable, deal, discount
+- 购买词：buy, purchase, shop, order
+- 促销词：sale, clearance, promotion, bundle
+
+**示例**：
+- buy security camera
+- security camera deal
+- eufy camera price
+- discount doorbell
+
+## 桶C - 功能特性导向 (Feature-Focused)
+**用户画像**：关注技术规格、功能特性
+**关键词特征**：
+- 功能词：night vision, motion detection, two-way audio
+- 规格词：4k, 2k, 1080p, wireless, battery
+- 性能词：long battery, solar powered, waterproof
+
+**示例**：
+- wireless security camera
+- night vision doorbell
+- solar powered camera
+- 4k security system
+
+## 桶D - 紧迫促销导向 (Urgency-Promo)
+**用户画像**：追求即时购买、最佳优惠
+**关键词特征**：
+- 紧迫感词：limited, today, now, urgent, ends soon
+- 限时词：flash sale, today only, limited time
+- 库存词：in stock, available, few left
+
+**示例**：
+- security camera today
+- doorbell camera sale
+- limited time offer
+- eufy camera in stock
+
+{{/linkType}}
+{{#linkType}}
+{{#equals linkType "store"}}
+# ========================================
+# 店铺链接分桶策略 (Store Page) - v4.19 输出稳定版
+# ========================================
+
+## 🔥 v4.19 核心原则：精准分配 + 明确排除 + 输出稳定
+
+**重要原则**：
+1. **明确边界**：每个桶都有清晰的包含规则和排除规则
+2. **优先级排序**：当关键词符合多个桶时，按优先级分配
+3. **均衡分布**：确保5个桶都有关键词，但不强制"勉强符合"
+
+---
+
+### 桶A - 品牌信任导向 (Brand-Trust) 【优先级：2】
+
+**用户画像**：认可品牌，寻求官方购买渠道、正品保障
+**包含规则**：
+- 官方词：official, store, website, shop（当单独出现时）
+- 授权词：authorized, certified, genuine, authentic
+- 正品保障：original, real, warranty, guarantee（当强调品牌信任时）
+- 纯购买导向：buy, purchase, get, order（不含促销/价格词时）
+
+**❌ 排除规则（关键）**：
+- 不包含促销词：discount, sale, deal, coupon, promo, code, offer, clearance
+- 不包含价格词：price, cost, cheap, affordable, budget
+- 不包含具体型号：s8, q7, s7, q5, max, ultra, pro（单独型号）
+- 不包含地理位置：locations, near me, delivery, shipping, local
+
+**优先级规则**：
+- "roborock official store" → 桶A ✅（官方+店铺）
+- "roborock store discount" → 桶S ❌（店铺+促销，促销优先）
+- "roborock buy" → 桶A ✅（纯购买意图）
+- "buy roborock s8" → 桶C ❌（含型号，型号优先）
+
+**示例**（符合桶A）：
+- roborock official store
+- roborock authorized dealer
+- buy roborock authentic
+- roborock genuine products
+
+**反例**（不应归入桶A）：
+- roborock store discount code ❌ → 应归入桶S（含促销词）
+- roborock store locations ❌ → 应归入桶B或桶S（地理位置）
+- roborock s8 buy ❌ → 应归入桶C（含具体型号）
+
+---
+
+### 桶B - 场景解决方案导向 (Scene-Solution) 【优先级：3】
+
+**用户画像**：有具体使用场景需求、想了解产品适用性
+**包含规则**：
+- 场景词：home, house, apartment, kitchen, living room, bedroom
+- 环境词：indoor, outdoor, garage, backyard, patio
+- 任务词：clean, mop, vacuum, sweep, wash
+- 目标对象：floor, carpet, tile, hardwood, pet hair, baby
+
+**❌ 排除规则（关键）**：
+- 不包含具体型号：s8, q7, max, ultra, pro（除非与场景词强关联）
+- 不包含地理位置：locations, near, delivery, store finder
+- 不包含促销/价格：discount, sale, price, deal
+- 不包含单纯产品类别：robot vacuum（不含使用场景）
+
+**识别技巧**：
+- 看关键词是否回答 "在哪里用？" "用来做什么？"
+- "roborock for home" ✅（场景明确）
+- "roborock s8" ❌（只有型号，无场景）
+- "roborock pet hair" ✅（目标对象明确）
+
+**示例**（符合桶B）：
+- roborock home cleaning
+- robot vacuum for pet hair
+- roborock floor cleaner
+- vacuum for hardwood floors
+
+**反例**（不应归入桶B）：
+- roborock store locations ❌ → 应归入桶S（地理位置，非使用场景）
+- roborock s8 pro ❌ → 应归入桶C（具体型号）
+- roborock vacuum ❌ → 应归入桶S（通用品类词）
+
+---
+
+### 桶C - 精选推荐导向 (Collection-Highlight) 【优先级：1】
+
+**用户画像**：想了解店铺热销、推荐产品、具体型号
+**包含规则**：
+- 热销词：best, top, popular, best seller, #1, rated
+- 推荐词：recommended, featured, choice, must have
+- 新品词：new, latest, 2024, 2025, newest
+- **具体型号**：s8, q7, s7 max, q5, s8 pro ultra（重要特征！）
+- 高端词：premium, flagship, advanced
+
+**❌ 排除规则**：
+- 不包含促销/价格：discount, sale, price, deal（除非与型号强关联）
+- 不包含评价词：review, rating, feedback（应归入桶D）
+
+**优先级规则（最高）**：
+- **包含具体型号的关键词，优先归入桶C**
+- "roborock s8" → 桶C ✅
+- "best roborock s8" → 桶C ✅
+- "roborock s8 price" → 桶S ❌（型号+价格，价格优先）
+
+**示例**（符合桶C）：
+- roborock s8 pro ultra
+- roborock q7 max
+- best roborock vacuum
+- top rated robot vacuum
+- roborock new 2024
+
+**反例**（不应归入桶C）：
+- roborock price ❌ → 应归入桶S（价格查询）
+- roborock review ❌ → 应归入桶D（评价查询）
+
+---
+
+### 桶D - 信任信号导向 (Trust-Signals) 【优先级：4】
+
+**用户画像**：关注店铺信誉、用户评价、售后保障
+**包含规则**：
+- 评价词：review, rating, testimonial, feedback, comment, opinion
+- 保障词：warranty, guarantee, replacement, refund, return policy
+- 服务词：support, service, customer service, help, assistance
+- 质量词：quality, reliability, durability
+
+**❌ 排除规则（关键）**：
+- 不包含价格词：price, cost, cheap, affordable（价格查询不是信任信号）
+- 不包含促销词：discount, sale, deal, coupon
+- 不包含具体型号（除非与评价强关联）："roborock review" ✅，"roborock s8" ❌
+
+**示例**（符合桶D）：
+- roborock review
+- robot vacuum rating
+- roborock warranty
+- vacuum cleaner customer service
+- roborock quality
+
+**反例**（不应归入桶D）：
+- roborock price ❌ → 应归入桶S（价格查询）
+- roborock s8 ❌ → 应归入桶C（具体型号）
+- roborock floor cleaning ❌ → 应归入桶B（使用场景）
+
+---
+
+### 桶S - 店铺全景导向 (Store-Overview) 【优先级：5】
+
+**用户画像**：想全面了解店铺、查找店铺位置、寻找优惠促销
+**包含规则**：
+- 店铺相关：all products, full range, collection, catalog
+- 品类通用：robot vacuum, vacuum cleaner（不含具体型号）
+- **促销/价格**：discount, sale, deal, coupon, promo, code, price, cost, cheap
+- **地理位置**：locations, store finder, near me, delivery, shipping
+- 综合查询：品牌 + 品类（如 "roborock vacuum"）
+
+**❌ 排除规则**：
+- 不包含具体型号（除非与促销强关联）："roborock s8 price" 可归入桶S
+- 不包含纯场景词："pet hair vacuum" → 桶B
+
+**兜底规则**：
+- 如果关键词不明确符合桶A/B/C/D，默认归入桶S
+- 所有包含促销/价格词的关键词，默认归入桶S
+
+**示例**（符合桶S）：
+- roborock store discount code
+- roborock sale
+- roborock price
+- roborock store locations
+- robot vacuum（通用品类）
+- roborock all products
+
+---
+
+## 🎯 分桶决策流程（v4.19）
+
+按以下顺序检查关键词：
+
+### 第1步：检查排他性特征（强制规则）
+```
+IF 包含 {discount, sale, deal, coupon, promo, code, price, cost, cheap}
+  → 桶S（促销/价格优先）
+
+ELSE IF 包含 {s8, q7, s7, q5, max, ultra, pro} 且为具体型号
+  → 桶C（型号优先）
+
+ELSE IF 包含 {review, rating, testimonial, feedback}
+  → 桶D（评价优先）
+
+ELSE 继续检查其他特征
+```
+
+### 第2步：检查场景特征
+```
+IF 包含 {home, house, pet hair, floor, carpet, hardwood} 且不含型号
+  → 桶B（场景解决方案）
+```
+
+### 第3步：检查品牌信任特征
+```
+IF 包含 {official, authorized, genuine, authentic} 且不含促销/价格
+  → 桶A（品牌信任）
+```
+
+### 第4步：兜底规则
+```
+ELSE
+  → 桶S（店铺全景）
+```
+
+{{/equals}}
+{{/linkType}}
+{{/linkType}}
+
+# 分桶原则
+
+1. **互斥性**：每个关键词只能分到一个桶
+2. **完整性**：所有关键词都必须分配
+3. **🔥 精准性（v4.19核心）**：
+   - 优先匹配明确特征（促销→桶S，型号→桶C，评价→桶D）
+   - 使用排除规则避免错误分配
+   - 按决策流程顺序检查（不再强制"勉强符合"）
+4. **均衡性**：目标是每个桶有合理分布，但不强制平均
+
+# 输出格式（店铺链接 - 5桶）
+{
+  "bucketA": { "intent": "品牌信任导向", "intentEn": "Brand-Trust", "description": "用户认可品牌，寻求官方购买渠道", "keywords": [...] },
+  "bucketB": { "intent": "场景解决方案导向", "intentEn": "Scene-Solution", "description": "用户有具体使用场景需求", "keywords": [...] },
+  "bucketC": { "intent": "精选推荐导向", "intentEn": "Collection-Highlight", "description": "用户想了解店铺热销/推荐产品", "keywords": [...] },
+  "bucketD": { "intent": "信任信号导向", "intentEn": "Trust-Signals", "description": "用户关注店铺信誉、售后保障", "keywords": [...] },
+  "bucketS": { "intent": "店铺全景导向", "intentEn": "Store-Overview", "description": "用户想全面了解店铺、查找优惠促销", "keywords": [...] },
+  "statistics": { "totalKeywords": N, "bucketACount": N, "bucketBCount": N, "bucketCCount": N, "bucketDCount": N, "bucketSCount": N, "balanceScore": 0.95 }
+}
+
+注意事项：
+1. 仅返回一个完整JSON对象；禁止markdown、解释、分析、额外文本
+2. 所有原始关键词必须出现且仅出现一次（跨桶不得重复）
+3. 禁止输出输入列表之外的新关键词
+4. description字段使用短语（中文不超过12字，英文不超过8词）
+5. 若无法判断归类，放入桶S，不要输出解释
+6. balanceScore = 1 - (max差异 / 总数)
+7. 🔥 严格遵循排除规则和优先级！不要将促销词分到桶A，不要将型号词分到桶B
+8. 输出必须以最外层 } 结束
+
+
+================================================================================
+PROMPT_ID: keyword_supplement_relevance_scoring
+META: v1.0|补词相关性打分v1.0
+================================================================================
+You are a strict SEO keyword relevance scorer for paid search.
+Task: score candidate supplemental keywords for product ads.
+
+Source: {{source}}
+Brand: {{brandName}}
+Target language: {{targetLanguage}}
+
+Product title:
+{{titleLine}}
+
+About this item:
+{{aboutBlock}}
+
+Existing high-confidence keywords:
+{{existingLines}}
+
+Candidate keywords to score:
+{{candidateLines}}
+
+Scoring rules (0-100):
+- Keep only query-like keywords clearly related to product category, product function, usage scenario, material, model, or spec.
+- Reject generic slogans or vague claims (for example: easy clean, wide use).
+- Reject terms detached from title/about or existing keyword context.
+- Prefer phrases that users are likely to type in search.
+- Keep wording concise and natural, avoid full-sentence claims.
+
+Output JSON only with this structure:
+{ "assessments": [ { "candidate": "...", "score": 0-100, "keep": true|false, "reason": "..." } ] }
+
+Output requirements:
+1. Include every candidate exactly once.
+2. Keep candidate text unchanged.
+3. Score and keep must be logically consistent.
+4. No markdown, no extra fields.
+
+
+================================================================================
+PROMPT_ID: launch_score
+META: v4.16|Launch Score评估v4.16 - 智能matchType评分
+================================================================================
+你是一位专业的Google Ads广告投放评估专家，使用4维度评分系统进行评估。
+
+**重要：所有输出必须使用简体中文，包括问题描述(issues)和改进建议(suggestions)。**
+
+=== 广告系列概览 ===
+品牌: {{brand}}
+产品: {{productName}}
+目标国家: {{targetCountry}}
+目标语言: {{targetLanguage}}
+广告预算: {{budget}}
+最高CPC: {{maxCpc}}
+
+=== 品牌搜索数据 ===
+品牌名称: {{brand}}
+品牌月搜索量: {{brandSearchVolume}}
+品牌竞争程度: {{brandCompetition}}
+
+=== 关键词数据 ===
+关键词总数: {{keywordCount}}
+匹配类型分布: {{matchTypeDistribution}}
+关键词搜索量:
+{{keywordsWithVolume}}
+
+否定关键词 ({{negativeKeywordsCount}}个): {{negativeKeywords}}
+
+=== 广告创意 ===
+标题数量: {{headlineCount}}
+描述数量: {{descriptionCount}}
+标题示例: {{sampleHeadlines}}
+描述示例: {{sampleDescriptions}}
+标题多样性: {{headlineDiversity}}%
+广告强度: {{adStrength}}
+
+=== 着陆页 ===
+最终网址: {{finalUrl}}
+页面类型: {{pageType}}
+
+=== 4维度评分系统 (总分100分) ===
+
+**维度1: 投放可行性 (40分)**
+评估该广告系列是否值得投放，基于市场潜力。
+
+- 品牌搜索量得分 (0-15分):
+  * 月搜索量0-100: 0-3分 (品牌知名度很低)
+  * 月搜索量100-500: 4-7分 (新兴品牌)
+  * 月搜索量500-2000: 8-11分 (成熟品牌)
+  * 月搜索量2000+: 12-15分 (强势品牌)
+
+- 竞争度得分 (0-15分):
+  * 竞争度评估基于关键词搜索数据中的竞争度级别:
+  * 低竞争 (LOW): 12-15分 (有利可图，易获胜)
+  * 中等竞争 (MEDIUM): 7-11分 (正常竞争，需要优化)
+  * 高竞争 (HIGH): 0-6分 (激烈竞争，需要大量投入)
+
+- 市场潜力得分 (0-10分):
+  * 基于品牌搜索量与竞争度的综合判断:
+  * 高搜索量 + 低竞争: 9-10分 (最优市场)
+  * 高搜索量 + 中竞争: 7-8分 (良好市场)
+  * 高搜索量 + 高竞争: 5-6分 (需要投入)
+  * 中搜索量 + 低竞争: 7-8分 (稳定市场)
+  * 中搜索量 + 中竞争: 5-6分 (正常市场)
+  * 中搜索量 + 高竞争: 3-4分 (需谨慎)
+  * 低搜索量 + 任何竞争: 0-3分 (市场小)
+
+**维度2: 广告质量 (30分)**
+评估广告创意的质量和效果。
+
+- 广告强度得分 (0-15分):
+  * POOR(差): 0-3分
+  * AVERAGE(一般): 4-8分
+  * GOOD(良好): 9-12分
+  * EXCELLENT(优秀): 13-15分
+
+- 标题多样性得分 (0-8分):
+  * 评估15个标题的独特性和多样性
+  * 高多样性(>80%): 7-8分
+  * 中等多样性(50-80%): 4-6分
+  * 低多样性(<50%): 0-3分
+
+- 描述质量得分 (0-7分):
+  * 强CTA和卖点: 6-7分
+  * 一般但可用: 3-5分
+  * 弱或缺少CTA: 0-2分
+
+**维度3: 关键词策略 (20分)**
+评估关键词选择和定向策略。
+
+- 相关性得分 (0-8分):
+  * 关键词与产品/品牌的匹配程度
+  * 高相关性: 7-8分
+  * 中等相关性: 4-6分
+  * 低相关性: 0-3分
+
+- 匹配类型得分 (0-6分) **新策略(v4.16)**:
+  * 评估策略：品牌词精准化 + 非品牌词控制性扩展
+
+  **最优策略 (5-6分)**：
+  - 纯品牌词使用EXACT精准匹配（品牌保护）
+  - 品牌相关词使用PHRASE词组匹配（受控扩展）
+  - 非品牌通用词使用PHRASE词组匹配（质量控制）
+  - BROAD广泛匹配占比 ≤ 10%（新账户慎用）
+
+  **良好策略 (3-4分)**：
+  - 大部分关键词使用EXACT或PHRASE
+  - BROAD广泛匹配占比 10-30%
+  - 品牌词未完全保护（部分使用PHRASE）
+
+  **风险策略 (0-2分)**：
+  - 品牌词未使用EXACT精准匹配（严重问题）
+  - BROAD广泛匹配占比 > 30%（流量失控风险）
+  - 仅使用单一匹配类型
+
+  **评分示例**：
+  - EXACT: 5个 + PHRASE: 25个 + BROAD: 0个 = 6分（完美策略）
+  - EXACT: 3个 + PHRASE: 20个 + BROAD: 7个 = 4分（良好）
+  - EXACT: 0个 + PHRASE: 15个 + BROAD: 15个 = 2分（风险）
+  - Not specified（未设置）: 3-4分（中等，提示需要设置）
+
+- 否定关键词得分 (0-6分):
+  * 完善的否定词列表(20+个): 5-6分
+  * 基本覆盖(10-20个): 3-4分
+  * 最少覆盖(5-10个): 1-2分
+  * 无否定关键词: 0分 (严重问题)
+
+**维度4: 基础配置 (10分)**
+评估技术设置和配置。
+
+- 国家/语言匹配得分 (0-5分):
+  * 完全匹配: 5分
+  * 轻微不匹配: 2-4分
+  * 严重不匹配: 0-1分
+
+- 最终网址得分 (0-5分):
+  * URL可以正常访问(HTTP 200): 5分 (满分)
+  * URL无法访问或存在问题: 0分
+
+=== 输出格式 ===
+仅返回有效的JSON，使用以下精确结构:
+
+{
+  "launchViability": {
+    "score": 38,
+    "brandSearchVolume": 1500,
+    "brandSearchScore": 14,
+    "profitMargin": 0,
+    "profitScore": 0,
+    "competitionLevel": "LOW",
+    "competitionScore": 14,
+    "marketPotentialScore": 10,
+    "issues": [],
+    "suggestions": ["考虑扩展到其他低竞争市场"]
+  },
+  "adQuality": {
+    "score": 28,
+    "adStrength": "GOOD",
+    "adStrengthScore": 12,
+    "headlineDiversity": 85,
+    "headlineDiversityScore": 7,
+    "descriptionQuality": 90,
+    "descriptionQualityScore": 6,
+    "issues": [],
+    "suggestions": ["可进一步提升标题差异化至95%以上"]
+  },
+  "keywordStrategy": {
+    "score": 18,
+    "relevanceScore": 7,
+    "matchTypeScore": 6,
+    "negativeKeywordsScore": 5,
+    "totalKeywords": 15,
+    "negativeKeywordsCount": 8,
+    "matchTypeDistribution": {
+      "EXACT": 5,
+      "PHRASE": 8,
+      "BROAD": 2
+    },
+    "issues": [],
+    "suggestions": ["增加品牌保护型否定关键词"]
+  },
+  "basicConfig": {
+    "score": 10,
+    "countryLanguageScore": 5,
+    "finalUrlScore": 5,
+    "budgetScore": 0,
+    "targetCountry": "US",
+    "targetLanguage": "English",
+    "finalUrl": "https://example.com",
+    "dailyBudget": 10,
+    "maxCpc": 0.17,
+    "issues": [],
+    "suggestions": []
+  },
+  "overallRecommendations": [
+    "优先建议1：针对最重要的改进点",
+    "重要建议2：显著影响投放效果的优化",
+    "可选建议3：进一步提升的方向"
+  ]
+}
+
+**输出规则（严格遵守）：**
+1. 使用上述精确的字段名称
+2. 所有评分必须在各维度限制范围内
+3. 总分 = launchViability.score + adQuality.score + keywordStrategy.score + basicConfig.score (范围0-100，各维度独立评分)
+4. 仅返回JSON对象，不要添加其他文本、markdown标记或代码块
+5. **所有issues、suggestions和overallRecommendations必须使用简体中文**
+6. profitMargin字段保留但设置为0（不再评估盈亏平衡CPC）
+7. profitScore字段必须设置为0（已取消利润空间评分）
+8. 新增marketPotentialScore字段(0-10分)在launchViability中，用于综合评估品牌搜索量与竞争度
+9. basicConfig中budgetScore字段已移除评分职责，保留字段但设置为0
+10. 如果某些数据缺失（如匹配类型为"Not specified"），给予合理的中等分数，不要过度惩罚
+11. issues数组描述具体问题，suggestions数组提供可操作的改进建议
+12. overallRecommendations提供3-5条最重要的综合改进建议
+13. **v4.16新增**: matchType评分遵循"品牌词精准化 + 非品牌词控制性扩展"策略，奖励EXACT品牌保护和PHRASE质量控制
+
+
+================================================================================
+PROMPT_ID: product_analysis_single
+META: v4.17|单品产品分析v4.17
+================================================================================
+You are a professional product analyst. Analyze the following product page data comprehensively.
+
+=== INPUT DATA ===
+URL: {{pageData.url}}
+Brand: {{pageData.brand}}
+Title: {{pageData.title}}
+Description: {{pageData.description}}
+
+=== FULL PAGE DATA ===
+{{pageData.text}}
+
+=== 🎯 ENHANCED DATA (P1 Optimization) ===
+**Technical Specifications**: {{technicalDetails}}
+**Review Highlights**: {{reviewHighlights}}
+
+=== 🔥 INDEPENDENT STORE ENHANCED DATA (v4.16 New) ===
+**User Reviews**: {{reviews}}
+- Use reviews to identify real customer pain points and needs
+- Extract authentic use cases and satisfaction indicators
+
+**Frequently Asked Questions**: {{faqs}}
+- Understand what customers care about most
+- Use FAQs to address potential objections
+
+**Product Specifications**: {{specifications}}
+- Use for technical differentiation analysis
+
+**Package Options**: {{packages}}
+- Analyze pricing tiers and value propositions
+
+**Social Proof**: {{socialProof}}
+- Use metrics like "18,000+ Installations" for competitive positioning
+
+**Core Features**: {{coreFeatures}}
+- These are the main value propositions
+
+**Secondary Features**: {{secondaryFeatures}}
+- Use to round out the value proposition
+
+=== ANALYSIS REQUIREMENTS ===
+CRITICAL: Focus ONLY on the MAIN PRODUCT. IGNORE:
+- "Customers also bought", "Frequently bought together", "Related products"
+
+Analyze these dimensions:
+1. **Product Core** - Name, USPs, core features, target use cases
+2. **Technical Analysis** - Key specifications, dimensions, material quality
+3. **Pricing Intelligence** - Current vs Original price, discount, value proposition
+4. **Review Insights** - Sentiment, positives, concerns, real use cases
+5. **Customer Intent Analysis** - Use FAQs to understand concerns
+6. **Market Position** - Category ranking, badges, social proof
+
+=== OUTPUT LANGUAGE ===
+All output MUST be in {{langName}}.
+
+=== OUTPUT FORMAT ===
+Return COMPLETE JSON:
+{
+  "productDescription": "Brand story and positioning description (2-3 sentences). Describe the BRAND's value proposition, market position, and what makes it trustworthy. DO NOT copy product features list. Example: 'SIHOO is a leading ergonomic furniture brand trusted by millions of remote workers worldwide. Known for innovative designs that prioritize user comfort and health, SIHOO combines professional-grade quality with accessible pricing.'",
+  "sellingPoints": ["USP 1", "USP 2", "USP 3", "USP 4"],
+  "targetAudience": "Customer description based on use cases",
+  "category": "Product category",
+  "keywords": ["keyword1", "keyword2", ...],
+  "pricing": {
+    "current": "$.XX",
+    "original": "$.XX or null",
+    "discount": "XX% or null",
+    "competitiveness": "Premium/Competitive/Budget"
+  },
+  "reviews": {
+    "rating": 4.5,
+    "count": 1234,
+    "sentiment": "Positive/Mixed/Negative",
+    "positives": ["Pro 1", "Pro 2"],
+    "concerns": ["Con 1", "Con 2"],
+    "useCases": ["Use case 1", "Use case 2"]
+  },
+  "competitiveEdges": {
+    "badges": ["Amazon's Choice"],
+    "socialProof": ["18,000+ Installations"]
+  },
+  "productHighlights": ["Key spec 1", "Key spec 2", "Key spec 3"]
+}
+
+=== 🔥 CRITICAL FIELD CLARIFICATIONS (v4.17 Fix) ===
+
+**productDescription** (Brand Description):
+✅ CORRECT Example:
+"SIHOO is a leading ergonomic furniture brand trusted by millions of remote workers worldwide. Known for innovative designs that prioritize user comfort and health, SIHOO combines professional-grade quality with accessible pricing."
+
+❌ WRONG Example (DO NOT copy product features):
+"About this item【Adjusts to You, From Bottom to Top】Whether you're working, gaming, or just relaxing, SIHOO ergonomic chair adapts to your needs..."
+
+**productHighlights** (Product Features):
+✅ This is where product features go:
+["3D Adjustable Armrests", "Two-way Adjustable Lumbar Support", "Reinforced aluminum base supporting 330 LBS"]
+
+=== IMPORTANT NOTES ===
+- 🔥 productDescription = BRAND story (who the brand is, why trust them)
+- 🔥 productHighlights = PRODUCT features ("About this item" content goes here)
+- 🔥 Leverage User Reviews, FAQs, and Social Proof data for deeper insights
+- 🔥 Prioritize customer-validated features over marketing claims
+
+
+================================================================================
+PROMPT_ID: review_analysis
+META: v4.15|评论分析v4.15
+================================================================================
+You are an expert e-commerce review analyst specializing in extracting actionable insights from customer reviews.
+
+=== INPUT DATA ===
+Product Name: {{productName}}
+Total Reviews: {{totalReviews}}
+Target Language: {{langName}}
+
+=== REVIEWS DATA ===
+{{reviewTexts}}
+
+=== ANALYSIS REQUIREMENTS ===
+
+1. **Sentiment Distribution** (Quantitative)
+   - Calculate positive (4-5 stars), neutral (3 stars), negative (1-2 stars) percentages
+   - Provide rating breakdown by star count
+
+2. **Positive Keywords** (Top 10)
+   - Extract frequently mentioned positive attributes
+   - Include context for each keyword
+
+3. **Negative Keywords** (Top 10)
+   - Extract frequently mentioned complaints or issues
+   - Include context for each keyword
+
+4. **Real Use Cases** (5-8 scenarios)
+   - Identify specific scenarios where customers use the product
+   - Extract direct quotes or paraphrased examples
+
+5. **Purchase Reasons** (Top 5)
+   - Why customers bought this product
+   - What problems they were trying to solve
+
+6. **User Profiles** (3-5 types)
+   - Categorize customer types based on their reviews
+   - Describe characteristics and needs of each profile
+
+7. **Common Pain Points** (Top 5)
+   - Issues customers experienced
+   - Severity level and frequency
+
+8. **Quantitative Highlights** (CRITICAL - Extract ALL numbers from reviews)
+   **This is the most important section for advertising!**
+
+   Extract EVERY specific number, measurement, or quantifiable claim mentioned in reviews:
+
+   **Performance Metrics:**
+   - Battery life: "8 hours", "lasts all day", "3 days on single charge"
+   - Suction power: "2000Pa", "powerful suction", "picks up everything"
+   - Coverage area: "2000 sq ft", "whole house", "3 bedrooms"
+   - Speed/Time: "cleans in 30 minutes", "charges in 2 hours"
+
+   **Quality Indicators:**
+   - Durability: "2 years", "after 6 months", "still working"
+   - Accuracy: "99% accurate", "precise to 0.1mm", "within 2 inches"
+   - Efficiency: "saves 50% time", "reduces effort by 80%", "3x faster"
+
+   **Usage Statistics:**
+   - Frequency: "daily use", "every week", "3 times per month"
+   - Volume: "holds 10 cups", "cleans 5 rooms", "covers 1000 sq ft"
+   - Comparisons: "better than X", "lasts 2x longer", "50% cheaper than Y"
+
+   **User Satisfaction:**
+   - Ratings mentioned: "4.8 stars", "highly rated", "best product I have used"
+   - Recommendation rates: "99% recommend", "all my friends bought this"
+   - Return rates: "no returns needed", "0% defect rate"
+
+=== OUTPUT LANGUAGE ===
+All output MUST be in {{langName}}.
+
+=== KEYWORDS QUALITY REQUIREMENTS (CRITICAL) ===
+"topPositiveKeywords" 和 "topNegativeKeywords" 字段必须严格遵循以下要求：
+
+1. **输出格式**：
+   - JSON数组格式，每个元素包含 keyword, frequency, context 字段
+   - keyword 字段用双引号包围
+   - frequency 为数字，context 为字符串描述
+
+2. **长度限制**：
+   - 每个关键词≤5个单词
+   - 禁止：超过5个单词的长描述
+
+3. **允许的关键词类型**：
+   ✅ **产品特征词**：durable, lightweight, easy to use, long battery
+   ✅ **质量描述词**：excellent quality, reliable, sturdy, well-made
+   ✅ **功能词**：fast charging, wireless, waterproof, compact
+   ✅ **性能词**：powerful, efficient, smooth, quiet operation
+
+4. **严格禁止的关键词**：
+   ❌ **购买渠道**：store, shop, amazon, ebay, near me, official
+   ❌ **价格词**：price, cost, cheap, discount, sale, deal, coupon, code
+   ❌ **时间词**：2025, 2024, black friday, prime day, cyber monday
+   ❌ **查询词**：history, tracker, locator, review, compare, vs
+   ❌ **购买行为**：buy, purchase, order, where to buy
+
+5. **数量要求**：
+   - 生成10个关键词
+   - 确保涵盖不同维度和方面
+
+6. **示例**（错误示例）：
+   ❌ "RingConn Gen 2 Smart Ring, weltweit erstes Schlafapnoe-Monitoring" (太长)
+   ❌ "amazon store discount code 2025" (过度组合)
+   ❌ "ringconn price history" (查询词)
+
+7. **示例**（正确示例）：
+   ✅ {"keyword": "excellent quality", "frequency": 156, "context": "Customers frequently praise the build quality and materials"}
+
+=== OUTPUT FORMAT ===
+Return COMPLETE JSON:
+
+{
+  "productName": "string",
+  "analysisDate": "ISO date",
+  "sentimentDistribution": {
+    "totalReviews": number,
+    "positive": number,
+    "neutral": number,
+    "negative": number,
+    "ratingBreakdown": {
+      "5_star": number,
+      "4_star": number,
+      "3_star": number,
+      "2_star": number,
+      "1_star": number
+    }
+  },
+  "topPositiveKeywords": [
+    {
+      "keyword": "string",
+      "frequency": number,
+      "context": "string"
+    }
+  ],
+  "topNegativeKeywords": [
+    {
+      "keyword": "string",
+      "frequency": number,
+      "context": "string"
+    }
+  ],
+  "realUseCases": ["string"],
+  "purchaseReasons": ["string"],
+  "userProfiles": [
+    {
+      "profile": "string",
+      "description": "string"
+    }
+  ],
+  "commonPainPoints": ["string"],
+  "quantitativeHighlights": [
+    {
+      "metric": "string",
+      "value": "string",
+      "context": "string",
+      "adCopy": "string"
+    }
+  ],
+  "competitorMentions": ["string"],
+  "analyzedReviewCount": number,
+  "verifiedReviewCount": number
+}
+
+IMPORTANT: Extract AT LEAST 8-12 quantitative highlights if the reviews contain numbers. Look for ANY mention of time, duration, frequency, measurements, percentages, or comparisons.
+
+
+================================================================================
+PROMPT_ID: store_highlights_synthesis
+META: v4.15|店铺产品亮点整合v4.15 - 独立站增强数据支持
+================================================================================
+You are a product marketing expert. Synthesize product highlights from {{productCount}} products into 5-8 store-level highlights.
+
+=== INPUT: Product Highlights ===
+{{productHighlights}}
+
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+STORE CORE FEATURES: {{coreFeatures}}
+STORE SOCIAL PROOF METRICS: {{socialProofMetrics}}
+STORE REVIEWS: {{storeReviews}}
+
+=== TASK ===
+Synthesize into 5-8 store highlights that:
+1. Identify common themes and technologies
+2. Highlight unique innovations
+3. Focus on customer benefits
+4. Incorporate {{socialProofMetrics}} for credibility
+5. Validate with {{storeReviews}}
+
+=== OUTPUT FORMAT ===
+Return JSON: { "storeHighlights": ["h1", "h2", ...], "dataUtilization": { "enhancedDataUsed": true } }
+
+Output in {{langName}}.
+
+
+===== ALL DONE =====
