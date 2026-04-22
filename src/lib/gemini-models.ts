@@ -54,8 +54,7 @@ export type AnthropicModel = typeof ANTHROPIC_SUPPORTED_MODELS[number]
 export const ANTHROPIC_DEFAULT_MODEL: AnthropicModel = 'claude-sonnet-4-6'
 
 // ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
-// 代理 openllmapi.com（New-API + OpenRouter），2026-04 实测可用模型
-// 注意：账号渠道权限决定可用范围，以下为实测 HTTP 200 的模型
+// 代理 openllmapi.com（New-API + OpenRouter），2026-04 同步更新
 export const LITELLM_SUPPORTED_MODELS = [
   // ─── DeepSeek（对话模型）───────────────────────────────────
   'deepseek/deepseek-v3.2',     // 🏆 推荐默认：超高性价比，广告创意首选
@@ -64,8 +63,27 @@ export const LITELLM_SUPPORTED_MODELS = [
   'minimax/minimax-m2.7',
   'minimax/minimax-m2.5',
 
+  // ─── OpenAI（对话模型）─────────────────────────────────────
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+
+  // ─── Anthropic ─────────────────────────────────────────────
+  'anthropic/claude-opus-4.7',
+  'anthropic/claude-sonnet-4.6',
+  'anthropic/claude-haiku-4.5',
+  'anthropic/claude-3.7-sonnet',
+
   // ─── Google ────────────────────────────────────────────────
   'google/gemini-3.1-pro-preview',
+  'google/gemini-2.5-pro-preview-05-06',
+  'google/gemini-2.0-flash-001',
+
+  // ─── Meta Llama ────────────────────────────────────────────
+  'meta-llama/llama-4-maverick',
+  'meta-llama/llama-4-scout',
+
+  // ─── Qwen ──────────────────────────────────────────────────
+  'qwen/qwen3-235b-a22b',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
