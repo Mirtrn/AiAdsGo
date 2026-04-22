@@ -96,7 +96,7 @@ export const LITELLM_SUPPORTED_MODELS = [
   'qwen/qwq-32b',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
-export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'moonshotai/kimi-k2.6'
+export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
 // ─── AiCodeCat Gateway 模型 ────────────────────────────────────
