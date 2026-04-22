@@ -122,14 +122,16 @@ export async function POST(request: NextRequest) {
             litellmApiKey = saved.value
           }
           // 使用用户选择的模型做验证，避免验证通过但实际模型不可用
-          const litellmModel = config.litellm_model
+          const litellmModelRaw = config.litellm_model
             || (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
             || undefined
+          const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
+          const litellmModel = normalizeLiteLLMModel(litellmModelRaw)  // 归一化：移除的旧模型自动降级到默认值
           const { checkLiteLLMConnection } = await import('@/lib/litellm')
           const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
           result = ok
             ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
-            : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel || LITELLM_DEFAULT_MODEL} 不可用，请换用其他模型或检查 API Key` }
+            : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key` }
           break
         }
 
