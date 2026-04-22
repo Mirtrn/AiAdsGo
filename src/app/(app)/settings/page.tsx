@@ -184,8 +184,8 @@ const SETTING_METADATA: Record<string, {
       { value: 'gemini', label: '🌐 Gemini（Google）' },
       { value: 'openai', label: '🤖 OpenAI（GPT）' },
       { value: 'anthropic', label: '🔮 Anthropic（Claude）' },
-      { value: 'litellm', label: '⚡ OpenLLM（中转 · openllmapi.com）' },
-      { value: 'aicodecat', label: '🐱 AiCodeCat（中转 · aicode.cat）' },
+      { value: 'litellm', label: '⚡ OpenLLM' },
+      { value: 'aicodecat', label: '🐱 AiCodeCat' },
     ],
     defaultValue: 'gemini'
   },
@@ -243,7 +243,7 @@ const SETTING_METADATA: Record<string, {
   // AI - OpenLLM Gateway（原 LiteLLM）配置
   'ai.litellm_api_key': {
     label: 'OpenLLM API Key',
-    description: 'OpenLLM 中转服务 API 密钥，适合国内用户访问（openllmapi.com）',
+    description: 'OpenLLM 中转服务 API 密钥，适合国内用户访问',
     placeholder: '输入 API Key（sk-...）',
     helpLink: 'https://openllmapi.com/register',
   },
