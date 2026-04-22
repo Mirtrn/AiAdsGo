@@ -124,7 +124,7 @@ export const AICODECAT_SUPPORTED_MODELS = [
   'gemini-2.0-flash',
 ] as const
 export type AiCodeCatModel = typeof AICODECAT_SUPPORTED_MODELS[number]
-export const AICODECAT_DEFAULT_MODEL: AiCodeCatModel = 'claude-sonnet-4-6'
+export const AICODECAT_DEFAULT_MODEL: AiCodeCatModel = 'gemini-3.1-pro-preview'
 
 export function isValidAiCodeCatModel(model?: string | null): model is AiCodeCatModel {
   return !!model && (AICODECAT_SUPPORTED_MODELS as readonly string[]).includes(model)
