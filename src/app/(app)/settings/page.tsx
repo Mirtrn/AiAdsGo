@@ -250,20 +250,20 @@ const SETTING_METADATA: Record<string, {
   'ai.litellm_model': {
     label: 'OpenLLM 模型',
     description: '选择通过 OpenLLM 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
-    options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m.includes('/') ? m.split('/').slice(1).join('/') : m })),
     defaultValue: LITELLM_DEFAULT_MODEL
   },
 
   // AI - AiCodeCat Gateway 配置
   'ai.aicodecat_api_key': {
     label: 'AiCodeCat API Key',
-    description: '第三方中转服务 API 密钥，适合国内用户访问（aicode.cat）',
+    description: '第三方中转服务 API 密钥，适合国内用户访问',
     placeholder: '输入 API Key（sk-...）',
   },
   'ai.aicodecat_model': {
     label: 'AiCodeCat 模型',
     description: '选择通过 AiCodeCat 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
-    options: AICODECAT_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
+    options: AICODECAT_SUPPORTED_MODELS.map(m => ({ value: m, label: m.includes('/') ? m.split('/').slice(1).join('/') : m })),
     defaultValue: AICODECAT_DEFAULT_MODEL
   },
 
