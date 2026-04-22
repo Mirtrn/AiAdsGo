@@ -150,11 +150,21 @@ export async function POST(request: NextRequest) {
           const aicodecatModel = config.aicodecat_model
             || (await getUserOnlySetting('ai', 'aicodecat_model', userIdNum))?.value
             || undefined
-          const { checkAiCodeCatConnection } = await import('@/lib/aicodecat')
-          const ok = await checkAiCodeCatConnection(userIdNum, aicodecatApiKey, undefined, aicodecatModel)
-          result = ok
-            ? { valid: true, message: 'AiCodeCat 连接验证成功 ✅' }
-            : { valid: false, message: `AiCodeCat 连接失败：模型 ${aicodecatModel || AICODECAT_DEFAULT_MODEL} 不可用，请换用其他模型或检查 API Key` }
+          const { checkAiCodeCatConnectionDetail } = await import('@/lib/aicodecat')
+          const checkResult = await checkAiCodeCatConnectionDetail(userIdNum, aicodecatApiKey, undefined, aicodecatModel)
+          if (checkResult.ok) {
+            result = { valid: true, message: `AiCodeCat 连接验证成功 ✅（模型：${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL}）` }
+          } else if (checkResult.reason === 'empty_content') {
+            result = {
+              valid: false,
+              message: `AiCodeCat 验证失败：${checkResult.detail || `模型 ${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL} 返回了空内容`}。建议切换为 gemini-3.1-pro-preview 或其他模型重试。`,
+            }
+          } else {
+            result = {
+              valid: false,
+              message: `AiCodeCat 连接失败：${checkResult.detail || `模型 ${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL} 不可用`}，请检查 API Key 或切换其他模型`,
+            }
+          }
           break
         }
 
