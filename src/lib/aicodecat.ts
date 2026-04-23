@@ -293,10 +293,15 @@ export async function checkAiCodeCatConnectionDetail(
         if (!resp.ok) {
           const errText = await resp.text().catch(() => '')
           console.warn(`AiCodeCat Gemini 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
+          // Key 分组与模型不匹配（Claude/GPT Key 用于 Gemini 模型）
+          const isWrongKeyGroup = errText.includes('API key group platform is not gemini') ||
+            errText.includes('not gemini')
           return {
             ok: false,
             reason: 'http_error',
-            detail: `HTTP ${resp.status}：${errText.substring(0, 150)}`,
+            detail: isWrongKeyGroup
+              ? `当前 API Key 不支持 Gemini 模型（Key 分组不匹配）。请在设置中换用 Gemini 专属 Key，或将模型切换为 Claude/GPT 系列后重试。`
+              : `HTTP ${resp.status}：${errText.substring(0, 150)}`,
             model: testModel,
           }
         }
