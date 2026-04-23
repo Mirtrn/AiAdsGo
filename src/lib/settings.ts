@@ -750,6 +750,13 @@ export async function validateGeminiConfig(
     // API调用失败，分析错误类型
     const errorMessage = error.message || '未知错误'
 
+    if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('denied access') || errorMessage.includes('403')) {
+      return {
+        valid: false,
+        message: 'Gemini API Key 对应的 Google 项目已被封禁（PERMISSION_DENIED）。请前往 https://aistudio.google.com/app/apikey 重新创建 API Key，或联系 Google Support 申诉。',
+      }
+    }
+
     if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid key') || errorMessage.includes('400')) {
       return {
         valid: false,

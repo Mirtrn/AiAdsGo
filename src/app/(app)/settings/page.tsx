@@ -1446,9 +1446,16 @@ export default function SettingsPage() {
 
       if (category === 'ai' && setting.key === 'gemini_model') {
         const provider = formData.ai?.gemini_provider || 'official'
-        const shouldShowRelayOnlyModel = provider === 'relay' || value === RELAY_GPT_52_MODEL
-        if (!shouldShowRelayOnlyModel) {
-          options = options.filter((opt) => opt.value !== RELAY_GPT_52_MODEL)
+        if (provider === 'relay') {
+          // 中转路径：只显示中转专用模型
+          options = options.filter((opt) =>
+            opt.value === 'gemini-3-flash-preview' || opt.value === RELAY_GPT_52_MODEL
+          )
+        } else {
+          // 官方路径：只显示真实 Google 模型 ID，隐藏中转专用模型
+          options = options.filter((opt) =>
+            opt.value !== 'gemini-3-flash-preview' && opt.value !== RELAY_GPT_52_MODEL
+          )
         }
       }
 
