@@ -245,10 +245,17 @@ export async function checkAiCodeCatConnectionDetail(
     }
   } catch (error) {
     console.error(`用户(ID=${userId})的 AiCodeCat 连接检查失败:`, error)
+    const isAbort = error instanceof Error && (
+      error.name === 'AbortError' ||
+      error.message.includes('aborted') ||
+      error.message.includes('abort')
+    )
     return {
       ok: false,
       reason: 'network_error',
-      detail: error instanceof Error ? error.message : '网络错误',
+      detail: isAbort
+        ? '连接超时（20s），AiCodeCat 网关响应缓慢，请稍后重试或切换其他模型'
+        : (error instanceof Error ? error.message : '网络错误'),
     }
   }
 }
