@@ -1,6 +1,7 @@
 /**
  * AiCodeCat Gateway 调用模块
- * 复用 LiteLLM/OpenAI-compatible 协议，指向 aicode.cat 网关
+ * - Claude/GPT/Codex 模型：OpenAI-compatible 协议 /v1/chat/completions
+ * - Gemini 模型：Google 原生格式 /v1beta/models/{model}:generateContent
  * 注册链接: https://aicode.cat/register?ref=AIADSGO01
  */
 
@@ -9,6 +10,7 @@ import {
   AICODECAT_BASE_URL,
   AICODECAT_DEFAULT_MODEL,
   normalizeAiCodeCatModel,
+  isAiCodeCatGeminiModel,
   type AiCodeCatModel,
 } from './gemini-models'
 
@@ -43,6 +45,127 @@ export async function isAiCodeCatConfigured(userId: number): Promise<boolean> {
   }
 }
 
+// ─── 内部辅助：v1beta Gemini 原生格式调用 ──────────────────────────
+async function callGeminiV1Beta(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  maxOutputTokens: number,
+  temperature: number,
+  timeoutMs: number,
+  signal: AbortSignal
+): Promise<{ text: string; inputTokens: number; outputTokens: number; totalTokens: number; model: string }> {
+  const endpoint = `${AICODECAT_BASE_URL}/v1beta/models/${model}:generateContent`
+  const requestBody = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens,
+      temperature,
+    },
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    const isHtmlResponse = errorText.trimStart().startsWith('<')
+    if (response.status === 504 || response.status === 502) {
+      throw new Error(`AiCodeCat Gemini 网关超时 (${response.status})：请求超时，请稍后重试。`)
+    } else if (isHtmlResponse) {
+      throw new Error(`AiCodeCat Gemini API 请求失败 (${response.status})：服务器返回了非预期响应。`)
+    } else {
+      throw new Error(`AiCodeCat Gemini API 请求失败 (${response.status}): ${errorText.substring(0, 300)}`)
+    }
+  }
+
+  const data = await response.json()
+
+  // v1beta 响应格式：candidates[0].content.parts[0].text
+  const parts = data.candidates?.[0]?.content?.parts as { text?: string; thoughtSignature?: string }[] | undefined
+  const text: string = parts?.find(p => p.text != null)?.text || ''
+
+  if (!text || text.trim() === '') {
+    const finishReason = data.candidates?.[0]?.finishReason || 'unknown'
+    throw new Error(
+      `AiCodeCat Gemini 模型 ${model} 返回了空内容（finishReason=${finishReason}）。` +
+      `请尝试切换其他模型或检查 API Key。`
+    )
+  }
+
+  const usage = data.usageMetadata || {}
+  const inputTokens: number = usage.promptTokenCount ?? 0
+  const outputTokens: number = (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0)
+  const totalTokens: number = usage.totalTokenCount ?? (inputTokens + outputTokens)
+  const returnedModel: string = data.modelVersion || model
+
+  return { text, inputTokens, outputTokens, totalTokens, model: returnedModel }
+}
+
+// ─── 内部辅助：v1 OpenAI 格式调用（Claude / GPT）──────────────────
+async function callV1ChatCompletions(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  maxOutputTokens: number,
+  temperature: number,
+  signal: AbortSignal
+): Promise<{ text: string; inputTokens: number; outputTokens: number; totalTokens: number; model: string }> {
+  const endpoint = `${AICODECAT_BASE_URL}/v1/chat/completions`
+  const requestBody = {
+    model,
+    max_tokens: maxOutputTokens,
+    temperature,
+    messages: [{ role: 'user', content: prompt }],
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    const isHtmlResponse = errorText.trimStart().startsWith('<')
+    if (response.status === 504 || response.status === 502) {
+      throw new Error(`AiCodeCat 网关超时 (${response.status})：请求超时，请稍后重试或检查网关服务状态。`)
+    } else if (isHtmlResponse) {
+      throw new Error(`AiCodeCat API 请求失败 (${response.status})：服务器返回了非预期响应，请检查网关地址和 API Key 配置。`)
+    } else {
+      throw new Error(`AiCodeCat API 请求失败 (${response.status}): ${errorText.substring(0, 300)}`)
+    }
+  }
+
+  const data = await response.json()
+  const text: string = data.choices?.[0]?.message?.content || ''
+
+  if (!text || text.trim() === '') {
+    throw new Error(
+      `AiCodeCat 模型 ${model} 返回了空内容（finish_reason=${data.choices?.[0]?.finish_reason}）。` +
+      `请尝试切换其他模型或检查 API Key。`
+    )
+  }
+
+  const inputTokens: number = data.usage?.prompt_tokens ?? 0
+  const outputTokens: number = data.usage?.completion_tokens ?? 0
+  const totalTokens: number = data.usage?.total_tokens ?? (inputTokens + outputTokens)
+  const returnedModel: string = data.model || model
+
+  return { text, inputTokens, outputTokens, totalTokens, model: returnedModel }
+}
+
 export async function generateContent(
   params: AiCodeCatGenerateParams,
   userId: number
@@ -72,87 +195,45 @@ export async function generateContent(
     )
   }
 
-  const baseUrl = AICODECAT_BASE_URL
-  const endpoint = `${baseUrl}/v1/chat/completions`
-
   const finalModel: AiCodeCatModel = normalizeAiCodeCatModel(
     requestedModel || modelSetting?.value
   )
 
-  console.log(`🐱 AiCodeCat 调用 (User ${userId}): ${operationType || 'unknown'} → ${finalModel} @ ${baseUrl}`)
-
-  const requestBody = {
-    model: finalModel,
-    max_tokens: maxOutputTokens,
-    temperature,
-    messages: [
-      { role: 'user', content: prompt },
-    ],
-  }
+  const isGemini = isAiCodeCatGeminiModel(finalModel)
+  console.log(
+    `🐱 AiCodeCat 调用 (User ${userId}): ${operationType || 'unknown'} → ${finalModel} ` +
+    `@ ${AICODECAT_BASE_URL} [${isGemini ? 'v1beta/Gemini原生' : 'v1/OpenAI格式'}]`
+  )
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
-  let response: Response
   try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+    let result: { text: string; inputTokens: number; outputTokens: number; totalTokens: number; model: string }
+
+    if (isGemini) {
+      result = await callGeminiV1Beta(apiKey, finalModel, prompt, maxOutputTokens, temperature, timeoutMs, controller.signal)
+    } else {
+      result = await callV1ChatCompletions(apiKey, finalModel, prompt, maxOutputTokens, temperature, controller.signal)
+    }
+
+    console.log(
+      `✅ AiCodeCat 完成 (User ${userId}): ${operationType || 'unknown'} ` +
+      `→ ${result.model}, tokens=${result.totalTokens}`
+    )
+
+    return {
+      text: result.text,
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        totalTokens: result.totalTokens,
       },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    })
+      model: result.model,
+      apiType: 'aicodecat',
+    }
   } finally {
     clearTimeout(timer)
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '')
-    const isHtmlResponse = errorText.trimStart().startsWith('<')
-    let friendlyError: string
-    if (response.status === 504 || response.status === 502) {
-      friendlyError = `AiCodeCat 网关超时 (${response.status})：请求超时，请稍后重试或检查网关服务状态。`
-    } else if (isHtmlResponse) {
-      friendlyError = `AiCodeCat API 请求失败 (${response.status})：服务器返回了非预期响应，请检查网关地址和 API Key 配置。`
-    } else {
-      friendlyError = `AiCodeCat API 请求失败 (${response.status}): ${errorText.substring(0, 300)}`
-    }
-    throw new Error(friendlyError)
-  }
-
-  const data = await response.json()
-
-  const text: string = data.choices?.[0]?.message?.content || ''
-
-  if (!text || text.trim() === '') {
-    throw new Error(
-      `AiCodeCat 模型 ${finalModel} 返回了空内容（finish_reason=${data.choices?.[0]?.finish_reason}）。` +
-      `请尝试切换其他模型或检查 API Key。`
-    )
-  }
-
-  const inputTokens = data.usage?.prompt_tokens ?? 0
-  const outputTokens = data.usage?.completion_tokens ?? 0
-  const usage = {
-    inputTokens,
-    outputTokens,
-    totalTokens: data.usage?.total_tokens ?? (inputTokens + outputTokens),
-  }
-
-  const returnedModel: string = data.model || finalModel
-
-  console.log(
-    `✅ AiCodeCat 完成 (User ${userId}): ${operationType || 'unknown'} ` +
-    `→ ${returnedModel}, tokens=${usage.totalTokens}`
-  )
-
-  return {
-    text,
-    usage,
-    model: returnedModel,
-    apiType: 'aicodecat',
   }
 }
 
@@ -179,12 +260,10 @@ export async function checkAiCodeCatConnection(
 export async function checkAiCodeCatConnectionDetail(
   userId: number,
   apiKey?: string,
-  baseUrl?: string,
+  _baseUrl?: string,
   model?: string
 ): Promise<AiCodeCatCheckResult> {
   try {
-    const resolvedBase = (baseUrl || AICODECAT_BASE_URL).replace(/\/$/, '')
-    const endpoint = `${resolvedBase}/v1/chat/completions`
     const resolvedKey = apiKey || (await getUserOnlySetting('ai', 'aicodecat_api_key', userId))?.value
     if (!resolvedKey) {
       return { ok: false, reason: 'no_key', detail: '未配置 API Key' }
@@ -193,53 +272,98 @@ export async function checkAiCodeCatConnectionDetail(
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 20_000)
     const testModel = model ? normalizeAiCodeCatModel(model) : AICODECAT_DEFAULT_MODEL
+    const isGemini = isAiCodeCatGeminiModel(testModel)
+
     try {
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${resolvedKey}`,
-        },
-        body: JSON.stringify({
-          model: testModel,
-          max_tokens: 10,
-          messages: [{ role: 'user', content: 'Reply with the word OK only.' }],
-        }),
-        signal: controller.signal,
-      })
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '')
-        console.warn(`AiCodeCat 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
-        return {
-          ok: false,
-          reason: 'http_error',
-          detail: `HTTP ${resp.status}：${errText.substring(0, 150)}`,
-          model: testModel,
+      if (isGemini) {
+        // Gemini 走 v1beta
+        const endpoint = `${AICODECAT_BASE_URL}/v1beta/models/${testModel}:generateContent`
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${resolvedKey}`,
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Reply OK' }] }],
+            generationConfig: { maxOutputTokens: 10 },
+          }),
+          signal: controller.signal,
+        })
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '')
+          console.warn(`AiCodeCat Gemini 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
+          return {
+            ok: false,
+            reason: 'http_error',
+            detail: `HTTP ${resp.status}：${errText.substring(0, 150)}`,
+            model: testModel,
+          }
         }
-      }
-      // 🔧 额外检查：验证响应内容非空（防止 200 OK 但返回空内容的情况）
-      let data: Record<string, unknown>
-      try {
-        data = await resp.json()
-      } catch {
-        console.warn(`AiCodeCat 验证失败：model=${testModel} 响应无法解析为 JSON`)
-        return { ok: false, reason: 'parse_error', detail: '响应无法解析为 JSON', model: testModel }
-      }
-      const text: string = (data.choices as { message?: { content?: string } }[])?.[0]?.message?.content || ''
-      if (!text || text.trim() === '') {
-        const finishReason = (data.choices as { finish_reason?: string }[])?.[0]?.finish_reason || 'unknown'
-        console.warn(
-          `AiCodeCat 验证失败：model=${testModel} 返回了空内容（finish_reason=${finishReason}）。` +
-          `模型可能不可用或账号权限不足，请切换其他模型。`
-        )
-        return {
-          ok: false,
-          reason: 'empty_content',
-          detail: `模型 ${testModel} 返回了空内容（finish_reason=${finishReason}），请切换其他模型`,
-          model: testModel,
+        let data: Record<string, unknown>
+        try {
+          data = await resp.json()
+        } catch {
+          return { ok: false, reason: 'parse_error', detail: '响应无法解析为 JSON', model: testModel }
         }
+        const parts = (data.candidates as { content?: { parts?: { text?: string }[] } }[])?.[0]?.content?.parts
+        const text: string = parts?.find(p => p.text != null)?.text || ''
+        if (!text || text.trim() === '') {
+          const finishReason = (data.candidates as { finishReason?: string }[])?.[0]?.finishReason || 'unknown'
+          console.warn(`AiCodeCat Gemini 验证失败：model=${testModel} 返回了空内容（finishReason=${finishReason}）`)
+          return {
+            ok: false,
+            reason: 'empty_content',
+            detail: `Gemini 模型 ${testModel} 返回了空内容（finishReason=${finishReason}），请切换其他模型`,
+            model: testModel,
+          }
+        }
+        return { ok: true, model: testModel }
+      } else {
+        // Claude/GPT 走 v1
+        const endpoint = `${AICODECAT_BASE_URL}/v1/chat/completions`
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${resolvedKey}`,
+          },
+          body: JSON.stringify({
+            model: testModel,
+            max_tokens: 10,
+            messages: [{ role: 'user', content: 'Reply with the word OK only.' }],
+          }),
+          signal: controller.signal,
+        })
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '')
+          console.warn(`AiCodeCat 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
+          return {
+            ok: false,
+            reason: 'http_error',
+            detail: `HTTP ${resp.status}：${errText.substring(0, 150)}`,
+            model: testModel,
+          }
+        }
+        let data: Record<string, unknown>
+        try {
+          data = await resp.json()
+        } catch {
+          return { ok: false, reason: 'parse_error', detail: '响应无法解析为 JSON', model: testModel }
+        }
+        const text: string = (data.choices as { message?: { content?: string } }[])?.[0]?.message?.content || ''
+        if (!text || text.trim() === '') {
+          const finishReason = (data.choices as { finish_reason?: string }[])?.[0]?.finish_reason || 'unknown'
+          console.warn(`AiCodeCat 验证失败：model=${testModel} 返回了空内容（finish_reason=${finishReason}）`)
+          return {
+            ok: false,
+            reason: 'empty_content',
+            detail: `模型 ${testModel} 返回了空内容（finish_reason=${finishReason}），请切换其他模型`,
+            model: testModel,
+          }
+        }
+        return { ok: true, model: testModel }
       }
-      return { ok: true, model: testModel }
     } finally {
       clearTimeout(timer)
     }

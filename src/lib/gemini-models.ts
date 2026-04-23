@@ -87,28 +87,40 @@ export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 // ─── AiCodeCat Gateway 模型 ────────────────────────────────────
 // 代理 aicode.cat（第三方中转），注册链接附带推广码
 export const AICODECAT_BASE_URL = 'https://aicode.cat'
+// 🆕 v1beta：Google Gemini 原生格式端点，Gemini 模型必须走此路由
+export const AICODECAT_V1BETA_BASE_URL = 'https://aicode.cat'
 export const AICODECAT_REGISTER_URL = 'https://aicode.cat/register?ref=AIADSGO01'
-// AiCodeCat 支持的模型（以价格页 2026-04 为准，与官方 API 单价一致）
-// 来源：https://aicode.cat 价格详情页
+// AiCodeCat 支持的模型（2026-04 实测，/v1beta/models 接口核验）
 export const AICODECAT_SUPPORTED_MODELS = [
-  // ─── OpenAI / Codex ───────────────────────────────────────
+  // ─── OpenAI / Codex（走 /v1/chat/completions）─────────────
   'gpt-5.4',
   'gpt-5.2',
   'gpt-5.2-codex',
   'gpt-5.3-codex',
-  // ─── Anthropic Claude（实测 Key1 全部可用）────────────────
+  // ─── Anthropic Claude（走 /v1/chat/completions）───────────
   'claude-opus-4-7',
   'claude-opus-4-6',
   'claude-sonnet-4-6',
   'claude-sonnet-4-5-20250929',
   'claude-haiku-4-5-20251001',
-  // ─── Google Gemini（Key2 实际可用模型）────────────────────
+  // ─── Google Gemini（走 /v1beta 原生格式，实测 2026-04 可用）─
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro',
+  'gemini-3-flash',
   'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
   'gemini-3.1-pro-preview',
+  'gemini-3.1-pro-high',
+  'gemini-3.1-pro-low',
 ] as const
 export type AiCodeCatModel = typeof AICODECAT_SUPPORTED_MODELS[number]
-// 🔧 默认改为 claude-sonnet-4-6（Gemini 分组当前 503，Claude 分组稳定）
 export const AICODECAT_DEFAULT_MODEL: AiCodeCatModel = 'claude-sonnet-4-6'
+
+/** 判断是否 Gemini 系列模型（需走 v1beta 原生端点） */
+export function isAiCodeCatGeminiModel(model?: string | null): boolean {
+  return !!model && model.toLowerCase().startsWith('gemini')
+}
 
 export function isValidAiCodeCatModel(model?: string | null): model is AiCodeCatModel {
   return !!model && (AICODECAT_SUPPORTED_MODELS as readonly string[]).includes(model)
