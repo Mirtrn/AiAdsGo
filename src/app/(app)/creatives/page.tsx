@@ -50,6 +50,7 @@ import {
   ArrowDown,
   Package,
   CalendarDays,
+  Download,
 } from 'lucide-react'
 import { TrendChart, TrendChartData } from '@/components/charts/TrendChart'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
@@ -468,6 +469,61 @@ export default function CreativesPage() {
     ? `${appliedCustomRange.startDate} ~ ${appliedCustomRange.endDate}`
     : '自定义'
 
+  const handleExportCSV = () => {
+    const toExport = selectedCreativeIds.size > 0
+      ? creatives.filter(c => selectedCreativeIds.has(c.id))
+      : filteredCreatives
+
+    if (toExport.length === 0) return
+
+    // 构造 CSV header：headline_1~15, description_1~4
+    const maxHeadlines = 15
+    const maxDescriptions = 4
+    const headers = [
+      'creative_id',
+      'offer_id',
+      ...Array.from({ length: maxHeadlines }, (_, i) => `headline_${i + 1}`),
+      ...Array.from({ length: maxDescriptions }, (_, i) => `description_${i + 1}`),
+      'final_url',
+      'score',
+      'status',
+      'created_at',
+    ]
+
+    const escapeCsv = (val: string) => {
+      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+        return `"${val.replace(/"/g, '""')}"`
+      }
+      return val
+    }
+
+    const rows = toExport.map(c => {
+      const headlines = Array.from({ length: maxHeadlines }, (_, i) => escapeCsv(getTextContent(c.headlines[i] ?? '')))
+      const descriptions = Array.from({ length: maxDescriptions }, (_, i) => escapeCsv(getTextContent(c.descriptions[i] ?? '')))
+      return [
+        c.id,
+        c.offerId,
+        ...headlines,
+        ...descriptions,
+        escapeCsv(c.finalUrl),
+        c.score ?? '',
+        c.creationStatus,
+        new Date(c.createdAt).toLocaleDateString('zh-CN'),
+      ].join(',')
+    })
+
+    const csvContent = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `creatives_export_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   const handleGenerateCreatives = async () => {
     setGenerating(true)
     setError('')
@@ -777,6 +833,16 @@ export default function CreativesPage() {
                   删除选中 ({selectedCreativeIds.size})
                 </Button>
               )}
+              <Button
+                variant="outline"
+                onClick={handleExportCSV}
+                disabled={filteredCreatives.length === 0}
+                className="flex items-center gap-2"
+                title={selectedCreativeIds.size > 0 ? `导出已选 ${selectedCreativeIds.size} 条` : `导出全部 ${filteredCreatives.length} 条`}
+              >
+                <Download className="w-4 h-4" />
+                {selectedCreativeIds.size > 0 ? `导出选中 (${selectedCreativeIds.size})` : '导出 CSV'}
+              </Button>
               <Button
                 variant="outline"
                 onClick={fetchOfferAndCreatives}

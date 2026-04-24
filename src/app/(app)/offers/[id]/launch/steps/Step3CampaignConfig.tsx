@@ -24,7 +24,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
-import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2, GripVertical } from 'lucide-react'
+import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2, GripVertical, Clipboard } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'
@@ -397,6 +397,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const [newNegativeKeyword, setNewNegativeKeyword] = useState('')
   const [newNegativeKeywordMatchType, setNewNegativeKeywordMatchType] = useState<NegativeKeywordMatchType>('EXACT')
   const [draggingNegativeKeyword, setDraggingNegativeKeyword] = useState<string | null>(null)
+  // 批量粘贴标题/描述
+  const [batchHeadlineDialogOpen, setBatchHeadlineDialogOpen] = useState(false)
+  const [batchHeadlineInput, setBatchHeadlineInput] = useState('')
+  const [batchDescriptionDialogOpen, setBatchDescriptionDialogOpen] = useState(false)
+  const [batchDescriptionInput, setBatchDescriptionInput] = useState('')
 
   // 🔧 修复(2025-12-27): 当selectedCreative变化时，重新初始化配置
   // 解决用户在第1步切换创意后，第3步仍显示旧创意参数的问题
@@ -1462,6 +1467,120 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
         </DialogContent>
       </Dialog>
 
+      {/* 批量粘贴标题 Dialog */}
+      <Dialog open={batchHeadlineDialogOpen} onOpenChange={setBatchHeadlineDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>批量粘贴标题</DialogTitle>
+            <DialogDescription>
+              一行一个标题，最多15个，每个标题不超过30个字符，空行会被忽略
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="batch-headline-input">标题列表 (每行一个)</Label>
+            <Textarea
+              id="batch-headline-input"
+              value={batchHeadlineInput}
+              onChange={(e) => setBatchHeadlineInput(e.target.value)}
+              placeholder={`示例：\nBest Luseta Hair Serum\nShop Official Luseta Products\nFree Shipping on All Orders`}
+              rows={10}
+            />
+            {(() => {
+              const lines = batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+              const overLimit = lines.filter(l => l.length > 30)
+              return (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500">
+                    已识别 <span className="font-medium text-gray-900">{lines.length}</span> 个标题
+                    {lines.length > 15 && <span className="text-orange-600 ml-1">（超过15个，将只取前15个）</span>}
+                  </p>
+                  {overLimit.length > 0 && (
+                    <p className="text-xs text-red-600">
+                      ⚠️ {overLimit.length} 个标题超过30字符将被截断：{overLimit.slice(0, 2).map(l => `"${l.substring(0, 20)}..."`).join('、')}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setBatchHeadlineDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                const lines = batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 15).map(l => l.substring(0, 30))
+                if (lines.length > 0) {
+                  handleChange('headlines', lines)
+                  showSuccess('导入成功', `已导入 ${lines.length} 个标题`)
+                }
+                setBatchHeadlineDialogOpen(false)
+              }}
+              disabled={batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).length === 0}
+            >
+              确认导入
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量粘贴描述 Dialog */}
+      <Dialog open={batchDescriptionDialogOpen} onOpenChange={setBatchDescriptionDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>批量粘贴描述</DialogTitle>
+            <DialogDescription>
+              一行一个描述，最多4个，每个描述不超过90个字符，空行会被忽略
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="batch-description-input">描述列表 (每行一个)</Label>
+            <Textarea
+              id="batch-description-input"
+              value={batchDescriptionInput}
+              onChange={(e) => setBatchDescriptionInput(e.target.value)}
+              placeholder={`示例：\nShop the best hair care products with free shipping on orders over $50.\nProfessional hair serum trusted by stylists. Try risk-free today.`}
+              rows={8}
+            />
+            {(() => {
+              const lines = batchDescriptionInput.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+              const overLimit = lines.filter(l => l.length > 90)
+              return (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500">
+                    已识别 <span className="font-medium text-gray-900">{lines.length}</span> 个描述
+                    {lines.length > 4 && <span className="text-orange-600 ml-1">（超过4个，将只取前4个）</span>}
+                  </p>
+                  {overLimit.length > 0 && (
+                    <p className="text-xs text-red-600">
+                      ⚠️ {overLimit.length} 个描述超过90字符将被截断
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setBatchDescriptionDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                const lines = batchDescriptionInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 4).map(l => l.substring(0, 90))
+                if (lines.length > 0) {
+                  handleChange('descriptions', lines)
+                  showSuccess('导入成功', `已导入 ${lines.length} 个描述`)
+                }
+                setBatchDescriptionDialogOpen(false)
+              }}
+              disabled={batchDescriptionInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).length === 0}
+            >
+              确认导入
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 3. Ad Settings - Headlines & Descriptions */}
       <Card>
         <CardHeader>
@@ -1505,6 +1624,14 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 标题 (Headlines) <Badge variant="destructive" className="ml-1">必须15个</Badge>
                 <Badge className="ml-1">{config.headlines.length}/15</Badge>
               </Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setBatchHeadlineInput(config.headlines.join('\n')); setBatchHeadlineDialogOpen(true) }}
+              >
+                <Clipboard className="w-4 h-4 mr-1" />
+                批量粘贴标题
+              </Button>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               {config.headlines.map((headline, index) => (
@@ -1528,6 +1655,14 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 描述 (Descriptions) <Badge variant="destructive" className="ml-1">必须4个</Badge>
                 <Badge className="ml-1">{config.descriptions.length}/4</Badge>
               </Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setBatchDescriptionInput(config.descriptions.join('\n')); setBatchDescriptionDialogOpen(true) }}
+              >
+                <Clipboard className="w-4 h-4 mr-1" />
+                批量粘贴描述
+              </Button>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
               {config.descriptions.map((desc, index) => (
