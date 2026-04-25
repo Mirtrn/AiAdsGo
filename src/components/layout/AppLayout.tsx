@@ -51,6 +51,12 @@ const MobileBottomNav = dynamic(
   { ssr: false }
 )
 
+// 公告弹窗（动态导入）
+const AnnouncementModal = dynamic(
+  () => import('@/components/AnnouncementModal'),
+  { ssr: false }
+)
+
 // 套餐类型中文映射
 const PACKAGE_TYPE_MAP: Record<string, string> = {
   trial: '试用版',
@@ -271,6 +277,12 @@ const adminNavigationItems: NavItem[] = [
     icon: RefreshCw,
     requireAdmin: true,
   },
+  {
+    label: '公告管理',
+    href: '/admin/announcements',
+    icon: Megaphone,
+    requireAdmin: true,
+  },
 ]
 
 // 全局用户缓存，避免重复请求
@@ -295,6 +307,8 @@ export default function AppLayout({
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [loading, setLoading] = useState(!cachedUser)
+  const [pendingAnnouncements, setPendingAnnouncements] = useState<any[]>([])
+  const [showAnnouncements, setShowAnnouncements] = useState(false)
   const fetchingRef = useRef(false)
   const prefetchedNavHrefsRef = useRef(new Set<string>())
 
@@ -343,6 +357,20 @@ export default function AppLayout({
       cachedUser = data.user
       cacheTimestamp = Date.now()
       setUser(data.user)
+
+      // 登录后拉取未读公告
+      try {
+        const annRes = await fetch('/api/announcements')
+        if (annRes.ok) {
+          const annData = await annRes.json()
+          if (annData.announcements && annData.announcements.length > 0) {
+            setPendingAnnouncements(annData.announcements)
+            setShowAnnouncements(true)
+          }
+        }
+      } catch {
+        // 公告拉取失败不影响主流程
+      }
     } catch (err) {
       cachedUser = null
       cacheTimestamp = 0
@@ -676,6 +704,17 @@ export default function AppLayout({
         open={passwordModalOpen}
         onOpenChange={setPasswordModalOpen}
       />
+
+      {/* 公告强制阅读弹窗 */}
+      {showAnnouncements && pendingAnnouncements.length > 0 && (
+        <AnnouncementModal
+          announcements={pendingAnnouncements}
+          onAllRead={() => {
+            setShowAnnouncements(false)
+            setPendingAnnouncements([])
+          }}
+        />
+      )}
     </div>
   )
 }
