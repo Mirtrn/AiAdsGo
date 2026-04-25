@@ -41,6 +41,7 @@ export default function BatchOfferPage() {
     fileName: string
     validCount: number
     skippedCount: number
+    skippedDetails?: Array<{ row: number; reason: string }>
   } | null>(null)
 
   const [records, setRecords] = useState<UploadRecord[]>([])
@@ -103,7 +104,8 @@ export default function BatchOfferPage() {
       setUploadResult({
         fileName: file.name,
         validCount: data.totalCount,
-        skippedCount
+        skippedCount,
+        skippedDetails: data.skippedDetails || []
       })
       setShowSuccessModal(true)
 
@@ -366,7 +368,7 @@ export default function BatchOfferPage() {
                   <th className="w-24 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     状态
                   </th>
-                  <th className="hidden w-16 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap md:table-cell">
+                  <th className="w-16 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                     操作
                   </th>
                 </tr>
@@ -411,14 +413,14 @@ export default function BatchOfferPage() {
                     <td className="px-3 py-4 whitespace-nowrap text-sm">
                       {getStatusBadge(record.status)}
                     </td>
-                    <td className="hidden px-3 py-4 whitespace-nowrap text-sm md:table-cell">
+                    <td className="px-3 py-4 whitespace-nowrap text-sm">
                       {(record.status === 'pending' || record.status === 'processing') && (
                         <button
                           onClick={() => handleCancelClick({ id: record.batchId, fileName: record.fileName })}
                           disabled={cancellingBatchId === record.batchId}
-                          className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                         >
-                          {cancellingBatchId === record.batchId ? '取消中...' : '取消'}
+                          {cancellingBatchId === record.batchId ? '取消中...' : '停止'}
                         </button>
                       )}
                     </td>
@@ -471,6 +473,7 @@ export default function BatchOfferPage() {
           fileName={uploadResult.fileName}
           validCount={uploadResult.validCount}
           skippedCount={uploadResult.skippedCount}
+          skippedDetails={uploadResult.skippedDetails}
         />
       )}
     </div>

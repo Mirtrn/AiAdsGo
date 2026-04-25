@@ -12,12 +12,18 @@
 import { useEffect } from 'react'
 import { CheckCircleIcon, ClockIcon, XMarkIcon } from '@heroicons/react/24/outline'
 
+interface SkippedDetail {
+  row: number
+  reason: string
+}
+
 interface UploadSuccessModalProps {
   isOpen: boolean
   onClose: () => void
   fileName: string
   validCount: number
   skippedCount: number
+  skippedDetails?: SkippedDetail[]
 }
 
 export default function UploadSuccessModal({
@@ -25,7 +31,8 @@ export default function UploadSuccessModal({
   onClose,
   fileName,
   validCount,
-  skippedCount
+  skippedCount,
+  skippedDetails = []
 }: UploadSuccessModalProps) {
   // 锁定背景滚动
   useEffect(() => {
@@ -77,9 +84,24 @@ export default function UploadSuccessModal({
                     有效数据：<span className="font-semibold text-blue-600">{validCount}</span> 行
                   </p>
                   {skippedCount > 0 && (
-                    <p className="text-yellow-600">
-                      跳过：{skippedCount} 行（缺少必填参数）
-                    </p>
+                    <div className="mt-2">
+                      <p className="text-yellow-600 font-medium">
+                        跳过：{skippedCount} 行
+                      </p>
+                      {skippedDetails.length > 0 && (
+                        <div className="mt-1 max-h-32 overflow-y-auto rounded bg-yellow-50 border border-yellow-200 p-2 text-xs text-yellow-800 space-y-1">
+                          {skippedDetails.map((d, idx) => (
+                            <div key={idx} className="flex gap-1">
+                              <span className="shrink-0 font-mono font-semibold">第{d.row}行:</span>
+                              <span>{d.reason}</span>
+                            </div>
+                          ))}
+                          {skippedCount > skippedDetails.length && (
+                            <div className="text-yellow-600 italic">…还有 {skippedCount - skippedDetails.length} 行（详见 CSV 文件）</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 

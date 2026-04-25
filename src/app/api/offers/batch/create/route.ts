@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
     const productLink3Idx = headers.indexOf('product_link_3')
 
     // 解析数据行，只保留必填参数完整的行
+    const skippedDetails: Array<{ row: number; reason: string }> = []
     const rows: Array<{
       affiliate_link: string
       target_country: string
@@ -161,6 +162,10 @@ export async function POST(req: NextRequest) {
       // 🔥 2025-12-12修复：加强验证，确保不是空字符串，target_country至少2个字符
       if (!affiliateLink || affiliateLink.trim() === '' || !targetCountry || targetCountry.trim().length < 2) {
         skippedCount++
+        const missingFields = []
+        if (!affiliateLink || affiliateLink.trim() === '') missingFields.push('推广链接为空')
+        if (!targetCountry || targetCountry.trim().length < 2) missingFields.push('推广国家为空或无效')
+        skippedDetails.push({ row: i + 1, reason: missingFields.join('；') })
         console.warn(`⚠️ 跳过第${i + 1}行：缺少必填参数 (推广链接=${affiliateLink}, 推广国家=${targetCountry})`)
         continue // 跳过参数不全的行
       }
@@ -169,6 +174,7 @@ export async function POST(req: NextRequest) {
       const normalizedAffiliateLink = affiliateLink.trim()
       if (normalizedAffiliateLink === 'null' || normalizedAffiliateLink === 'null/' || normalizedAffiliateLink === 'undefined') {
         skippedCount++
+        skippedDetails.push({ row: i + 1, reason: `推广链接无效值 (${normalizedAffiliateLink})` })
         console.warn(`⚠️ 跳过第${i + 1}行：推广链接无效 (${normalizedAffiliateLink})`)
         continue
       }
@@ -196,6 +202,7 @@ export async function POST(req: NextRequest) {
         const brandName = values[brandNameIdx].trim()
         if (brandName.length > 120) {
           skippedCount++
+          skippedDetails.push({ row: i + 1, reason: '品牌名超过120字符' })
           console.warn(`⚠️ 跳过第${i + 1}行：品牌名过长（>120）`)
           continue
         }
@@ -271,6 +278,7 @@ export async function POST(req: NextRequest) {
         })
         if (invalidLink) {
           skippedCount++
+          skippedDetails.push({ row: i + 1, reason: `单品推广链接格式无效 (${invalidLink})` })
           console.warn(`⚠️ 跳过第${i + 1}行：单品推广链接无效 (${invalidLink})`)
           continue
         }
@@ -282,6 +290,7 @@ export async function POST(req: NextRequest) {
         row.page_type = 'product'
       } else if (rawPageType) {
         skippedCount++
+        skippedDetails.push({ row: i + 1, reason: `无法识别链接类型 "${rawPageType}"，仅支持 product/store` })
         console.warn(`⚠️ 跳过第${i + 1}行：无法识别链接类型 (${rawPageType})`)
         continue
       }
@@ -416,6 +425,7 @@ export async function POST(req: NextRequest) {
       batchId,
       totalCount: rows.length,
       skippedCount: skippedCount,
+      skippedDetails: skippedDetails.slice(0, 50), // 最多返回50条跳过详情
       message: `批量任务已创建，共${rows.length}个Offer`
     })
 
