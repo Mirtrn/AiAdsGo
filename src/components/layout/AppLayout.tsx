@@ -321,11 +321,20 @@ export default function AppLayout({
   }
 
   useEffect(() => {
-    // 如果已有缓存且未过期，直接使用
+    // 如果已有缓存且未过期，直接使用（但仍需拉取公告）
     const now = Date.now()
     if (cachedUser && (now - cacheTimestamp) < CACHE_DURATION) {
       setUser(cachedUser)
       setLoading(false)
+      // 缓存命中时也要拉取未读公告
+      fetch('/api/announcements').then(res => {
+        if (res.ok) return res.json()
+      }).then(data => {
+        if (data?.announcements?.length > 0) {
+          setPendingAnnouncements(data.announcements)
+          setShowAnnouncements(true)
+        }
+      }).catch(() => {})
       return
     }
 
