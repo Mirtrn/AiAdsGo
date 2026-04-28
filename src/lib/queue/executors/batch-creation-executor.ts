@@ -35,6 +35,7 @@ export interface BatchCreationTaskData {
     commission_currency?: string
     page_type?: 'store' | 'product'
     store_product_links?: string[]
+    offer_name?: string
   }>
 }
 
@@ -151,6 +152,8 @@ export async function executeBatchCreation(
         brandName: row.brand_name,
         pageType: row.page_type,
         storeProductLinks: row.store_product_links,
+        // 🔥 新增：传递用户自定义Offer名称
+        offerName: row.offer_name,
       }
 
       const statusForEnqueue = existingTaskStatus.get(childTaskId)

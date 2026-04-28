@@ -157,6 +157,8 @@ export interface CreateOfferInput {
   extraction_metadata?: string
   // 🔥 页面类型标识（店铺/单品）
   page_type?: 'store' | 'product'
+  // 🔥 用户自定义名称（优先使用，否则自动生成）
+  offer_name?: string
 }
 
 export interface UpdateOfferInput {
@@ -217,8 +219,10 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
   // 如果没有提供brand，使用临时值"Unknown"，等抓取完成后更新
   const brandValue = input.brand || 'Unknown'
 
-  // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
-  const offerName = await generateOfferName(brandValue, input.target_country, userId)
+  // 生成offer_name: 优先使用用户自定义名称，否则自动生成 品牌名称_推广国家_序号（如 Reolink_US_01）
+  const offerName = (input.offer_name && input.offer_name.trim())
+    ? input.offer_name.trim()
+    : await generateOfferName(brandValue, input.target_country, userId)
 
   // Debug logging for PostgreSQL
   if (process.env.DEBUG_OFFERS) {

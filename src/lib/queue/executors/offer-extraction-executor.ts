@@ -270,6 +270,8 @@ export interface OfferExtractionTaskData {
   // 🔥 链接类型与店铺补充单品链接
   pageType?: 'store' | 'product'
   storeProductLinks?: string[]
+  // 🔥 新增：用户自定义Offer名称（优先使用，否则自动生成）
+  offerName?: string
 }
 
 /**
@@ -290,7 +292,8 @@ export async function executeOfferExtraction(
     commissionCurrency,
     brandName,
     pageType,
-    storeProductLinks
+    storeProductLinks,
+    offerName,
   } = task.data
   const db = getDatabase()
 
@@ -421,6 +424,8 @@ export async function executeOfferExtraction(
         commission_value: commissionValue || undefined,
         commission_currency: commissionCurrency || undefined,
         page_type: pageTypeToPersist,
+        // 🔥 新增：用户自定义Offer名称
+        offer_name: offerName || undefined,
       })
       createdOfferId = offer.id
       // 保存scraped_data
@@ -450,6 +455,8 @@ export async function executeOfferExtraction(
         commission_value: commissionValue || undefined,
         commission_currency: commissionCurrency || undefined,
         page_type: pageTypeToPersist,
+        // 🔥 新增：用户自定义Offer名称
+        offer_name: offerName || undefined,
       })
       createdOfferId = offer.id
       // 保存scraped_data

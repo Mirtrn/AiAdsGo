@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       commission_value,
       commission_currency,
       brand_name,
+      offer_name,
       page_type,
       store_product_links,
       skipCache,
@@ -198,6 +199,8 @@ export async function POST(req: NextRequest) {
       brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
       pageType,
       storeProductLinks: normalizedStoreProductLinks.length > 0 ? normalizedStoreProductLinks : undefined,
+      // 🔥 新增：用户自定义Offer名称
+      offerName: (typeof offer_name === 'string' && offer_name.trim()) ? offer_name.trim() : undefined,
     }
 
     await queue.enqueue(

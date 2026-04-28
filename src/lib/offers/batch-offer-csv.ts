@@ -124,6 +124,20 @@ export function canonicalizeOfferBatchCsvHeader(value: unknown) {
   )) {
     return 'commission_currency'
   }
+  if (has(t =>
+    t === 'offername' ||
+    t.includes('offername') ||
+    t === 'customoffername' ||
+    t.includes('customoffername') ||
+    t === 'offer_name' ||
+    t.includes('自定义名称') ||
+    t.includes('offer名称') ||
+    t.includes('offer标识') ||
+    t.includes('广告标识') ||
+    t.includes('自定义标识')
+  )) {
+    return 'offer_name'
+  }
   return raw.toLowerCase()
 }
 

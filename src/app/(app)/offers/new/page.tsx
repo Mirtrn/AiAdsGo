@@ -28,6 +28,7 @@ export default function NewOfferPage() {
   // 表单状态
   const [url, setUrl] = useState('')
   const [brand, setBrand] = useState('')
+  const [customOfferName, setCustomOfferName] = useState('')  // 自定义Offer名称
   const [category, setCategory] = useState('')
   const [targetCountry, setTargetCountry] = useState('US')
   const [affiliateLink, setAffiliateLink] = useState('')
@@ -54,6 +55,10 @@ export default function NewOfferPage() {
     if (!brand.trim() || !targetCountry) return '请先填写品牌名称和国家'
     return `${brand.trim()}_${targetCountry}_01`
   }, [brand, targetCountry])
+
+  // 当品牌或国家变化时，如果用户没有手动编辑过名称，则同步自动生成值
+  const [offerNameEdited, setOfferNameEdited] = useState(false)
+  const effectiveOfferName = offerNameEdited ? customOfferName : offerNamePreview
 
   // 自动推导推广语言
   const targetLanguagePreview = useMemo(() => {
@@ -163,6 +168,7 @@ export default function NewOfferPage() {
           affiliate_link: sourceLink,
           target_country: targetCountry,
           brand_name: brand || undefined,
+          offer_name: effectiveOfferName && effectiveOfferName !== '请先填写品牌名称和国家' ? effectiveOfferName : undefined,
           page_type: linkType,
           store_product_links: linkType === 'store' && uniqueLinks.length > 0
             ? uniqueLinks
@@ -594,13 +600,38 @@ export default function NewOfferPage() {
                       Offer标识 (Offer Name)
                     </label>
                     <div className="flex items-center space-x-2">
-                      <div className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 font-mono">
-                        {offerNamePreview}
-                      </div>
-                      <span className="text-xs text-gray-500">自动生成</span>
+                      <input
+                        type="text"
+                        className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 font-mono focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        value={effectiveOfferName === '请先填写品牌名称和国家' ? '' : effectiveOfferName}
+                        placeholder={offerNamePreview}
+                        onChange={(e) => {
+                          setCustomOfferName(e.target.value)
+                          setOfferNameEdited(true)
+                        }}
+                        onBlur={(e) => {
+                          // 如果用户清空了输入框，恢复自动生成
+                          if (!e.target.value.trim()) {
+                            setOfferNameEdited(false)
+                            setCustomOfferName('')
+                          }
+                        }}
+                        maxLength={60}
+                      />
+                      {offerNameEdited && customOfferName.trim() ? (
+                        <button
+                          type="button"
+                          className="text-xs text-gray-500 hover:text-indigo-600 whitespace-nowrap"
+                          onClick={() => { setOfferNameEdited(false); setCustomOfferName('') }}
+                        >
+                          重置
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">自动生成</span>
+                      )}
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      格式：[品牌名称]_[推广国家]_[序号]，用于唯一标识此Offer
+                      可自定义名称（如 Reolink_Amazon_US_安防摄像头），留空则使用自动生成格式：[品牌]_[国家]_[序号]
                     </p>
                   </div>
 
@@ -634,7 +665,7 @@ export default function NewOfferPage() {
                       <svg className="w-5 h-5 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
-                      <span>将自动生成Offer标识：{offerNamePreview}</span>
+                      <span>Offer标识：{offerNameEdited && customOfferName.trim() ? customOfferName.trim() : offerNamePreview}</span>
                     </div>
                   )}
                 </div>

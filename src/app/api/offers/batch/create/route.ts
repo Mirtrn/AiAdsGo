@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
     const productLink1Idx = headers.indexOf('product_link_1')
     const productLink2Idx = headers.indexOf('product_link_2')
     const productLink3Idx = headers.indexOf('product_link_3')
+    const offerNameIdx = headers.indexOf('offer_name')
 
     // 解析数据行，只保留必填参数完整的行
     const skippedDetails: Array<{ row: number; reason: string }> = []
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
       commission_currency?: string
       page_type?: 'store' | 'product'
       store_product_links?: string[]
+      offer_name?: string
     }> = []
 
     let skippedCount = 0
@@ -198,6 +200,16 @@ export async function POST(req: NextRequest) {
       })()
 
       // 添加可选参数
+      if (offerNameIdx !== -1 && values[offerNameIdx]) {
+        const offerName = values[offerNameIdx].trim()
+        if (offerName.length > 60) {
+          skippedCount++
+          skippedDetails.push({ row: i + 1, reason: '自定义名称超过60字符' })
+          console.warn(`⚠️ 跳过第${i + 1}行：自定义名称过长（>60）`)
+          continue
+        }
+        if (offerName) row.offer_name = offerName
+      }
       if (brandNameIdx !== -1 && values[brandNameIdx]) {
         const brandName = values[brandNameIdx].trim()
         if (brandName.length > 120) {
