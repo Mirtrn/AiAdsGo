@@ -545,7 +545,7 @@ export default function UserManagementPage() {
     const copyToClipboard = () => {
         if (!resetPasswordData) return
 
-        const domain = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://www.aiadsgo.com'
+        const domain = window.location.origin
         const text = `【AutoAds登录信息】
 访问地址: ${domain}
 登录用户名: ${resetPasswordData.username}
@@ -1276,7 +1276,7 @@ export default function UserManagementPage() {
                     <div className="space-y-4 py-4">
                         <div className="p-4 bg-muted rounded-lg space-y-2 font-mono text-sm">
                             <div>【AutoAds登录信息】</div>
-                            <div>访问地址: {typeof window !== 'undefined' && (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://www.aiadsgo.com')}</div>
+                            <div>访问地址: {typeof window !== 'undefined' && window.location.origin}</div>
                             <div>登录用户名: {resetPasswordData?.username}</div>
                             <div>登录密码: <span className="font-bold text-indigo-600">{resetPasswordData?.password}</span></div>
                             <div className="text-muted-foreground text-xs">首次登录需要修改密码。</div>
