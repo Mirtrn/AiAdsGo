@@ -315,7 +315,20 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
   // 默认逻辑：返回任务时区中下一个有配额的小时
   // 🔧 优化：直接跳到下一个有配额且在执行范围内的小时，避免逐小时跳过
-  return getNextHourWithQuota(now, task);
+  const nextRunAt = getNextHourWithQuota(now, task);
+
+  // 🔧 安全兜底(2026-04-30)：无论计算逻辑如何，返回的时间必须在未来
+  // 防止时区边界/DST/精度问题导致 next_run_at 卡在过去，造成死循环
+  if (nextRunAt <= now) {
+    const fallback = getNextHourInTimezone(now, timezone);
+    console.warn(
+      `[generateNextRunAt] ⚠️ 安全兜底触发: taskId=${task.id}, ` +
+      `计算结果 ${nextRunAt.toISOString()} 在过去，已修正为 ${fallback.toISOString()}`
+    );
+    return fallback;
+  }
+
+  return nextRunAt;
 }
 
 /**

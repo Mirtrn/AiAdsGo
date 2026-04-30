@@ -440,7 +440,38 @@ async function cleanupZombieRunningTasks(): Promise<number> {
     if (cleanedCount > 0) {
       console.log(`[TriggerAll] 🧹 自动清理僵尸 running 任务: ${cleanedCount} 个（超过 ${zombieThresholdHours}h 未更新）已重置为 pending`)
     }
-    return cleanedCount
+
+    // 🔧 修复(2026-04-30)：额外清理 next_run_at 卡在过去超过2小时的任务。
+    // 场景：即使 updated_at 很新（任务每次被触发时都更新），但 next_run_at 因为时区/DST
+    // 计算错误而卡在很久以前，导致任务进入死循环（不断触发但始终跳过）。
+    // 通过重置 next_run_at=NULL 让调度器重新计算正确的下次执行时间。
+    let stuckRows: { id: string }[]
+    if (db.type === 'postgres') {
+      stuckRows = await db.query<{ id: string }>(
+        `UPDATE click_farm_tasks
+         SET next_run_at = NULL, updated_at = NOW()
+         WHERE status IN ('pending', 'running')
+           AND next_run_at IS NOT NULL
+           AND next_run_at < NOW() - INTERVAL '${zombieThresholdHours} hours'
+         RETURNING id`
+      )
+    } else {
+      stuckRows = await db.query<{ id: string }>(
+        `UPDATE click_farm_tasks
+         SET next_run_at = NULL, updated_at = datetime('now')
+         WHERE status IN ('pending', 'running')
+           AND next_run_at IS NOT NULL
+           AND next_run_at < datetime('now', '-${zombieThresholdHours} hours')
+         RETURNING id`
+      )
+    }
+
+    const stuckCount = stuckRows.length
+    if (stuckCount > 0) {
+      console.log(`[TriggerAll] 🔧 自动修复卡住 next_run_at 的任务: ${stuckCount} 个（next_run_at 超过 ${zombieThresholdHours}h 在过去）已重置为 NULL`)
+    }
+
+    return cleanedCount + stuckCount
   } catch (err) {
     console.error('[TriggerAll] ⚠️ 僵尸任务清理失败:', err)
     return 0
