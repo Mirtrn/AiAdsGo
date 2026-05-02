@@ -273,13 +273,13 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
   },
   'AI配置缺失': {
     title: 'AI 提供商未配置',
-    description: '当前账号尚未配置 AI 提供商。请前往设置页面，选择 AI 提供商（LiteLLM Gateway / Gemini / OpenAI / Claude）并填写对应的 API Key 后重试。',
+    description: '当前账号尚未配置 AI 提供商。请前往设置页面，填写 OpenLLM API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '尚未配置任何 AI 提供商': {
     title: 'AI 提供商未配置',
-    description: '当前账号尚未配置 AI 提供商。请前往设置页面，选择 AI 提供商（LiteLLM Gateway / Gemini / OpenAI / Claude）并填写对应的 API Key 后重试。',
+    description: '当前账号尚未配置 AI 提供商。请前往设置页面，填写 OpenLLM API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },

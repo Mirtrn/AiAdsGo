@@ -1484,7 +1484,7 @@ export default function SettingsPage() {
                 <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
                 <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
-                <li>• <strong>AI 引擎</strong>：支持 Gemini（Google）和 OpenLLM 两种提供商，先选择提供商再填写对应 API Key 即可</li>
+                <li>• <strong>AI 引擎</strong>：使用 OpenLLM 中转服务，填写 OpenLLM API Key 和选择模型即可</li>
                 <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>
@@ -2226,9 +2226,9 @@ export default function SettingsPage() {
                           <p className="font-semibold text-body-sm text-purple-800">AI配置顺序</p>
                         </div>
                         <div className="space-y-2 text-body-sm text-purple-700">
-                          <p>1. 选择 AI 提供商（Gemini / OpenAI / Claude）</p>
-                          <p>2. 填写对应提供商的 API Key 和模型</p>
-                          <p className="text-purple-600">仅当前选中提供商的配置会生效，其他提供商的配置会保留但不会被调用。</p>
+                          <p>1. 填写 OpenLLM API Key（前往 openllmapi.com 注册获取）</p>
+                          <p>2. 选择要使用的模型（Kimi / DeepSeek / GPT / Claude / Gemini 等）</p>
+                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持多种主流模型。</p>
                         </div>
                       </div>
                     )}
