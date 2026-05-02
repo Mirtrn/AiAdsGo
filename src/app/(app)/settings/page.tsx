@@ -23,20 +23,9 @@ import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import {
-  GEMINI_ACTIVE_MODEL,
-  RELAY_GPT_52_MODEL,
-  OPENAI_SUPPORTED_MODELS,
-  OPENAI_DEFAULT_MODEL,
-  ANTHROPIC_SUPPORTED_MODELS,
-  ANTHROPIC_DEFAULT_MODEL,
   LITELLM_SUPPORTED_MODELS,
   LITELLM_DEFAULT_MODEL,
-  AICODECAT_SUPPORTED_MODELS,
-  AICODECAT_DEFAULT_MODEL,
-  isModelSupportedByProvider,
-  normalizeModelForProvider,
 } from '@/lib/gemini-models'
-import { getGeminiEndpoint, type GeminiProvider } from '@/lib/gemini-config'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 import {
   DEFAULT_AFFILIATE_SYNC_INTERVAL_HOURS,
@@ -136,12 +125,6 @@ interface SettingsGroup {
   [key: string]: Setting[]
 }
 
-function resolveGeminiEndpoint(providerValue?: string, modelValue?: string): string {
-  const provider = (providerValue || 'official') as GeminiProvider
-  const normalizedModel = normalizeModelForProvider(modelValue || GEMINI_ACTIVE_MODEL, provider)
-  return getGeminiEndpoint(provider, normalizedModel)
-}
-
 // 设置项的详细说明和配置
 const SETTING_METADATA: Record<string, {
   label: string
@@ -176,70 +159,6 @@ const SETTING_METADATA: Record<string, {
     helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
   },
 
-  // AI - 主提供商选择
-  'ai.ai_provider': {
-    label: 'AI 提供商',
-    description: '选择用于生成广告创意、产品分析的 AI 服务商。选择后在下方配置对应的 API Key',
-    options: [
-      { value: 'gemini', label: '🌐 Gemini（Google）' },
-      { value: 'openai', label: '🤖 OpenAI（GPT）' },
-      { value: 'anthropic', label: '🔮 Anthropic（Claude）' },
-      { value: 'litellm', label: '⚡ OpenLLM' },
-      { value: 'aicodecat', label: '🐱 AiCodeCat' },
-    ],
-    defaultValue: 'gemini'
-  },
-
-  // AI - Gemini API端点（只读）
-  'ai.gemini_endpoint': {
-    label: 'Gemini API端点',
-    description: '根据 AI 模型自动计算，不可手动修改',
-    placeholder: '系统自动设置'
-  },
-  // AI - Gemini API配置（仅官方）
-  'ai.gemini_api_key': {
-    label: 'Gemini 官方 API Key',
-    description: 'Google Gemini 官方 API 密钥（需海外网络；国内用户请选择 OpenLLM 或 AiCodeCat）',
-    placeholder: '输入官方 API Key（AIza...）',
-    helpLink: 'https://aistudio.google.com/app/api-keys'
-  },
-  'ai.gemini_model': {
-    label: 'Gemini 模型',
-    description: '选择要使用的 Gemini 模型',
-    options: [
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
-    ],
-    defaultValue: GEMINI_ACTIVE_MODEL
-  },
-
-  // AI - OpenAI 配置
-  'ai.openai_api_key': {
-    label: 'OpenAI API Key',
-    description: 'OpenAI 官方 API 密钥，用于调用 GPT 系列模型',
-    placeholder: '输入 OpenAI API Key（sk-...）',
-    helpLink: 'https://platform.openai.com/api-keys'
-  },
-  'ai.openai_model': {
-    label: 'OpenAI 模型',
-    description: '选择要使用的 GPT 模型',
-    options: OPENAI_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
-    defaultValue: OPENAI_DEFAULT_MODEL
-  },
-
-  // AI - Anthropic Claude 配置
-  'ai.anthropic_api_key': {
-    label: 'Anthropic API Key',
-    description: 'Anthropic 官方 API 密钥，用于调用 Claude 系列模型',
-    placeholder: '输入 Anthropic API Key（sk-ant-...）',
-    helpLink: 'https://console.anthropic.com/settings/keys'
-  },
-  'ai.anthropic_model': {
-    label: 'Claude 模型',
-    description: '选择要使用的 Claude 模型',
-    options: ANTHROPIC_SUPPORTED_MODELS.map(m => ({ value: m, label: m })),
-    defaultValue: ANTHROPIC_DEFAULT_MODEL
-  },
-
   // AI - OpenLLM Gateway（原 LiteLLM）配置
   'ai.litellm_api_key': {
     label: 'OpenLLM API Key',
@@ -252,19 +171,6 @@ const SETTING_METADATA: Record<string, {
     description: '选择通过 OpenLLM 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
     options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m.includes('/') ? m.split('/').slice(1).join('/') : m })),
     defaultValue: LITELLM_DEFAULT_MODEL
-  },
-
-  // AI - AiCodeCat Gateway 配置
-  'ai.aicodecat_api_key': {
-    label: 'AiCodeCat API Key',
-    description: '第三方中转服务 API 密钥，适合国内用户访问',
-    placeholder: '输入 API Key（sk-...）',
-  },
-  'ai.aicodecat_model': {
-    label: 'AiCodeCat 模型',
-    description: '选择通过 AiCodeCat 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
-    options: AICODECAT_SUPPORTED_MODELS.map(m => ({ value: m, label: m.includes('/') ? m.split('/').slice(1).join('/') : m })),
-    defaultValue: AICODECAT_DEFAULT_MODEL
   },
 
   // Proxy - 新的多URL配置
@@ -396,20 +302,8 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true },
   ],
   ai: [
-    { key: 'ai_provider', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gemini_provider', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'openai_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'openai_model', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'anthropic_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'anthropic_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
-    { key: 'aicodecat_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'aicodecat_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -500,9 +394,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState<string | null>(null)
   const [deletingAIConfig, setDeletingAIConfig] = useState(false)
-  const [aiDeleteConfirmTarget, setAiDeleteConfirmTarget] = useState<
-    'gemini-official' | 'gemini-relay' | null
-  >(null)
+  const [aiDeleteConfirmTarget, setAiDeleteConfirmTarget] = useState<string | null>(null)
 
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
@@ -616,14 +508,6 @@ export default function SettingsPage() {
       }
     }
 
-    if (category === 'ai') {
-      const provider = categoryFormValues.gemini_provider || 'official'
-      const currentModel = categoryFormValues.gemini_model || GEMINI_ACTIVE_MODEL
-      const normalizedModel = normalizeModelForProvider(currentModel, provider)
-      categoryFormValues.gemini_model = normalizedModel
-      categoryFormValues.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
-    }
-
     return categoryFormValues
   }
 
@@ -727,32 +611,6 @@ export default function SettingsPage() {
           ...prev[category],
           [key]: value,
         },
-      }
-
-      // 🆕 当 gemini_provider 改变时，自动更新 gemini_model / gemini_endpoint
-      if (category === 'ai' && key === 'gemini_provider') {
-        // 🔧 修复(2025-12-30): 切换服务商时，清空另一个服务商的API Key显示值
-        // 避免用户困惑（虽然两个API Key可能都已配置，但只会使用当前选中的）
-        if (value === 'official') {
-          // 切换到官方：清空中转API Key的显示（不影响数据库，只是前端显示）
-          updated.ai.gemini_relay_api_key = ''
-        } else if (value === 'relay') {
-          // 切换到中转：清空官方API Key的显示（不影响数据库，只是前端显示）
-          updated.ai.gemini_api_key = ''
-        }
-
-        const currentModel = updated.ai.gemini_model || GEMINI_ACTIVE_MODEL
-        const normalizedModel = normalizeModelForProvider(currentModel, value)
-        updated.ai.gemini_model = normalizedModel
-        updated.ai.gemini_endpoint = resolveGeminiEndpoint(value, normalizedModel)
-      }
-
-      // 🆕 当 gemini_model 改变时，自动更新 gemini_endpoint
-      if (category === 'ai' && key === 'gemini_model') {
-        const provider = updated.ai.gemini_provider || 'official'
-        const normalizedModel = normalizeModelForProvider(value, provider)
-        updated.ai.gemini_model = normalizedModel
-        updated.ai.gemini_endpoint = resolveGeminiEndpoint(provider, normalizedModel)
       }
 
       return updated
@@ -955,46 +813,11 @@ export default function SettingsPage() {
 
       // AI配置验证
       if (category === 'ai') {
-        const aiProvider = formData.ai?.['ai_provider'] || 'gemini'
-
-        if (aiProvider === 'openai') {
-          const openaiApiKey = formData.ai?.['openai_api_key']
-          // 占位符 '············' 表示 Key 已保存，允许只更新其他字段（如 ai_provider/model）
-          if (!openaiApiKey || openaiApiKey.trim() === '') {
-            toast.error('使用 OpenAI 时，必须填写 OpenAI API Key（sk-...）')
-            setSaving(false)
-            return
-          }
-        } else if (aiProvider === 'anthropic') {
-          const anthropicApiKey = formData.ai?.['anthropic_api_key']
-          // 占位符 '············' 表示 Key 已保存，允许只更新其他字段（如 ai_provider/model）
-          if (!anthropicApiKey || anthropicApiKey.trim() === '') {
-            toast.error('使用 Anthropic Claude 时，必须填写 Anthropic API Key（sk-ant-...）')
-            setSaving(false)
-            return
-          }
-        } else if (aiProvider === 'litellm') {
-          const litellmApiKey = formData.ai?.['litellm_api_key']
-          if (!litellmApiKey || litellmApiKey.trim() === '') {
-            toast.error('使用 OpenLLM 时，必须填写 OpenLLM API Key')
-            setSaving(false)
-            return
-          }
-        } else if (aiProvider === 'aicodecat') {
-          const aicodecatApiKey = formData.ai?.['aicodecat_api_key']
-          if (!aicodecatApiKey || aicodecatApiKey.trim() === '') {
-            toast.error('使用 AiCodeCat 时，必须填写 AiCodeCat API Key')
-            setSaving(false)
-            return
-          }
-        } else {
-          // Gemini 验证（仅官方）
-          const geminiApiKey = formData.ai?.['gemini_api_key']
-          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
-            toast.error('使用 Gemini 时，必须填写 Gemini 官方 API Key')
-            setSaving(false)
-            return
-          }
+        const litellmApiKey = formData.ai?.['litellm_api_key']
+        if (!litellmApiKey || litellmApiKey.trim() === '') {
+          toast.error('使用 OpenLLM 时，必须填写 OpenLLM API Key')
+          setSaving(false)
+          return
         }
       }
 
@@ -1104,10 +927,10 @@ export default function SettingsPage() {
     try {
       let config: Record<string, string> = { ...(formData[category] || {}) }
 
-      // AI 分类：确保 ai_provider 始终传递有效值（避免服务端回退到 gemini 默认分支）
+      // AI 分类：确保 ai_provider 始终传递有效值
       if (category === 'ai') {
         if (!config.ai_provider || config.ai_provider.trim() === '') {
-          config.ai_provider = 'gemini'
+          config.ai_provider = 'litellm'
         }
       }
 
@@ -1167,44 +990,23 @@ export default function SettingsPage() {
     }
   }
 
-  const getAIConfigDeleteTarget = (): 'gemini-official' | 'gemini-relay' => {
-    const provider = formData.ai?.gemini_provider || 'official'
-    return provider === 'relay' ? 'gemini-relay' : 'gemini-official'
-  }
-
   const hasAIConfigToDelete = (() => {
     const aiSettings = settings.ai || []
     const getBackendValue = (key: string): string | null | undefined =>
       aiSettings.find(s => s.key === key)?.value
-
-    const target = getAIConfigDeleteTarget()
-    if (target === 'gemini-relay') {
-      return Boolean(getBackendValue('gemini_relay_api_key'))
-    }
-    return Boolean(getBackendValue('gemini_api_key'))
+    return Boolean(getBackendValue('litellm_api_key'))
   })()
 
   const requestDeleteCurrentAIConfig = () => {
-    const target = getAIConfigDeleteTarget()
-
     if (!hasAIConfigToDelete) {
       toast.error('当前模式未检测到可删除的配置')
       return
     }
 
-    setAiDeleteConfirmTarget(target)
+    setAiDeleteConfirmTarget('litellm')
   }
 
-  const deleteCurrentAIConfigNow = async (target: 'gemini-official' | 'gemini-relay') => {
-    const targetLabel = (() => {
-      switch (target) {
-        case 'gemini-relay':
-          return 'Gemini 第三方中转'
-        case 'gemini-official':
-          return 'Gemini 官方'
-      }
-    })()
-
+  const deleteCurrentAIConfigNow = async (target: string) => {
     setDeletingAIConfig(true)
     try {
       const response = await fetch('/api/settings', {
@@ -1224,7 +1026,7 @@ export default function SettingsPage() {
         throw new Error(data.error || data.message || '删除失败')
       }
 
-      toast.success(`已删除「${targetLabel}」配置`)
+      toast.success('已删除 OpenLLM 配置')
       await refreshCategorySettings('ai')
       setEditingField(null)
       setAiDeleteConfirmTarget(null)
@@ -1382,7 +1184,6 @@ export default function SettingsPage() {
   }
 
   const isReadOnlySetting = (category: string, key: string): boolean => {
-    if (category === 'ai' && key === 'gemini_endpoint') return true
     return category === 'affiliate_sync' && getFixedAffiliateSyncSettingValue(key) !== undefined
   }
 
@@ -1444,18 +1245,8 @@ export default function SettingsPage() {
         { value: 'false', label: '否' }
       ]
 
-      if (category === 'ai' && setting.key === 'gemini_model') {
-        const provider = formData.ai?.gemini_provider || 'official'
-        if (provider === 'relay') {
-          // 中转路径：只显示中转专用模型
-          options = options.filter((opt) =>
-            opt.value === 'gemini-3-flash-preview' || opt.value === RELAY_GPT_52_MODEL
-          )
-        } else {
-          // 官方路径：只显示真实 Google 模型 ID，隐藏中转专用模型
-          options = options.filter((opt) =>
-            opt.value !== 'gemini-3-flash-preview' && opt.value !== RELAY_GPT_52_MODEL
-          )
+      if (false) {
+        {
         }
       }
 
@@ -1658,12 +1449,7 @@ export default function SettingsPage() {
             <AlertDialogHeader>
               <AlertDialogTitle>确认删除 AI 配置？</AlertDialogTitle>
               <AlertDialogDescription>
-                {aiDeleteConfirmTarget === 'gemini-official' && (
-                  <>将清空 Gemini 官方 API Key。删除后需要重新填写才能继续使用官方服务。</>
-                )}
-                {aiDeleteConfirmTarget === 'gemini-relay' && (
-                  <>将清空 Gemini 第三方中转 API Key。删除后需要重新填写才能继续使用中转服务。</>
-                )}
+                将清空 OpenLLM API Key。删除后需要重新填写才能继续使用 OpenLLM 服务。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -1698,7 +1484,7 @@ export default function SettingsPage() {
                 <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
                 <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
-                <li>• <strong>AI 引擎</strong>：支持 Gemini（Google）、OpenAI（GPT）、Anthropic（Claude）三种提供商，先选择提供商再填写对应 API Key 即可</li>
+                <li>• <strong>AI 引擎</strong>：支持 Gemini（Google）和 OpenLLM 两种提供商，先选择提供商再填写对应 API Key 即可</li>
                 <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>
@@ -2464,17 +2250,8 @@ export default function SettingsPage() {
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
                             const aiOrder = [
-                              'ai_provider',
-                              // Gemini 相关
-                              'gemini_provider', 'gemini_model', 'gemini_endpoint', 'gemini_api_key', 'gemini_relay_api_key',
-                              // OpenAI 相关
-                              'openai_api_key', 'openai_model',
-                              // Anthropic 相关
-                              'anthropic_api_key', 'anthropic_model',
                               // OpenLLM（LiteLLM）相关
                               'litellm_api_key', 'litellm_model',
-                              // AiCodeCat 相关
-                              'aicodecat_api_key', 'aicodecat_model',
                             ]
                             const ia = aiOrder.indexOf(a.key)
                             const ib = aiOrder.indexOf(b.key)
@@ -2485,55 +2262,17 @@ export default function SettingsPage() {
                         const metaKey = `${category}.${setting.key}`
                         const metadata = SETTING_METADATA[metaKey]
 
-                        // AI配置：根据选中的提供商决定显示哪些字段
+                        // AI配置：只显示 OpenLLM 相关字段
                         if (category === 'ai') {
-                          const aiProvider = formData.ai?.ai_provider || 'gemini'
-
-                          // ai_provider 始终显示
-                          if (setting.key === 'ai_provider') {
-                            // 始终显示
-                          } else if (aiProvider === 'openai') {
-                            // OpenAI 模式：只显示 OpenAI 相关字段
-                            if (!['openai_api_key', 'openai_model'].includes(setting.key)) {
-                              return null
-                            }
-                          } else if (aiProvider === 'anthropic') {
-                            // Anthropic 模式：只显示 Anthropic 相关字段
-                            if (!['anthropic_api_key', 'anthropic_model'].includes(setting.key)) {
-                              return null
-                            }
-                          } else if (aiProvider === 'litellm') {
-                            // OpenLLM 模式：只显示 LiteLLM 相关字段
-                            if (!['litellm_api_key', 'litellm_model'].includes(setting.key)) {
-                              return null
-                            }
-                          } else if (aiProvider === 'aicodecat') {
-                            // AiCodeCat 模式：只显示 AiCodeCat 相关字段
-                            if (!['aicodecat_api_key', 'aicodecat_model'].includes(setting.key)) {
-                              return null
-                            }
-                          } else {
-                            // Gemini 模式：只显示官方 API Key + 模型 + 端点，隐藏服务商选择和中转 Key
-                            const allowedGeminiKeys = ['gemini_model', 'gemini_endpoint', 'gemini_api_key']
-                            if (!allowedGeminiKeys.includes(setting.key)) {
-                              return null
-                            }
+                          if (!['litellm_api_key', 'litellm_model'].includes(setting.key)) {
+                            return null
                           }
                         }
 
                       // 动态必填逻辑
                       const isRequired = (() => {
                         if (category === 'ai') {
-                          const aiProvider = formData.ai?.ai_provider || 'gemini'
-                          if (setting.key === 'ai_provider') return true
-                          if (aiProvider === 'openai' && setting.key === 'openai_api_key') return true
-                          if (aiProvider === 'anthropic' && setting.key === 'anthropic_api_key') return true
-                          if (aiProvider === 'litellm' && setting.key === 'litellm_api_key') return true
-                          if (aiProvider === 'aicodecat' && setting.key === 'aicodecat_api_key') return true
-                          if (aiProvider === 'gemini') {
-                            if (setting.key === 'gemini_model') return true
-                            if (setting.key === 'gemini_api_key') return true
-                          }
+                          if (setting.key === 'litellm_api_key') return true
                         }
                         return setting.isRequired
                       })()

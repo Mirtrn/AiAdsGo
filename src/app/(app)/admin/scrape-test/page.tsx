@@ -104,25 +104,17 @@ export default function ScrapeTestPage() {
         // settings是按分类分组的对象，格式: { ai: [...] }
         const aiSettings = settings.ai || []
 
-        const provider = aiSettings.find((s: any) => s.key === 'gemini_provider')?.value || 'official'
-        const geminiApiKey = aiSettings.find((s: any) => s.key === 'gemini_api_key')?.value
-        const geminiRelayApiKey = aiSettings.find((s: any) => s.key === 'gemini_relay_api_key')?.value
+        const litellmApiKey = aiSettings.find((s: any) => s.key === 'litellm_api_key')?.value
 
         console.log('🔍 AI配置检查:', {
-          provider,
-          hasGeminiApiKey: !!geminiApiKey,
-          hasGeminiRelayApiKey: !!geminiRelayApiKey,
+          hasLitellmApiKey: !!litellmApiKey,
         })
 
-        const hasActiveProviderKey = provider === 'relay'
-          ? Boolean(geminiRelayApiKey)
-          : Boolean(geminiApiKey)
-
-        if (hasActiveProviderKey) {
+        if (litellmApiKey) {
           setAiConfigStatus({
             configured: true,
             mode: 'direct-api',
-            message: `✅ 当前系统配置: Gemini API（${provider === 'relay' ? '第三方中转' : '官方'}）`,
+            message: '✅ 当前系统配置: OpenLLM',
             checking: false
           })
         } else {

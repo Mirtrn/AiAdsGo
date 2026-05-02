@@ -1,9 +1,9 @@
 /**
  * Ad Creative Generator - AI Configuration
  *
- * AI configuration management for Gemini API
+ * AI configuration management for OpenLLM/LiteLLM
  * 仅使用用户级配置
- * 仅支持 Gemini API
+ * 仅支持 OpenLLM
  */
 
 import type { AIConfig } from './types'
@@ -20,17 +20,12 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   const resolved = await resolveActiveAIConfig(userId)
 
-  if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
-    console.log(`🤖 使用${resolved.geminiAPI.provider === 'relay' ? '第三方中转' : 'Gemini API'}: 模型=${resolved.geminiAPI.model}`)
-    return {
-      type: 'gemini-api',
-      geminiAPI: {
-        apiKey: resolved.geminiAPI.apiKey,
-        model: resolved.geminiAPI.model,
-      },
-    }
+  if (resolved.type === 'litellm') {
+    console.log('🤖 使用 OpenLLM (LiteLLM)')
+    return { type: 'litellm' }
   }
 
+  console.warn('⚠️ 未配置AI服务（OpenLLM），将无法生成广告创意')
   return { type: null }
 }
 

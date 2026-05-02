@@ -51,7 +51,7 @@ export async function POST(
     aiProvider,
   } = body
   // 🆕 校验 aiProvider 合法值
-  const validAIProviders = ['gemini', 'openai', 'anthropic'] as const
+  const validAIProviders = ['litellm'] as const
   type ValidAIProvider = typeof validAIProviders[number]
   const normalizedAIProvider: ValidAIProvider | undefined =
     aiProvider && validAIProviders.includes(aiProvider as ValidAIProvider)

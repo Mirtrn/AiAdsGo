@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { clearUserSettings, getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
-import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
-import { GEMINI_ACTIVE_MODEL, isDeprecatedGeminiModel, normalizeModelForProvider } from '@/lib/gemini-models'
 import { getDatabase } from '@/lib/db'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
@@ -27,25 +25,6 @@ export async function GET(request: NextRequest) {
     const settings = category
       ? await getSettingsByCategory(category, userIdNum)
       : await getAllSettings(userIdNum)
-
-    // 自动迁移：将用户历史配置中的 Gemini 2.5 Pro / Flash 统一迁移到 Gemini 3 Flash Preview
-    if (userIdNum) {
-      const db = await getDatabase()
-      const rawGeminiModelSetting = await db.queryOne(
-        'SELECT value FROM system_settings WHERE user_id = ? AND category = ? AND key = ? LIMIT 1',
-        [userIdNum, 'ai', 'gemini_model']
-      ) as { value: string | null } | undefined
-
-      if (isDeprecatedGeminiModel(rawGeminiModelSetting?.value)) {
-        await updateSettings([
-          {
-            category: 'ai',
-            key: 'gemini_model',
-            value: GEMINI_ACTIVE_MODEL,
-          },
-        ], userIdNum)
-      }
-    }
 
     // 按分类分组配置
     const groupedSettings: Record<string, any[]> = {}
@@ -77,41 +56,6 @@ export async function GET(request: NextRequest) {
       })
     }
 
-
-    // 🔧 2025-12-29: 为 AI 分类添加动态计算字段
-    if (groupedSettings['ai']) {
-      // 获取 gemini_provider 值
-      const providerSetting = groupedSettings['ai'].find(s => s.key === 'gemini_provider')
-      const provider: GeminiProvider = providerSetting?.value === 'relay' ? 'relay' : 'official'
-      const modelSetting = groupedSettings['ai'].find(s => s.key === 'gemini_model')
-      const normalizedModel = normalizeModelForProvider(modelSetting?.value || GEMINI_ACTIVE_MODEL, provider)
-
-      // 添加计算字段：gemini_endpoint
-      groupedSettings['ai'].push({
-        key: 'gemini_endpoint',
-        value: getGeminiEndpoint(provider, normalizedModel),
-        dataType: 'string',
-        isSensitive: false,
-        isRequired: false,
-        validationStatus: null,
-        validationMessage: null,
-        lastValidatedAt: null,
-        description: 'Gemini API 端点（系统自动计算，只读）',
-      })
-
-      // 添加计算字段：gemini_api_key_url
-      groupedSettings['ai'].push({
-        key: 'gemini_api_key_url',
-        value: getGeminiApiKeyUrl(provider),
-        dataType: 'string',
-        isSensitive: false,
-        isRequired: false,
-        validationStatus: null,
-        validationMessage: null,
-        lastValidatedAt: null,
-        description: 'Gemini API Key 获取地址（系统自动计算，只读）',
-      })
-    }
 
     // 确保所有核心分类都存在（即使没有配置值）
     const coreCategories = ['google_ads', 'ai', 'proxy', 'system', 'affiliate_sync']
@@ -179,55 +123,6 @@ export async function PUT(request: NextRequest) {
       if (fixedValue !== undefined) {
         update.value = fixedValue
       }
-    }
-
-    // 🔧 同步更新：AI配置变更时，按“服务商 + 模型”自动填充 gemini_endpoint
-    const hasAIUpdate = updates.some(u => u.category === 'ai')
-    if (hasAIUpdate) {
-      const currentAISettings = userIdNum
-        ? await getSettingsByCategory('ai', userIdNum)
-        : []
-      const aiSettingsMap = new Map(
-        currentAISettings.map(setting => [setting.key, setting.value || ''])
-      )
-
-      const geminiProviderUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_provider')
-      const geminiModelUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_model')
-
-      const provider: GeminiProvider = (
-        geminiProviderUpdate?.value ||
-        aiSettingsMap.get('gemini_provider')
-      ) === 'relay' ? 'relay' : 'official'
-
-      const rawModel = geminiModelUpdate?.value ||
-        aiSettingsMap.get('gemini_model') ||
-        GEMINI_ACTIVE_MODEL
-      const normalizedModel = normalizeModelForProvider(rawModel, provider)
-
-      // 强制保持模型与服务商兼容
-      if (geminiModelUpdate) {
-        geminiModelUpdate.value = normalizedModel
-      } else if (normalizedModel !== rawModel) {
-        updates.push({
-          category: 'ai',
-          key: 'gemini_model',
-          value: normalizedModel,
-        })
-      }
-
-      const endpoint = getGeminiEndpoint(provider, normalizedModel)
-      const existingEndpointUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_endpoint')
-      if (existingEndpointUpdate) {
-        existingEndpointUpdate.value = endpoint
-      } else {
-        updates.push({
-          category: 'ai',
-          key: 'gemini_endpoint',
-          value: endpoint,
-        })
-      }
-
-      console.log(`🔄 根据服务商(${provider})+模型(${normalizedModel})自动更新 gemini_endpoint → ${endpoint}`)
     }
 
     // 🔥 2026-01-06: 保存前强制校验代理URL（避免客户端校验遗漏导致运行时失败）
@@ -318,7 +213,7 @@ export async function PUT(request: NextRequest) {
 
 const deleteAIConfigSchema = z.object({
   category: z.literal('ai'),
-  target: z.enum(['gemini-official', 'gemini-relay']),
+  target: z.enum(['litellm']),
 })
 
 /**
@@ -346,10 +241,8 @@ export async function DELETE(request: NextRequest) {
 
     const keysToClear = (() => {
       switch (target) {
-        case 'gemini-official':
-          return ['gemini_api_key']
-        case 'gemini-relay':
-          return ['gemini_relay_api_key']
+        case 'litellm':
+          return ['litellm_api_key']
       }
     })()
 

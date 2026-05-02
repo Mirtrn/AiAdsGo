@@ -13,7 +13,7 @@ import { recordTokenUsage, estimateTokenCost } from '../ai-token-tracker'
 
 /**
  * 获取 AI 配置
- * 支持 gemini / openai / anthropic 三种提供商
+ * 支持 gemini / litellm 两种提供商
  */
 export async function getAIConfig(userId?: number): Promise<AIConfig> {
   if (!userId || userId <= 0) {
@@ -22,40 +22,8 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   const resolved = await resolveActiveAIConfig(userId)
 
-  if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
-    return {
-      type: 'gemini-api',
-      geminiAPI: {
-        apiKey: resolved.geminiAPI.apiKey,
-        model: resolved.geminiAPI.model,
-      },
-    }
-  }
-
-  // 🔧 修复：OpenAI / Anthropic 配置也要正常返回，不能丢弃
-  // callAI 通过 generateContent 统一路由，只需要知道 type 即可
-  if (resolved.type === 'openai') {
-    return {
-      type: 'openai',
-    }
-  }
-
-  if (resolved.type === 'anthropic') {
-    return {
-      type: 'anthropic',
-    }
-  }
-
   if (resolved.type === 'litellm') {
-    return {
-      type: 'litellm',
-    }
-  }
-
-  if (resolved.type === 'aicodecat') {
-    return {
-      type: 'aicodecat',
-    }
+    return { type: 'litellm' }
   }
 
   return { type: null }
@@ -65,7 +33,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
  * 调用 AI 模型
  * 统一的 AI 调用接口
  */
-export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat'): Promise<AIResponse> {
+export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'litellm'): Promise<AIResponse> {
   try {
     console.log('[callAI] 开始调用 AI 模型', overrideProvider ? `(临时覆盖 provider: ${overrideProvider})` : '')
 
@@ -73,8 +41,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
       throw new Error('缺少有效 userId，无法执行用户级 AI 调用')
     }
 
-    // 使用统一入口，模型由用户当前配置决定；overrideProvider 优先级最高
-    const model = config.geminiAPI?.model || 'unknown'
+    // 使用统一入口，模型由用户当前配置决定
     const response = await generateContent({
       operationType: 'ad_creative_generation_main',
       prompt,
@@ -98,7 +65,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
         outputTokens: response.usage.outputTokens,
         totalTokens: response.usage.totalTokens,
         cost,
-        apiType: response.apiType as 'direct-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat',
+        apiType: response.apiType as 'direct-api' | 'litellm',
       }).catch((err) => {
         console.warn('[callAI] token 记录失败（不影响主流程）:', err?.message)
       })
@@ -109,7 +76,7 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
     return {
       success: true,
       data: response,
-      model: response.model || model,
+      model: response.model,
     }
   } catch (error: any) {
     console.error('[callAI] AI 调用失败:', error)

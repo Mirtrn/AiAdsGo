@@ -16,7 +16,7 @@ export interface RecordTokenUsageParams {
   outputTokens: number
   totalTokens: number
   cost: number
-  apiType: 'direct-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat'
+  apiType: 'direct-api' | 'litellm'
 }
 
 /**

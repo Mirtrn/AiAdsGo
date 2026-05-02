@@ -30,12 +30,8 @@ export interface KeywordWithVolume {
 
 /**
  * AI Configuration
- * 统一使用 Gemini API
+ * 统一使用 OpenLLM/LiteLLM
  */
 export interface AIConfig {
-  type: 'gemini-api' | null
-  geminiAPI?: {
-    apiKey: string
-    model: string
-  }
+  type: 'litellm' | null
 }

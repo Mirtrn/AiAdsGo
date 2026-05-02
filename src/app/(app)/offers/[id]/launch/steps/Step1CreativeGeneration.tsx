@@ -667,7 +667,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
 
   // 🆕 临时 AI Provider 选择（优先级高于全局设置，留空则使用全局设置）
-  const [selectedAIProvider, setSelectedAIProvider] = useState<'default' | 'gemini' | 'openai' | 'anthropic'>('default')
+  const [selectedAIProvider, setSelectedAIProvider] = useState<'default' | 'litellm'>('default')
 
   // 🆕 SSE超时处理状态
   const [sseTimeout, setSseTimeout] = useState(false)
@@ -1294,9 +1294,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="default">🌐 全局设置</SelectItem>
-                      <SelectItem value="gemini">✨ Gemini</SelectItem>
-                      <SelectItem value="openai">🤖 OpenAI</SelectItem>
-                      <SelectItem value="anthropic">🧠 Claude</SelectItem>
+                      <SelectItem value="litellm">🤖 OpenLLM</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

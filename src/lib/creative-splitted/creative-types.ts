@@ -32,11 +32,7 @@ export interface KeywordWithVolume {
  * 🔧 修复：扩展支持 openai / anthropic 类型
  */
 export interface AIConfig {
-  type: 'gemini-api' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat' | null
-  geminiAPI?: {
-    apiKey: string
-    model: string
-  }
+  type: 'litellm' | null
 }
 
 /**
@@ -61,7 +57,7 @@ export interface GenerateAdCreativeOptions {
   // 🔥 2025-12-27: 关键词质量过滤参数
   brandName?: string  // 用于过滤低质量关键词
   // 🆕 多 AI Provider 支持：临时覆盖，优先级高于用户全局设置
-  aiProvider?: 'gemini' | 'openai' | 'anthropic' | 'litellm' | 'aicodecat'
+  aiProvider?: 'litellm'
 }
 
 /**

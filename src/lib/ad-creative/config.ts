@@ -5,11 +5,7 @@
 import { resolveActiveAIConfig } from '../ai-runtime-config'
 
 export interface AIConfig {
-  type: 'gemini-api' | null
-  geminiAPI?: {
-    apiKey: string
-    model: string
-  }
+  type: 'litellm' | null
 }
 
 /**
@@ -23,19 +19,12 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   const resolved = await resolveActiveAIConfig(userId)
 
-  if (resolved.type === 'gemini-api' && resolved.geminiAPI) {
-    console.log(`🤖 使用${resolved.geminiAPI.provider === 'relay' ? '第三方中转' : 'Gemini官方'}: 模型=${resolved.geminiAPI.model}`)
-    return {
-      type: 'gemini-api',
-      geminiAPI: {
-        apiKey: resolved.geminiAPI.apiKey,
-        model: resolved.geminiAPI.model,
-      },
-    }
+  if (resolved.type === 'litellm') {
+    console.log('🤖 使用 OpenLLM (LiteLLM)')
+    return { type: 'litellm' }
   }
 
-  // 7. 无可用配置
-  console.warn('⚠️ 未配置AI服务（Gemini API），将无法生成广告创意')
+  console.warn('⚠️ 未配置AI服务（OpenLLM），将无法生成广告创意')
   return { type: null }
 }
 

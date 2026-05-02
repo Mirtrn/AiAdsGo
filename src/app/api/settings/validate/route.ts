@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   validateGoogleAdsConfig,
-  validateGeminiConfig,
 } from '@/lib/settings'
 import { z } from 'zod'
 import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
-import { normalizeGeminiModel, LITELLM_DEFAULT_MODEL, AICODECAT_DEFAULT_MODEL } from '@/lib/gemini-models'
 import { getAffiliateSyncSettingsMap } from '@/lib/openclaw/settings'
 import { validateAffiliateSyncConfig } from '@/lib/affiliate-sync-validation'
 
@@ -62,175 +60,27 @@ export async function POST(request: NextRequest) {
 
         const { getUserOnlySetting } = await import('@/lib/settings')
 
-        // 🆕 读取当前 AI Provider 设置，决定验证哪个提供商
-        const aiProviderRaw = config.ai_provider
-          || (await getUserOnlySetting('ai', 'ai_provider', userIdNum))?.value
-          || 'gemini'
-
-        // ─── OpenAI 验证 ───────────────────────────────────────
-        if (aiProviderRaw === 'openai') {
-          let openaiApiKey: string
-          if (config.openai_api_key && config.openai_api_key !== '············') {
-            openaiApiKey = config.openai_api_key
-          } else {
-            const saved = await getUserOnlySetting('ai', 'openai_api_key', userIdNum)
-            if (!saved?.value) {
-              return NextResponse.json({ error: '请先保存 OpenAI API Key 配置' }, { status: 400 })
-            }
-            openaiApiKey = saved.value
-          }
-          const { checkOpenAIConnection } = await import('@/lib/openai')
-          // 传 apiKey 参数让 checkOpenAIConnection 直接用该 key 测试（无需已保存到 DB）
-          const ok = await checkOpenAIConnection(userIdNum, openaiApiKey)
-          result = ok
-            ? { valid: true, message: 'OpenAI API Key 验证成功 ✅' }
-            : { valid: false, message: 'OpenAI API Key 无效或无法连接，请检查密钥是否正确' }
-          break
-        }
-
-        // ─── Anthropic 验证 ────────────────────────────────────
-        if (aiProviderRaw === 'anthropic') {
-          let anthropicApiKey: string
-          if (config.anthropic_api_key && config.anthropic_api_key !== '············') {
-            anthropicApiKey = config.anthropic_api_key
-          } else {
-            const saved = await getUserOnlySetting('ai', 'anthropic_api_key', userIdNum)
-            if (!saved?.value) {
-              return NextResponse.json({ error: '请先保存 Anthropic API Key 配置' }, { status: 400 })
-            }
-            anthropicApiKey = saved.value
-          }
-          const { checkAnthropicConnection } = await import('@/lib/anthropic')
-          // 传 apiKey 参数让 checkAnthropicConnection 直接用该 key 测试（无需已保存到 DB）
-          const ok = await checkAnthropicConnection(userIdNum, anthropicApiKey)
-          result = ok
-            ? { valid: true, message: 'Anthropic Claude API Key 验证成功 ✅' }
-            : { valid: false, message: 'Anthropic API Key 无效或无法连接，请检查密钥是否正确' }
-          break
-        }
-
         // ─── OpenLLM（LiteLLM）验证 ───────────────────────────
-        if (aiProviderRaw === 'litellm') {
-          let litellmApiKey: string
-          if (config.litellm_api_key && config.litellm_api_key !== '············') {
-            litellmApiKey = config.litellm_api_key
-          } else {
-            const saved = await getUserOnlySetting('ai', 'litellm_api_key', userIdNum)
-            if (!saved?.value) {
-              return NextResponse.json({ error: '请先保存 OpenLLM API Key 配置' }, { status: 400 })
-            }
-            litellmApiKey = saved.value
-          }
-          // 使用用户选择的模型做验证，避免验证通过但实际模型不可用
-          const litellmModelRaw = config.litellm_model
-            || (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
-            || undefined
-          const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
-          const litellmModel = normalizeLiteLLMModel(litellmModelRaw)  // 归一化：移除的旧模型自动降级到默认值
-          const { checkLiteLLMConnection } = await import('@/lib/litellm')
-          const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
-          result = ok
-            ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
-            : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key` }
-          break
-        }
-
-        // ─── AiCodeCat 验证 ────────────────────────────────────
-        if (aiProviderRaw === 'aicodecat') {
-          let aicodecatApiKey: string
-          if (config.aicodecat_api_key && config.aicodecat_api_key !== '············') {
-            aicodecatApiKey = config.aicodecat_api_key
-          } else {
-            const saved = await getUserOnlySetting('ai', 'aicodecat_api_key', userIdNum)
-            if (!saved?.value) {
-              return NextResponse.json({ error: '请先保存 AiCodeCat API Key 配置' }, { status: 400 })
-            }
-            aicodecatApiKey = saved.value
-          }
-          const aicodecatModel = config.aicodecat_model
-            || (await getUserOnlySetting('ai', 'aicodecat_model', userIdNum))?.value
-            || undefined
-          const { checkAiCodeCatConnectionDetail } = await import('@/lib/aicodecat')
-          const checkResult = await checkAiCodeCatConnectionDetail(userIdNum, aicodecatApiKey, undefined, aicodecatModel)
-          if (checkResult.ok) {
-            result = { valid: true, message: `AiCodeCat 连接验证成功 ✅（模型：${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL}）` }
-          } else if (checkResult.reason === 'empty_content') {
-            result = {
-              valid: false,
-              message: `AiCodeCat 验证失败：${checkResult.detail || `模型 ${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL} 返回了空内容`}。建议切换为 gemini-3.1-pro-preview 或其他模型重试。`,
-            }
-          } else {
-            result = {
-              valid: false,
-              message: `AiCodeCat 连接失败：${checkResult.detail || `模型 ${checkResult.model || aicodecatModel || AICODECAT_DEFAULT_MODEL} 不可用`}，请检查 API Key 或切换其他模型`,
-            }
-          }
-          break
-        }
-
-        // ─── Gemini 验证（默认）───────────────────────────────
-        let geminiApiKey: string
-        let geminiRelayApiKey: string
-        let selectedModel: string
-        let geminiProvider: string
-
-        if (config.gemini_provider) {
-          geminiProvider = config.gemini_provider
+        let litellmApiKey: string
+        if (config.litellm_api_key && config.litellm_api_key !== '············') {
+          litellmApiKey = config.litellm_api_key
         } else {
-          const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userIdNum)
-          geminiProvider = providerSetting?.value || 'official'
-        }
-
-        console.log(`🔍 验证AI配置: 服务商=${geminiProvider}`)
-
-        if (geminiProvider === 'relay') {
-          if (config.gemini_relay_api_key && config.gemini_relay_api_key !== '············') {
-            geminiRelayApiKey = config.gemini_relay_api_key
-            console.log('🔍 使用前端传来的中转 API Key（已隐藏）')
-          } else {
-            const relayApiKeySetting = await getUserOnlySetting('ai', 'gemini_relay_api_key', userIdNum)
-            if (!relayApiKeySetting?.value) {
-              return NextResponse.json(
-                { error: '请先保存第三方中转 API Key 配置' },
-                { status: 400 }
-              )
-            }
-            geminiRelayApiKey = relayApiKeySetting.value
-            console.log(`🔍 使用数据库中的中转 API Key（已隐藏，前缀：${geminiRelayApiKey.substring(0, 8)}）`)
+          const saved = await getUserOnlySetting('ai', 'litellm_api_key', userIdNum)
+          if (!saved?.value) {
+            return NextResponse.json({ error: '请先保存 OpenLLM API Key 配置' }, { status: 400 })
           }
-        } else {
-          if (config.gemini_api_key && config.gemini_api_key !== '············') {
-            geminiApiKey = config.gemini_api_key
-          } else {
-            const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
-            if (!apiKeySetting?.value) {
-              return NextResponse.json(
-                { error: '请先保存 Gemini 官方 API Key 配置' },
-                { status: 400 }
-              )
-            }
-            geminiApiKey = apiKeySetting.value
-          }
-          console.log('🔍 使用官方服务商的 API Key 验证')
+          litellmApiKey = saved.value
         }
-
-        if (config.gemini_model) {
-          selectedModel = normalizeGeminiModel(config.gemini_model)
-        } else {
-          const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
-          if (!geminiModelSetting?.value) {
-            return NextResponse.json(
-              { error: '请先在AI配置中选择要使用的模型' },
-              { status: 400 }
-            )
-          }
-          selectedModel = normalizeGeminiModel(geminiModelSetting.value)
-        }
-
-        console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
-
-        const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
-        result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)
+        const litellmModelRaw = config.litellm_model
+          || (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
+          || undefined
+        const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
+        const litellmModel = normalizeLiteLLMModel(litellmModelRaw)
+        const { checkLiteLLMConnection } = await import('@/lib/litellm')
+        const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
+        result = ok
+          ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
+          : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key` }
         break
       }
 

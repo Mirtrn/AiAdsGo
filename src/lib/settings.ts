@@ -1,10 +1,5 @@
 import { getDatabase } from './db'
 import { encrypt, decrypt } from './crypto'
-import {
-  GEMINI_ACTIVE_MODEL,
-  getSupportedModelsForProvider,
-  normalizeGeminiModel,
-} from './gemini-models'
 
 export interface SystemSetting {
   id: number
@@ -39,21 +34,13 @@ export interface SettingValue {
   description?: string | null
 }
 
-function normalizeSettingValue(category: string, key: string, value: string | null): string | null {
-  if (category === 'ai' && key === 'gemini_model') {
-    return normalizeGeminiModel(value)
-  }
-
+function normalizeSettingValue(_category: string, _key: string, value: string | null): string | null {
   return value
 }
 
 function normalizeInputValue(category: string, key: string, value: string): string {
-  if (category === 'ai' && key === 'gemini_model') {
-    return normalizeGeminiModel(value)
-  }
-
   // 防止粘贴时带入首尾空白导致 API Key 无效
-  if (category === 'ai' && (key === 'gemini_api_key' || key === 'gemini_relay_api_key')) {
+  if (category === 'ai' && key === 'litellm_api_key') {
     return value.trim()
   }
 
@@ -683,115 +670,6 @@ export async function validateGoogleAdsConfig(
   }
 }
 
-/**
- * 验证Gemini API密钥和模型（直接API模式）
- * @param apiKey - API密钥
- * @param model - 模型名称
- * @param userId - 用户ID（必需，用于调用AI服务）
- */
-export async function validateGeminiConfig(
-  apiKey: string,
-  model: string = GEMINI_ACTIVE_MODEL,
-  userId: number,
-  provider?: string  // 🔧 关键修复(2025-12-30): 新增 provider 参数，用于验证未保存配置
-): Promise<{ valid: boolean; message: string }> {
-  // Step 1: 基础验证
-  if (!apiKey) {
-    return {
-      valid: false,
-      message: 'API密钥不能为空',
-    }
-  }
-
-  if (apiKey.length < 20) {
-    return {
-      valid: false,
-      message: 'API密钥格式不正确',
-    }
-  }
-
-  // Step 2: 验证模型名称（按服务商）
-  const normalizedProvider = provider === 'relay' ? 'relay' : 'official'
-  const normalizedModel = normalizeGeminiModel(model)
-  const validModels = getSupportedModelsForProvider(normalizedProvider)
-  if (!validModels.includes(normalizedModel)) {
-    return {
-      valid: false,
-      message: `服务商 ${normalizedProvider} 不支持模型: ${model}。支持的模型: ${validModels.join(', ')}`,
-    }
-  }
-
-  // Step 3: 实际API测试
-  try {
-    const { generateContent } = await import('./gemini-axios')
-
-    // 🔧 关键修复(2025-12-30): 使用临时配置覆盖参数
-    // 避免 generateContent → getGeminiApiKey 从数据库读取空值
-    const overrideConfig = provider ? {
-      provider,
-      apiKey
-    } : undefined
-
-    // 使用选择的模型进行测试（使用用户级AI配置）
-    // 注意：Gemini 2.5+ 模型有"思考"功能，思考过程可能占用大量tokens
-    // 为了确保有足够的输出空间，设置maxOutputTokens为1000
-    await generateContent({
-      model: normalizedModel,
-      prompt: 'Say "OK" if you can hear me.',
-      temperature: 0.1,
-      maxOutputTokens: 4096, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
-    }, userId, overrideConfig)
-
-    return {
-      valid: true,
-      message: `✅ ${normalizedModel} 模型验证成功（直接API模式），连接正常`,
-    }
-  } catch (error: any) {
-    // API调用失败，分析错误类型
-    const errorMessage = error.message || '未知错误'
-
-    if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('denied access') || errorMessage.includes('403')) {
-      return {
-        valid: false,
-        message: 'Gemini API Key 对应的 Google 项目已被封禁（PERMISSION_DENIED）。请前往 https://aistudio.google.com/app/apikey 重新创建 API Key，或联系 Google Support 申诉。',
-      }
-    }
-
-    if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid key') || errorMessage.includes('400')) {
-      return {
-        valid: false,
-        message: 'API密钥无效，请检查密钥是否正确',
-      }
-    }
-
-    if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
-      return {
-        valid: false,
-        message: 'API密钥配额已用尽或达到速率限制',
-      }
-    }
-
-    if (errorMessage.includes('network') || errorMessage.includes('timeout') || errorMessage.includes('ECONNREFUSED')) {
-      return {
-        valid: false,
-        message: '网络连接失败，请检查代理配置或稍后重试',
-      }
-    }
-
-    if (errorMessage.includes('404') || errorMessage.includes('not found')) {
-      return {
-        valid: false,
-        message: `模型 ${normalizedModel} 不可用或不存在`,
-      }
-    }
-
-    return {
-      valid: false,
-      message: `API验证失败: ${errorMessage}`,
-    }
-  }
-}
-
 // 代理URL配置项接口
 interface ProxyUrlConfig {
   country: string
@@ -887,15 +765,3 @@ export async function getAllProxyUrls(userId?: number): Promise<ProxyUrlConfig[]
  * @param userId - 用户ID（可选）
  * @returns GoogleGenerativeAI实例
  */
-export async function getGeminiModel(userId?: number) {
-  const apiKeySetting = await getSetting('ai', 'gemini_api_key', userId)
-
-  if (!apiKeySetting?.value) {
-    throw new Error(
-      'Gemini API密钥未配置。请在设置页面配置 Gemini API 密钥。'
-    )
-  }
-
-  const { GoogleGenerativeAI } = await import('@google/generative-ai')
-  return new GoogleGenerativeAI(apiKeySetting.value)
-}

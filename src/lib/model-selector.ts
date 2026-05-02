@@ -16,13 +16,13 @@
 
 import { getUserOnlySetting } from './settings'
 import {
-  GEMINI_ACTIVE_MODEL,
-  type AIModel,
-  normalizeModelForProvider,
+  LITELLM_DEFAULT_MODEL,
+  normalizeLiteLLMModel,
+  type LiteLLMModel,
 } from './gemini-models'
 
-// 支持的AI模型（官方/中转）
-export type ModelType = AIModel
+// 支持的AI模型
+export type ModelType = LiteLLMModel
 
 export interface ModelSelection {
   model: ModelType
@@ -118,19 +118,15 @@ const PRO_OPERATIONS = new Set<string>([
  */
 export async function getUserProModel(userId?: number): Promise<ModelType> {
   if (!userId) {
-    return GEMINI_ACTIVE_MODEL
+    return LITELLM_DEFAULT_MODEL
   }
 
   try {
-    const [modelSetting, providerSetting] = await Promise.all([
-      getUserOnlySetting('ai', 'gemini_model', userId),
-      getUserOnlySetting('ai', 'gemini_provider', userId),
-    ])
-    const provider = providerSetting?.value || 'official'
-    return normalizeModelForProvider(modelSetting?.value, provider)
+    const modelSetting = await getUserOnlySetting('ai', 'litellm_model', userId)
+    return normalizeLiteLLMModel(modelSetting?.value)
   } catch (error) {
     console.warn('⚠️ 获取用户Pro模型失败，使用默认:', error)
-    return GEMINI_ACTIVE_MODEL
+    return LITELLM_DEFAULT_MODEL
   }
 }
 

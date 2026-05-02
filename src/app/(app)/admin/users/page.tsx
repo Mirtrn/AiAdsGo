@@ -546,7 +546,7 @@ export default function UserManagementPage() {
         if (!resetPasswordData) return
 
         const domain = window.location.origin
-        const text = `【AutoAds登录信息】
+        const text = `【AiadsGo登录信息】
 访问地址: ${domain}
 登录用户名: ${resetPasswordData.username}
 登录密码: ${resetPasswordData.password}
@@ -1275,7 +1275,7 @@ export default function UserManagementPage() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="p-4 bg-muted rounded-lg space-y-2 font-mono text-sm">
-                            <div>【AutoAds登录信息】</div>
+                            <div>【AiadsGo登录信息】</div>
                             <div>访问地址: {typeof window !== 'undefined' && window.location.origin}</div>
                             <div>登录用户名: {resetPasswordData?.username}</div>
                             <div>登录密码: <span className="font-bold text-indigo-600">{resetPasswordData?.password}</span></div>
