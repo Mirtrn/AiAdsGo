@@ -682,6 +682,8 @@ function shouldRetryHttpInsteadOfFallbackToPlaywright(error: unknown): boolean {
   if (/状态码\s*5\d\d/.test(msg) || /HTTP\s*5\d\d/i.test(msg)) return true
 
   // 典型网络/代理握手问题：应换代理重试
+  // 注意：EPROTO/ssl3_get_record/wrong version number 是 SSL 协议不匹配（代理 HTTP 端口被当 HTTPS 使用），
+  // 换代理重试 HTTP 同样会失败，应直接降级到 Playwright，因此不在此列表。
   const transientPatterns = [
     'timeout',
     'Timeout',
@@ -689,9 +691,6 @@ function shouldRetryHttpInsteadOfFallbackToPlaywright(error: unknown): boolean {
     'ECONNRESET',
     'ECONNREFUSED',
     'ENETUNREACH',
-    'EPROTO',
-    'wrong version number',
-    'ssl3_get_record',
     'ERR_HTTP2_PROTOCOL_ERROR',
     'ERR_EMPTY_RESPONSE',
     'ERR_CONNECTION_CLOSED',
