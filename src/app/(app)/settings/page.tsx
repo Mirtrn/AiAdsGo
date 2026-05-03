@@ -169,7 +169,20 @@ const SETTING_METADATA: Record<string, {
   'ai.litellm_model': {
     label: 'OpenLLM 模型',
     description: '选择通过 OpenLLM 中转调用的模型（Kimi/DeepSeek/GPT/Claude/Gemini 等）',
-    options: LITELLM_SUPPORTED_MODELS.map(m => ({ value: m, label: m.includes('/') ? m.split('/').slice(1).join('/') : m })),
+    options: LITELLM_SUPPORTED_MODELS.map(m => {
+      const shortName = m.includes('/') ? m.split('/').slice(1).join('/') : m
+      // 以 gemini-3-flash-preview ≈ ¥0.3/条 为基准的毛估价格
+      const costMap: Record<string, string> = {
+        'minimax/minimax-m2.7':          '≈¥0.8/条',
+        'minimax/minimax-m2.5':          '≈¥0.5/条',
+        'openai/gpt-5.4':                '≈¥1.2/条',
+        'openai/gpt-5.4-pro':            '≈¥1.5/条',
+        'google/gemini-3.1-pro-preview': '≈¥0.6/条',
+        'google/gemini-3-flash-preview': '≈¥0.3/条',
+      }
+      const cost = costMap[m] || ''
+      return { value: m, label: cost ? `${shortName}  ${cost}` : shortName }
+    }),
     defaultValue: LITELLM_DEFAULT_MODEL
   },
 
