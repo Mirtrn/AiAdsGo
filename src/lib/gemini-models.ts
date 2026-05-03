@@ -18,30 +18,20 @@ export type AIModel = RelayModel
 // 模型 ID 经 https://openrouter.ai/api/v1/models 核验，2026-04 同步
 // 规则：仅保留纯对话类模型，删除推理类（r1/thinking/k2.5）和图像类（image/pro-image）
 export const LITELLM_SUPPORTED_MODELS = [
-  // ─── MoonShot Kimi（对话类）────────────────────────────────
-  'moonshotai/kimi-k2.6',   // 最新版本
-  'moonshotai/kimi-k2',     // 基础版
-
   // ─── MiniMax（对话类）─────────────────────────────────────
   'minimax/minimax-m2.7',   // 最新旗舰
   'minimax/minimax-m2.5',   // 稳定版
-  'minimax/minimax-m2.5:free',
-
-  // ─── DeepSeek（对话类）────────────────────────────────────
-  'deepseek/deepseek-v3.2', // 🏆 推荐默认：超高性价比，广告创意首选
 
   // ─── OpenAI GPT-5.4（对话类）──────────────────────────────
   'openai/gpt-5.4',
-  'openai/gpt-5.4-mini',
   'openai/gpt-5.4-pro',
-  'openai/gpt-5.4-nano',
 
   // ─── Google Gemini（对话类）───────────────────────────────
   'google/gemini-3.1-pro-preview',
   'google/gemini-3-flash-preview',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
-export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'deepseek/deepseek-v3.2'
+export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'google/gemini-3-flash-preview'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
 export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {
