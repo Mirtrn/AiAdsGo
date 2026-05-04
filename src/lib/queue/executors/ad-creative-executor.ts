@@ -394,6 +394,11 @@ export async function executeAdCreativeGeneration(
     } catch (poolError: any) {
       // 🔥 统一架构(2025-12-16): 关键词池是必需的，失败直接抛错
       console.error(`❌ 关键词池创建失败: ${poolError.message}`)
+      // 判断是否是代理/网络连接失败，给出更具体的错误信息
+      const isProxyError = /ERR_TUNNEL_CONNECTION_FAILED|ERR_TIMED_OUT|代理连接问题|代理连接失败|net::ERR_|PROXY_CONNECTION|ECONNREFUSED|ETIMEDOUT/i.test(poolError.message)
+      if (isProxyError) {
+        throw new Error(`代理连接失败，无法抓取网站数据。代理节点临时不可用，请稍等几分钟后重试。`)
+      }
       throw new Error(`关键词池创建失败，无法生成创意: ${poolError.message}`)
     }
 

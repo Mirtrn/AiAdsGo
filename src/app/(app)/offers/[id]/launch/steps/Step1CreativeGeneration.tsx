@@ -283,6 +283,12 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'settings',
     actionLabel: '前往设置'
   },
+  '代理连接失败': {
+    title: '代理节点临时不可用',
+    description: '系统代理节点正在临时恢复，导致无法抓取目标网站。这是临时性网络问题，通常几分钟后自动恢复。请等待 3-5 分钟后点击"重新尝试"。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
   '关键词池创建失败': {
     title: '关键词准备失败',
     description: '无法创建关键词池，网站数据抓取可能失败。建议重新创建Offer并确保网站可以正常访问抓取。',
