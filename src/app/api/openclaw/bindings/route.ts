@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
-  const db = await getDatabase()
+  const db = getDatabase()
   const bindings = await db.query<any>(
     `SELECT id, channel, tenant_key, open_id, union_id, status, created_at, updated_at
      FROM openclaw_user_bindings
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const db = await getDatabase()
+  const db = getDatabase()
   const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
   const channel = parsed.data.channel.trim()
   const openId = parsed.data.openId.trim()

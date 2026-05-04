@@ -18,7 +18,18 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '30')
     const offerId = searchParams.get('offerId')
 
-    const db = await getDatabase()
+    const db = getDatabase()
+
+    // 在 JS 层计算截止时间，避免使用 SQLite 专有的动态 datetime 拼接语法
+    // 这样在 PostgreSQL 和 SQLite 上都能正常工作
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - days)
+    const cutoffStr = cutoffDate.toISOString()
+
+    // week 分组表达式：SQLite 用 strftime，PostgreSQL 用 TO_CHAR
+    const weekExpr = db.type === 'postgres'
+      ? "TO_CHAR(evaluated_at, 'IYYY-IW')"
+      : "strftime('%Y-%W', evaluated_at)"
 
     // 1. 各评级的平均转化率
     const ratingPerformance = await db.query(`
@@ -35,7 +46,7 @@ export async function GET(request: NextRequest) {
         SUM(cost) as total_cost
       FROM ad_strength_history
       WHERE user_id = ?
-        AND evaluated_at >= datetime('now', '-' || ? || ' days')
+        AND evaluated_at >= ?
         ${offerId ? 'AND offer_id = ?' : ''}
       GROUP BY rating
       ORDER BY
@@ -46,7 +57,7 @@ export async function GET(request: NextRequest) {
           WHEN 'POOR' THEN 4
           ELSE 5
         END
-    `, [offerId ? [userId, days, offerId] : [userId, days]])
+    `, offerId ? [userId, cutoffStr, offerId] : [userId, cutoffStr])
 
     // 2. 评分与转化率的相关性
     const scoreCorrelation = await db.query(`
@@ -63,11 +74,11 @@ export async function GET(request: NextRequest) {
         AVG(cvr) as avg_cvr
       FROM ad_strength_history
       WHERE user_id = ?
-        AND evaluated_at >= datetime('now', '-' || ? || ' days')
+        AND evaluated_at >= ?
         AND impressions > 100
       GROUP BY score_range
       ORDER BY score_range DESC
-    `, [[userId, days]])
+    `, [userId, cutoffStr])
 
     // 3. 各维度对转化率的影响
     const dimensionImpact = await db.query(`
@@ -113,7 +124,7 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY level
-    `, [[userId, userId, userId]])
+    `, [userId, userId, userId])
 
     // 4. 资产特征对转化的影响
     const featureImpact = await db.query(`
@@ -147,22 +158,22 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY has_urgency
-    `, [[userId, userId, userId]])
+    `, [userId, userId, userId])
 
     // 5. 时间趋势（按周）
     const weeklyTrend = await db.query(`
       SELECT
-        strftime('%Y-%W', evaluated_at) as week,
+        ${weekExpr} as week,
         COUNT(*) as count,
         AVG(overall_score) as avg_score,
         AVG(cvr) as avg_cvr,
         SUM(conversions) as total_conversions
       FROM ad_strength_history
       WHERE user_id = ?
-        AND evaluated_at >= datetime('now', '-' || ? || ' days')
+        AND evaluated_at >= ?
       GROUP BY week
       ORDER BY week
-    `, [[userId, days]])
+    `, [userId, cutoffStr])
 
     // 6. 计算关键洞察
     const insights = generateInsights(ratingPerformance, scoreCorrelation, featureImpact)
@@ -283,7 +294,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 插入历史记录
     const result = await db.exec(`
@@ -295,7 +306,7 @@ export async function POST(request: NextRequest) {
         has_numbers, has_cta, has_urgency,
         avg_headline_length, avg_description_length
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [[
+    `, [
       userId,
       offerId,
       creativeId || null,
@@ -315,7 +326,7 @@ export async function POST(request: NextRequest) {
       creativeData?.hasUrgency ? 1 : 0,
       creativeData?.avgHeadlineLength || null,
       creativeData?.avgDescriptionLength || null
-    ]])
+    ])
 
     const historyId = getInsertedId(result, db.type)
 
