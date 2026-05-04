@@ -3,9 +3,6 @@
 
 import { getDatabase } from '@/lib/db';
 
-// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
-const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
-
 /**
  * 通知类型
  */
@@ -39,8 +36,6 @@ export async function logClickFarmEvent(
   title: string,
   message: string
 ): Promise<void> {
-  const db = getDatabase();
-
   // 记录到任务备注字段（简化方案）
   // 或者可以创建专门的事件日志表
   console.log(`[ClickFarm Notification] User ${userId} - ${type}:`, {
@@ -113,7 +108,12 @@ export async function notifyTaskResumed(
  * 简化版本：返回需要用户关注的任务状态变化
  */
 export async function getUserNotifications(userId: number): Promise<ClickFarmNotification[]> {
-  const db = getDatabase();
+  const db = await getDatabase();
+
+  // 兼容 SQLite 和 PostgreSQL 的 24 小时前时间表达式
+  const oneDayAgoExpr = db.type === 'postgres'
+    ? `(CURRENT_TIMESTAMP - INTERVAL '24 hours')`
+    : `datetime('now', '-24 hours')`
 
   // 查询最近发生状态变化的任务
   const tasks = await db.query<any>(`
@@ -129,8 +129,8 @@ export async function getUserNotifications(userId: number): Promise<ClickFarmNot
     WHERE user_id = ?
       AND IS_DELETED_FALSE
       AND (
-        (status = 'paused' AND paused_at > datetime('now', '-24 hours'))
-        OR (status = 'completed' AND completed_at > datetime('now', '-24 hours'))
+        (status = 'paused' AND paused_at > ${oneDayAgoExpr})
+        OR (status = 'completed' AND completed_at > ${oneDayAgoExpr})
       )
     ORDER BY updated_at DESC
     LIMIT 10

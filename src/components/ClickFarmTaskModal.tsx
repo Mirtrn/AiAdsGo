@@ -457,7 +457,10 @@ export default function ClickFarmTaskModal({
   };
 
   const resetDistribution = () => {
-    generateDistribution();
+    // 直接本地计算，避免网络请求失败时 toast 提前显示但数据未更新
+    const [startTime, endTime] = timePeriod.split('-');
+    const newDist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
+    setDistribution(newDist);
     setIsDistributionManuallyModified(false);
     toast.success('已重置为默认分布');
   };
@@ -597,9 +600,10 @@ export default function ClickFarmTaskModal({
       toast.error('执行时区未设置，请重新选择Offer');
       return;
     }
-    // 简单的IANA时区格式校验
-    const ianaTimezoneRegex = /^[A-Za-z]+\/[A-Za-z_]+$/;
-    if (!ianaTimezoneRegex.test(timezone)) {
+    // 使用 Intl.DateTimeFormat 校验时区有效性，支持全部 IANA 格式（含三段式、连字符等）
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    } catch {
       toast.error('执行时区格式无效');
       return;
     }

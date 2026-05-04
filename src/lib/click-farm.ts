@@ -1178,11 +1178,8 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
       hourly_breakdown: hourlyBreakdown  // 🆕 添加小时级别追踪
     });
 
-    // 日期递增（直接操作字符串+1天）
-    const [year, month, day] = currentDateStr.split('-').map(Number);
-    const nextDate = new Date(year, month - 1, day);
-    nextDate.setDate(nextDate.getDate() + 1);
-    currentDateStr = nextDate.toISOString().split('T')[0];
+    // 日期递增：使用 shiftDateStr 避免夏令时跳变导致的日期错误
+    currentDateStr = shiftDateStr(currentDateStr, 1);
   }
 
   // 更新任务的daily_history

@@ -220,6 +220,8 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
       const decoder = new TextDecoder()
       let buffer = ''
 
+      let streamCompleted = false // 标记是否收到 complete/error 事件
+
       while (true) {
         let done: boolean, value: Uint8Array | undefined
         try {
@@ -229,12 +231,18 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
           if (readErr?.name === 'AbortError') {
             throw new Error('创建Offer超时（超过15分钟），请稍后在列表页确认任务是否已完成。')
           }
-          throw readErr
+          // 🔧 修复：网络读取错误给出友好提示，而非抛出原始英文错误
+          throw new Error(`网络连接中断，请检查网络后重试。（${readErr?.message || 'network error'}）`)
         }
 
         if (done) {
           if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
           console.log('✅ SSE stream completed')
+          // 🔧 修复：流正常结束但未收到 complete/error 事件，视为任务仍在后台运行
+          if (!streamCompleted) {
+            setIsExtracting(false)
+            setCurrentMessage('任务已提交，请稍后在列表页确认是否完成。')
+          }
           break
         }
 
@@ -338,6 +346,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
               console.log('🎉 Complete message received:', { data, resultData })
               console.log('🔍 Result has finalUrl:', resultData?.finalUrl)
 
+              streamCompleted = true
               setCurrentStage('completed')
               setCurrentStatus('completed')
               setCurrentMessage('提取完成！')
@@ -348,10 +357,18 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
             } else if (data.type === 'error') {
               // 后端发送格式: {type: 'error', data: {message, stage, details}}
               const errorData = data.data || data.error || {}
+              streamCompleted = true
               setCurrentStage('error')
               setCurrentStatus('error')
-              setError(errorData.message || '任务失败')
-              setCurrentMessage(errorData.message || '任务失败')
+              // 🔧 修复：后端原始英文错误消息转为中文友好提示
+              const rawMsg: string = errorData.message || '任务失败'
+              const friendlyMsg = rawMsg.toLowerCase() === 'network error'
+                ? '网络连接失败，请检查链接是否可访问后重试。'
+                : rawMsg.includes('timeout') || rawMsg.includes('超时')
+                  ? '抓取超时，推广链接可能访问较慢，请稍后重试。'
+                  : rawMsg
+              setError(friendlyMsg)
+              setCurrentMessage(friendlyMsg)
               setIsExtracting(false)
               cleanup()
             }

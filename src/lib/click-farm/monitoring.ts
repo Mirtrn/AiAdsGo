@@ -70,30 +70,48 @@ export async function getClickFarmHealth(): Promise<ClickFarmHealth> {
 
 /**
  * 获取队列统计信息
+ * 注意：click_farm_queue 表在使用 Redis/Memory 队列时不存在，需容错处理
  */
 async function getQueueStats(
   db: DatabaseAdapter,
   alerts: ClickFarmHealth['alerts']
 ): Promise<ClickFarmHealth['queueStats']> {
-  // 注意：实现取决于使用的队列系统（Redis/内存）
-  // 这里提供一个基于DB计数的简化版本
+  let depth = 0;
+  let avgProcessTime = 0;
 
-  const pendingTasks = await db.queryOne<any>(`
-    SELECT COUNT(*) as count FROM click_farm_queue WHERE status = 'pending'
-  `);
+  try {
+    const oneHourAgoExpr = db.type === 'postgres'
+      ? `(CURRENT_TIMESTAMP - INTERVAL '1 hour')`
+      : `datetime('now', '-1 hour')`
 
-  const depth = pendingTasks?.count || 0;
+    const pendingTasks = await db.queryOne<any>(`
+      SELECT COUNT(*) as count FROM click_farm_queue WHERE status = 'pending'
+    `);
+    depth = Number(pendingTasks?.count || 0);
 
-  // 计算平均处理时间
-  const recentTasks = await db.queryOne<any>(`
-    SELECT
-      AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgTime
-    FROM click_farm_queue
-    WHERE status = 'completed'
-      AND completed_at >= datetime('now', '-1 hour')
-  `);
-
-  const avgProcessTime = Math.round(recentTasks?.avgTime || 0);
+    // 计算平均处理时间（兼容 SQLite 和 PostgreSQL）
+    let avgTimeRow: any;
+    if (db.type === 'postgres') {
+      avgTimeRow = await db.queryOne<any>(`
+        SELECT
+          AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) * 1000) as avgTime
+        FROM click_farm_queue
+        WHERE status = 'completed'
+          AND completed_at >= ${oneHourAgoExpr}
+      `);
+    } else {
+      avgTimeRow = await db.queryOne<any>(`
+        SELECT
+          AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgTime
+        FROM click_farm_queue
+        WHERE status = 'completed'
+          AND completed_at >= ${oneHourAgoExpr}
+      `);
+    }
+    avgProcessTime = Math.round(avgTimeRow?.avgTime || 0);
+  } catch {
+    // click_farm_queue 表不存在（使用 Redis/Memory 队列时），跳过统计
+  }
 
   // 警告阈值
   let warning = false;
@@ -126,30 +144,38 @@ async function getSuccessRate(
   today: string,
   alerts: ClickFarmHealth['alerts']
 ): Promise<ClickFarmHealth['successRate']> {
-  // 今天的成功率
+  // 今天的成功率：统计所有活跃/已完成任务的今日实际点击成功率
   const todayStats = await db.queryOne<any>(`
     SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN success_clicks > 0 THEN 1 ELSE 0 END) as successful
+      SUM(total_clicks) as total,
+      SUM(success_clicks) as successful
     FROM click_farm_tasks
-    WHERE scheduled_start_date = ?
-  `, [today]);
+    WHERE status IN ('running', 'completed', 'paused')
+      AND IS_DELETED_FALSE
+      AND total_clicks > 0
+  `);
 
   const todayRate = todayStats?.total > 0
-    ? Math.round((todayStats.successful / todayStats.total) * 100)
+    ? Math.round(((todayStats.successful || 0) / todayStats.total) * 100)
     : 0;
 
-  // 最近7天的成功率
+  // 最近7天的成功率：使用 db.type 兼容 SQLite 和 PostgreSQL
+  const sevenDaysAgoExpr = db.type === 'postgres'
+    ? `(CURRENT_TIMESTAMP - INTERVAL '7 days')`
+    : `datetime('now', '-7 days')`
   const last7days = await db.queryOne<any>(`
     SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN success_clicks > 0 THEN 1 ELSE 0 END) as successful
+      SUM(total_clicks) as total,
+      SUM(success_clicks) as successful
     FROM click_farm_tasks
-    WHERE scheduled_start_date >= date('now', '-7 days')
+    WHERE status IN ('running', 'completed', 'paused')
+      AND IS_DELETED_FALSE
+      AND total_clicks > 0
+      AND updated_at >= ${sevenDaysAgoExpr}
   `);
 
   const last7daysRate = last7days?.total > 0
-    ? Math.round((last7days.successful / last7days.total) * 100)
+    ? Math.round(((last7days.successful || 0) / last7days.total) * 100)
     : 0;
 
   // 警告阈值
@@ -181,23 +207,25 @@ async function getTaskStats(
     SELECT COUNT(*) as count
     FROM click_farm_tasks
     WHERE status = 'running'
-      AND scheduled_start_date <= ?
-  `, [today]);
+      AND IS_DELETED_FALSE
+  `);
 
   const activeTaskCount = activeTasks?.count || 0;
 
-  // 今日总点击数
+  // 今日总点击数（所有运行中或已完成的任务累计）
   const totalClicks = await db.queryOne<any>(`
     SELECT SUM(total_clicks) as total
     FROM click_farm_tasks
-    WHERE scheduled_start_date = ?
-  `, [today]);
+    WHERE status IN ('running', 'completed', 'paused')
+      AND IS_DELETED_FALSE
+  `);
 
   const todayClicks = totalClicks?.total || 0;
 
-  // 推算日总点击数
+  // 推算日总点击数：使用 UTC 小时（服务器时间）做简单推算
+  // 注意：仅供参考，实际分布受任务时区影响
   const now = new Date();
-  const hoursElapsed = now.getHours() + now.getMinutes() / 60;
+  const hoursElapsed = now.getUTCHours() + now.getUTCMinutes() / 60;
   const projectedDaily = hoursElapsed > 0
     ? Math.round(todayClicks / hoursElapsed * 24)
     : todayClicks;
@@ -230,26 +258,55 @@ async function getPerformanceMetrics(
   await db.queryOne<any>(`SELECT 1`);
   const dbQueryTime = Date.now() - dbStart;
 
-  // Cron执行时间（从日志中获取最近的执行记录）
-  const cronLogs = await db.queryOne<any>(`
-    SELECT
-      AVG((strftime('%s', end_time) - strftime('%s', start_time)) * 1000) as avgTime
-    FROM cron_execution_logs
-    WHERE name = 'click-farm-scheduler'
-      AND end_time >= datetime('now', '-1 hour')
-  `);
+  const oneHourAgoExpr = db.type === 'postgres'
+    ? `(CURRENT_TIMESTAMP - INTERVAL '1 hour')`
+    : `datetime('now', '-1 hour')`
 
-  const cronExecutionTime = Math.round(cronLogs?.avgTime || 0);
+  // Cron执行时间（从日志中获取最近的执行记录，兼容 SQLite 和 PostgreSQL）
+  let cronExecutionTime = 0;
+  try {
+    let cronLogs: any;
+    if (db.type === 'postgres') {
+      cronLogs = await db.queryOne<any>(`
+        SELECT AVG(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000) as avgTime
+        FROM cron_execution_logs
+        WHERE name = 'click-farm-scheduler'
+          AND end_time >= ${oneHourAgoExpr}
+      `);
+    } else {
+      cronLogs = await db.queryOne<any>(`
+        SELECT AVG((strftime('%s', end_time) - strftime('%s', start_time)) * 1000) as avgTime
+        FROM cron_execution_logs
+        WHERE name = 'click-farm-scheduler'
+          AND end_time >= ${oneHourAgoExpr}
+      `);
+    }
+    cronExecutionTime = Math.round(cronLogs?.avgTime || 0);
+  } catch {
+    // cron_execution_logs 表不存在时忽略
+  }
 
-  // 平均点击延迟
-  const clickLatency = await db.queryOne<any>(`
-    SELECT
-      AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgLatency
-    FROM click_farm_queue
-    WHERE completed_at >= datetime('now', '-1 hour')
-  `);
-
-  const avgClickLatency = Math.round(clickLatency?.avgLatency || 0);
+  // 平均点击延迟（click_farm_queue 表可能不存在，容错处理）
+  let avgClickLatency = 0;
+  try {
+    let clickLatency: any;
+    if (db.type === 'postgres') {
+      clickLatency = await db.queryOne<any>(`
+        SELECT AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) * 1000) as avgLatency
+        FROM click_farm_queue
+        WHERE completed_at >= ${oneHourAgoExpr}
+      `);
+    } else {
+      clickLatency = await db.queryOne<any>(`
+        SELECT AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgLatency
+        FROM click_farm_queue
+        WHERE completed_at >= ${oneHourAgoExpr}
+      `);
+    }
+    avgClickLatency = Math.round(clickLatency?.avgLatency || 0);
+  } catch {
+    // click_farm_queue 表不存在时忽略
+  }
 
   return {
     cronExecutionTime,
@@ -299,21 +356,41 @@ async function notifyAdmins(alerts: ClickFarmHealth['alerts']) {
 
 /**
  * 获取历史监控数据（用于仪表板展示）
+ * 注意：click_farm_queue 表在使用 Redis/Memory 队列时不存在，会返回空数组
  */
 export async function getClickFarmMetricsHistory(hours: number = 24) {
   const db = await getDatabase();
 
-  const metrics = await db.query<any>(`
-    SELECT
-      datetime(created_at, '-' || ((strftime('%s', 'now') - strftime('%s', created_at)) / 3600) || ' hours', '+' || ((strftime('%s', 'now') - strftime('%s', created_at)) % 3600 / 60) || ' minutes') as hour,
-      COUNT(*) as totalClicks,
-      SUM(CASE WHEN success THEN 1 ELSE 0 END) as successClicks,
-      AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgLatency
-    FROM click_farm_queue
-    WHERE created_at >= datetime('now', '-' || ? || ' hours')
-    GROUP BY hour
-    ORDER BY hour DESC
-  `, [hours]);
-
-  return metrics;
+  try {
+    let metrics: any[];
+    if (db.type === 'postgres') {
+      metrics = await db.query<any>(`
+        SELECT
+          date_trunc('hour', created_at) as hour,
+          COUNT(*) as totalClicks,
+          SUM(CASE WHEN success THEN 1 ELSE 0 END) as successClicks,
+          AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) * 1000) as avgLatency
+        FROM click_farm_queue
+        WHERE created_at >= (CURRENT_TIMESTAMP - ($1 * INTERVAL '1 hour'))
+        GROUP BY hour
+        ORDER BY hour DESC
+      `, [hours]);
+    } else {
+      metrics = await db.query<any>(`
+        SELECT
+          strftime('%Y-%m-%dT%H:00:00', created_at) as hour,
+          COUNT(*) as totalClicks,
+          SUM(CASE WHEN success THEN 1 ELSE 0 END) as successClicks,
+          AVG((strftime('%s', completed_at) - strftime('%s', created_at)) * 1000) as avgLatency
+        FROM click_farm_queue
+        WHERE created_at >= datetime('now', '-' || ? || ' hours')
+        GROUP BY hour
+        ORDER BY hour DESC
+      `, [hours]);
+    }
+    return metrics;
+  } catch {
+    // click_farm_queue 表不存在（使用 Redis/Memory 队列时），返回空
+    return [];
+  }
 }

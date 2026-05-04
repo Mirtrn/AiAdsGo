@@ -58,6 +58,7 @@ export default function TaskDetailPage() {
 
   const [details, setDetails] = useState<TaskDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const getTodayProgressInfo = (task: any): { percent: number; actual: number; target: number } | null => {
     try {
@@ -83,18 +84,27 @@ export default function TaskDetailPage() {
   const loadTaskDetails = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await fetch(`/api/click-farm/tasks/${taskId}/details`);
 
+      if (response.status === 404) {
+        // 任务不存在才重定向
+        toast.error('任务不存在');
+        router.push('/click-farm');
+        return;
+      }
+
       if (!response.ok) {
-        throw new Error('Failed to load task details');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `加载失败 (${response.status})`);
       }
 
       const data = await response.json();
       setDetails(data.data);
-    } catch (error: any) {
-      console.error('Failed to load task details:', error);
-      toast.error(error.message || '加载任务详情失败');
-      router.push('/click-farm');
+    } catch (err: any) {
+      console.error('Failed to load task details:', err);
+      setError(err.message || '加载任务详情失败');
+      toast.error(err.message || '加载任务详情失败');
     } finally {
       setLoading(false);
     }
@@ -196,6 +206,30 @@ export default function TaskDetailPage() {
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-4 h-16">
+              <Button variant="ghost" size="icon" onClick={() => router.push('/click-farm')}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <h1 className="text-2xl font-bold text-gray-900">补点击任务详情</h1>
+            </div>
+          </div>
+        </div>
+        <main className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8 text-center">
+          <p className="text-red-600 text-lg font-medium mb-4">{error}</p>
+          <div className="flex justify-center gap-3">
+            <Button variant="outline" onClick={loadTaskDetails}>重试</Button>
+            <Button variant="ghost" onClick={() => router.push('/click-farm')}>返回列表</Button>
+          </div>
+        </main>
       </div>
     );
   }
