@@ -1272,10 +1272,10 @@ export class UnifiedQueueManager {
         }>(`
           SELECT
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status = 'completed') as completed,
-            COUNT(*) FILTER (WHERE status = 'failed') as failed,
-            COUNT(*) FILTER (WHERE status = 'running') as running,
-            COUNT(*) FILTER (WHERE status = 'pending') as pending
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
           FROM offer_tasks
           WHERE batch_id = ?
         `, [batchId])
@@ -1507,10 +1507,10 @@ export class UnifiedQueueManager {
         }>(`
           SELECT
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status = 'completed') as completed,
-            COUNT(*) FILTER (WHERE status = 'failed') as failed,
-            COUNT(*) FILTER (WHERE status = 'running') as running,
-            COUNT(*) FILTER (WHERE status = 'pending') as pending
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
           FROM offer_tasks
           WHERE batch_id = ?
         `, [batch.id])
