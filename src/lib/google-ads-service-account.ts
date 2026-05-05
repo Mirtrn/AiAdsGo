@@ -147,16 +147,32 @@ export async function getUnifiedGoogleAdsClient(config: {
 
 /**
  * 获取登录客户ID（MCC账户ID）
+ * 多MCC场景：若传入 parentMccId，则从所有服务账号中匹配对应MCC的那条
  */
 export async function getLoginCustomerId(config: {
   authConfig: UnifiedAuthConfig
   oauthCredentials?: {
     login_customer_id: string
   }
+  parentMccId?: string
 }): Promise<string> {
-  const { authConfig, oauthCredentials } = config
+  const { authConfig, oauthCredentials, parentMccId } = config
 
   if (authConfig.authType === 'service_account') {
+    if (parentMccId && !authConfig.serviceAccountId) {
+      // 多MCC：按 parentMccId 从数据库查找匹配的服务账号
+      const db = await getDatabase()
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+      const cleanMccId = parentMccId.replace(/[\s-]/g, '')
+      const matched = await db.queryOne(`
+        SELECT mcc_customer_id FROM google_ads_service_accounts
+        WHERE user_id = ? AND ${isActiveCondition} AND mcc_customer_id = ?
+        ORDER BY created_at DESC LIMIT 1
+      `, [authConfig.userId, cleanMccId]) as { mcc_customer_id: string } | undefined
+
+      if (matched) return matched.mcc_customer_id
+    }
+
     const serviceAccount = await getServiceAccountConfig(authConfig.userId, authConfig.serviceAccountId)
     if (!serviceAccount) {
       throw new Error('Service account configuration not found')

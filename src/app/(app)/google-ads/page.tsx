@@ -177,7 +177,7 @@ export default function GoogleAdsPage() {
     }, 2000)
   }
 
-  // 获取服务账号配置
+  // 获取服务账号配置（支持多MCC：遍历所有服务账号，合并账户列表）
   const fetchServiceAccounts = async () => {
     try {
       const response = await fetch('/api/google-ads/service-account', {
@@ -186,16 +186,80 @@ export default function GoogleAdsPage() {
 
       if (response.ok) {
         const data = await response.json()
-        const accounts = data.accounts || []
-        if (accounts.length > 0) {
-          // 有服务账号配置，使用服务账号获取账户
+        const saList: any[] = data.accounts || []
+        if (saList.length > 0) {
           setCurrentAuthType('service_account')
-          setCurrentServiceAccountId(accounts[0].id)
-          fetchAccountsWithServiceAccount(accounts[0].id)
+          setCurrentServiceAccountId(saList[0].id)
+
+          if (saList.length === 1) {
+            // 只有一个服务账号，直接获取
+            fetchAccountsWithServiceAccount(saList[0].id)
+          } else {
+            // 多个服务账号：并发拉取所有账户并合并去重
+            fetchAllServiceAccountsMerged(saList)
+          }
         }
       }
     } catch (err: any) {
       console.error('获取服务账号配置失败:', err)
+    }
+  }
+
+  // 并发拉取多个服务账号下的广告账户并合并去重
+  const fetchAllServiceAccountsMerged = async (saList: any[], forceRefresh = false, isPoll = false) => {
+    if (!isPoll && !forceRefresh) setAccountsLoading(true)
+    if (forceRefresh) setAccountsSyncing(true)
+    try {
+      const results = await Promise.allSettled(
+        saList.map(sa => {
+          const url = forceRefresh
+            ? `/api/google-ads/credentials/accounts?refresh=true&async=true&auth_type=service_account&service_account_id=${sa.id}`
+            : `/api/google-ads/credentials/accounts?auth_type=service_account&service_account_id=${sa.id}`
+          return fetch(url, { credentials: 'include', cache: 'no-store' })
+            .then(r => r.json())
+        })
+      )
+
+      const mergedMap = new Map<string, GoogleAdsAccount>()
+      let anyInProgress = false
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value?.success && result.value?.data?.accounts) {
+          const accs: GoogleAdsAccount[] = result.value.data.accounts
+          if (result.value.data.refreshInProgress) anyInProgress = true
+          accs.forEach(acc => {
+            if (!mergedMap.has(acc.customerId)) {
+              mergedMap.set(acc.customerId, acc)
+            }
+          })
+        }
+      })
+
+      const allAccounts = Array.from(mergedMap.values())
+      const mccMap = new Map<string, string>()
+      allAccounts.forEach(acc => { if (acc.manager) mccMap.set(acc.customerId, acc.descriptiveName) })
+      const enriched = allAccounts.map(acc => ({ ...acc, parentMccName: acc.parentMcc ? mccMap.get(acc.parentMcc) : undefined }))
+      setAccounts(enriched)
+      setIsCached(false)
+
+      // 与单 SA 路径保持一致：无论是否 forceRefresh/isPoll，只要后台仍在刷新就亮 syncing 指示器
+      setAccountsSyncing(anyInProgress)
+
+      if (forceRefresh || isPoll) {
+        if (anyInProgress) {
+          // 仍在刷新中，2秒后再次轮询
+          if (accountsPollTimerRef.current) clearTimeout(accountsPollTimerRef.current)
+          accountsPollTimerRef.current = setTimeout(() => {
+            fetchAllServiceAccountsMerged(saList, false, true)
+          }, 2000)
+        }
+      }
+    } catch (err: any) {
+      console.error('合并多服务账号账户列表失败:', err)
+      setError(formatErrorMessage(err) || '获取账户列表失败')
+      setAccountsSyncing(false)
+    } finally {
+      if (!isPoll && !forceRefresh) setAccountsLoading(false)
     }
   }
 
@@ -347,30 +411,30 @@ export default function GoogleAdsPage() {
     }
   }
 
-  // 刷新账户列表（服务账号模式下会重新获取最新的服务账号配置）
+  // 刷新账户列表（服务账号模式下会重新获取最新的服务账号配置，支持多MCC）
   const handleRefreshAccounts = async () => {
     setError('')
     setAccountsSyncError(null)
 
-    // 🔧 优化：服务账号模式下每次刷新都重新获取最新的服务账号配置
     if (currentAuthType === 'service_account') {
       try {
         setAccountsSyncing(true)
-        // 重新获取最新的服务账号
         const saResponse = await fetch('/api/google-ads/service-account', {
           credentials: 'include',
         })
 
         if (saResponse.ok) {
           const saData = await saResponse.json()
-          const accounts = saData.accounts || []
+          const saList: any[] = saData.accounts || []
 
-          if (accounts.length > 0) {
-            const latestServiceAccountId = accounts[0].id
-            setCurrentServiceAccountId(latestServiceAccountId)
-            await fetchAccountsWithServiceAccount(latestServiceAccountId, true)
+          if (saList.length > 0) {
+            setCurrentServiceAccountId(saList[0].id)
+            if (saList.length === 1) {
+              await fetchAccountsWithServiceAccount(saList[0].id, true)
+            } else {
+              await fetchAllServiceAccountsMerged(saList, true)
+            }
           } else {
-            // 没有服务账号配置，切换到OAuth模式或提示
             setError('未找到服务账号配置，请前往设置页面配置')
           }
         } else {
@@ -382,7 +446,6 @@ export default function GoogleAdsPage() {
         setAccountsSyncing(false)
       }
     } else {
-      // OAuth模式
       fetchAccounts(true)
     }
   }

@@ -438,6 +438,8 @@ export default function SettingsPage() {
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([])
   const [loadingServiceAccounts, setLoadingServiceAccounts] = useState(false)
   const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
+  const [verifyingServiceAccountId, setVerifyingServiceAccountId] = useState<string | null>(null)
+  const [serviceAccountVerifyStatus, setServiceAccountVerifyStatus] = useState<Record<string, { valid: boolean; message: string }>>({})
   const [deletingOAuthConfig, setDeletingOAuthConfig] = useState(false)
   const [deleteConfirmState, setDeleteConfirmState] = useState<
     | { kind: 'oauth' }
@@ -681,6 +683,13 @@ export default function SettingsPage() {
       if (response.ok) {
         const data = await response.json()
         setGoogleAdsCredentialStatus(data.data)
+
+        // 🔧 自动恢复认证模式：仅当实际生效的认证类型为 service_account（无 OAuth refresh_token）时自动切换 Tab
+        // 若用户同时拥有 OAuth 和 SA，则优先保持 OAuth Tab（由用户手动切换）
+        if (data.data?.authType === 'service_account') {
+          setGoogleAdsAuthMethod('service_account')
+          fetchServiceAccounts()
+        }
       }
     } catch (err) {
       console.error('Failed to fetch Google Ads credential status:', err)
@@ -748,16 +757,55 @@ export default function SettingsPage() {
       setLoadingGoogleAdsAccounts(true)
       setShowGoogleAdsAccounts(true)
 
-      // 构建URL参数
-      let url = '/api/google-ads/credentials/accounts?refresh=true'
+      // 🔧 多MCC支持：并发拉取所有服务账号的广告账户并合并去重
       if (googleAdsAuthMethod === 'service_account' && serviceAccounts.length > 0) {
-        // 如果有已配置的服务账号，使用第一个服务账号
-        url += `&auth_type=service_account&service_account_id=${serviceAccounts[0].id}`
+        const results = await Promise.allSettled(
+          serviceAccounts.map(sa => {
+            const url = `/api/google-ads/credentials/accounts?refresh=true&auth_type=service_account&service_account_id=${sa.id}`
+            return fetch(url, { credentials: 'include' }).then(r => r.json())
+          })
+        )
+
+        const mergedMap = new Map<string, any>()
+        let permErr: any = null
+        let totalCount = 0
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            const body = result.value
+            // 检测权限错误
+            if (body.code === 'SERVICE_ACCOUNT_PERMISSION_DENIED' && body.details) {
+              permErr = body.details
+              continue
+            }
+            if (body.data?.accounts) {
+              const accs: any[] = body.data.accounts
+              accs.forEach(acc => {
+                if (!mergedMap.has(acc.customerId)) {
+                  mergedMap.set(acc.customerId, acc)
+                  totalCount++
+                }
+              })
+            }
+          }
+        }
+
+        if (permErr && mergedMap.size === 0) {
+          setPermissionError(permErr)
+          setShowGoogleAdsAccounts(true)
+          return
+        }
+
+        setPermissionError(null)
+        const merged = Array.from(mergedMap.values())
+        setGoogleAdsAccounts(merged)
+        toast.success(`找到 ${merged.length} 个可访问的 Google Ads 账户`)
+        return
       }
 
-      const response = await fetch(url, {
-        credentials: 'include',
-      })
+      // OAuth 模式或无服务账号：原有单路径逻辑
+      const url = '/api/google-ads/credentials/accounts?refresh=true'
+      const response = await fetch(url, { credentials: 'include' })
 
       if (!response.ok) {
         const data = await response.json()
@@ -1108,10 +1156,42 @@ export default function SettingsPage() {
 
       toast.success('服务账号配置已删除')
       fetchServiceAccounts()
+      // 清除该条的验证状态
+      setServiceAccountVerifyStatus(prev => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     } catch (err: any) {
       toast.error(err.message)
     } finally {
       setDeletingServiceAccountId(null)
+    }
+  }
+
+  const verifyServiceAccountNow = async (id: string) => {
+    setVerifyingServiceAccountId(id)
+    setServiceAccountVerifyStatus(prev => ({ ...prev, [id]: { valid: false, message: '验证中...' } }))
+    try {
+      const response = await fetch('/api/google-ads/credentials/verify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceAccountId: id })
+      })
+      const data = await response.json()
+      if (response.ok && data.success) {
+        const count = data.data?.accessibleCount
+        const msg = count !== undefined ? `有效，可访问 ${count} 个账户` : '验证通过'
+        setServiceAccountVerifyStatus(prev => ({ ...prev, [id]: { valid: true, message: msg } }))
+      } else {
+        const errMsg = data.data?.error || data.message || '验证失败'
+        setServiceAccountVerifyStatus(prev => ({ ...prev, [id]: { valid: false, message: errMsg } }))
+      }
+    } catch (err: any) {
+      setServiceAccountVerifyStatus(prev => ({ ...prev, [id]: { valid: false, message: err.message || '验证失败' } }))
+    } finally {
+      setVerifyingServiceAccountId(null)
     }
   }
 
@@ -1930,36 +2010,64 @@ export default function SettingsPage() {
                       </div>
                     )}
 
-                    {/* 已配置的服务账号列表 */}
+                    {/* 已配置的服务账号列表（支持多MCC绑定） */}
                     {googleAdsAuthMethod === 'service_account' && serviceAccounts.length > 0 && (
                       <div className="border-t pt-6">
-                        <h3 className="font-semibold mb-4">已配置的服务账号</h3>
+                        <h3 className="font-semibold mb-4">已配置的服务账号 <span className="text-sm font-normal text-gray-500">（共 {serviceAccounts.length} 条）</span></h3>
                         <div className="space-y-3">
-                          {serviceAccounts.map((account) => (
-                            <div key={account.id} className="p-4 border rounded-lg hover:bg-gray-50">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="font-semibold text-gray-900">{account.name}</div>
-                                  <div className="text-sm text-gray-600 mt-1 space-y-1">
-                                    <div>MCC ID: <span className="font-mono">{account.mcc_customer_id}</span></div>
-                                    <div>服务账号: <span className="font-mono text-xs">{account.service_account_email}</span></div>
-                                    <div className="text-xs text-gray-500">
-                                      创建时间: {new Date(account.created_at).toLocaleString('zh-CN')}
+                          {serviceAccounts.map((account) => {
+                            const verifyResult = serviceAccountVerifyStatus[account.id]
+                            const isVerifying = verifyingServiceAccountId === account.id
+                            return (
+                              <div key={account.id} className="p-4 border rounded-lg hover:bg-gray-50">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-semibold text-gray-900">{account.name}</div>
+                                    <div className="text-sm text-gray-600 mt-1 space-y-1">
+                                      <div>MCC ID: <span className="font-mono">{account.mcc_customer_id}</span></div>
+                                      <div className="truncate">服务账号: <span className="font-mono text-xs">{account.service_account_email}</span></div>
+                                      <div className="text-xs text-gray-500">
+                                        添加时间: {new Date(account.created_at).toLocaleString('zh-CN')}
+                                      </div>
+                                      {/* 验证状态显示 */}
+                                      {verifyResult && (
+                                        <div className={`text-xs flex items-center gap-1 mt-1 ${verifyResult.valid ? 'text-green-600' : 'text-red-500'}`}>
+                                          <span>{verifyResult.valid ? '✅' : '❌'}</span>
+                                          <span>{verifyResult.message}</span>
+                                        </div>
+                                      )}
+                                      {isVerifying && (
+                                        <div className="text-xs text-blue-500 flex items-center gap-1 mt-1">
+                                          <span className="animate-pulse">⏳</span>
+                                          <span>验证中...</span>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
+                                  <div className="flex flex-col gap-2 shrink-0">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => verifyServiceAccountNow(account.id)}
+                                      disabled={isVerifying || deletingServiceAccountId === account.id}
+                                      className="text-blue-600 hover:text-blue-700 whitespace-nowrap"
+                                    >
+                                      {isVerifying ? '验证中...' : '验证连接'}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => requestDeleteServiceAccount(account.id)}
+                                      disabled={deletingServiceAccountId === account.id || isVerifying}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
                                 </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => requestDeleteServiceAccount(account.id)}
-                                  disabled={deletingServiceAccountId === account.id}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
                               </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -2354,19 +2462,18 @@ export default function SettingsPage() {
                     }}
                     disabled={saving || savingServiceAccount}
                   >
-                  {(saving || savingServiceAccount) ? '保存中...' : '保存配置'}
+                  {(saving || savingServiceAccount) ? '保存中...' : (category === 'google_ads' && googleAdsAuthMethod === 'service_account') ? '添加绑定' : '保存配置'}
                   </Button>
 
-                  {category === 'google_ads' && (
+                  {/* service_account 模式下已在列表中逐条删除，不显示全局删除按钮 */}
+                  {category === 'google_ads' && googleAdsAuthMethod === 'oauth' && (
                     <Button
                       type="button"
                       variant="destructive"
                       onClick={requestDeleteCurrentGoogleAdsConfig}
                       disabled={
                         deletingOAuthConfig ||
-                        (googleAdsAuthMethod === 'oauth' && !hasOAuthConfigToDelete) ||
-                        (googleAdsAuthMethod === 'service_account' &&
-                          (!!deletingServiceAccountId || !hasServiceAccountConfigToDelete))
+                        !hasOAuthConfigToDelete
                       }
                     >
                       删除当前配置

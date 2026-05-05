@@ -19,38 +19,55 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 支持多MCC场景：可传入 serviceAccountId 精确验证某条服务账号
+    let serviceAccountId: string | undefined
+    try {
+      const body = await request.json()
+      serviceAccountId = body?.serviceAccountId || undefined
+    } catch {
+      // body 可能为空，忽略
+    }
+
     console.log(`🔍 验证Google Ads凭证`)
     console.log(`   用户: ${authResult.user.email}`)
+    if (serviceAccountId) {
+      console.log(`   指定服务账号 ID: ${serviceAccountId}`)
+    }
 
     // 验证凭证
-    const result = await verifyGoogleAdsCredentials(authResult.user.userId)
+    const result = await verifyGoogleAdsCredentials(authResult.user.userId, serviceAccountId)
 
     if (result.valid) {
       console.log(`✅ Google Ads凭证有效`)
       if (result.customer_id) {
         console.log(`   Customer ID: ${result.customer_id}`)
       }
-
-      // 🆕 自动检测并更新API访问级别
-      try {
-        const auth = await getUserAuthType(authResult.user.userId)
-        const accessLevel = await autoDetectAndUpdateAccessLevel(
-          authResult.user.userId,
-          auth.authType
-        )
-        console.log(`   检测到API访问级别: ${accessLevel}`)
-      } catch (detectError) {
-        console.warn('自动检测API访问级别失败:', detectError)
-        // 不影响验证结果
+      if (result.accessible_count !== undefined) {
+        console.log(`   可访问账户数: ${result.accessible_count}`)
       }
 
-      // 🔧 修复(2025-12-11): snake_case → camelCase
+      // 🆕 自动检测并更新API访问级别（仅全局验证时，单条验证时跳过）
+      if (!serviceAccountId) {
+        try {
+          const auth = await getUserAuthType(authResult.user.userId)
+          const accessLevel = await autoDetectAndUpdateAccessLevel(
+            authResult.user.userId,
+            auth.authType
+          )
+          console.log(`   检测到API访问级别: ${accessLevel}`)
+        } catch (detectError) {
+          console.warn('自动检测API访问级别失败:', detectError)
+          // 不影响验证结果
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: 'Google Ads凭证有效',
         data: {
           valid: true,
-          customerId: result.customer_id
+          customerId: result.customer_id,
+          accessibleCount: result.accessible_count,
         }
       })
     } else {

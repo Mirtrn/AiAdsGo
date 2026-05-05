@@ -185,48 +185,94 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       })
       const credData = await credResponse.json()
       const authType = credData.data?.authType || 'oauth'
-      const serviceAccountId = credData.data?.serviceAccountId
 
-      // 构建查询参数
-      const params = new URLSearchParams({
-        refresh: forceRefresh ? 'true' : 'false',
-        offerId: offer.id.toString(),
-        auth_type: authType,
-      })
-      // async 刷新：先返回缓存/部分结果，后台继续同步，前端通过轮询逐步更新
-      if (forceRefresh) {
-        params.append('async', 'true')
-      }
-      if (serviceAccountId) {
-        params.append('service_account_id', serviceAccountId)
-      }
+      let allAccounts: GoogleAdsAccount[] = []
+      let anyRefreshInProgress = false
+      let latestCached = false
+      let latestCacheStale = false
+      let latestRefreshFailed = false
+      let latestLastSyncAt: string | null = null
+      let latestRefreshError: string | null = null
 
-      // 🔓 KISS优化(2025-12-12): 传入offerId用于计算账号优先级
-      const response = await fetch(`/api/google-ads/credentials/accounts?${params}`, {
-        credentials: 'include'
-      })
+      if (authType === 'service_account') {
+        // 🔧 多MCC支持：并发拉取所有服务账号的广告账户并合并
+        const saResponse = await fetch('/api/google-ads/service-account', { credentials: 'include' })
+        const saData = await saResponse.json()
+        const saList: any[] = saData.accounts || []
 
-      if (!response.ok) {
-        let errorData: any = null
-        try {
-          errorData = await response.json()
-        } catch {
-          errorData = null
+        if (saList.length === 0) {
+          throw new Error('未找到服务账号配置，请前往设置页面配置')
         }
-        throw new Error(errorData?.message || errorData?.error || '获取账号列表失败')
+
+        const results = await Promise.allSettled(
+          saList.map(sa => {
+            const params = new URLSearchParams({
+              refresh: forceRefresh ? 'true' : 'false',
+              offerId: offer.id.toString(),
+              auth_type: 'service_account',
+              service_account_id: sa.id,
+            })
+            if (forceRefresh) params.append('async', 'true')
+            return fetch(`/api/google-ads/credentials/accounts?${params}`, { credentials: 'include' })
+              .then(r => r.json())
+          })
+        )
+
+        const mergedMap = new Map<string, GoogleAdsAccount>()
+        results.forEach(result => {
+          if (result.status === 'fulfilled' && result.value?.success && result.value?.data?.accounts) {
+            const accs: GoogleAdsAccount[] = result.value.data.accounts
+            if (result.value.data.refreshInProgress) anyRefreshInProgress = true
+            if (result.value.data.cached) latestCached = true
+            if (result.value.data.cacheStale) latestCacheStale = true
+            if (result.value.data.refreshFailed) latestRefreshFailed = true
+            if (result.value.data.refreshError) latestRefreshError = result.value.data.refreshError
+            if (result.value.data.lastSyncAt && !latestLastSyncAt) latestLastSyncAt = result.value.data.lastSyncAt
+            accs.forEach((acc: GoogleAdsAccount) => {
+              if (!mergedMap.has(acc.customerId)) mergedMap.set(acc.customerId, acc)
+            })
+          }
+        })
+        allAccounts = Array.from(mergedMap.values())
+      } else {
+        // OAuth 模式：原有逻辑
+        const params = new URLSearchParams({
+          refresh: forceRefresh ? 'true' : 'false',
+          offerId: offer.id.toString(),
+          auth_type: authType,
+        })
+        if (forceRefresh) params.append('async', 'true')
+
+        const response = await fetch(`/api/google-ads/credentials/accounts?${params}`, {
+          credentials: 'include'
+        })
+
+        if (!response.ok) {
+          let errorData: any = null
+          try { errorData = await response.json() } catch { errorData = null }
+          throw new Error(errorData?.message || errorData?.error || '获取账号列表失败')
+        }
+
+        const data = await response.json()
+        if (data.success && data.data?.accounts) {
+          allAccounts = data.data.accounts as GoogleAdsAccount[]
+          anyRefreshInProgress = Boolean(data.data.refreshInProgress)
+          latestCached = Boolean(data.data.cached)
+          latestCacheStale = Boolean(data.data.cacheStale)
+          latestRefreshFailed = Boolean(data.data.refreshFailed)
+          latestLastSyncAt = data.data.lastSyncAt || null
+          latestRefreshError = data.data.refreshError || null
+        }
       }
 
-      const data = await response.json()
+      if (allAccounts.length >= 0) {
+        setIsCached(latestCached)
+        setCacheStale(latestCacheStale)
+        setRefreshFailed(latestRefreshFailed)
+        setLastSyncAt(latestLastSyncAt)
+        setRefreshInProgress(anyRefreshInProgress)
+        setRefreshError(latestRefreshError)
 
-      if (data.success && data.data?.accounts) {
-        setIsCached(Boolean(data.data.cached))
-        setCacheStale(Boolean(data.data.cacheStale))
-        setRefreshFailed(Boolean(data.data.refreshFailed))
-        setLastSyncAt(data.data.lastSyncAt || null)
-        setRefreshInProgress(Boolean(data.data.refreshInProgress))
-        setRefreshError(data.data.refreshError || null)
-
-        const allAccounts = data.data.accounts as GoogleAdsAccount[]
         const isClosedOrCanceled = (status: string | null | undefined) => {
           const normalizedStatus = String(status || '').toUpperCase()
           return normalizedStatus === 'CANCELED' || normalizedStatus === 'CANCELLED' || normalizedStatus === 'CLOSED'
@@ -259,7 +305,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         setAccounts(availableAccounts)
 
         if (forceRefresh) {
-          if (data.data.refreshInProgress) {
+          if (anyRefreshInProgress) {
             showSuccess('已开始刷新', '后台同步中，列表将自动更新')
             scheduleRefreshPoll()
           } else {
@@ -267,7 +313,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
             setRefreshing(false)
           }
         } else if (isPoll) {
-          if (data.data.refreshInProgress) {
+          if (anyRefreshInProgress) {
             scheduleRefreshPoll()
           } else {
             setRefreshing(false)

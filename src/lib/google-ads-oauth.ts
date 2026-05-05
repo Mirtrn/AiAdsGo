@@ -6,7 +6,7 @@ import { boolCondition } from './db-helpers'
  * 优先使用OAuth，无OAuth时使用服务账号
  * @returns { authType: 'oauth' | 'service_account', serviceAccountId?: string }
  */
-export async function getUserAuthType(userId: number): Promise<{
+export async function getUserAuthType(userId: number, parentMccId?: string): Promise<{
   authType: 'oauth' | 'service_account'
   serviceAccountId?: string
 }> {
@@ -23,14 +23,31 @@ export async function getUserAuthType(userId: number): Promise<{
     return { authType: 'oauth' }
   }
 
-  // 检查服务账号配置
+  // 检查服务账号配置（支持多MCC：优先按 parent_mcc_id 匹配）
   const serviceAccountIsActiveCondition = boolCondition('is_active', true, db.type)
-  const serviceAccount = await db.queryOne(
-    `SELECT id FROM google_ads_service_accounts
-     WHERE user_id = ? AND ${serviceAccountIsActiveCondition}
-     ORDER BY created_at DESC LIMIT 1`,
-    [userId]
-  ) as { id: string } | undefined
+
+  let serviceAccount: { id: string } | undefined
+
+  if (parentMccId) {
+    // 优先按 mcc_customer_id 精确匹配
+    const cleanMccId = parentMccId.replace(/[\s-]/g, '')
+    serviceAccount = await db.queryOne(
+      `SELECT id FROM google_ads_service_accounts
+       WHERE user_id = ? AND ${serviceAccountIsActiveCondition} AND mcc_customer_id = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, cleanMccId]
+    ) as { id: string } | undefined
+  }
+
+  if (!serviceAccount) {
+    // 无法匹配或未传 parentMccId，取最新一条
+    serviceAccount = await db.queryOne(
+      `SELECT id FROM google_ads_service_accounts
+       WHERE user_id = ? AND ${serviceAccountIsActiveCondition}
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    ) as { id: string } | undefined
+  }
 
   if (serviceAccount) {
     return { authType: 'service_account', serviceAccountId: serviceAccount.id }
@@ -316,10 +333,12 @@ export async function getValidAccessToken(userId: number): Promise<string> {
 /**
  * 验证Google Ads凭证是否有效
  * 支持 OAuth 和服务账号两种认证模式
+ * @param serviceAccountId 可选，指定验证某条服务账号记录（多MCC场景）
  */
-export async function verifyGoogleAdsCredentials(userId: number): Promise<{
+export async function verifyGoogleAdsCredentials(userId: number, serviceAccountId?: string): Promise<{
   valid: boolean
   customer_id?: string
+  accessible_count?: number
   error?: string
   authType?: 'oauth' | 'service_account'
 }> {
@@ -328,18 +347,33 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
 
     // 1. 检查是否有已激活的服务账号配置
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-    const serviceAccount = await db.queryOne(`
+
+    // 支持多MCC：若传入 serviceAccountId 则精确查找，否则取最新一条
+    let saQuery = `
       SELECT id, name, mcc_customer_id, developer_token, service_account_email
       FROM google_ads_service_accounts
       WHERE user_id = ? AND ${isActiveCondition}
-      ORDER BY created_at DESC LIMIT 1
-    `, [userId]) as {
+    `
+    const saParams: any[] = [userId]
+    if (serviceAccountId) {
+      saQuery += ` AND id = ?`
+      saParams.push(serviceAccountId)
+    } else {
+      saQuery += ` ORDER BY created_at DESC LIMIT 1`
+    }
+
+    const serviceAccount = await db.queryOne(saQuery, saParams) as {
       id: string
       name: string
       mcc_customer_id: string
       developer_token: string
       service_account_email: string
     } | undefined
+
+    // 2a. 若指定了 serviceAccountId 但未找到对应记录，直接报错，不要跌落到 OAuth
+    if (serviceAccountId && !serviceAccount) {
+      return { valid: false, error: '未找到指定的服务账号配置，可能已被删除', authType: 'service_account' }
+    }
 
     // 2. 如果有服务账号配置，优先使用服务账号验证
     if (serviceAccount) {
@@ -370,6 +404,7 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
         `, [userId]).catch(() => {}) // 忽略更新失败
 
         return {
+          accessible_count: resourceNames.length,
           valid: true,
           customer_id: firstCustomerId,
           authType: 'service_account'
