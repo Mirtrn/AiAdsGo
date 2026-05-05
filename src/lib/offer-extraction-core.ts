@@ -548,15 +548,23 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         })
       } catch (error: any) {
         console.error('URL解析失败:', error)
-        const errorMessage = error instanceof AppError ? error.message : '推广链接解析失败'
+        // 🔥 检测 IPRocket 代理账户业务异常（余额耗尽 / 账户被限）
+        const rawMsg: string = error?.message || String(error)
+        const isIPRocketBusiness =
+          rawMsg.includes('Business abnormality') ||
+          rawMsg.includes('business error') ||
+          (rawMsg.includes('IPRocket') && rawMsg.includes('contact customer service'))
+        const errorMessage = isIPRocketBusiness
+          ? '代理服务账户异常（IPRocket账户余额或配额不足），请联系管理员充值后重试'
+          : (error instanceof AppError ? error.message : '推广链接解析失败')
         trackStageProgress(progressCallback, resolvingLinkStartTime, 'resolving_link', 'error', errorMessage)
 
         return {
           success: false,
           error: {
-            code: error instanceof AppError ? error.code : 'URL_RESOLVE_FAILED',
+            code: isIPRocketBusiness ? 'PROXY_ACCOUNT_ERROR' : (error instanceof AppError ? error.code : 'URL_RESOLVE_FAILED'),
             message: errorMessage,
-            details: { originalError: error.message },
+            details: { originalError: rawMsg },
           },
         }
       }

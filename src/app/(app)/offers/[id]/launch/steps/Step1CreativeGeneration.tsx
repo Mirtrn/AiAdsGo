@@ -289,11 +289,23 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'retry',
     actionLabel: '重新尝试'
   },
+  '代理服务账户异常': {
+    title: '代理服务账户余额不足',
+    description: 'IPRocket 代理账户余额或配额已耗尽，系统无法正常访问目标网站。请联系管理员充值 IPRocket 账户后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  'AI服务暂时不可用': {
+    title: 'AI 服务网络临时故障',
+    description: 'AI 接口（OpenLLM）网络连接临时中断，这是外部网络波动导致的短暂问题。请等待 1-2 分钟后点击"重新尝试"。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
   '关键词池创建失败': {
     title: '关键词准备失败',
-    description: '无法创建关键词池，网站数据抓取可能失败。建议重新创建Offer并确保网站可以正常访问抓取。',
-    action: 'offer-detail',
-    actionLabel: '返回Offer详情'
+    description: '无法创建关键词池，网站数据抓取可能失败。建议返回 Offer 详情页重新抓取，或稍后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
   },
   '请先生成关键词': {
     title: '需要先完成数据抓取',
