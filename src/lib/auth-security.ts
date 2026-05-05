@@ -39,11 +39,19 @@ export async function recordFailedLogin(
 
   // 检查是否需要禁用账户
   const user = (await db.queryOne(
-    'SELECT failed_login_count FROM users WHERE id = ?',
+    "SELECT failed_login_count, role FROM users WHERE id = ?",
     [userId]
-  )) as { failed_login_count: number } | null
+  )) as { failed_login_count: number; role: string } | null
 
   if (user && user.failed_login_count >= MAX_FAILED_ATTEMPTS) {
+    // admin 角色（主管理账号）永不自动禁用，只记录日志
+    if (user.role === 'admin') {
+      console.warn(
+        `[Security] Admin user ${userId} has ${user.failed_login_count} failed login attempts, skipping auto-disable (admin accounts are exempt)`
+      )
+      return
+    }
+
     // 禁用账户（需要管理员手动启用）
     await db.exec(
       `
