@@ -301,6 +301,12 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'retry',
     actionLabel: '重新尝试'
   },
+  '未配置 LiteLLM API Key': {
+    title: 'LiteLLM API Key 未配置',
+    description: '当前账号尚未配置 LiteLLM Gateway API Key，AI 关键词分类无法运行。请前往设置页面填写 LiteLLM API Key 后重试。',
+    action: 'settings',
+    actionLabel: '前往设置'
+  },
   '关键词池创建失败': {
     title: '关键词准备失败',
     description: '无法创建关键词池，网站数据抓取可能失败。建议返回 Offer 详情页重新抓取，或稍后重试。',

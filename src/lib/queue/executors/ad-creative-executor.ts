@@ -395,6 +395,11 @@ export async function executeAdCreativeGeneration(
       // 🔥 统一架构(2025-12-16): 关键词池是必需的，失败直接抛错
       console.error(`❌ 关键词池创建失败: ${poolError.message}`)
       const rawPoolMsg: string = poolError?.message || String(poolError)
+      // 判断是否是 LiteLLM API Key 未配置（用户配置缺失，直接提示去设置）
+      const isLiteLLMKeyMissing = /未配置 LiteLLM API Key|LiteLLM.*API.*Key.*未配置/i.test(rawPoolMsg)
+      if (isLiteLLMKeyMissing) {
+        throw new Error(`未配置 LiteLLM API Key。请前往设置页面配置您的 LiteLLM Gateway API Key 后重试。`)
+      }
       // 判断是否是代理/网络连接失败，给出更具体的错误信息
       const isProxyError = /ERR_TUNNEL_CONNECTION_FAILED|ERR_TIMED_OUT|代理连接问题|代理连接失败|net::ERR_|PROXY_CONNECTION|ECONNREFUSED|ETIMEDOUT/i.test(rawPoolMsg)
       if (isProxyError) {
