@@ -285,6 +285,9 @@ async function saveDeepScrapeResults(
 
     // 4. 保存到数据库（包含所有分析结果）
     try {
+      // 🔥 修复(2026-05): 使用 db.type 兼容 SQLite 和 PostgreSQL 的时间函数
+      const nowSql = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
       await db.exec(`
         UPDATE scraped_products
         SET
@@ -292,9 +295,9 @@ async function saveDeepScrapeResults(
           review_analysis = ?,
           competitor_analysis = ?,
           product_info = ?,
-          has_deep_data = 1,
-          updated_at = datetime('now')
-        WHERE offer_id = ? AND user_id = ? AND asin = ?
+          has_deep_data = ${db.type === 'postgres' ? 'TRUE' : '1'},
+          updated_at = ${nowSql}
+        WHERE offer_id = ? AND user_id = ? AND asin = ? AND ${isDeletedCheck}
       `, [
         JSON.stringify({
           productData: product.productData,
