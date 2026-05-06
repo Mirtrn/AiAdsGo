@@ -56,6 +56,12 @@ async function saveScrapedProducts(
   products: any[],
   source: 'amazon_store' | 'independent_store' | 'amazon_product'
 ): Promise<void> {
+  // 🔥 修复(2026-05): 若产品列表为空，保留历史数据，避免清空有效数据
+  if (products.length === 0) {
+    console.warn('⚠️ saveScrapedProducts: 传入产品列表为空，保留历史数据不执行软删除')
+    return
+  }
+
   const db = await getDatabase()
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
@@ -1608,7 +1614,68 @@ export async function performScrapeAndAnalysis(
 
           console.log(`✅ 店铺提取完成: ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`)
         } else {
-          console.warn('⚠️ 店铺页面未找到产品数据，跳过广告元素提取')
+          // 🔥 修复(2026-05): DB无数据时，用内存中的 rawScrapedData.products 作回退
+          const fallbackProducts: any[] = Array.isArray(rawScrapedData?.products)
+            ? rawScrapedData.products
+            : []
+          const fallbackSupplemental: any[] = Array.isArray(rawScrapedData?.supplementalProducts)
+            ? rawScrapedData.supplementalProducts
+            : []
+
+          if (fallbackProducts.length > 0 || fallbackSupplemental.length > 0) {
+            console.warn(`⚠️ 店铺DB无产品数据，回退使用内存产品 (${fallbackProducts.length}主 + ${fallbackSupplemental.length}补充)`)
+
+            const mapStoreProduct = (p: any) => ({
+              name: p.name || p.productName || '',
+              asin: p.asin || null,
+              price: p.price || p.productPrice || null,
+              rating: p.rating || null,
+              reviewCount: p.reviewCount || p.review_count || null,
+              imageUrl: p.imageUrl || (Array.isArray(p.imageUrls) ? p.imageUrls[0] : null) || null,
+              hotScore: p.hotScore || undefined,
+              hasDeepData: false,
+              productData: null,
+              reviewAnalysis: null,
+              competitorAnalysis: null,
+              productInfo: null,
+            })
+
+            const seen = new Set<string>()
+            const allProducts: any[] = []
+            for (const p of [...fallbackProducts, ...fallbackSupplemental]) {
+              const key = (p.name || p.productName || '').toLowerCase().trim()
+              if (!key || seen.has(key)) continue
+              seen.add(key)
+              allProducts.push(mapStoreProduct(p))
+            }
+            const mergedFallback = allProducts.slice(0, 8)
+
+            if (mergedFallback.length > 0) {
+              const extractionResult = await extractAdElements(
+                {
+                  pageType: 'store',
+                  storeProducts: mergedFallback,
+                  hasDeepData: false,
+                },
+                extractedBrand,
+                targetCountry,
+                language,
+                userId
+              )
+
+              extractedKeywords = extractionResult.keywords
+              extractedHeadlines = extractionResult.headlines
+              extractedDescriptions = extractionResult.descriptions
+              extractionMetadata = extractionResult.sources
+              extractedAt = new Date().toISOString()
+
+              console.log(`✅ 店铺提取完成(回退模式): ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`)
+            } else {
+              console.warn('⚠️ 店铺页面未找到有效产品数据（DB + 内存均为空），跳过广告元素提取')
+            }
+          } else {
+            console.warn('⚠️ 店铺页面未找到产品数据（DB + 内存均为空），跳过广告元素提取')
+          }
         }
       }
     } catch (extractError: any) {
