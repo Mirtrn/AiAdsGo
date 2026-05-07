@@ -72,7 +72,8 @@ export async function POST(
 
     // 注意：生产环境 OAuth refresh_token 存储在 google_ads_credentials，
     // google_ads_accounts.refresh_token 可能为空，不能据此判断授权过期。
-    const auth = await getUserAuthType(numericUserId)
+    // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+    const auth = await getUserAuthType(numericUserId, googleAdsAccount.parentMccId || undefined)
     if (auth.authType === 'oauth') {
       const oauthCredentials = await getGoogleAdsCredentials(numericUserId)
       if (!oauthCredentials?.refresh_token) {
