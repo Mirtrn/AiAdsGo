@@ -200,6 +200,7 @@ async function updateTargetsFinalUrlSuffix(params: {
   serviceAccountId?: string
   oauthLoginCustomerId?: string
   serviceAccountMccId?: string
+  db: Awaited<ReturnType<typeof getDatabase>>
 }): Promise<{ successCount: number; failureCount: number; failures: string[] }> {
   const failures: string[] = []
   let successCount = 0
@@ -212,6 +213,35 @@ async function updateTargetsFinalUrlSuffix(params: {
       source: `url-swap:target-update:${target.google_campaign_id || 'unknown'}`,
     })
 
+    // 多MCC：按账户的 parent_mcc_id 精确匹配对应SA，避免多SA时取错MCC
+    let effectiveServiceAccountId = params.serviceAccountId
+    let effectiveServiceAccountMccId = params.serviceAccountMccId
+    if (params.authType === 'service_account' && target.google_ads_account_id) {
+      try {
+        const adsAccountRow = await params.db.queryOne<{ parent_mcc_id: string | null }>(
+          `SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ? AND user_id = ?`,
+          [target.google_ads_account_id, params.userId]
+        )
+        if (adsAccountRow) {
+          const { getUserAuthType: _getUserAuthType } = await import('@/lib/google-ads-oauth')
+          const { serviceAccountId: matchedSaId } = await _getUserAuthType(
+            params.userId,
+            adsAccountRow.parent_mcc_id || undefined
+          )
+          if (matchedSaId) {
+            effectiveServiceAccountId = matchedSaId
+            const { getServiceAccountConfig: _getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
+            const saConfig = await _getServiceAccountConfig(params.userId, matchedSaId)
+            effectiveServiceAccountMccId = saConfig?.mccCustomerId
+              ? String(saConfig.mccCustomerId).trim()
+              : undefined
+          }
+        }
+      } catch (saLookupErr: any) {
+        console.warn(`[url-swap-executor] 按 parent_mcc_id 匹配SA失败，降级使用全局SA: ${saLookupErr?.message || saLookupErr}`)
+      }
+    }
+
     const attemptAuthType = forcedAuthType ?? params.authType
     try {
       try {
@@ -221,22 +251,22 @@ async function updateTargetsFinalUrlSuffix(params: {
           userId: params.userId,
           refreshToken: params.refreshToken,
           authType: attemptAuthType,
-          serviceAccountId: attemptAuthType === 'service_account' ? params.serviceAccountId : undefined,
+          serviceAccountId: attemptAuthType === 'service_account' ? effectiveServiceAccountId : undefined,
           oauthLoginCustomerId: params.oauthLoginCustomerId,
-          serviceAccountMccId: params.serviceAccountMccId,
+          serviceAccountMccId: effectiveServiceAccountMccId,
         })
       } catch (firstError: any) {
         const message = firstError?.message || String(firstError)
-        if (attemptAuthType === 'oauth' && isOAuthInvalidGrantError(message) && params.serviceAccountId) {
+        if (attemptAuthType === 'oauth' && isOAuthInvalidGrantError(message) && effectiveServiceAccountId) {
           await updateSingleTargetWithLoginCustomerFallback({
             target,
             finalUrlSuffix: params.finalUrlSuffix,
             userId: params.userId,
             refreshToken: '',
             authType: 'service_account',
-            serviceAccountId: params.serviceAccountId,
+            serviceAccountId: effectiveServiceAccountId,
             oauthLoginCustomerId: params.oauthLoginCustomerId,
-            serviceAccountMccId: params.serviceAccountMccId,
+            serviceAccountMccId: effectiveServiceAccountMccId,
           })
           forcedAuthType = 'service_account'
         } else {
@@ -446,6 +476,7 @@ export async function executeUrlSwapTask(
             serviceAccountId: authContext.serviceAccountId,
             oauthLoginCustomerId: authContext.oauthLoginCustomerId,
             serviceAccountMccId: authContext.serviceAccountMccId,
+            db,
           })
         } catch (adsError: any) {
           const message = formatGoogleAdsError(adsError)
@@ -562,6 +593,7 @@ export async function executeUrlSwapTask(
           serviceAccountId: authContext.serviceAccountId,
           oauthLoginCustomerId: authContext.oauthLoginCustomerId,
           serviceAccountMccId: authContext.serviceAccountMccId,
+          db,
         })
       } catch (adsError: any) {
         const message = formatGoogleAdsError(adsError)
@@ -611,6 +643,7 @@ export async function executeUrlSwapTask(
           serviceAccountId: authContext.serviceAccountId,
           oauthLoginCustomerId: authContext.oauthLoginCustomerId,
           serviceAccountMccId: authContext.serviceAccountMccId,
+          db,
         })
 
         console.log(`[url-swap-executor] Google Ads更新完成: ${taskId}`)
