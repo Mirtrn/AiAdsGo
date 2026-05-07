@@ -136,8 +136,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 准备Final URLs
       const finalUrls = [creative.final_url]
 
-      // 获取用户授权方式
-      const auth = await getUserAuthType(parseInt(userId, 10))
+      // 获取用户授权方式（多MCC：按账户的 parent_mcc_id 精确匹配SA）
+      const auth = await getUserAuthType(parseInt(userId, 10), googleAdsAccount.parentMccId || undefined)
 
       // 创建Google Ads Responsive Search Ad
       const adResult = await createGoogleAdsResponsiveSearchAd({

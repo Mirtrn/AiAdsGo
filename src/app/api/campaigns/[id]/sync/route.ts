@@ -77,8 +77,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     })
 
     try {
-      // 获取用户授权方式
-      const auth = await getUserAuthType(userId)
+      // 获取用户授权方式（多MCC：按账户的 parent_mcc_id 精确匹配SA）
+      const auth = await getUserAuthType(userId, googleAdsAccount.parentMccId || undefined)
 
       // 创建Google Ads广告系列
       const result = await createGoogleAdsCampaign({
