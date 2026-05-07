@@ -35,6 +35,21 @@ import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { getLanguageName, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
+
+/** 多MCC：按最近活跃账户的 parent_mcc_id 精确匹配对应SA（用于关键词规划器等只读场景）*/
+async function getUserParentMccId(userId: number): Promise<string | undefined> {
+  try {
+    const db = await getDatabase()
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+    const row = await db.queryOne<{ parent_mcc_id: string | null }>(
+      `SELECT parent_mcc_id FROM google_ads_accounts WHERE user_id = ? AND ${isActiveCondition} ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    )
+    return row?.parent_mcc_id || undefined
+  } catch {
+    return undefined
+  }
+}
 import { DEFAULTS } from './keyword-constants'
 import { classifyKeywordIntent } from './keyword-intent'
 import { parseJsonField, toDbJsonArrayField } from './json-field'
@@ -1149,7 +1164,8 @@ async function hydrateGlobalCoreKeywordSearchVolumes(
 
     if (staleNorms.size > 0) {
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
-      const auth = await getUserAuthType(userId)
+      // 多MCC：按活跃账户的 parent_mcc_id 精确匹配对应SA
+      const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
       const refreshKeywords = Array.from(staleNorms)
         .map(norm => keywordMap.get(norm)?.keyword)
         .filter((kw): kw is string => Boolean(kw))
@@ -1796,8 +1812,8 @@ export async function clusterKeywordsByIntent(
       }
       console.log(`📊 查询高购买意图词搜索量: ${highIntentKeywords.length} 个关键词`)
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
-      // 🔧 修复(2025-12-26): 支持服务账号模式
-      const auth = await getUserAuthType(userId)
+      // 🔧 修复(2025-12-26): 支持服务账号模式 / 多MCC：按活跃账户 parent_mcc_id 精确匹配SA
+      const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
       const metricsResults = await getKeywordSearchVolumes(
         highIntentKeywords,
         targetCountry,
@@ -3242,7 +3258,8 @@ export async function generateOfferKeywordPool(
     // 🔧 修复(2026-01-21): 如果提供了关键词列表，查询搜索量而不是硬编码为 0
     console.log(`📊 查询 ${allKeywords.length} 个提供的关键词的搜索量...`)
     const { getKeywordSearchVolumes } = await import('./keyword-planner')
-    const auth = await getUserAuthType(userId)
+    // 多MCC：按活跃账户的 parent_mcc_id 精确匹配对应SA
+    const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
 
     try {
       await progress?.({ phase: 'seed-volume', message: `初始关键词搜索量查询中` })
@@ -3403,8 +3420,8 @@ export async function generateOfferKeywordPool(
     const { getDatabase } = await import('./db')
     const db = await getDatabase()
 
-    // 获取认证类型
-    const auth = await getUserAuthType(userId)
+    // 获取认证类型（多MCC：按活跃账户的 parent_mcc_id 精确匹配对应SA）
+    const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
     authType = auth.authType
 
     // 🔧 PostgreSQL兼容性修复: is_active/is_manager_account在PostgreSQL中是BOOLEAN类型
@@ -3693,7 +3710,8 @@ export async function generateOfferKeywordPool(
     if (needsBrandVolume) {
       try {
         const { getKeywordSearchVolumes } = await import('./keyword-planner')
-        const auth = await getUserAuthType(userId)
+        // 多MCC：按活跃账户的 parent_mcc_id 精确匹配对应SA
+        const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
         await progress?.({ phase: 'seed-volume', message: '品牌词搜索量查询中' })
         const volumeProgress = progress
           ? (info: { message: string; current?: number; total?: number }) =>
@@ -4180,8 +4198,8 @@ async function extractKeywordsFromOffer(
 
     try {
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
-      const { getUserAuthType } = await import('./google-ads-oauth')
-      const auth = await getUserAuthType(userId)
+      // 多MCC：按活跃账户的 parent_mcc_id 精确匹配对应SA
+      const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
 
       // 获取 offer 信息（用于获取 target_country 和 target_language）
       const offer = await db.queryOne<{
@@ -4442,8 +4460,8 @@ export async function getSyntheticBucketKeywords(
   if (config.sortByVolume && allNonBrandKeywords.size > 0) {
     try {
       const { getKeywordVolumesForExisting } = await import('./unified-keyword-service')
-      // 🔧 修复(2026-04-01): 获取认证类型，确保服务账号用户走 Python 服务而非 gRPC
-      const syntheticAuth = await getUserAuthType(userId)
+      // 🔧 修复(2026-04-01): 获取认证类型，确保服务账号用户走 Python 服务而非 gRPC / 多MCC：按活跃账户 parent_mcc_id 匹配SA
+      const syntheticAuth = await getUserAuthType(userId, await getUserParentMccId(userId))
       const volumeData = await getKeywordVolumesForExisting({
         baseKeywords: Array.from(allNonBrandKeywords),
         country,
