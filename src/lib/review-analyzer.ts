@@ -171,8 +171,11 @@ export async function scrapeAmazonReviews(
         // 直接在URL后添加#customer-reviews_feature_div锚点，浏览器会自动滚动到评论区域
         const reviewsUrl = currentUrl.split('#')[0] + '#customer-reviews_feature_div'
         console.log(`🔗 导航到评论区域: ${reviewsUrl}`)
-        // 🔧 优化(2025-12-11): 使用networkidle等待，确保动态内容加载完成
-        await page.goto(reviewsUrl, { waitUntil: 'networkidle', timeout: 15000 })
+        // 🔥 修复(2026-05): Amazon页面后台请求持续不断，永远无法达到networkidle状态
+        // 改用 domcontentloaded，DOM加载完即可，然后通过滚动触发懒加载
+        await page.goto(reviewsUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+        // 等待页面稳定
+        await page.waitForTimeout(2000)
         console.log('✅ 已导航到评论区域')
       } catch (navError) {
         console.log('⚠️ 导航到评论区域失败，在当前页面抓取评论:', navError)
