@@ -96,7 +96,8 @@ export async function POST(
         }
 
         try {
-          const auth = await getUserAuthType(userId)
+          // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+          const auth = await getUserAuthType(userId, adsAccount!.parent_mcc_id || undefined)
           const credentials = await getGoogleAdsCredentials(userId)
           const refreshToken = credentials?.refresh_token || ''
 
