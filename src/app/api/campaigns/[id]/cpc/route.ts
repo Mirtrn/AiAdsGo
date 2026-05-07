@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { getRedisClient } from '@/lib/redis-client'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
@@ -201,7 +201,12 @@ export async function GET(
 
     let serviceAccountId: string | undefined
     if (useServiceAccount) {
-      const config = await getServiceAccountConfig(numericUserId)
+      // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+      const { serviceAccountId: matchedSaId } = await getUserAuthType(
+        numericUserId,
+        linked.parent_mcc_id || undefined
+      )
+      const config = await getServiceAccountConfig(numericUserId, matchedSaId)
       if (!config) return NextResponse.json({ error: '未找到服务账号配置' }, { status: 400 })
       serviceAccountId = config.id
     }

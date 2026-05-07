@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB, getCustomerWithCredentials } from '@/lib/google-ads-api'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { pauseUrlSwapTargetsByOfferId } from '@/lib/url-swap'
@@ -392,7 +392,12 @@ export async function POST(
 
             if (useServiceAccount) {
               authType = 'service_account'
-              const config = await getServiceAccountConfig(userId)
+              // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+              const { serviceAccountId: matchedSaId } = await getUserAuthType(
+                userId,
+                campaignRow.parent_mcc_id || undefined
+              )
+              const config = await getServiceAccountConfig(userId, matchedSaId)
               if (!config) {
                 googleAdsSummary.skippedReason = '未找到服务账号配置'
               } else {

@@ -60,7 +60,7 @@ export async function POST(
       )
     }
 
-    // 2. 查询该Offer的所有已启用广告系列
+    // 2. 查询该Offer的所有已启用广告系列（含 parent_mcc_id 用于多SA精确匹配）
     const campaigns = await db.query(`
       SELECT
         c.id,
@@ -68,8 +68,10 @@ export async function POST(
         c.campaign_name,
         c.google_ads_account_id,
         c.google_campaign_id,
-        c.status
+        c.status,
+        gaa.parent_mcc_id
       FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.offer_id = ?
         AND c.user_id = ?
         AND c.status = 'ENABLED'
@@ -82,6 +84,7 @@ export async function POST(
       google_ads_account_id: number
       google_campaign_id: string
       status: string
+      parent_mcc_id: string | null
     }>
 
     if (campaigns.length === 0) {
@@ -113,14 +116,15 @@ export async function POST(
     let pausedCount = 0
     let errorCount = 0
 
-    // 获取用户认证类型
-    const auth = await getUserAuthType(offer.user_id)
-
     // 4. 按账号批量暂停广告系列
     for (const [accountIdStr, accountCampaigns] of Object.entries(campaignsByAccount)) {
       const accountId = parseInt(accountIdStr)
 
       try {
+        // 多MCC：按当前账号的 parent_mcc_id 精确匹配对应的服务账号
+        const firstCampaign = accountCampaigns[0]
+        const auth = await getUserAuthType(offer.user_id, firstCampaign?.parent_mcc_id || undefined)
+
         // 获取Google Ads账号凭证
         const accountCredentials = await getDecryptedCredentials(accountId, offer.user_id)
 
