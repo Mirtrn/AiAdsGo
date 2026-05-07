@@ -374,8 +374,8 @@ export async function executeCampaignPublish(
       throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
     }
 
-    // 获取认证类型和服务账号ID
-    const auth = await getUserAuthType(userId)
+    // 获取认证类型和服务账号ID（多MCC：按账户的 parent_mcc_id 精确匹配对应SA）
+    const auth = await getUserAuthType(userId, adsAccount.parent_mcc_id || undefined)
     const refreshToken = credentials?.refresh_token || ''
 
     let serviceAccountMccId: string | undefined
