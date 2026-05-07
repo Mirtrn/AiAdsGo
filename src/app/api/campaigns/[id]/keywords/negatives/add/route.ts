@@ -248,6 +248,7 @@ export async function POST(
       google_ad_group_id: string | null
       campaign_config: unknown
       customer_id: string | null
+      parent_mcc_id: string | null
       account_refresh_token: string | null
       account_is_active: number | boolean | null
       account_is_deleted: number | boolean | null
@@ -262,6 +263,7 @@ export async function POST(
           c.google_ad_group_id,
           c.campaign_config,
           gaa.customer_id,
+          gaa.parent_mcc_id,
           gaa.refresh_token AS account_refresh_token,
           gaa.is_active AS account_is_active,
           gaa.is_deleted AS account_is_deleted
@@ -361,7 +363,8 @@ export async function POST(
       campaignName: campaign.campaign_name,
     })
 
-    const auth = await getUserAuthType(userId)
+    // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+    const auth = await getUserAuthType(userId, campaign.parent_mcc_id || undefined)
     let refreshToken = ''
     if (auth.authType === 'oauth') {
       const oauthCredentials = await getGoogleAdsCredentials(userId)

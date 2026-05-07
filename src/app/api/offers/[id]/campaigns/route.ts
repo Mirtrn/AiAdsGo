@@ -162,6 +162,7 @@ export async function GET(
       : null
 
     if (useServiceAccount) {
+      // 多MCC：默认先取第一个SA（循环内按 parentMccId 精确匹配并覆盖）
       const config = await getServiceAccountConfig(numericUserId)
       if (!config) {
         return NextResponse.json({ error: '未找到服务账号配置' }, { status: 400 })
@@ -317,11 +318,19 @@ export async function GET(
       `
 
       if (useServiceAccount) {
+        // 多MCC：每账号按 parentMccId 精确匹配对应SA
+        const { getUserAuthType: _getUserAuthType } = await import('@/lib/google-ads-oauth')
+        const { serviceAccountId: acctMatchedSaId } = await _getUserAuthType(
+          numericUserId,
+          account.parentMccId || undefined
+        )
+        const effectiveSaId = account.serviceAccountId || acctMatchedSaId || serviceAccountId
+
         // AdGroup CPC best-effort
         try {
           const fetchedAdGroups = await executeGAQLQueryPython({
             userId: numericUserId,
-            serviceAccountId,
+            serviceAccountId: effectiveSaId,
             customerId: account.customerId,
             query: adGroupCpcQuery,
             requestId
@@ -343,7 +352,7 @@ export async function GET(
         try {
           const fetched = await executeGAQLQueryPython({
             userId: numericUserId,
-            serviceAccountId,
+            serviceAccountId: effectiveSaId,
             customerId: account.customerId,
             query,
             requestId
@@ -369,7 +378,7 @@ export async function GET(
         try {
           const fetchedTargetSpend = await executeGAQLQueryPython({
             userId: numericUserId,
-            serviceAccountId,
+            serviceAccountId: effectiveSaId,
             customerId: account.customerId,
             query: targetSpendQuery(uniqueIds),
             requestId
