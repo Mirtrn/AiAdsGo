@@ -13,6 +13,7 @@ import { analyzeProductPage, ProductInfo } from './ai'
 import { getProxyUrlForCountry, isProxyEnabled } from './settings'
 import { SeoData } from './redis'
 import { getDatabase } from './db'
+import { boolParam, toBool } from './db-helpers'
 import { getLanguageCodeForCountry } from './language-country-codes'
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
 import { normalizeBrandName } from './offer-utils'
@@ -105,11 +106,11 @@ async function saveScrapedProducts(
       // Phase 3 fields
       product.promotion || null,
       product.badge || null,
-      product.isPrime ? 1 : 0,
+      boolParam(!!product.isPrime, db.type),
       // Phase 2 fields
       product.hotScore || null,
       product.rank || null,
-      product.isHot ? 1 : 0,
+      boolParam(!!product.isHot, db.type),
       product.hotLabel || null,
       // 🔥 产品URL字段（独立站和Amazon保持一致）
       product.productUrl || null,
@@ -1555,7 +1556,7 @@ export async function performScrapeAndAnalysis(
               reviewCount: p.review_count,
               imageUrl: p.image_url,
               hotScore: p.hot_score || undefined,
-              hasDeepData: p.has_deep_data === 1,
+              hasDeepData: toBool(p.has_deep_data),
               // 🔥 深度数据字段
               productData: deepData?.productData || null,
               reviewAnalysis: reviewAnalysis,
