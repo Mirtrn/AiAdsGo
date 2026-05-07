@@ -184,7 +184,18 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
     getUserOnlySetting('google_ads', 'use_service_account', userId),
   ])
 
-  const useServiceAccount = String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true'
+  // 🔧 修复(2026-05-07): 即使 system_settings 未设置 use_service_account，
+  //    也检查 google_ads_service_accounts 表，自动识别 SA 模式用户。
+  //    避免纯 SA 模式用户因缺少 OAuth 凭证而报 "未配置完整的 Google Ads 凭证"。
+  const isActiveConditionSA = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const activeServiceAccount = await db.queryOne(
+    `SELECT id FROM google_ads_service_accounts WHERE user_id = ? AND ${isActiveConditionSA} ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  )
+  const hasActiveServiceAccount = Boolean(activeServiceAccount)
+
+  const useServiceAccount =
+    String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true' || hasActiveServiceAccount
 
   // 🔧 修复(2026-01-15): 去除凭证前后空白，避免无效 token
   const clientId = clean(oauthCredentials?.client_id || clientIdSetting?.value)
@@ -192,8 +203,9 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
   const developerToken = clean(oauthCredentials?.developer_token || developerTokenSetting?.value)
   const loginCustomerId = clean(oauthCredentials?.login_customer_id || loginCustomerIdSetting?.value)
 
-  // 🔧 修复(2025-12-25): 服务账号模式不需要login_customer_id
-  if (!clientId || !clientSecret || !developerToken) {
+  // 🔧 修复(2025-12-25): 服务账号模式不需要 OAuth 凭证（client_id/secret/developer_token）
+  //    Service Account 模式的 developer_token 存储在 google_ads_service_accounts 表中
+  if (!useServiceAccount && (!clientId || !clientSecret || !developerToken)) {
     throw new Error(`用户(ID=${userId})未配置完整的 Google Ads 凭证。请在设置页面配置所有必需参数。`)
   }
 
