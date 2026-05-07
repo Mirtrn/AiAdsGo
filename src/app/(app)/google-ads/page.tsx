@@ -253,6 +253,26 @@ export default function GoogleAdsPage() {
             fetchAllServiceAccountsMerged(saList, false, true)
           }, 2000)
         }
+      } else if (!isPoll && !forceRefresh) {
+        // 初始加载：检测哪些 SA 从未同步过（返回 0 账户且后台未在刷新），自动触发后台刷新
+        const sasNeedingRefresh: any[] = []
+        results.forEach((result, idx) => {
+          if (result.status === 'fulfilled' && result.value?.success) {
+            const accs: GoogleAdsAccount[] = result.value.data?.accounts || []
+            const inProgress = Boolean(result.value.data?.refreshInProgress)
+            if (accs.length === 0 && !inProgress) {
+              sasNeedingRefresh.push(saList[idx])
+            }
+          }
+        })
+        if (sasNeedingRefresh.length > 0) {
+          // 有 SA 未曾同步过，自动触发全量后台刷新并开始轮询
+          setAccountsSyncing(true)
+          if (accountsPollTimerRef.current) clearTimeout(accountsPollTimerRef.current)
+          accountsPollTimerRef.current = setTimeout(() => {
+            fetchAllServiceAccountsMerged(saList, true)
+          }, 300)
+        }
       }
     } catch (err: any) {
       console.error('合并多服务账号账户列表失败:', err)
