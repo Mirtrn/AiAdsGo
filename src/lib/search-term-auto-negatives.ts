@@ -75,6 +75,7 @@ interface SearchTermAggregateRow {
   google_ads_account_id: number
   customer_id: string
   refresh_token: string | null
+  parent_mcc_id: string | null
   target_language: string | null
   brand: string | null
 }
@@ -90,6 +91,7 @@ interface SearchTermAutoNegativeAction {
   googleAdsAccountId: number
   customerId: string
   refreshToken: string
+  parentMccId: string | null
 }
 
 interface SearchTermAutoPositiveAction {
@@ -105,6 +107,7 @@ interface SearchTermAutoPositiveAction {
   googleAdsAccountId: number
   customerId: string
   refreshToken: string
+  parentMccId: string | null
 }
 
 const NEGATIVE_DEFAULTS = { ...KEYWORD_POLICY.autoActions.negative }
@@ -208,6 +211,7 @@ async function loadSearchTermAggregates(options: {
         c.google_ads_account_id,
         gaa.customer_id,
         gaa.refresh_token,
+        gaa.parent_mcc_id,
         o.target_language,
         o.brand
       FROM search_term_reports str
@@ -235,6 +239,7 @@ async function loadSearchTermAggregates(options: {
         c.google_ads_account_id,
         gaa.customer_id,
         gaa.refresh_token,
+        gaa.parent_mcc_id,
         o.target_language,
         o.brand
       ORDER BY SUM(str.cost) DESC, SUM(str.clicks) DESC
@@ -374,6 +379,7 @@ export async function runSearchTermAutoNegatives(
       googleAdsAccountId: Number(row.google_ads_account_id),
       customerId: String(row.customer_id || '').trim(),
       refreshToken: String(row.refresh_token || ''),
+      parentMccId: row.parent_mcc_id ? String(row.parent_mcc_id) : null,
     })
 
     selectedPerUser.set(userId, selectedUserCount + 1)
@@ -398,16 +404,18 @@ export async function runSearchTermAutoNegatives(
   }
 
   const db = await getDatabase()
-  const authByUser = new Map<number, Awaited<ReturnType<typeof getUserAuthType>>>()
+  // 多MCC：缓存键改为 userId:parentMccId，确保同一用户不同MCC账户精确匹配各自的SA
+  const authByKey = new Map<string, Awaited<ReturnType<typeof getUserAuthType>>>()
   const oauthCredentialsByUser = new Map<
     number,
     Awaited<ReturnType<typeof getGoogleAdsCredentials>> | null
   >()
 
-  const getAuth = async (userId: number) => {
-    if (authByUser.has(userId)) return authByUser.get(userId)!
-    const auth = await getUserAuthType(userId)
-    authByUser.set(userId, auth)
+  const getAuth = async (userId: number, parentMccId: string | null | undefined) => {
+    const cacheKey = `${userId}:${parentMccId || ''}`
+    if (authByKey.has(cacheKey)) return authByKey.get(cacheKey)!
+    const auth = await getUserAuthType(userId, parentMccId || undefined)
+    authByKey.set(cacheKey, auth)
     return auth
   }
 
@@ -429,7 +437,7 @@ export async function runSearchTermAutoNegatives(
     const key = `${action.adGroupId}:${normalizeTermKey(action.searchTerm)}`
 
     try {
-      const auth = await getAuth(action.userId)
+      const auth = await getAuth(action.userId, action.parentMccId)
       const oauthCredentials = await getOAuthCredentials(action.userId)
       const loginCustomerId = String(oauthCredentials?.login_customer_id || '').trim() || undefined
       const effectiveRefreshToken = String(
@@ -637,6 +645,7 @@ export async function runSearchTermAutoPositiveKeywords(
       googleAdsAccountId: Number(row.google_ads_account_id),
       customerId: String(row.customer_id || '').trim(),
       refreshToken: String(row.refresh_token || ''),
+      parentMccId: row.parent_mcc_id ? String(row.parent_mcc_id) : null,
     })
 
     selectedPerUser.set(userId, selectedUserCount + 1)
@@ -662,16 +671,18 @@ export async function runSearchTermAutoPositiveKeywords(
   }
 
   const db = await getDatabase()
-  const authByUser = new Map<number, Awaited<ReturnType<typeof getUserAuthType>>>()
+  // 多MCC：缓存键改为 userId:parentMccId，确保同一用户不同MCC账户精确匹配各自的SA
+  const authByKey2 = new Map<string, Awaited<ReturnType<typeof getUserAuthType>>>()
   const oauthCredentialsByUser = new Map<
     number,
     Awaited<ReturnType<typeof getGoogleAdsCredentials>> | null
   >()
 
-  const getAuth = async (userId: number) => {
-    if (authByUser.has(userId)) return authByUser.get(userId)!
-    const auth = await getUserAuthType(userId)
-    authByUser.set(userId, auth)
+  const getAuth = async (userId: number, parentMccId: string | null | undefined) => {
+    const cacheKey = `${userId}:${parentMccId || ''}`
+    if (authByKey2.has(cacheKey)) return authByKey2.get(cacheKey)!
+    const auth = await getUserAuthType(userId, parentMccId || undefined)
+    authByKey2.set(cacheKey, auth)
     return auth
   }
 
@@ -693,7 +704,7 @@ export async function runSearchTermAutoPositiveKeywords(
     const key = `${action.adGroupId}:${normalizeTermKey(action.searchTerm)}`
 
     try {
-      const auth = await getAuth(action.userId)
+      const auth = await getAuth(action.userId, action.parentMccId)
       const oauthCredentials = await getOAuthCredentials(action.userId)
       const loginCustomerId = String(oauthCredentials?.login_customer_id || '').trim() || undefined
       const effectiveRefreshToken = String(

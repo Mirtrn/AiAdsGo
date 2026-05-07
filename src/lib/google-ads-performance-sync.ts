@@ -246,16 +246,12 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('Incomplete Google Ads credentials. Please complete API configuration in Settings.')
     }
 
-    // 检查是否配置了服务账号
-    const serviceAccount = await getServiceAccountConfig(userIdNum)
-    const auth = await getUserAuthType(userIdNum)
-
     // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
-    // Get user's Google Ads account
+    // Get user's Google Ads account（需先查询以获取 parent_mcc_id 用于多SA精确匹配）
     const account = await db.queryOne<any>(`
-      SELECT customer_id
+      SELECT customer_id, id, parent_mcc_id
       FROM google_ads_accounts
       WHERE user_id = ? AND ${isActiveCondition}
       LIMIT 1
@@ -264,6 +260,11 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
     if (!account) {
       throw new Error('No active Google Ads account found')
     }
+
+    // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+    const auth = await getUserAuthType(userIdNum, account.parent_mcc_id || undefined)
+    // 检查是否配置了服务账号（使用匹配到的 serviceAccountId）
+    const serviceAccount = await getServiceAccountConfig(userIdNum, auth.serviceAccountId)
 
     let loginCustomerId: string | undefined
     if (auth.authType === 'service_account') {

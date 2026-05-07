@@ -455,7 +455,8 @@ export class DataSyncService {
           const startDate = new Date()
           startDate.setDate(startDate.getDate() - 7)
 
-          const auth = await getUserAuthType(userId)
+          // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+          const auth = await getUserAuthType(userId, account.parent_mcc_id || undefined)
 
           // 🔧 修复(2025-12-28): OAuth模式下需要从google_ads_credentials获取refresh_token
           let refreshToken = account.refresh_token || undefined

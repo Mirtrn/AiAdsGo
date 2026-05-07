@@ -105,7 +105,8 @@ export async function queryActiveCampaigns(
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
-  const auth = await getUserAuthType(userId)
+  // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+  const auth = await getUserAuthType(userId, adsAccount.parent_mcc_id || undefined)
 
   let serviceAccountMccId: string | undefined
 
@@ -254,7 +255,8 @@ export async function pauseCampaigns(
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
-  const auth = await getUserAuthType(userId)
+  // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+  const auth = await getUserAuthType(userId, adsAccount.parent_mcc_id || undefined)
 
   let serviceAccountMccId2: string | undefined
 

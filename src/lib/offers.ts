@@ -1006,7 +1006,6 @@ export async function deleteOffer(
     const { getDecryptedCredentials } = await import('./google-ads-accounts')
     const { getUserAuthType } = await import('./google-ads-oauth')
 
-    const auth = await getUserAuthType(userId)
     const errors: Array<{ campaignRowId: number; message: string }> = []
 
     const campaignsByAccount = campaignsToProcess.reduce((acc, c) => {
@@ -1026,6 +1025,13 @@ export async function deleteOffer(
         }
         continue
       }
+
+      // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号
+      const accountRow = await db.queryOne<{ parent_mcc_id: string | null }>(
+        `SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ?`,
+        [accountId]
+      )
+      const auth = await getUserAuthType(userId, accountRow?.parent_mcc_id || undefined)
 
       if (auth.authType === 'oauth' && !accountCredentials.refreshToken) {
         for (const c of accountCampaigns) {
