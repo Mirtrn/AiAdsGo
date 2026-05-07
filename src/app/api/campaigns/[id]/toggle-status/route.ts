@@ -4,7 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { findCampaignById } from '@/lib/campaigns'
 import { updateGoogleAdsCampaignStatus, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { applyCampaignTransition } from '@/lib/campaign-state-machine'
 import { invalidateDashboardCache } from '@/lib/api-cache'
 
@@ -191,7 +191,12 @@ export async function PUT(
 
     if (useServiceAccount) {
       authType = 'service_account'
-      const config = await getServiceAccountConfig(userId)
+      // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号，避免多SA时取错MCC
+      const { serviceAccountId: matchedSaId } = await getUserAuthType(
+        userId,
+        adsAccountRow.parent_mcc_id || undefined
+      )
+      const config = await getServiceAccountConfig(userId, matchedSaId)
       if (!config) {
         return NextResponse.json(
           { error: '未找到服务账号配置' },

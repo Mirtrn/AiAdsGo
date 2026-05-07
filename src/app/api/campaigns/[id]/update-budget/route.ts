@@ -148,7 +148,8 @@ export async function PUT(
       return NextResponse.json({ error: '关联的Ads账号不可用（已停用或已删除）' }, { status: 400 })
     }
 
-    const { authType, serviceAccountId } = await getUserAuthType(userId)
+    // 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号
+    const { authType, serviceAccountId } = await getUserAuthType(userId, linked.parent_mcc_id || undefined)
     let refreshToken = ''
     let oauthLoginCustomerId: string | undefined
     if (authType === 'oauth') {

@@ -3,7 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 import { normalizeGoogleAdsApiUpdateOperations } from '@/lib/google-ads-mutate-helpers'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
@@ -411,8 +411,12 @@ export async function PUT(
     let serviceAccountId: string | undefined
 
     if (useServiceAccount) {
-      // 服务账号模式 - 检查配置是否存在
-      const config = await getServiceAccountConfig(numericUserId)
+      // 服务账号模式 - 多MCC：按账户的 parent_mcc_id 精确匹配对应的服务账号
+      const { serviceAccountId: matchedSaId } = await getUserAuthType(
+        numericUserId,
+        adsAccountRow?.parent_mcc_id || undefined
+      )
+      const config = await getServiceAccountConfig(numericUserId, matchedSaId)
 
       if (!config) {
         return NextResponse.json(
