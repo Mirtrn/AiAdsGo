@@ -2,6 +2,24 @@ import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
 
 /**
+ * 多MCC：获取用户最近活跃账户的 parent_mcc_id（用于 keyword-planner 等只读场景）
+ * 与 offer-keyword-pool.ts 中的同名内部函数逻辑一致，提升为全局 export 以便复用
+ */
+export async function getUserParentMccId(userId: number): Promise<string | undefined> {
+  try {
+    const db = await getDatabase()
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+    const row = await db.queryOne<{ parent_mcc_id: string | null }>(
+      `SELECT parent_mcc_id FROM google_ads_accounts WHERE user_id = ? AND ${isActiveCondition} ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    )
+    return row?.parent_mcc_id || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * 获取用户的Google Ads授权方式
  * 优先使用OAuth，无OAuth时使用服务账号
  * @returns { authType: 'oauth' | 'service_account', serviceAccountId?: string }

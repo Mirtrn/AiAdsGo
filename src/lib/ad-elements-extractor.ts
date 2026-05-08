@@ -13,7 +13,7 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes } from './keyword-planner'
-import { getUserAuthType } from './google-ads-oauth'
+import { getUserAuthType, getUserParentMccId } from './google-ads-oauth'
 import { getHighIntentKeywords } from './google-suggestions'
 import { normalizeGoogleAdsKeyword } from './google-ads-keyword-normalizer'
 import { containsPureBrand, getPureBrandKeywords, isPureBrandKeyword } from './brand-keyword-utils'
@@ -742,7 +742,7 @@ async function extractFromSingleProduct(
 
   try {
     // 🔧 修复(2025-12-26): 支持服务账号模式
-    const auth = await getUserAuthType(userId)
+    const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
     const volumeData = await getKeywordSearchVolumes(
       keywordCandidates,
       targetCountry,
@@ -970,7 +970,7 @@ async function extractFromStore(
 
   try {
     // 🔧 修复(2025-12-26): 支持服务账号模式
-    const auth = await getUserAuthType(userId)
+    const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
     const volumeData = await getKeywordSearchVolumes(
       keywordCandidates,
       targetCountry,

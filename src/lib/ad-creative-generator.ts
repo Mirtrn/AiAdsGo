@@ -8,7 +8,7 @@ import type {
 import type { Offer } from './offers'
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
-import { getUserAuthType } from './google-ads-oauth'
+import { getUserAuthType, getUserParentMccId } from './google-ads-oauth'
 import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义分类
 import { generateContent, getGeminiMode, type ResponseSchema } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
@@ -2894,7 +2894,7 @@ async function mergeExtractedKeywordsWithSingleExit(
     if (keywordsNeedVolume.length > 0) {
       console.log(`   📊 查询 ${keywordsNeedVolume.length} 个关键词的搜索量...`)
       try {
-        const auth = await getUserAuthType(userId)
+        const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
         const keywordsForVolumeLookup = keywordsNeedVolume
           .map(k => k.keyword)
           .filter((keyword): keyword is string => Boolean(keyword))
@@ -3158,7 +3158,7 @@ async function finalizeKeywordsWithSingleExit(input: KeywordFinalizeInput): Prom
         brandSearchVolume = row.search_volume
         console.log(`   ✅ 全局缓存查询到搜索量: ${brandSearchVolume}/月`)
       } else {
-        const auth = await getUserAuthType(userId)
+        const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
         const volumes = await getKeywordSearchVolumes([offerBrand], targetCountry, langCode, userId, auth.authType, auth.serviceAccountId)
         if (volumes.length > 0 && volumes[0].avgMonthlySearches > 0) {
           brandSearchVolume = volumes[0].avgMonthlySearches
@@ -7190,7 +7190,7 @@ export async function generateAdCreative(
     // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
     const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
     // 🔧 修复(2026-04-01): 获取认证类型，确保服务账号用户走 Python 服务而非 gRPC
-    const creativeVolumeAuth = await getUserAuthType(userId)
+    const creativeVolumeAuth = await getUserAuthType(userId, await getUserParentMccId(userId))
     const unifiedData = await getKeywordVolumesForExisting({
       baseKeywords: result.keywords,
       country: targetCountry,

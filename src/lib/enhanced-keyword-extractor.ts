@@ -15,7 +15,7 @@
 
 import { generateContent } from './gemini'
 import { getKeywordSearchVolumes } from './keyword-planner'
-import { getUserAuthType } from './google-ads-oauth'
+import { getUserAuthType, getUserParentMccId } from './google-ads-oauth'
 import { getHighIntentKeywords } from './google-suggestions'
 
 export interface EnhancedKeyword {
@@ -363,7 +363,7 @@ async function enrichKeywordsWithMetrics(
 
   try {
     // 🔧 修复(2025-12-26): 支持服务账号模式
-    const auth = await getUserAuthType(userId)
+    const auth = await getUserAuthType(userId, await getUserParentMccId(userId))
     const volumes = await getKeywordSearchVolumes(
       keywordTexts,
       targetCountry,
