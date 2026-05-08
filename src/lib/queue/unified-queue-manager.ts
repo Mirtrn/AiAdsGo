@@ -1228,7 +1228,9 @@ export class UnifiedQueueManager {
         timeoutThreshold = `datetime('now', '-${this.STALE_TASK_TIMEOUT / 1000} seconds')`
       }
 
-      // 获取超时的 running 任务
+      const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+      // 获取超时的 running offer_tasks
       const staleTasks = await db.query<{ id: string; batch_id: string | null; started_at: string }>(`
         SELECT id, batch_id, started_at
         FROM offer_tasks
@@ -1236,67 +1238,69 @@ export class UnifiedQueueManager {
           AND started_at < ${timeoutThreshold}
       `, [])
 
-      if (staleTasks.length === 0) {
-        return { cleanedCount: 0, taskIds: [] }
-      }
+      // Fix30: 移除 early return，让 offer_tasks 和 creative_tasks 两部分清理逻辑独立运行
+      // 原代码在 staleTasks.length === 0 时提前返回，导致 Fix28b 的 creative_tasks zombie 清理永远不执行
+      let offerTasksChanged = 0
 
-      console.log(`⚠️ 发现 ${staleTasks.length} 个数据库超时任务: ${staleTasks.map(t => t.id).join(', ')}`)
+      if (staleTasks.length > 0) {
+        console.log(`⚠️ 发现 ${staleTasks.length} 个数据库超时任务: ${staleTasks.map(t => t.id).join(', ')}`)
 
-      // 将超时任务标记为 failed
-      const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
-      const timeoutErrorJson = toDbJsonObjectField({
-        timeout: true,
-        message: 'Task timeout - no heartbeat received',
-      }, db_type, { timeout: true, message: 'Task timeout - no heartbeat received' })
-      const updateResult = await db.exec(`
-        UPDATE offer_tasks
-        SET status = 'failed',
-            message = '任务超时',
-            error = ?,
-            completed_at = COALESCE(completed_at, ${nowFunc}),
-            updated_at = ${nowFunc}
-        WHERE status = 'running'
-          AND started_at < ${timeoutThreshold}
-      `, [timeoutErrorJson])
+        // 将超时任务标记为 failed
+        const timeoutErrorJson = toDbJsonObjectField({
+          timeout: true,
+          message: 'Task timeout - no heartbeat received',
+        }, db_type, { timeout: true, message: 'Task timeout - no heartbeat received' })
+        const updateResult = await db.exec(`
+          UPDATE offer_tasks
+          SET status = 'failed',
+              message = '任务超时',
+              error = ?,
+              completed_at = COALESCE(completed_at, ${nowFunc}),
+              updated_at = ${nowFunc}
+          WHERE status = 'running'
+            AND started_at < ${timeoutThreshold}
+        `, [timeoutErrorJson])
+        offerTasksChanged = updateResult.changes
 
-      // 如果有超时的 batch 任务，一并处理
-      const staleBatchIds = [...new Set(staleTasks.filter(t => t.batch_id).map(t => t.batch_id!))]
-      for (const batchId of staleBatchIds) {
-        // 检查该 batch 是否所有任务都已完成或失败
-        const batchStats = await db.queryOne<{
-          total: number
-          completed: number
-          failed: number
-          running: number
-          pending: number
-        }>(`
-          SELECT
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
-            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
-          FROM offer_tasks
-          WHERE batch_id = ?
-        `, [batchId])
+        // 如果有超时的 batch 任务，一并处理
+        const staleBatchIds = [...new Set(staleTasks.filter(t => t.batch_id).map(t => t.batch_id!))]
+        for (const batchId of staleBatchIds) {
+          // 检查该 batch 是否所有任务都已完成或失败
+          const batchStats = await db.queryOne<{
+            total: number
+            completed: number
+            failed: number
+            running: number
+            pending: number
+          }>(`
+            SELECT
+              COUNT(*) as total,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+              SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+              SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
+            FROM offer_tasks
+            WHERE batch_id = ?
+          `, [batchId])
 
-        if (batchStats && batchStats.running === 0 && batchStats.pending === 0) {
-          // 所有任务都完成了，更新 batch 状态
-          const newStatus = batchStats.failed > 0 ? 'failed' : 'completed'
-          await db.exec(`
-            UPDATE batch_tasks
-            SET status = ?,
-                completed_at = ${nowFunc},
-                updated_at = ${nowFunc}
-            WHERE id = ?
-          `, [newStatus, batchId])
-          console.log(`📦 Batch ${batchId} 状态已更新为: ${newStatus}`)
+          if (batchStats && batchStats.running === 0 && batchStats.pending === 0) {
+            // 所有任务都完成了，更新 batch 状态
+            const newStatus = batchStats.failed > 0 ? 'failed' : 'completed'
+            await db.exec(`
+              UPDATE batch_tasks
+              SET status = ?,
+                  completed_at = ${nowFunc},
+                  updated_at = ${nowFunc}
+              WHERE id = ?
+            `, [newStatus, batchId])
+            console.log(`📦 Batch ${batchId} 状态已更新为: ${newStatus}`)
+          }
         }
+
+        console.log(`✅ 已清理 ${offerTasksChanged} 个超时 offer_tasks`)
       }
 
-      console.log(`✅ 已清理 ${updateResult.changes} 个超时 offer_tasks`)
-
-      // Fix28: 同样清理 creative_tasks 中卡住的 running 任务
+      // Fix28b（修复后：无论 offer_tasks 是否有 stale 任务，都执行 creative_tasks zombie 清理）
       // 场景：进程 SIGKILL 后 executor catch 块未执行，任务永久卡在 running
       // 后果：Fix26 的 30min 窗口内用户无法重新入队，SSE 永远收不到完成事件
       // 注意：只清理 running（started_at 超时），不清理 pending（可能仍在合法等待队列）
@@ -1335,7 +1339,7 @@ export class UnifiedQueueManager {
       }
 
       return {
-        cleanedCount: updateResult.changes + creativeCleanedCount,
+        cleanedCount: offerTasksChanged + creativeCleanedCount,
         taskIds: staleTasks.map(t => t.id)
       }
     } catch (error: any) {
