@@ -453,6 +453,12 @@ export default function SettingsPage() {
   >(null)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
+  // Google Ads 区块管理员密码保护
+  const [googleAdsUnlocked, setGoogleAdsUnlocked] = useState(false)
+  const [googleAdsLockPassword, setGoogleAdsLockPassword] = useState('')
+  const [googleAdsUnlocking, setGoogleAdsUnlocking] = useState(false)
+  const [googleAdsLockError, setGoogleAdsLockError] = useState<string | null>(null)
+
   /**
    * 处理401未授权错误 - 跳转到登录页
    */
@@ -698,6 +704,35 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.error('Failed to fetch Google Ads credential status:', err)
+    }
+  }
+
+  // Google Ads 区块密码解锁
+  const handleGoogleAdsUnlock = async () => {
+    if (!googleAdsLockPassword.trim()) {
+      setGoogleAdsLockError('请输入管理员密码')
+      return
+    }
+    setGoogleAdsUnlocking(true)
+    setGoogleAdsLockError(null)
+    try {
+      const response = await fetch('/api/settings/google-ads-unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: googleAdsLockPassword }),
+      })
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setGoogleAdsUnlocked(true)
+        setGoogleAdsLockPassword('')
+        toast.success('已解锁 Google Ads API 配置')
+      } else {
+        setGoogleAdsLockError(data.error || '密码验证失败')
+      }
+    } catch {
+      setGoogleAdsLockError('网络错误，请重试')
+    } finally {
+      setGoogleAdsUnlocking(false)
     }
   }
 
@@ -1874,48 +1909,122 @@ export default function SettingsPage() {
 
                     {/* 基础配置字段 - 2列布局 */}
                     {googleAdsAuthMethod === 'oauth' && (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-                        {categorySettings.map((setting: Setting) => {
-                          const metaKey = `${category}.${setting.key}`
-                          const metadata = SETTING_METADATA[metaKey]
-
-                          return (
-                            <div key={setting.key}>
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label className="label-text flex items-center gap-2">
-                                    {metadata?.label || setting.key}
-                                    {setting.isRequired && (
-                                      <span className="text-caption text-red-500">*必填</span>
-                                    )}
-                                  </Label>
-                                  {metadata?.helpLink && (
-                                    <a
-                                      href={metadata.helpLink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                                    >
-                                      获取方式
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                  )}
-                                </div>
-                                <p className="helper-text flex items-start gap-1">
-                                  <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                  {metadata?.description || setting.description || '无描述'}
-                                </p>
-                                {renderInput(category, setting)}
-                              </div>
-
+                      !googleAdsUnlocked ? (
+                        /* 🔒 OAuth 配置字段 - 需要管理员密码解锁 */
+                        <div className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 flex flex-col items-center justify-center gap-4">
+                          <div className="flex flex-col items-center gap-2 text-center">
+                            <div className="p-2.5 rounded-full bg-slate-200">
+                              <Shield className="w-6 h-6 text-slate-500" />
                             </div>
-                          )
-                        })}
-                      </div>
+                            <h3 className="font-semibold text-slate-700 text-sm">OAuth 配置字段已锁定</h3>
+                            <p className="text-xs text-slate-500 max-w-sm">
+                              输入管理员密码后可查看和修改 Client ID、Client Secret、Developer Token 等配置
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 w-full max-w-xs">
+                            <Input
+                              type="password"
+                              placeholder="输入管理员密码"
+                              value={googleAdsLockPassword}
+                              onChange={(e) => {
+                                setGoogleAdsLockPassword(e.target.value)
+                                setGoogleAdsLockError(null)
+                              }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleGoogleAdsUnlock() }}
+                              className={googleAdsLockError ? 'border-red-400' : ''}
+                            />
+                            {googleAdsLockError && (
+                              <p className="text-xs text-red-500 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {googleAdsLockError}
+                              </p>
+                            )}
+                            <Button onClick={handleGoogleAdsUnlock} disabled={googleAdsUnlocking} className="w-full">
+                              <Key className="w-4 h-4 mr-2" />
+                              {googleAdsUnlocking ? '验证中...' : '解锁配置'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+                          {categorySettings.map((setting: Setting) => {
+                            const metaKey = `${category}.${setting.key}`
+                            const metadata = SETTING_METADATA[metaKey]
+
+                            return (
+                              <div key={setting.key}>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="label-text flex items-center gap-2">
+                                      {metadata?.label || setting.key}
+                                      {setting.isRequired && (
+                                        <span className="text-caption text-red-500">*必填</span>
+                                      )}
+                                    </Label>
+                                    {metadata?.helpLink && (
+                                      <a
+                                        href={metadata.helpLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                      >
+                                        获取方式
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                  <p className="helper-text flex items-start gap-1">
+                                    <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    {metadata?.description || setting.description || '无描述'}
+                                  </p>
+                                  {renderInput(category, setting)}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
                     )}
 
                     {/* 服务账号配置表单 */}
                     {googleAdsAuthMethod === 'service_account' && (
+                      !googleAdsUnlocked ? (
+                        /* 🔒 服务账号配置表单 - 需要管理员密码解锁 */
+                        <div className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 flex flex-col items-center justify-center gap-4">
+                          <div className="flex flex-col items-center gap-2 text-center">
+                            <div className="p-2.5 rounded-full bg-slate-200">
+                              <Shield className="w-6 h-6 text-slate-500" />
+                            </div>
+                            <h3 className="font-semibold text-slate-700 text-sm">服务账号配置表单已锁定</h3>
+                            <p className="text-xs text-slate-500 max-w-sm">
+                              输入管理员密码后可添加服务账号配置（MCC ID、Developer Token、服务账号JSON等）
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 w-full max-w-xs">
+                            <Input
+                              type="password"
+                              placeholder="输入管理员密码"
+                              value={googleAdsLockPassword}
+                              onChange={(e) => {
+                                setGoogleAdsLockPassword(e.target.value)
+                                setGoogleAdsLockError(null)
+                              }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleGoogleAdsUnlock() }}
+                              className={googleAdsLockError ? 'border-red-400' : ''}
+                            />
+                            {googleAdsLockError && (
+                              <p className="text-xs text-red-500 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {googleAdsLockError}
+                              </p>
+                            )}
+                            <Button onClick={handleGoogleAdsUnlock} disabled={googleAdsUnlocking} className="w-full">
+                              <Key className="w-4 h-4 mr-2" />
+                              {googleAdsUnlocking ? '验证中...' : '解锁配置'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
                         <div>
                           <Label className="label-text flex items-center gap-2">
@@ -2020,6 +2129,7 @@ export default function SettingsPage() {
                           />
                         </div>
                       </div>
+                      )
                     )}
 
                     {/* 已配置的服务账号列表（支持多MCC绑定） */}
@@ -2470,21 +2580,24 @@ export default function SettingsPage() {
                 )}
 
                 <div className="mt-6 pt-4 border-t border-slate-200 flex gap-3 flex-wrap">
-                  <Button
-                    onClick={() => {
-                      if (category === 'google_ads' && googleAdsAuthMethod === 'service_account') {
-                        handleSaveServiceAccount()
-                      } else {
-                        handleSave(category)
-                      }
-                    }}
-                    disabled={saving || savingServiceAccount}
-                  >
-                  {(saving || savingServiceAccount) ? '保存中...' : (category === 'google_ads' && googleAdsAuthMethod === 'service_account') ? '添加绑定' : '保存配置'}
-                  </Button>
+                  {/* google_ads 区块未解锁时隐藏所有操作按钮 */}
+                  {(category !== 'google_ads' || googleAdsUnlocked) && (
+                    <Button
+                      onClick={() => {
+                        if (category === 'google_ads' && googleAdsAuthMethod === 'service_account') {
+                          handleSaveServiceAccount()
+                        } else {
+                          handleSave(category)
+                        }
+                      }}
+                      disabled={saving || savingServiceAccount}
+                    >
+                    {(saving || savingServiceAccount) ? '保存中...' : (category === 'google_ads' && googleAdsAuthMethod === 'service_account') ? '添加绑定' : '保存配置'}
+                    </Button>
+                  )}
 
                   {/* service_account 模式下已在列表中逐条删除，不显示全局删除按钮 */}
-                  {category === 'google_ads' && googleAdsAuthMethod === 'oauth' && (
+                  {category === 'google_ads' && googleAdsUnlocked && googleAdsAuthMethod === 'oauth' && (
                     <Button
                       type="button"
                       variant="destructive"
@@ -2498,7 +2611,7 @@ export default function SettingsPage() {
                     </Button>
                   )}
 
-                  {category === 'google_ads' && googleAdsAuthMethod === 'oauth' && (
+                  {category === 'google_ads' && googleAdsUnlocked && googleAdsAuthMethod === 'oauth' && (
                     <Button
                       onClick={handleStartGoogleAdsOAuth}
                       disabled={startingOAuth}
@@ -2506,6 +2619,23 @@ export default function SettingsPage() {
                     >
                       <Key className="w-4 h-4 mr-2" />
                       {startingOAuth ? '启动中...' : '启动 OAuth 授权'}
+                    </Button>
+                  )}
+
+                  {/* 已解锁时显示重新锁定按钮 */}
+                  {category === 'google_ads' && googleAdsUnlocked && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setGoogleAdsUnlocked(false)
+                        setGoogleAdsLockPassword('')
+                        setGoogleAdsLockError(null)
+                        toast.info('Google Ads 配置已重新锁定')
+                      }}
+                    >
+                      <Shield className="w-4 h-4 mr-2" />
+                      重新锁定
                     </Button>
                   )}
 
