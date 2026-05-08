@@ -20,7 +20,7 @@ import { repairJsonText } from './ai-json'
 import { loadPrompt } from './prompt-loader'
 import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
-import { getUserAuthType } from './google-ads-oauth'
+import { getUserAuthType, getUserParentMccId } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
 import {
   filterKeywordQuality,
@@ -36,20 +36,6 @@ import { isInvalidKeyword } from './keyword-invalid-filter'
 import { getBrandCoreKeywords, refreshBrandCoreKeywordCache, updateBrandCoreKeywordSearchVolumes } from './brand-core-keywords'
 import { getLanguageName, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 
-/** 多MCC：按最近活跃账户的 parent_mcc_id 精确匹配对应SA（用于关键词规划器等只读场景）*/
-async function getUserParentMccId(userId: number): Promise<string | undefined> {
-  try {
-    const db = await getDatabase()
-    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
-    const row = await db.queryOne<{ parent_mcc_id: string | null }>(
-      `SELECT parent_mcc_id FROM google_ads_accounts WHERE user_id = ? AND ${isActiveCondition} ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    )
-    return row?.parent_mcc_id || undefined
-  } catch {
-    return undefined
-  }
-}
 import { DEFAULTS } from './keyword-constants'
 import { classifyKeywordIntent } from './keyword-intent'
 import { parseJsonField, toDbJsonArrayField } from './json-field'
