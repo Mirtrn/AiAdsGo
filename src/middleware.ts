@@ -39,17 +39,10 @@ async function verifyTokenEdge(token: string): Promise<any | null> {
   }
 }
 
-// 需要认证的路径前缀（仅API路由，页面路由在客户端组件中检查）
-const protectedPaths = [
-  '/api/offers',
-  '/api/products',
-  '/api/campaigns',
-  '/api/settings',
-  '/api/creatives',
-  '/api/user',
-  '/api/google-ads',
-  '/api/ads-accounts',
-]
+// ⚠️ 认证策略说明：
+// 中间件对"除 publicPaths 以外的所有路径"都要求 JWT 认证（全局保护）。
+// 并非只有某几个前缀才需要认证，而是"白名单放行 + 其余全拦"。
+// 不要在此处添加 protectedPaths 黑名单，那样做会导致漏保护。
 
 // 公开路径（无需认证） - 需求27: 除首页和登录页，其他页面都需要登录
 const publicPaths = [
