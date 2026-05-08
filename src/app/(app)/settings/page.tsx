@@ -1116,9 +1116,16 @@ export default function SettingsPage() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '保存失败')
 
-      toast.success('服务账号配置已保存')
+      toast.success('服务账号配置已保存，正在自动验证并同步账户...')
       setServiceAccountForm({ name: '', mccCustomerId: '', developerToken: '', serviceAccountJson: '' })
-      fetchServiceAccounts()
+      await fetchServiceAccounts()
+
+      // Fix24: 保存后自动触发验证扫描，避免用户必须手动点"验证连接"才能看到账户
+      if (data.id) {
+        verifyServiceAccountNow(data.id).catch(() => {
+          // 自动验证失败不阻断主流程，用户仍可手动点"验证连接"
+        })
+      }
     } catch (err: any) {
       toast.error(err.message)
     } finally {
