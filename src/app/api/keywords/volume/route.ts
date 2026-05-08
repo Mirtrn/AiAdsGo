@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getKeywordSearchVolumes } from '@/lib/keyword-planner'
-import { getUserAuthType } from '@/lib/google-ads-oauth'
+import { getUserAuthType, getUserParentMccId } from '@/lib/google-ads-oauth'
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,12 +33,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 🔧 修复(2025-12-26): 支持服务账号模式
-    const auth = await getUserAuthType(parseInt(userId, 10))
+    // 🔧 修复(2026-05-08): 多MCC：补传 parentMccId 确保多SA用户精确匹配对应SA，避免取错MCC
+    const numUserId = parseInt(userId, 10)
+    const auth = await getUserAuthType(numUserId, await getUserParentMccId(numUserId))
     const volumes = await getKeywordSearchVolumes(
       keywords,
       country,
       language,
-      parseInt(userId, 10),
+      numUserId,
       auth.authType,
       auth.serviceAccountId
     )
