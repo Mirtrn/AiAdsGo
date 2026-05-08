@@ -65,6 +65,7 @@ export async function GET(
       async start(controller) {
         let lastUpdatedAt: string | null = null
         let isClosed = false
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null
 
         const sendSSE = (data: any) => {
           if (isClosed) return
@@ -79,9 +80,10 @@ export async function GET(
         // 轮询数据库获取进度
         const pollInterval = setInterval(async () => {
           try {
+            // Fix27c: 轮询查询也按 user_id 过滤，防止 IDOR（纵深防御）
             const rows = await db.query<OfferTask>(
-              'SELECT * FROM offer_tasks WHERE id = ?',
-              [taskId]
+              'SELECT * FROM offer_tasks WHERE id = ? AND user_id = ?',
+              [taskId, userIdNum]
             )
 
             if (!rows || rows.length === 0) {
@@ -182,6 +184,11 @@ export async function GET(
         req.signal.addEventListener('abort', () => {
           console.log(`🔌 Client disconnected from SSE: ${taskId}`)
           clearInterval(pollInterval)
+          // Fix27c: 同时清理 timeout，防止客户端断开后 timer 悬挂（内存泄漏）
+          if (timeoutHandle !== null) {
+            clearTimeout(timeoutHandle)
+            timeoutHandle = null
+          }
           if (!isClosed) {
             controller.close()
             isClosed = true
@@ -189,9 +196,11 @@ export async function GET(
         })
 
         // 超时保护：15分钟后自动关闭（与任务最大执行时间对齐，避免排队等待时SSE提前断开）
-        setTimeout(() => {
+        // Fix27c: 保存 handle 以便 abort 时能清理
+        timeoutHandle = setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
+          timeoutHandle = null
           if (!isClosed) {
             sendSSE({
               type: 'error',
