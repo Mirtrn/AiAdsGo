@@ -503,24 +503,48 @@ async function scrapeStorePageContent(
 
     // 🔥 修复（2025-12-12）：品牌名包含产品后缀时，尝试提取核心品牌名
     // 例如: "RingConn Smart Ring" → "RingConn"
-    if (brandName && brandName.split(/\s+/).length > 2) {
+    // 🔥 修复（2026-05-08）：新增多语言产品类型词（德/法/西/意/日语等），避免德语产品描述被误认品牌名
+    // 例如: "Aferiy Tragbare Powersta" → "Aferiy"（Tragbare = 德语"便携式"）
+    if (brandName && brandName.split(/\s+/).length > 1) {
       const words = brandName.split(/\s+/)
       const firstWord = words[0]
       // 如果第一个单词看起来像品牌名（首字母大写，2-20字符）
       if (firstWord.length >= 2 && firstWord.length <= 20 &&
           /^[A-Z][a-zA-Z0-9]*$/.test(firstWord)) {
-        // 检查后续单词是否是产品类型词
+        // 检查后续单词是否是产品类型词（英文 + 多语言）
         const productTypeWords = [
+          // 英文
           'smart', 'ring', 'watch', 'band', 'tracker', 'speaker', 'earbuds',
           'headphones', 'phone', 'tablet', 'laptop', 'camera', 'drone',
           'charger', 'cable', 'case', 'cover', 'screen', 'protector',
-          'keyboard', 'mouse', 'monitor', 'light', 'lamp', 'fan'
+          'keyboard', 'mouse', 'monitor', 'light', 'lamp', 'fan',
+          'portable', 'wireless', 'bluetooth', 'electric', 'digital',
+          'solar', 'power', 'station', 'powerstation', 'generator',
+          'robot', 'vacuum', 'cleaner', 'purifier', 'humidifier',
+          'projector', 'printer', 'scanner', 'router', 'modem',
+          // 德语 (Deutsch)
+          'tragbare', 'kabellos', 'elektrisch', 'digital', 'smart',
+          'powerstation', 'solaranlage', 'lautsprecher', 'kopfhörer',
+          'ladegerät', 'kamera', 'drucker', 'staubsauger', 'roboter',
+          // 法语 (Français)
+          'portable', 'sans', 'fil', 'électrique', 'numérique',
+          'enceinte', 'casque', 'chargeur', 'caméra', 'imprimante',
+          // 西班牙语 (Español)
+          'portátil', 'inalámbrico', 'eléctrico', 'digital',
+          'altavoz', 'auriculares', 'cargador', 'cámara', 'impresora',
+          // 意大利语 (Italiano)
+          'portatile', 'senza', 'fili', 'elettrico', 'digitale',
+          'altoparlante', 'cuffie', 'caricatore', 'fotocamera',
+          // 日语拼音 / 常见片假名转写
+          'denki', 'musen',
         ]
         const hasProductType = words.slice(1).some(w =>
           productTypeWords.includes(w.toLowerCase())
         )
-        if (hasProductType) {
-          console.log(`🔧 品牌名精简: "${brandName}" → "${firstWord}" (移除产品类型词)`)
+        // 超过3个词时，若第一个词是合法品牌名格式，直接裁剪（更激进策略）
+        const isTooLong = words.length > 3
+        if (hasProductType || isTooLong) {
+          console.log(`🔧 品牌名精简: "${brandName}" → "${firstWord}" (${hasProductType ? '含多语言产品类型词' : '词数超过3个'})`)
           brandName = firstWord
         }
       }

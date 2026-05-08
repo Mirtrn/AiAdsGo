@@ -235,6 +235,13 @@ export default function CreateOfferModalV2({
   const handleExtract = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    // 🔥 品牌名必填校验（2026-05-08）
+    if (!brandName.trim()) {
+      setError('请填写品牌名称')
+      return
+    }
+
     resetExtraction() // 重置之前的提取状态
     setCurrentStep('extracting')
 
@@ -499,24 +506,28 @@ export default function CreateOfferModalV2({
                 </Select>
               </div>
 
+              {/* 品牌名（必填） */}
+              <div className="pt-4 border-t border-slate-200">
+                <Label htmlFor="brandNameOptional">
+                  品牌名 <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="brandNameOptional"
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="如 Aferiy、kaspersky、RingConn"
+                  className="mt-1"
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  请填写正确的品牌名称，系统自动识别的品牌名可能有误，提前填写可确保数据准确
+                </p>
+              </div>
+
               {/* 可选字段 */}
               <div className="pt-4 border-t border-slate-200 space-y-4">
-                <p className="text-sm font-medium text-slate-700">可选信息（用于CPC计算/独立站补充）</p>
-
-                <div>
-                  <Label htmlFor="brandNameOptional">品牌名（可选）</Label>
-                  <Input
-                    id="brandNameOptional"
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder="如 kaspersky"
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    若推广链接为独立站，系统会优先使用你填写的品牌名进行Google搜索，补充官方信息与广告元素
-                  </p>
-                </div>
+                <p className="text-sm font-medium text-slate-700">可选信息（用于CPC计算）</p>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>

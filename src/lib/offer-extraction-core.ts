@@ -923,10 +923,50 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       const extractingBrandStartTime = Date.now()
       progressCallback?.('extracting_brand', 'in_progress', '正在提取品牌信息...', undefined, 0)
 
-      // 🔥 如果用户已手动输入品牌名：独立站场景下优先使用用户输入
+      // 🔥 如果用户已手动输入品牌名：所有场景均优先使用用户输入（2026-05-08修复：之前仅限独立站）
+      // Amazon Store 自动识别容易将产品标题误当品牌名（如 "Aferiy Tragbare Powersta"），用户手填更可靠
       const brandNameTrimmed = typeof brandNameInput === 'string' ? brandNameInput.trim() : ''
-      if (!isAmazonStore && !isAmazonProductPage && brandNameTrimmed) {
-        brandName = brandNameTrimmed
+      if (brandNameTrimmed) {
+        // 🔥 举一反三（2026-05-08）：对输入的品牌名也应用多语言产品词过滤
+        // 场景：重新抓取时 rebuild/route.ts 会把旧的脏品牌名（如 "Aferiy Tragbare Powersta"）从数据库传入
+        // 不过滤则脏品牌名会绕过 amazon-store.ts 的清洗逻辑，AI 仍收到错误品牌上下文
+        const _productTypeWords = [
+          // 英文
+          'smart', 'ring', 'watch', 'band', 'tracker', 'speaker', 'earbuds',
+          'headphones', 'phone', 'tablet', 'laptop', 'camera', 'drone',
+          'charger', 'cable', 'case', 'cover', 'screen', 'protector',
+          'keyboard', 'mouse', 'monitor', 'light', 'lamp', 'fan',
+          'portable', 'wireless', 'bluetooth', 'electric', 'digital',
+          'solar', 'power', 'station', 'powerstation', 'generator',
+          'robot', 'vacuum', 'cleaner', 'purifier', 'humidifier',
+          'projector', 'printer', 'scanner', 'router', 'modem',
+          // 德语 (Deutsch)
+          'tragbare', 'kabellos', 'elektrisch', 'powerstation', 'solaranlage',
+          'lautsprecher', 'kopfhörer', 'ladegerät', 'kamera', 'drucker', 'staubsauger', 'roboter',
+          // 法语 (Français)
+          'sans', 'fil', 'électrique', 'numérique',
+          'enceinte', 'casque', 'chargeur', 'caméra', 'imprimante',
+          // 西班牙语 (Español)
+          'portátil', 'inalámbrico', 'eléctrico',
+          'altavoz', 'auriculares', 'cargador', 'cámara', 'impresora',
+          // 意大利语 (Italiano)
+          'portatile', 'senza', 'fili', 'elettrico', 'digitale',
+          'altoparlante', 'cuffie', 'caricatore', 'fotocamera',
+        ]
+        const _words = brandNameTrimmed.split(/\s+/)
+        const _firstWord = _words[0]
+        let _cleanedBrand = brandNameTrimmed
+        if (_words.length > 1 &&
+            _firstWord.length >= 2 && _firstWord.length <= 20 &&
+            /^[A-Z][a-zA-Z0-9]*$/.test(_firstWord)) {
+          const _hasProductType = _words.slice(1).some(w => _productTypeWords.includes(w.toLowerCase()))
+          const _isTooLong = _words.length > 3
+          if (_hasProductType || _isTooLong) {
+            _cleanedBrand = _firstWord
+            console.log(`🔧 [offer-extraction-core] 品牌名输入清洗: "${brandNameTrimmed}" → "${_cleanedBrand}" (${_hasProductType ? '含多语言产品词' : '词数超过3个'})`)
+          }
+        }
+        brandName = _cleanedBrand
       }
 
       trackStageProgress(progressCallback, extractingBrandStartTime, 'extracting_brand', 'completed', '品牌信息提取完成', {
