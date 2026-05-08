@@ -2222,16 +2222,23 @@ export default function SettingsPage() {
                           代理URL格式说明
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          {/* IPRocket格式 */}
+                          {/* IPRocket / Kookeey API格式 */}
                           <div className="bg-white p-3 rounded border border-blue-200">
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
                               <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">推荐</span>
+                              <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
                               <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
                             </div>
                             <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
                             </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all mt-1.5">
+                              https://www.kookeey.com/pickdynamicips?...&sign=xxx&accessid=xxx&...
+                            </div>
+                            <p className="mt-2 text-xs text-slate-500">
+                              Kookeey：登录控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL
+                            </p>
                           </div>
 
                           {/* Oxylabs格式 */}
@@ -2258,25 +2265,6 @@ export default function SettingsPage() {
                             </div>
                             <p className="mt-2 text-xs text-slate-500">
                               建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
-                            </p>
-                          </div>
-
-                          {/* Kookeey 格式 */}
-                          <div className="bg-white p-3 rounded border border-teal-200">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
-                              <span className="text-slate-600">API格式 - HMAC-SHA1 签名认证</span>
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              https://www.kookeey.com/clientapi/?accessid=您的ID&token=开发者Token&g=套餐组ID&type=1&num=1
-                            </div>
-                            <p className="mt-2 text-xs text-slate-500">
-                              参数说明：<br />
-                              • <span className="font-mono">accessid</span> — 账户 Access ID<br />
-                              • <span className="font-mono">token</span> — 开发者 Token（用于签名，不会明文发出）<br />
-                              • <span className="font-mono">g</span> — 代理地区/套餐组 ID（如 433）<br />
-                              • <span className="font-mono">type</span> — 1=HTTP（默认）、2=HTTPS、3=SOCKS5<br />
-                              • <span className="font-mono">num</span> — 每次获取IP数量（建议填 1）
                             </p>
                           </div>
                         </div>
