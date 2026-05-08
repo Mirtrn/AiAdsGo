@@ -210,6 +210,7 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         let lastUpdatedAt: string | null = null
         let isClosed = false
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null
 
         const sendSSE = (data: any) => {
           if (isClosed) return
@@ -225,9 +226,10 @@ export async function POST(req: NextRequest) {
         const pollInterval = setInterval(async () => {
           try {
             // 优化3: 只查询必要字段,减少数据传输量
+            // Fix27d: 加 user_id 过滤（纵深防御，taskId 是本请求创建所以 UUID 已隐含隔离）
             const rows = await db.query<OfferTask>(
-              'SELECT status, stage, progress, message, result, error, updated_at FROM offer_tasks WHERE id = ?',
-              [taskId]
+              'SELECT status, stage, progress, message, result, error, updated_at FROM offer_tasks WHERE id = ? AND user_id = ?',
+              [taskId, userIdNum]
             )
 
             if (!rows || rows.length === 0) {
@@ -328,6 +330,11 @@ export async function POST(req: NextRequest) {
         req.signal.addEventListener('abort', () => {
           console.log(`🔌 Client disconnected from SSE: ${taskId}`)
           clearInterval(pollInterval)
+          // Fix27d: 同时清理 timeout，防止客户端断开后 timer 悬挂（内存泄漏）
+          if (timeoutHandle !== null) {
+            clearTimeout(timeoutHandle)
+            timeoutHandle = null
+          }
           if (!isClosed) {
             controller.close()
             isClosed = true
@@ -335,9 +342,11 @@ export async function POST(req: NextRequest) {
         })
 
         // 超时保护：15分钟后自动关闭（店铺深度抓取+竞品分析可能需要10-15分钟）
-        setTimeout(() => {
+        // Fix27d: 保存 handle 以便 abort 时能清理
+        timeoutHandle = setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
+          timeoutHandle = null
           if (!isClosed) {
             sendSSE({
               type: 'error',
