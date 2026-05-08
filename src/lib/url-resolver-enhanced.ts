@@ -966,7 +966,38 @@ export async function resolveAffiliateLink(
     }
   }
 
-  // ========== 所有重试都失败 ==========
+  // ========== 所有代理重试都失败，尝试无代理直连兜底 ==========
+  // pboost.me 等联盟短链跳转中间页不需要地理代理，服务器本机可直连
+  // 只有 URL 解析阶段（不是页面抓取阶段）才允许直连，降低风险
+  const GEO_NEUTRAL_DOMAINS = [
+    'pboost.me',        // PartnerBoost 短链
+    'partnerboost.com', // PartnerBoost 主域
+  ]
+  const linkDomain = extractDomain(affiliateLink)
+  const isGeoNeutral = GEO_NEUTRAL_DOMAINS.some(d => linkDomain === d || linkDomain.endsWith(`.${d}`))
+
+  if (isGeoNeutral) {
+    console.log(`🔄 所有代理失败，尝试无代理直连兜底: ${affiliateLink}`)
+    try {
+      const directResult = await resolveAffiliateLinkWithPlaywright(affiliateLink, undefined, 5000, undefined)
+      const result: ResolvedUrlData = {
+        finalUrl: directResult.finalUrl,
+        finalUrlSuffix: directResult.finalUrlSuffix,
+        brand: null,
+        redirectChain: directResult.redirectChain,
+        redirectCount: directResult.redirectCount,
+        pageTitle: directResult.pageTitle,
+        statusCode: directResult.statusCode,
+        resolveMethod: 'playwright',
+        proxyUsed: 'direct',
+      }
+      console.log(`✅ 直连兜底成功: ${result.finalUrl}`)
+      return applyEmbeddedTargetFallback(result)
+    } catch (directError: any) {
+      console.error(`❌ 直连兜底也失败: ${directError.message}`)
+    }
+  }
+
   throw new Error(
     `URL解析失败（${retryConfig.maxRetries + 1}次尝试后）: ${lastError?.message || '未知错误'}`
   )
