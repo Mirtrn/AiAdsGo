@@ -2210,9 +2210,9 @@ export default function SettingsPage() {
                         当前已支持 IPRocket、Oxylabs、Abcproxy、IpMars、Ipidea、Kookeey 六种代理格式
                       </p>
 
-                      {/* IPRocket推荐说明 - 简洁版 */}
+                      {/* 代理推荐说明 */}
                       <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-400 rounded px-3 py-2 flex items-center gap-1">
-                        <span>💡 <strong>推荐使用IPRocket</strong>（稳定便宜），请联系管理员购买，<span className="text-red-700 font-semibold">千万不要买官网套餐</span></span>
+                        <span>💡 想使用稳定便宜的代理平台，请联系管理员购买，<span className="text-red-700 font-semibold">千万不要买官网套餐</span></span>
                       </p>
 
                       {/* 代理URL格式说明 */}
@@ -2226,7 +2226,6 @@ export default function SettingsPage() {
                           <div className="bg-white p-3 rounded border border-blue-200">
                             <div className="flex items-center gap-2 mb-2 flex-wrap">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
-                              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">推荐</span>
                               <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
                               <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
                             </div>
