@@ -1026,6 +1026,61 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       if (!enqueueResponse.ok) {
         const errorData = await enqueueResponse.json()
 
+        // 🔧 Fix26: 409 = 已有活跃任务，复用其 taskId 继续监听 SSE，避免重复生成
+        if (enqueueResponse.status === 409 && errorData.code === 'TASK_ALREADY_RUNNING' && errorData.taskId) {
+          console.log(`[CreativeGeneration] 检测到已有活跃任务 ${errorData.taskId}，复用 SSE 监听`)
+          const { taskId: existingTaskId } = errorData
+          queuedTaskId = existingTaskId
+          setCurrentTaskId(existingTaskId)
+          // 继续往下走 SSE 流程，不抛出错误
+          const sseAbortController2 = new AbortController()
+          const SSE_TIMEOUT_MS_2 = 15 * 60 * 1000
+          const sseTimeoutId2 = setTimeout(() => { sseAbortController2.abort() }, SSE_TIMEOUT_MS_2)
+          let response2: Response
+          try {
+            response2 = await fetch(`/api/creative-tasks/${existingTaskId}/stream`, {
+              credentials: 'include',
+              signal: sseAbortController2.signal,
+            })
+          } catch (fetchErr: any) {
+            clearTimeout(sseTimeoutId2)
+            setSseTimeout(true)
+            shouldKeepTaskTracking = true
+            throw fetchErr
+          }
+          clearTimeout(sseTimeoutId2)
+          if (response2.ok && response2.body) {
+            const reader2 = response2.body.getReader()
+            const decoder2 = new TextDecoder()
+            let buffer2 = ''
+            while (true) {
+              const { done, value } = await reader2.read()
+              if (done) break
+              buffer2 += decoder2.decode(value, { stream: true })
+              const lines2 = buffer2.split('\n')
+              buffer2 = lines2.pop() || ''
+              for (const line2 of lines2) {
+                if (!line2.startsWith('data: ')) continue
+                try {
+                  const event2 = JSON.parse(line2.slice(6))
+                  if (event2.type === 'progress') {
+                    setGenerationProgress({ step: event2.stage || 'generating', progress: event2.progress || 0, message: event2.message || '' })
+                    if (event2.taskStatus) setTaskStatus(event2.taskStatus)
+                  } else if (event2.type === 'complete') {
+                    await fetchExistingCreatives()
+                    setGenerating(false)
+                    return
+                  } else if (event2.type === 'error') {
+                    throw new Error(event2.message || '创意生成失败')
+                  }
+                } catch {}
+              }
+            }
+          }
+          setGenerating(false)
+          return
+        }
+
         // 🔧 修复: 安全处理错误数据，确保字段类型正确
         const errorMessage = typeof errorData.error === 'string' ? errorData.error : String(errorData.error || '任务入队失败')
         const errorDetails = typeof errorData.details === 'string' ? errorData.details : ''
