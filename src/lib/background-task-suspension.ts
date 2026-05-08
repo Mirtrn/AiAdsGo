@@ -64,6 +64,24 @@ export async function suspendUserBackgroundTasks(
     )
   ).changes
 
+  // Fix29: 同步清理 creative_tasks DB 中的 pending 记录（只清 pending，不动 running）
+  // 场景：用户被暂停时队列层已清除 pending 任务，但 DB 记录仍为 pending
+  // 后果：账号恢复后 Fix26 的 30min 窗口会误认为任务仍在进行，阻止重新入队
+  // 注意：creative_tasks.status CHECK 约束仅允许 pending/running/completed/failed，使用 failed
+  try {
+    await db.exec(
+      `UPDATE creative_tasks
+       SET status = 'failed',
+           message = '账号暂停，任务已取消',
+           updated_at = ${nowSql}
+       WHERE user_id = ?
+         AND status = 'pending'`,
+      [userId]
+    )
+  } catch (err: any) {
+    console.warn(`[user-task-suspension] Fix29: 清理 creative_tasks pending 记录失败 (userId=${userId}):`, err?.message || String(err))
+  }
+
   const urlSwapNotDeletedCondition =
     db.type === 'postgres'
       ? '(is_deleted = FALSE OR is_deleted IS NULL)'
@@ -150,6 +168,22 @@ export async function suspendBackgroundTasksForInactiveOrExpiredUsers(opts?: {
       [...affectedUserIds]
     )
   ).changes
+
+  // Fix29b: 同步清理 creative_tasks DB 中的 pending 记录（批量暂停版本）
+  // 与单用户版 Fix29 对齐：队列层已 purge，DB pending 记录需同步标 failed
+  try {
+    await db.exec(
+      `UPDATE creative_tasks
+       SET status = 'failed',
+           message = '账号暂停，任务已取消',
+           updated_at = ${nowSql}
+       WHERE user_id IN (${placeholders})
+         AND status = 'pending'`,
+      [...affectedUserIds]
+    )
+  } catch (err: any) {
+    console.warn(`[user-task-suspension] Fix29b: 批量清理 creative_tasks pending 记录失败:`, err?.message || String(err))
+  }
 
   const urlSwapNotDeletedCondition =
     db.type === 'postgres'
