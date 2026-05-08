@@ -155,6 +155,14 @@ export function maskProxyUrl(proxyUrl: string): string {
       return cc ? `${url.protocol}//${url.hostname}:${url.port} (cc-${cc})` : `${url.protocol}//${url.hostname}:${url.port}`
     }
 
+    // Kookeey格式：只保留 accessid 和 g 参数，隐藏 token
+    if (url.hostname.includes('kookeey.com')) {
+      const params = new URLSearchParams(url.search)
+      const accessid = params.get('accessid') || 'UNKNOWN'
+      const g = params.get('g') || 'UNKNOWN'
+      return `${url.origin}${url.pathname}?accessid=${accessid}&g=${g}&...`
+    }
+
     // IPRocket格式：从查询参数提取cc
     const params = new URLSearchParams(url.search)
     const cc = params.get('cc')
