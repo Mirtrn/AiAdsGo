@@ -3421,7 +3421,7 @@ export async function generateOfferKeywordPool(
     `, [userId]) as { id: number; customer_id: string } | undefined
 
     if (adsAccount) {
-      const config = await getGoogleAdsConfig(userId)
+      const config = await getGoogleAdsConfig(userId, auth.authType, auth.serviceAccountId)
       if (config) {
         customerId = adsAccount.customer_id
         refreshToken = config.refreshToken
