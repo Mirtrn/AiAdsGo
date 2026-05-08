@@ -1299,12 +1299,14 @@ export class UnifiedQueueManager {
       // Fix28: 同样清理 creative_tasks 中卡住的 running 任务
       // 场景：进程 SIGKILL 后 executor catch 块未执行，任务永久卡在 running
       // 后果：Fix26 的 30min 窗口内用户无法重新入队，SSE 永远收不到完成事件
+      // 注意：只清理 running（started_at 超时），不清理 pending（可能仍在合法等待队列）
       let creativeCleanedCount = 0
       try {
         const staleCreativeTasks = await db.query<{ id: string }>(`
           SELECT id FROM creative_tasks
-          WHERE status IN ('running', 'pending')
-            AND created_at < ${timeoutThreshold}
+          WHERE status = 'running'
+            AND started_at IS NOT NULL
+            AND started_at < ${timeoutThreshold}
         `, [])
 
         if (staleCreativeTasks.length > 0) {
@@ -1319,8 +1321,9 @@ export class UnifiedQueueManager {
                 error = ?,
                 completed_at = COALESCE(completed_at, ${nowFunc}),
                 updated_at = ${nowFunc}
-            WHERE status IN ('running', 'pending')
-              AND created_at < ${timeoutThreshold}
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+              AND started_at < ${timeoutThreshold}
           `, [creativeTimeoutErrorJson])
           creativeCleanedCount = creativeUpdateResult.changes
           if (creativeCleanedCount > 0) {
