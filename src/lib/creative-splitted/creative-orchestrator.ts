@@ -4,6 +4,10 @@
  *
  * 职责: 协调各子模块，主工作流管理
  * 遵循 KISS 原则: 清晰的工作流程，错误处理和日志记录
+ *
+ * @deprecated 此模块为实验性拆分版本，未被主执行路径使用。
+ * 主执行路径：ad-creative-executor.ts → @/lib/ad-creative-gen → ad-creative-generator.ts
+ * 请勿在新代码中引用此模块，以避免双重DB写入和功能分歧风险。
  */
 
 import type {

@@ -3025,13 +3025,20 @@ async function saveKeywordPoolWithData(
 
   const placeholders = insertFields.map(() => '?').join(', ')
 
-  const result = await db.exec(
-    `INSERT INTO offer_keyword_pools (${insertFields.join(', ')}) VALUES (${placeholders})`,
-    insertValues
-  )
+  // 🔧 Fix25: 幂等写法，防止并发竞态（两个Bucket任务同时创建关键词池时UNIQUE约束冲突）
+  // SQLite: INSERT OR IGNORE，PostgreSQL: ON CONFLICT DO NOTHING
+  const insertSql = db.type === 'postgres'
+    ? `INSERT INTO offer_keyword_pools (${insertFields.join(', ')}) VALUES (${placeholders}) ON CONFLICT (offer_id) DO NOTHING`
+    : `INSERT OR IGNORE INTO offer_keyword_pools (${insertFields.join(', ')}) VALUES (${placeholders})`
 
-  console.log(`✅ 关键词池已创建: Offer #${offerId}, ID #${result.lastInsertRowid} (${pageType}链接, 店铺5桶: ${storeBuckets ? '是' : '否'})`)
-  return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
+  await db.exec(insertSql, insertValues)
+
+  const pool = await getKeywordPoolByOfferId(offerId)
+  if (!pool) {
+    throw new Error(`关键词池创建失败（幂等INSERT后仍查询不到记录）: Offer #${offerId}`)
+  }
+  console.log(`✅ 关键词池已就绪: Offer #${offerId}, ID #${pool.id} (${pageType}链接, 店铺5桶: ${storeBuckets ? '是' : '否'})`)
+  return pool
 }
 
 function extractCategorySignalsFromScrapedData(scrapedData: string | null | undefined): string[] {
