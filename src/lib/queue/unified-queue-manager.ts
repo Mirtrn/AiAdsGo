@@ -1294,10 +1294,45 @@ export class UnifiedQueueManager {
         }
       }
 
-      console.log(`✅ 已清理 ${updateResult.changes} 个超时任务`)
+      console.log(`✅ 已清理 ${updateResult.changes} 个超时 offer_tasks`)
+
+      // Fix28: 同样清理 creative_tasks 中卡住的 running 任务
+      // 场景：进程 SIGKILL 后 executor catch 块未执行，任务永久卡在 running
+      // 后果：Fix26 的 30min 窗口内用户无法重新入队，SSE 永远收不到完成事件
+      let creativeCleanedCount = 0
+      try {
+        const staleCreativeTasks = await db.query<{ id: string }>(`
+          SELECT id FROM creative_tasks
+          WHERE status IN ('running', 'pending')
+            AND created_at < ${timeoutThreshold}
+        `, [])
+
+        if (staleCreativeTasks.length > 0) {
+          const creativeTimeoutErrorJson = toDbJsonObjectField({
+            timeout: true,
+            message: 'Creative task timeout - process may have been restarted',
+          }, db_type, { timeout: true, message: 'Creative task timeout' })
+          const creativeUpdateResult = await db.exec(`
+            UPDATE creative_tasks
+            SET status = 'failed',
+                message = '任务超时（进程重启）',
+                error = ?,
+                completed_at = COALESCE(completed_at, ${nowFunc}),
+                updated_at = ${nowFunc}
+            WHERE status IN ('running', 'pending')
+              AND created_at < ${timeoutThreshold}
+          `, [creativeTimeoutErrorJson])
+          creativeCleanedCount = creativeUpdateResult.changes
+          if (creativeCleanedCount > 0) {
+            console.warn(`⚠️ Fix28: 已清理 ${creativeCleanedCount} 个超时 creative_tasks（${staleCreativeTasks.map(t => t.id).join(', ')}）`)
+          }
+        }
+      } catch (creativeCleanupErr: any) {
+        console.error('❌ Fix28: 清理 creative_tasks 超时任务失败:', creativeCleanupErr.message)
+      }
 
       return {
-        cleanedCount: updateResult.changes,
+        cleanedCount: updateResult.changes + creativeCleanedCount,
         taskIds: staleTasks.map(t => t.id)
       }
     } catch (error: any) {
