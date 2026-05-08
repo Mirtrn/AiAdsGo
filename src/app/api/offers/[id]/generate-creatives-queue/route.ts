@@ -190,6 +190,30 @@ export async function POST(
       })
     }
 
+    // 🔧 Fix26: 检查是否已有 pending/running 任务（防止重复入队导致双倍AI消耗）
+    // 场景：SSE超时/网络断开后用户再次点击"生成"，此时ad_creatives还未写入但任务仍在跑
+    const activeTaskCheck = db.type === 'postgres'
+      ? `status IN ('pending', 'running') AND created_at > NOW() - INTERVAL '30 minutes'`
+      : `status IN ('pending', 'running') AND created_at > datetime('now', '-30 minutes')`
+    const activeTask = await db.queryOne<{ id: string; status: string }>(
+      `SELECT id, status FROM creative_tasks
+       WHERE offer_id = ? AND user_id = ? AND ${activeTaskCheck}
+       ORDER BY created_at DESC LIMIT 1`,
+      [parseInt(id, 10), parseInt(userId, 10)]
+    )
+    if (activeTask) {
+      console.log(`[CreativeGeneration] Offer #${id} 已有活跃任务 ${activeTask.id} (${activeTask.status})，拒绝重复入队`)
+      return new Response(JSON.stringify({
+        taskId: activeTask.id,
+        status: activeTask.status,
+        message: '该Offer已有创意生成任务在进行中，请勿重复提交',
+        code: 'TASK_ALREADY_RUNNING',
+      }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
     const queue = getQueueManager()
 
     // 创建creative_tasks记录
