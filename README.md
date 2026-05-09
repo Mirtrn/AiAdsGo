@@ -367,17 +367,54 @@ NEXT_PUBLIC_APP_URL="https://your-domain.com"
    - Vercel会自动构建和部署
    - 每次push到main分支自动部署
 
-### Docker部署
+### Docker部署（生产环境）
+
+> ⚠️ **【严重警告】** 生产服务器上**必须**使用 `docker-compose` 启动容器，**绝对禁止**直接使用 `docker run`！
+>
+> **原因**：`docker-compose.single.yml` 映射的是 `80:80` 端口，Cloudflare 通过 80 端口连接源站。
+> 若手动执行 `docker run -p 3000:3000`，80 端口无监听，Cloudflare 立即报 **521 Web server is down**，网站完全无法访问。
+
+#### ✅ 正确做法：使用部署脚本（推荐）
 
 ```bash
-# 构建镜像
-docker build -t autoads .
+# 在服务器上执行部署脚本（会自动 build + docker-compose up）
+bash /home/ubuntu/autoads/do_deploy.sh
+```
 
-# 运行容器
-docker run -p 3000:3000 \
-  -e DATABASE_URL="postgresql://..." \
-  -e ANTHROPIC_API_KEY="..." \
-  autoads
+#### ✅ 正确做法：手动全量部署
+
+```bash
+cd /home/ubuntu/autoads
+sudo docker build -t autoads:single .
+sudo docker stop autoads || true
+sudo docker rm autoads || true
+# ✅ 必须用 docker-compose，端口映射为 80:80
+sudo docker-compose -f docker-compose.single.yml up -d
+```
+
+#### ✅ 正确做法：紧急热更新（已有新镜像，跳过 build）
+
+```bash
+cd /home/ubuntu/autoads
+sudo docker-compose -f docker-compose.single.yml up -d --no-deps autoads
+```
+
+#### ❌ 错误做法（绝对禁止，会导致 Cloudflare 521）
+
+```bash
+# ❌ 以下命令只绑定 3000 端口，80 端口无监听，网站崩溃！
+docker run -p 3000:3000 --env-file .env autoads:single
+docker run -p 3000:3000 -e DATABASE_URL="..." autoads
+```
+
+#### 验证部署是否正确
+
+```bash
+# 检查端口映射，正确结果应包含 "0.0.0.0:80->80/tcp"
+sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+# 正确输出示例：
+# autoads   Up 2 minutes (healthy)   0.0.0.0:80->80/tcp
 ```
 
 ### 手动部署
