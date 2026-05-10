@@ -74,6 +74,11 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
     ? "(o.is_deleted IS NULL OR o.is_deleted::text IN ('0', 'f', 'false'))"
     : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
 
+  // 🔧 PostgreSQL兼容性：date('now', '-7 days') 是 SQLite 语法，PostgreSQL 需要 NOW() - INTERVAL '7 days'
+  const sevenDaysAgoExpr = db.type === 'postgres'
+    ? "NOW() - INTERVAL '7 days'"
+    : "date('now', '-7 days')"
+
   // 获取最近7天的风险警报
   const alerts = await db.query(`
     SELECT
@@ -86,7 +91,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
       cp.cost,
       cp.conversions,
       CASE
-        WHEN cp.clicks > 0 THEN (cp.clicks * 1.0 / cp.impressions)
+        WHEN cp.clicks > 0 AND cp.impressions > 0 THEN (cp.clicks * 1.0 / cp.impressions)
         ELSE 0
       END as ctr,
       CASE
@@ -99,9 +104,9 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
     WHERE c.user_id = ?
       AND c.status != 'REMOVED'
       AND ${notDeletedCondition}
-      AND cp.date >= date('now', '-7 days')
+      AND cp.date >= ${sevenDaysAgoExpr}
       AND (
-        (cp.clicks > 0 AND (cp.clicks * 1.0 / cp.impressions) < 0.01)
+        (cp.clicks > 0 AND cp.impressions > 0 AND (cp.clicks * 1.0 / cp.impressions) < 0.01)
         OR (cp.clicks > 0 AND (cp.cost / cp.clicks) > 5.0)
         OR (cp.impressions > 1000 AND cp.clicks = 0)
       )
