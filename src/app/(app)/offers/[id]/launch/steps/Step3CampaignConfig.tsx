@@ -390,6 +390,10 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   const [showPreview, setShowPreview] = useState(false)
   // 🆕 P0-1优化：动态CPC出价开关
   const [enableDynamicCpc, setEnableDynamicCpc] = useState(false)
+  // 🔧 修复：CPC输入框的本地字符串状态，允许自由键盘输入（含删除）
+  const [cpcInputStr, setCpcInputStr] = useState(() => String(config.maxCpcBid || ''))
+  // 🔧 修复：预算输入框的本地字符串状态，允许自由键盘输入（含删除）
+  const [budgetInputStr, setBudgetInputStr] = useState(() => String(config.budgetAmount || ''))
   const [batchKeywordDialogOpen, setBatchKeywordDialogOpen] = useState(false)
   const [batchKeywordInput, setBatchKeywordInput] = useState('')
   const [selectedKeywordIndexes, setSelectedKeywordIndexes] = useState<Set<number>>(new Set())
@@ -470,6 +474,9 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     setValidationErrors([])
     setEnableDynamicCpc(false)
     setSelectedKeywordIndexes(new Set())
+    // 🔧 修复：同步CPC/预算输入字符串
+    setCpcInputStr(String(getDefaultCPC(accountCurrency)))
+    setBudgetInputStr(String(getDefaultBudget(accountCurrency)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCreative?.id])
 
@@ -480,6 +487,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   useEffect(() => {
     if (enableDynamicCpc && suggestedCpc !== null) {
       handleChange('maxCpcBid', suggestedCpc)
+      setCpcInputStr(String(suggestedCpc))
     }
   }, [enableDynamicCpc, suggestedCpc])
 
@@ -954,23 +962,32 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                   <Input
                     type="number"
-                    value={config.budgetAmount || ''}
+                    value={budgetInputStr}
                     onChange={(e) => {
-                      const inputValue = e.target.value
-                      if (inputValue === '') {
+                      // 直接同步用户输入的字符串，允许空值、中间状态
+                      setBudgetInputStr(e.target.value)
+                    }}
+                    onBlur={() => {
+                      // 离开输入框时才做四舍五入并写入 config
+                      if (budgetInputStr === '') {
                         handleChange('budgetAmount', '')
                         return
                       }
-                      const value = parseFloat(inputValue)
+                      const value = parseFloat(budgetInputStr)
                       if (!isNaN(value) && value > 0) {
                         // 🔧 修复(2025-12-26): 自动四舍五入到整数（预算以货币单位计）
                         const roundedValue = Math.round(value)
+                        setBudgetInputStr(String(roundedValue))
                         handleChange('budgetAmount', roundedValue)
+                      } else {
+                        // 无效值恢复为当前 config 值
+                        setBudgetInputStr(config.budgetAmount ? String(config.budgetAmount) : '')
                       }
                     }}
                     className="pl-7"
                     min="0"
                     step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '100' : '1'}
+                    placeholder="0"
                   />
                 </div>
               </div>
@@ -1105,27 +1122,38 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                 <Input
                   type="number"
-                  value={config.maxCpcBid || ''}
+                  value={cpcInputStr}
                   onChange={(e) => {
-                    const inputValue = e.target.value
-                    if (inputValue === '') {
-                      handleChange('maxCpcBid', '')
-                      return
-                    }
-                    const value = parseFloat(inputValue)
-                    if (!isNaN(value) && value > 0) {
-                      // 🔧 修复(2025-12-26): 自动四舍五入到计费单位（0.01货币单位）
-                      const roundedValue = Math.round(value * 100) / 100
-                      handleChange('maxCpcBid', roundedValue)
-                    }
+                    // 直接同步用户输入的字符串，允许空值、中间状态（如 "0."）
+                    setCpcInputStr(e.target.value)
                     // 🆕 P0-1优化：手动修改CPC时关闭动态CPC
                     if (enableDynamicCpc) {
                       setEnableDynamicCpc(false)
                     }
                   }}
+                  onBlur={() => {
+                    // 离开输入框时才做四舍五入并写入 config
+                    if (cpcInputStr === '') {
+                      handleChange('maxCpcBid', '')
+                      return
+                    }
+                    const value = parseFloat(cpcInputStr)
+                    if (!isNaN(value) && value > 0) {
+                      // 🔧 修复(2025-12-26): 自动四舍五入到计费单位（0.01货币单位）
+                      const roundedValue = accountCurrency === 'JPY' || accountCurrency === 'KRW'
+                        ? Math.round(value)
+                        : Math.round(value * 100) / 100
+                      setCpcInputStr(String(roundedValue))
+                      handleChange('maxCpcBid', roundedValue)
+                    } else {
+                      // 无效值恢复为当前 config 值
+                      setCpcInputStr(config.maxCpcBid ? String(config.maxCpcBid) : '')
+                    }
+                  }}
                   className="pl-7"
                   min="0"
                   step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '1' : '0.01'}
+                  placeholder="0.00"
                 />
               </div>
 
