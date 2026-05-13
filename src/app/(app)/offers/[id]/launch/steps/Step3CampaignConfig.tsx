@@ -492,41 +492,53 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   }, [enableDynamicCpc, suggestedCpc])
 
   const handleChange = (field: keyof CampaignConfig, value: any) => {
-    setConfig({
-      ...config,
+    setConfig(prev => ({
+      ...prev,
       [field]: value
-    })
+    }))
     setValidationErrors([])
   }
 
   const handleHeadlineChange = (index: number, value: string) => {
-    const newHeadlines = [...config.headlines]
-    newHeadlines[index] = value
-    handleChange('headlines', newHeadlines)
+    setConfig(prev => {
+      const newHeadlines = [...prev.headlines]
+      newHeadlines[index] = value
+      return { ...prev, headlines: newHeadlines }
+    })
+    setValidationErrors([])
   }
 
   const handleDescriptionChange = (index: number, value: string) => {
-    const newDescriptions = [...config.descriptions]
-    newDescriptions[index] = value
-    handleChange('descriptions', newDescriptions)
+    setConfig(prev => {
+      const newDescriptions = [...prev.descriptions]
+      newDescriptions[index] = value
+      return { ...prev, descriptions: newDescriptions }
+    })
+    setValidationErrors([])
   }
 
   const handleKeywordChange = (index: number, field: 'text' | 'matchType', value: any) => {
-    const newKeywords = [...config.keywords]
-    newKeywords[index] = { ...newKeywords[index], [field]: value }
-    handleChange('keywords', newKeywords)
+    setConfig(prev => {
+      const newKeywords = [...prev.keywords]
+      newKeywords[index] = { ...newKeywords[index], [field]: value }
+      return { ...prev, keywords: newKeywords }
+    })
+    setValidationErrors([])
   }
 
   const handleAddKeyword = () => {
-    handleChange('keywords', [
-      ...config.keywords,
-      { text: '', matchType: 'PHRASE' as const }
-    ])
+    setConfig(prev => ({
+      ...prev,
+      keywords: [...prev.keywords, { text: '', matchType: 'PHRASE' as const }]
+    }))
+    setValidationErrors([])
   }
 
   const handleRemoveKeyword = (index: number) => {
-    const newKeywords = config.keywords.filter((_, i) => i !== index)
-    handleChange('keywords', newKeywords)
+    setConfig(prev => ({
+      ...prev,
+      keywords: prev.keywords.filter((_, i) => i !== index)
+    }))
     setSelectedKeywordIndexes(prev => {
       if (prev.size === 0) return prev
       const next = new Set<number>()
@@ -647,10 +659,14 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       return
     }
 
-    handleChange('keywords', [
-      ...config.keywords,
-      ...keywords.map((text) => ({ text, matchType: 'PHRASE' as const }))
-    ])
+    setConfig(prev => ({
+      ...prev,
+      keywords: [
+        ...prev.keywords,
+        ...keywords.map((text) => ({ text, matchType: 'PHRASE' as const }))
+      ]
+    }))
+    setValidationErrors([])
     setBatchKeywordInput('')
     setBatchKeywordDialogOpen(false)
     showSuccess('批量添加成功', `已添加${keywords.length}个关键词（词组匹配）`)
@@ -678,55 +694,68 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
   const handleBatchMatchTypeApply = () => {
     if (selectedKeywordIndexes.size === 0) return
-    const newKeywords = config.keywords.map((kw, idx) => (
-      selectedKeywordIndexes.has(idx)
-        ? { ...kw, matchType: batchMatchType }
-        : kw
-    ))
-    handleChange('keywords', newKeywords)
-    showSuccess('批量修改成功', `已更新 ${selectedKeywordIndexes.size} 个关键词的匹配类型`)
+    const count = selectedKeywordIndexes.size
+    setConfig(prev => ({
+      ...prev,
+      keywords: prev.keywords.map((kw, idx) =>
+        selectedKeywordIndexes.has(idx) ? { ...kw, matchType: batchMatchType } : kw
+      )
+    }))
+    setValidationErrors([])
+    showSuccess('批量修改成功', `已更新 ${count} 个关键词的匹配类型`)
   }
 
   const handleBatchRemoveKeywords = () => {
     if (selectedKeywordIndexes.size === 0) return
     const removeCount = selectedKeywordIndexes.size
-    const newKeywords = config.keywords.filter((_, idx) => !selectedKeywordIndexes.has(idx))
-    handleChange('keywords', newKeywords)
+    setConfig(prev => ({
+      ...prev,
+      keywords: prev.keywords.filter((_, idx) => !selectedKeywordIndexes.has(idx))
+    }))
+    setValidationErrors([])
     setSelectedKeywordIndexes(new Set())
     showSuccess('批量删除成功', `已删除 ${removeCount} 个关键词`)
   }
 
   const handleAddCallout = () => {
-    handleChange('callouts', [...config.callouts, ''])
+    setConfig(prev => ({ ...prev, callouts: [...prev.callouts, ''] }))
+    setValidationErrors([])
   }
 
   const handleCalloutChange = (index: number, value: string) => {
-    const newCallouts = [...config.callouts]
-    newCallouts[index] = value
-    handleChange('callouts', newCallouts)
+    setConfig(prev => {
+      const newCallouts = [...prev.callouts]
+      newCallouts[index] = value
+      return { ...prev, callouts: newCallouts }
+    })
+    setValidationErrors([])
   }
 
   const handleRemoveCallout = (index: number) => {
-    const newCallouts = config.callouts.filter((_, i) => i !== index)
-    handleChange('callouts', newCallouts)
+    setConfig(prev => ({ ...prev, callouts: prev.callouts.filter((_, i) => i !== index) }))
+    setValidationErrors([])
   }
 
   const handleAddSitelink = () => {
-    handleChange('sitelinks', [
-      ...config.sitelinks,
-      { text: '', description: '', url: '' }
-    ])
+    setConfig(prev => ({
+      ...prev,
+      sitelinks: [...prev.sitelinks, { text: '', description: '', url: '' }]
+    }))
+    setValidationErrors([])
   }
 
   const handleSitelinkChange = (index: number, field: 'text' | 'description' | 'url', value: string) => {
-    const newSitelinks = [...config.sitelinks]
-    newSitelinks[index] = { ...newSitelinks[index], [field]: value }
-    handleChange('sitelinks', newSitelinks)
+    setConfig(prev => {
+      const newSitelinks = [...prev.sitelinks]
+      newSitelinks[index] = { ...newSitelinks[index], [field]: value }
+      return { ...prev, sitelinks: newSitelinks }
+    })
+    setValidationErrors([])
   }
 
   const handleRemoveSitelink = (index: number) => {
-    const newSitelinks = config.sitelinks.filter((_, i) => i !== index)
-    handleChange('sitelinks', newSitelinks)
+    setConfig(prev => ({ ...prev, sitelinks: prev.sitelinks.filter((_, i) => i !== index) }))
+    setValidationErrors([])
   }
 
   const validateConfig = (): boolean => {
@@ -856,25 +885,33 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
 
   // 自动填充Headlines/Descriptions到15/4个
   const ensureHeadlinesCount = () => {
-    if (config.headlines.length < 15) {
-      const needed = 15 - config.headlines.length
-      const newHeadlines = [
-        ...config.headlines,
-        ...Array(needed).fill('').map((_, i) => `Headline ${config.headlines.length + i + 1}`)
-      ]
-      handleChange('headlines', newHeadlines)
-    }
+    setConfig(prev => {
+      if (prev.headlines.length >= 15) return prev
+      const needed = 15 - prev.headlines.length
+      return {
+        ...prev,
+        headlines: [
+          ...prev.headlines,
+          ...Array(needed).fill('').map((_, i) => `Headline ${prev.headlines.length + i + 1}`)
+        ]
+      }
+    })
+    setValidationErrors([])
   }
 
   const ensureDescriptionsCount = () => {
-    if (config.descriptions.length < 4) {
-      const needed = 4 - config.descriptions.length
-      const newDescriptions = [
-        ...config.descriptions,
-        ...Array(needed).fill('').map((_, i) => `Description ${config.descriptions.length + i + 1}`)
-      ]
-      handleChange('descriptions', newDescriptions)
-    }
+    setConfig(prev => {
+      if (prev.descriptions.length >= 4) return prev
+      const needed = 4 - prev.descriptions.length
+      return {
+        ...prev,
+        descriptions: [
+          ...prev.descriptions,
+          ...Array(needed).fill('').map((_, i) => `Description ${prev.descriptions.length + i + 1}`)
+        ]
+      }
+    })
+    setValidationErrors([])
   }
 
   return (

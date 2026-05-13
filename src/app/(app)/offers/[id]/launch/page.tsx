@@ -11,7 +11,7 @@
  * 4. 发布广告
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { Stepper, type Step } from '@/components/ui/stepper'
 import { Button } from '@/components/ui/button'
@@ -165,20 +165,20 @@ export default function LaunchAdPage() {
     setCanProceed(true)  // 重新启用下一步，因为用户在第3步可以配置广告
   }
 
-  const handleCreativeSelected = (creative: SelectedCreative) => {
+  const handleCreativeSelected = useCallback((creative: SelectedCreative) => {
     setSelectedCreative(creative)
     setCanProceed(true)
-  }
+  }, [])
 
-  const handleCampaignConfigured = (config: CampaignConfig) => {
+  const handleCampaignConfigured = useCallback((config: CampaignConfig) => {
     setCampaignConfig(config)
     setCanProceed(true)
-  }
+  }, [])
 
-  const handleAccountLinked = (account: GoogleAdsAccount) => {
+  const handleAccountLinked = useCallback((account: GoogleAdsAccount) => {
     setSelectedAccount(account)
     setCanProceed(true)
-  }
+  }, [])
 
   const handlePublishComplete = () => {
     // 🔥 修复(2025-12-18): 发布成功后不跳转，就留在发布页面
