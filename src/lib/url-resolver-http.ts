@@ -571,7 +571,7 @@ export function canUseHttpResolver(url: string): boolean {
  * @returns 提取的目标URL，如果没有则返回null
  */
 export function extractEmbeddedTargetUrl(url: string): string | null {
-  // 已知的tracking域名列表
+  // 已知的tracking域名列表（这些域名的 ?url= 等参数直接包含目标URL，可直接提取无需浏览器执行）
   const trackingDomains = [
     'partnermatic.com',
     'linkbux.com',
@@ -579,6 +579,8 @@ export function extractEmbeddedTargetUrl(url: string): string | null {
     'tracking.com',
     'aff.bstk.com',
     'click.linksynergy.com',
+    'partnerboost.com',    // PartnerBoost: ?url=https://www.amazon.com/... 直接包含目标URL
+    'app.partnerboost.com',
   ]
 
   try {

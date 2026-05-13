@@ -833,17 +833,25 @@ export async function resolveAffiliateLink(
             const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com|[?&](?:url|redirect|target|destination|goto|link)=/i.test(fullResolvedUrl)
 
             if (isTrackingUrl) {
-              console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
-              console.log(`   降级到Playwright完成后续重定向...`)
-              // 🔥 必须带上HTTP解析得到的suffix，否则会丢失关键追踪参数（例如 partnermatic 的 ?url=...）
-              const fullTrackingUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
-              const playwrightResult = await resolveWithPlaywright(fullTrackingUrl, proxy.url, targetCountry)
+              // 🔥 优先尝试从 tracking URL 的嵌入参数中提取目标 URL（如 partnerboost ?url=...）
+              // 这样可以避免对已知域名（partnerboost.com 等）触发 Playwright，节省大量时间
+              const embeddedFallback = applyEmbeddedTargetFallback(result)
+              if (embeddedFallback.finalUrl !== result.finalUrl) {
+                console.log(`   ✅ 从tracking URL中提取到嵌入目标URL，跳过Playwright: ${embeddedFallback.finalUrl}`)
+                result = embeddedFallback
+              } else {
+                console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
+                console.log(`   降级到Playwright完成后续重定向...`)
+                // 🔥 必须带上HTTP解析得到的suffix，否则会丢失关键追踪参数（例如 partnermatic 的 ?url=...）
+                const fullTrackingUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+                const playwrightResult = await resolveWithPlaywright(fullTrackingUrl, proxy.url, targetCountry)
 
-              // 合并重定向链
-              result = {
-                ...playwrightResult,
-                redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
-                redirectCount: result.redirectCount + playwrightResult.redirectCount,
+                // 合并重定向链
+                result = {
+                  ...playwrightResult,
+                  redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
+                  redirectCount: result.redirectCount + playwrightResult.redirectCount,
+                }
               }
             }
           }

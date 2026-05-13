@@ -48,6 +48,10 @@ export const HTTP_REDIRECT_DOMAINS = [
 
   // YeahPromos (需要验证 - to be verified)
   'yeahpromos.com',
+
+  // PartnerBoost (HTTP重定向，?url= 参数直接包含目标URL)
+  'partnerboost.com',
+  'app.partnerboost.com',
 ];
 
 /**
