@@ -52,6 +52,9 @@ export const HTTP_REDIRECT_DOMAINS = [
   // PartnerBoost (HTTP重定向，?url= 参数直接包含目标URL)
   'partnerboost.com',
   'app.partnerboost.com',
+  // 🔥 修复(2026-05-14): pboost.me 是 PartnerBoost 短链服务，HTTP 302 跳转，
+  //    之前被错误分类到 JS_REDIRECT_DOMAINS 导致每次走 Playwright 90s 超时
+  'pboost.me',
 ];
 
 /**
@@ -70,7 +73,7 @@ export const JS_REDIRECT_DOMAINS = [
   // LinkBux (JS redirect / anti-bot)
   'linkbux.com',
   // Modern Link Shorteners
-  'pboost.me',
+  // (pboost.me 已移到 HTTP_REDIRECT_DOMAINS，是 PartnerBoost HTTP 302 短链)
   'linktree.com',
   'linktr.ee',
   'beacons.ai',
