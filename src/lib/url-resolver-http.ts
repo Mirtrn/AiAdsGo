@@ -269,10 +269,29 @@ export async function resolveAffiliateLinkWithHttp(
         }
       }
 
+      // 🔥 修复(2026-05-14): pboost.me 返回 HTTP 200 + 空 body，目标 URL 藏在 <title> 里
+      // 格式: <title>brandname - https://www.amazon.com/stores/...</title>
+      const titleMatch = content.match(/<title[^>]*>[^-]*-\s*(https?:\/\/[^\s<"']+)/i)
+      const titleUrl = titleMatch?.[1]?.trim()
+      if (titleUrl) {
+        try {
+          const parsed = new URL(titleUrl)
+          // 只信任真实落地域名（非原始短链域名本身）
+          if (parsed.hostname !== new URL(baseUrl).hostname) {
+            console.log(`🔗 [pboost] 从 <title> 提取目标URL: ${titleUrl}`)
+            return parsed.toString()
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       return null
     }
 
     const shouldProbeHtmlRedirect = (url: string): boolean => {
+      // 🔥 修复(2026-05-14): pboost.me 返回 HTTP 200，需强制读 HTML 提取 <title> 中的目标 URL
+      if (/pboost\.me/i.test(url)) return true
       // 仅对tracking特征明显的URL做GET探测（读取少量HTML），避免慢/大落地页导致整体超时
       return /\/track|\/click|\/redirect|\/go|\/out|\/visit|\/link|[?&](?:url|redirect|target|destination|goto|link)=/i.test(url)
     }
