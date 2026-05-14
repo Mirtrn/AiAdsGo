@@ -40,6 +40,45 @@ import type { Offer } from './offers'
 // ============================================
 
 /**
+ * 宽松品牌匹配：关键词是否包含品牌名中的任意显著 token（≥4字符）。
+ *
+ * 解决问题：
+ * - "Democracy Clothing" → pureBrandKeywords = ["democracy clothing"]
+ *   Google 建议词 "democracy jeans" 无法通过 containsPureBrand（精确子串）匹配
+ *   但 "democracy" 是品牌首词（≥4字符），"democracy jeans" 包含它 → 应通过
+ * - 同理适用于 "Wahl Clipper Corporation"（首词 "wahl"）
+ *   其 pureBrandKeywords 已包含 "wahl clipper"（法律后缀剥离），
+ *   但 "wahl clippers" 因复数问题仍无法精确匹配 → 此函数可兜底
+ *
+ * ⚠️ 安全约束：
+ * - token 长度 ≥ 4 避免 "co"/"dr" 等短词导致误匹配
+ * - 仍依赖 qualityFilterServiceAccount 做后续精确品牌过滤
+ *
+ * 🔥 修复(2026-05-14): 解决含品类词品牌（Democracy Clothing 等）扩展词全被过滤问题
+ */
+function containsAnyBrandToken(keyword: string, brandName: string): boolean {
+  // 先尝试精确匹配（原有逻辑）
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  if (containsPureBrand(keyword, pureBrandKeywords)) return true
+
+  // 宽松匹配：品牌名的任意显著 token（≥4字符）出现在关键词中
+  const normalizedBrand = normalizeGoogleAdsKeyword(brandName || '')
+  if (!normalizedBrand) return false
+  const brandTokens = normalizedBrand.split(/\s+/).filter(t => t.length >= 4)
+  if (brandTokens.length === 0) return false
+
+  const normalizedKeyword = normalizeGoogleAdsKeyword(keyword || '')
+  if (!normalizedKeyword) return false
+  const haystack = ` ${normalizedKeyword} `
+
+  return brandTokens.some(token => haystack.includes(` ${token} `) ||
+    normalizedKeyword.startsWith(`${token} `) ||
+    normalizedKeyword.endsWith(` ${token}`) ||
+    normalizedKeyword === token
+  )
+}
+
+/**
  * 检测关键词是否包含其他品牌名（竞品过滤）
  * 逻辑：关键词包含大写开头的非目标品牌词 = 竞品
  */
@@ -1106,7 +1145,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
     for (const kw of initialKeywords) {
       const canonical = normalizeGoogleAdsKeyword(kw.keyword)
       if (!canonical) continue
-      if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+      // 🔥 修复(2026-05-14): 使用宽松匹配，支持含品类词品牌（如 "Democracy Clothing"）
+      if (!containsAnyBrandToken(canonical, brandName)) continue
       if (!allKeywords.has(canonical)) {
         allKeywords.set(canonical, {
           ...kw,
@@ -1150,7 +1190,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const text of filteredSuggest) {
         const canonical = normalizeGoogleAdsKeyword(text)
         if (!canonical) continue
-        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        // 🔥 修复(2026-05-14): 使用宽松匹配，支持含品类词品牌（如 "Democracy Clothing"）
+        if (!containsAnyBrandToken(canonical, brandName)) continue
         const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
@@ -1202,7 +1243,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const kw of enhancedKeywords) {
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
-        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        // 🔥 修复(2026-05-14): 使用宽松匹配，支持含品类词品牌（如 "Democracy Clothing"）
+        if (!containsAnyBrandToken(canonical, brandName)) continue
         const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
@@ -1244,7 +1286,8 @@ async function expandForServiceAccount(params: ServiceAccountExpandParams): Prom
       for (const kw of trendsKeywords) {
         const canonical = normalizeGoogleAdsKeyword(kw.keyword)
         if (!canonical) continue
-        if (!containsPureBrand(canonical, pureBrandKeywords)) continue
+        // 🔥 修复(2026-05-14): 使用宽松匹配，支持含品类词品牌（如 "Democracy Clothing"）
+        if (!containsAnyBrandToken(canonical, brandName)) continue
         const matchType = inferBrandAwareMatchType(canonical, pureBrandKeywords)
 
         if (!allKeywords.has(canonical)) {
