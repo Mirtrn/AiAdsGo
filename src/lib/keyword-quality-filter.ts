@@ -462,6 +462,14 @@ export function isBrandIrrelevant(keyword: string, brandName?: string): boolean 
 
   const pureBrandKeywords = brandName ? getPureBrandKeywords(brandName) : []
 
+  // 🔥 修复(2026-05-14): 如果关键词本身就是纯品牌名，永不过滤
+  // 例如品牌名 "Wahl Clipper Corporation" 本身含 "corporation"，
+  // 但它就是品牌名，不能被企业后缀规则过滤掉
+  const normalizedKeyword = keyword.toLowerCase().trim()
+  if (pureBrandKeywords.length > 0 && pureBrandKeywords.some(pk => pk.toLowerCase() === normalizedKeyword)) {
+    return false
+  }
+
   // 如果提供了品牌名，检查关键词是否包含品牌词
   // 如果不包含品牌词，不认为是品牌无关（完全不相关）
   if (pureBrandKeywords.length > 0 && !containsPureBrand(keyword, pureBrandKeywords)) {
