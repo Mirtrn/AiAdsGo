@@ -70,7 +70,10 @@ export function assessPageComplexity(url: string): PageComplexity {
       complexity: 'complex',
       estimatedLoadTime: 8000,
       recommendedWaitTime: 5000,
-      recommendedTimeout: 120000,  // 🔥 增加到120秒，应对慢速代理和多次重定向
+      // 🔥 修复(2026-05-14): 从120s降为60s
+      // 原来120s × 3次重试 = 6分钟，导致offer创建超过15分钟前端超时
+      // 现在内层timeout错误不再重试，单次60s足够代理加载
+      recommendedTimeout: 60000,
     }
   }
 

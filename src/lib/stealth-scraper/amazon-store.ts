@@ -266,6 +266,14 @@ async function scrapeStorePageContent(
       navigateError = error
       console.error(`❌ 访问失败 (尝试 ${attempt + 1}/${MAX_RETRIES}): ${error.message}`)
 
+      // 🔥 修复(2026-05-14): Playwright timeout 不是代理问题，重试无意义
+      // timeout 直接 break，避免 3×120s=6分钟 的等待
+      const isTimeoutError = error.message?.includes('Timeout') || error.message?.includes('timeout')
+      if (isTimeoutError) {
+        console.error(`❌ 页面访问超时，不再重试（避免 ${MAX_RETRIES}×timeout 导致整体超时）`)
+        break
+      }
+
       if (attempt < MAX_RETRIES - 1) {
         const waitTime = 2000 * (attempt + 1)
         console.log(`⏳ 等待 ${waitTime}ms 后重试...`)
