@@ -28,10 +28,6 @@ export const LITELLM_SUPPORTED_MODELS = [
   'gpt-5.4',                // 新渠道直连，2026-05 上线
   'gpt-5.5',                // 新渠道直连，2026-05 上线
 
-  // ─── OpenAI GPT-5.4（对话类）──────────────────────────────
-  'openai/gpt-5.4',
-  'openai/gpt-5.4-pro',
-
   // ─── Google Gemini（对话类）───────────────────────────────
   'google/gemini-3.1-pro-preview',
   'google/gemini-3-flash-preview',

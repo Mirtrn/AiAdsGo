@@ -184,8 +184,6 @@ const SETTING_METADATA: Record<string, {
         'gpt-5.3-codex':                 '≈¥1.0/条',
         'gpt-5.4':                       '≈¥1.5/条',
         'gpt-5.5':                       '≈¥2.5/条',
-        'openai/gpt-5.4':                '≈¥1.2/条',
-        'openai/gpt-5.4-pro':            '≈¥1.5/条',
         'google/gemini-3.1-pro-preview': '≈¥0.6/条',
         'google/gemini-3-flash-preview': '≈¥0.3/条',
       }
@@ -197,8 +195,6 @@ const SETTING_METADATA: Record<string, {
         'gpt-5.3-codex':                 'Codex',
         'gpt-5.4':                       'Blaze-D',
         'gpt-5.5':                       'Surge',
-        'openai/gpt-5.4':               'Blaze',
-        'openai/gpt-5.4-pro':           'Titan',
       }
       const alias = aliasMap[m]
       const cost = costMap[m] || ''
