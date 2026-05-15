@@ -22,9 +22,10 @@ export const LITELLM_SUPPORTED_MODELS = [
   'minimax/minimax-m2.7',   // 最新旗舰
   'minimax/minimax-m2.5',   // 稳定版
 
-  // ─── OpenAI GPT-5.4（对话类）──────────────────────────────
-  'openai/gpt-5.4',
-  'openai/gpt-5.4-pro',
+  // ─── OpenAI GPT-4.1（对话类）──────────────────────────────
+  // 🔧 修复(2026-05-15): gpt-5.4 在 openllmapi.com 不可用，替换为 gpt-4.1 系列
+  'openai/gpt-4.1',
+  'openai/gpt-4.1-mini',
 
   // ─── Google Gemini（对话类）───────────────────────────────
   'google/gemini-3.1-pro-preview',

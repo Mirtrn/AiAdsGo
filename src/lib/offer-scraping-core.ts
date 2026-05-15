@@ -388,6 +388,11 @@ async function extractSeoData(html: string): Promise<SeoData> {
 function isAffiliateUrl(url: string): boolean {
   const affiliateDomains = [
     'pboost.me',
+    // 🔧 修复(2026-05-15): app.partnerboost.com/track/TOKEN 是不透明短链接，
+    //    需要 HTTP 重定向解析才能拿到真实 Amazon 落地页，
+    //    否则系统会直接抓取 PartnerBoost 跟踪中间页（内容极少），导致数据抓取失败并超时
+    'partnerboost.com',
+    'app.partnerboost.com',
     'yeahpromos.com',  // 🔥 添加YeahPromos推广平台
     'bonusarrive.com', // 🔥 BonusArrive推广平台（部分Offer需要解析重定向以获得Final URL/Suffix）
     'fatcoupon.com',   // BonusArrive常见中间页
@@ -458,7 +463,14 @@ export async function performScrapeAndAnalysis(
     let resolvedFinalUrlSuffix: string | null = null  // 保存解析器返回的suffix
     const urlToResolve = offer?.affiliate_link || url  // 优先使用affiliate_link，否则检查url
 
-    if (isAffiliateUrl(urlToResolve)) {
+    // 🔧 修复(2026-05-15): app.partnerboost.com/track/TOKEN 格式链接需要用户会话 cookie
+    //    才能重定向，无论 HTTP resolver 还是 Playwright 均返回 403。
+    //    affiliate sync 时已将真实落地页存入 offer.final_url，应优先直接使用。
+    if (offer?.final_url) {
+      console.log(`📍 使用已有 Final URL（跳过推广链接解析）: ${offer.final_url}`)
+      actualUrl = offer.final_url
+      resolvedFinalUrlSuffix = offer.final_url_suffix || null
+    } else if (isAffiliateUrl(urlToResolve)) {
       console.log(`🔗 检测到推广链接，开始解析: ${urlToResolve}`)
       try {
         const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
