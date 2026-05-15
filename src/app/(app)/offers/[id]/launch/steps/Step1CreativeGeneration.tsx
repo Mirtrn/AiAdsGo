@@ -338,44 +338,44 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     actionLabel: '检查代理配置'
   },
   'INSUFFICIENT_BALANCE': {
-    title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
+    title: 'AI 服务余额不足',
+    description: '当前 OpenLLM 账户余额不足，无法生成创意。请前往设置页面充值或更换有余额的 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '按量余额不足': {
-    title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
+    title: 'AI 服务余额不足',
+    description: '当前 OpenLLM 账户余额不足，无法生成创意。请前往设置页面充值或更换有余额的 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '402 Payment Required': {
-    title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
+    title: 'AI 服务余额不足',
+    description: '当前 OpenLLM 账户余额不足，无法生成创意。请前往设置页面充值或更换有余额的 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '第三方中转账户余额不足': {
-    title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
+    title: 'AI 服务余额不足',
+    description: '当前 OpenLLM 账户余额不足，无法生成创意。请前往设置页面充值或更换有余额的 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '余额不足': {
-    title: '中转服务余额不足',
-    description: '当前 Gemini 中转账户余额不足，无法生成创意。请前往设置页面充值/更换有余额的 API Key，或切换到 Gemini 官方 API 后重试。',
+    title: 'AI 服务余额不足',
+    description: '当前 OpenLLM 账户余额不足，无法生成创意。请前往设置页面充值或更换有余额的 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   'quota': {
-    title: 'API配额已用完',
-    description: 'Gemini API 每日免费配额已用完。请等待配额重置（通常在第二天），或前往设置页面升级到付费计划。',
+    title: 'AI 配额已用完',
+    description: 'AI 服务每日配额已用完。请等待配额重置（通常在第二天），或前往设置页面更换 API Key。',
     action: 'settings',
     actionLabel: '查看配置'
   },
   'RESOURCE_EXHAUSTED': {
-    title: 'API配额已用完',
-    description: 'Gemini API 配额已耗尽。请等待配额重置或升级到付费计划。',
+    title: 'AI 配额已用完',
+    description: 'AI 服务配额已耗尽。请等待配额重置或更换 API Key。',
     action: 'settings',
     actionLabel: '查看配置'
   },
@@ -392,8 +392,8 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     actionLabel: '重新尝试'
   },
   '超过最大重试次数': {
-    title: 'AI服务繁忙',
-    description: 'Gemini API 连续重试仍失败（超过最大重试次数）。可能是服务限流、网络波动或临时故障。建议稍后再试，必要时在设置中切换服务商或检查API Key。',
+    title: 'AI 服务繁忙',
+    description: 'AI 服务连续重试仍失败（超过最大重试次数）。可能是服务限流、网络波动或临时故障。建议稍后再试，必要时在设置中检查 API Key。',
     action: 'retry',
     actionLabel: '重新尝试'
   },
@@ -404,8 +404,8 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     actionLabel: '重新尝试'
   },
   'Gemini': {
-    title: 'AI服务配置问题',
-    description: 'Gemini API 配置异常或配额不足。请检查 API Key 是否有效。',
+    title: 'AI 服务配置问题',
+    description: 'AI 服务配置异常或配额不足。请检查 API Key 是否有效。',
     action: 'settings',
     actionLabel: '检查AI配置'
   },

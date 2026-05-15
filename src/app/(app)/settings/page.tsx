@@ -172,8 +172,8 @@ const SETTING_METADATA: Record<string, {
     helpLink: 'https://openllmapi.com/register',
   },
   'ai.litellm_model': {
-    label: 'OpenLLM 模型',
-    description: '选择通过 OpenLLM 中转调用的模型（MiniMax/GPT/Gemini 等）',
+    label: 'AI 模型',
+    description: '选择通过 OpenLLM 中转调用的模型',
     options: LITELLM_SUPPORTED_MODELS.map(m => {
       const shortName = m.includes('/') ? m.split('/').slice(1).join('/') : m
       // 以 gemini-3-flash-preview ≈ ¥0.3/条 为基准的毛估价格
@@ -2493,8 +2493,8 @@ export default function SettingsPage() {
                         </div>
                         <div className="space-y-2 text-body-sm text-purple-700">
                           <p>1. 填写 OpenLLM API Key（前往 openllmapi.com 注册获取）</p>
-                          <p>2. 选择要使用的模型（MiniMax / GPT / Gemini 等）</p>
-                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持多种主流模型。</p>
+                          <p>2. 选择要使用的 AI 模型</p>
+                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持 MiniMax、GPT、Gemini 等多种模型。</p>
                         </div>
                       </div>
                     )}

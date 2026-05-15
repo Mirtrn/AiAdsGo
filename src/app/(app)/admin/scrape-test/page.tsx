@@ -149,7 +149,7 @@ export default function ScrapeTestPage() {
 
     // 检查AI配置
     if (!aiConfigStatus.configured) {
-      toast.error('⚠️ AI未配置！请先到设置页面配置 Gemini API', {
+      toast.error('⚠️ AI未配置！请先到设置页面配置 OpenLLM API Key', {
         duration: 5000,
       })
       return
@@ -283,7 +283,7 @@ export default function ScrapeTestPage() {
 
     // 检查AI配置
     if (!aiConfigStatus.configured) {
-      toast.error('⚠️ AI未配置！请先到设置页面配置 Gemini API', {
+      toast.error('⚠️ AI未配置！请先到设置页面配置 OpenLLM API Key', {
         duration: 5000,
       })
       return
@@ -323,7 +323,7 @@ export default function ScrapeTestPage() {
           qualityScore: creative.qualityScore || 0,
           prompt: creative.prompt || '未获取到Prompt',
           timestamp: new Date().toISOString(),
-          modelUsed: 'Gemini API - Gemini 2.5 Pro',
+          modelUsed: 'OpenLLM AI',
           orientation: creative.orientation,
         }
 
@@ -463,7 +463,7 @@ export default function ScrapeTestPage() {
                 <div className="flex-1">
                   <h3 className="font-semibold text-yellow-900 mb-1">⚠️ AI未配置</h3>
                   <p className="text-sm text-yellow-800 mb-3">
-                    系统检测到AI引擎（Gemini API）尚未配置。数据抓取和创意生成功能需要AI支持才能正常工作。
+                    系统检测到 AI 引擎尚未配置。数据抓取和创意生成功能需要 AI 支持才能正常工作。
                   </p>
                   <Link href="/settings">
                     <Button size="sm" variant="outline" className="bg-white hover:bg-yellow-50 border-yellow-300">
