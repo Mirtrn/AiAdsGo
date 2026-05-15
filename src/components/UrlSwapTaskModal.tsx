@@ -282,8 +282,8 @@ export default function UrlSwapTaskModal({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || `${isEditMode ? '更新' : '创建'}任务失败`);
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `${isEditMode ? '更新' : '创建'}任务失败（服务器返回 ${response.status}）`);
       }
 
       toast.success(`换链任务${isEditMode ? '更新' : '创建'}成功`);

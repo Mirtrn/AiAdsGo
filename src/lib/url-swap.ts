@@ -80,15 +80,33 @@ export async function createUrlSwapTask(
   }
 
   // 4. 初始化当前URL（方式一：首次解析；方式二：使用Offer已保存的final_url/final_url_suffix）
-  const resolved: { finalUrl: string | null; finalUrlSuffix: string | null } = swapMode === 'auto'
-    ? await resolveAffiliateLink(offer.affiliate_link, {
-        targetCountry: offer.target_country,
-        skipCache: true
-      })
-    : {
+  // 🔧 修复：resolveAffiliateLink 在 Playwright 解析路径下最长耗时 120s，
+  //    超出 nginx proxy_read_timeout 60s，导致 504 HTML 响应被前端当 JSON 解析报错。
+  //    改为带 30s 超时的可失败解析：超时或出错时 finalUrl/finalUrlSuffix 为 null，
+  //    调度器首次执行时会自动重新解析并写回数据库。
+  const resolved: { finalUrl: string | null; finalUrlSuffix: string | null } = await (async () => {
+    if (swapMode !== 'auto') {
+      return {
         finalUrl: offer.final_url || null,
         finalUrlSuffix: offer.final_url_suffix || null,
       }
+    }
+    try {
+      const timeoutMs = 30_000
+      const resolvePromise = resolveAffiliateLink(offer.affiliate_link, {
+        targetCountry: offer.target_country,
+        skipCache: true
+      })
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('resolveAffiliateLink timeout')), timeoutMs)
+      )
+      const result = await Promise.race([resolvePromise, timeoutPromise])
+      return result ?? { finalUrl: null, finalUrlSuffix: null }
+    } catch (err: any) {
+      console.warn(`[url-swap] 创建任务时初始解析失败（将在首次调度时重试）: ${err?.message}`)
+      return { finalUrl: null, finalUrlSuffix: null }
+    }
+  })()
 
   // 5. 获取关联的Campaign目标（支持多账号）
   const normalizedCustomerId = normalizeNullableString(input.google_customer_id)
