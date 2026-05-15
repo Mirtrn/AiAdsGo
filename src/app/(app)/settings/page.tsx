@@ -185,8 +185,17 @@ const SETTING_METADATA: Record<string, {
         'google/gemini-3.1-pro-preview': '≈¥0.6/条',
         'google/gemini-3-flash-preview': '≈¥0.3/条',
       }
+      // 国外模型英文昵称（隐藏具体厂商名）
+      const aliasMap: Record<string, string> = {
+        'google/gemini-3-flash-preview': 'Spark',
+        'google/gemini-3.1-pro-preview': 'Nova',
+        'openai/gpt-5.4':               'Blaze',
+        'openai/gpt-5.4-pro':           'Titan',
+      }
+      const alias = aliasMap[m]
       const cost = costMap[m] || ''
-      return { value: m, label: cost ? `${shortName}  ${cost}` : shortName }
+      const displayName = alias || shortName
+      return { value: m, label: cost ? `${displayName}  ${cost}` : displayName }
     }),
     defaultValue: LITELLM_DEFAULT_MODEL
   },
