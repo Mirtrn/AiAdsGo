@@ -116,8 +116,23 @@ export async function generateContent(
     clearTimeout(timer)
   }
 
+  // ─── 检测是否需要强制 stream 模式 ───────────────────────────────
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
+    const requiresStream = errorText.includes('Stream must be set to true')
+
+    if (requiresStream) {
+      // 自动重试为流式请求，对调用方透明
+      console.log(`🔄 LiteLLM (User ${userId}): 模型 ${finalModel} 要求 stream 模式，自动切换重试`)
+      return generateContentStreaming(
+        { ...params, model: finalModel },
+        userId,
+        apiKey,
+        endpoint,
+        timeoutMs
+      )
+    }
+
     // 504/502 等网关错误可能返回 HTML 页面，直接展示 HTML 体验极差，改为友好提示
     const isHtmlResponse = errorText.trimStart().startsWith('<')
     let friendlyError: string
@@ -167,6 +182,110 @@ export async function generateContent(
 }
 
 /**
+ * 流式请求辅助：当网关要求 stream=true 时调用，将 SSE chunks 拼合为完整文本后返回。
+ * 对调用方与非流式接口完全透明。
+ */
+async function generateContentStreaming(
+  params: LiteLLMGenerateParams & { model: string },
+  userId: number,
+  apiKey: string,
+  endpoint: string,
+  timeoutMs: number
+): Promise<LiteLLMGenerateResult> {
+  const { model, prompt, temperature = 0.7, maxOutputTokens = 8192, operationType } = params
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  let response: Response
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxOutputTokens,
+        temperature,
+        stream: true,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    throw new Error(`LiteLLM 流式请求失败 (${response.status}): ${errorText.substring(0, 300)}`)
+  }
+
+  // 读取 SSE 流，拼合 delta.content
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('LiteLLM 流式响应无法读取（body 为空）')
+
+  const decoder = new TextDecoder()
+  let fullText = ''
+  let returnedModel = model
+  let inputTokens = 0
+  let outputTokens = 0
+  let totalTokens = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      for (const line of chunk.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const jsonStr = trimmed.slice(5).trim()
+        if (jsonStr === '[DONE]') break
+        try {
+          const parsed = JSON.parse(jsonStr)
+          // 累积文本
+          const delta = parsed.choices?.[0]?.delta?.content
+          if (delta) fullText += delta
+          // 捕获模型名
+          if (parsed.model) returnedModel = parsed.model
+          // 最后一个 chunk 携带 usage
+          if (parsed.usage) {
+            inputTokens = parsed.usage.prompt_tokens ?? parsed.usage.input_tokens ?? 0
+            outputTokens = parsed.usage.completion_tokens ?? parsed.usage.output_tokens ?? 0
+            totalTokens = parsed.usage.total_tokens ?? (inputTokens + outputTokens)
+          }
+        } catch {
+          // 忽略无法解析的 SSE 行
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (!fullText.trim()) {
+    throw new Error(
+      `LiteLLM 流式模型 ${model} 返回了空内容。请尝试切换其他模型或检查网关配置。`
+    )
+  }
+
+  console.log(
+    `✅ LiteLLM 流式完成 (User ${userId}): ${operationType || 'unknown'} ` +
+    `→ ${returnedModel}, tokens=${totalTokens}`
+  )
+
+  return {
+    text: fullText,
+    usage: { inputTokens, outputTokens, totalTokens },
+    model: returnedModel,
+    apiType: 'litellm',
+  }
+}
+
+/**
  * 检查 LiteLLM 连接状态（ping）
  *
  * @param userId  用户 ID（从 DB 读取配置）
@@ -200,9 +319,34 @@ export async function checkLiteLLMConnection(
           }),
           signal: controller.signal,
         })
-        // 只有 2xx 才视为连接成功；400 表示服务端拒绝（模型未配置/路由缺失），不算成功
+        // 只有 2xx 才视为连接成功
         if (!resp.ok) {
           const errText = await resp.text().catch(() => '')
+          // 若网关要求 stream 模式，改用流式 ping 重试
+          if (errText.includes('Stream must be set to true')) {
+            console.log(`🔄 LiteLLM 连接检测：模型 ${testModel} 要求 stream 模式，重试流式 ping`)
+            const ctrl2 = new AbortController()
+            const t2 = setTimeout(() => ctrl2.abort(), 20_000)
+            try {
+              const resp2 = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                  model: testModel,
+                  max_tokens: 5,
+                  stream: true,
+                  messages: [{ role: 'user', content: 'Hi' }],
+                }),
+                signal: ctrl2.signal,
+              })
+              return resp2.ok
+            } finally {
+              clearTimeout(t2)
+            }
+          }
           console.warn(`LiteLLM 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
           return false
         }

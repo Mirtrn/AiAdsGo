@@ -22,6 +22,12 @@ export const LITELLM_SUPPORTED_MODELS = [
   'minimax/minimax-m2.7',   // 最新旗舰
   'minimax/minimax-m2.5',   // 稳定版
 
+  // ─── OpenAI GPT-5.x（对话类，openllmapi 新渠道直连）────────
+  'gpt-5.2',                // 新渠道直连，2026-05 上线
+  'gpt-5.3-codex',          // 新渠道直连，2026-05 上线
+  'gpt-5.4',                // 新渠道直连，2026-05 上线
+  'gpt-5.5',                // 新渠道直连，2026-05 上线
+
   // ─── OpenAI GPT-5.4（对话类）──────────────────────────────
   'openai/gpt-5.4',
   'openai/gpt-5.4-pro',

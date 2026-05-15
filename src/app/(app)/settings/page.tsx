@@ -180,6 +180,10 @@ const SETTING_METADATA: Record<string, {
       const costMap: Record<string, string> = {
         'minimax/minimax-m2.7':          '≈¥0.8/条',
         'minimax/minimax-m2.5':          '≈¥0.5/条',
+        'gpt-5.2':                       '≈¥0.8/条',
+        'gpt-5.3-codex':                 '≈¥1.0/条',
+        'gpt-5.4':                       '≈¥1.5/条',
+        'gpt-5.5':                       '≈¥2.5/条',
         'openai/gpt-5.4':                '≈¥1.2/条',
         'openai/gpt-5.4-pro':            '≈¥1.5/条',
         'google/gemini-3.1-pro-preview': '≈¥0.6/条',
@@ -189,6 +193,10 @@ const SETTING_METADATA: Record<string, {
       const aliasMap: Record<string, string> = {
         'google/gemini-3-flash-preview': 'Spark',
         'google/gemini-3.1-pro-preview': 'Nova',
+        'gpt-5.2':                       'Swift',
+        'gpt-5.3-codex':                 'Codex',
+        'gpt-5.4':                       'Blaze-D',
+        'gpt-5.5':                       'Surge',
         'openai/gpt-5.4':               'Blaze',
         'openai/gpt-5.4-pro':           'Titan',
       }
