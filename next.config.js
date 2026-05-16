@@ -12,8 +12,8 @@ const nextConfig = {
   // 启用压缩
   compress: true,
 
-  // 性能优化：优化字体加载
-  optimizeFonts: true,
+  // 禁用字体优化：服务器构建时无法访问 fonts.googleapis.com 导致超时
+  optimizeFonts: false,
 
   // 图片优化配置
   images: {

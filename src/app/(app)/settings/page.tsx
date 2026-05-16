@@ -184,11 +184,13 @@ const SETTING_METADATA: Record<string, {
         'gpt-5.3-codex':                 '≈¥1.0/条',
         'gpt-5.4':                       '≈¥1.5/条',
         'gpt-5.5':                       '≈¥2.5/条',
+        'google/gemini-3.1-pro-preview': '≈¥0.6/条',
         'google/gemini-3-flash-preview': '≈¥0.3/条',
       }
       // 国外模型英文昵称（隐藏具体厂商名）
       const aliasMap: Record<string, string> = {
         'google/gemini-3-flash-preview': 'Spark',
+        'google/gemini-3.1-pro-preview': 'Nova',
         'gpt-5.2':                       'Swift',
         'gpt-5.3-codex':                 'Codex',
         'gpt-5.4':                       'Blaze-D',
