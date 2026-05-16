@@ -29,7 +29,6 @@ export const LITELLM_SUPPORTED_MODELS = [
   'gpt-5.5',                // 新渠道直连，2026-05 上线
 
   // ─── Google Gemini（对话类）───────────────────────────────
-  'google/gemini-3.1-pro-preview',
   'google/gemini-3-flash-preview',
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]

@@ -184,13 +184,11 @@ const SETTING_METADATA: Record<string, {
         'gpt-5.3-codex':                 '≈¥1.0/条',
         'gpt-5.4':                       '≈¥1.5/条',
         'gpt-5.5':                       '≈¥2.5/条',
-        'google/gemini-3.1-pro-preview': '≈¥0.6/条',
         'google/gemini-3-flash-preview': '≈¥0.3/条',
       }
       // 国外模型英文昵称（隐藏具体厂商名）
       const aliasMap: Record<string, string> = {
         'google/gemini-3-flash-preview': 'Spark',
-        'google/gemini-3.1-pro-preview': 'Nova',
         'gpt-5.2':                       'Swift',
         'gpt-5.3-codex':                 'Codex',
         'gpt-5.4':                       'Blaze-D',
@@ -2490,7 +2488,7 @@ export default function SettingsPage() {
                         <div className="space-y-2 text-body-sm text-purple-700">
                           <p>1. 填写 OpenLLM API Key（前往 openllmapi.com 注册获取）</p>
                           <p>2. 选择要使用的 AI 模型</p>
-                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持 MiniMax、GPT、Gemini 等多种模型。</p>
+                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持多种 AI 模型。</p>
                         </div>
                       </div>
                     )}
