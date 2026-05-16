@@ -42,7 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal, Maximize2, CalendarDays } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, Coins, Wallet, ArrowUpDown, ArrowUp, ArrowDown, Package, Loader2, MoreHorizontal, Maximize2, CalendarDays, Pencil } from 'lucide-react'
 import type { TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import { DateRangePicker, type DateRange } from '@/components/ui/date-range-picker'
 import {
@@ -352,6 +352,12 @@ export default function CampaignsClientPage({
   const [isDeleteRemovedDialogOpen, setIsDeleteRemovedDialogOpen] = useState(false)
   const [deleteRemovedTarget, setDeleteRemovedTarget] = useState<Campaign | null>(null)
   const [deleteRemovedSubmitting, setDeleteRemovedSubmitting] = useState(false)
+
+  // Rename campaign dialog states
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<Campaign | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameSubmitting, setRenameSubmitting] = useState(false)
 
   // Offline (下线) dialog states
   const [isOfflineDialogOpen, setIsOfflineDialogOpen] = useState(false)
@@ -1176,6 +1182,38 @@ export default function CampaignsClientPage({
 
     // Keep table data eventually consistent with backend-calculated fields.
     await fetchCampaigns({ silent: true })
+  }
+
+  const openRenameDialog = (campaign: Campaign) => {
+    setRenameTarget(campaign)
+    setRenameValue(campaign.campaignName)
+    setIsRenameDialogOpen(true)
+  }
+
+  const handleRenameCampaign = async () => {
+    if (!renameTarget) return
+    const trimmed = renameValue.trim()
+    if (!trimmed) { showError('名称不能为空'); return }
+    if (trimmed === renameTarget.campaignName) { setIsRenameDialogOpen(false); return }
+    setRenameSubmitting(true)
+    try {
+      const res = await fetch(`/api/campaigns/${renameTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignName: trimmed }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || '重命名失败')
+      }
+      setCampaigns(prev => prev.map(c => c.id === renameTarget.id ? { ...c, campaignName: trimmed } : c))
+      showSuccess('重命名成功', `已更新为 "${trimmed}"`)
+      setIsRenameDialogOpen(false)
+    } catch (err: any) {
+      showError('重命名失败', err.message)
+    } finally {
+      setRenameSubmitting(false)
+    }
   }
 
   const openDeleteDraftDialog = (campaign: Campaign) => {
@@ -2929,6 +2967,14 @@ export default function CampaignsClientPage({
                               <span>查看关联Offer</span>
                             </DropdownMenuItem>
 
+	                           <DropdownMenuItem
+	                             className="gap-2"
+	                             onClick={() => openRenameDialog(campaign)}
+	                           >
+	                             <Pencil className="w-4 h-4 text-blue-600" />
+	                             <span>重命名</span>
+	                           </DropdownMenuItem>
+
 	                            <DropdownMenuItem
 	                              className="gap-2"
 	                              onClick={() => {
@@ -3073,6 +3119,34 @@ export default function CampaignsClientPage({
             onSaved={handleCpcAdjusted}
 	        />
 	      )}
+
+      {/* Rename Campaign Dialog */}
+      <Dialog open={isRenameDialogOpen} onOpenChange={(open) => { if (!open) setIsRenameDialogOpen(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>重命名广告系列</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">广告系列名称</label>
+              <Input
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder="输入新名称"
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleRenameCampaign() }}
+                autoFocus
+              />
+              <p className="text-xs text-gray-500">注意：此操作仅修改本地名称，不会同步到 Google Ads</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsRenameDialogOpen(false)} disabled={renameSubmitting}>取消</Button>
+              <Button onClick={() => void handleRenameCampaign()} disabled={renameSubmitting || !renameValue.trim()}>
+                {renameSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />保存中...</> : '保存'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Trend Expand Dialog */}
       <Dialog
