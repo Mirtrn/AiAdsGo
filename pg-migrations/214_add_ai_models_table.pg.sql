@@ -41,4 +41,6 @@ CREATE TRIGGER trg_ai_models_updated_at
   BEFORE UPDATE ON ai_models
   FOR EACH ROW EXECUTE FUNCTION update_ai_models_updated_at();
 
-RAISE NOTICE '✅ ai_models 表创建完成，已插入 8 条初始模型记录';
+DO $$ BEGIN
+  RAISE NOTICE '✅ ai_models 表创建完成，已插入 8 条初始模型记录';
+END; $$;
