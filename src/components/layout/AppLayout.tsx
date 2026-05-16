@@ -266,6 +266,12 @@ const adminNavigationItems: NavItem[] = [
     requireAdmin: true,
   },
   {
+    label: 'AI模型管理',
+    href: '/admin/ai-models',
+    icon: Bot,
+    requireAdmin: true,
+  },
+  {
     label: '补点击管理',
     href: '/admin/click-farm',
     icon: Zap,

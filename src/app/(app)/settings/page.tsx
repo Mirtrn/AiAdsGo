@@ -25,6 +25,8 @@ import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import {
   LITELLM_SUPPORTED_MODELS,
   LITELLM_DEFAULT_MODEL,
+  LITELLM_MODEL_COST,
+  getLiteLLMModelDisplayName,
 } from '@/lib/gemini-models'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 import {
@@ -175,30 +177,8 @@ const SETTING_METADATA: Record<string, {
     label: 'AI 模型',
     description: '选择通过 OpenLLM 中转调用的模型',
     options: LITELLM_SUPPORTED_MODELS.map(m => {
-      const shortName = m.includes('/') ? m.split('/').slice(1).join('/') : m
-      // 以 gemini-3-flash-preview ≈ ¥0.3/条 为基准的毛估价格
-      const costMap: Record<string, string> = {
-        'minimax/minimax-m2.7':          '≈¥0.8/条',
-        'minimax/minimax-m2.5':          '≈¥0.5/条',
-        'gpt-5.2':                       '≈¥0.8/条',
-        'gpt-5.3-codex':                 '≈¥1.0/条',
-        'gpt-5.4':                       '≈¥1.5/条',
-        'gpt-5.5':                       '≈¥2.5/条',
-        'google/gemini-3.1-pro-preview': '≈¥0.6/条',
-        'google/gemini-3-flash-preview': '≈¥0.3/条',
-      }
-      // 国外模型英文昵称（隐藏具体厂商名）
-      const aliasMap: Record<string, string> = {
-        'google/gemini-3-flash-preview': 'Spark',
-        'google/gemini-3.1-pro-preview': 'Nova',
-        'gpt-5.2':                       'Swift',
-        'gpt-5.3-codex':                 'Codex',
-        'gpt-5.4':                       'Blaze-D',
-        'gpt-5.5':                       'Surge',
-      }
-      const alias = aliasMap[m]
-      const cost = costMap[m] || ''
-      const displayName = alias || shortName
+      const cost = LITELLM_MODEL_COST[m] || ''
+      const displayName = getLiteLLMModelDisplayName(m)
       return { value: m, label: cost ? `${displayName}  ${cost}` : displayName }
     }),
     defaultValue: LITELLM_DEFAULT_MODEL
@@ -466,6 +446,15 @@ export default function SettingsPage() {
   >(null)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
+  // AI 模型动态列表（从 /api/ai-models 加载，兜底静态列表）
+  const [dynamicModelOptions, setDynamicModelOptions] = useState<{ value: string; label: string }[]>(() =>
+    LITELLM_SUPPORTED_MODELS.map(m => {
+      const cost = LITELLM_MODEL_COST[m] || ''
+      const displayName = getLiteLLMModelDisplayName(m)
+      return { value: m, label: cost ? `${displayName}  ${cost}` : displayName }
+    })
+  )
+
   // Google Ads 区块管理员密码保护
   const [googleAdsUnlocked, setGoogleAdsUnlocked] = useState(false)
   const [googleAdsLockPassword, setGoogleAdsLockPassword] = useState('')
@@ -483,6 +472,20 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSettings()
+    // 加载动态模型列表
+    fetch('/api/ai-models')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.models?.length) {
+          setDynamicModelOptions(
+            data.models.map((m: { model_id: string; display_name: string; cost_label: string }) => ({
+              value: m.model_id,
+              label: m.cost_label ? `${m.display_name}  ${m.cost_label}` : m.display_name,
+            }))
+          )
+        }
+      })
+      .catch(() => { /* 静默失败，保持静态兜底 */ })
   }, [])
 
   // 检查 OAuth 回调结果
@@ -1393,10 +1396,13 @@ export default function SettingsPage() {
 
     // 布尔类型 - 使用Select
     if (setting.dataType === 'boolean' || metadata?.options) {
-      let options = metadata?.options || [
-        { value: 'true', label: '是' },
-        { value: 'false', label: '否' }
-      ]
+      // ai.litellm_model 使用动态加载的模型列表
+      let options = metaKey === 'ai.litellm_model'
+        ? dynamicModelOptions
+        : (metadata?.options || [
+          { value: 'true', label: '是' },
+          { value: 'false', label: '否' }
+        ])
 
       if (false) {
         {

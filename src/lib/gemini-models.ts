@@ -36,6 +36,37 @@ export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'google/gemini-3-flash-preview'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
+// ─── 模型展示别名（单一数据源，报错弹窗 / 下拉列表统一使用）────────
+// 修改模型别名只需改这里，其他地方自动同步
+export const LITELLM_MODEL_ALIAS: Record<string, string> = {
+  'minimax/minimax-m2.7':          'minimax-m2.7',
+  'minimax/minimax-m2.5':          'minimax-m2.5',
+  'gpt-5.2':                       'Swift',
+  'gpt-5.3-codex':                 'Codex',
+  'gpt-5.4':                       'Blaze-D',
+  'gpt-5.5':                       'Surge',
+  'google/gemini-3.1-pro-preview': 'Nova',
+  'google/gemini-3-flash-preview': 'Spark',
+}
+
+// ─── 模型单条消耗价格（单一数据源）───────────────────────────────
+export const LITELLM_MODEL_COST: Record<string, string> = {
+  'minimax/minimax-m2.7':          '≈¥0.8/条',
+  'minimax/minimax-m2.5':          '≈¥0.5/条',
+  'gpt-5.2':                       '≈¥0.8/条',
+  'gpt-5.3-codex':                 '≈¥1.0/条',
+  'gpt-5.4':                       '≈¥1.5/条',
+  'gpt-5.5':                       '≈¥2.5/条',
+  'google/gemini-3.1-pro-preview': '≈¥0.6/条',
+  'google/gemini-3-flash-preview': '≈¥0.3/条',
+}
+
+/** 根据模型 ID 返回用户友好的展示名称（别名 → 兜底 shortName） */
+export function getLiteLLMModelDisplayName(modelId: string): string {
+  if (LITELLM_MODEL_ALIAS[modelId]) return LITELLM_MODEL_ALIAS[modelId]
+  return modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId
+}
+
 export function isValidLiteLLMModel(model?: string | null): model is LiteLLMModel {
   return !!model && (LITELLM_SUPPORTED_MODELS as readonly string[]).includes(model)
 }
