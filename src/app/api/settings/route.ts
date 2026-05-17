@@ -205,9 +205,8 @@ export async function PUT(request: NextRequest) {
           }
           console.log(`🔄 已清除 ${cleared} 条 Google Ads 缓存（用户 ${userIdNum}，${accounts.length} 个账号）`)
         } else {
-          // 用户尚无账号记录时回退到全量清除（首次配置场景）
-          gadsApiCache.clear()
-          console.log('🔄 用户暂无账号记录，执行全量缓存清除')
+          // 用户尚无账号记录（首次配置场景），不存在该用户的缓存条目，无需清除
+          console.log(`🔄 用户 ${userIdNum} 暂无账号记录，跳过缓存清除`)
         }
       } catch (cacheErr) {
         // 缓存清除失败不应影响设置保存，仅记录日志

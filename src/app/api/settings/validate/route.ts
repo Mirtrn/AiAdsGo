@@ -115,15 +115,6 @@ export async function POST(request: NextRequest) {
                 continue
               }
 
-              // 🔧 调试：记录原始URL
-              console.log(`🔍 验证代理 #${i + 1}:`, {
-                country: item.country,
-                url: item.url,
-                urlType: typeof item.url,
-                urlLength: item.url.length,
-                trimmedUrl: item.url.trim()
-              })
-
               // 🔥 使用新的Provider系统验证URL
               try {
                 const trimmedUrl = item.url.trim()
@@ -132,8 +123,6 @@ export async function POST(request: NextRequest) {
 
                 if (!validation.isValid) {
                   errors.push(`第${i + 1}个URL (${item.country}) 格式错误: ${validation.errors.join(', ')}`)
-                } else {
-                  console.log(`✅ 第${i + 1}个URL验证通过: ${provider.name} Provider`)
                 }
               } catch (error) {
                 console.error(`❌ 第${i + 1}个URL验证失败:`, error)

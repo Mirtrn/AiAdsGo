@@ -1206,13 +1206,18 @@ export default function CampaignsClientPage({
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || '重命名失败')
       }
-      setCampaigns(prev => {
-        const next = prev.map(c => c.id === renameTarget.id ? { ...c, campaignName: trimmed } : c)
-        // 同步更新批量操作快照中的名称，避免批量操作时显示旧名称
-        const renamed = next.find(c => c.id === renameTarget.id)
-        if (renamed) upsertSelectedCampaignSnapshots([renamed])
-        return next
-      })
+      setCampaigns(prev =>
+        prev.map(c => c.id === renameTarget.id ? { ...c, campaignName: trimmed } : c)
+      )
+      // 同步更新批量操作快照中的名称，避免批量操作时显示旧名称
+      // 注意：需在 setCampaigns 外部调用，不能在 state updater 内部触发其他 setState
+      if (selectedCampaignIds.has(renameTarget.id)) {
+        setSelectedCampaignSnapshots(prev => {
+          const existing = prev[renameTarget.id]
+          if (!existing) return prev
+          return { ...prev, [renameTarget.id]: { ...existing, campaignName: trimmed } }
+        })
+      }
       showSuccess('重命名成功', `已更新为 "${trimmed}"`)
       setIsRenameDialogOpen(false)
     } catch (err: any) {
