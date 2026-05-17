@@ -36,7 +36,6 @@ export async function POST(request: NextRequest) {
 
     // 🔧 修复：获取原始请求体文本，并进行详细的调试
     const rawBody = await request.text();
-    console.log('[CreateClickFarmTask] 接收到请求体:', rawBody.substring(0, 200));
 
     if (!rawBody) {
       return NextResponse.json(
@@ -54,15 +53,15 @@ export async function POST(request: NextRequest) {
       }
     } catch (parseError) {
       console.error('[CreateClickFarmTask] JSON解析失败:', parseError);
-      console.error('[CreateClickFarmTask] 原始请求体:', rawBody);
+      // 仅打印错误原因，不打印原始请求体（避免代理URL等敏感信息泄露到日志）
       return NextResponse.json(
         { error: 'validation_error', message: 'JSON格式错误: ' + (parseError instanceof Error ? parseError.message : '未知错误') },
         { status: 400 }
       );
     }
 
-    // 验证必填字段
-    console.log('[CreateClickFarmTask] 解析后的请求数据:', {
+    // 验证必填字段（只记录非敏感字段）
+    console.log('[CreateClickFarmTask] 接收到请求:', {
       offer_id: body.offer_id,
       daily_click_count: body.daily_click_count,
       timezone: body.timezone,

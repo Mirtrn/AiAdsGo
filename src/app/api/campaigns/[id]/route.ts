@@ -70,7 +70,16 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     } = body
 
     const updates: any = {}
-    if (campaignName !== undefined) updates.campaignName = campaignName
+    if (campaignName !== undefined) {
+      const trimmedName = typeof campaignName === 'string' ? campaignName.trim() : ''
+      if (!trimmedName) {
+        return NextResponse.json({ error: '广告系列名称不能为空' }, { status: 400 })
+      }
+      if (trimmedName.length > 255) {
+        return NextResponse.json({ error: '广告系列名称不能超过255个字符' }, { status: 400 })
+      }
+      updates.campaignName = trimmedName
+    }
     if (budgetAmount !== undefined) updates.budgetAmount = budgetAmount
     if (budgetType !== undefined) updates.budgetType = budgetType
     if (targetCpa !== undefined) updates.targetCpa = targetCpa

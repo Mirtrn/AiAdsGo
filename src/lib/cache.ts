@@ -122,6 +122,21 @@ export class MemoryCache<T = any> {
   }
 
   /**
+   * 按前缀批量删除缓存（用于按用户/账号隔离清除，避免影响其他用户）
+   * @returns 实际删除的条目数
+   */
+  deleteByPrefix(prefix: string): number {
+    let count = 0
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key)
+        count++
+      }
+    }
+    return count
+  }
+
+  /**
    * 获取缓存统计
    */
   getStats(): CacheStats {

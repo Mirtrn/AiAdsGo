@@ -24,7 +24,7 @@
 # ║  【此脚本已正确使用 docker-compose，请勿绕过此脚本手动启动】    ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
-cd /home/ubuntu/autoads
+cd /home/ubuntu/autobb
 echo "[start $(date)]" >> /tmp/deploy2.log
 sudo docker build -t autoads:single . >> /tmp/deploy2.log 2>&1
 sudo docker stop autoads >> /tmp/deploy2.log 2>&1 || true

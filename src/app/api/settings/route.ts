@@ -186,13 +186,33 @@ export async function PUT(request: NextRequest) {
       invalidateProxyPoolCache(userIdNum)
     }
 
-    // 🔥 新增：如果更新了Google Ads配置，清除相关缓存
+    // 🔥 新增：如果更新了Google Ads配置，精准清除该用户的缓存（避免影响其他用户）
     const hasGoogleAdsUpdate = updates.some(u => u.category === 'google_ads')
     if (hasGoogleAdsUpdate && userIdNum) {
-      console.log('🔄 检测到Google Ads配置更新，清除API缓存')
+      console.log('🔄 检测到Google Ads配置更新，清除该用户的API缓存')
       const { gadsApiCache } = await import('@/lib/cache')
-      // 清除该用户的所有Google Ads API缓存
-      gadsApiCache.clear()
+      try {
+        // 查出该用户下的所有 customer_id，精准删除对应缓存前缀
+        const db = await getDatabase()
+        const accounts = await db.query<{ customer_id: string }>(
+          `SELECT customer_id FROM google_ads_accounts WHERE user_id = ?`,
+          [userIdNum]
+        )
+        if (accounts.length > 0) {
+          let cleared = 0
+          for (const acc of accounts) {
+            cleared += gadsApiCache.deleteByPrefix(`gads_customer_${acc.customer_id}_`)
+          }
+          console.log(`🔄 已清除 ${cleared} 条 Google Ads 缓存（用户 ${userIdNum}，${accounts.length} 个账号）`)
+        } else {
+          // 用户尚无账号记录时回退到全量清除（首次配置场景）
+          gadsApiCache.clear()
+          console.log('🔄 用户暂无账号记录，执行全量缓存清除')
+        }
+      } catch (cacheErr) {
+        // 缓存清除失败不应影响设置保存，仅记录日志
+        console.warn('⚠️ 清除 Google Ads 缓存失败（不影响保存）:', cacheErr)
+      }
     }
 
     return NextResponse.json({
