@@ -356,11 +356,24 @@ class KeywordIdeasRequest(BaseModel):
         return format_customer_id(v)
 
 
-def create_google_ads_client(sa_config: ServiceAccountConfig, login_customer_id_override: Optional[str] = None) -> GoogleAdsClient:
-    """创建 Google Ads 客户端（服务账号认证）"""
-    effective_lcid = login_customer_id_override if login_customer_id_override is not None else sa_config.login_customer_id
+# 🔧 修复(2026-05-17): 哨兵值，用于区分"未传入覆盖值"和"显式传入 None（省略 login_customer_id）"
+_LOGIN_CID_UNSET = object()
+
+
+def create_google_ads_client(sa_config: ServiceAccountConfig, login_customer_id_override: Any = _LOGIN_CID_UNSET) -> GoogleAdsClient:
+    """创建 Google Ads 客户端（服务账号认证）
+    
+    login_customer_id_override:
+      - 未传入（_LOGIN_CID_UNSET）：使用 sa_config.login_customer_id
+      - 传入字符串：使用该值
+      - 传入 None：省略 login_customer_id（适用于直接访问子账户的场景）
+    """
+    if login_customer_id_override is _LOGIN_CID_UNSET:
+        effective_lcid: Optional[str] = sa_config.login_customer_id
+    else:
+        effective_lcid = login_customer_id_override  # 可以是字符串或 None
     # 避免在生产日志中泄露敏感信息（developer_token / service account email / private key）
-    logger.info(f"Google Ads client init (login_customer_id={effective_lcid})")
+    logger.info(f"Google Ads client init (login_customer_id={effective_lcid or '(省略)'})")
 
     service_account_info = {
         "type": "service_account",
@@ -378,7 +391,7 @@ def create_google_ads_client(sa_config: ServiceAccountConfig, login_customer_id_
         "use_proto_plus": True,
         "json_key_file_path": json_key_file_path,
     }
-    if effective_lcid:
+    if effective_lcid:  # 只有非空字符串才加入 config
         config_dict["login_customer_id"] = effective_lcid
 
     client = GoogleAdsClient.load_from_dict(config_dict)
