@@ -433,8 +433,24 @@ def create_google_ads_client_with_fallback(sa_config: ServiceAccountConfig, cust
             err_str = str(e)
             logger.warning(f"[fallback] login_customer_id={lcid_display} 访问 {customer_id} 失败: {err_str[:200]}")
             last_error = e
-            # 只在权限类错误时继续回退；其他错误（如网络错误）直接抛出
-            if "PERMISSION_DENIED" in err_str or "USER_PERMISSION_DENIED" in err_str or "does not have permission" in err_str.lower():
+            # 只在账号访问权限类错误时继续回退（与 JS 端 isGoogleAdsAccountAccessError 保持一致）
+            err_upper = err_str.upper()
+            err_lower = err_str.lower()
+            is_access_error = (
+                "PERMISSION_DENIED" in err_upper
+                or "USER_PERMISSION_DENIED" in err_upper
+                or "ACCESS_DENIED" in err_upper
+                or "AUTHORIZATION_ERROR" in err_upper
+                or "AUTHENTICATION_ERROR" in err_upper
+                or "LOGIN_CUSTOMER_ID" in err_upper
+                or "CUSTOMER_NOT_ENABLED" in err_upper
+                or "CUSTOMER_NOT_FOUND" in err_upper
+                or "does not have permission" in err_lower
+                or "customer not enabled" in err_lower
+                or "not yet enabled" in err_lower
+                or "deactivated" in err_lower
+            )
+            if is_access_error:
                 continue
             raise
 
