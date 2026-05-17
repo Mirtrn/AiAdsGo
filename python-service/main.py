@@ -356,10 +356,11 @@ class KeywordIdeasRequest(BaseModel):
         return format_customer_id(v)
 
 
-def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
+def create_google_ads_client(sa_config: ServiceAccountConfig, login_customer_id_override: Optional[str] = None) -> GoogleAdsClient:
     """创建 Google Ads 客户端（服务账号认证）"""
+    effective_lcid = login_customer_id_override if login_customer_id_override is not None else sa_config.login_customer_id
     # 避免在生产日志中泄露敏感信息（developer_token / service account email / private key）
-    logger.info(f"Google Ads client init (login_customer_id={sa_config.login_customer_id})")
+    logger.info(f"Google Ads client init (login_customer_id={effective_lcid})")
 
     service_account_info = {
         "type": "service_account",
@@ -372,14 +373,15 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
         json.dump(service_account_info, f)
         json_key_file_path = f.name
 
-    client = GoogleAdsClient.load_from_dict(
-        {
-            "developer_token": sa_config.developer_token,
-            "use_proto_plus": True,
-            "login_customer_id": sa_config.login_customer_id,
-            "json_key_file_path": json_key_file_path,
-        },
-    )
+    config_dict: dict = {
+        "developer_token": sa_config.developer_token,
+        "use_proto_plus": True,
+        "json_key_file_path": json_key_file_path,
+    }
+    if effective_lcid:
+        config_dict["login_customer_id"] = effective_lcid
+
+    client = GoogleAdsClient.load_from_dict(config_dict)
 
     try:
         os.unlink(json_key_file_path)
@@ -387,6 +389,44 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
         logger.warning(f"清理临时文件失败: {e}")
 
     return client
+
+
+def create_google_ads_client_with_fallback(sa_config: ServiceAccountConfig, customer_id: str) -> GoogleAdsClient:
+    """
+    🔧 修复(2026-05-17): 创建 Google Ads 客户端，支持三级 login_customer_id 回退策略
+    策略: MCC ID → customer_id → 省略(None)
+    与 JS 端 credentials/accounts/route.ts 的回退逻辑保持一致
+    """
+    candidates = [sa_config.login_customer_id, customer_id, None]
+    # 去重保留顺序
+    seen: list = []
+    for c in candidates:
+        if c not in seen:
+            seen.append(c)
+    candidates = seen
+
+    last_error: Optional[Exception] = None
+    for lcid in candidates:
+        lcid_display = lcid if lcid else "null(省略)"
+        try:
+            client = create_google_ads_client(sa_config, login_customer_id_override=lcid)
+            # 用轻量 GAQL 探测访问权限
+            ga_service = client.get_service("GoogleAdsService")
+            probe_query = "SELECT customer.id FROM customer LIMIT 1"
+            ga_service.search(customer_id=customer_id, query=probe_query)
+            logger.info(f"[fallback] login_customer_id={lcid_display} 访问 {customer_id} 成功")
+            return client
+        except Exception as e:
+            err_str = str(e)
+            logger.warning(f"[fallback] login_customer_id={lcid_display} 访问 {customer_id} 失败: {err_str[:200]}")
+            last_error = e
+            # 只在权限类错误时继续回退；其他错误（如网络错误）直接抛出
+            if "PERMISSION_DENIED" in err_str or "USER_PERMISSION_DENIED" in err_str or "does not have permission" in err_str.lower():
+                continue
+            raise
+
+    # 所有候选都失败，抛出最后一个错误
+    raise last_error  # type: ignore
 
 
 # 🔧 修复(2025-12-27): 国家代码到 Geo Target Constant ID 的映射
@@ -794,7 +834,7 @@ async def create_campaign_budget(request: CreateCampaignBudgetRequest):
     """创建广告系列预算"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_budget_service = client.get_service("CampaignBudgetService")
 
         operation = client.get_type("CampaignBudgetOperation")
@@ -836,7 +876,7 @@ async def create_campaign(request: CreateCampaignRequest):
     """创建搜索广告系列"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_service = client.get_service("CampaignService")
 
         operation = client.get_type("CampaignOperation")
@@ -968,7 +1008,7 @@ async def create_ad_group(request: CreateAdGroupRequest):
     """创建广告组"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         ad_group_service = client.get_service("AdGroupService")
 
         operation = client.get_type("AdGroupOperation")
@@ -1135,7 +1175,7 @@ async def create_keywords(request: CreateKeywordsRequest):
     """批量创建关键词（自动移除政策违规关键词并重试）"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         ad_group_criterion_service = client.get_service("AdGroupCriterionService")
 
         active_keywords = list(request.keywords)
@@ -1218,7 +1258,7 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
     """创建响应式搜索广告"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         ad_group_ad_service = client.get_service("AdGroupAdService")
 
         operation = client.get_type("AdGroupAdOperation")
@@ -1352,7 +1392,7 @@ async def update_campaign_status(request: UpdateCampaignStatusRequest):
     """更新广告系列状态"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_service = client.get_service("CampaignService")
 
         operation = client.get_type("CampaignOperation")
@@ -1385,7 +1425,7 @@ async def remove_campaign(request: RemoveCampaignRequest):
     """删除广告系列（使用 remove 操作，而不是把 status 更新为 REMOVED）"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_service = client.get_service("CampaignService")
 
         operation = client.get_type("CampaignOperation")
@@ -1417,7 +1457,7 @@ async def update_campaign(request: UpdateCampaignRequest):
     """更新广告系列（支持 CPC、CPA、状态更新）"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_service = client.get_service("CampaignService")
 
         operation = client.get_type("CampaignOperation")
@@ -1467,7 +1507,7 @@ async def update_ad_group(request: UpdateAdGroupRequest):
     """更新广告组（支持 CPC 出价更新）"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         ad_group_service = client.get_service("AdGroupService")
 
         operation = client.get_type("AdGroupOperation")
@@ -1503,7 +1543,7 @@ async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
     """更新广告系列预算"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_budget_service = client.get_service("CampaignBudgetService")
 
         budget_resource_name = request.budget_resource_name
@@ -1558,7 +1598,7 @@ async def update_campaign_final_url_suffix(request: UpdateCampaignFinalUrlSuffix
     """更新广告系列 Final URL Suffix（用于URL Swap换链接任务）"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         campaign_service = client.get_service("CampaignService")
 
         operation = client.get_type("CampaignOperation")
@@ -1593,7 +1633,7 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
     """创建附加宣传信息"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
 
         # 🔧 修复(2025-12-27): 兼容字符串数组和对象数组格式
         valid_callout_texts = []
@@ -1670,7 +1710,7 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
     """创建附加链接"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
 
         # Create assets
         asset_service = client.get_service("AssetService")
@@ -1739,7 +1779,7 @@ async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
     """确保转化目标存在"""
     user_id = request.service_account.user_id
     try:
-        client = create_google_ads_client(request.service_account)
+        client = create_google_ads_client_with_fallback(request.service_account, request.customer_id)
         ga_service = client.get_service("GoogleAdsService")
 
         # Check if conversion action exists

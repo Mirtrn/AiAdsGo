@@ -73,8 +73,10 @@ function validateProxyUrlFormat(url: string): { isValid: boolean; error?: string
     return { isValid: true }
   }
 
-  // Kookeey 格式 (https://www.kookeey.com/clientapi/?accessid=...&token=...&g=...)
-  if (url.includes('kookeey.com') && url.includes('accessid') && url.includes('token')) {
+  // Kookeey 格式 - 支持多种API端点:
+  //   clientapi: https://www.kookeey.com/clientapi/?accessid=...&token=...
+  //   pickdynamicips: https://www.kookeey.com/pickdynamicips?t=2&auth=pwd&...
+  if (url.includes('kookeey.com')) {
     return { isValid: true }
   }
 
