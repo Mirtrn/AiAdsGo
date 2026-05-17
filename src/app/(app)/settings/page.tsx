@@ -1921,7 +1921,7 @@ export default function SettingsPage() {
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <div className="font-semibold">服务账号认证</div>
-                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300">即将下线</Badge>
+                            <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-0 gap-1">极力推荐</Badge>
                           </div>
                           <div className="text-sm text-gray-600">适合 MCC 账号管理多个子账号</div>
                         </button>
@@ -2173,18 +2173,17 @@ export default function SettingsPage() {
                                         添加时间: {new Date(account.created_at).toLocaleString('zh-CN')}
                                       </div>
                                       {/* 验证状态显示 */}
-                                      {verifyResult && (
-                                        <div className={`text-xs flex items-center gap-1 mt-1 ${verifyResult.valid ? 'text-green-600' : 'text-red-500'}`}>
-                                          <span>{verifyResult.valid ? '✅' : '❌'}</span>
-                                          <span>{verifyResult.message}</span>
-                                        </div>
-                                      )}
-                                      {isVerifying && (
+                                      {isVerifying ? (
                                         <div className="text-xs text-blue-500 flex items-center gap-1 mt-1">
                                           <span className="animate-pulse">⏳</span>
                                           <span>验证中...</span>
                                         </div>
-                                      )}
+                                      ) : verifyResult ? (
+                                        <div className={`text-xs flex items-center gap-1 mt-1 ${verifyResult.valid ? 'text-green-600' : 'text-red-500'}`}>
+                                          <span>{verifyResult.valid ? '✅' : '❌'}</span>
+                                          <span>{verifyResult.message}</span>
+                                        </div>
+                                      ) : null}
                                     </div>
                                   </div>
                                   <div className="flex flex-col gap-2 shrink-0">
