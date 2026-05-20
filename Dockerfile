@@ -40,8 +40,8 @@ COPY . .
 # Next.js环境变量
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# 构建Next.js应用
-RUN npm run build
+# 构建Next.js应用（限制内存，适配 2GB 服务器）
+RUN NODE_OPTIONS="--max-old-space-size=1024" npm run build
 
 # 构建调度器
 RUN node build-scheduler.js
