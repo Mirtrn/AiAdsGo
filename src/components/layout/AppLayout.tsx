@@ -142,12 +142,7 @@ const navigationItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    label: '商品管理',
-    href: '/products',
-    icon: Boxes,
-  },
-  {
-    label: 'Offer管理',
+    label: 'Offer',
     href: '/offers',
     icon: Package,
   },
@@ -161,11 +156,6 @@ const navigationItems: NavItem[] = [
     href: '/creatives',
     icon: Lightbulb,
   },
-  // {
-  //   label: '投放评分',
-  //   href: '/launch-score',
-  //   icon: Rocket,
-  // },
   {
     label: 'Google Ads账号',
     href: '/google-ads',
@@ -197,12 +187,12 @@ const navigationItems: NavItem[] = [
     icon: TrendingUp,
   },
   {
-    label: '补点击任务',
+    label: '补点击',
     href: '/click-farm',
     icon: Zap,
   },
   {
-    label: '换链接任务',
+    label: '换链接',
     href: '/url-swap',
     icon: Link2,
   },

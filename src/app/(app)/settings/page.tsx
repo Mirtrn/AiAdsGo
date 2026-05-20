@@ -19,6 +19,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
@@ -460,6 +466,9 @@ export default function SettingsPage() {
   // Google Ads 区块管理员密码保护
   const [googleAdsUnlocked, setGoogleAdsUnlocked] = useState(false)
   const [googleAdsLockPassword, setGoogleAdsLockPassword] = useState('')
+
+  // 代理URL格式说明弹窗
+  const [showProxyFormatDialog, setShowProxyFormatDialog] = useState(false)
   const [googleAdsUnlocking, setGoogleAdsUnlocking] = useState(false)
   const [googleAdsLockError, setGoogleAdsLockError] = useState<string | null>(null)
 
@@ -1778,87 +1787,6 @@ export default function SettingsPage() {
                             <span className="text-xs text-gray-500">手动修正访问级别</span>
                           </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          {/* Test Access */}
-                          <div className={`p-4 border-2 rounded-lg ${
-                            googleAdsCredentialStatus.apiAccessLevel === 'test'
-                              ? 'border-red-500 bg-red-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="font-semibold text-gray-900">Test Access</div>
-                              {googleAdsCredentialStatus.apiAccessLevel === 'test' && (
-                                <CheckCircle2 className="w-5 h-5 text-red-600" />
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              每日调用上限：<span className="font-semibold text-gray-900">0 次</span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              仅限测试账号，需升级权限
-                            </div>
-                          </div>
-
-                          {/* Explorer Access */}
-                          <div className={`p-4 border-2 rounded-lg ${
-                            googleAdsCredentialStatus.apiAccessLevel === 'explorer'
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="font-semibold text-gray-900">Explorer Access</div>
-                              {googleAdsCredentialStatus.apiAccessLevel === 'explorer' && (
-                                <CheckCircle2 className="w-5 h-5 text-blue-600" />
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              每日调用上限：<span className="font-semibold text-gray-900">2,880 次</span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              默认权限级别
-                            </div>
-                          </div>
-
-                          {/* Basic Access */}
-                          <div className={`p-4 border-2 rounded-lg ${
-                            googleAdsCredentialStatus.apiAccessLevel === 'basic'
-                              ? 'border-green-500 bg-green-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="font-semibold text-gray-900">Basic Access</div>
-                              {googleAdsCredentialStatus.apiAccessLevel === 'basic' && (
-                                <CheckCircle2 className="w-5 h-5 text-green-600" />
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              每日调用上限：<span className="font-semibold text-gray-900">15,000 次</span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              生产环境推荐
-                            </div>
-                          </div>
-
-                          {/* Standard Access */}
-                          <div className={`p-4 border-2 rounded-lg ${
-                            googleAdsCredentialStatus.apiAccessLevel === 'standard'
-                              ? 'border-purple-500 bg-purple-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="font-semibold text-gray-900">Standard Access</div>
-                              {googleAdsCredentialStatus.apiAccessLevel === 'standard' && (
-                                <CheckCircle2 className="w-5 h-5 text-purple-600" />
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              每日调用上限：<span className="font-semibold text-gray-900">15,000 次</span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              生产环境推荐，完整权限
-                            </div>
-                          </div>
-                        </div>
 
                         {/* 提示信息 */}
                         {googleAdsCredentialStatus.apiAccessLevel === 'test' && (
@@ -2345,70 +2273,88 @@ export default function SettingsPage() {
                         <span>💡 想使用稳定便宜的代理平台，请联系管理员购买，<span className="text-red-700 font-semibold">千万不要买官网套餐</span></span>
                       </p>
 
-                      {/* 代理URL格式说明 */}
-                      <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                        <p className="text-caption font-semibold text-slate-700 mb-3 flex items-center gap-1">
-                          <Info className="w-4 h-4" />
-                          代理URL格式说明
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          {/* IPRocket / Kookeey API格式 */}
-                          <div className="bg-white p-3 rounded border border-blue-200">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
-                              <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
-                              <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all mt-1.5">
-                              https://www.kookeey.com/pickdynamicips?...&sign=xxx&accessid=xxx&...
-                            </div>
-                            <p className="mt-2 text-xs text-slate-500">
-                              Kookeey：登录控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL
-                            </p>
-                          </div>
-
-                          {/* Oxylabs格式 */}
-                          <div className="bg-white p-3 rounded border border-green-200">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
-                              <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
-                            </div>
-                          <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                            https://用户名:密码@pr.oxylabs.io:端口
-                          </div>
-                          </div>
-
-                          {/* Abcproxy / IpMars / Ipidea 直连格式 */}
-                          <div className="bg-white p-3 rounded border border-violet-200">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
-                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
-                              <span className="px-2 py-0.5 bg-sky-100 text-sky-700 text-xs font-medium rounded">Ipidea</span>
-                              <span className="text-slate-600">直连格式 - 无需调用API</span>
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              host:port:username:password
-                            </div>
-                            <p className="mt-2 text-xs text-slate-500">
-                              建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 pt-3 border-t border-slate-200">
-                          <p className="text-xs text-amber-700 flex items-start gap-1">
-                            <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                            <span>
-                              <strong>处理策略：</strong>
-                              <br />• IPRocket / Kookeey：API格式（系统会先调用 API 获取代理IP）
-                              <br />• 直连格式：直接解析并使用代理（Oxylabs、Abcproxy、IpMars、Ipidea）
-                            </span>
-                          </p>
-                        </div>
+                      {/* 代理URL格式说明 - 弹窗触发按钮 */}
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowProxyFormatDialog(true)}
+                          className="text-slate-600 border-slate-300 hover:border-slate-400"
+                        >
+                          <Info className="w-4 h-4 mr-1.5" />
+                          查看格式说明
+                        </Button>
                       </div>
+
+                      {/* 代理URL格式说明 Dialog */}
+                      <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                              <Info className="w-5 h-5 text-slate-600" />
+                              代理URL格式说明
+                            </DialogTitle>
+                          </DialogHeader>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mt-2">
+                            {/* IPRocket / Kookeey API格式 */}
+                            <div className="bg-white p-3 rounded border border-blue-200">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
+                                <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
+                                <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
+                              </div>
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                                https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
+                              </div>
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all mt-1.5">
+                                https://www.kookeey.com/pickdynamicips?...&sign=xxx&accessid=xxx&...
+                              </div>
+                              <p className="mt-2 text-xs text-slate-500">
+                                Kookeey：登录控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL
+                              </p>
+                            </div>
+
+                            {/* Oxylabs格式 */}
+                            <div className="bg-white p-3 rounded border border-green-200">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
+                                <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
+                              </div>
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                                https://用户名:密码@pr.oxylabs.io:端口
+                              </div>
+                            </div>
+
+                            {/* Abcproxy / IpMars / Ipidea 直连格式 */}
+                            <div className="bg-white p-3 rounded border border-violet-200">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
+                                <span className="px-2 py-0.5 bg-sky-100 text-sky-700 text-xs font-medium rounded">Ipidea</span>
+                                <span className="text-slate-600">直连格式 - 无需调用API</span>
+                              </div>
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                                host:port:username:password
+                              </div>
+                              <p className="mt-2 text-xs text-slate-500">
+                                建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 pt-3 border-t border-slate-200">
+                            <p className="text-xs text-amber-700 flex items-start gap-1">
+                              <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                              <span>
+                                <strong>处理策略：</strong>
+                                <br />• IPRocket / Kookeey：API格式（系统会先调用 API 获取代理IP）
+                                <br />• 直连格式：直接解析并使用代理（Oxylabs、Abcproxy、IpMars、Ipidea）
+                              </span>
+                            </p>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
 
                     {proxyUrls.length === 0 ? (
