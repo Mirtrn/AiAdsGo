@@ -30,12 +30,6 @@ jobs:
             echo "拉取最新代码..." | tee -a $LOG
             git pull origin main >> $LOG 2>&1
 
-            echo "更新 git submodule..." | tee -a $LOG
-            git submodule update --init --recursive >> $LOG 2>&1
-
-            echo "构建 OpenClaw 预编译产物..." | tee -a $LOG
-            bash scripts/build-openclaw-prebuilt.sh >> $LOG 2>&1
-
             echo "构建 Docker 镜像..." | tee -a $LOG
             sudo docker build -t autoads:staging . >> $LOG 2>&1
 

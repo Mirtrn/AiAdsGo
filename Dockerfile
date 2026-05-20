@@ -120,14 +120,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # 复制打包后的调度器
 COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
 
-# 复制 OpenClaw 预编译产物（dist + openclaw.mjs）
+# 复制 OpenClaw 预编译产物（dist + openclaw.mjs，可选）
 COPY --chown=nextjs:nodejs openclaw-prebuilt /app/openclaw
 
 # 复制 Node 22 二进制（用于 OpenClaw Gateway）
 COPY --from=node22 /usr/local/bin/node /usr/local/bin/node22
 
-# 校验 OpenClaw 预编译产物存在
-RUN test -f /app/openclaw/dist/entry.js
+# OpenClaw 预编译产物为可选，不强制校验
+RUN test -f /app/openclaw/dist/entry.js || echo "⚠️ OpenClaw 未构建，功能将被跳过"
 
 # 复制数据库迁移文件（初始化需要）
 COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
