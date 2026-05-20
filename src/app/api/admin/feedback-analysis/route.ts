@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     // 构建对话上下文
-    let systemPrompt = `你是AutoAds系统的优化顾问，专门负责分析用户反馈并提供具体的优化方案。
+    let systemPrompt = `你是AiAdsGo系统的优化顾问，专门负责分析用户反馈并提供具体的优化方案。
 
 ## 你的职责
 1. 深入分析用户的反馈意见

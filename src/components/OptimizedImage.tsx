@@ -93,7 +93,7 @@ export function OptimizedLogo({
   return (
     <Image
       src="/logo.png"
-      alt="AutoAds Logo"
+      alt="AiAdsGo Logo"
       width={width}
       height={height}
       className={className}

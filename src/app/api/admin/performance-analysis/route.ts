@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     // 构建AI分析Prompt
-    let analysisPrompt = `你是AutoAds系统的数据分析专家，专门负责分析Google Ads投放数据并提供优化建议。
+    let analysisPrompt = `你是AiAdsGo系统的数据分析专家，专门负责分析Google Ads投放数据并提供优化建议。
 
 ## 分析任务
 基于实际的Google Ads投放数据，深入分析创意表现，识别成功模式和失败模式，提供具体的优化建议。

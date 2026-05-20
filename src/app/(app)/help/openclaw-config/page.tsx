@@ -122,7 +122,7 @@ const FEISHU_ACCOUNTS_JSON_EXAMPLE = `{
   "main": {
     "appId": "cli_xxx",
     "appSecret": "xxx",
-    "botName": "AutoAds",
+    "botName": "AiAdsGo",
     "connectionMode": "websocket"
   },
   "backup": {
@@ -279,7 +279,7 @@ export default function OpenClawConfigGuidePage() {
         <Card>
           <CardHeader>
             <CardTitle>OpenClaw Access Token（用户级）</CardTitle>
-            <CardDescription>用于 OpenClaw 调用 AutoAds API，按用户隔离</CardDescription>
+            <CardDescription>用于 OpenClaw 调用 AiAdsGo API，按用户隔离</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-700">
             <div>路径：OpenClaw → 配置中心 → OpenClaw Access Tokens → 生成新 Token</div>

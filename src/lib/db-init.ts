@@ -21,9 +21,9 @@ import path from 'path'
 const crypto = require('crypto')
 const DEFAULT_ADMIN = {
   username: 'admin',
-  email: 'admin@autoads.com',
+  email: 'admin@aiadsgo.com',
   password: process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(32).toString('base64'),
-  display_name: 'AutoAds Administrator',
+  display_name: 'AiAdsGo Administrator',
   role: 'admin',
   package_type: 'lifetime',
   package_expires_at: '2099-12-31T23:59:59.000Z',

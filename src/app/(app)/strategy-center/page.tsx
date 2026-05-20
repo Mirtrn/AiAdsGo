@@ -1065,7 +1065,7 @@ export default function StrategyCenterPage() {
     const typeLabel = resolveRecommendationTypeLabel(item.recommendationType)
     const confirmed = await requestStrategyConfirm({
       title: `确认执行「${typeLabel}」`,
-      description: '执行后将直接写入 AutoAds / Google Ads，请确认当前建议已完成业务复核。',
+      description: '执行后将直接写入 AiAdsGo / Google Ads，请确认当前建议已完成业务复核。',
       details: [
         `目标：${campaignName}`,
         `建议ID：${item.id}`,
@@ -1182,7 +1182,7 @@ export default function StrategyCenterPage() {
     if (action === 'execute') {
       const confirmed = await requestStrategyConfirm({
         title: `确认批量执行 ${selectedRows.length} 条建议`,
-        description: '批量执行将直接写入 AutoAds / Google Ads，请确认筛选范围和条目数量。',
+        description: '批量执行将直接写入 AiAdsGo / Google Ads，请确认筛选范围和条目数量。',
         details: [
           `范围：${scopeLabel}`,
           `条目数：${selectedRows.length}`,
@@ -1436,7 +1436,7 @@ export default function StrategyCenterPage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-1">
                 <CardTitle className="text-xl">优化建议（按优先级分排序）</CardTitle>
-                <CardDescription>每日自动生成，确认后可直接执行，执行结果直接落地 AutoAds / Google Ads</CardDescription>
+                <CardDescription>每日自动生成，确认后可直接执行，执行结果直接落地 AiAdsGo / Google Ads</CardDescription>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                   <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
                     建议日期：{strategyDisplayDate}

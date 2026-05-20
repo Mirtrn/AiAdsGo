@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
 
     // 获取基础URL
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.autoads.dev'
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.aiadsgo.com'
 
     // 获取IP和User-Agent用于账户共享检测
     const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Google OAuth回调错误:', error)
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.autoads.dev'
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.aiadsgo.com'
     return NextResponse.redirect(
       new URL(
         `/login?error=${encodeURIComponent(error.message || 'Google登录失败')}`,

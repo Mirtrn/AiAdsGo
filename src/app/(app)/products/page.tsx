@@ -2370,8 +2370,8 @@ export default function ProductsPage() {
                 <div>1. 点击“下载扩展包”，解压后得到扩展目录。</div>
                 <div>2. Chrome 打开 chrome://extensions 或 Edge 打开 edge://extensions。</div>
                 <div>3. 打开“开发者模式”后，点“加载已解压的扩展程序”，选择解压后的目录。</div>
-                <div>4. 保持当前 AutoAds /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
-                <div>5. 切回 AutoAds /products 标签页，点击浏览器右上角扩展图标，执行"回传 YeahPromos 登录态"。</div>
+                <div>4. 保持当前 AiAdsGo /products 页面已登录，再打开 yeahpromos.com 完成登录。</div>
+                <div>5. 切回 AiAdsGo /products 标签页，点击浏览器右上角扩展图标，执行"回传 YeahPromos 登录态"。</div>
                 <div>6. 回到本页点“刷新登录态”，状态变为“已就绪”后即可同步 YP。</div>
               </div>
 

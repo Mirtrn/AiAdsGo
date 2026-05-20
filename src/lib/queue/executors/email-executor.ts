@@ -128,8 +128,8 @@ function generateEmailTemplate(
         </div>
       </div>
       <div style="${footerStyles}">
-        <p>此邮件由 AutoAds 系统自动发送，请勿直接回复。</p>
-        <p>© 2025 AutoAds. All rights reserved.</p>
+        <p>此邮件由 AiAdsGo 系统自动发送，请勿直接回复。</p>
+        <p>© 2025 AiAdsGo. All rights reserved.</p>
       </div>
     </div>
   `
@@ -140,7 +140,7 @@ function generateEmailTemplate(
  */
 export function createEmailExecutor(): TaskExecutor<EmailTaskData, EmailTaskResult> {
   return async (task: Task<EmailTaskData>) => {
-    const { to, subject, body, type, from = 'noreply@autoads.com', attachments = [] } = task.data
+    const { to, subject, body, type, from = 'noreply@aiadsgo.com', attachments = [] } = task.data
 
     console.log(`📧 [EmailExecutor] 开始发送邮件: 收件人=${to}, 类型=${type}`)
 

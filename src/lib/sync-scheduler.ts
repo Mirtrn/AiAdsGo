@@ -268,8 +268,8 @@ export class SyncScheduler {
   ) {
     try {
       const subject = type === 'success'
-        ? '✅ AutoAds 数据同步成功'
-        : '❌ AutoAds 数据同步失败'
+        ? '✅ AiAdsGo 数据同步成功'
+        : '❌ AiAdsGo 数据同步失败'
 
       const body = type === 'success'
         ? `<p>您的 Google Ads 数据同步已成功完成。</p>
@@ -277,7 +277,7 @@ export class SyncScheduler {
              <li>同步记录数: ${recordCount || '处理中'}</li>
              <li>耗时: ${duration ? `${duration}ms` : '处理中'}</li>
            </ul>
-           <p>您可以登录 AutoAds 查看最新数据。</p>`
+           <p>您可以登录 AiAdsGo 查看最新数据。</p>`
         : `<p>您的 Google Ads 数据同步失败。</p>
            <p><strong>错误信息:</strong> ${error || '未知错误'}</p>
            <p>系统将自动重试，如果问题持续，请检查您的 Google Ads 账户配置。</p>`

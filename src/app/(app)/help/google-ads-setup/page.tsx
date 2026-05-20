@@ -162,10 +162,10 @@ export default function GoogleAdsSetupGuidePage() {
 	                      <h4 className="font-medium">配置授权 URI</h4>
 	                      <div className="text-sm text-gray-600 mt-1 space-y-2">
 	                        <p>
-	                          在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.autoads.dev/api/google-ads/oauth/callback</code>
-                        </p>
-                        <p>
-                          在"已获授权的 JavaScript 来源"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.autoads.dev</code>
+	                          在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.aiadsgo.com/api/google-ads/oauth/callback</code>
+	                       </p>
+	                       <p>
+	                         在"已获授权的 JavaScript 来源"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.aiadsgo.com</code>
                         </p>
                       </div>
                     </div>

@@ -389,7 +389,7 @@ export default function PromptsManagementPage() {
             <div className="flex-1">
               <p className="text-sm font-medium text-blue-900">关于Prompt管理</p>
               <p className="text-sm text-blue-700 mt-1">
-                此页面展示AutoAds系统中所有AI业务场景使用的Prompt配置。支持版本管理、使用统计和完整Prompt查看。
+                此页面展示AiAdsGo系统中所有AI业务场景使用的Prompt配置。支持版本管理、使用统计和完整Prompt查看。
               </p>
               <p className="text-sm text-blue-700 mt-2">
                 <strong>注意:</strong> 修改Prompt需要通过创建新版本的方式进行,确保历史版本可追溯和回滚。

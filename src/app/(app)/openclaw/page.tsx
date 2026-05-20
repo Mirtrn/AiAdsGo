@@ -2104,7 +2104,7 @@ export default function OpenClawPage() {
     const typeLabel = resolveStrategyRecommendationTypeLabel(recommendation.recommendationType)
     const confirmed = await requestStrategyConfirm({
       title: `确认执行「${typeLabel}」`,
-      description: '执行后将直接写入 AutoAds / Google Ads，请确认当前建议已完成业务复核。',
+      description: '执行后将直接写入 AiAdsGo / Google Ads，请确认当前建议已完成业务复核。',
       details: [
         `目标：${campaignName}`,
         `建议ID：${recommendation.id}`,
@@ -2241,8 +2241,8 @@ export default function OpenClawPage() {
     ? formatMoneyWithUnit(reportRoi.totalProfit, reportRevenueCurrency === 'MIXED' ? 'MIXED' : reportCostCurrency)
     : '—'
   const roiUnavailableHint = roiUnavailableReason === 'affiliate_not_configured'
-    ? '未配置联盟平台参数，严格模式下不回退 AutoAds 收益。'
-    : '联盟平台佣金查询失败或暂无返回，严格模式下不回退 AutoAds 收益。'
+    ? '未配置联盟平台参数，严格模式下不回退 AiAdsGo 收益。'
+    : '联盟平台佣金查询失败或暂无返回，严格模式下不回退 AiAdsGo 收益。'
   const offerRows = report?.roi?.data?.byOffer || []
   const topOfferRows = [...offerRows]
     .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0))
@@ -2555,7 +2555,7 @@ export default function OpenClawPage() {
     if (action === 'execute') {
       const confirmed = await requestStrategyConfirm({
         title: `确认批量执行 ${selectedRows.length} 条建议`,
-        description: '批量执行将直接写入 AutoAds / Google Ads，请确认筛选范围和条目数量。',
+        description: '批量执行将直接写入 AiAdsGo / Google Ads，请确认筛选范围和条目数量。',
         details: [
           `范围：${scopeLabel}`,
           `条目数：${selectedRows.length}`,
@@ -2815,7 +2815,7 @@ export default function OpenClawPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">OpenClaw</h1>
-          <p className="text-slate-500 text-sm mt-1">飞书协作 + AutoAds 自动化控制台</p>
+          <p className="text-slate-500 text-sm mt-1">飞书协作 + AiAdsGo 自动化控制台</p>
         </div>
         <Link
           href="/help/openclaw-config"
@@ -3730,7 +3730,7 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle>OpenClaw Access Tokens</CardTitle>
-              <CardDescription>用于 OpenClaw 调用 AutoAds API（用户级隔离）</CardDescription>
+              <CardDescription>用于 OpenClaw 调用 AiAdsGo API（用户级隔离）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {newToken && (
@@ -4090,7 +4090,7 @@ export default function OpenClawPage() {
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="space-y-1">
                   <CardTitle className="text-xl">优化建议（按优先级分排序）</CardTitle>
-                  <CardDescription>每日自动生成，确认后可直接执行，执行结果直接落地 AutoAds / Google Ads</CardDescription>
+                  <CardDescription>每日自动生成，确认后可直接执行，执行结果直接落地 AiAdsGo / Google Ads</CardDescription>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                     <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
                       建议日期：{strategyDisplayDate}
@@ -4977,7 +4977,7 @@ export default function OpenClawPage() {
           <Card>
             <CardHeader>
               <CardTitle>操作记录</CardTitle>
-              <CardDescription>OpenClaw 调用 AutoAds 的操作日志</CardDescription>
+              <CardDescription>OpenClaw 调用 AiAdsGo 的操作日志</CardDescription>
             </CardHeader>
             <CardContent>
               <Table className="[&_thead_th]:bg-white">

@@ -99,7 +99,7 @@ export default function DashboardPage() {
                 A
               </div>
               <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-                AutoAds <span className="text-gray-400 font-normal">仪表盘</span>
+                AiAdsGo <span className="text-gray-400 font-normal">仪表盘</span>
               </h1>
             </div>
             <div className="flex items-center space-x-6">
