@@ -1,4 +1,5 @@
-﻿import Link from "next/link";
+﻿import React from "react";
+import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { Mail, MessageCircle, Clock, MapPin } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
@@ -9,130 +10,127 @@ export const metadata = pageMetadata.contact;
 
 export default function ContactPage() {
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-white font-sans">
       <MarketingHeader />
 
-      {/* Main Content */}
-      <main className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Hero */}
-          <div className="text-center mb-16">
-            <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-4">
-              联系我们
-            </h1>
-            <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-              有任何问题或建议？我们随时准备为您提供帮助
-            </p>
-          </div>
+      {/* Hero Banner */}
+      <div className="bg-gradient-to-br from-slate-900 via-violet-950 to-slate-900 pt-32 pb-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <p className="text-violet-400 text-sm font-medium mb-4 tracking-wider uppercase">Contact</p>
+          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-5">联系我们</h1>
+          <p className="text-slate-400 text-lg max-w-xl mx-auto">
+            有任何问题或建议？我们随时准备为您提供帮助
+          </p>
+        </div>
+      </div>
 
-          {/* Contact Methods */}
-          <div className="grid md:grid-cols-2 gap-6 mb-16">
-            {/* Email */}
-            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-              <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center mb-6">
-                <Mail className="w-7 h-7 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">邮件咨询</h3>
-              <p className="text-slate-600 mb-4">
-                发送邮件至我们的客服邮箱，我们将在 24 小时内回复
-              </p>
-              <a
-                href="mailto:support@AiAdsGo.dev"
-                className="text-blue-600 font-medium hover:text-blue-700 transition-colors"
-              >
-                support@AiAdsGo.dev
-              </a>
-            </div>
+      <main className="py-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
 
-            {/* WeChat */}
-            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center mb-6">
-                <MessageCircle className="w-7 h-7 text-emerald-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">微信客服</h3>
-              <p className="text-slate-600 mb-4">
-                添加微信客服，获取更快速的一对一支持
-              </p>
-              <span className="text-emerald-600 font-medium">
-                微信号：AiAdsGo_Support
-              </span>
-            </div>
-
-            {/* Business Hours */}
-            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-              <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center mb-6">
-                <Clock className="w-7 h-7 text-purple-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">服务时间</h3>
-              <p className="text-slate-600 mb-4">
-                我们的客服团队在以下时间为您提供服务
-              </p>
-              <div className="text-slate-900">
-                <p className="font-medium">周一至周五</p>
-                <p className="text-slate-600">09:00 - 18:00 (北京时间)</p>
-              </div>
-            </div>
-
-            {/* Location */}
-            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-              <div className="w-14 h-14 rounded-2xl bg-orange-100 flex items-center justify-center mb-6">
-                <MapPin className="w-7 h-7 text-orange-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">公司地址</h3>
-              <p className="text-slate-600 mb-4">
-                欢迎来访交流，请提前预约
-              </p>
-              <span className="text-slate-900">
-                中国 · 深圳
-              </span>
-            </div>
-          </div>
-
-          {/* FAQ Section */}
-          <section className="mb-16">
-            <h2 className="text-2xl font-bold text-slate-900 mb-8 text-center">常见问题</h2>
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-              <div className="space-y-6">
-                {[
-                  {
-                    q: "如何开始使用 AiAdsGo？",
-                    a: "注册账号后，您可以立即开始免费试用。只需粘贴您的推广链接，AI 将自动生成广告文案。"
-                  },
-                  {
-                    q: "支持哪些支付方式？",
-                    a: "我们支持支付宝、微信支付、银行转账等多种支付方式。企业客户可申请对公转账。"
-                  },
-                  {
-                    q: "如何获取技术支持？",
-                    a: "您可以通过邮件或微信联系我们的客服团队。付费用户享有优先响应服务。"
-                  },
-                  {
-                    q: "是否提供退款服务？",
-                    a: "我们提供 7 天无理由退款保障。如果产品不符合您的预期，可以申请全额退款。"
-                  }
-                ].map((faq, idx) => (
-                  <div key={idx} className="border-b border-slate-100 last:border-0 pb-6 last:pb-0">
-                    <h3 className="text-lg font-semibold text-slate-900 mb-2">{faq.q}</h3>
-                    <p className="text-slate-600">{faq.a}</p>
+          {/* Contact Cards */}
+          <section className="mb-20">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {[
+                {
+                  icon: Mail,
+                  title: "邮件咨询",
+                  desc: "发送邮件，我们将在 24 小时内回复",
+                  value: "support@aiadsgo.com",
+                  href: "mailto:support@aiadsgo.com",
+                  isLink: true,
+                },
+                {
+                  icon: MessageCircle,
+                  title: "微信客服",
+                  desc: "添加微信，获取一对一快速支持",
+                  value: "目前无微信号",
+                  isLink: false,
+                },
+                {
+                  icon: Clock,
+                  title: "服务时间",
+                  desc: "客服团队在线时间",
+                  value: "周一至周五 09:00–18:00",
+                  isLink: false,
+                },
+                {
+                  icon: MapPin,
+                  title: "公司地址",
+                  desc: "欢迎来访，请提前预约",
+                  value: "中国 · 江苏",
+                  isLink: false,
+                },
+              ].map((item, idx) => (
+                <div key={idx} className="group border border-slate-200 rounded-2xl p-6 hover:border-violet-300 hover:shadow-lg hover:shadow-violet-500/10 transition-all">
+                  <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center mb-4 group-hover:bg-violet-600 transition-colors">
+                    <item.icon className="w-5 h-5 text-violet-600 group-hover:text-white transition-colors" />
                   </div>
-                ))}
-              </div>
+                  <h3 className="font-bold text-slate-900 mb-1">{item.title}</h3>
+                  <p className="text-slate-400 text-xs mb-3">{item.desc}</p>
+                  {item.isLink ? (
+                    <a href={item.href} className="text-violet-600 hover:text-violet-700 font-medium text-sm transition-colors">
+                      {item.value}
+                    </a>
+                  ) : (
+                    <span className="text-slate-700 font-medium text-sm">{item.value}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* FAQ */}
+          <section className="mb-20">
+            <div className="flex items-center gap-3 mb-8">
+              <span className="w-1 h-6 bg-violet-500 rounded-full" />
+              <h2 className="text-2xl font-bold text-slate-900">常见问题</h2>
+            </div>
+            <div className="space-y-4">
+              {[
+                {
+                  q: "如何开始使用 AiAdsGo？",
+                  a: "联系管理员开通账号后，您可以立即开始使用。只需粘贴您的推广链接，AI 将自动生成广告文案。"
+                },
+                {
+                  q: "如何获取技术支持？",
+                  a: "您可以通过邮件联系我们的客服团队，我们将在 24 小时内为您提供帮助。"
+                },
+                {
+                  q: "数据安全如何保障？",
+                  a: "我们采用行业标准的加密技术保护您的数据，所有传输均通过 SSL/TLS 加密，数据存储经过严格的安全审计。"
+                },
+                {
+                  q: "是否支持团队协作？",
+                  a: "目前每个账号独立使用。如需多人协作方案，请联系我们进行定制化配置。"
+                }
+              ].map((faq, idx) => (
+                <div key={idx} className="border border-slate-200 rounded-2xl p-6 hover:border-violet-200 transition-colors">
+                  <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full bg-violet-100 text-violet-600 flex items-center justify-center text-xs font-bold shrink-0">Q</span>
+                    {faq.q}
+                  </h3>
+                  <p className="text-slate-500 text-sm leading-relaxed pl-9">{faq.a}</p>
+                </div>
+              ))}
             </div>
           </section>
 
           {/* CTA */}
-          <section className="text-center">
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 md:p-12 text-white">
-              <h2 className="text-2xl font-bold mb-4">还有其他问题？</h2>
-              <p className="text-slate-300 mb-8">我们的团队随时准备为您解答</p>
+          <section className="bg-slate-900 rounded-2xl p-8 md:p-12 text-center relative overflow-hidden">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-violet-600/30 rounded-full blur-[60px] pointer-events-none" />
+            <div className="relative">
+              <h2 className="text-2xl font-bold text-white mb-3">还有其他问题？</h2>
+              <p className="text-slate-400 mb-8 text-sm">我们的团队随时准备为您解答</p>
               <a
-                href="mailto:support@AiAdsGo.dev"
-                className="inline-flex items-center px-8 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full hover:bg-blue-50 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+                href="mailto:support@aiadsgo.com"
+                className="inline-flex items-center gap-2 px-8 py-3.5 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-full transition-all shadow-lg shadow-violet-500/30 hover:shadow-violet-500/40 hover:-translate-y-0.5"
               >
+                <Mail className="w-4 h-4" />
                 发送邮件
               </a>
             </div>
           </section>
+
         </div>
       </main>
 

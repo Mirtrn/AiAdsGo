@@ -2,32 +2,21 @@
 
 export function MarketingHeader() {
   return (
-    <header className="fixed top-0 w-full bg-white/70 backdrop-blur-xl z-50 border-b border-slate-200/60 supports-[backdrop-filter]:bg-white/60">
+    <header className="fixed top-0 w-full bg-white/90 backdrop-blur-xl z-50 border-b border-slate-200/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <Link href="/" className="flex items-center gap-2">
             <img src="/logo.svg" alt="AiAdsGo" className="h-8 w-auto" />
           </Link>
-          <nav className="hidden md:flex space-x-8">
-            <a href="/#value" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-              核心价值
-            </a>
-            <a href="/#workflow" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-              使用流程
-            </a>
-            <a href="/#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-              客户案例
-            </a>
-          </nav>
           <div className="flex items-center gap-4">
-            <a href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
+            <a href="/login" className="text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors">
               登录
             </a>
             <a
               href="/login"
-              className="px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-full hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 hover:shadow-slate-900/30 hover:-translate-y-0.5"
+              className="px-5 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-full transition-all shadow-md shadow-violet-500/20 hover:shadow-violet-500/30 hover:-translate-y-0.5"
             >
-              免费试用
+              开始使用
             </a>
           </div>
         </div>

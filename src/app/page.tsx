@@ -1,385 +1,233 @@
-﻿import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
-import { ArrowRight, CheckCircle2, Star, Clock, Wand2 } from "lucide-react";
+﻿import { pageMetadata } from "@/lib/seo";
+import { ArrowRight, Zap, BarChart3, Globe2, ShieldCheck, Rocket, Bot } from "lucide-react";
+import dynamic from "next/dynamic";
 
-import { HolidayCountdown } from "@/components/marketing/HolidayCountdown";
-import { StatsCounter } from "@/components/marketing/StatsCounter";
-import { ValueCards } from "@/components/marketing/ValueCards";
-import { WorkflowTimeline } from "@/components/marketing/WorkflowTimeline";
-import { ComparisonChart } from "@/components/marketing/ComparisonChart";
-import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
-import { ClickFarmHighlight } from "@/components/marketing/ClickFarmHighlight";
-import { UrlSwapHighlight } from "@/components/marketing/UrlSwapHighlight";
+const DashboardMockup = dynamic(
+  () => import("@/components/marketing/DashboardMockup"),
+  { ssr: false }
+);
 
 export const metadata = pageMetadata.home;
 
-// Force dynamic rendering for client components with state
-export const dynamic = 'force-dynamic';
-
-export default function MarketingHome() {
+export default function Home() {
   return (
-    <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-100 selection:text-blue-900">
-      {/* Header */}
-      <header className="fixed top-0 w-full bg-white/70 backdrop-blur-xl z-50 border-b border-slate-200/60 supports-[backdrop-filter]:bg-white/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-2">
-              <img src="/logo.svg" alt="AiAdsGo" className="h-8 w-auto" />
+    <div className="min-h-screen bg-[#0a0f1e] text-white font-sans antialiased">
+
+      {/* ── Header ── */}
+      <header className="fixed top-0 w-full z-50 border-b border-white/10 bg-[#0a0f1e]/80 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-white" />
             </div>
-            <nav className="hidden md:flex space-x-8">
-              <a href="#value" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                核心价值
-              </a>
-              <a href="#workflow" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                使用流程
-              </a>
-              <a href="#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                客户案例
-              </a>
-              <a href="#url-swap" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                自动换链接
-              </a>
-            </nav>
-            <div className="flex items-center gap-4">
-              <a href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
-                登录
-              </a>
-              <a
-                href="/login"
-                className="px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-full hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 hover:shadow-slate-900/30 hover:-translate-y-0.5"
-              >
-                免费试用
-              </a>
-            </div>
+            <span className="font-bold text-lg tracking-tight">AiAdsGo</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <a href="/login" className="text-sm text-white/60 hover:text-white transition-colors px-4 py-2">
+              登录
+            </a>
+            <a
+              href="/login"
+              className="text-sm font-semibold px-5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 transition-colors"
+            >
+              开始使用
+            </a>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden pt-16 lg:pt-16">
-        {/* Countdown Banner - Full Width */}
-        <HolidayCountdown />
+      {/* ── Hero ── */}
+      <section className="relative pt-32 pb-24 overflow-hidden">
+        {/* Background glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-violet-600/20 rounded-full blur-[120px] pointer-events-none" />
 
-        {/* Background Gradients */}
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100/50 via-white to-white" />
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/10 blur-[100px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-400/10 blur-[100px]" />
-        </div>
+        <div className="relative max-w-5xl mx-auto px-6 text-center">
+          {/* Label */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-300 text-sm font-medium mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+            AI 驱动的 Google Ads 自动化平台
+          </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-16 lg:pb-24">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left: Text Content */}
-            <div className="text-center lg:text-left">
-              {/* Badge */}
-              <div className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50/50 backdrop-blur-sm px-3 py-1 text-sm font-medium text-blue-700 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <span className="flex h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse"></span>
-                AiAdsGo 2.0 全新发布
-              </div>
+          {/* Headline */}
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] mb-6">
+            让广告投放
+            <br />
+            <span className="bg-gradient-to-r from-violet-400 via-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+              真正自动化
+            </span>
+          </h1>
 
-              {/* Main Heading */}
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-slate-900 mb-6 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
-                <span className="text-blue-600">10分钟</span>搞定
-                <br />
-                Google Ads 投放
-              </h1>
+          <p className="text-lg sm:text-xl text-white/50 max-w-2xl mx-auto mb-10 leading-relaxed">
+            输入产品链接，AI 自动分析卖点、生成广告文案、推荐关键词，
+            直连 Google Ads API 一键发布，全程无需手动操作。
+          </p>
 
-              {/* Subheading */}
-              <p className="text-lg md:text-xl text-slate-600 mb-8 leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
-                告别熬夜写广告、告别高额测试费、告别复杂的操作
-                <br className="hidden md:block" />
-                <span className="font-semibold text-slate-900">粘贴链接 → AI生成 → 一键发布</span>
-              </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <a
+              href="/login"
+              className="group inline-flex items-center justify-center gap-2 px-8 py-4 bg-violet-600 hover:bg-violet-500 rounded-xl font-semibold text-lg transition-all shadow-lg shadow-violet-500/25 hover:shadow-violet-500/40 hover:-translate-y-0.5"
+            >
+              免费开始使用
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </a>
+            <a
+              href="#features"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl font-semibold text-lg border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 transition-all text-white/80"
+            >
+              了解功能
+            </a>
+          </div>
 
-              {/* Key Benefits */}
-              <div className="flex flex-wrap justify-center lg:justify-start gap-4 mb-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-400">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-200">
-                  <Clock className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-medium text-emerald-700">省99%时间</span>
-                </div>
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 border border-purple-200">
-                  <Wand2 className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-700">省75%成本</span>
-                </div>
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-200">
-                  <CheckCircle2 className="w-4 h-4 text-orange-600" />
-                  <span className="text-sm font-medium text-orange-700">零门槛</span>
-                </div>
-              </div>
-
-              {/* CTAs */}
-              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-in fade-in slide-in-from-bottom-8 duration-700 delay-500">
-                <a
-                  href="/login"
-                  className="group relative px-8 py-4 bg-slate-900 text-white text-lg font-semibold rounded-full hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 hover:-translate-y-1 transition-all duration-300 flex items-center justify-center"
-                >
-                  <span>免费试用</span>
-                  <ArrowRight className="inline-block ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-                </a>
-                <a
-                  href="#workflow"
-                  className="px-8 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-300 shadow-sm hover:shadow-md"
-                >
-                  看看怎么用
-                </a>
-              </div>
-            </div>
-
-            {/* Right: Visual Demo */}
-            <div className="relative animate-in fade-in slide-in-from-right-8 duration-700 delay-300">
-              <div className="relative aspect-[4/3] rounded-3xl shadow-2xl overflow-visible">
-                {/* Background Image with rounded corners */}
-                <div className="relative w-full h-full rounded-3xl overflow-hidden">
-                  <img
-                    src="/assets/marketing/hero-demo.png"
-                    alt="AiAdsGo 产品演示"
-                    className="w-full h-full object-cover"
-                    fetchPriority="high"
-                    width={800}
-                    height={600}
-                  />
-                </div>
-
-                {/* Floating Card - Top Right: 15个标题已生成 */}
-                <div className="absolute -right-6 top-[20%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[180px] h-[74px]">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900">15个标题</div>
-                      <div className="text-xs text-slate-500">已生成</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Floating Card - Left: 20+关键词推荐 */}
-                <div className="absolute -left-6 top-[45%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[200px] h-[74px]" style={{ animationDelay: '0.3s' }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle2 className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900">20+ 关键词</div>
-                      <div className="text-xs text-slate-500">智能推荐</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Floating Card - Bottom Right: 4个描述文案 */}
-                <div className="absolute -right-4 bottom-[15%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[210px] h-[74px]" style={{ animationDelay: '0.6s' }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center flex-shrink-0">
-                      <Wand2 className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900">4个描述文案</div>
-                      <div className="text-xs text-purple-600 font-medium">AI 生成中...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* Trust badges */}
+          <div className="mt-12 flex flex-wrap justify-center gap-6 text-sm text-white/40">
+            <span>✓ 免费试用，无需信用卡</span>
+            <span>✓ 5分钟快速上手</span>
+            <span>✓ 随时导出数据</span>
           </div>
         </div>
       </section>
 
-      {/* Stats Counter */}
-      <StatsCounter />
-
-      {/* Value Cards Section */}
-      <section id="value">
-        <ValueCards />
+      {/* ── Dashboard Mockup (Interactive) ── */}
+      <section className="max-w-5xl mx-auto px-6 pb-24">
+        <DashboardMockup />
       </section>
 
-      {/* Workflow Timeline Section */}
-      <section id="workflow">
-        <WorkflowTimeline />
-      </section>
-
-      {/* Comparison Chart Section */}
-      <ComparisonChart />
-
-      {/* Url Swap Highlight Section */}
-      <UrlSwapHighlight />
-
-      {/* Scenario Tabs Section */}
-      <ScenarioTabs />
-
-      {/* Click Farm Highlight Section */}
-      <ClickFarmHighlight />
-
-      {/* Testimonials Section */}
-      <section id="testimonials" className="py-24 bg-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-100/40 via-transparent to-transparent" />
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-              深受 1000+ 专业玩家信赖
+      {/* ── Features ── */}
+      <section id="features" className="py-24 border-t border-white/5">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+              一套工具，覆盖投放全链路
             </h2>
-            <p className="text-xl text-slate-600">
-              看看他们如何用 AiAdsGo 实现效率革命
+            <p className="text-white/50 text-lg max-w-xl mx-auto">
+              从产品分析到广告上线，每个环节都由 AI 自动处理
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
               {
-                content: "以前周五接单周一要交付，整个周末都在熬夜写广告。现在用 AiAdsGo，10分钟搞定，周末照样出去玩！",
-                author: "Alex Chen",
-                role: "资深 Media Buyer",
-                initials: "AC",
-                avatar: "/assets/marketing/avatar-1.png",
-                gradient: "from-blue-500 to-cyan-500",
-                metric: "节省时间 99%"
+                icon: <Bot className="w-5 h-5" />,
+                color: "text-violet-400",
+                bg: "bg-violet-500/10 border-violet-500/20",
+                title: "智能内容生成",
+                desc: "自动抓取落地页信息，提炼产品核心卖点，生成符合 Google 规范的广告标题与描述。",
               },
               {
-                content: "同时跟20个Offer不再是梦！批量导入功能太强了，以前一个个测，现在可以同时追10倍的Offer。",
-                author: "Sarah Li",
-                role: "独立站站长",
-                initials: "SL",
-                avatar: "/assets/marketing/avatar-2.png",
-                gradient: "from-purple-500 to-pink-500",
-                metric: "效率提升 10x"
+                icon: <BarChart3 className="w-5 h-5" />,
+                color: "text-cyan-400",
+                bg: "bg-cyan-500/10 border-cyan-500/20",
+                title: "关键词智能规划",
+                desc: "基于行业数据和竞品分析，自动推荐高转化关键词，并按意图分组管理。",
               },
               {
-                content: "完全不懂Google Ads也能用，零门槛上手。AI生成的文案质量很高，通过率比我自己写的还好！",
-                author: "Mike Wang",
-                role: "新手玩家",
-                initials: "MW",
-                avatar: "/assets/marketing/avatar-3.png",
-                gradient: "from-orange-500 to-red-500",
-                metric: "广告通过率 95%"
+                icon: <Rocket className="w-5 h-5" />,
+                color: "text-emerald-400",
+                bg: "bg-emerald-500/10 border-emerald-500/20",
+                title: "一键发布广告",
+                desc: "直连 Google Ads API，审核通过即刻发布，彻底告别手动复制粘贴。",
               },
-            ].map((testimonial, idx) => (
+              {
+                icon: <Globe2 className="w-5 h-5" />,
+                color: "text-orange-400",
+                bg: "bg-orange-500/10 border-orange-500/20",
+                title: "多地区多语言",
+                desc: "支持 20+ 个国家和地区投放，自动本地化广告文案，覆盖全球流量。",
+              },
+              {
+                icon: <BarChart3 className="w-5 h-5" />,
+                color: "text-pink-400",
+                bg: "bg-pink-500/10 border-pink-500/20",
+                title: "实时效果追踪",
+                desc: "统一数据看板，展示展现量、点击率、转化成本等核心指标，实时掌握投放表现。",
+              },
+              {
+                icon: <ShieldCheck className="w-5 h-5" />,
+                color: "text-indigo-400",
+                bg: "bg-indigo-500/10 border-indigo-500/20",
+                title: "合规安全保障",
+                desc: "内置政策合规检测，广告素材发布前自动审查，降低账号被封风险。",
+              },
+            ].map((f, i) => (
               <div
-                key={idx}
-                className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
+                key={i}
+                className="p-6 rounded-2xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.06] transition-colors group"
               >
-                <div className="flex items-center gap-1 mb-4">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star key={star} className="w-4 h-4 text-yellow-400 fill-current" />
-                  ))}
+                <div className={`w-10 h-10 rounded-xl border ${f.bg} flex items-center justify-center mb-5 ${f.color}`}>
+                  {f.icon}
                 </div>
-
-                {/* Metric Badge */}
-                <div className={`inline-flex items-center px-3 py-1 rounded-full bg-gradient-to-r ${testimonial.gradient} text-white text-xs font-bold mb-4`}>
-                  {testimonial.metric}
-                </div>
-
-                <p className="text-slate-600 mb-8 leading-relaxed">
-                  "{testimonial.content}"
-                </p>
-                <div className="flex items-center gap-4 border-t border-slate-200 pt-6">
-                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${testimonial.gradient} flex items-center justify-center text-white font-bold text-sm shadow-md overflow-hidden`}>
-                    {/* @ts-ignore */}
-                    {testimonial.avatar ? (
-                      <img src={testimonial.avatar} alt={testimonial.author} className="w-full h-full object-cover" />
-                    ) : (
-                      testimonial.initials
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      {testimonial.author}
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      {testimonial.role}
-                    </div>
-                  </div>
-                </div>
+                <h3 className="font-semibold text-white mb-2">{f.title}</h3>
+                <p className="text-sm text-white/45 leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="relative py-24 overflow-hidden">
-        <div className="absolute inset-0 bg-slate-900">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/50 to-purple-900/50" />
-        </div>
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl font-bold text-white mb-6 sm:text-4xl">
-            10分钟后，你的广告就能上线
-          </h2>
-          <p className="text-xl text-slate-300 mb-4">
-            别再熬夜写广告了，让 AI 帮你搞定一切
-          </p>
-          <div className="flex flex-wrap justify-center gap-6 text-slate-400 mb-10">
-            <span>✓ 免费试用</span>
-            <span>✓ 无需信用卡</span>
-            <span>✓ 随时取消</span>
+      {/* ── Stats ── */}
+      <section className="py-20 border-t border-white/5">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            {[
+              { value: "5min", label: "平均上手时间" },
+              { value: "95%", label: "广告审核通过率" },
+              { value: "20+", label: "支持投放地区" },
+              { value: "3x", label: "平均效率提升" },
+            ].map((s, i) => (
+              <div key={i}>
+                <div className="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent mb-2">
+                  {s.value}
+                </div>
+                <div className="text-sm text-white/40">{s.label}</div>
+              </div>
+            ))}
           </div>
-          <a
-            href="/login"
-            className="inline-flex items-center px-10 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full hover:bg-blue-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
-          >
-            <span>立即免费试用</span>
-            <ArrowRight className="ml-2 w-5 h-5" />
-          </a>
         </div>
       </section>
 
-      {/* Rich Footer */}
-      <footer className="bg-slate-950 text-slate-400 py-16 border-t border-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
-            {/* Brand Column */}
-            <div className="col-span-1 md:col-span-1">
-              <div className="flex items-center gap-2 mb-6">
-                <img src="/logo-white.svg" alt="AiAdsGo" className="h-8 w-auto" />
-              </div>
-              <p className="text-sm leading-relaxed mb-6">
-                专为 Affiliate Marketer 打造的 Google Ads
-                自动化投放平台。10分钟搞定投放，让每一分预算都发挥最大价值
+      {/* ── CTA ── */}
+      <section className="py-24 border-t border-white/5">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <div className="relative inline-block mb-8">
+            <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl blur-2xl opacity-40" />
+            <div className="relative px-12 py-12 rounded-2xl border border-white/10 bg-gradient-to-br from-violet-600/20 to-indigo-600/20">
+              <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+                准备好提升投放效率了吗？
+              </h2>
+              <p className="text-white/50 text-lg mb-8">
+                现在注册，立即获得完整功能免费试用资格
               </p>
-            </div>
-
-            {/* Links Columns */}
-            <div>
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">产品</h3>
-              <ul className="space-y-3">
-                <li><a href="#value" className="text-sm hover:text-white transition-colors">核心价值</a></li>
-                <li><a href="#workflow" className="text-sm hover:text-white transition-colors">使用流程</a></li>
-                <li><a href="#pricing" className="text-sm hover:text-white transition-colors">价格方案</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">更新日志</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">资源</h3>
-              <ul className="space-y-3">
-                <li><a href="#" className="text-sm hover:text-white transition-colors">帮助中心</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">投放教程</a></li>
-                <li><a href="#testimonials" className="text-sm hover:text-white transition-colors">客户案例</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">社区论坛</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">公司</h3>
-              <ul className="space-y-3">
-                <li><a href="/about" className="text-sm hover:text-white transition-colors">关于我们</a></li>
-                <li><a href="/contact" className="text-sm hover:text-white transition-colors">联系方式</a></li>
-                <li><a href="/privacy" className="text-sm hover:text-white transition-colors">隐私政策</a></li>
-                <li><a href="/terms" className="text-sm hover:text-white transition-colors">服务条款</a></li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-12 pt-8 border-t border-slate-900 text-center md:text-left flex flex-col md:flex-row justify-between items-center">
-            <p className="text-sm text-slate-500">
-              &copy; {new Date().getFullYear()} AiAdsGo. All rights reserved.
-            </p>
-            <div className="mt-4 md:mt-0 flex space-x-6">
-              <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">隐私政策</a>
-              <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">服务条款</a>
+              <a
+                href="/login"
+                className="group inline-flex items-center gap-2 px-10 py-4 bg-white text-[#0a0f1e] font-bold text-lg rounded-xl hover:bg-violet-100 transition-all shadow-xl"
+              >
+                立即免费注册
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </a>
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="border-t border-white/5 py-10">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-white/30">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+              <Zap className="w-3 h-3 text-white" />
+            </div>
+            <span className="font-semibold text-white/60">AiAdsGo</span>
+          </div>
+          <div className="flex gap-6">
+            <a href="/about" className="hover:text-white transition-colors">关于我们</a>
+            <a href="/contact" className="hover:text-white transition-colors">联系方式</a>
+            <a href="/privacy" className="hover:text-white transition-colors">隐私政策</a>
+            <a href="/terms" className="hover:text-white transition-colors">服务条款</a>
+          </div>
+          <p>&copy; {new Date().getFullYear()} AiAdsGo. All rights reserved.</p>
+        </div>
       </footer>
+
     </div>
   );
 }

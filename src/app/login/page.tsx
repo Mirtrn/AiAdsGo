@@ -1,14 +1,9 @@
 ﻿'use client'
 
-import { useState, useEffect, Suspense, useRef } from 'react'
+import React, { useState, useEffect, Suspense, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Image from 'next/image'
-import { Loader2, CheckCircle2, ArrowRight, ShieldCheck, TrendingUp, Zap } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Loader2, ArrowRight, Zap, AlertCircle, ShieldAlert } from 'lucide-react'
 
-// Cloudflare Turnstile types
 declare global {
   interface Window {
     turnstile?: {
@@ -34,43 +29,9 @@ function LoginForm() {
   const turnstileWidgetId = useRef<string | null>(null)
   const turnstileLoaded = useRef(false)
 
-  // 检查CAPTCHA功能是否启用
   const captchaEnabled = process.env.NEXT_PUBLIC_CAPTCHA_ENABLED === 'true'
 
-  useEffect(() => {
-    const errorParam = searchParams?.get('error')
-    if (errorParam) {
-      setError(decodeURIComponent(errorParam))
-    }
-
-    // 检查是否有安全警告
-    const warningParam = searchParams?.get('security_warning')
-    if (warningParam === 'true') {
-      setSecurityWarning('检测到您的账户存在异常登录活动，请确认是否为本人操作。如非本人操作，建议立即修改密码。')
-    }
-  }, [searchParams])
-
-  // Load Cloudflare Turnstile script
-  useEffect(() => {
-    if (captchaEnabled && showCaptcha && !turnstileLoaded.current) {
-      const script = document.createElement('script')
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
-      script.async = true
-      script.defer = true
-      script.onload = () => {
-        turnstileLoaded.current = true
-        // 确保DOM已更新，使用setTimeout确保renderTurnstile在下一个事件循环执行
-        setTimeout(renderTurnstile, 0)
-      }
-      script.onerror = () => {
-        console.error('Failed to load Turnstile script')
-        setError('验证码脚本加载失败，请刷新页面重试')
-      }
-      document.body.appendChild(script)
-    }
-  }, [captchaEnabled, showCaptcha])
-
-  const renderTurnstile = () => {
+  const renderTurnstile = useCallback(() => {
     if (window.turnstile && !turnstileWidgetId.current) {
       const container = document.getElementById('turnstile-container')
       if (container) {
@@ -85,64 +46,70 @@ function LoginForm() {
               setCaptchaLoading(false)
               setError('验证码加载失败，请刷新页面重试')
             },
-            theme: 'light',
+            theme: 'dark',
           })
           setCaptchaLoading(false)
-        } catch (err) {
-          console.error('Failed to render Turnstile:', err)
+        } catch {
           setCaptchaLoading(false)
           setError('验证码初始化失败，请刷新页面重试')
         }
       }
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    const errorParam = searchParams?.get('error')
+    if (errorParam) setError(decodeURIComponent(errorParam))
+    const warningParam = searchParams?.get('security_warning')
+    if (warningParam === 'true') {
+      setSecurityWarning('检测到您的账户存在异常登录活动，请确认是否为本人操作。如非本人操作，建议立即修改密码。')
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    if (captchaEnabled && showCaptcha && !turnstileLoaded.current) {
+      const script = document.createElement('script')
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+      script.async = true
+      script.defer = true
+      script.onload = () => {
+        turnstileLoaded.current = true
+        setTimeout(renderTurnstile, 0)
+      }
+      script.onerror = () => setError('验证码脚本加载失败，请刷新页面重试')
+      document.body.appendChild(script)
+    }
+  }, [captchaEnabled, showCaptcha, renderTurnstile])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
-      const requestBody: { username: string; password: string; captchaToken?: string } = {
-        username,
-        password,
-      }
-
-      // 如果需要CAPTCHA，添加token
-      if (showCaptcha && captchaToken) {
-        requestBody.captchaToken = captchaToken
-      }
+      const requestBody: { username: string; password: string; captchaToken?: string } = { username, password }
+      if (showCaptcha && captchaToken) requestBody.captchaToken = captchaToken
 
       const response = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       })
-
       const data = await response.json()
 
       if (!response.ok) {
-        // 检查是否需要CAPTCHA
         if (data.errorType === 'captcha_required') {
           setShowCaptcha(true)
           setCaptchaLoading(true)
           setCaptchaToken(null)
           setError(data.error || '请完成验证码验证')
-          // 不需要手动调用renderTurnstile，useEffect会自动处理
-          // 当showCaptcha状态更新后，useEffect会检查脚本是否加载
           return
         }
-
-        // CAPTCHA验证失败，重置widget
         if (data.errorType === 'captcha_invalid') {
           if (turnstileWidgetId.current && window.turnstile) {
             window.turnstile.reset(turnstileWidgetId.current)
           }
           setCaptchaToken(null)
         }
-
         throw new Error(data.error || '登录失败')
       }
 
@@ -150,7 +117,6 @@ function LoginForm() {
         router.push('/change-password?forced=true')
         return
       }
-
       const redirect = searchParams?.get('redirect')
       router.push(redirect || '/dashboard')
     } catch (err: any) {
@@ -161,241 +127,146 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex bg-white">
-      {/* Left Side - Product Showcase */}
-      <div className="hidden lg:flex lg:w-1/2 bg-slate-900 relative overflow-hidden">
-        {/* Dynamic Background */}
-        <div className="absolute inset-0 bg-[url('/dashboard-dark.webp')] bg-cover bg-center opacity-20 mix-blend-overlay" />
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/90 via-slate-900/90 to-purple-900/90" />
+    <div className="min-h-screen bg-[#0a0f1e] flex items-center justify-center px-4 relative overflow-hidden">
+      {/* Background glows */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-violet-600/15 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-[400px] h-[300px] bg-indigo-600/10 rounded-full blur-[80px] pointer-events-none" />
 
-        {/* Decorative Elements */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -left-24 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl" />
+      <div className="relative w-full max-w-[420px]">
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 mb-8 justify-center">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <Zap className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-white font-bold text-xl tracking-tight">AiAdsGo</span>
         </div>
 
-        <div className="relative z-10 flex flex-col justify-between p-16 w-full h-full text-white">
-          {/* Logo Area */}
-          <div>
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-2xl font-bold tracking-tight">AiAdsGo</span>
-            </div>
+        {/* Login box */}
+        <div className="bg-white/[0.04] border border-white/10 rounded-2xl p-8 backdrop-blur-sm shadow-2xl shadow-black/40">
+          <div className="mb-7">
+            <h1 className="text-2xl font-bold text-white mb-1.5">欢迎回来</h1>
+            <p className="text-white/40 text-sm">请登录您的 AiAdsGo 账号继续操作</p>
           </div>
 
-          {/* Main Content */}
-          <div className="space-y-12">
-            <div className="space-y-6">
-              <h1 className="text-5xl font-bold leading-tight tracking-tight">
-                AI驱动的 <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
-                  Google Ads 自动化
-                </span>
-              </h1>
-              <p className="text-xl text-slate-300 max-w-md leading-relaxed">
-                从Offer筛选到广告上线，只需10分钟。让AI为您处理繁琐工作，专注于策略与增长。
-              </p>
-            </div>
-
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="glass-dark p-5 rounded-2xl border border-white/10 hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="p-2 bg-blue-500/20 rounded-lg">
-                    <Zap className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <span className="text-sm text-slate-400">效率提升</span>
-                </div>
-                <div className="text-3xl font-bold text-white">10x</div>
-              </div>
-              <div className="glass-dark p-5 rounded-2xl border border-white/10 hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="p-2 bg-purple-500/20 rounded-lg">
-                    <TrendingUp className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <span className="text-sm text-slate-400">ROI 增长</span>
-                </div>
-                <div className="text-3xl font-bold text-white">3.5x</div>
+          {securityWarning && (
+            <div className="mb-5 flex items-start gap-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+              <div>
+                <div className="font-medium mb-0.5 text-amber-300 text-sm">安全提醒</div>
+                <div className="text-amber-400/80 text-xs leading-relaxed">{securityWarning}</div>
               </div>
             </div>
-
-            {/* Testimonial */}
-            <div className="glass-dark p-6 rounded-2xl border border-white/10">
-              <div className="flex gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <svg key={i} className="w-4 h-4 text-yellow-400 fill-current" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                ))}
-              </div>
-              <p className="text-slate-200 italic mb-4">
-                "AiAdsGo彻底改变了我们的投放流程。现在我们可以同时测试数百个Offer，而无需增加人手。"
-              </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold">
-                  LM
-                </div>
-                <div>
-                  <div className="font-semibold text-white">李明</div>
-                  <div className="text-xs text-slate-400">Top10 联盟营销团队创始人</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-between text-sm text-slate-500">
-            <span>&copy; 2025 AiAdsGo Inc.</span>
-            <div className="flex gap-4">
-              <a href="#" className="hover:text-white transition-colors">隐私政策</a>
-              <a href="#" className="hover:text-white transition-colors">服务条款</a>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-12 bg-white">
-        <div className="w-full max-w-md space-y-8">
-          <div className="text-center lg:text-left space-y-2">
-            <div className="lg:hidden flex justify-center mb-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                <Zap className="w-7 h-7 text-white" />
-              </div>
-            </div>
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">欢迎回来</h2>
-            <p className="text-slate-500">
-              请输入您的账号信息以继续使用 AiAdsGo
-            </p>
-          </div>
+          )}
 
           {error && (
-            <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-sm flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-              <div className="p-1 bg-red-100 rounded-full">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
+            <div className="mb-5 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </div>
           )}
 
-          {/* 安全警告 */}
-          {securityWarning && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-xl text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
-              <div className="p-1 bg-amber-100 rounded-full mt-0.5">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-medium mb-1">安全提醒</div>
-                <div className="text-amber-600">{securityWarning}</div>
-              </div>
-            </div>
-          )}
-
-          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="username">用户名 / 邮箱</Label>
-                <Input
-                  id="username"
-                  name="username"
-                  type="text"
-                  autoComplete="username"
-                  required
-                  placeholder="name@company.com"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="h-12"
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">密码</Label>
-                  <a href="#" className="text-sm font-medium text-blue-600 hover:text-blue-500">
-                    忘记密码?
-                  </a>
-                </div>
-                <Input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-12"
-                />
-              </div>
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+                用户名 / 邮箱
+              </label>
+              <input
+                type="text"
+                autoComplete="username"
+                required
+                placeholder="name@company.com"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full h-11 bg-white/[0.05] border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+              />
             </div>
 
-            {/* Cloudflare Turnstile CAPTCHA (条件显示) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+                  密码
+                </label>
+                <a href="#" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">
+                  忘记密码?
+                </a>
+              </div>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-11 bg-white/[0.05] border border-white/10 rounded-xl px-4 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+              />
+            </div>
+
             {showCaptcha && (
-              <div className="space-y-2">
-                <Label htmlFor="turnstile-container">安全验证</Label>
-                <div className="relative">
-                  <div
-                    id="turnstile-container"
-                    className="flex justify-center items-center min-h-[65px] bg-slate-50 rounded-lg border border-slate-200"
-                  />
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+                  安全验证
+                </label>
+                <div className="relative bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden">
+                  <div id="turnstile-container" className="flex justify-center items-center min-h-[65px]" />
                   {captchaLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 rounded-lg backdrop-blur-sm">
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="h-5 w-5 animate-spin text-slate-600" />
-                        <span className="text-xs text-slate-600">加载验证码...</span>
+                    <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f1e]/60 backdrop-blur-sm">
+                      <div className="flex items-center gap-2 text-white/50 text-xs">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        加载验证码...
                       </div>
                     </div>
                   )}
                 </div>
-                <div className="flex items-start gap-2">
-                  <p className="text-xs text-slate-500 flex-1">
-                    为了您的账户安全，请完成验证后继续登录
-                  </p>
-                  {!captchaLoading && turnstileLoaded.current && !captchaToken && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (turnstileWidgetId.current && window.turnstile) {
-                          window.turnstile.reset(turnstileWidgetId.current)
-                        }
-                      }}
-                      className="text-xs text-blue-600 hover:text-blue-500 whitespace-nowrap flex-shrink-0"
-                    >
-                      重新加载
-                    </button>
-                  )}
-                </div>
+                {!captchaLoading && turnstileLoaded.current && !captchaToken && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (turnstileWidgetId.current && window.turnstile) {
+                        window.turnstile.reset(turnstileWidgetId.current)
+                      }
+                    }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                  >
+                    重新加载验证码
+                  </button>
+                )}
               </div>
             )}
 
-            <Button
+            <button
               type="submit"
               disabled={loading || captchaLoading || (showCaptcha && !captchaToken)}
-              className="w-full h-12 text-base font-medium bg-slate-900 hover:bg-slate-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all shadow-lg shadow-violet-500/20 hover:shadow-violet-500/30 mt-2"
             >
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   登录中...
                 </>
               ) : (
                 <>
                   立即登录
-                  <ArrowRight className="ml-2 h-5 w-5" />
+                  <ArrowRight className="h-4 w-4" />
                 </>
               )}
-            </Button>
+            </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-slate-500">
-              还没有账号?{' '}
-              <a href="#" className="font-medium text-blue-600 hover:text-blue-500 hover:underline underline-offset-4">
-                联系管理员开通
-              </a>
-            </p>
-          </div>
+          <p className="text-center text-xs text-white/25 mt-6">
+            还没有账号?{' '}
+            <a href="#" className="text-violet-400 hover:text-violet-300 transition-colors">
+              联系管理员开通
+            </a>
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-center gap-5 mt-6 text-xs text-white/20">
+          <a href="/privacy" className="hover:text-white/40 transition-colors">隐私政策</a>
+          <span>·</span>
+          <a href="/terms" className="hover:text-white/40 transition-colors">服务条款</a>
+          <span>·</span>
+          <span>&copy; 2025 AiAdsGo</span>
         </div>
       </div>
     </div>
