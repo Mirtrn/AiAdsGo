@@ -20,7 +20,7 @@ import path from 'path'
 // 安全说明：密码从环境变量读取，如果未设置则生成32位随机密码
 const crypto = require('crypto')
 const DEFAULT_ADMIN = {
-  username: 'autoads',
+  username: 'admin',
   email: 'admin@autoads.com',
   password: process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(32).toString('base64'),
   display_name: 'AutoAds Administrator',
