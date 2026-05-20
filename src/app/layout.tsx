@@ -1,5 +1,4 @@
 ﻿import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
 import FrontendErrorReporter from '@/components/monitoring/FrontendErrorReporter'
 import WebVitalsReporter from '@/components/monitoring/WebVitalsReporter'
@@ -10,7 +9,6 @@ import './globals.css'
 // 这允许静态页面（如登录页、文档页）使用Next.js静态优化
 // 实时数据页面（dashboard、offers等）在各自的page.tsx中设置dynamic='force-dynamic'
 
-const inter = Inter({ subsets: ['latin'] })
 const webVitalsMonitoringEnabled = isPerformanceReleaseEnabled('webVitalsMonitoring')
 const frontendErrorMonitoringEnabled = isPerformanceReleaseEnabled('frontendErrorMonitoring')
 const buildId = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_BUILD_ID || 'local').slice(0, 64)
@@ -99,7 +97,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={inter.className}>
+      <body className="font-sans antialiased">
         {children}
         <ToasterProvider />
         {webVitalsMonitoringEnabled ? <WebVitalsReporter enabled={true} buildId={buildId} flagSnapshot={flagSnapshot} /> : null}
