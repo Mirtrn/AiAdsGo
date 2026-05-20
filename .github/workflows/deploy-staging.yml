@@ -7,37 +7,44 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to 43.160.192.15
+    name: 自动部署到测试服务器
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Deploy via SSH
+      - name: 部署到测试服务器
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 43.160.192.15
+          host: ${{ secrets.STAGING_HOST }}
           username: ubuntu
           key: ${{ secrets.STAGING_SSH_KEY }}
-          timeout: 25m
+          script_stop: true
+          command_timeout: 25m
           script: |
             set -e
+            LOG=/tmp/deploy_staging.log
+            echo "[START $(date)]" >> $LOG
+
             cd /home/ubuntu/autobb
 
-            echo "=== 拉取最新代码 ==="
-            git pull origin main
+            echo "拉取最新代码..." | tee -a $LOG
+            git pull origin main >> $LOG 2>&1
 
-            echo "=== 重新构建镜像 ==="
-            sudo docker build -t autoads:staging .
+            echo "更新 git submodule..." | tee -a $LOG
+            git submodule update --init --recursive >> $LOG 2>&1
 
-            echo "=== 重启容器 ==="
-            sudo docker-compose -f docker-compose.staging.yml up -d
+            echo "构建 OpenClaw 预编译产物..." | tee -a $LOG
+            bash scripts/build-openclaw-prebuilt.sh >> $LOG 2>&1
 
-            echo "=== 等待健康检查 ==="
-            sleep 15
-            STATUS=$(sudo docker inspect --format='{{.State.Health.Status}}' autoads_staging 2>/dev/null || echo "unknown")
-            echo "容器状态: $STATUS"
+            echo "构建 Docker 镜像..." | tee -a $LOG
+            sudo docker build -t autoads:staging . >> $LOG 2>&1
 
-            echo "=== 验证可访问 ==="
-            curl -sf http://localhost:8080/ > /dev/null && echo "✅ 首页 200" || echo "❌ 首页访问失败"
+            echo "重启容器..." | tee -a $LOG
+            sudo docker compose -f docker-compose.staging.yml down >> $LOG 2>&1
+            sudo docker compose -f docker-compose.staging.yml up -d >> $LOG 2>&1
 
-            echo "=== 部署完成 ==="
+            echo "清理旧镜像..." | tee -a $LOG
+            sudo docker image prune -af >> $LOG 2>&1
+
+            echo "[DONE $(date)]" >> $LOG
+            echo "✅ 测试服务器部署完成"
