@@ -1,7 +1,7 @@
 version: '3.8'
 
 # ============================================================
-# Staging 环境 — 轻量配置（2核2GB）
+# Staging 环境 — 轻量配置
 # 用途：上线前预览验证，不用于生产流量
 # 启动：sudo docker compose -f docker-compose.staging.yml up -d
 # ============================================================
@@ -50,13 +50,13 @@ services:
       REDIS_URL: redis://redis_staging:6379
       QUEUE_SPLIT_BACKGROUND: "true"
 
-      # 内存配置（2GB 服务器降配）
+      # 内存配置
       NODE_MAX_OLD_SPACE_SIZE_WEB: 512
       NODE_MAX_OLD_SPACE_SIZE_SCHEDULER: 256
       NODE_MAX_OLD_SPACE_SIZE_BACKGROUND_WORKER: 256
       NODE_MAX_OLD_SPACE_SIZE_OPENCLAW: 128
 
-      # 队列并发（降配）
+      # 队列并发
       QUEUE_GLOBAL_CONCURRENCY: 4
       QUEUE_PER_USER_CONCURRENCY: 2
       QUEUE_CLICK_FARM_CONCURRENCY: 4
