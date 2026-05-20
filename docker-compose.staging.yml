@@ -1,0 +1,121 @@
+version: '3.8'
+
+# ============================================================
+# Staging 环境 — 轻量配置（2核2GB）
+# 用途：上线前预览验证，不用于生产流量
+# 启动：sudo docker compose -f docker-compose.staging.yml up -d
+# ============================================================
+
+services:
+  autoads:
+    image: autoads:staging
+    container_name: autoads_staging
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "80:80"
+    environment:
+      # 数据库
+      DATABASE_URL: ${DATABASE_URL:-postgresql://autoads:stagingpass@postgres_staging:5432/autoads_staging}
+
+      # Google Ads API
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN}
+      GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID}
+      GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET}
+      GOOGLE_ADS_REFRESH_TOKEN: ${GOOGLE_ADS_REFRESH_TOKEN}
+
+      # Google AI
+      GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY}
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+
+      # Cloudflare Turnstile
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+
+      # 环境标识
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      TZ: Asia/Shanghai
+      NEXT_TELEMETRY_DISABLED: "1"
+
+      # Redis
+      REDIS_URL: redis://redis_staging:6379
+      QUEUE_SPLIT_BACKGROUND: "true"
+
+      # 内存配置（2GB 服务器降配）
+      NODE_MAX_OLD_SPACE_SIZE_WEB: 512
+      NODE_MAX_OLD_SPACE_SIZE_SCHEDULER: 256
+      NODE_MAX_OLD_SPACE_SIZE_BACKGROUND_WORKER: 256
+      NODE_MAX_OLD_SPACE_SIZE_OPENCLAW: 128
+
+      # 队列并发（降配）
+      QUEUE_GLOBAL_CONCURRENCY: 4
+      QUEUE_PER_USER_CONCURRENCY: 2
+      QUEUE_CLICK_FARM_CONCURRENCY: 4
+      QUEUE_URL_SWAP_CONCURRENCY: 2
+      CLICK_FARM_MAX_INFLIGHT: 4
+      CLICK_FARM_HEAP_PRESSURE_PCT: 80
+      CLICK_FARM_REQUIRE_REDIS_IN_PRODUCTION: "false"
+
+    volumes:
+      - autoads_staging_backups:/app/data/backups
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - postgres_staging
+      - redis_staging
+    networks:
+      - staging_network
+
+  redis_staging:
+    image: redis:7-alpine
+    container_name: autoads_redis_staging
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_staging_data:/data
+    networks:
+      - staging_network
+
+  postgres_staging:
+    image: postgres:16-alpine
+    container_name: autoads_postgres_staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autoads_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-autoads}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stagingpass}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    networks:
+      - staging_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autoads}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  autoads_staging_backups:
+    driver: local
+  postgres_staging_data:
+    driver: local
+  redis_staging_data:
+    driver: local
+
+networks:
+  staging_network:
+    driver: bridge
