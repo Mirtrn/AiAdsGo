@@ -9,6 +9,10 @@ docs/
 claudedocs/
 oldcode/
 
+# temp/dev screenshots & playwright snapshots
+homepage-*.png
+.playwright-mcp/
+
 # keep OpenClaw runtime workspace templates tracked
 !openclaw/docs/
 openclaw/docs/*
