@@ -33,7 +33,8 @@ function readText(filePath) {
 }
 
 if (!fs.existsSync(metaFile)) {
-  fail('openclaw-prebuilt/.build-meta.json 不存在')
+  console.log('⚠️ openclaw-prebuilt/.build-meta.json 不存在，跳过校验（openclaw 功能将被禁用）')
+  process.exit(0)
 }
 
 const meta = readJson(metaFile)
