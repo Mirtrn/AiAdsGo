@@ -2389,7 +2389,7 @@ export default function SettingsPage() {
 
                       {/* 代理URL格式说明 Dialog */}
                       <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
-                        <DialogContent className="w-[min(95vw,1200px)] max-w-none">
+                        <DialogContent style={{ width: 'min(95vw, 1100px)', maxWidth: 'none' }}>
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <Info className="w-5 h-5 text-slate-600" />
