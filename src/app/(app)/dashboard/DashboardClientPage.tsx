@@ -111,11 +111,6 @@ const DeferredApiQuotaChart = dynamic(
   { ssr: false, loading: () => <DeferredWidgetSkeleton title="API配额" /> }
 )
 
-const DeferredAiTokenCostChart = dynamic(
-  () => import('@/components/dashboard/AiTokenCostChart').then((mod) => mod.AiTokenCostChart),
-  { ssr: false, loading: () => <DeferredWidgetSkeleton title="AI Token成本" /> }
-)
-
 const formatDateInputValue = (date: Date): string => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -623,20 +618,13 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
           </Card>
         </div>
 
-        {/* API配额、AI Token成本 和 快速开始 - 新布局 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* API配额 和 快速开始 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* API配额卡片 */}
           {deferredWidgetsMounted ? (
             <DeferredApiQuotaChart days={widgetDays} />
           ) : (
             <DeferredWidgetSkeleton title="API配额" />
-          )}
-
-          {/* AI Token成本卡片 */}
-          {deferredWidgetsMounted ? (
-            <DeferredAiTokenCostChart days={widgetDays} />
-          ) : (
-            <DeferredWidgetSkeleton title="AI Token成本" />
           )}
 
           {/* 快速开始 - 占1列，最右侧 */}
