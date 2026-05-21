@@ -33,6 +33,13 @@ import {
   LITELLM_DEFAULT_MODEL,
   LITELLM_MODEL_COST,
   getLiteLLMModelDisplayName,
+  GEMINI_OFFICIAL_MODELS,
+  GEMINI_OFFICIAL_MODEL_LABELS,
+  GEMINI_OFFICIAL_DEFAULT,
+  OPENAI_OFFICIAL_MODELS,
+  OPENAI_OFFICIAL_MODEL_LABELS,
+  OPENAI_OFFICIAL_DEFAULT,
+  type AIProvider,
 } from '@/lib/gemini-models'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 import {
@@ -174,7 +181,18 @@ const SETTING_METADATA: Record<string, {
     helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
   },
 
-  // AI - OpenLLM Gateway（原 LiteLLM）配置
+  // AI - 提供商选择
+  'ai.ai_provider': {
+    label: 'AI 提供商',
+    description: '选择调用 AI 的方式：中转服务（推荐国内）、Gemini 官方、OpenAI 官方',
+    options: [
+      { value: 'litellm', label: '🔀 OpenLLM 中转服务（推荐国内用户）' },
+      { value: 'gemini_official', label: '🔵 Google Gemini 官方直连' },
+      { value: 'openai_official', label: '🟢 OpenAI 官方直连' },
+    ],
+    defaultValue: 'litellm',
+  },
+  // AI - OpenLLM Gateway（中转）
   'ai.litellm_api_key': {
     label: 'OpenLLM API Key',
     description: 'OpenLLM 中转服务 API 密钥，适合国内用户访问',
@@ -182,7 +200,7 @@ const SETTING_METADATA: Record<string, {
     helpLink: 'https://openllmapi.com/register',
   },
   'ai.litellm_model': {
-    label: 'AI 模型',
+    label: '中转模型',
     description: '选择通过 OpenLLM 中转调用的模型',
     options: LITELLM_SUPPORTED_MODELS.map(m => {
       const cost = LITELLM_MODEL_COST[m] || ''
@@ -190,6 +208,38 @@ const SETTING_METADATA: Record<string, {
       return { value: m, label: cost ? `${displayName}  ${cost}` : displayName }
     }),
     defaultValue: LITELLM_DEFAULT_MODEL
+  },
+  // AI - Gemini 官方
+  'ai.gemini_api_key': {
+    label: 'Google API Key',
+    description: '从 Google AI Studio (aistudio.google.com) 申请的 API Key',
+    placeholder: '输入 Google API Key（AIza...）',
+    helpLink: 'https://aistudio.google.com/app/apikey',
+  },
+  'ai.gemini_official_model': {
+    label: 'Gemini 模型',
+    description: '选择直连 Google 官方的 Gemini 模型',
+    options: GEMINI_OFFICIAL_MODELS.map(m => ({
+      value: m,
+      label: GEMINI_OFFICIAL_MODEL_LABELS[m] || m,
+    })),
+    defaultValue: GEMINI_OFFICIAL_DEFAULT,
+  },
+  // AI - OpenAI 官方
+  'ai.openai_api_key': {
+    label: 'OpenAI API Key',
+    description: '从 platform.openai.com 获取的 API Key',
+    placeholder: '输入 OpenAI API Key（sk-...）',
+    helpLink: 'https://platform.openai.com/api-keys',
+  },
+  'ai.openai_official_model': {
+    label: 'OpenAI 模型',
+    description: '选择直连 OpenAI 官方的模型',
+    options: OPENAI_OFFICIAL_MODELS.map(m => ({
+      value: m,
+      label: OPENAI_OFFICIAL_MODEL_LABELS[m] || m,
+    })),
+    defaultValue: OPENAI_OFFICIAL_DEFAULT,
   },
 
   // Proxy - 新的多URL配置
@@ -321,8 +371,16 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true },
   ],
   ai: [
+    { key: 'ai_provider', dataType: 'string', isSensitive: false, isRequired: false },
+    // 中转
     { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
+    // Gemini 官方
+    { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'gemini_official_model', dataType: 'string', isSensitive: false, isRequired: false },
+    // OpenAI 官方
+    { key: 'openai_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'openai_official_model', dataType: 'string', isSensitive: false, isRequired: false },
   ],
   proxy: [
     { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
@@ -454,6 +512,9 @@ export default function SettingsPage() {
   >(null)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
+  // AI 提供商模式（本地 UI 状态，用于控制显示哪些字段）
+  const [aiProvider, setAiProvider] = useState<AIProvider>('litellm')
+
   // AI 模型动态列表（从 /api/ai-models 加载，兜底静态列表）
   const [dynamicModelOptions, setDynamicModelOptions] = useState<{ value: string; label: string }[]>(() =>
     LITELLM_SUPPORTED_MODELS.map(m => {
@@ -580,6 +641,14 @@ export default function SettingsPage() {
       } catch {
         setProxyUrls([])
         setSavedProxyUrls([])
+      }
+    }
+
+    // 加载 AI 分类时，同步 aiProvider 状态
+    if (category === 'ai') {
+      const providerSetting = backendSettings.find(s => s.key === 'ai_provider')
+      if (providerSetting?.value) {
+        setAiProvider(providerSetting.value as AIProvider)
       }
     }
 
@@ -941,11 +1010,34 @@ export default function SettingsPage() {
 
       // AI配置验证
       if (category === 'ai') {
-        const litellmApiKey = formData.ai?.['litellm_api_key']
-        if (!litellmApiKey || litellmApiKey.trim() === '') {
-          toast.error('使用 OpenLLM 时，必须填写 OpenLLM API Key')
-          setSaving(false)
-          return
+        const currentProvider = (formData.ai?.['ai_provider'] || aiProvider) as AIProvider
+        if (currentProvider === 'litellm') {
+          const key = formData.ai?.['litellm_api_key']
+          if (!key || key.trim() === '' || key === '············') {
+            // 检查是否已有保存值（占位符代表已保存）
+            const hasSaved = savedFormData.ai?.['litellm_api_key'] === '············'
+            if (!hasSaved) {
+              toast.error('使用 OpenLLM 中转时，必须填写 OpenLLM API Key')
+              setSaving(false)
+              return
+            }
+          }
+        } else if (currentProvider === 'gemini_official') {
+          const key = formData.ai?.['gemini_api_key']
+          const hasSaved = savedFormData.ai?.['gemini_api_key'] === '············'
+          if ((!key || key.trim() === '' || key === '············') && !hasSaved) {
+            toast.error('使用 Gemini 官方 API 时，必须填写 Google API Key')
+            setSaving(false)
+            return
+          }
+        } else if (currentProvider === 'openai_official') {
+          const key = formData.ai?.['openai_api_key']
+          const hasSaved = savedFormData.ai?.['openai_api_key'] === '············'
+          if ((!key || key.trim() === '' || key === '············') && !hasSaved) {
+            toast.error('使用 OpenAI 官方 API 时，必须填写 OpenAI API Key')
+            setSaving(false)
+            return
+          }
         }
       }
 
@@ -1122,7 +1214,10 @@ export default function SettingsPage() {
     const aiSettings = settings.ai || []
     const getBackendValue = (key: string): string | null | undefined =>
       aiSettings.find(s => s.key === key)?.value
-    return Boolean(getBackendValue('litellm_api_key'))
+    if (aiProvider === 'litellm') return Boolean(getBackendValue('litellm_api_key'))
+    if (aiProvider === 'gemini_official') return Boolean(getBackendValue('gemini_api_key'))
+    if (aiProvider === 'openai_official') return Boolean(getBackendValue('openai_api_key'))
+    return false
   })()
 
   const requestDeleteCurrentAIConfig = () => {
@@ -1130,8 +1225,7 @@ export default function SettingsPage() {
       toast.error('当前模式未检测到可删除的配置')
       return
     }
-
-    setAiDeleteConfirmTarget('litellm')
+    setAiDeleteConfirmTarget(aiProvider)
   }
 
   const deleteCurrentAIConfigNow = async (target: string) => {
@@ -1154,7 +1248,12 @@ export default function SettingsPage() {
         throw new Error(data.error || data.message || '删除失败')
       }
 
-      toast.success('已删除 OpenLLM 配置')
+      const providerLabel: Record<string, string> = {
+        litellm: 'OpenLLM 中转',
+        gemini_official: 'Gemini 官方',
+        openai_official: 'OpenAI 官方',
+      }
+      toast.success(`已删除 ${providerLabel[target] || target} 配置`)
       await refreshCategorySettings('ai')
       setEditingField(null)
       setAiDeleteConfirmTarget(null)
@@ -1619,7 +1718,9 @@ export default function SettingsPage() {
             <AlertDialogHeader>
               <AlertDialogTitle>确认删除 AI 配置？</AlertDialogTitle>
               <AlertDialogDescription>
-                将清空 OpenLLM API Key。删除后需要重新填写才能继续使用 OpenLLM 服务。
+                {aiDeleteConfirmTarget === 'litellm' && '将清空 OpenLLM API Key。删除后需要重新填写才能继续使用 OpenLLM 中转服务。'}
+                {aiDeleteConfirmTarget === 'gemini_official' && '将清空 Google API Key。删除后需要重新填写才能继续使用 Gemini 官方 API。'}
+                {aiDeleteConfirmTarget === 'openai_official' && '将清空 OpenAI API Key。删除后需要重新填写才能继续使用 OpenAI 官方 API。'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2435,15 +2536,35 @@ export default function SettingsPage() {
                   <>
                     {/* AI配置说明 */}
                     {category === 'ai' && (
-                      <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                        <div className="flex items-start gap-2 mb-3">
-                          <Info className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
-                          <p className="font-semibold text-body-sm text-purple-800">AI配置顺序</p>
-                        </div>
-                        <div className="space-y-2 text-body-sm text-purple-700">
-                          <p>1. 填写 OpenLLM API Key（前往 openllmapi.com 注册获取）</p>
-                          <p>2. 选择要使用的 AI 模型</p>
-                          <p className="text-purple-600">系统统一使用 OpenLLM 中转服务，支持多种 AI 模型。</p>
+                      <div className="mb-6">
+                        <p className="text-sm font-medium text-slate-700 mb-3">选择 AI 提供商</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {[
+                            { value: 'litellm' as AIProvider, icon: '🔀', title: 'OpenLLM 中转', desc: '国内友好，多模型可选', color: 'border-purple-300 bg-purple-50' },
+                            { value: 'gemini_official' as AIProvider, icon: '🔵', title: 'Gemini 官方', desc: 'Google AI Studio 直连', color: 'border-blue-300 bg-blue-50' },
+                            { value: 'openai_official' as AIProvider, icon: '🟢', title: 'OpenAI 官方', desc: '官方 API 直连', color: 'border-green-300 bg-green-50' },
+                          ].map(opt => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setAiProvider(opt.value)
+                                setFormData(prev => ({
+                                  ...prev,
+                                  ai: { ...(prev.ai || {}), ai_provider: opt.value },
+                                }))
+                              }}
+                              className={`p-3 rounded-lg border-2 text-left transition-all ${
+                                aiProvider === opt.value
+                                  ? opt.color + ' ring-2 ring-offset-1 ring-purple-400'
+                                  : 'border-slate-200 bg-white hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="text-lg mb-1">{opt.icon}</div>
+                              <div className="font-medium text-sm text-slate-800">{opt.title}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">{opt.desc}</div>
+                            </button>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -2465,8 +2586,10 @@ export default function SettingsPage() {
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
                             const aiOrder = [
-                              // OpenLLM（LiteLLM）相关
+                              'ai_provider',
                               'litellm_api_key', 'litellm_model',
+                              'gemini_api_key', 'gemini_official_model',
+                              'openai_api_key', 'openai_official_model',
                             ]
                             const ia = aiOrder.indexOf(a.key)
                             const ib = aiOrder.indexOf(b.key)
@@ -2477,9 +2600,17 @@ export default function SettingsPage() {
                         const metaKey = `${category}.${setting.key}`
                         const metadata = SETTING_METADATA[metaKey]
 
-                        // AI配置：只显示 OpenLLM 相关字段
+                        // AI配置：根据当前 provider 只显示对应字段
                         if (category === 'ai') {
-                          if (!['litellm_api_key', 'litellm_model'].includes(setting.key)) {
+                          // ai_provider 始终隐藏（用卡片UI替代）
+                          if (setting.key === 'ai_provider') return null
+                          // 按 provider 过滤
+                          const visibleMap: Record<string, string[]> = {
+                            litellm: ['litellm_api_key', 'litellm_model'],
+                            gemini_official: ['gemini_api_key', 'gemini_official_model'],
+                            openai_official: ['openai_api_key', 'openai_official_model'],
+                          }
+                          if (!(visibleMap[aiProvider] || []).includes(setting.key)) {
                             return null
                           }
                         }
@@ -2487,7 +2618,9 @@ export default function SettingsPage() {
                       // 动态必填逻辑
                       const isRequired = (() => {
                         if (category === 'ai') {
-                          if (setting.key === 'litellm_api_key') return true
+                          if (aiProvider === 'litellm' && setting.key === 'litellm_api_key') return true
+                          if (aiProvider === 'gemini_official' && setting.key === 'gemini_api_key') return true
+                          if (aiProvider === 'openai_official' && setting.key === 'openai_api_key') return true
                         }
                         return setting.isRequired
                       })()

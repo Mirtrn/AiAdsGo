@@ -59,8 +59,63 @@ export async function POST(request: NextRequest) {
         }
 
         const { getUserOnlySetting } = await import('@/lib/settings')
+        const {
+          normalizeLiteLLMModel,
+          GEMINI_OFFICIAL_BASE_URL, GEMINI_OFFICIAL_DEFAULT,
+          OPENAI_OFFICIAL_BASE_URL, OPENAI_OFFICIAL_DEFAULT,
+        } = await import('@/lib/gemini-models')
+        const { checkLiteLLMConnection } = await import('@/lib/litellm')
 
-        // ─── OpenLLM（LiteLLM）验证 ───────────────────────────
+        // 读取当前 provider 类型
+        const aiProvider = config.ai_provider ||
+          (await getUserOnlySetting('ai', 'ai_provider', userIdNum))?.value ||
+          'litellm'
+
+        // ─── Gemini 官方直连验证 ─────────────────────────────────
+        if (aiProvider === 'gemini_official') {
+          let geminiApiKey: string
+          if (config.gemini_api_key && config.gemini_api_key !== '············') {
+            geminiApiKey = config.gemini_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 Google API Key 配置' }, { status: 400 })
+            }
+            geminiApiKey = saved.value
+          }
+          const geminiModel = config.gemini_official_model ||
+            (await getUserOnlySetting('ai', 'gemini_official_model', userIdNum))?.value ||
+            GEMINI_OFFICIAL_DEFAULT
+          const ok = await checkLiteLLMConnection(userIdNum, geminiApiKey, GEMINI_OFFICIAL_BASE_URL, geminiModel)
+          result = ok
+            ? { valid: true, message: 'Gemini 官方 API 连接验证成功 ✅' }
+            : { valid: false, message: `Gemini 官方 API 连接失败：模型 ${geminiModel} 不可用，请检查 Google API Key 是否正确` }
+          break
+        }
+
+        // ─── OpenAI 官方直连验证 ─────────────────────────────────
+        if (aiProvider === 'openai_official') {
+          let openaiApiKey: string
+          if (config.openai_api_key && config.openai_api_key !== '············') {
+            openaiApiKey = config.openai_api_key
+          } else {
+            const saved = await getUserOnlySetting('ai', 'openai_api_key', userIdNum)
+            if (!saved?.value) {
+              return NextResponse.json({ error: '请先保存 OpenAI API Key 配置' }, { status: 400 })
+            }
+            openaiApiKey = saved.value
+          }
+          const openaiModel = config.openai_official_model ||
+            (await getUserOnlySetting('ai', 'openai_official_model', userIdNum))?.value ||
+            OPENAI_OFFICIAL_DEFAULT
+          const ok = await checkLiteLLMConnection(userIdNum, openaiApiKey, OPENAI_OFFICIAL_BASE_URL, openaiModel)
+          result = ok
+            ? { valid: true, message: 'OpenAI 官方 API 连接验证成功 ✅' }
+            : { valid: false, message: `OpenAI 官方 API 连接失败：模型 ${openaiModel} 不可用，请检查 OpenAI API Key 是否正确` }
+          break
+        }
+
+        // ─── OpenLLM（LiteLLM）中转验证（默认）──────────────────
         let litellmApiKey: string
         if (config.litellm_api_key && config.litellm_api_key !== '············') {
           litellmApiKey = config.litellm_api_key
@@ -80,7 +135,6 @@ export async function POST(request: NextRequest) {
         }
         // 若 config 中明确传入了 litellm_model（如来自管理员手动测试），直接使用原始值，
         // 不做白名单归一化，避免把自定义 model_id 错误降级为默认模型
-        const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
         let litellmModel: string
         if (config.litellm_model) {
           litellmModel = config.litellm_model
@@ -88,7 +142,6 @@ export async function POST(request: NextRequest) {
           const savedModel = (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
           litellmModel = normalizeLiteLLMModel(savedModel)
         }
-        const { checkLiteLLMConnection } = await import('@/lib/litellm')
         const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
         result = ok
           ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
