@@ -71,6 +71,13 @@ export async function POST(request: NextRequest) {
           }
           litellmApiKey = saved.value
         }
+        // 读取 base_url：若 config 中传入则用，否则从 DB 读取保存值
+        let litellmBaseUrl: string | undefined
+        if (config.litellm_base_url && config.litellm_base_url !== '············') {
+          litellmBaseUrl = config.litellm_base_url
+        } else {
+          litellmBaseUrl = (await getUserOnlySetting('ai', 'litellm_base_url', userIdNum))?.value || undefined
+        }
         // 若 config 中明确传入了 litellm_model（如来自管理员手动测试），直接使用原始值，
         // 不做白名单归一化，避免把自定义 model_id 错误降级为默认模型
         const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
@@ -82,7 +89,7 @@ export async function POST(request: NextRequest) {
           litellmModel = normalizeLiteLLMModel(savedModel)
         }
         const { checkLiteLLMConnection } = await import('@/lib/litellm')
-        const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
+        const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
         result = ok
           ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
           : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key` }

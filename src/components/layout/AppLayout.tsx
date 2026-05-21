@@ -453,9 +453,9 @@ export default function AppLayout({
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 lg:pb-0 pb-16">
       {/* 桌面端顶部Header - 移动端隐藏 */}
-      <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-slate-200 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
+      <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-white/10 bg-slate-900 sticky top-0 z-50">
         <div className="flex items-center gap-4">
-          <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <h1 className="font-bold text-xl text-white tracking-tight">
             AiAdsGo
           </h1>
         </div>
@@ -464,19 +464,19 @@ export default function AppLayout({
           {!sidebarOpen && user && (
             <button
               onClick={() => setProfileModalOpen(true)}
-              className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/10 transition-colors"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white">
                 <UserIcon className="w-4 h-4" />
               </div>
-              <span className="text-sm text-slate-700">{user.username || user.email}</span>
+              <span className="text-sm text-slate-300">{user.username || user.email}</span>
             </button>
           )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="text-slate-400 hover:text-slate-600"
+            className="text-slate-400 hover:text-white hover:bg-white/10"
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>

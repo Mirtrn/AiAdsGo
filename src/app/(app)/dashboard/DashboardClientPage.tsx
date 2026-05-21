@@ -629,84 +629,79 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
 
           {/* 快速开始 - 占1列，最右侧 */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">快速开始</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">快速开始</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  className="w-full h-auto py-4 justify-start gap-3 hover:border-blue-300 hover:bg-blue-50"
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-100 hover:border-blue-200 hover:bg-blue-50 transition-all text-left group"
                   onClick={() => router.push('/offers?action=create')}
                 >
-                  <div className="p-2 bg-blue-100 rounded-lg">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-200 transition-colors">
                     <Plus className="w-4 h-4 text-blue-600" />
                   </div>
-                  <div className="text-left flex-1">
-                    <div className="font-semibold text-sm">创建Offer</div>
-                    <div className="text-xs text-gray-500">添加新产品</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">创建Offer</div>
+                    <div className="text-[11px] text-slate-400">添加新产品</div>
                   </div>
-                </Button>
+                </button>
 
-                <Button
-                  variant="outline"
-                  className="w-full h-auto py-4 justify-start gap-3 hover:border-green-300 hover:bg-green-50"
+                <button
+                  className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-100 hover:border-green-200 hover:bg-green-50 transition-all text-left group"
                   onClick={() => router.push('/offers')}
                 >
-                  <div className="p-2 bg-green-100 rounded-lg">
+                  <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0 group-hover:bg-green-200 transition-colors">
                     <Rocket className="w-4 h-4 text-green-600" />
                   </div>
-                  <div className="text-left flex-1">
-                    <div className="font-semibold text-sm">一键上广告</div>
-                    <div className="text-xs text-gray-500">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">一键上广告</div>
+                    <div className="text-[11px] text-slate-400">
                       {offerSummary && offerSummary.total > 0
                         ? `${offerSummary.total}个可投放`
                         : '先创建Offer'}
                     </div>
                   </div>
-                </Button>
+                </button>
 
-                <Button
-                  variant="outline"
-                  className="w-full h-auto py-4 justify-start gap-3 hover:border-indigo-300 hover:bg-indigo-50"
+                <button
+                  className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50 transition-all text-left group"
                   onClick={() => router.push('/campaigns')}
                 >
-                  <div className="p-2 bg-indigo-100 rounded-lg">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-200 transition-colors">
                     <TrendingUp className="w-4 h-4 text-indigo-600" />
                   </div>
-                  <div className="text-left flex-1">
-                    <div className="font-semibold text-sm">广告系列</div>
-                    <div className="text-xs text-gray-500">管理投放系列</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">广告系列</div>
+                    <div className="text-[11px] text-slate-400">管理投放系列</div>
                   </div>
-                </Button>
+                </button>
 
-                <Button
-                  variant="outline"
-                  className="w-full h-auto py-4 justify-start gap-3 hover:border-orange-300 hover:bg-orange-50"
+                <button
+                  className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-100 hover:border-orange-200 hover:bg-orange-50 transition-all text-left group"
                   onClick={() => router.push('/google-ads')}
                 >
-                  <div className="p-2 bg-orange-100 rounded-lg">
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-200 transition-colors">
                     <DollarSign className="w-4 h-4 text-orange-600" />
                   </div>
-                  <div className="text-left flex-1">
-                    <div className="font-semibold text-sm">Google Ads账号</div>
-                    <div className="text-xs text-gray-500">账号管理</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">Google Ads账号</div>
+                    <div className="text-[11px] text-slate-400">账号管理</div>
                   </div>
-                </Button>
+                </button>
 
-                <Button
-                  variant="outline"
-                  className="w-full h-auto py-4 justify-start gap-3 hover:border-gray-300 hover:bg-gray-50"
+                <button
+                  className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50 transition-all text-left col-span-2 group"
                   onClick={() => router.push('/settings')}
                 >
-                  <div className="p-2 bg-gray-100 rounded-lg">
-                    <RefreshCw className="w-4 h-4 text-gray-600" />
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0 group-hover:bg-slate-200 transition-colors">
+                    <RefreshCw className="w-4 h-4 text-slate-600" />
                   </div>
-                  <div className="text-left flex-1">
-                    <div className="font-semibold text-sm">系统设置</div>
-                    <div className="text-xs text-gray-500">配置参数</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">系统设置</div>
+                    <div className="text-[11px] text-slate-400">配置参数</div>
                   </div>
-                </Button>
+                </button>
               </div>
             </CardContent>
           </Card>
