@@ -369,8 +369,9 @@ export default function DashboardClientPage({ dashboardDeferEnabled = false }: D
     return Math.floor((endTs - startTs) / (24 * 60 * 60 * 1000)) + 1
   })()
 
-  // 加载骨架屏
-  if (loading) {
+  // 加载骨架屏：仅首次加载（kpiData 为 null）时显示全页骨架屏
+  // 后续时间范围切换时保留旧数据，避免整页闪烁
+  if (loading && !kpiData) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
         <div className="max-w-6xl mx-auto space-y-6">
