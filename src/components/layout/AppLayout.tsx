@@ -453,9 +453,9 @@ export default function AppLayout({
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 lg:pb-0 pb-16">
       {/* 桌面端顶部Header - 移动端隐藏 */}
-      <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-slate-200 bg-white sticky top-0 z-50">
+      <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-slate-200 bg-slate-50 sticky top-0 z-50">
         <div className="flex items-center gap-4">
-          <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <h1 className="font-bold text-xl text-slate-800 tracking-tight">
             AiAdsGo
           </h1>
         </div>
@@ -464,7 +464,7 @@ export default function AppLayout({
           {!sidebarOpen && user && (
             <button
               onClick={() => setProfileModalOpen(true)}
-              className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-100 transition-colors"
+              className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-200 transition-colors"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white">
                 <UserIcon className="w-4 h-4" />
@@ -476,7 +476,7 @@ export default function AppLayout({
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+            className="text-slate-500 hover:text-slate-700 hover:bg-slate-200"
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
@@ -486,19 +486,19 @@ export default function AppLayout({
       {/* 桌面端侧边栏 - 移动端隐藏 */}
       <aside
         className={`
-          hidden lg:block fixed top-0 left-0 h-full bg-white z-40 transition-all duration-300 shadow-sm border-r border-slate-200
+          hidden lg:block fixed top-0 left-0 h-full bg-slate-50 z-40 transition-all duration-300 border-r border-slate-200
           ${sidebarOpen ? 'w-56' : 'w-20'}
         `}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-4 mb-2 bg-white border-b border-slate-200 flex-shrink-0">
+        <div className="h-16 flex items-center justify-between px-4 mb-2 bg-slate-50 border-b border-slate-200 flex-shrink-0">
           {sidebarOpen && (
-            <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            <h1 className="font-bold text-xl text-slate-800 tracking-tight">
               AiAdsGo
             </h1>
           )}
           {!sidebarOpen && (
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mx-auto">
+            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center mx-auto">
               <span className="text-white font-bold text-sm">A</span>
             </div>
           )}
@@ -510,7 +510,7 @@ export default function AppLayout({
             onClick={() => setProfileModalOpen(true)}
             className={`
               w-full flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200
-              ${sidebarOpen ? 'bg-slate-50 hover:bg-slate-100 border border-slate-200' : 'justify-center hover:bg-slate-100'}
+              ${sidebarOpen ? 'bg-white hover:bg-slate-100 border border-slate-200' : 'justify-center hover:bg-slate-200'}
             `}
           >
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white flex-shrink-0">
