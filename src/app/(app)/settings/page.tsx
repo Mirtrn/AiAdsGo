@@ -1,4 +1,4 @@
-
+o
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -2199,64 +2199,75 @@ export default function SettingsPage() {
                       )
                     )}
 
-                    {/* 已配置的服务账号列表（支持多MCC绑定） */}
-                    {googleAdsAuthMethod === 'service_account' && serviceAccounts.length > 0 && (
+                    {/* 已配置的服务账号列表（支持多MCC绑定） —— 始终显示 */}
+                    {googleAdsAuthMethod === 'service_account' && (
                       <div className="border-t pt-6">
-                        <h3 className="font-semibold mb-4">已配置的服务账号 <span className="text-sm font-normal text-gray-500">（共 {serviceAccounts.length} 条）</span></h3>
-                        <div className="space-y-3">
-                          {serviceAccounts.map((account) => {
-                            const verifyResult = serviceAccountVerifyStatus[account.id]
-                            const isVerifying = verifyingServiceAccountId === account.id
-                            return (
-                              <div key={account.id} className="p-4 border rounded-lg hover:bg-gray-50">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-semibold text-gray-900">{account.name}</div>
-                                    <div className="text-sm text-gray-600 mt-1 space-y-1">
-                                      <div>MCC ID: <span className="font-mono">{account.mcc_customer_id}</span></div>
-                                      <div className="truncate">服务账号: <span className="font-mono text-xs">{account.service_account_email}</span></div>
-                                      <div className="text-xs text-gray-500">
-                                        添加时间: {new Date(account.created_at).toLocaleString('zh-CN')}
+                        <h3 className="font-semibold mb-4">
+                          已绑定的 MCC 服务账号
+                          <span className="text-sm font-normal text-gray-500 ml-2">（共 {serviceAccounts.length} 条）</span>
+                        </h3>
+                        {loadingServiceAccounts ? (
+                          <div className="text-sm text-gray-500 py-4 text-center">加载中...</div>
+                        ) : serviceAccounts.length === 0 ? (
+                          <div className="text-sm text-gray-400 py-6 text-center border rounded-lg bg-gray-50">
+                            暂无已绑定的服务账号，请在上方填写表单后点击「添加绑定」
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {serviceAccounts.map((account) => {
+                              const verifyResult = serviceAccountVerifyStatus[account.id]
+                              const isVerifying = verifyingServiceAccountId === account.id
+                              return (
+                                <div key={account.id} className="p-4 border rounded-lg hover:bg-gray-50">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-semibold text-gray-900">{account.name}</div>
+                                      <div className="text-sm text-gray-600 mt-1 space-y-1">
+                                        <div>MCC ID: <span className="font-mono">{account.mcc_customer_id}</span></div>
+                                        <div className="truncate">服务账号: <span className="font-mono text-xs">{account.service_account_email}</span></div>
+                                        <div className="text-xs text-gray-500">
+                                          添加时间: {new Date(account.created_at).toLocaleString('zh-CN')}
+                                        </div>
+                                        {/* 验证状态显示 */}
+                                        {isVerifying ? (
+                                          <div className="text-xs text-blue-500 flex items-center gap-1 mt-1">
+                                            <span className="animate-pulse">⏳</span>
+                                            <span>验证中...</span>
+                                          </div>
+                                        ) : verifyResult ? (
+                                          <div className={`text-xs flex items-center gap-1 mt-1 ${verifyResult.valid ? 'text-green-600' : 'text-red-500'}`}>
+                                            <span>{verifyResult.valid ? '✅' : '❌'}</span>
+                                            <span>{verifyResult.message}</span>
+                                          </div>
+                                        ) : null}
                                       </div>
-                                      {/* 验证状态显示 */}
-                                      {isVerifying ? (
-                                        <div className="text-xs text-blue-500 flex items-center gap-1 mt-1">
-                                          <span className="animate-pulse">⏳</span>
-                                          <span>验证中...</span>
-                                        </div>
-                                      ) : verifyResult ? (
-                                        <div className={`text-xs flex items-center gap-1 mt-1 ${verifyResult.valid ? 'text-green-600' : 'text-red-500'}`}>
-                                          <span>{verifyResult.valid ? '✅' : '❌'}</span>
-                                          <span>{verifyResult.message}</span>
-                                        </div>
-                                      ) : null}
+                                    </div>
+                                    <div className="flex flex-col gap-2 shrink-0">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => verifyServiceAccountNow(account.id)}
+                                        disabled={isVerifying || deletingServiceAccountId === account.id}
+                                        className="text-blue-600 hover:text-blue-700 whitespace-nowrap"
+                                      >
+                                        {isVerifying ? '验证中...' : '验证连接'}
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => requestDeleteServiceAccount(account.id)}
+                                        disabled={deletingServiceAccountId === account.id || isVerifying}
+                                        className="text-red-600 hover:text-red-700"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
                                     </div>
                                   </div>
-                                  <div className="flex flex-col gap-2 shrink-0">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => verifyServiceAccountNow(account.id)}
-                                      disabled={isVerifying || deletingServiceAccountId === account.id}
-                                      className="text-blue-600 hover:text-blue-700 whitespace-nowrap"
-                                    >
-                                      {isVerifying ? '验证中...' : '验证连接'}
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => requestDeleteServiceAccount(account.id)}
-                                      disabled={deletingServiceAccountId === account.id || isVerifying}
-                                      className="text-red-600 hover:text-red-700"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </div>
                                 </div>
-                              </div>
-                            )
-                          })}
-                        </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 
