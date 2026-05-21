@@ -71,11 +71,16 @@ export async function POST(request: NextRequest) {
           }
           litellmApiKey = saved.value
         }
-        const litellmModelRaw = config.litellm_model
-          || (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
-          || undefined
+        // 若 config 中明确传入了 litellm_model（如来自管理员手动测试），直接使用原始值，
+        // 不做白名单归一化，避免把自定义 model_id 错误降级为默认模型
         const { normalizeLiteLLMModel } = await import('@/lib/gemini-models')
-        const litellmModel = normalizeLiteLLMModel(litellmModelRaw)
+        let litellmModel: string
+        if (config.litellm_model) {
+          litellmModel = config.litellm_model
+        } else {
+          const savedModel = (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
+          litellmModel = normalizeLiteLLMModel(savedModel)
+        }
         const { checkLiteLLMConnection } = await import('@/lib/litellm')
         const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
         result = ok

@@ -304,7 +304,9 @@ export async function checkLiteLLMConnection(
       const endpoint = `${resolvedBase}/v1/chat/completions`
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 20_000)
-      const testModel = model ? normalizeLiteLLMModel(model) : LITELLM_DEFAULT_MODEL
+      // 若调用方明确传入了 model，直接使用原始值（如 admin 测试自定义模型）；
+      // 否则才 fallback 到默认模型，避免把自定义 model_id 错误降级
+      const testModel = model || LITELLM_DEFAULT_MODEL
       try {
         const resp = await fetch(endpoint, {
           method: 'POST',
