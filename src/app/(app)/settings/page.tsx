@@ -2389,67 +2389,64 @@ export default function SettingsPage() {
 
                       {/* 代理URL格式说明 Dialog */}
                       <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
-                        <DialogContent className="max-w-5xl">
+                        <DialogContent className="w-[min(95vw,1200px)] max-w-none">
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <Info className="w-5 h-5 text-slate-600" />
                               代理URL格式说明
                             </DialogTitle>
                           </DialogHeader>
-                          {/* 真正的 2列2行 等大卡片网格 */}
-                          <div className="grid grid-cols-2 grid-rows-2 gap-4 text-sm mt-2">
-                            {/* 卡片1：IPRocket */}
-                            <div className="bg-white p-4 rounded-lg border border-blue-200 flex flex-col gap-3">
-                              <div className="flex items-center gap-2">
+                          {/* 左：IPRocket+Kookeey合并  右上：Oxylabs  右下：Abcproxy/IpMars/Ipidea */}
+                          <div className="grid grid-cols-2 gap-4 text-sm mt-2">
+                            {/* 左列：IPRocket + Kookeey 合并卡片 */}
+                            <div className="bg-white p-5 rounded-lg border border-blue-200 flex flex-col gap-3">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">IPRocket</span>
-                                <span className="text-slate-500 text-xs">API格式 · 需调用API获取代理IP</span>
-                              </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md overflow-x-auto whitespace-nowrap">
-                                https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
-                              </div>
-                              <p className="text-xs text-slate-500">登录控制台 → 提取IP → 复制完整 API URL</p>
-                            </div>
-
-                            {/* 卡片2：Kookeey */}
-                            <div className="bg-white p-4 rounded-lg border border-teal-200 flex flex-col gap-3">
-                              <div className="flex items-center gap-2">
                                 <span className="px-2.5 py-1 bg-teal-100 text-teal-700 text-xs font-semibold rounded-full">Kookeey</span>
                                 <span className="text-slate-500 text-xs">API格式 · 需调用API获取代理IP</span>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md overflow-x-auto whitespace-nowrap">
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md whitespace-nowrap overflow-x-auto">
+                                https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
+                              </div>
+                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md whitespace-nowrap overflow-x-auto">
                                 https://www.kookeey.com/pickdynamicips?...&sign=xxx&accessid=xxx&...
                               </div>
-                              <p className="text-xs text-slate-500">控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL</p>
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                Kookeey：控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL
+                              </p>
                             </div>
 
-                            {/* 卡片3：Oxylabs */}
-                            <div className="bg-white p-4 rounded-lg border border-green-200 flex flex-col gap-3">
-                              <div className="flex items-center gap-2">
-                                <span className="px-2.5 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Oxylabs</span>
-                                <span className="text-slate-500 text-xs">直连格式 · 直接代理服务器地址</span>
+                            {/* 右列：Oxylabs + Abcproxy/IpMars/Ipidea 上下叠放 */}
+                            <div className="flex flex-col gap-4">
+                              {/* Oxylabs */}
+                              <div className="bg-white p-5 rounded-lg border border-green-200 flex flex-col gap-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2.5 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Oxylabs</span>
+                                  <span className="text-slate-500 text-xs">直连格式 · 直接代理服务器地址</span>
+                                </div>
+                                <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md whitespace-nowrap overflow-x-auto">
+                                  https://用户名:密码@pr.oxylabs.io:端口
+                                </div>
+                                <p className="text-xs text-slate-500">包含 http(s):// 前缀，直接填写完整 URL</p>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md overflow-x-auto whitespace-nowrap">
-                                https://用户名:密码@pr.oxylabs.io:端口
-                              </div>
-                              <p className="text-xs text-slate-500">包含 http(s):// 前缀，直接填写完整 URL</p>
-                            </div>
 
-                            {/* 卡片4：Abcproxy / IpMars / Ipidea */}
-                            <div className="bg-white p-4 rounded-lg border border-violet-200 flex flex-col gap-3">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="px-2.5 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">Abcproxy</span>
-                                <span className="px-2.5 py-1 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">IpMars</span>
-                                <span className="px-2.5 py-1 bg-sky-100 text-sky-700 text-xs font-semibold rounded-full">Ipidea</span>
-                                <span className="text-slate-500 text-xs">直连格式 · 无需调用API</span>
+                              {/* Abcproxy / IpMars / Ipidea */}
+                              <div className="bg-white p-5 rounded-lg border border-violet-200 flex flex-col gap-3">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-2.5 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">Abcproxy</span>
+                                  <span className="px-2.5 py-1 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">IpMars</span>
+                                  <span className="px-2.5 py-1 bg-sky-100 text-sky-700 text-xs font-semibold rounded-full">Ipidea</span>
+                                  <span className="text-slate-500 text-xs">直连格式 · 无需调用API</span>
+                                </div>
+                                <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md whitespace-nowrap overflow-x-auto">
+                                  host:port:username:password
+                                </div>
+                                <p className="text-xs text-slate-500">不带 http(s):// 前缀，直接填写 host:port:user:pass 格式</p>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 px-3 py-2 rounded-md overflow-x-auto whitespace-nowrap">
-                                host:port:username:password
-                              </div>
-                              <p className="text-xs text-slate-500">不带 http(s):// 前缀，直接填写 host:port:user:pass 格式</p>
                             </div>
                           </div>
 
-                          <div className="mt-3 pt-3 border-t border-slate-200">
+                          <div className="mt-4 pt-3 border-t border-slate-200">
                             <p className="text-xs text-amber-700 flex items-start gap-1.5">
                               <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                               <span><strong>处理策略：</strong>IPRocket / Kookeey — 系统先调用 API 获取代理IP；Oxylabs / Abcproxy / IpMars / Ipidea — 直接解析并使用代理</span>
