@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  autoads:
+    image: autoads:single
+    container_name: autoads
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./data/autoads.db
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=80
+      - QUEUE_SPLIT_BACKGROUND=true
+    volumes:
+      # 持久化数据目录
+      - ./data:/app/data
+      - ./scripts:/app/scripts:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - autoads-network
+
+  # PostgreSQL 数据库（主服务器使用 PostgreSQL）
+  postgres:
+    image: postgres:16-alpine
+    container_name: autoads_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=autoads
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-autoads2026}
+      - POSTGRES_DB=autoads
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoads"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autoads-network
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: autoads_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - autoads-network
+
+networks:
+  autoads-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
