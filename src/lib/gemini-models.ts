@@ -78,30 +78,30 @@ export function normalizeLiteLLMModel(model?: string | null): LiteLLMModel {
 
 // ─── 官方 Gemini 模型（直连 Google AI Studio）────────────────────
 export const GEMINI_OFFICIAL_MODELS = [
-  'gemini-2.5-pro-preview-05-06',
-  'gemini-2.5-flash-preview-05-20',
+  'gemini-3.5-flash',
+  'gemini-3.1-pro-preview',
 ] as const
 export type GeminiOfficialModel = typeof GEMINI_OFFICIAL_MODELS[number]
-export const GEMINI_OFFICIAL_DEFAULT: GeminiOfficialModel = 'gemini-2.5-flash-preview-05-20'
+export const GEMINI_OFFICIAL_DEFAULT: GeminiOfficialModel = 'gemini-3.5-flash'
 export const GEMINI_OFFICIAL_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
 
 export const GEMINI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
-  'gemini-2.5-pro-preview-05-06':   'Gemini 2.5 Pro（旗舰）',
-  'gemini-2.5-flash-preview-05-20': 'Gemini 2.5 Flash（快速）',
+  'gemini-3.5-flash':     'Gemini 3.5 Flash（旗舰）',
+  'gemini-3.1-pro-preview': 'Gemini 3.1 Pro（高级）',
 }
 
 // ─── 官方 OpenAI 模型（直连 OpenAI API）──────────────────────────
 export const OPENAI_OFFICIAL_MODELS = [
-  'gpt-4.1',
-  'gpt-4.1-mini',
+  'gpt-5.5',
+  'gpt-5.4-mini',
 ] as const
 export type OpenAIOfficialModel = typeof OPENAI_OFFICIAL_MODELS[number]
-export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-4.1-mini'
+export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-5.4-mini'
 export const OPENAI_OFFICIAL_BASE_URL = 'https://api.openai.com'
 
 export const OPENAI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
-  'gpt-4.1':      'GPT-4.1（旗舰）',
-  'gpt-4.1-mini': 'GPT-4.1 Mini（快速）',
+  'gpt-5.5':     'GPT-5.5（旗舰）',
+  'gpt-5.4-mini': 'GPT-5.4 Mini（快速）',
 }
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
