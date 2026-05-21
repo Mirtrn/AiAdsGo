@@ -253,10 +253,7 @@ export default function AdminAIModelsPage() {
                 {models.map(m => (
                   <TableRow key={m.id} className={!m.is_enabled ? 'opacity-50' : ''}>
                     <TableCell className="text-center text-gray-400">
-                      <div className="flex items-center justify-center gap-1">
-                        <GripVertical className="w-4 h-4" />
-                        <span className="text-xs">{m.sort_order}</span>
-                      </div>
+                      <span className="text-xs font-mono">{m.sort_order}</span>
                     </TableCell>
                     <TableCell className="font-mono text-xs text-gray-600">{m.model_id}</TableCell>
                     <TableCell>
