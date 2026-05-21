@@ -114,5 +114,9 @@ networks:
     driver: bridge
 
 volumes:
+  autoads_backups:
+    driver: local
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
