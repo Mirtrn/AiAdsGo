@@ -80,16 +80,14 @@ export function normalizeLiteLLMModel(model?: string | null): LiteLLMModel {
 export const GEMINI_OFFICIAL_MODELS = [
   'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
 ] as const
 export type GeminiOfficialModel = typeof GEMINI_OFFICIAL_MODELS[number]
 export const GEMINI_OFFICIAL_DEFAULT: GeminiOfficialModel = 'gemini-3.5-flash'
 export const GEMINI_OFFICIAL_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
 
 export const GEMINI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
-  'gemini-3.5-flash':       'Gemini 3.5 Flash（旗舰）',
+  'gemini-3.5-flash':     'Gemini 3.5 Flash（旗舰）',
   'gemini-3.1-pro-preview': 'Gemini 3.1 Pro（高级）',
-  'gemini-3-flash-preview': 'Gemini 3 Flash（预览）',
 }
 
 // ─── 官方 OpenAI 模型（直连 OpenAI API）──────────────────────────
