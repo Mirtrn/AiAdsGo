@@ -33,6 +33,9 @@ export async function PATCH(
       return NextResponse.json({ error: '没有需要更新的字段' }, { status: 400 })
     }
 
+    // 始终更新 updated_at
+    setClauses.push('updated_at = CURRENT_TIMESTAMP')
+
     values.push(id)
     const db = getDatabase()
     const model = await db.queryOne(
