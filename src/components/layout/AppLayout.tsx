@@ -7,10 +7,8 @@ import {
   Activity,
   LayoutDashboard,
   Package,
-  Boxes,
   Megaphone,
   Lightbulb,
-  Rocket,
   Settings,
   Users,
   Database,
@@ -22,7 +20,6 @@ import {
   Shield,
   Key,
   Link2,
-  Beaker,
   TrendingUp,
   FileText,
   Clock,
@@ -56,20 +53,6 @@ const AnnouncementModal = dynamic(
   () => import('@/components/AnnouncementModal'),
   { ssr: false }
 )
-
-// 套餐类型中文映射
-const PACKAGE_TYPE_MAP: Record<string, string> = {
-  trial: '试用版',
-  annual: '年卡',
-  lifetime: '长期会员',
-  enterprise: '私有化部署',
-}
-
-// 角色中文映射
-const ROLE_MAP: Record<string, string> = {
-  admin: '管理员',
-  user: '普通用户',
-}
 
 interface UserInfo {
   id: number

@@ -1,4 +1,3 @@
-o
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -1512,17 +1511,12 @@ export default function SettingsPage() {
     // 布尔类型 - 使用Select
     if (setting.dataType === 'boolean' || metadata?.options) {
       // ai.litellm_model 使用动态加载的模型列表
-      let options = metaKey === 'ai.litellm_model'
+      const options = metaKey === 'ai.litellm_model'
         ? dynamicModelOptions
         : (metadata?.options || [
           { value: 'true', label: '是' },
           { value: 'false', label: '否' }
         ])
-
-      if (false) {
-        {
-        }
-      }
 
       return (
         <Select
@@ -2806,3 +2800,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+
