@@ -491,14 +491,14 @@ export default function AppLayout({
         `}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-4 mb-2">
+        <div className="h-16 flex items-center justify-between px-4 mb-2 bg-slate-900 border-b border-white/10 flex-shrink-0">
           {sidebarOpen && (
             <h1 className="font-bold text-xl text-white tracking-tight">
               AiAdsGo
             </h1>
           )}
           {!sidebarOpen && (
-            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center mx-auto">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center mx-auto">
               <span className="text-white font-bold text-sm">A</span>
             </div>
           )}
