@@ -823,6 +823,10 @@ export default function SettingsPage() {
         setGoogleAdsUnlocked(true)
         setGoogleAdsLockPassword('')
         toast.success('已解锁 Google Ads API 配置')
+        // 解锁后若在服务账号模式，立即刷新列表
+        if (googleAdsAuthMethod === 'service_account') {
+          fetchServiceAccounts()
+        }
       } else {
         setGoogleAdsLockError(data.error || '密码验证失败')
       }
