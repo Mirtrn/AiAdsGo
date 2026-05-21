@@ -2389,57 +2389,60 @@ export default function SettingsPage() {
 
                       {/* 代理URL格式说明 Dialog */}
                       <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
-                        <DialogContent className="max-w-5xl">
+                        <DialogContent className="max-w-4xl">
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <Info className="w-5 h-5 text-slate-600" />
                               代理URL格式说明
                             </DialogTitle>
                           </DialogHeader>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mt-2">
-                            {/* IPRocket / Kookeey API格式 */}
-                            <div className="bg-white p-3 rounded border border-blue-200">
-                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <div className="grid grid-cols-2 gap-4 text-xs mt-2">
+                            {/* 左列：IPRocket / Kookeey API格式 */}
+                            <div className="bg-white p-4 rounded border border-blue-200 flex flex-col gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
                                 <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-medium rounded">Kookeey</span>
-                                <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
+                                <span className="text-slate-600 font-medium">API格式 · 需调用API获取代理IP</span>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                              <div className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-1.5 rounded overflow-x-auto whitespace-nowrap">
                                 https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all mt-1.5">
+                              <div className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-1.5 rounded overflow-x-auto whitespace-nowrap">
                                 https://www.kookeey.com/pickdynamicips?...&sign=xxx&accessid=xxx&...
                               </div>
-                              <p className="mt-2 text-xs text-slate-500">
+                              <p className="text-slate-500 leading-relaxed">
                                 Kookeey：登录控制台 → 动态住宅代理 → 提取动态IP → 账密认证 → 点击「生成API提取链接」→ 复制完整 URL
                               </p>
                             </div>
 
-                            {/* Oxylabs格式 */}
-                            <div className="bg-white p-3 rounded border border-green-200">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
-                                <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
+                            {/* 右列：Oxylabs + Abcproxy/IpMars/Ipidea 叠放 */}
+                            <div className="flex flex-col gap-4">
+                              {/* Oxylabs */}
+                              <div className="bg-white p-4 rounded border border-green-200 flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
+                                  <span className="text-slate-600 font-medium">直接格式 · 直接代理服务器地址</span>
+                                </div>
+                                <div className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-1.5 rounded overflow-x-auto whitespace-nowrap">
+                                  https://用户名:密码@pr.oxylabs.io:端口
+                                </div>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                                https://用户名:密码@pr.oxylabs.io:端口
-                              </div>
-                            </div>
 
-                            {/* Abcproxy / IpMars / Ipidea 直连格式 */}
-                            <div className="bg-white p-3 rounded border border-violet-200">
-                              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
-                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
-                                <span className="px-2 py-0.5 bg-sky-100 text-sky-700 text-xs font-medium rounded">Ipidea</span>
-                                <span className="text-slate-600">直连格式 - 无需调用API</span>
+                              {/* Abcproxy / IpMars / Ipidea 直连格式 */}
+                              <div className="bg-white p-4 rounded border border-violet-200 flex flex-col gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
+                                  <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
+                                  <span className="px-2 py-0.5 bg-sky-100 text-sky-700 text-xs font-medium rounded">Ipidea</span>
+                                  <span className="text-slate-600 font-medium">直连格式 · 无需调用API</span>
+                                </div>
+                                <div className="font-mono text-[11px] text-slate-700 bg-slate-100 px-2 py-1.5 rounded overflow-x-auto whitespace-nowrap">
+                                  host:port:username:password
+                                </div>
+                                <p className="text-slate-500">
+                                  建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
+                                </p>
                               </div>
-                              <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                                host:port:username:password
-                              </div>
-                              <p className="mt-2 text-xs text-slate-500">
-                                建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
-                              </p>
                             </div>
                           </div>
 
@@ -2448,8 +2451,7 @@ export default function SettingsPage() {
                               <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
                               <span>
                                 <strong>处理策略：</strong>
-                                <br />• IPRocket / Kookeey：API格式（系统会先调用 API 获取代理IP）
-                                <br />• 直连格式：直接解析并使用代理（Oxylabs、Abcproxy、IpMars、Ipidea）
+                                &nbsp;IPRocket / Kookeey — API格式（系统会先调用 API 获取代理IP）；直连格式 — 直接解析并使用代理（Oxylabs、Abcproxy、IpMars、Ipidea）
                               </span>
                             </p>
                           </div>
