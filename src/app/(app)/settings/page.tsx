@@ -1806,6 +1806,18 @@ export default function SettingsPage() {
                       配置指南
                     </Button>
                   )}
+                  {category === 'proxy' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowProxyFormatDialog(true)}
+                      className="text-slate-600 border-slate-300 hover:border-slate-400"
+                    >
+                      <Info className="w-4 h-4 mr-2" />
+                      查看格式说明
+                    </Button>
+                  )}
                 </div>
 
                 {/* 特殊处理 Google Ads 配置分类 */}
@@ -2375,30 +2387,16 @@ export default function SettingsPage() {
                         <span>💡 想使用稳定便宜的代理平台，请联系管理员购买，<span className="text-red-700 font-semibold">千万不要买官网套餐</span></span>
                       </p>
 
-                      {/* 代理URL格式说明 - 弹窗触发按钮 */}
-                      <div className="mt-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowProxyFormatDialog(true)}
-                          className="text-slate-600 border-slate-300 hover:border-slate-400"
-                        >
-                          <Info className="w-4 h-4 mr-1.5" />
-                          查看格式说明
-                        </Button>
-                      </div>
-
                       {/* 代理URL格式说明 Dialog */}
                       <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
-                        <DialogContent className="max-w-4xl">
+                        <DialogContent className="max-w-5xl">
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <Info className="w-5 h-5 text-slate-600" />
                               代理URL格式说明
                             </DialogTitle>
                           </DialogHeader>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs mt-2">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mt-2">
                             {/* IPRocket / Kookeey API格式 */}
                             <div className="bg-white p-3 rounded border border-blue-200">
                               <div className="flex items-center gap-2 mb-2 flex-wrap">
