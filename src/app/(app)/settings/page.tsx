@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -2390,7 +2391,7 @@ export default function SettingsPage() {
 
                       {/* 代理URL格式说明 Dialog */}
                       <Dialog open={showProxyFormatDialog} onOpenChange={setShowProxyFormatDialog}>
-                        <DialogContent className="max-w-2xl">
+                        <DialogContent className="max-w-4xl">
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <Info className="w-5 h-5 text-slate-600" />
