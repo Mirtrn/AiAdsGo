@@ -181,7 +181,11 @@ export default function AdminAIModelsPage() {
       if (ok) {
         toast.success(`${m.display_name} 连通正常 ✅`)
       } else {
-        toast.error(`${m.display_name} 连通失败`, { description: data.message })
+        // 将错误信息中的实际model_id替换为展示名，避免暴露内部名称
+        const friendlyMsg = data.message
+          ? data.message.replace(new RegExp(m.model_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), m.display_name)
+          : data.message
+        toast.error(`${m.display_name} 连通失败`, { description: friendlyMsg })
       }
     } catch (e: any) {
       setTestResults(prev => ({ ...prev, [m.id]: 'fail' }))
