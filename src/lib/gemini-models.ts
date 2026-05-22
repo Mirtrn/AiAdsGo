@@ -15,33 +15,54 @@ export type AIModel = RelayModel
 
 // ─── LiteLLM / OpenLLM / New-API Gateway 模型 ──────────────────
 // 代理 openllmapi.com（New-API + OpenRouter）
-// 模型 ID 经 https://openrouter.ai/api/v1/models 核验，2026-04 同步
-// 规则：仅保留纯对话类模型，删除推理类（r1/thinking/k2.5）和图像类（image/pro-image）
+// 仅包含实际可用的模型（已验证）
 export const LITELLM_SUPPORTED_MODELS = [
-  // ─── MiniMax（对话类）─────────────────────────────────────
-  'minimax/minimax-m2.7',   // 最新旗舰
-  'minimax/minimax-m2.5',   // 稳定版
+  // ─── MiniMax（不可用，仅占位）─────────────────────────────
+  'minimax/minimax-m2.7',   // 不可用
+  'minimax/minimax-m2.5',   // 不可用
 
-  // ─── OpenAI GPT-5.x（对话类，openllmapi 新渠道直连）────────
-  'gpt-5.2',                // 新渠道直连，2026-05 上线
-  'gpt-5.3-codex',          // 新渠道直连，2026-05 上线
-  'gpt-5.4',                // 新渠道直连，2026-05 上线
-  'gpt-5.5',                // 新渠道直连，2026-05 上线
+  // ─── OpenAI GPT-5.x（对话类）──────────────────────────────
+  'gpt-5.3-codex',          // ✅ 可用
+  'gpt-5.4',                // ✅ 可用
+  'gpt-5.5',                // ✅ 可用
 
   // ─── Google Gemini（对话类）───────────────────────────────
-  'google/gemini-3.1-pro-preview',
-  'google/gemini-3-flash-preview',
+  'google/gemini-3.1-pro-preview', // ✅ 可用
+  'google/gemini-3-flash-preview', // ✅ 可用（默认）
 ] as const
 export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'google/gemini-3-flash-preview'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
+
+/**
+ * 从数据库获取启用的模型降级链
+ * 按 sort_order 排序，is_enabled = 1
+ * 这样 Admin 可以在后台动态管理降级顺序
+ */
+export async function getLiteLLMFallbackChain(): Promise<string[]> {
+  try {
+    const { getDatabase } = await import('./db')
+    const db = getDatabase()
+    
+    // 查询所有启用的模型，按 sort_order 排序
+    const models = await db.query<{ model_id: string }>(
+      'SELECT model_id FROM ai_models WHERE is_enabled = ? ORDER BY sort_order ASC',
+      [1]
+    )
+    
+    return models.map(m => m.model_id)
+  } catch (error) {
+    console.error('获取降级链失败，使用默认:', error)
+    // 降级到默认模型
+    return ['google/gemini-3-flash-preview']
+  }
+}
 
 // ─── 模型展示别名（单一数据源，报错弹窗 / 下拉列表统一使用）────────
 // 修改模型别名只需改这里，其他地方自动同步
 export const LITELLM_MODEL_ALIAS: Record<string, string> = {
   'minimax/minimax-m2.7':          'minimax-m2.7',
   'minimax/minimax-m2.5':          'minimax-m2.5',
-  'gpt-5.2':                       'Swift',
   'gpt-5.3-codex':                 'Codex',
   'gpt-5.4':                       'Blaze-D',
   'gpt-5.5':                       'Surge',
@@ -53,7 +74,6 @@ export const LITELLM_MODEL_ALIAS: Record<string, string> = {
 export const LITELLM_MODEL_COST: Record<string, string> = {
   'minimax/minimax-m2.7':          '≈¥0.8/条',
   'minimax/minimax-m2.5':          '≈¥0.5/条',
-  'gpt-5.2':                       '≈¥0.8/条',
   'gpt-5.3-codex':                 '≈¥1.0/条',
   'gpt-5.4':                       '≈¥1.5/条',
   'gpt-5.5':                       '≈¥2.5/条',

@@ -8,7 +8,7 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, type LiteLLMModel } from './gemini-models'
+import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMFallbackChain, getLiteLLMModelDisplayName, type LiteLLMModel } from './gemini-models'
 
 const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
 
@@ -33,8 +33,49 @@ export interface LiteLLMGenerateResult {
 }
 
 /**
+ * 判断错误是否应该触发模型降级
+ */
+function shouldFallbackToNextModel(errorMessage: string, statusCode?: number): boolean {
+  const lowerError = errorMessage.toLowerCase()
+  
+  // 触发降级的错误类型
+  const fallbackTriggers = [
+    'model_not_found',
+    'no available channel',
+    'model not found',
+    'rate limit',
+    'rate_limit',
+    '503',
+    'service unavailable',
+  ]
+  
+  return (
+    statusCode === 503 ||
+    fallbackTriggers.some(trigger => lowerError.includes(trigger))
+  )
+}
+
+/**
+ * 获取模型的降级链（从数据库动态读取）
+ * 如果用户指定模型不在链中，则将其作为第一个尝试，再跟上数据库的降级链
+ */
+async function getFallbackChain(requestedModel: string): Promise<string[]> {
+  // 从数据库获取所有启用的模型（按 sort_order 排序）
+  const dbChain = await getLiteLLMFallbackChain()
+  
+  // 如果请求的模型已经在链中，从该位置开始
+  const indexInChain = dbChain.indexOf(requestedModel)
+  if (indexInChain >= 0) {
+    return dbChain.slice(indexInChain)
+  }
+  
+  // 否则，将请求的模型放在最前面，后面跟上完整降级链
+  return [requestedModel, ...dbChain]
+}
+
+/**
  * 检查用户是否配置了 LiteLLM API Key
- * 
+ *
  */
 export async function isLiteLLMConfigured(userId: number): Promise<boolean> {
   try {
@@ -83,14 +124,102 @@ export async function generateContent(
   const endpoint = `${baseUrl}/v1/chat/completions`
 
   // 优先使用调用时传入的模型，否则用用户保存的，最后兜底默认
-  const finalModel: LiteLLMModel = normalizeLiteLLMModel(
+  const requestedFinalModel: LiteLLMModel = normalizeLiteLLMModel(
     requestedModel || modelSetting?.value
   )
 
-  console.log(`🤖 LiteLLM 调用 (User ${userId}): ${operationType || 'unknown'} → ${finalModel} @ ${baseUrl}`)
+  // 获取降级链（从数据库动态读取）
+  const fallbackChain = await getFallbackChain(requestedFinalModel)
+  
+  let lastError: Error | undefined
+  let fallbackInfo: string | undefined
+
+  // 尝试降级链中的每个模型
+  for (let i = 0; i < fallbackChain.length; i++) {
+    const currentModel = fallbackChain[i]
+    const isFirstAttempt = i === 0
+    const isLastAttempt = i === fallbackChain.length - 1
+
+    if (isFirstAttempt) {
+      console.log(`🤖 LiteLLM 调用 (User ${userId}): ${operationType || 'unknown'} → ${currentModel} @ ${baseUrl}`)
+    } else {
+      console.log(`🔄 LiteLLM 降级 (User ${userId}): 尝试 ${currentModel} (${i + 1}/${fallbackChain.length})`)
+    }
+
+    try {
+      const result = await tryCallModel({
+        model: currentModel,
+        prompt,
+        temperature,
+        maxOutputTokens,
+        timeoutMs,
+        userId,
+        apiKey,
+        endpoint,
+        operationType,
+      })
+      
+      // 成功了，如果使用了降级模型，添加提示信息
+      if (!isFirstAttempt) {
+        const requestedDisplayName = getLiteLLMModelDisplayName(requestedFinalModel)
+        const usedDisplayName = getLiteLLMModelDisplayName(currentModel)
+        fallbackInfo = `⚠️ 模型 ${requestedDisplayName} 暂时不可用，已自动降级使用 ${usedDisplayName}`
+        console.log(`✅ LiteLLM 降级成功 (User ${userId}): ${requestedDisplayName} → ${usedDisplayName}`)
+      }
+      
+      return {
+        ...result,
+        // 如果有降级信息，将其附加到 text 开头（用于在任务消息中显示）
+        text: fallbackInfo ? `${fallbackInfo}\n\n${result.text}` : result.text,
+      }
+    } catch (error) {
+      lastError = error as Error
+      const errorMessage = lastError.message || String(lastError)
+      
+      // 如果是最后一个模型或者不应该降级的错误，直接抛出
+      if (isLastAttempt || !shouldFallbackToNextModel(errorMessage)) {
+        throw lastError
+      }
+      
+      // 否则记录错误并尝试下一个模型
+      console.warn(`⚠️ LiteLLM (User ${userId}): 模型 ${currentModel} 失败，准备降级...`)
+    }
+  }
+
+  // 理论上不会到这里，但为了类型安全
+  throw lastError || new Error('LiteLLM: 所有降级模型均失败')
+}
+
+/**
+ * 尝试使用指定模型调用 LiteLLM
+ * 这是从原 generateContent 提取的核心调用逻辑
+ * model 参数现在是 string 类型，因为从数据库动态读取
+ */
+async function tryCallModel(options: {
+  model: string
+  prompt: string
+  temperature: number
+  maxOutputTokens: number
+  timeoutMs: number
+  userId: number
+  apiKey: string
+  endpoint: string
+  operationType?: string
+}): Promise<LiteLLMGenerateResult> {
+  const {
+    model,
+    prompt,
+    temperature,
+    maxOutputTokens,
+    timeoutMs,
+    userId,
+    apiKey,
+    endpoint,
+    operationType,
+  } = options
 
   const requestBody = {
-    model: finalModel,
+    model,
     max_tokens: maxOutputTokens,
     temperature,
     messages: [
@@ -123,9 +252,15 @@ export async function generateContent(
 
     if (requiresStream) {
       // 自动重试为流式请求，对调用方透明
-      console.log(`🔄 LiteLLM (User ${userId}): 模型 ${finalModel} 要求 stream 模式，自动切换重试`)
+      console.log(`🔄 LiteLLM (User ${userId}): 模型 ${model} 要求 stream 模式，自动切换重试`)
       return generateContentStreaming(
-        { ...params, model: finalModel },
+        {
+          model,
+          prompt,
+          temperature,
+          maxOutputTokens,
+          operationType,
+        },
         userId,
         apiKey,
         endpoint,
@@ -153,7 +288,7 @@ export async function generateContent(
 
   if (!text || text.trim() === '') {
     throw new Error(
-      `LiteLLM 模型 ${finalModel} 返回了空内容（finish_reason=${data.choices?.[0]?.finish_reason}）。` +
+      `LiteLLM 模型 ${model} 返回了空内容（finish_reason=${data.choices?.[0]?.finish_reason}）。` +
       `请尝试切换其他模型或检查网关配置。`
     )
   }
@@ -166,7 +301,7 @@ export async function generateContent(
     totalTokens: data.usage?.total_tokens ?? (inputTokens + outputTokens),
   }
 
-  const returnedModel: string = data.model || finalModel
+  const returnedModel: string = data.model || model
 
   console.log(
     `✅ LiteLLM 完成 (User ${userId}): ${operationType || 'unknown'} ` +
