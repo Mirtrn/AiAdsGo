@@ -8,9 +8,33 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMFallbackChain, getLiteLLMModelDisplayName, type LiteLLMModel } from './gemini-models'
+import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName, type LiteLLMModel } from './gemini-models'
+import { getDatabase } from './db'
 
 const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
+
+/**
+ * 从数据库获取启用的模型降级链
+ * 按 sort_order 排序，is_enabled = 1
+ * 这样 Admin 可以在后台动态管理降级顺序
+ */
+async function getLiteLLMFallbackChain(): Promise<string[]> {
+  try {
+    const db = getDatabase()
+    
+    // 查询所有启用的模型，按 sort_order 排序
+    const models = await db.query<{ model_id: string }>(
+      'SELECT model_id FROM ai_models WHERE is_enabled = ? ORDER BY sort_order ASC',
+      [1]
+    )
+    
+    return models.map(m => m.model_id)
+  } catch (error) {
+    console.error('获取降级链失败，使用默认:', error)
+    // 降级到默认模型
+    return ['google/gemini-3-flash-preview']
+  }
+}
 
 export interface LiteLLMGenerateParams {
   model?: string

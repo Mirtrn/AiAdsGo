@@ -34,29 +34,8 @@ export type LiteLLMModel = typeof LITELLM_SUPPORTED_MODELS[number]
 export const LITELLM_DEFAULT_MODEL: LiteLLMModel = 'google/gemini-3-flash-preview'
 export const LITELLM_DEFAULT_BASE_URL = 'https://openllmapi.com'
 
-/**
- * 从数据库获取启用的模型降级链
- * 按 sort_order 排序，is_enabled = 1
- * 这样 Admin 可以在后台动态管理降级顺序
- */
-export async function getLiteLLMFallbackChain(): Promise<string[]> {
-  try {
-    const { getDatabase } = await import('./db')
-    const db = getDatabase()
-    
-    // 查询所有启用的模型，按 sort_order 排序
-    const models = await db.query<{ model_id: string }>(
-      'SELECT model_id FROM ai_models WHERE is_enabled = ? ORDER BY sort_order ASC',
-      [1]
-    )
-    
-    return models.map(m => m.model_id)
-  } catch (error) {
-    console.error('获取降级链失败，使用默认:', error)
-    // 降级到默认模型
-    return ['google/gemini-3-flash-preview']
-  }
-}
+// 注意：getLiteLLMFallbackChain() 已移至 litellm.ts，因为它需要访问数据库
+// 这样可以避免客户端组件（如 settings/page.tsx）导入服务器端代码
 
 // ─── 模型展示别名（单一数据源，报错弹窗 / 下拉列表统一使用）────────
 // 修改模型别名只需改这里，其他地方自动同步
