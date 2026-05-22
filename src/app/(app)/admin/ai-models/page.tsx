@@ -166,26 +166,24 @@ export default function AdminAIModelsPage() {
     setTestingId(m.id)
     setTestResults(prev => ({ ...prev, [m.id]: null }))
     try {
-      // 直接用公开接口模拟请求，这里用一个简单的 ping 方式
-      const res = await fetch('/api/settings/validate', {
+      const res = await fetch('/api/admin/ai-models/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category: 'ai',
-          config: { litellm_model: m.model_id },
-        }),
+        body: JSON.stringify({ model_id: m.model_id }),
       })
       const data = await res.json()
-      const ok = data.valid === true
+      const ok = data.success === true
       setTestResults(prev => ({ ...prev, [m.id]: ok ? 'ok' : 'fail' }))
       if (ok) {
-        toast.success(`${m.display_name} 连通正常 ✅`)
+        toast.success(`${m.display_name} 测试成功 ✅`, {
+          description: `实际使用模型: ${data.model_used}`
+        })
       } else {
-        // 将错误信息中的实际model_id替换为展示名，避免暴露内部名称
-        const friendlyMsg = data.message
-          ? data.message.replace(new RegExp(m.model_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), m.display_name)
-          : data.message
-        toast.error(`${m.display_name} 连通失败`, { description: friendlyMsg })
+        // 将错误信息中的实际model_id替换为展示名
+        const friendlyMsg = data.error
+          ? data.error.replace(new RegExp(m.model_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), m.display_name)
+          : '测试失败'
+        toast.error(`${m.display_name} 测试失败`, { description: friendlyMsg })
       }
     } catch (e: any) {
       setTestResults(prev => ({ ...prev, [m.id]: 'fail' }))
