@@ -17,12 +17,10 @@
 import { getUserOnlySetting } from './settings'
 import {
   LITELLM_DEFAULT_MODEL,
-  normalizeLiteLLMModel,
-  type LiteLLMModel,
 } from './gemini-models'
 
-// 支持的AI模型
-export type ModelType = LiteLLMModel
+// 支持的AI模型（改为字符串类型，支持动态模型）
+export type ModelType = string
 
 export interface ModelSelection {
   model: ModelType
@@ -123,7 +121,8 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
 
   try {
     const modelSetting = await getUserOnlySetting('ai', 'litellm_model', userId)
-    return normalizeLiteLLMModel(modelSetting?.value)
+    // 直接使用用户保存的模型值，不做静态白名单过滤
+    return modelSetting?.value || LITELLM_DEFAULT_MODEL
   } catch (error) {
     console.warn('⚠️ 获取用户Pro模型失败，使用默认:', error)
     return LITELLM_DEFAULT_MODEL

@@ -8,7 +8,7 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { normalizeLiteLLMModel, LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName, type LiteLLMModel } from './gemini-models'
+import { LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName } from './gemini-models'
 import { getDatabase } from './db'
 
 const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
@@ -98,13 +98,14 @@ async function getFallbackChain(requestedModel: string): Promise<string[]> {
 }
 
 /**
- * 检查用户是否配置了 LiteLLM API Key
- *
+ * 检查用户是否配置了有效的 AI 服务
+ * 支持三种提供商：OpenLLM 中转、Gemini 官方、OpenAI 官方
  */
 export async function isLiteLLMConfigured(userId: number): Promise<boolean> {
   try {
-    const apiKeySetting = await getUserOnlySetting('ai', 'litellm_api_key', userId)
-    return !!apiKeySetting?.value?.trim()
+    const { resolveActiveAIConfig } = await import('./ai-runtime-config')
+    const config = await resolveActiveAIConfig(userId)
+    return config.type === 'litellm' && !!config.litellmAPI?.apiKey
   } catch {
     return false
   }
@@ -112,6 +113,7 @@ export async function isLiteLLMConfigured(userId: number): Promise<boolean> {
 
 /**
  * 调用 LiteLLM Gateway（OpenAI 兼容格式）
+ * 支持三种提供商：OpenLLM 中转、Gemini 官方、OpenAI 官方
  */
 export async function generateContent(
   params: LiteLLMGenerateParams,
@@ -130,29 +132,35 @@ export async function generateContent(
     operationType,
   } = params
 
-  // 读取用户配置（base_url 固定为 openllmapi.com，不允许自定义）
-  const [apiKeySetting, modelSetting] = await Promise.all([
-    getUserOnlySetting('ai', 'litellm_api_key', userId),
-    getUserOnlySetting('ai', 'litellm_model', userId),
-  ])
+  // 使用 AI 运行时配置解析正确的 API key、baseUrl 和 model
+  // 支持三种提供商：litellm（OpenLLM中转）、gemini_official、openai_official
+  const { resolveActiveAIConfig } = await import('./ai-runtime-config')
+  const aiConfig = await resolveActiveAIConfig(userId)
 
-  const apiKey = apiKeySetting?.value?.trim()
-  if (!apiKey) {
+  if (!aiConfig.type || !aiConfig.litellmAPI) {
     throw new Error(
-      `用户(ID=${userId})未配置 LiteLLM API Key。请在设置页面配置您的 LiteLLM Gateway API Key。`
+      `用户(ID=${userId})未配置有效的 AI 服务。请在"设置 → AI引擎"中选择提供商并配置 API Key。`
     )
   }
 
-  // base_url 固定为官方网关，不允许用户自定义
-  const baseUrl = LITELLM_DEFAULT_BASE_URL
+  const { apiKey, baseUrl, model: configModel, provider } = aiConfig.litellmAPI
   const endpoint = `${baseUrl}/v1/chat/completions`
 
-  // 优先使用调用时传入的模型，否则用用户保存的，最后兜底默认
-  const requestedFinalModel: LiteLLMModel = normalizeLiteLLMModel(
-    requestedModel || modelSetting?.value
-  )
+  // 优先使用调用时传入的模型，否则用用户保存的配置模型，最后兜底默认
+  const requestedFinalModel: string = requestedModel || configModel || LITELLM_DEFAULT_MODEL
 
-  // 获取降级链（从数据库动态读取）
+  // 对于 Gemini 官方和 OpenAI 官方，直接调用不降级
+  // 降级机制只适用于 OpenLLM 中转（用户可以在后台管理模型列表）
+  if (provider !== 'litellm') {
+    console.log(`🤖 ${provider === 'gemini_official' ? 'Gemini 官方' : 'OpenAI 官方'} 直连 (User ${userId}): ${operationType || 'unknown'} → ${requestedFinalModel}`)
+    return await tryCallModel({
+      model: requestedFinalModel,
+      prompt, temperature, maxOutputTokens,
+      timeoutMs, userId, apiKey, endpoint, operationType,
+    })
+  }
+
+  // OpenLLM 中转：使用降级链从数据库动态读取
   const fallbackChain = await getFallbackChain(requestedFinalModel)
   
   let lastError: Error | undefined

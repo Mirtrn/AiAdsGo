@@ -1,13 +1,12 @@
 import {
   LITELLM_DEFAULT_BASE_URL,
+  LITELLM_DEFAULT_MODEL,
   GEMINI_OFFICIAL_BASE_URL,
   GEMINI_OFFICIAL_DEFAULT,
   OPENAI_OFFICIAL_BASE_URL,
   OPENAI_OFFICIAL_DEFAULT,
-  type LiteLLMModel,
   type AIProvider,
   AI_PROVIDER_DEFAULT,
-  normalizeLiteLLMModel,
 } from './gemini-models'
 import { getUserOnlySetting } from './settings'
 
@@ -88,7 +87,9 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
     getUserOnlySetting('ai', 'litellm_model', userId),
   ])
   const apiKey = apiKeySetting?.value || ''
-  const model = normalizeLiteLLMModel(modelSetting?.value)
+  // 直接使用用户保存的模型值，不做静态白名单过滤
+  // 因为 ai_models 数据库表已保证模型合法性
+  const model = modelSetting?.value || LITELLM_DEFAULT_MODEL
   const baseUrl = LITELLM_DEFAULT_BASE_URL
   if (apiKey) {
     return {

@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
         const { getUserOnlySetting } = await import('@/lib/settings')
         const {
-          normalizeLiteLLMModel,
+          LITELLM_DEFAULT_MODEL,
           GEMINI_OFFICIAL_BASE_URL, GEMINI_OFFICIAL_DEFAULT,
           OPENAI_OFFICIAL_BASE_URL, OPENAI_OFFICIAL_DEFAULT,
         } = await import('@/lib/gemini-models')
@@ -140,7 +140,8 @@ export async function POST(request: NextRequest) {
           litellmModel = config.litellm_model
         } else {
           const savedModel = (await getUserOnlySetting('ai', 'litellm_model', userIdNum))?.value
-          litellmModel = normalizeLiteLLMModel(savedModel)
+          // 直接使用用户保存的模型值，不做静态白名单过滤
+          litellmModel = savedModel || LITELLM_DEFAULT_MODEL
         }
         const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
         result = ok
