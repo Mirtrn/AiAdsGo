@@ -86,10 +86,15 @@ export async function POST(request: NextRequest) {
           const geminiModel = config.gemini_official_model ||
             (await getUserOnlySetting('ai', 'gemini_official_model', userIdNum))?.value ||
             GEMINI_OFFICIAL_DEFAULT
-          const ok = await checkLiteLLMConnection(userIdNum, geminiApiKey, GEMINI_OFFICIAL_BASE_URL, geminiModel)
-          result = ok
+          const checkResult = await checkLiteLLMConnection(userIdNum, geminiApiKey, GEMINI_OFFICIAL_BASE_URL, geminiModel)
+          result = checkResult.ok
             ? { valid: true, message: 'Gemini 官方 API 连接验证成功 ✅' }
-            : { valid: false, message: `Gemini 官方 API 连接失败：模型 ${geminiModel} 不可用，请检查 Google API Key 是否正确` }
+            : {
+                valid: false,
+                message: checkResult.errorMessage
+                  ? `Gemini 官方 API 连接失败（模型 ${geminiModel}）：${checkResult.errorMessage}`
+                  : `Gemini 官方 API 连接失败：模型 ${geminiModel} 不可用，请检查 Google API Key 是否正确`,
+              }
           break
         }
 
@@ -108,10 +113,15 @@ export async function POST(request: NextRequest) {
           const openaiModel = config.openai_official_model ||
             (await getUserOnlySetting('ai', 'openai_official_model', userIdNum))?.value ||
             OPENAI_OFFICIAL_DEFAULT
-          const ok = await checkLiteLLMConnection(userIdNum, openaiApiKey, OPENAI_OFFICIAL_BASE_URL, openaiModel)
-          result = ok
+          const checkResult = await checkLiteLLMConnection(userIdNum, openaiApiKey, OPENAI_OFFICIAL_BASE_URL, openaiModel)
+          result = checkResult.ok
             ? { valid: true, message: 'OpenAI 官方 API 连接验证成功 ✅' }
-            : { valid: false, message: `OpenAI 官方 API 连接失败：模型 ${openaiModel} 不可用，请检查 OpenAI API Key 是否正确` }
+            : {
+                valid: false,
+                message: checkResult.errorMessage
+                  ? `OpenAI 官方 API 连接失败（模型 ${openaiModel}）：${checkResult.errorMessage}`
+                  : `OpenAI 官方 API 连接失败：模型 ${openaiModel} 不可用，请检查 OpenAI API Key 是否正确`,
+              }
           break
         }
 
@@ -143,10 +153,15 @@ export async function POST(request: NextRequest) {
           // 直接使用用户保存的模型值，不做静态白名单过滤
           litellmModel = savedModel || LITELLM_DEFAULT_MODEL
         }
-        const ok = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
-        result = ok
+        const checkResult = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
+        result = checkResult.ok
           ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
-          : { valid: false, message: `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key` }
+          : {
+              valid: false,
+              message: checkResult.errorMessage
+                ? `OpenLLM 连接失败（模型 ${litellmModel}）：${checkResult.errorMessage}`
+                : `OpenLLM 连接失败：模型 ${litellmModel} 不可用，请换用其他模型或检查 API Key`,
+            }
         break
       }
 

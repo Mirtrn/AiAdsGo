@@ -82,15 +82,19 @@ export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIC
   }
 
   // ─── LiteLLM / OpenLLM 中转（默认）─────────────────────────────
-  const [apiKeySetting, modelSetting] = await Promise.all([
+  const [apiKeySetting, modelSetting, baseUrlSetting] = await Promise.all([
     getUserOnlySetting('ai', 'litellm_api_key', userId),
     getUserOnlySetting('ai', 'litellm_model', userId),
+    // 🔥 修复：读取用户配置的自定义 base URL，而非永远使用默认值
+    // 用户可能自己部署了 OpenLLM/New-API 实例，需要使用其自定义地址
+    getUserOnlySetting('ai', 'litellm_base_url', userId),
   ])
   const apiKey = apiKeySetting?.value || ''
   // 直接使用用户保存的模型值，不做静态白名单过滤
   // 因为 ai_models 数据库表已保证模型合法性
   const model = modelSetting?.value || LITELLM_DEFAULT_MODEL
-  const baseUrl = LITELLM_DEFAULT_BASE_URL
+  // 优先使用用户配置的 base URL，兜底默认公共服务
+  const baseUrl = baseUrlSetting?.value || LITELLM_DEFAULT_BASE_URL
   if (apiKey) {
     return {
       type: 'litellm',

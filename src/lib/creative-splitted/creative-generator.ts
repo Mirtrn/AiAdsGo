@@ -65,7 +65,9 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
         outputTokens: response.usage.outputTokens,
         totalTokens: response.usage.totalTokens,
         cost,
-        apiType: response.apiType as 'direct-api' | 'litellm',
+        // GeminiGenerateResult.apiType 已宽化为 'direct-api' | 'litellm' 联合类型，
+        // 直接透传，无需强转（强转会屏蔽 TS 的类型安全检查）
+        apiType: response.apiType,
       }).catch((err) => {
         console.warn('[callAI] token 记录失败（不影响主流程）:', err?.message)
       })

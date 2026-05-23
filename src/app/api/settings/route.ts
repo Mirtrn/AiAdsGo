@@ -232,7 +232,7 @@ export async function PUT(request: NextRequest) {
 
 const deleteAIConfigSchema = z.object({
   category: z.literal('ai'),
-  target: z.enum(['litellm']),
+  target: z.enum(['litellm', 'gemini_official', 'openai_official']),
 })
 
 /**
@@ -261,7 +261,11 @@ export async function DELETE(request: NextRequest) {
     const keysToClear = (() => {
       switch (target) {
         case 'litellm':
-          return ['litellm_api_key']
+          return ['litellm_api_key', 'litellm_model', 'litellm_base_url']
+        case 'gemini_official':
+          return ['gemini_api_key', 'gemini_official_model']
+        case 'openai_official':
+          return ['openai_api_key', 'openai_official_model']
       }
     })()
 

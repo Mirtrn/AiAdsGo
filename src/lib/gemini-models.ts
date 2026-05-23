@@ -92,21 +92,20 @@ export const GEMINI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
 }
 
 // ─── 官方 OpenAI 模型（直连 OpenAI API）──────────────────────────
+// 仅保留 GPT-5 系列最新模型
 export const OPENAI_OFFICIAL_MODELS = [
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'gpt-4o',
-  'gpt-4o-mini',
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
 ] as const
 export type OpenAIOfficialModel = typeof OPENAI_OFFICIAL_MODELS[number]
-export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-4o'
+export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-5.4-mini'
 export const OPENAI_OFFICIAL_BASE_URL = 'https://api.openai.com'
 
 export const OPENAI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
-  'gpt-4.1':      'GPT-4.1（旗舰）',
-  'gpt-4.1-mini': 'GPT-4.1 Mini（轻量）',
-  'gpt-4o':       'GPT-4o（多模态）',
-  'gpt-4o-mini':  'GPT-4o Mini（快速）',
+  'gpt-5.5':      'GPT-5.5（旗舰·推理）',
+  'gpt-5.4':      'GPT-5.4（高性能）',
+  'gpt-5.4-mini': 'GPT-5.4 Mini（轻量）',
 }
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
@@ -117,8 +116,20 @@ const DEPRECATED_MODEL_SET = new Set<string>(GEMINI_DEPRECATED_MODELS)
 const OFFICIAL_MODEL_SET = new Set<string>(OFFICIAL_SUPPORTED_MODELS)
 const RELAY_MODEL_SET = new Set<string>(RELAY_SUPPORTED_MODELS)
 
+/**
+ * 根据三渠道 provider 名称返回对应支持的模型列表
+ *
+ * provider 命名对照：
+ *  - 'litellm'          → OpenLLM 中转（New-API / LiteLLM 网关）
+ *  - 'gemini_official'  → Google AI Studio 官方直连
+ *  - 'openai_official'  → OpenAI 官方直连
+ *
+ * 注意：旧的 'relay' 已废弃，保留向后兼容
+ */
 export function getSupportedModelsForProvider(provider?: string | null): readonly AIModel[] {
-  if (provider === 'relay') {
+  // 'litellm' 是当前三渠道体系的中转渠道名称
+  // 'relay' 是历史遗留名称，保留向后兼容
+  if (provider === 'litellm' || provider === 'relay') {
     return RELAY_SUPPORTED_MODELS
   }
 

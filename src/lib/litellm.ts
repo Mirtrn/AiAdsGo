@@ -11,6 +11,54 @@ import { getUserOnlySetting } from './settings'
 import { LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName } from './gemini-models'
 import { getDatabase } from './db'
 
+/**
+ * 根据 endpoint 和 model 返回正确的请求参数
+ * - GPT-5 系列（api.openai.com）要求 max_completion_tokens，其他兼容网关用 max_tokens
+ * - GPT-5.5 等 reasoning 模型不支持自定义 temperature（只允许默认值 1），需省略该字段
+ */
+function buildTokenParam(endpoint: string, tokens: number): Record<string, number> {
+  if (endpoint.includes('api.openai.com')) {
+    return { max_completion_tokens: tokens }
+  }
+  return { max_tokens: tokens }
+}
+
+/**
+ * 构建完整的 chat/completions 端点 URL
+ *
+ * 规则：
+ *  - Gemini OpenAI-compat：baseUrl 已包含 /openai 路径段，直接追加 /chat/completions
+ *    正确：.../v1beta/openai/chat/completions
+ *    错误（旧逻辑）：.../v1beta/openai/v1/chat/completions（多了 /v1）
+ *  - 其他网关（New-API / OpenAI 官方）：追加 /v1/chat/completions
+ */
+function buildEndpoint(baseUrl: string): string {
+  const base = baseUrl.replace(/\/$/, '')
+  if (base.includes('generativelanguage.googleapis.com')) {
+    // Gemini OpenAI-compatible endpoint 不带版本前缀 /v1
+    return `${base}/chat/completions`
+  }
+  return `${base}/v1/chat/completions`
+}
+
+/**
+ * 判断模型是否为 OpenAI reasoning 模型（不支持自定义 temperature）
+ * 当前已知：gpt-5.5 系列为 reasoning 模型
+ */
+function isOpenAIReasoningModel(model: string): boolean {
+  return model.startsWith('gpt-5.5') || model.startsWith('o1') || model.startsWith('o3')
+}
+
+/**
+ * 构建 temperature 参数：reasoning 模型省略 temperature（使用 API 默认值 1）
+ */
+function buildTemperatureParam(endpoint: string, model: string, temperature: number): Record<string, number> {
+  if (endpoint.includes('api.openai.com') && isOpenAIReasoningModel(model)) {
+    return {} // reasoning 模型不传 temperature，API 默认为 1
+  }
+  return { temperature }
+}
+
 const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
 
 /**
@@ -58,24 +106,51 @@ export interface LiteLLMGenerateResult {
 
 /**
  * 判断错误是否应该触发模型降级
+ *
+ * 触发降级的错误类型：
+ *  - 模型不存在（网关路由失败）
+ *  - 速率限制（429 / rate_limit）
+ *  - 模型过载（overloaded / quota_exceeded）
+ *  - 服务不可用（503 / 502）
+ *
+ * 不应降级的错误（让调用方直接感知）：
+ *  - 认证失败（401 / 403 / invalid_api_key）
+ *  - 请求体格式错误（400）
+ *  - 超时（abort）— 已达到本次超时上限，继续尝试无意义
  */
 function shouldFallbackToNextModel(errorMessage: string, statusCode?: number): boolean {
   const lowerError = errorMessage.toLowerCase()
-  
-  // 触发降级的错误类型
+
+  // 明确不应降级的 HTTP 状态码
+  if (statusCode === 401 || statusCode === 403 || statusCode === 400) {
+    return false
+  }
+
+  // 触发降级的错误类型（关键字匹配）
   const fallbackTriggers = [
     'model_not_found',
     'no available channel',
     'model not found',
     'rate limit',
     'rate_limit',
+    'rateLimitExceeded',
+    'quota_exceeded',
+    'quota exceeded',
+    'resource_exhausted',   // Google API 超配额
+    'overloaded',           // 模型过载（Anthropic 等）
+    'too many requests',    // HTTP 429 文本描述
+    '429',
     '503',
     'service unavailable',
+    'bad gateway',          // 502 文本描述
+    '502',
   ]
-  
+
   return (
+    statusCode === 429 ||
     statusCode === 503 ||
-    fallbackTriggers.some(trigger => lowerError.includes(trigger))
+    statusCode === 502 ||
+    fallbackTriggers.some(trigger => lowerError.includes(trigger.toLowerCase()))
   )
 }
 
@@ -144,7 +219,7 @@ export async function generateContent(
   }
 
   const { apiKey, baseUrl, model: configModel, provider } = aiConfig.litellmAPI
-  const endpoint = `${baseUrl}/v1/chat/completions`
+  const endpoint = buildEndpoint(baseUrl)
 
   // 优先使用调用时传入的模型，否则用用户保存的配置模型，最后兜底默认
   const requestedFinalModel: string = requestedModel || configModel || LITELLM_DEFAULT_MODEL
@@ -252,8 +327,8 @@ async function tryCallModel(options: {
 
   const requestBody = {
     model,
-    max_tokens: maxOutputTokens,
-    temperature,
+    ...buildTokenParam(endpoint, maxOutputTokens),
+    ...buildTemperatureParam(endpoint, model, temperature),
     messages: [
       { role: 'user', content: prompt },
     ],
@@ -374,9 +449,11 @@ async function generateContentStreaming(
       },
       body: JSON.stringify({
         model,
-        max_tokens: maxOutputTokens,
-        temperature,
+        ...buildTokenParam(endpoint, maxOutputTokens),
+        ...buildTemperatureParam(endpoint, model, temperature),
         stream: true,
+        // GPT-5（api.openai.com）流式默认不返回 usage，需显式开启
+        ...(endpoint.includes('api.openai.com') ? { stream_options: { include_usage: true } } : {}),
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: controller.signal,
@@ -401,8 +478,10 @@ async function generateContentStreaming(
   let outputTokens = 0
   let totalTokens = 0
 
+  // streamDone 用于在 [DONE] 事件后同时跳出内层 for-of 和外层 while
+  let streamDone = false
   try {
-    while (true) {
+    while (!streamDone) {
       const { done, value } = await reader.read()
       if (done) break
       const chunk = decoder.decode(value, { stream: true })
@@ -410,7 +489,11 @@ async function generateContentStreaming(
         const trimmed = line.trim()
         if (!trimmed.startsWith('data:')) continue
         const jsonStr = trimmed.slice(5).trim()
-        if (jsonStr === '[DONE]') break
+        if (jsonStr === '[DONE]') {
+          // 必须同时退出外层 while，否则 reader.read() 会继续阻塞
+          streamDone = true
+          break
+        }
         try {
           const parsed = JSON.parse(jsonStr)
           // 累积文本
@@ -459,16 +542,35 @@ async function generateContentStreaming(
  * @param apiKey  可选，直接指定 API Key（用于验证时尚未保存到 DB 的场景）
  * @param baseUrl 可选，直接指定网关地址
  */
+export interface CheckLiteLLMResult {
+  ok: boolean
+  /** 连接失败时的实际错误描述（来自 API 原始响应），可直接展示给用户 */
+  errorMessage?: string
+}
+
+/**
+ * 检查 LiteLLM / OpenAI 官方 / Gemini 官方 连接状态（ping）
+ *
+ * 返回结构化结果 { ok, errorMessage }：
+ *  - ok=true  → 连接正常
+ *  - ok=false → 连接失败，errorMessage 包含 API 原始错误，用于前端展示
+ *
+ * @param userId   当前用户 ID（apiKey 为空时从 DB 读取配置）
+ * @param apiKey   可选，直接传入 API Key（优先于 DB 配置）
+ * @param baseUrl  可选，服务基础 URL（如 https://api.openai.com）
+ * @param model    可选，测试用模型 ID
+ */
 export async function checkLiteLLMConnection(
   userId: number,
   apiKey?: string,
   baseUrl?: string,
   model?: string
-): Promise<boolean> {
+): Promise<CheckLiteLLMResult> {
   try {
     if (apiKey) {
       const resolvedBase = (baseUrl || LITELLM_DEFAULT_BASE_URL).replace(/\/$/, '')
-      const endpoint = `${resolvedBase}/v1/chat/completions`
+      // 使用 buildEndpoint 修复 Gemini endpoint 路径（避免多出 /v1 段）
+      const endpoint = buildEndpoint(resolvedBase)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 20_000)
       // 若调用方明确传入了 model，直接使用原始值（如 admin 测试自定义模型）；
@@ -483,7 +585,8 @@ export async function checkLiteLLMConnection(
           },
           body: JSON.stringify({
             model: testModel,
-            max_tokens: 5,
+            ...buildTokenParam(endpoint, 5),
+            ...buildTemperatureParam(endpoint, testModel, 0.7),
             messages: [{ role: 'user', content: 'Hi' }],
           }),
           signal: controller.signal,
@@ -505,21 +608,45 @@ export async function checkLiteLLMConnection(
                 },
                 body: JSON.stringify({
                   model: testModel,
-                  max_tokens: 5,
+                  ...buildTokenParam(endpoint, 5),
+                  ...buildTemperatureParam(endpoint, testModel, 0.7),
                   stream: true,
+                  ...(endpoint.includes('api.openai.com') ? { stream_options: { include_usage: true } } : {}),
                   messages: [{ role: 'user', content: 'Hi' }],
                 }),
                 signal: ctrl2.signal,
               })
-              return resp2.ok
+              if (resp2.ok) {
+                // 流式 ping 成功：必须消费响应体，否则底层 HTTP 连接不会释放
+                // 只需排空 reader，不需要解析 SSE 内容
+                try {
+                  const reader2 = resp2.body?.getReader()
+                  if (reader2) {
+                    // eslint-disable-next-line no-constant-condition
+                    while (true) {
+                      const { done } = await reader2.read()
+                      if (done) break
+                    }
+                    reader2.releaseLock()
+                  }
+                } catch {
+                  // 忽略消费错误，连接最终会被 GC 回收
+                }
+                return { ok: true }
+              }
+              const err2 = await resp2.text().catch(() => '')
+              const msg2 = extractApiErrorMessage(err2, resp2.status)
+              console.warn(`LiteLLM 流式验证失败 (${resp2.status}) model=${testModel}: ${err2.substring(0, 200)}`)
+              return { ok: false, errorMessage: msg2 }
             } finally {
               clearTimeout(t2)
             }
           }
+          const msg = extractApiErrorMessage(errText, resp.status)
           console.warn(`LiteLLM 验证失败 (${resp.status}) model=${testModel}: ${errText.substring(0, 200)}`)
-          return false
+          return { ok: false, errorMessage: msg }
         }
-        return true
+        return { ok: true }
       } finally {
         clearTimeout(timer)
       }
@@ -530,9 +657,30 @@ export async function checkLiteLLMConnection(
       { prompt: 'Hello', maxOutputTokens: 10, operationType: 'connection_test' },
       userId
     )
-    return true
-  } catch (error) {
+    return { ok: true }
+  } catch (error: any) {
+    const errMsg = error?.message || String(error)
     console.error(`用户(ID=${userId})的 LiteLLM 连接检查失败:`, error)
-    return false
+    return { ok: false, errorMessage: errMsg }
   }
+}
+
+/**
+ * 从 API 原始错误响应中提取用户友好的错误描述
+ * 优先提取 JSON 中的 error.message，兜底使用状态码+原始文本
+ */
+function extractApiErrorMessage(rawText: string, statusCode: number): string {
+  try {
+    const parsed = JSON.parse(rawText)
+    // OpenAI 格式：{ error: { message: '...' } }
+    if (parsed?.error?.message) return `${parsed.error.message}`
+    // 部分网关直接放 { message: '...' }
+    if (parsed?.message) return `${parsed.message}`
+  } catch {
+    // 不是 JSON，fallback
+  }
+  const preview = rawText.trimStart().startsWith('<')
+    ? `服务器返回了非预期响应（HTML），请检查网关地址配置`
+    : rawText.substring(0, 200)
+  return `HTTP ${statusCode}: ${preview}`
 }

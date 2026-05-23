@@ -64,20 +64,27 @@ export async function recordTokenUsage(params: RecordTokenUsageParams): Promise<
 }
 
 /**
- * 估算token成本（基于Google AI定价）
+ * 估算 token 成本（基于各提供商定价，仅供记账参考）
  *
- * Gemini定价（参考2024年标准）：
- * - Gemini 2.5 Pro:
- *   - Input: $0.00125 per 1K tokens
- *   - Output: $0.005 per 1K tokens
- * - Gemini 2.5 Flash:
- *   - Input: $0.000075 per 1K tokens
- *   - Output: $0.0003 per 1K tokens
+ * 支持三渠道模型定价：
  *
- * @param model - 模型名称
- * @param inputTokens - 输入token数
- * @param outputTokens - 输出token数
- * @returns 估算成本（美元）
+ * OpenAI 官方（api.openai.com）：
+ *  - GPT-5.5（旗舰推理）：$0.015/$0.06 per 1K tokens
+ *  - GPT-5.4（高性能）：  $0.005/$0.02 per 1K tokens
+ *  - GPT-5.4-mini/Codex： $0.00015/$0.0006 per 1K tokens
+ *
+ * Google Gemini 官方（generativelanguage.googleapis.com）：
+ *  - Gemini 3.x Pro：  $0.00125/$0.005 per 1K tokens（参考 2.5 Pro 定价）
+ *  - Gemini 3.x Flash：$0.000075/$0.0003 per 1K tokens（参考 2.5 Flash 定价）
+ *
+ * OpenLLM 中转（openllmapi.com）：
+ *  - 按实际转发模型计费（同上方各提供商定价）
+ *  - 中转附加费用已忽略（成本估算为近似值）
+ *
+ * @param model - 模型名称（来自 API 返回的 data.model 字段）
+ * @param inputTokens - 输入 token 数
+ * @param outputTokens - 输出 token 数
+ * @returns 估算成本（人民币 CNY，按 1USD=7.2CNY 换算）
  */
 export function estimateTokenCost(
   model: string,
@@ -89,7 +96,20 @@ export function estimateTokenCost(
   let outputCostPer1K: number
 
   // ─── OpenAI 定价 ──────────────────────────────────────────────
-  if (model.startsWith('gpt-4o-mini') || model.startsWith('gpt-4.1-mini')) {
+  // GPT-5 系列（2025/2026）
+  if (model.startsWith('gpt-5.5')) {
+    // GPT-5.5 旗舰推理模型，参考 OpenAI 最新定价
+    inputCostPer1K = 0.015
+    outputCostPer1K = 0.06
+  } else if (model.startsWith('gpt-5.4-mini') || model.startsWith('gpt-5.3-codex')) {
+    // GPT-5.4 Mini / Codex 轻量版
+    inputCostPer1K = 0.00015
+    outputCostPer1K = 0.0006
+  } else if (model.startsWith('gpt-5.4') || model.startsWith('gpt-5')) {
+    // GPT-5.4 及其他 GPT-5 系列（高性能）
+    inputCostPer1K = 0.005
+    outputCostPer1K = 0.02
+  } else if (model.startsWith('gpt-4o-mini') || model.startsWith('gpt-4.1-mini')) {
     inputCostPer1K = 0.00015
     outputCostPer1K = 0.0006
   } else if (model.startsWith('gpt-4o') || model.startsWith('gpt-4.1')) {
