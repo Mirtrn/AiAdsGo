@@ -126,6 +126,7 @@ data/*.dump
 *.sock
 tmp/
 temp/
+tsc-output.txt
 
 # 安全相关 - 额外保护
 *.key

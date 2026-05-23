@@ -1,1 +1,0 @@
-npm warn Unknown project config "scripts-prepend-node-path". This will stop working in the next major version of npm.
