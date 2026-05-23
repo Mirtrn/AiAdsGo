@@ -46,7 +46,7 @@ async function ensureAdminAccount() {
     // 查询 autoads 管理员是否存在
     const existingAdmin = await db.queryOne<{ id: number; username: string; email: string }>(
       "SELECT id, username, email FROM users WHERE username = ?",
-      ['autoads']
+      ['admin']
     )
 
     const passwordHash = await hashPassword(password)
@@ -73,8 +73,8 @@ async function ensureAdminAccount() {
             updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
-            'autoads',
-            'admin@autoads.com',
+            'admin',
+            'admin@aiadsgo.com',
             passwordHash,
             'AutoAds Administrator',
             'admin',
@@ -103,8 +103,8 @@ async function ensureAdminAccount() {
             updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
-            'autoads',
-            'admin@autoads.com',
+            'admin',
+            'admin@aiadsgo.com',
             passwordHash,
             'AutoAds Administrator',
             'admin',
@@ -122,9 +122,9 @@ async function ensureAdminAccount() {
       console.log('='.repeat(60))
       console.log('🔑 管理员登录信息')
       console.log('='.repeat(60))
-      console.log('用户名: autoads')
+      console.log('用户名: admin')
       console.log(`密码: ${password}`)
-      console.log('邮箱: admin@autoads.com')
+      console.log('邮箱: admin@aiadsgo.com')
       console.log('角色: admin')
       console.log('套餐类型: lifetime')
       console.log('='.repeat(60))
@@ -136,13 +136,13 @@ async function ensureAdminAccount() {
         // PostgreSQL 版本
         await db.exec(
           "UPDATE users SET password_hash = ?, must_change_password = FALSE, is_active = TRUE, openclaw_enabled = TRUE, updated_at = NOW() WHERE username = ?",
-          [passwordHash, 'autoads']
+          [passwordHash, 'admin']
         )
       } else {
         // SQLite 版本
         await db.exec(
           "UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, openclaw_enabled = 1, updated_at = datetime('now') WHERE username = ?",
-          [passwordHash, 'autoads']
+          [passwordHash, 'admin']
         )
       }
 
@@ -151,9 +151,9 @@ async function ensureAdminAccount() {
       console.log('='.repeat(60))
       console.log('🔑 管理员登录信息')
       console.log('='.repeat(60))
-      console.log('用户名: autoads')
+      console.log('用户名: admin')
       console.log(`密码: ${password}`)
-      console.log('邮箱: admin@autoads.com')
+      console.log('邮箱: admin@aiadsgo.com')
       console.log('='.repeat(60))
     }
 
