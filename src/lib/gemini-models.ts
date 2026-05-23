@@ -93,16 +93,20 @@ export const GEMINI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
 
 // ─── 官方 OpenAI 模型（直连 OpenAI API）──────────────────────────
 export const OPENAI_OFFICIAL_MODELS = [
-  'gpt-5.5',
-  'gpt-5.4-mini',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4o',
+  'gpt-4o-mini',
 ] as const
 export type OpenAIOfficialModel = typeof OPENAI_OFFICIAL_MODELS[number]
-export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-5.4-mini'
+export const OPENAI_OFFICIAL_DEFAULT: OpenAIOfficialModel = 'gpt-4o'
 export const OPENAI_OFFICIAL_BASE_URL = 'https://api.openai.com'
 
 export const OPENAI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
-  'gpt-5.5':     'GPT-5.5（旗舰）',
-  'gpt-5.4-mini': 'GPT-5.4 Mini（快速）',
+  'gpt-4.1':      'GPT-4.1（旗舰）',
+  'gpt-4.1-mini': 'GPT-4.1 Mini（轻量）',
+  'gpt-4o':       'GPT-4o（多模态）',
+  'gpt-4o-mini':  'GPT-4o Mini（快速）',
 }
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
