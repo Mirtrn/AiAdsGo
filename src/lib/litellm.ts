@@ -111,7 +111,8 @@ export interface LiteLLMGenerateResult {
  *  - 模型不存在（网关路由失败）
  *  - 速率限制（429 / rate_limit）
  *  - 模型过载（overloaded / quota_exceeded）
- *  - 服务不可用（503 / 502）
+ *  - 服务不可用（503 / 502 / 504）
+ *  - 网关内部错误（500）—— 中转服务上游波动
  *
  * 不应降级的错误（让调用方直接感知）：
  *  - 认证失败（401 / 403 / invalid_api_key）
@@ -140,16 +141,21 @@ function shouldFallbackToNextModel(errorMessage: string, statusCode?: number): b
     'overloaded',           // 模型过载（Anthropic 等）
     'too many requests',    // HTTP 429 文本描述
     '429',
+    '500',                  // 中转网关内部错误（上游模型波动）
+    '502',
+    'bad gateway',          // 502 文本描述
     '503',
     'service unavailable',
-    'bad gateway',          // 502 文本描述
-    '502',
+    '504',                  // 网关超时（tryCallModel 生成 "LiteLLM 网关超时 (504)..."）
+    'gateway timeout',
   ]
 
   return (
     statusCode === 429 ||
-    statusCode === 503 ||
+    statusCode === 500 ||
     statusCode === 502 ||
+    statusCode === 503 ||
+    statusCode === 504 ||
     fallbackTriggers.some(trigger => lowerError.includes(trigger.toLowerCase()))
   )
 }

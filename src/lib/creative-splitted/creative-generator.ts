@@ -231,11 +231,24 @@ export async function callAIWithRetry(
         break
       }
 
-      console.log(`[callAIWithRetry] 第 ${attempt} 次尝试失败，2秒后重试...`)
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      if (attempt < maxRetries) {
+        console.log(`[callAIWithRetry] 第 ${attempt} 次尝试失败，2秒后重试...`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
     } catch (error: any) {
       lastError = error
       console.error(`[callAIWithRetry] 第 ${attempt} 次尝试异常:`, error)
+
+      // catch 块也要检查可重试性：401/403 认证失败不需要重试
+      const { retryable } = handleAIError(error)
+      if (!retryable) {
+        break
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`[callAIWithRetry] 第 ${attempt} 次异常，2秒后重试...`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
     }
   }
 

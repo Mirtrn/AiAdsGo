@@ -844,11 +844,12 @@ export async function generateContent(params: {
           continue
         }
 
+        // 不可重试错误 或 已达最大重试次数，直接抛出
         throw error
       }
     }
-
-    throw new Error('Gemini API调用失败: 超过最大重试次数')
+    // 理论不可达：循环内 return 或 throw 必然先执行，此处为 TypeScript 类型守卫
+    throw new Error('Gemini API调用失败: 超过最大重试次数（不可达）')
   } catch (error: any) {
     // 🔧 修复(2025-12-11): 对所有错误打印详细信息
     console.error(`❌ Gemini API调用失败:`)
