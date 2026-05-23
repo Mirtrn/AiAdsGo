@@ -7,6 +7,7 @@ import {
   Activity,
   LayoutDashboard,
   Package,
+  Boxes,
   Megaphone,
   Lightbulb,
   Settings,
@@ -123,6 +124,11 @@ const navigationItems: NavItem[] = [
     label: '仪表盘',
     href: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    label: '商品管理',
+    href: '/products',
+    icon: Boxes,
   },
   {
     label: 'Offer',
