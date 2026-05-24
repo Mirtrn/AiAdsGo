@@ -196,9 +196,11 @@ export async function executeBatchCreation(
           GROUP BY status
         `, [batchId])
 
+        // Bug #15 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，必须 Number() 转换
+        // 否则 completed + failed 字符串拼接（'2'+'3'='23'），且 failed === 0 永为 false
         const statsMap: Record<string, number> = {}
         for (const row of stats) {
-          statsMap[row.status] = row.count
+          statsMap[row.status] = Number(row.count)
         }
 
         const completed = statsMap['completed'] || 0
