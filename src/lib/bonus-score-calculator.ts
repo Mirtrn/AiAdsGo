@@ -357,10 +357,11 @@ export async function getUserBonusStats(userId: string): Promise<{
     LIMIT 5
   `, [userId])
 
+  // Bug #28 fix: PostgreSQL COUNT(*)/SUM() 返回 bigint 字符串，Number() 确保整数
   return {
-    totalCreatives: stats?.total || 0,
-    creativesWithBonus: stats?.with_bonus || 0,
-    averageBonus: stats?.avg_bonus ? Math.round(stats.avg_bonus * 10) / 10 : 0,
+    totalCreatives: Number(stats?.total ?? 0),
+    creativesWithBonus: Number(stats?.with_bonus ?? 0),
+    averageBonus: stats?.avg_bonus ? Math.round(Number(stats.avg_bonus) * 10) / 10 : 0,
     topPerformers: topPerformers.map(p => ({
       adCreativeId: p.ad_creative_id,
       bonusScore: p.bonus_score,
