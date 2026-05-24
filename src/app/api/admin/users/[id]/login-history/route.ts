@@ -55,7 +55,9 @@ export const GET = withAuth(
         SELECT COUNT(*) as total
         FROM login_attempts
         WHERE username_or_email IN (?, ?)
-      `, [targetUser.username, targetUser.email || targetUser.username]) as { total: number }
+      `, [targetUser.username, targetUser.email || targetUser.username]) as { total: number | string }
+      // Bug #25 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+      const totalCount = Number(totalResult?.total ?? 0)
 
       // 获取审计日志中的登录成功记录
       const auditLogs = await db.query(`
@@ -109,7 +111,7 @@ export const GET = withAuth(
         },
         records: normalizedRecords.slice(0, limit),
         pagination: {
-          total: totalResult.total,
+          total: totalCount,
           limit,
           offset,
         }
