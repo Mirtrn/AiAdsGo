@@ -219,12 +219,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       stats: {
-        deletedCampaigns: stats?.deleted_campaigns || 0,
-        deletedOffers: stats?.deleted_offers || 0,
-        campaignsWithPerformance: stats?.campaigns_with_performance || 0
+        deletedCampaigns: Number(stats?.deleted_campaigns ?? 0),        // Bug #37a fix: COUNT(*) bigint string
+        deletedOffers: Number(stats?.deleted_offers ?? 0),               // Bug #37a fix: COUNT(*) bigint string
+        campaignsWithPerformance: Number(stats?.campaigns_with_performance ?? 0)  // Bug #37a fix: COUNT(*) bigint string
       },
       campaignsByAge: campaignsByAge.reduce((acc: any, row: any) => {
-        acc[row.age_group] = row.count
+        acc[row.age_group] = Number(row.count ?? 0)  // Bug #37a fix: COUNT(*) bigint string
         return acc
       }, {})
     })

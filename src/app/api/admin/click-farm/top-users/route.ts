@@ -32,15 +32,19 @@ export async function GET(request: NextRequest) {
       LIMIT 10
     `, []);
 
-    const result = topUsers.map((user: any) => ({
-      userId: user.user_id,
-      username: user.username,
-      totalClicks: user.total_clicks,
-      successRate: user.total_clicks > 0
-        ? parseFloat(((user.success_clicks / user.total_clicks) * 100).toFixed(1))
-        : 0,
-      traffic: estimateTraffic(user.total_clicks)  // 🔧 统一使用估算函数
-    }));
+    const result = topUsers.map((user: any) => {
+      const totalClicks = Number(user.total_clicks ?? 0)     // Bug #37b fix: SUM() bigint string
+      const successClicks = Number(user.success_clicks ?? 0) // Bug #37b fix: SUM() bigint string
+      return {
+        userId: user.user_id,
+        username: user.username,
+        totalClicks,
+        successRate: totalClicks > 0
+          ? parseFloat(((successClicks / totalClicks) * 100).toFixed(1))
+          : 0,
+        traffic: estimateTraffic(totalClicks)  // Bug #37b fix: pass number not bigint string
+      }
+    });
 
     return NextResponse.json({
       success: true,

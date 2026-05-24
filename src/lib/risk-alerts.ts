@@ -491,7 +491,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
   ) as any[]
   const campaignCountMap = new Map<number, number>()
   for (const row of campaignCounts) {
-    campaignCountMap.set(row.google_ads_account_id, row.count)
+    campaignCountMap.set(row.google_ads_account_id, Number(row.count ?? 0))  // Bug #38 fix: COUNT(*) bigint string
   }
 
   // 批量查询2: 所有账号的sync errors count（单次查询）
@@ -511,7 +511,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
   ) as any[]
   const syncErrorsMap = new Map<number, number>()
   for (const row of syncErrorsData) {
-    syncErrorsMap.set(row.google_ads_account_id, row.count)
+    syncErrorsMap.set(row.google_ads_account_id, Number(row.count ?? 0))  // Bug #38 fix: COUNT(*) bigint string
   }
 
   // 批量查询3: 所有账号的last sync time（单次查询）

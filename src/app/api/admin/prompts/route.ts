@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
         language: prompt.language,
         createdBy: prompt.created_by_name,
         createdAt: prompt.created_at,
-        versionCount: prompt.version_count || 0,
+        versionCount: Number(prompt.version_count ?? 0),  // Bug #39 fix: COUNT(*) bigint string
         totalCalls: 0,  // Feature offline: prompt_usage_stats table removed
         totalCost: 0,   // Feature offline: prompt_usage_stats table removed
       })
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
             language: p.language,
             createdBy: p.created_by_name,
             createdAt: p.created_at,
-            versionCount: p.version_count || 0,
+            versionCount: Number(p.version_count ?? 0),  // Bug #39 fix: COUNT(*) bigint string
             totalCalls: 0,  // Feature offline: prompt_usage_stats table removed
             totalCost: 0,   // Feature offline: prompt_usage_stats table removed
           }
