@@ -373,7 +373,8 @@ export async function getClickFarmTasks(
     WHERE ${whereClause}
   `, countParams);
 
-  const total = countResult?.count || 0;
+  // Bug #19 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+  const total = Number(countResult?.count ?? 0);
 
   // 获取任务列表
   query += ' ORDER BY cft.created_at DESC LIMIT ? OFFSET ?';

@@ -32,7 +32,8 @@ export async function GET(request: NextRequest) {
       WHERE ${isDeletedFalse}
     `, []);
 
-    const total = countResult?.count || 0;
+    // Bug #20 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+    const total = Number(countResult?.count ?? 0);
 
     // 获取任务列表
     const tasks = await db.query<any>(`

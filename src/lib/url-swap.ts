@@ -639,7 +639,8 @@ export async function getUrlSwapTasks(
     WHERE ${whereClause}
   `, params)
 
-  const total = countResult?.count || 0
+  // Bug #18 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+  const total = Number(countResult?.count ?? 0)
 
   // 获取任务列表
   const tasks = await db.query<any>(`
@@ -1243,7 +1244,8 @@ export async function getAllUrlSwapTasks(
     WHERE ${whereClause}
   `, params)
 
-  const total = countResult?.count || 0
+  // Bug #18 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+  const total = Number(countResult?.count ?? 0)
 
   // 获取任务列表（关联用户表）
   const tasks = await db.query<any>(`
