@@ -418,16 +418,18 @@ export async function getTaskStatistics(userId: number): Promise<{
     [userId]
   ) as any
 
+  // Bug #30 fix: PostgreSQL COUNT/SUM returns bigint strings; Number() ensures integer values
+  // `'100' || 0` = '100' (string, not number), `Number('100')` = 100
   return {
-    total: stats.total || 0,
-    pending: stats.pending || 0,
-    inProgress: stats.inProgress || 0,
-    completed: stats.completed || 0,
-    dismissed: stats.dismissed || 0,
+    total: Number(stats?.total ?? 0),
+    pending: Number(stats?.pending ?? 0),
+    inProgress: Number(stats?.inProgress ?? 0),
+    completed: Number(stats?.completed ?? 0),
+    dismissed: Number(stats?.dismissed ?? 0),
     byPriority: {
-      high: stats.highPriority || 0,
-      medium: stats.mediumPriority || 0,
-      low: stats.lowPriority || 0
+      high: Number(stats?.highPriority ?? 0),
+      medium: Number(stats?.mediumPriority ?? 0),
+      low: Number(stats?.lowPriority ?? 0)
     }
   }
 }

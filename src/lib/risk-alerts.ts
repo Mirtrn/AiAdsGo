@@ -755,12 +755,14 @@ export async function getRiskStatistics(userId: number): Promise<{
   let info = 0
 
   rows.forEach(row => {
-    byType[row.alert_type] = row.type_count
-    total += row.total
-    active += row.active
-    critical += row.critical
-    warning += row.warning
-    info += row.info
+    // Bug #29 fix: PostgreSQL COUNT/SUM returns bigint strings; Number() ensures numeric accumulation
+    // Without Number(), `0 + '5'` = '05' (string concat) not 5 (addition)
+    byType[row.alert_type] = Number(row.type_count ?? 0)
+    total += Number(row.total ?? 0)
+    active += Number(row.active ?? 0)
+    critical += Number(row.critical ?? 0)
+    warning += Number(row.warning ?? 0)
+    info += Number(row.info ?? 0)
   })
 
   return {
