@@ -170,21 +170,22 @@ export async function GET(request: NextRequest) {
       data: {
         backups,
         syncLogs,
+        // Bug #27 fix: PostgreSQL COUNT(*)/SUM() 返回 bigint 字符串，Number() 确保整数
         stats: {
           backup: {
-            total: backupStats.total || 0,
-            success: backupStats.success || 0,
-            failed: backupStats.failed || 0,
-            totalSizeBytes: backupStats.total_size_bytes || 0,
-            lastRun: backupStats.last_run,
+            total: Number(backupStats?.total ?? 0),
+            success: Number(backupStats?.success ?? 0),
+            failed: Number(backupStats?.failed ?? 0),
+            totalSizeBytes: Number(backupStats?.total_size_bytes ?? 0),
+            lastRun: backupStats?.last_run,
           },
           sync: {
-            total: syncStats.total || 0,
-            success: syncStats.success || 0,
-            failed: syncStats.failed || 0,
-            totalRecords: syncStats.total_records || 0,
-            avgDuration: Math.round(syncStats.avg_duration || 0),
-            lastRun: syncStats.last_run,
+            total: Number(syncStats?.total ?? 0),
+            success: Number(syncStats?.success ?? 0),
+            failed: Number(syncStats?.failed ?? 0),
+            totalRecords: Number(syncStats?.total_records ?? 0),
+            avgDuration: Math.round(Number(syncStats?.avg_duration ?? 0)),
+            lastRun: syncStats?.last_run,
           },
         },
         scheduledTasks,

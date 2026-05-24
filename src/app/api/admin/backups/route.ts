@@ -41,15 +41,16 @@ export async function GET(request: NextRequest) {
       FROM backup_logs
     `) as any
 
+    // Bug #26 fix: PostgreSQL COUNT(*)/SUM() 返回 bigint 字符串，Number() 确保整数
     return NextResponse.json({
       success: true,
       data: {
         backups,
         stats: {
-          totalBackups: stats.total_backups,
-          successfulBackups: stats.successful_backups,
-          failedBackups: stats.failed_backups,
-          totalSizeBytes: stats.total_size_bytes,
+          totalBackups: Number(stats?.total_backups ?? 0),
+          successfulBackups: Number(stats?.successful_backups ?? 0),
+          failedBackups: Number(stats?.failed_backups ?? 0),
+          totalSizeBytes: Number(stats?.total_size_bytes ?? 0),
         },
       },
     })
