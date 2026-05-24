@@ -79,7 +79,8 @@ export async function POST(request: NextRequest) {
         FROM campaign_performance
         WHERE campaign_id IN (${placeholders})
       `, campaignIds) as any
-      performanceCount = perfData?.count || 0
+      // Bug #21 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+      performanceCount = Number(perfData?.count ?? 0)
     }
 
     // 预览模式：只返回统计信息

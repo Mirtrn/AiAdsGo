@@ -210,7 +210,8 @@ async function getTaskStats(
       AND IS_DELETED_FALSE
   `);
 
-  const activeTaskCount = activeTasks?.count || 0;
+  // Bug #22 fix: PostgreSQL COUNT(*)/SUM() 返回 bigint 字符串，Number() 确保整数
+  const activeTaskCount = Number(activeTasks?.count ?? 0);
 
   // 今日总点击数（所有运行中或已完成的任务累计）
   const totalClicks = await db.queryOne<any>(`
@@ -220,7 +221,7 @@ async function getTaskStats(
       AND IS_DELETED_FALSE
   `);
 
-  const todayClicks = totalClicks?.total || 0;
+  const todayClicks = Number(totalClicks?.total ?? 0);
 
   // 推算日总点击数：使用 UTC 小时（服务器时间）做简单推算
   // 注意：仅供参考，实际分布受任务时区影响
