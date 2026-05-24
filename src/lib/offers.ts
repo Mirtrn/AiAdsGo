@@ -458,7 +458,10 @@ export async function listOffers(
 
   // 获取总数
   const countQuery = `SELECT COUNT(*) as count FROM offers WHERE ${whereClause}`
-  const { count } = await db.queryOne(countQuery, params) as { count: number }
+  // Bug #16 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，类型断言 as {count:number} 仅是编译期骗局
+  // 运行时仍为字符串，导致 total: count 序列化为 "100" 而非 100，破坏前端分页算术
+  const countRow = await db.queryOne(countQuery, params) as { count: number | string }
+  const count = Number(countRow?.count ?? 0)
 
   // 获取列表
   const listColumns = [
