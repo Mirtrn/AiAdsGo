@@ -325,13 +325,19 @@ export interface AuditEventStats {
 export async function getEventTypeStats(hours: number = 24): Promise<AuditEventStats[]> {
   const db = await getDatabase()
 
-  return await db.query(`
+  const rows = await db.query<{ event_type: string; count: string | number }>(`
     SELECT event_type, COUNT(*) as count
     FROM audit_logs
     WHERE created_at > datetime('now', '-${hours} hours')
     GROUP BY event_type
     ORDER BY count DESC
-  `, []) as AuditEventStats[]
+  `, [])
+
+  // Bug #35 fix: PostgreSQL COUNT(*) returns bigint string; Number() ensures numeric count
+  return rows.map(row => ({
+    event_type: row.event_type,
+    count: Number(row.count ?? 0),
+  }))
 }
 
 /**

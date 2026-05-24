@@ -783,8 +783,15 @@ export async function getAdminClickFarmStats(): Promise<{
     FROM click_farm_tasks
   `, []);
 
-  const successRate = global.total_clicks > 0
-    ? (global.success_clicks / global.total_clicks) * 100
+  // Bug #36 fix: PostgreSQL COUNT(*)/SUM() returns bigint string; Number() ensures numeric conversion
+  const globalTotalTasks = Number(global?.total_tasks ?? 0)
+  const globalActiveTasks = Number(global?.active_tasks ?? 0)
+  const globalTotalClicks = Number(global?.total_clicks ?? 0)
+  const globalSuccessClicks = Number(global?.success_clicks ?? 0)
+  const globalFailedClicks = Number(global?.failed_clicks ?? 0)
+
+  const successRate = globalTotalClicks > 0
+    ? (globalSuccessClicks / globalTotalClicks) * 100
     : 0;
 
   // 2️⃣ 今日统计（按每个任务的timezone判断）
@@ -868,16 +875,16 @@ export async function getAdminClickFarmStats(): Promise<{
   });
 
   return {
-    total_tasks: global.total_tasks,
-    active_tasks: global.active_tasks,
-    total_clicks: global.total_clicks,
-    success_clicks: global.success_clicks,
+    total_tasks: globalTotalTasks,
+    active_tasks: globalActiveTasks,
+    total_clicks: globalTotalClicks,
+    success_clicks: globalSuccessClicks,
     success_rate: parseFloat(successRate.toFixed(1)),
     today_clicks: today.clicks,
     today_success_clicks: today.successClicks,  // 🆕 今日成功点击数
     today_success_rate: parseFloat(todaySuccessRate.toFixed(1)),  // 🆕 今日成功率
     today_traffic: estimateTraffic(today.clicks),  // 🔧 统一使用估算函数
-    total_traffic: estimateTraffic(global.total_clicks),  // 🔧 统一使用估算函数
+    total_traffic: estimateTraffic(globalTotalClicks),  // 🔧 统一使用估算函数
     taskStatusDistribution
   };
 }

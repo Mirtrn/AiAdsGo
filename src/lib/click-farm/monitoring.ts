@@ -155,8 +155,11 @@ async function getSuccessRate(
       AND total_clicks > 0
   `);
 
-  const todayRate = todayStats?.total > 0
-    ? Math.round(((todayStats.successful || 0) / todayStats.total) * 100)
+  // Bug #34 fix: PostgreSQL SUM() returns bigint string; Number() ensures numeric conversion
+  const totalToday = Number(todayStats?.total ?? 0)
+  const successfulToday = Number(todayStats?.successful ?? 0)
+  const todayRate = totalToday > 0
+    ? Math.round((successfulToday / totalToday) * 100)
     : 0;
 
   // 最近7天的成功率：使用 db.type 兼容 SQLite 和 PostgreSQL
@@ -174,8 +177,11 @@ async function getSuccessRate(
       AND updated_at >= ${sevenDaysAgoExpr}
   `);
 
-  const last7daysRate = last7days?.total > 0
-    ? Math.round(((last7days.successful || 0) / last7days.total) * 100)
+  // Bug #34 fix: PostgreSQL SUM() returns bigint string; Number() ensures numeric conversion
+  const totalLast7 = Number(last7days?.total ?? 0)
+  const successfulLast7 = Number(last7days?.successful ?? 0)
+  const last7daysRate = totalLast7 > 0
+    ? Math.round((successfulLast7 / totalLast7) * 100)
     : 0;
 
   // 警告阈值
