@@ -113,17 +113,28 @@ export interface LiteLLMGenerateResult {
  *  - 模型过载（overloaded / quota_exceeded）
  *  - 服务不可用（503 / 502 / 504）
  *  - 网关内部错误（500）—— 中转服务上游波动
+ *  - 请求超时（AbortError）—— 当前模型挂起/无响应，换下一个模型可能更快
  *
  * 不应降级的错误（让调用方直接感知）：
- *  - 认证失败（401 / 403 / invalid_api_key）
- *  - 请求体格式错误（400）
- *  - 超时（abort）— 已达到本次超时上限，继续尝试无意义
+ *  - 认证失败（401 / 403 / invalid_api_key）—— key 无效，换模型没用
+ *  - 请求体格式错误（400）—— 请求本身有问题
  */
 function shouldFallbackToNextModel(errorMessage: string, statusCode?: number): boolean {
   const lowerError = errorMessage.toLowerCase()
 
   // 明确不应降级的 HTTP 状态码
   if (statusCode === 401 || statusCode === 403 || statusCode === 400) {
+    return false
+  }
+
+  // ⚠️ 认证相关关键字也不降级：API key 无效时，换模型依然会因同一 key 失败
+  if (
+    lowerError.includes('invalid api key') ||
+    lowerError.includes('invalid_api_key') ||
+    lowerError.includes('authentication') ||
+    lowerError.includes('unauthorized') ||
+    lowerError.includes('forbidden')
+  ) {
     return false
   }
 
@@ -148,6 +159,11 @@ function shouldFallbackToNextModel(errorMessage: string, statusCode?: number): b
     'service unavailable',
     '504',                  // 网关超时（tryCallModel 生成 "LiteLLM 网关超时 (504)..."）
     'gateway timeout',
+    // ✅ 超时类：当前模型挂起，降级到下一个模型
+    'aborted',              // AbortError（本地 80s 超时）
+    'abort',
+    'timed out',
+    'etimedout',
   ]
 
   return (

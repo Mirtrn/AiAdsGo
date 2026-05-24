@@ -180,6 +180,9 @@ function handleAIError(error: any): { retryable: boolean; message: string } {
   const lower = message.toLowerCase()
 
   // 可重试的错误模式
+  // ⚠️ 注意：不能包含 'aborted'（AbortError）——
+  //   AbortError 是我们自己 80s 超时后主动触发的，litellm 层已尝试降级链所有模型；
+  //   在 callAIWithRetry 层再重试只会继续挂 80s × N 次，毫无意义。
   const isRetryable =
     lower.includes('timeout') ||
     lower.includes('超时') ||
@@ -194,8 +197,8 @@ function handleAIError(error: any): { retryable: boolean; message: string } {
     lower.includes('network') ||
     lower.includes('econnreset') ||
     lower.includes('econnrefused') ||
-    lower.includes('fetch failed') ||
-    lower.includes('aborted')
+    lower.includes('fetch failed')
+    // ❌ 移除 'aborted'：AbortError 不应触发外层重试（见上方注释）
 
   return {
     retryable: isRetryable,
