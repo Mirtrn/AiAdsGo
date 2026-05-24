@@ -1286,9 +1286,17 @@ export class UnifiedQueueManager {
             WHERE batch_id = ?
           `, [batchId])
 
-          if (batchStats && batchStats.running === 0 && batchStats.pending === 0) {
+          // Bug #14 fix: PostgreSQL COUNT/SUM 返回 bigint 字符串，必须 Number() 转换后再比较
+          const batchStatsNorm = batchStats ? {
+            total: Number(batchStats.total),
+            completed: Number(batchStats.completed),
+            failed: Number(batchStats.failed),
+            running: Number(batchStats.running),
+            pending: Number(batchStats.pending),
+          } : null
+          if (batchStatsNorm && batchStatsNorm.running === 0 && batchStatsNorm.pending === 0) {
             // 所有任务都完成了，更新 batch 状态
-            const newStatus = batchStats.failed > 0 ? 'failed' : 'completed'
+            const newStatus = batchStatsNorm.failed > 0 ? 'failed' : 'completed'
             await db.exec(`
               UPDATE batch_tasks
               SET status = ?,
