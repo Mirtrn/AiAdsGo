@@ -127,7 +127,7 @@ async function recoverSingleBatchTask(
   // 1. 查询所有子任务的实际状态（数据库是唯一真相来源）
   const childStats = await db.query<{
     status: string
-    count: number
+    count: number | string  // PostgreSQL COUNT(*) 返回 bigint，pg 驱动序列化为字符串
   }>(`
     SELECT status, COUNT(*) as count
     FROM offer_tasks
@@ -136,9 +136,11 @@ async function recoverSingleBatchTask(
   `, [batchId])
 
   // 2. 统计子任务状态
+  // 🔧 Bug #12 修复：PostgreSQL COUNT(*) 返回 bigint 字符串，必须 Number() 转换
+  // 否则 completed + failed 会变为字符串拼接（'2' + '3' = '23'），导致判断错误
   const statsMap: Record<string, number> = {}
   for (const row of childStats) {
-    statsMap[row.status] = row.count
+    statsMap[row.status] = Number(row.count)
   }
 
   const completed = statsMap['completed'] || 0

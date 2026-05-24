@@ -1543,12 +1543,12 @@ export class UnifiedQueueManager {
 
       for (const batch of batches) {
         // 统计子任务状态
-        const stats = await db.queryOne<{
-          total: number
-          completed: number
-          failed: number
-          running: number
-          pending: number
+        const statsRaw = await db.queryOne<{
+          total: number | string
+          completed: number | string
+          failed: number | string
+          running: number | string
+          pending: number | string
         }>(`
           SELECT
             COUNT(*) as total,
@@ -1560,7 +1560,17 @@ export class UnifiedQueueManager {
           WHERE batch_id = ?
         `, [batch.id])
 
-        if (!stats) continue
+        if (!statsRaw) continue
+
+        // 🔧 Bug #13 修复：PostgreSQL COUNT/SUM 返回 bigint 字符串，严格相等 (=== 0) 会失败
+        // 例如 '0' === 0 → false，导致条件判断永远不成立，batch 状态永不更新
+        const stats = {
+          total: Number(statsRaw.total),
+          completed: Number(statsRaw.completed),
+          failed: Number(statsRaw.failed),
+          running: Number(statsRaw.running),
+          pending: Number(statsRaw.pending),
+        }
 
         let newStatus: string | null = null
 
