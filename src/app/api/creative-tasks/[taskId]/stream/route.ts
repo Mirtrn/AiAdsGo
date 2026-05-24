@@ -149,14 +149,22 @@ export async function GET(
             }
           } catch (error: any) {
             console.error('SSE polling error:', error)
+            // 🔧 Bug #10 修复：防御性字符串化，非 Error 对象时 error.message 为 undefined
+            const errMsg = typeof error?.message === 'string' && error.message
+              ? error.message
+              : typeof error === 'string' && error
+                ? error
+                : String(error ?? 'SSE polling error')
             sendSSE({
               type: 'error',
-              error: error.message,
-              details: { stack: error.stack }
+              error: errMsg,
+              details: { stack: typeof error?.stack === 'string' ? error.stack : undefined }
             })
             clearInterval(pollInterval)
-            controller.close()
-            isClosed = true
+            if (!isClosed) {
+              controller.close()
+              isClosed = true
+            }
           }
         }, 1000) // 每1秒轮询一次
 

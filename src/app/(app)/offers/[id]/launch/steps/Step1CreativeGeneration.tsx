@@ -801,11 +801,15 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const startPolling = (taskId: string) => {
     // 立即检查一次
     pollTaskStatus(taskId).then(status => {
-      if (status === 'running') {
+      // 🔧 Bug #11 修复：初次 poll 返回 null（网络错误/临时失败）时也需启动轮询
+      // 原逻辑只有 status === 'running' 时才启动 setInterval，
+      // 网络错误返回 null 时轮询永远不启动，用户卡在 SSE timeout 状态
+      if (status === 'running' || status === null) {
         // 继续轮询，每3秒检查一次
         const timer = setInterval(async () => {
           const currentStatus = await pollTaskStatus(taskId)
-          if (currentStatus !== 'running') {
+          // null = 临时网络失败，继续轮询；非 running 的确定状态才停止
+          if (currentStatus !== 'running' && currentStatus !== null) {
             clearInterval(timer)
             setPollingTimer(null)
           }
