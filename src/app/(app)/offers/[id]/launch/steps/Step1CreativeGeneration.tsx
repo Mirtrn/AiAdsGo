@@ -1217,8 +1217,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 })
               } else if (data.type === 'result') {
                 // 生成成功
-                const rating = data.adStrength.rating
-                const score = data.adStrength.score
+                // 🔧 Bug #9 修复：adStrength 可能缺失（旧版响应/边缘情况），添加 ?. 防御避免 TypeError
+                const rating = data.adStrength?.rating
+                const score = data.adStrength?.score
 
                 // 🔧 修复(2025-12-22): 质量低于70分时显示警告提示
                 const MINIMUM_SCORE = 70

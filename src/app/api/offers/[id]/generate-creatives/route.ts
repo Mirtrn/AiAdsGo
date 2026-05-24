@@ -206,7 +206,17 @@ export async function POST(
       sitelinks: bestCreative.sitelinks,
       theme: bestCreative.theme,
       explanation: bestCreative.explanation,
-      final_url: offer.final_url || offer.url,
+      // 🔧 Bug #7 修复：与 executor 对齐，添加 URL 有效性验证，避免 "null/" 字符串被当作有效 URL
+      final_url: (() => {
+        const isValidUrl = (url: string | null | undefined): boolean => {
+          if (!url || typeof url !== 'string') return false
+          const trimmed = url.trim()
+          return trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        }
+        if (isValidUrl(offer.final_url)) return offer.final_url!
+        if (isValidUrl(offer.url)) return offer.url!
+        throw new Error('Offer缺少有效的URL（final_url和url均为无效值）')
+      })(),
       final_url_suffix: offer.final_url_suffix || undefined,
       // 传入Ad Strength评估的分数（而不是让createAdCreative重新计算）
       score: bestEvaluation.finalScore,
@@ -216,8 +226,9 @@ export async function POST(
         engagement: bestEvaluation.localEvaluation.dimensions.completeness.score,
         diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
         clarity: bestEvaluation.localEvaluation.dimensions.compliance.score,
-        brandSearchVolume: bestEvaluation.localEvaluation.dimensions.brandSearchVolume.score,
-        competitivePositioning: bestEvaluation.localEvaluation.dimensions.competitivePositioning.score
+        // 🔧 Bug #6 修复：与 executor 对齐，添加 ?. 防御，避免维度不存在时 TypeError
+        brandSearchVolume: bestEvaluation.localEvaluation.dimensions.brandSearchVolume?.score || 0,
+        competitivePositioning: bestEvaluation.localEvaluation.dimensions.competitivePositioning?.score || 0
       },
       generation_round: attempts, // 传入实际的尝试次数
       ai_model: bestCreative.ai_model // 传入实际使用的AI模型

@@ -254,8 +254,14 @@ export async function POST(
     })
   } catch (error: any) {
     console.error('创意生成任务入队失败:', error)
+    // 🔧 Bug #8 修复：防御性字符串化，避免非 Error 对象时 error.message 为 undefined 导致前端收到 { error: undefined }
+    const errorMessage = typeof error?.message === 'string' && error.message
+      ? error.message
+      : typeof error === 'string' && error
+        ? error
+        : String(error ?? '任务入队失败')
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
