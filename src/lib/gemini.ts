@@ -91,16 +91,11 @@ export async function generateContent(
     { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
     userId
   )
-  // 注意：apiType 透传 litellm 的真实值（'litellm'），
-  // 此处强转为 'direct-api' 以兼容 GeminiGenerateResult 接口签名；
-  // token 记录调用方（ai.ts 等）使用 result.apiType 即可拿到正确值，
-  // 直接从 litellmGenerate 返回值透传更准确
   return {
     text: result.text,
     usage: result.usage,
     model: result.model,
-    // 使用 litellm 实际返回的 apiType（'litellm'），不硬编码为 'direct-api'
-    // GeminiGenerateResult.apiType 类型已宽化为 string，可安全赋值
+    // 透传 litellm 实际返回的 apiType（'litellm'），不硬编码为 'direct-api'
     apiType: result.apiType,
   }
 }

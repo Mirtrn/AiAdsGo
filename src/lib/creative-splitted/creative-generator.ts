@@ -257,6 +257,8 @@ export async function callAIWithRetry(
 
   return {
     success: false,
-    error: lastError?.message || '所有重试均失败'
+    // lastError 可能是 string（来自 response.error）或 Error 对象（来自 catch 块）
+    // 用 typeof 区分，避免 string.message === undefined 导致错误信息丢失
+    error: (typeof lastError === 'string' ? lastError : lastError?.message) || '所有重试均失败'
   }
 }
