@@ -796,7 +796,15 @@ export async function executeAdCreativeGeneration(
 
     return finalResult
   } catch (error: any) {
-    console.error(`❌ 创意生成任务失败: ${task.id}:`, error.message)
+    // 🛡️ Fix29: 防御性字符串化，避免 throw 非 Error 对象时 error.message 为 undefined
+    const errorMessage = typeof error?.message === 'string' && error.message
+      ? error.message
+      : typeof error === 'string' && error
+        ? error
+        : String(error ?? '未知错误')
+    const errorStack = typeof error?.stack === 'string' ? error.stack : undefined
+
+    console.error(`❌ 创意生成任务失败: ${task.id}:`, errorMessage)
 
     // 🔧 PostgreSQL兼容性：在catch块中也需要使用正确的NOW函数
     const nowFuncErr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -812,8 +820,8 @@ export async function executeAdCreativeGeneration(
         updated_at = ${nowFuncErr}
       WHERE id = ?
     `, [
-      error.message,
-      toDbJson({ message: error.message, stack: error.stack }),
+      errorMessage,
+      toDbJson({ message: errorMessage, stack: errorStack }),
       task.id
     ])
 
