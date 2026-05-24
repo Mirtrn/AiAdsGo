@@ -139,7 +139,9 @@ export async function GET(request: NextRequest) {
     query += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
 
     // Get total count
-    const total = await db.queryOne(countQuery, [...params]) as { count: number }
+    // Bug #17 fix: PostgreSQL COUNT(*) returns bigint string, Number() ensures integer
+    const totalRow = await db.queryOne(countQuery, [...params]) as { count: number | string }
+    const totalCount = Number(totalRow?.count ?? 0)
 
     // Get users
     const users = await db.query(query, [...params, limit, offset])
@@ -149,10 +151,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       users: users.map((user) => transformUserToApiResponse(user, now)),
       pagination: {
-        total: total.count,
+        total: totalCount,
         page,
         limit,
-        totalPages: Math.ceil(total.count / limit)
+        totalPages: Math.ceil(totalCount / limit)
       }
     })
   } catch (error: any) {
