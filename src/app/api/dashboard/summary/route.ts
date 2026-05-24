@@ -53,15 +53,17 @@ async function getKPIs(userId: number, days: number = 30) {
       AND ${notDeletedCondition}
   `, [startDateStr, userId]) as any
 
+  // Bug #31 fix: PostgreSQL COUNT/SUM returns bigint strings; Number() converts to integer
+  // `'100' || 0` = '100' (string), Number('100') = 100
   return {
-    totalCampaigns: result?.total_campaigns || 0,
-    totalOffers: result?.total_offers || 0,
-    totalClicks: result?.total_clicks || 0,
-    totalImpressions: result?.total_impressions || 0,
-    totalCost: result?.total_cost || 0,
-    totalConversions: result?.total_conversions || 0,
-    avgCPC: result?.avg_cpc || 0,
-    avgCTR: result?.avg_ctr || 0,
+    totalCampaigns: Number(result?.total_campaigns ?? 0),
+    totalOffers: Number(result?.total_offers ?? 0),
+    totalClicks: Number(result?.total_clicks ?? 0),
+    totalImpressions: Number(result?.total_impressions ?? 0),
+    totalCost: Number(result?.total_cost ?? 0),
+    totalConversions: Number(result?.total_conversions ?? 0),
+    avgCPC: Number(result?.avg_cpc ?? 0),
+    avgCTR: Number(result?.avg_ctr ?? 0),
     dateRange: days
   }
 }

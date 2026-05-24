@@ -243,9 +243,10 @@ export async function getIpLoginAttempts(
       AND ${timeCondition}
   `,
     [ipAddress]
-  )) as { count: number } | null
+  )) as { count: number | string } | null
 
-  return result?.count || 0
+  // Bug #33 fix: PostgreSQL COUNT(*) returns bigint string; Number() ensures numeric return
+  return Number(result?.count ?? 0)
 }
 
 /**

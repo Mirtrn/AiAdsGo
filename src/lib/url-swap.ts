@@ -1155,20 +1155,23 @@ export async function getUrlSwapUserStats(userId: number): Promise<UrlSwapGlobal
     WHERE user_id = ? AND ${isDeletedCondition}
   `, [userId])
 
-  const successRate = stats.total_swaps > 0
-    ? Math.round((stats.success_swaps / stats.total_swaps) * 100)
+  // Bug #32a fix: PostgreSQL COUNT/SUM returns bigint strings; Number() ensures arithmetic
+  const totalSwaps = Number(stats?.total_swaps ?? 0)
+  const successSwaps = Number(stats?.success_swaps ?? 0)
+  const successRate = totalSwaps > 0
+    ? Math.round((successSwaps / totalSwaps) * 100)
     : 0
 
   return {
-    total_tasks: stats.total_tasks || 0,
-    active_tasks: stats.active_tasks || 0,
-    disabled_tasks: stats.disabled_tasks || 0,
-    error_tasks: stats.error_tasks || 0,
-    completed_tasks: stats.completed_tasks || 0,
-    total_swaps: stats.total_swaps || 0,
-    success_swaps: stats.success_swaps || 0,
-    failed_swaps: stats.failed_swaps || 0,
-    url_changed_count: stats.url_changed_count || 0,
+    total_tasks: Number(stats?.total_tasks ?? 0),
+    active_tasks: Number(stats?.active_tasks ?? 0),
+    disabled_tasks: Number(stats?.disabled_tasks ?? 0),
+    error_tasks: Number(stats?.error_tasks ?? 0),
+    completed_tasks: Number(stats?.completed_tasks ?? 0),
+    total_swaps: totalSwaps,
+    success_swaps: successSwaps,
+    failed_swaps: Number(stats?.failed_swaps ?? 0),
+    url_changed_count: Number(stats?.url_changed_count ?? 0),
     success_rate: successRate
   }
 }
@@ -1196,20 +1199,23 @@ export async function getUrlSwapGlobalStats(): Promise<UrlSwapGlobalStats> {
     WHERE ${isDeletedCondition}
   `)
 
-  const successRate = stats.total_swaps > 0
-    ? Math.round((stats.success_swaps / stats.total_swaps) * 100)
+  // Bug #32b fix: PostgreSQL COUNT/SUM returns bigint strings; Number() ensures arithmetic
+  const totalSwaps = Number(stats?.total_swaps ?? 0)
+  const successSwaps = Number(stats?.success_swaps ?? 0)
+  const successRate = totalSwaps > 0
+    ? Math.round((successSwaps / totalSwaps) * 100)
     : 0
 
   return {
-    total_tasks: stats.total_tasks || 0,
-    active_tasks: stats.active_tasks || 0,
-    disabled_tasks: stats.disabled_tasks || 0,
-    error_tasks: stats.error_tasks || 0,
-    completed_tasks: stats.completed_tasks || 0,
-    total_swaps: stats.total_swaps || 0,
-    success_swaps: stats.success_swaps || 0,
-    failed_swaps: stats.failed_swaps || 0,
-    url_changed_count: stats.url_changed_count || 0,
+    total_tasks: Number(stats?.total_tasks ?? 0),
+    active_tasks: Number(stats?.active_tasks ?? 0),
+    disabled_tasks: Number(stats?.disabled_tasks ?? 0),
+    error_tasks: Number(stats?.error_tasks ?? 0),
+    completed_tasks: Number(stats?.completed_tasks ?? 0),
+    total_swaps: totalSwaps,
+    success_swaps: successSwaps,
+    failed_swaps: Number(stats?.failed_swaps ?? 0),
+    url_changed_count: Number(stats?.url_changed_count ?? 0),
     success_rate: successRate
   }
 }
