@@ -83,9 +83,17 @@ export async function callAI(prompt: string, config: AIConfig, userId?: number, 
   } catch (error: any) {
     console.error('[callAI] AI 调用失败:', error)
 
+    // 防御性处理：确保 error 字段始终为字符串
+    // error.message 可能是对象（非标准错误），用 typeof 保护
+    const errorMsg = typeof error === 'string'
+      ? error
+      : typeof error?.message === 'string'
+        ? error.message
+        : String(error?.message ?? error ?? '未知错误')
+
     return {
       success: false,
-      error: error.message || '未知错误'
+      error: errorMsg || '未知错误'
     }
   }
 }

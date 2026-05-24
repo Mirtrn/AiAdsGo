@@ -1071,7 +1071,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                     setGenerating(false)
                     return
                   } else if (event2.type === 'error') {
-                    throw new Error(event2.message || '创意生成失败')
+                    // SSE error 事件的错误信息在 event2.error 字段，不是 event2.message
+                    const msg = typeof event2.error === 'string' ? event2.error
+                      : typeof event2.message === 'string' ? event2.message
+                      : '创意生成失败'
+                    throw new Error(msg)
                   }
                 } catch {}
               }
