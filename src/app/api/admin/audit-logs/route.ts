@@ -79,7 +79,9 @@ export const GET = withAuth(
 
       // 获取总数
       let countQuery = query.replace(/SELECT[\s\S]+FROM/, 'SELECT COUNT(*) as total FROM')
-      const totalResult = await db.queryOne(countQuery, params) as { total: number }
+      // Bug #23 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+      const totalResult = await db.queryOne(countQuery, params) as { total: number | string }
+      const totalCount = Number(totalResult?.total ?? 0)
 
       // 获取记录
       query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
@@ -105,10 +107,10 @@ export const GET = withAuth(
       return NextResponse.json({
         records: formattedRecords,
         pagination: {
-          total: totalResult.total,
+          total: totalCount,
           page,
           limit,
-          totalPages: Math.ceil(totalResult.total / limit),
+          totalPages: Math.ceil(totalCount / limit),
         }
       })
     } catch (error: any) {

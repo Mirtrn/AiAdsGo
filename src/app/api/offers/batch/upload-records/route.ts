@@ -109,7 +109,8 @@ export async function GET(req: NextRequest) {
       WHERE ${whereClause}
     `, queryParams)
 
-    const total = countResult[0]?.total || 0
+    // Bug #24 fix: PostgreSQL COUNT(*) 返回 bigint 字符串，Number() 确保整数
+    const total = Number(countResult[0]?.total ?? 0)
     const totalPages = Math.ceil(total / limit)
 
     return NextResponse.json({
