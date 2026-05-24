@@ -1048,27 +1048,52 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
             shouldKeepTaskTracking = true
             throw fetchErr
           }
-          clearTimeout(sseTimeoutId2)
+          // 🛡️ Fix30: 409 SSE 路径清理 sseTimeoutId2 的时机：流读取前清理（原代码在 fetch 后立即清理）
+          // 正确位置：fetch 成功后进入读取循环时再维持 timeout，避免提前清理
           if (response2.ok && response2.body) {
             const reader2 = response2.body.getReader()
             const decoder2 = new TextDecoder()
             let buffer2 = ''
             while (true) {
-              const { done, value } = await reader2.read()
-              if (done) break
-              buffer2 += decoder2.decode(value, { stream: true })
-              const lines2 = buffer2.split('\n')
+              let done2: boolean, value2: Uint8Array | undefined
+              try {
+                ;({ done: done2, value: value2 } = await reader2.read())
+              } catch (readErr2: any) {
+                clearTimeout(sseTimeoutId2)
+                if (readErr2?.name === 'AbortError') {
+                  setSseTimeout(true)
+                  shouldKeepTaskTracking = true
+                  throw readErr2
+                }
+                throw readErr2
+              }
+              if (done2) {
+                clearTimeout(sseTimeoutId2)
+                break
+              }
+              buffer2 += decoder2.decode(value2, { stream: true })
+              // 🛡️ Fix30: SSE 标准分隔符为 '\n\n'，原来用 '\n' 会把多行事件拆散
+              const lines2 = buffer2.split('\n\n')
               buffer2 = lines2.pop() || ''
               for (const line2 of lines2) {
                 if (!line2.startsWith('data: ')) continue
                 try {
                   const event2 = JSON.parse(line2.slice(6))
                   if (event2.type === 'progress') {
-                    setGenerationProgress({ step: event2.stage || 'generating', progress: event2.progress || 0, message: event2.message || '' })
+                    setGenerationProgress({ step: event2.step || event2.stage || 'generating', progress: event2.progress || 0, message: event2.message || '' })
                     if (event2.taskStatus) setTaskStatus(event2.taskStatus)
-                  } else if (event2.type === 'complete') {
+                  } else if (event2.type === 'result') {
+                    // 🛡️ Fix30: 服务端推送的是 type:'result'，原代码监听 'complete' 导致任务完成后不刷新列表
+                    const rating = event2.adStrength?.rating
+                    const score = event2.adStrength?.score
+                    if (score !== undefined && score < 70) {
+                      showSuccess('⚠️ 生成完成（质量待优化）', `Ad Strength: ${score}分`)
+                    } else {
+                      showSuccess('✅ 生成成功', rating ? `Ad Strength: ${score}分` : '广告创意已生成完成')
+                    }
                     await fetchExistingCreatives()
                     setGenerating(false)
+                    clearTimeout(sseTimeoutId2)
                     return
                   } else if (event2.type === 'error') {
                     // SSE error 事件的错误信息在 event2.error 字段，不是 event2.message
@@ -1077,9 +1102,21 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       : '创意生成失败'
                     throw new Error(msg)
                   }
-                } catch {}
+                } catch (parseErr2: any) {
+                  // 🛡️ Fix30: 空 catch 会吞掉业务错误（type:error 抛出的 Error），需区分处理
+                  const isJsonParseErr2 = parseErr2 instanceof SyntaxError ||
+                    parseErr2?.message?.includes?.('JSON') ||
+                    parseErr2?.message?.includes?.('Unexpected token')
+                  if (!isJsonParseErr2) {
+                    clearTimeout(sseTimeoutId2)
+                    throw parseErr2
+                  }
+                  // JSON 解析失败（不完整的 SSE 数据），忽略
+                }
               }
             }
+          } else {
+            clearTimeout(sseTimeoutId2)
           }
           setGenerating(false)
           return
