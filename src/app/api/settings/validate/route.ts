@@ -136,13 +136,6 @@ export async function POST(request: NextRequest) {
           }
           litellmApiKey = saved.value
         }
-        // 读取 base_url：若 config 中传入则用，否则从 DB 读取保存值
-        let litellmBaseUrl: string | undefined
-        if (config.litellm_base_url && config.litellm_base_url !== '············') {
-          litellmBaseUrl = config.litellm_base_url
-        } else {
-          litellmBaseUrl = (await getUserOnlySetting('ai', 'litellm_base_url', userIdNum))?.value || undefined
-        }
         // 若 config 中明确传入了 litellm_model（如来自管理员手动测试），直接使用原始值，
         // 不做白名单归一化，避免把自定义 model_id 错误降级为默认模型
         let litellmModel: string
@@ -153,7 +146,7 @@ export async function POST(request: NextRequest) {
           // 直接使用用户保存的模型值，不做静态白名单过滤
           litellmModel = savedModel || LITELLM_DEFAULT_MODEL
         }
-        const checkResult = await checkLiteLLMConnection(userIdNum, litellmApiKey, litellmBaseUrl, litellmModel)
+        const checkResult = await checkLiteLLMConnection(userIdNum, litellmApiKey, undefined, litellmModel)
         result = checkResult.ok
           ? { valid: true, message: 'OpenLLM 连接验证成功 ✅' }
           : {

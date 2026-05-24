@@ -261,7 +261,7 @@ export async function DELETE(request: NextRequest) {
     const keysToClear = (() => {
       switch (target) {
         case 'litellm':
-          return ['litellm_api_key', 'litellm_model', 'litellm_base_url']
+          return ['litellm_api_key', 'litellm_model']
         case 'gemini_official':
           return ['gemini_api_key', 'gemini_official_model']
         case 'openai_official':

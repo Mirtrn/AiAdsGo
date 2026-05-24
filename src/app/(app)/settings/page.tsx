@@ -199,11 +199,6 @@ const SETTING_METADATA: Record<string, {
     placeholder: '输入 API Key（sk-...）',
     helpLink: 'https://openllmapi.com/register',
   },
-  'ai.litellm_base_url': {
-    label: 'OpenLLM 自定义地址（可选）',
-    description: '如果你自己部署了 New-API/LiteLLM 实例，填入其地址；留空则使用默认公共服务 openllmapi.com',
-    placeholder: '例如: https://your-openllm.example.com（留空使用默认）',
-  },
   'ai.litellm_model': {
     label: '中转模型',
     description: '选择通过 OpenLLM 中转调用的模型',
@@ -379,7 +374,6 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'ai_provider', dataType: 'string', isSensitive: false, isRequired: false },
     // 中转
     { key: 'litellm_api_key', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'litellm_base_url', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'litellm_model', dataType: 'string', isSensitive: false, isRequired: false },
     // Gemini 官方
     { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
@@ -2611,7 +2605,7 @@ export default function SettingsPage() {
                             // 否则 indexOf 返回 -1 → 排到末位（999），与 OpenLLM 组脱离
                             const aiOrder = [
                               'ai_provider',
-                              'litellm_api_key', 'litellm_base_url', 'litellm_model',
+                              'litellm_api_key', 'litellm_model',
                               'gemini_api_key', 'gemini_official_model',
                               'openai_api_key', 'openai_official_model',
                             ]
@@ -2630,7 +2624,7 @@ export default function SettingsPage() {
                           if (setting.key === 'ai_provider') return null
                           // 按 provider 过滤
                           const visibleMap: Record<string, string[]> = {
-                            litellm: ['litellm_api_key', 'litellm_base_url', 'litellm_model'],
+                            litellm: ['litellm_api_key', 'litellm_model'],
                             gemini_official: ['gemini_api_key', 'gemini_official_model'],
                             openai_official: ['openai_api_key', 'openai_official_model'],
                           }
