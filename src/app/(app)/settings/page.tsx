@@ -2601,8 +2601,6 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
                       {(category === 'ai'
                         ? [...categorySettings].sort((a, b) => {
-                            // 注意：litellm_base_url 必须紧跟在 litellm_api_key 之后，
-                            // 否则 indexOf 返回 -1 → 排到末位（999），与 OpenLLM 组脱离
                             const aiOrder = [
                               'ai_provider',
                               'litellm_api_key', 'litellm_model',

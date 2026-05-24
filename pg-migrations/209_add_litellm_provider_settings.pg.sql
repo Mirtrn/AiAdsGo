@@ -1,8 +1,9 @@
 -- Migration: 添加 LiteLLM Gateway 提供商支持
 -- Date: 2026-04-05
--- Description: 新增 litellm_api_key, litellm_base_url, litellm_model
+-- Description: 新增 litellm_api_key, litellm_model
 --              全局模板（user_id = NULL），用户可覆盖
 --              LiteLLM 为 OpenAI 兼容网关，可托管多个开源/本地模型
+-- Note: litellm_base_url 已于 2026-05 移除，网关地址硬编码为 openllmapi.com
 
 DO $$
 BEGIN
@@ -15,13 +16,8 @@ BEGIN
     WHERE user_id IS NULL AND category = 'ai' AND key = 'litellm_api_key'
   );
 
-  -- 2. LiteLLM Gateway 网关地址（可自定义，默认 openllmapi.com）
-  INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
-  SELECT NULL, 'ai', 'litellm_base_url', NULL, 'string', false, false, 'https://openllmapi.com', 'LiteLLM Gateway 网关地址（不含 /v1 路径），默认 https://openllmapi.com'
-  WHERE NOT EXISTS (
-    SELECT 1 FROM system_settings
-    WHERE user_id IS NULL AND category = 'ai' AND key = 'litellm_base_url'
-  );
+  -- 2. litellm_base_url 已移除：网关地址硬编码为 openllmapi.com，不再存入数据库
+  -- （旧数据库如有残留行，可手动执行：DELETE FROM system_settings WHERE key = 'litellm_base_url';）
 
   -- 3. LiteLLM 模型选择
   INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
