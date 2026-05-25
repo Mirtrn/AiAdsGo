@@ -438,6 +438,14 @@ async function tryCallModel(options: {
 /**
  * 流式请求辅助：当网关要求 stream=true 时调用，将 SSE chunks 拼合为完整文本后返回。
  * 对调用方与非流式接口完全透明。
+ *
+ * 修复记录（2026-05）：
+ *  1. lineBuffer：跨 chunk 边界处理——TCP chunk 可能在 SSE 行中间截断，
+ *     直接 split('\n') 会产生不完整 JSON 行导致 JSON.parse 失败。
+ *     用 lineBuffer 保留每次 chunk 末尾的未完整行，等下个 chunk 补全后再解析。
+ *  2. clearTimeout 时机：原来 timer 在 fetch() 连接成功后立即清除，
+ *     流读取期间（可能长达数分钟）完全没有超时保护。
+ *     修复为：timer 覆盖整个 fetch + 流读取过程，在 finally 里统一清除。
  */
 async function generateContentStreaming(
   params: LiteLLMGenerateParams & { model: string },
@@ -449,6 +457,7 @@ async function generateContentStreaming(
   const { model, prompt, temperature = 0.7, maxOutputTokens = 8192, operationType } = params
 
   const controller = new AbortController()
+  // timer 覆盖整个请求（fetch 连接 + 流读取），在最终 finally 块里清除
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   let response: Response
@@ -474,18 +483,24 @@ async function generateContentStreaming(
       }),
       signal: controller.signal,
     })
-  } finally {
+  } catch (err) {
+    // fetch 连接失败（含 AbortError 超时），立即清除 timer
     clearTimeout(timer)
+    throw err
   }
 
   if (!response.ok) {
+    clearTimeout(timer)
     const errorText = await response.text().catch(() => '')
     throw new Error(`LiteLLM 流式请求失败 (${response.status}): ${errorText.substring(0, 300)}`)
   }
 
   // 读取 SSE 流，拼合 delta.content
   const reader = response.body?.getReader()
-  if (!reader) throw new Error('LiteLLM 流式响应无法读取（body 为空）')
+  if (!reader) {
+    clearTimeout(timer)
+    throw new Error('LiteLLM 流式响应无法读取（body 为空）')
+  }
 
   const decoder = new TextDecoder()
   let fullText = ''
@@ -493,6 +508,8 @@ async function generateContentStreaming(
   let inputTokens = 0
   let outputTokens = 0
   let totalTokens = 0
+  // lineBuffer：保留跨 TCP chunk 的不完整 SSE 行，等下个 chunk 补全后再解析
+  let lineBuffer = ''
 
   // streamDone 用于在 [DONE] 事件后同时跳出内层 for-of 和外层 while
   let streamDone = false
@@ -501,7 +518,12 @@ async function generateContentStreaming(
       const { done, value } = await reader.read()
       if (done) break
       const chunk = decoder.decode(value, { stream: true })
-      for (const line of chunk.split('\n')) {
+      // 将上次残留的不完整行与本次 chunk 合并，再按换行分割
+      // lines.pop() 取出最后一段（可能是下个 chunk 的开头，即不完整行），留存到 lineBuffer
+      const lines = (lineBuffer + chunk).split('\n')
+      lineBuffer = lines.pop() ?? ''
+
+      for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed.startsWith('data:')) continue
         const jsonStr = trimmed.slice(5).trim()
@@ -528,7 +550,31 @@ async function generateContentStreaming(
         }
       }
     }
+
+    // 流结束后处理 lineBuffer 中可能残留的最后一行（部分服务不以 \n 结尾）
+    if (lineBuffer.trim()) {
+      const trimmed = lineBuffer.trim()
+      if (trimmed.startsWith('data:')) {
+        const jsonStr = trimmed.slice(5).trim()
+        if (jsonStr !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(jsonStr)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) fullText += delta
+            if (parsed.model) returnedModel = parsed.model
+            if (parsed.usage) {
+              inputTokens = parsed.usage.prompt_tokens ?? parsed.usage.input_tokens ?? 0
+              outputTokens = parsed.usage.completion_tokens ?? parsed.usage.output_tokens ?? 0
+              totalTokens = parsed.usage.total_tokens ?? (inputTokens + outputTokens)
+            }
+          } catch {
+            // 忽略无法解析的残留行
+          }
+        }
+      }
+    }
   } finally {
+    clearTimeout(timer)
     reader.releaseLock()
   }
 
