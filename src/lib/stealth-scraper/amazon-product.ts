@@ -1404,7 +1404,10 @@ function extractBrandName(
     }
   })
 
-  // ========== 渠道2: bylineInfo品牌链接 (置信度: 4) ==========
+  // ========== 渠道2: bylineInfo品牌链接 (置信度: 6) ==========
+  // 🔥 2026-05-25优化: "Visit the [Brand] Store" 是亚马逊品牌名最权威的来源，
+  // 置信度提升至 6（高于其他所有渠道），确保品牌链接文字始终优先被采用。
+  // #bylineInfo 可能是 <span> 包含 <a>，需要从内部 <a> 获取 href。
   const brandSelectors = [
     '#ppd #bylineInfo',
     '#centerCol #bylineInfo',
@@ -1418,10 +1421,13 @@ function extractBrandName(
     const $el = $(selector)
     if ($el.length > 0 && !isInRecommendationArea($el[0])) {
       const bylineText = $el.text().trim()
-      const bylineHref = $el.attr('href') || null
+      // 🔥 修复: #bylineInfo 经常是 <span> 包含 <a>，需从内部 <a> 获取 href
+      const bylineHref = $el.attr('href') || $el.find('a').first().attr('href') || null
+      console.log(`🔍 [bylineInfo] selector="${selector}" text="${bylineText}" href="${bylineHref || '(空)'}"`)
       const extracted = extractAmazonBrandFromByline({ bylineText, bylineHref })
       if (extracted && extracted.length > 1 && extracted.length < 50) {
-        candidates.push({ value: extracted, source: 'bylineInfo', confidence: 4 })
+        candidates.push({ value: extracted, source: 'bylineInfo', confidence: 6 })
+        console.log(`✅ [bylineInfo] 提取品牌: "${extracted}" (置信度: 6，最高优先级)`)
         break
       }
     }

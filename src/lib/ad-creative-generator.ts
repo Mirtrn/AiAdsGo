@@ -2025,12 +2025,17 @@ function validateOfferDataQuality(offer: {
     const brandStartMatch = descLower.match(/^([a-z][a-z0-9\-\s]{1,20})\s+(is|specializes|focuses|offers|provides)/i)
     if (brandStartMatch) {
       const detectedBrand = brandStartMatch[1].trim()
-      // 标准化品牌名：统一连字符和空格，便于比较 "k-swiss" vs "k swiss"
-      const normalize = (s: string) => s.replace(/[-\s]+/g, '').toLowerCase()
-      const detectedNorm = normalize(detectedBrand)
-      const brandNorm = normalize(brandLower)
-      if (detectedNorm !== brandNorm && !brandNorm.includes(detectedNorm) && !detectedNorm.includes(brandNorm)) {
-        issues.push(`品牌描述以 "${detectedBrand}" 开头，但录入品牌是 "${offer.brand}"`)
+      // 🔥 修复(2026-05-25): 如果检测到的"品牌"包含常见介词/连词，说明它是描述性短语而非品牌名
+      // 例如 "designs for health is..." 中 "designs for health" 含 "for"，不是品牌名
+      const containsPreposition = /\b(for|of|the|and|or|by|to|in|at|with|from|on|a|an)\b/i.test(detectedBrand)
+      if (!containsPreposition) {
+        // 标准化品牌名：统一连字符和空格，便于比较 "k-swiss" vs "k swiss"
+        const normalize = (s: string) => s.replace(/[-\s]+/g, '').toLowerCase()
+        const detectedNorm = normalize(detectedBrand)
+        const brandNorm = normalize(brandLower)
+        if (detectedNorm !== brandNorm && !brandNorm.includes(detectedNorm) && !detectedNorm.includes(brandNorm)) {
+          issues.push(`品牌描述以 "${detectedBrand}" 开头，但录入品牌是 "${offer.brand}"`)
+        }
       }
     }
   }

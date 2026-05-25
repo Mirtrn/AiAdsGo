@@ -593,8 +593,11 @@ function validateBrandConsistency(
     const brandStartMatch = descLower.match(/^([a-z][a-z0-9\-_\s]{1,20})\s+(is|specializes|focuses|offers|provides)/i)
     if (brandStartMatch) {
       const detectedBrand = brandStartMatch[1].trim()
+      // 🔥 修复(2026-05-25): 如果检测到的"品牌"包含常见介词/连词，说明它是描述性短语而非品牌名
+      // 例如 "designs for health is..." 中 "designs for health" 含 "for"，不是品牌名
+      const containsPreposition = /\b(for|of|the|and|or|by|to|in|at|with|from|on|a|an)\b/i.test(detectedBrand)
       // 检查检测到的品牌是否与录入品牌相似
-      if (!isBrandSimilar(inputBrandLower, detectedBrand)) {
+      if (!containsPreposition && !isBrandSimilar(inputBrandLower, detectedBrand)) {
         return {
           isConsistent: false,
           detectedBrand,
