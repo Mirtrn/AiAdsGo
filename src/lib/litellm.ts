@@ -59,7 +59,7 @@ function buildTemperatureParam(endpoint: string, model: string, temperature: num
   return { temperature }
 }
 
-const DEFAULT_TIMEOUT_MS = 80_000 // 必须 < Cloudflare 100s 超时，避免 Cloudflare 520
+const DEFAULT_TIMEOUT_MS = 150_000 // Nginx proxy_read_timeout = 180s，安全上限 150s
 
 /**
  * 从数据库获取启用的模型降级链
