@@ -5,6 +5,7 @@ import { AbcproxyProvider } from './abcproxy-provider'
 import { IpMarsProvider } from './ipmars-provider'
 import { IpideaProvider } from './ipidea-provider'
 import { KookeeyProvider } from './kookeey-provider'
+import { MiyaIPProvider } from './miyaip-provider'
 
 /**
  * 代理提供商注册表
@@ -20,6 +21,7 @@ export class ProxyProviderRegistry {
     new IpMarsProvider(),
     new IpideaProvider(),
     new KookeeyProvider(),
+    new MiyaIPProvider(),
   ]
 
   /**
