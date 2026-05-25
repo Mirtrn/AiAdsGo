@@ -351,6 +351,11 @@ async function tryCallModel(options: {
     model,
     ...buildTokenParam(endpoint, maxOutputTokens),
     ...buildTemperatureParam(endpoint, model, temperature),
+    // OpenLLM 中转网关：设置推理深度为 low，减少推理时间降低超时风险
+    // 官方 Gemini（googleapis.com）和 OpenAI（api.openai.com）不传此参数
+    ...(!endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
+      ? { reasoning_effort: 'low' }
+      : {}),
     messages: [
       { role: 'user', content: prompt },
     ],
