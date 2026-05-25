@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDatabase()
     const models = await db.query(
-      `SELECT id, model_id, display_name, cost_label, is_enabled, sort_order, notes, created_at, updated_at
+      `SELECT id, model_id, display_name, cost_label, is_enabled, force_stream, sort_order, notes, created_at, updated_at
        FROM ai_models
        ORDER BY sort_order ASC, id ASC`
     )
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { model_id, display_name, cost_label = '', is_enabled = true, sort_order = 100, notes = '' } = body
+    const { model_id, display_name, cost_label = '', is_enabled = true, force_stream = true, sort_order = 100, notes = '' } = body
 
     if (!model_id?.trim()) {
       return NextResponse.json({ error: '模型 ID 不能为空' }, { status: 400 })
@@ -43,10 +43,10 @@ export async function POST(request: NextRequest) {
 
     const db = getDatabase()
     const model = await db.queryOne(
-      `INSERT INTO ai_models (model_id, display_name, cost_label, is_enabled, sort_order, notes)
-       VALUES (?, ?, ?, ?, ?, ?)
-       RETURNING id, model_id, display_name, cost_label, is_enabled, sort_order, notes, created_at, updated_at`,
-      [model_id.trim(), display_name.trim(), cost_label.trim(), is_enabled, sort_order, notes.trim()]
+      `INSERT INTO ai_models (model_id, display_name, cost_label, is_enabled, force_stream, sort_order, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING id, model_id, display_name, cost_label, is_enabled, force_stream, sort_order, notes, created_at, updated_at`,
+      [model_id.trim(), display_name.trim(), cost_label.trim(), is_enabled, force_stream, sort_order, notes.trim()]
     )
     return NextResponse.json({ model }, { status: 201 })
   } catch (error: any) {

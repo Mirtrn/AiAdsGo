@@ -359,8 +359,27 @@ async function tryCallModel(options: {
 
   const isOpenLLMRelay = !endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
 
-  // OpenLLM 中转统一使用 stream 模式（网关要求 stream=true）
+  // 读取该模型的 force_stream 设置（仅对 OpenLLM 中转有意义）
+  // 官方 Gemini/OpenAI 直连始终走非流式路径，不受此字段控制
+  let useStream = isOpenLLMRelay // 默认：中转用流式，官方用非流式
   if (isOpenLLMRelay) {
+    try {
+      const { getDatabase } = await import('./db')
+      const db = getDatabase()
+      const row = await db.queryOne<{ force_stream: boolean }>(
+        `SELECT force_stream FROM ai_models WHERE model_id = ? LIMIT 1`,
+        [model]
+      )
+      if (row !== null) {
+        useStream = Boolean(row.force_stream)
+      }
+    } catch {
+      // DB 查询失败时保持默认（流式），不影响主流程
+    }
+  }
+
+  // 根据 force_stream 决定是否使用流式模式
+  if (useStream) {
     return generateContentStreaming(
       { model, prompt, temperature, maxOutputTokens, operationType, responseMimeType },
       userId, apiKey, endpoint, timeoutMs

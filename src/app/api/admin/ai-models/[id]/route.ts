@@ -25,6 +25,7 @@ export async function PATCH(
     if (body.display_name !== undefined) { setClauses.push('display_name = ?'); values.push(String(body.display_name).trim()) }
     if (body.cost_label !== undefined)   { setClauses.push('cost_label = ?');   values.push(String(body.cost_label).trim()) }
     if (body.is_enabled !== undefined)   { setClauses.push('is_enabled = ?');   values.push(Boolean(body.is_enabled)) }
+    if (body.force_stream !== undefined) { setClauses.push('force_stream = ?'); values.push(Boolean(body.force_stream)) }
     if (body.sort_order !== undefined)   { setClauses.push('sort_order = ?');   values.push(Number(body.sort_order)) }
     if (body.notes !== undefined)        { setClauses.push('notes = ?');         values.push(String(body.notes).trim()) }
     if (body.model_id !== undefined)     { setClauses.push('model_id = ?');      values.push(String(body.model_id).trim()) }
@@ -40,7 +41,7 @@ export async function PATCH(
     const db = getDatabase()
     const model = await db.queryOne(
       `UPDATE ai_models SET ${setClauses.join(', ')} WHERE id = ?
-       RETURNING id, model_id, display_name, cost_label, is_enabled, sort_order, notes, created_at, updated_at`,
+       RETURNING id, model_id, display_name, cost_label, is_enabled, force_stream, sort_order, notes, created_at, updated_at`,
       values
     )
 

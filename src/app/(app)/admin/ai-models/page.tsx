@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react'
+import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Loader2, RefreshCw, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,6 +40,7 @@ interface AIModel {
   display_name: string
   cost_label: string
   is_enabled: boolean
+  force_stream: boolean
   sort_order: number
   notes: string
   created_at: string
@@ -51,6 +52,7 @@ const emptyForm = {
   display_name: '',
   cost_label: '',
   is_enabled: true,
+  force_stream: true,
   sort_order: 100,
   notes: '',
 }
@@ -101,6 +103,7 @@ export default function AdminAIModelsPage() {
       display_name: m.display_name,
       cost_label: m.cost_label,
       is_enabled: m.is_enabled,
+      force_stream: m.force_stream ?? true,
       sort_order: m.sort_order,
       notes: m.notes,
     })
@@ -148,6 +151,28 @@ export default function AdminAIModelsPage() {
     }
   }
 
+  const handleToggleStream = async (m: AIModel) => {
+    const newVal = !m.force_stream
+    try {
+      const res = await fetch(`/api/admin/ai-models/${m.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force_stream: newVal }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(
+        newVal
+          ? `${m.display_name} 已切换为流式请求`
+          : `${m.display_name} 已切换为非流式请求`,
+        { description: newVal ? '适用于 OpenLLM 等仅支持 stream=true 的网关' : '适用于标准 OpenAI 兼容接口' }
+      )
+      fetchModels()
+    } catch (e: any) {
+      toast.error('操作失败', { description: e.message })
+    }
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
@@ -179,7 +204,6 @@ export default function AdminAIModelsPage() {
           description: `实际使用模型: ${data.model_used}`
         })
       } else {
-        // 将错误信息中的实际model_id替换为展示名
         const friendlyMsg = data.error
           ? data.error.replace(new RegExp(m.model_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), m.display_name)
           : '测试失败'
@@ -194,12 +218,12 @@ export default function AdminAIModelsPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">AI 模型管理</h1>
           <p className="text-sm text-gray-500 mt-1">
-            管理用户可选择的 AI 模型列表，启用/禁用、添加、修改或删除模型
+            管理用户可选择的 AI 模型列表，启用/禁用、流式开关、添加、修改或删除模型
           </p>
         </div>
         <div className="flex gap-2">
@@ -212,6 +236,15 @@ export default function AdminAIModelsPage() {
             添加模型
           </Button>
         </div>
+      </div>
+
+      {/* 说明卡片 */}
+      <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-start gap-2">
+        <Zap className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
+        <span>
+          <strong>流式开关</strong>：OpenLLM 中转网关仅支持 <code className="font-mono bg-blue-100 px-1 rounded">stream=true</code>，
+          非流式请求会返回 403。官方 Gemini / OpenAI 直连不受此设置影响（始终走非流式路径）。
+        </span>
       </div>
 
       <Card>
@@ -243,6 +276,7 @@ export default function AdminAIModelsPage() {
                   <TableHead>展示名</TableHead>
                   <TableHead>价格</TableHead>
                   <TableHead className="w-20 text-center">状态</TableHead>
+                  <TableHead className="w-20 text-center">流式</TableHead>
                   <TableHead>备注</TableHead>
                   <TableHead className="w-48 text-right">操作</TableHead>
                 </TableRow>
@@ -270,7 +304,21 @@ export default function AdminAIModelsPage() {
                         )}
                       </button>
                     </TableCell>
-                    <TableCell className="text-xs text-gray-400 max-w-[160px] truncate" title={m.notes}>{m.notes || '—'}</TableCell>
+                    <TableCell className="text-center">
+                      <button
+                        onClick={() => handleToggleStream(m)}
+                        title={m.force_stream ? '当前：流式（stream=true）\n点击切换为非流式' : '当前：非流式（stream=false）\n点击切换为流式'}
+                      >
+                        {m.force_stream ? (
+                          <Badge className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200 cursor-pointer gap-1">
+                            <Zap className="w-2.5 h-2.5" />流式
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="cursor-pointer text-gray-500 hover:bg-gray-100">非流式</Badge>
+                        )}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-400 max-w-[140px] truncate" title={m.notes}>{m.notes || '—'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         {/* 连通性测试 */}
@@ -380,6 +428,24 @@ export default function AdminAIModelsPage() {
                 className="w-4 h-4"
               />
               <Label htmlFor="is_enabled" className="cursor-pointer">启用（在用户下拉列表中显示）</Label>
+            </div>
+            <div className="flex items-start gap-2 rounded-lg border border-purple-100 bg-purple-50 px-3 py-2">
+              <input
+                type="checkbox"
+                id="force_stream"
+                checked={form.force_stream}
+                onChange={e => setForm(f => ({ ...f, force_stream: e.target.checked }))}
+                className="w-4 h-4 mt-0.5"
+              />
+              <div>
+                <Label htmlFor="force_stream" className="cursor-pointer text-purple-800 flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5" />
+                  强制流式请求（stream=true）
+                </Label>
+                <p className="text-xs text-purple-600 mt-0.5">
+                  OpenLLM 中转网关需开启（非流式返回 403）。官方 Gemini/OpenAI 直连不受此设置影响。
+                </p>
+              </div>
             </div>
           </div>
           <DialogFooter>
