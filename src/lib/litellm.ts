@@ -347,15 +347,21 @@ async function tryCallModel(options: {
     operationType,
   } = options
 
+  const isOpenLLMRelay = !endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
+
+  // OpenLLM 中转统一使用 stream 模式（网关要求 stream=true）
+  if (isOpenLLMRelay) {
+    return generateContentStreaming(
+      { model, prompt, temperature, maxOutputTokens, operationType },
+      userId, apiKey, endpoint, timeoutMs
+    )
+  }
+
+  // ─── 官方 Gemini / OpenAI 直连：非流式路径 ─────────────────────
   const requestBody = {
     model,
     ...buildTokenParam(endpoint, maxOutputTokens),
     ...buildTemperatureParam(endpoint, model, temperature),
-    // OpenLLM 中转网关：设置推理深度为 low，减少推理时间降低超时风险
-    // 官方 Gemini（googleapis.com）和 OpenAI（api.openai.com）不传此参数
-    ...(!endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
-      ? { reasoning_effort: 'low' }
-      : {}),
     messages: [
       { role: 'user', content: prompt },
     ],
@@ -379,29 +385,8 @@ async function tryCallModel(options: {
     clearTimeout(timer)
   }
 
-  // ─── 检测是否需要强制 stream 模式 ───────────────────────────────
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
-    const requiresStream = errorText.includes('Stream must be set to true')
-
-    if (requiresStream) {
-      // 自动重试为流式请求，对调用方透明
-      console.log(`🔄 LiteLLM (User ${userId}): 模型 ${model} 要求 stream 模式，自动切换重试`)
-      return generateContentStreaming(
-        {
-          model,
-          prompt,
-          temperature,
-          maxOutputTokens,
-          operationType,
-        },
-        userId,
-        apiKey,
-        endpoint,
-        timeoutMs
-      )
-    }
-
     // 504/502 等网关错误可能返回 HTML 页面，直接展示 HTML 体验极差，改为友好提示
     const isHtmlResponse = errorText.trimStart().startsWith('<')
     let friendlyError: string
@@ -481,6 +466,10 @@ async function generateContentStreaming(
         stream: true,
         // GPT-5（api.openai.com）流式默认不返回 usage，需显式开启
         ...(endpoint.includes('api.openai.com') ? { stream_options: { include_usage: true } } : {}),
+        // OpenLLM 中转：设置推理深度为 low，减少推理时间
+        ...(!endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
+          ? { reasoning_effort: 'low' }
+          : {}),
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: controller.signal,
