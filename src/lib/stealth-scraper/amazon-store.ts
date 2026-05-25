@@ -413,6 +413,24 @@ async function scrapeStorePageContent(
   // Parse HTML
   const $ = load(html)
 
+  // 🔥 2026-05-25重构: URL slug 是亚马逊店铺品牌名最权威的来源
+  // 例如 amazon.com/stores/FlavCity/... → 品牌名就是 "FlavCity"，无需任何清洗
+  // 优先级: URL slug > data-testid/h1 > pageTitle > og:title
+  let brandNameFromUrl: string | null = null
+  const urlStoreMatch = url.match(/\/stores\/([^\/\?#]+)/)
+  if (urlStoreMatch && urlStoreMatch[1]) {
+    const slug = decodeURIComponent(urlStoreMatch[1])
+    if (slug && slug.toLowerCase() !== 'page' && slug.length > 1 && slug.length < 60) {
+      // URL slug 中的品牌名：驼峰转空格，连字符转空格，标准化首字母
+      brandNameFromUrl = slug
+        .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase → spaces
+        .replace(/[-_+]+/g, ' ')               // hyphens/underscores → spaces
+        .replace(/\s+/g, ' ')
+        .trim()
+      console.log(`🔗 [URL slug] 品牌名: "${brandNameFromUrl}" (原始slug: "${slug}")`)
+    }
+  }
+
   // Extract store metadata
   let storeName: string | null = null
   const pageTitle = $('title').text().trim()
@@ -441,34 +459,23 @@ async function scrapeStorePageContent(
                            $('.a-section .a-text-normal').first().text().trim() ||
                            null
 
-  // Extract brand name
-  let brandName: string | null = null
+  // 🔥 2026-05-25: 从 storeName 中提取品牌名（仅作为 URL slug 的补充）
+  let brandNameFromPage: string | null = null
   if (storeName) {
-    brandName = storeName
-      // 🔥 修复（2025-12-10）：移除所有Amazon域名前缀
-      .replace(/^Amazon\.com:\s*/i, '')
-      .replace(/^Amazon\.ca:\s*/i, '')
-      .replace(/^Amazon\.co\.uk:\s*/i, '')
-      .replace(/^Amazon\.de:\s*/i, '')
-      .replace(/^Amazon\.fr:\s*/i, '')
-      .replace(/^Amazon\.it:\s*/i, '')
-      .replace(/^Amazon\.es:\s*/i, '')
-      .replace(/^Amazon\.in:\s*/i, '')
-      .replace(/^Amazon\.jp:\s*/i, '')
+    brandNameFromPage = storeName
+      // 移除所有Amazon域名前缀
+      .replace(/^Amazon\.[a-z.]+:\s*/i, '')
       .replace(/^Amazon:\s*/i, '')
+      .replace(/\s+Official\s+Store$/i, '')
       .replace(/\s+Store$/i, '')
-      .replace(/\s+Official Store$/i, '')
-      // 🔥 修复：移除"Best Seller"/"Best Sellers"等后缀
+      // 移除"Best Seller"/"Best Sellers"等后缀
       .replace(/:\s*Best Sellers?$/i, '')
       .replace(/\s+-\s+Best Sellers?$/i, '')
       .replace(/\s+Best Sellers?$/i, '')
       .trim()
 
-    // 🔥 修复（2025-12-11）：移除店铺分类/分区后缀（如 ": CLEAN", ": Electronics" 等）
-    // 这些通常是店铺内的分类导航，不是品牌名称的一部分
-    // 格式：品牌名: 分类名 → 只保留品牌名
-    if (brandName && brandName.includes(':')) {
-      // 常见的分类关键词（大小写不敏感）
+    // 移除店铺分类/分区后缀（如 ": CLEAN", ": Electronics" 等）
+    if (brandNameFromPage && brandNameFromPage.includes(':')) {
       const categoryKeywords = [
         'clean', 'home', 'kitchen', 'electronics', 'tech', 'beauty',
         'fashion', 'sports', 'outdoor', 'garden', 'pet', 'pets',
@@ -476,52 +483,39 @@ async function scrapeStorePageContent(
         'food', 'grocery', 'clothing', 'accessories', 'sale', 'deals',
         'new', 'best', 'top', 'featured', 'popular', 'trending'
       ]
-
-      const parts = brandName.split(':')
+      const parts = brandNameFromPage.split(':')
       if (parts.length >= 2) {
         const firstPart = parts[0].trim()
         const secondPart = parts[1].trim().toLowerCase()
-
-        // 检查第二部分是否像分类名称
-        const isLikelyCategory = categoryKeywords.some(keyword =>
-          secondPart.includes(keyword) || secondPart === keyword
-        )
-
-        // 如果第二部分很短（<=15字符）或包含常见分类关键词，则只保留第一部分
+        const isLikelyCategory = categoryKeywords.some(kw => secondPart.includes(kw) || secondPart === kw)
         if (isLikelyCategory || secondPart.length <= 15) {
-          console.log(`🔧 品牌名清理: "${brandName}" → "${firstPart}" (移除分类后缀: "${parts.slice(1).join(':')}")`)
-          brandName = firstPart
+          console.log(`🔧 品牌名清理: "${brandNameFromPage}" → "${firstPart}" (移除分类后缀)`)
+          brandNameFromPage = firstPart
         }
       }
     }
 
-    // 🔥 修复（2025-12-12）：过滤无效的品牌名
+    // 过滤无效品牌名
     const invalidBrandNames = [
       'page not found', 'not found', 'error', '404', '429',
       'access denied', 'something went wrong', 'sorry',
       'amazon.com', 'amazon', 'page'
     ]
-    if (brandName && invalidBrandNames.some(invalid =>
-      brandName!.toLowerCase() === invalid ||
-      brandName!.toLowerCase().includes(invalid)
+    if (brandNameFromPage && invalidBrandNames.some(invalid =>
+      brandNameFromPage!.toLowerCase() === invalid ||
+      brandNameFromPage!.toLowerCase().includes(invalid)
     )) {
-      console.warn(`⚠️ 无效品牌名过滤: "${brandName}"`)
-      brandName = null
+      console.warn(`⚠️ 无效品牌名过滤: "${brandNameFromPage}"`)
+      brandNameFromPage = null
     }
 
-    // 🔥 修复（2025-12-12）：品牌名包含产品后缀时，尝试提取核心品牌名
-    // 例如: "RingConn Smart Ring" → "RingConn"
-    // 🔥 修复（2026-05-08）：新增多语言产品类型词（德/法/西/意/日语等），避免德语产品描述被误认品牌名
-    // 例如: "Aferiy Tragbare Powersta" → "Aferiy"（Tragbare = 德语"便携式"）
-    if (brandName && brandName.split(/\s+/).length > 1) {
-      const words = brandName.split(/\s+/)
+    // 🔥 仅对页面抓取的品牌名进行"产品词截断"处理（URL slug 不做此处理）
+    // 例如: "Aferiy Tragbare Powerstation" → "Aferiy"
+    if (brandNameFromPage && brandNameFromPage.split(/\s+/).length > 1) {
+      const words = brandNameFromPage.split(/\s+/)
       const firstWord = words[0]
-      // 如果第一个单词看起来像品牌名（首字母大写，2-20字符）
-      if (firstWord.length >= 2 && firstWord.length <= 20 &&
-          /^[A-Z][a-zA-Z0-9]*$/.test(firstWord)) {
-        // 检查后续单词是否是产品类型词（英文 + 多语言）
+      if (firstWord.length >= 2 && firstWord.length <= 20 && /^[A-Z][a-zA-Z0-9]*$/.test(firstWord)) {
         const productTypeWords = [
-          // 英文
           'smart', 'ring', 'watch', 'band', 'tracker', 'speaker', 'earbuds',
           'headphones', 'phone', 'tablet', 'laptop', 'camera', 'drone',
           'charger', 'cable', 'case', 'cover', 'screen', 'protector',
@@ -530,41 +524,28 @@ async function scrapeStorePageContent(
           'solar', 'power', 'station', 'powerstation', 'generator',
           'robot', 'vacuum', 'cleaner', 'purifier', 'humidifier',
           'projector', 'printer', 'scanner', 'router', 'modem',
-          // 德语 (Deutsch)
-          'tragbare', 'kabellos', 'elektrisch', 'digital', 'smart',
-          'powerstation', 'solaranlage', 'lautsprecher', 'kopfhörer',
-          'ladegerät', 'kamera', 'drucker', 'staubsauger', 'roboter',
-          // 法语 (Français)
-          'portable', 'sans', 'fil', 'électrique', 'numérique',
-          'enceinte', 'casque', 'chargeur', 'caméra', 'imprimante',
-          // 西班牙语 (Español)
-          'portátil', 'inalámbrico', 'eléctrico', 'digital',
-          'altavoz', 'auriculares', 'cargador', 'cámara', 'impresora',
-          // 意大利语 (Italiano)
+          'tragbare', 'kabellos', 'elektrisch', 'powerstation', 'solaranlage',
+          'lautsprecher', 'kopfhörer', 'ladegerät', 'drucker', 'staubsauger',
+          'portable', 'sans', 'fil', 'électrique', 'numérique', 'enceinte',
+          'casque', 'chargeur', 'caméra', 'imprimante',
+          'portátil', 'inalámbrico', 'eléctrico', 'altavoz', 'auriculares',
           'portatile', 'senza', 'fili', 'elettrico', 'digitale',
           'altoparlante', 'cuffie', 'caricatore', 'fotocamera',
-          // 日语拼音 / 常见片假名转写
           'denki', 'musen',
         ]
-        const hasProductType = words.slice(1).some(w =>
-          productTypeWords.includes(w.toLowerCase())
-        )
-        // 超过3个词时，若第一个词是合法品牌名格式，直接裁剪（更激进策略）
+        const hasProductType = words.slice(1).some(w => productTypeWords.includes(w.toLowerCase()))
         const isTooLong = words.length > 3
         if (hasProductType || isTooLong) {
-          console.log(`🔧 品牌名精简: "${brandName}" → "${firstWord}" (${hasProductType ? '含多语言产品类型词' : '词数超过3个'})`)
-          brandName = firstWord
+          console.log(`🔧 品牌名精简(页面): "${brandNameFromPage}" → "${firstWord}"`)
+          brandNameFromPage = firstWord
         }
       }
     }
   }
 
-  if (!brandName) {
-    const urlMatch = url.match(/\/stores\/([^\/]+)/)
-    if (urlMatch && urlMatch[1] && urlMatch[1].toLowerCase() !== 'page') {
-      brandName = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').trim()
-    }
-  }
+  // 🔥 最终品牌名决策: URL slug > 页面抓取
+  let brandName: string | null = brandNameFromUrl || brandNameFromPage || null
+  console.log(`🏷️ 最终品牌名: "${brandName}" (来源: ${brandNameFromUrl ? 'URL slug' : brandNameFromPage ? '页面' : '未知'})`)
 
   // Extract products
   const products: AmazonStoreData['products'] = []
