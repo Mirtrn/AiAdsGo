@@ -91,6 +91,12 @@ export interface LiteLLMGenerateParams {
   maxOutputTokens?: number
   timeoutMs?: number
   operationType?: string
+  /**
+   * 当调用方需要强制 JSON 输出时传入（如 keyword clustering）。
+   * litellm 会将其转换为 response_format: { type: "json_object" }
+   * 发送给 OpenLLM / OpenAI 兼容网关。
+   */
+  responseMimeType?: string
 }
 
 export interface LiteLLMGenerateResult {
@@ -227,6 +233,7 @@ export async function generateContent(
     maxOutputTokens = 8192,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     operationType,
+    responseMimeType,
   } = params
 
   // 使用 AI 运行时配置解析正确的 API key、baseUrl 和 model
@@ -253,7 +260,7 @@ export async function generateContent(
     return await tryCallModel({
       model: requestedFinalModel,
       prompt, temperature, maxOutputTokens,
-      timeoutMs, userId, apiKey, endpoint, operationType,
+      timeoutMs, userId, apiKey, endpoint, operationType, responseMimeType,
     })
   }
 
@@ -286,6 +293,7 @@ export async function generateContent(
         apiKey,
         endpoint,
         operationType,
+        responseMimeType,
       })
       
       // 成功了，如果使用了降级模型，添加提示信息
@@ -334,6 +342,7 @@ async function tryCallModel(options: {
   apiKey: string
   endpoint: string
   operationType?: string
+  responseMimeType?: string
 }): Promise<LiteLLMGenerateResult> {
   const {
     model,
@@ -345,6 +354,7 @@ async function tryCallModel(options: {
     apiKey,
     endpoint,
     operationType,
+    responseMimeType,
   } = options
 
   const isOpenLLMRelay = !endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
@@ -352,7 +362,7 @@ async function tryCallModel(options: {
   // OpenLLM 中转统一使用 stream 模式（网关要求 stream=true）
   if (isOpenLLMRelay) {
     return generateContentStreaming(
-      { model, prompt, temperature, maxOutputTokens, operationType },
+      { model, prompt, temperature, maxOutputTokens, operationType, responseMimeType },
       userId, apiKey, endpoint, timeoutMs
     )
   }
@@ -454,7 +464,7 @@ async function generateContentStreaming(
   endpoint: string,
   timeoutMs: number
 ): Promise<LiteLLMGenerateResult> {
-  const { model, prompt, temperature = 0.7, maxOutputTokens = 8192, operationType } = params
+  const { model, prompt, temperature = 0.7, maxOutputTokens = 8192, operationType, responseMimeType } = params
 
   const controller = new AbortController()
   // timer 覆盖整个请求（fetch 连接 + 流读取），在最终 finally 块里清除
@@ -479,6 +489,9 @@ async function generateContentStreaming(
         ...(!endpoint.includes('api.openai.com') && !endpoint.includes('googleapis.com')
           ? { reasoning_effort: 'low' }
           : {}),
+        // 强制 JSON 输出（当调用方传入 responseMimeType='application/json' 时）
+        // 兼容 OpenAI 兼容格式网关（OpenLLM / LiteLLM）
+        ...(responseMimeType === 'application/json' ? { response_format: { type: 'json_object' } } : {}),
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: controller.signal,

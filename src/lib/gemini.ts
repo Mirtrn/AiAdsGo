@@ -83,12 +83,13 @@ export async function generateContent(
     maxOutputTokens = 8192,
     timeoutMs,
     operationType,
+    responseMimeType,
   } = params
 
   console.log(`🔀 路由到 OpenLLM (User ${userId})`)
   const { generateContent: litellmGenerate } = await import('./litellm')
   const result = await litellmGenerate(
-    { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel },
+    { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel, responseMimeType },
     userId
   )
   return {
