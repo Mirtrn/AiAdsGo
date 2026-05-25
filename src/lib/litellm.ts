@@ -370,7 +370,7 @@ async function tryCallModel(options: {
         `SELECT force_stream FROM ai_models WHERE model_id = ? LIMIT 1`,
         [model]
       )
-      if (row !== null) {
+      if (row != null) {
         useStream = Boolean(row.force_stream)
       }
     } catch {
