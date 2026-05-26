@@ -26,6 +26,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap, Trash2, GripVertical, Clipboard } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from '@/lib/google-ads-ad-text'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'
 import {
@@ -810,8 +811,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       if (!h.trim()) {
         errors.push(`Headline ${i + 1} 不能为空`)
       }
-      if (h.length > 30) {
-        errors.push(`Headline ${i + 1} 超过30字符限制 (${h.length}字符)`)
+      if (getGoogleAdsTextEffectiveLength(h) > 30) {
+        errors.push(`Headline ${i + 1} 超过30字符有效长度限制 (有效长度${getGoogleAdsTextEffectiveLength(h)}字符)`)
       }
     })
 
@@ -1555,7 +1556,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             />
             {(() => {
               const lines = batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-              const overLimit = lines.filter(l => l.length > 30)
+              const overLimit = lines.filter(l => getGoogleAdsTextEffectiveLength(l) > 30)
               return (
                 <div className="space-y-1">
                   <p className="text-xs text-gray-500">
@@ -1564,7 +1565,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   </p>
                   {overLimit.length > 0 && (
                     <p className="text-xs text-red-600">
-                      ⚠️ {overLimit.length} 个标题超过30字符将被截断：{overLimit.slice(0, 2).map(l => `"${l.substring(0, 20)}..."`).join('、')}
+                      ⚠️ {overLimit.length} 个标题有效长度超过30字符将被截断：{overLimit.slice(0, 2).map(l => `"${l.substring(0, 20)}..."`).join('、')}
                     </p>
                   )}
                 </div>
@@ -1577,7 +1578,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             </Button>
             <Button
               onClick={() => {
-                const lines = batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 15).map(l => l.substring(0, 30))
+                const lines = batchHeadlineInput.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 15).map(l => sanitizeGoogleAdsAdText(l, 30))
                 if (lines.length > 0) {
                   handleChange('headlines', lines)
                   showSuccess('导入成功', `已导入 ${lines.length} 个标题`)
@@ -1704,12 +1705,14 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
             <div className="grid md:grid-cols-2 gap-3">
               {config.headlines.map((headline, index) => (
                 <div key={index} className="space-y-1">
-                  <div className="text-xs text-gray-500">标题 {index + 1} (Headline {index + 1}) ({headline.length}/30)</div>
+                  <div className={`text-xs ${getGoogleAdsTextEffectiveLength(headline) > 30 ? 'text-red-500' : 'text-gray-500'}`}>
+                    标题 {index + 1} (Headline {index + 1}) ({getGoogleAdsTextEffectiveLength(headline)}/30)
+                  </div>
                   <Input
                     value={headline}
                     onChange={(e) => handleHeadlineChange(index, e.target.value)}
                     placeholder={`标题 ${index + 1} (Headline ${index + 1})`}
-                    maxLength={30}
+                    maxLength={100}
                   />
                 </div>
               ))}

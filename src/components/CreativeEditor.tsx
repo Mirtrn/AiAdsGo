@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { History, Save, Undo2, Clock, CheckCircle, AlertCircle } from 'lucide-react'
+import { getGoogleAdsTextEffectiveLength } from '@/lib/google-ads-ad-text'
 
 interface Creative {
   id: number
@@ -215,10 +216,10 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
                 <label className="text-sm text-gray-600">Headline {index + 1}</label>
                 <span
                   className={`text-sm ${
-                    headline.length > 30 ? 'text-red-600' : 'text-gray-500'
+                    getGoogleAdsTextEffectiveLength(headline) > 30 ? 'text-red-600' : 'text-gray-500'
                   }`}
                 >
-                  {headline.length}/30
+                  {getGoogleAdsTextEffectiveLength(headline)}/30
                 </span>
               </div>
               <input
@@ -229,9 +230,9 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
                   newHeadlines[index] = e.target.value
                   setHeadlines(newHeadlines)
                 }}
-                maxLength={30}
+                maxLength={100}
                 className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 ${
-                  headline.length > 30 ? 'border-red-500' : 'border-gray-300'
+                  getGoogleAdsTextEffectiveLength(headline) > 30 ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder={`输入Headline ${index + 1}...`}
               />

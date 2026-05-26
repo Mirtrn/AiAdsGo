@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { getInsertedId } from '@/lib/db-helpers'
+import { getGoogleAdsTextEffectiveLength } from '@/lib/google-ads-ad-text'
 
 /**
  * GET /api/creatives/:id/versions
@@ -171,11 +172,12 @@ export async function POST(
       )
     }
 
-    // 验证headlines长度（每个最多30字符）
+    // 验证headlines有效长度（每个最多30字符；DKI token {KeyWord:DefaultText} 只计 DefaultText）
     for (const headline of headlines) {
-      if (headline.length > 30) {
+      const effectiveLen = getGoogleAdsTextEffectiveLength(headline)
+      if (effectiveLen > 30) {
         return NextResponse.json(
-          { error: `Headline "${headline}" 超过30字符限制` },
+          { error: `Headline "${headline}" 有效长度超过30字符限制（有效长度=${effectiveLen}）` },
           { status: 400 }
         )
       }
