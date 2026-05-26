@@ -256,16 +256,20 @@ export async function GET(
     const scrapedStoreDescription = pickNonEmptyString(normalizeTextCandidate(scrapedData?.storeDescription))
     const storeDerived = buildStoreDescriptionFromScrapedData(scrapedData)
 
-    // 🔥 从 scraped_data 的 aboutThisItem / features 提取产品卖点兜底
+    // 🔥 从 scraped_data 提取产品卖点兜底（多字段名兼容，适配不同版本数据）
     // 用于单品页 unique_selling_points / product_highlights 为空时的展示兜底
-    const scrapedAboutThisItem: string[] = Array.isArray(scrapedData?.aboutThisItem)
-      ? scrapedData.aboutThisItem.filter((s: unknown) => typeof s === 'string' && s.trim())
-      : []
-    const scrapedFeatures: string[] = Array.isArray(scrapedData?.features)
-      ? scrapedData.features.filter((s: unknown) => typeof s === 'string' && s.trim())
-      : []
-    // aboutThisItem 优先（更详细），其次 features
-    const scrapedSource = scrapedAboutThisItem.length > 0 ? scrapedAboutThisItem : scrapedFeatures
+    // 字段优先级: aboutThisItem > rawAboutThisItem > features > productFeatures
+    const pickScrapedList = (...keys: string[]): string[] => {
+      for (const key of keys) {
+        const val = scrapedData?.[key]
+        if (Array.isArray(val) && val.length > 0) {
+          const filtered = val.filter((s: unknown) => typeof s === 'string' && (s as string).trim())
+          if (filtered.length > 0) return filtered
+        }
+      }
+      return []
+    }
+    const scrapedSource = pickScrapedList('aboutThisItem', 'rawAboutThisItem', 'features', 'productFeatures')
     // uniqueSellingPoints 兜底：前3条（简洁）
     const scrapedSellingPoints = scrapedSource.slice(0, 3).join('\n') || null
     // productHighlights 兜底：前5条（更全面）

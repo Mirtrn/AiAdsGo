@@ -161,6 +161,10 @@ export interface ScrapedProductData {
   // Raw capture fields (source text for keyword supplementation/audit)
   rawProductTitle?: string | null
   rawAboutThisItem?: string[]
+  // 🔥 aboutThisItem: Amazon "About this item" bullets（与 stealth-scraper 字段一致）
+  aboutThisItem?: string[]
+  // 🔥 features: 通用特性列表字段（route.ts 兜底逻辑依赖此字段）
+  features?: string[]
   productDescription: string | null
   productPrice: string | null
   productCategory: string | null
@@ -392,12 +396,28 @@ export async function scrapeProductData(
       acceptLanguage = getAcceptLanguageHeader(langCode)
     }
 
+    // 🔥 User-Agent 轮换池（轮流使用，减少被识别为爬虫的概率）
+    const USER_AGENTS = [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+    ]
+    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
+
     const response = await axios.get(url, {
       timeout: timeoutMs,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': acceptLanguage,  // 🌍 动态语言支持
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Upgrade-Insecure-Requests': '1',
       },
       ...(proxyAgent && { httpsAgent: proxyAgent, httpAgent: proxyAgent as any }),
     })
@@ -467,11 +487,43 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
     }
   }
 
+  // 🔥 优化：改进 feature-bullets 选择器，排除 .aok-hidden 隐藏元素，支持多种 Amazon 页面结构
   const features: string[] = []
-  $('#feature-bullets li').each((i: number, el: any) => {
-    const text = $(el).text().trim()
-    if (text && text.length > 10) {
-      features.push(text)
+
+  // 主选择器：#feature-bullets 下的可见 li（排除隐藏/点击展开项）
+  const featureSelectors = [
+    '#feature-bullets ul.a-unordered-list li:not(.aok-hidden) span.a-list-item',
+    '#feature-bullets ul li:not(.aok-hidden)',
+    '#featurebullets_feature_div ul li:not(.aok-hidden)',
+    '[data-feature-name="featurebullets"] ul li:not(.aok-hidden)',
+  ]
+  for (const sel of featureSelectors) {
+    $(sel).each((i: number, el: any) => {
+      const text = $(el).text().trim()
+      if (text && text.length > 5 && text.length < 500) {
+        if (!features.includes(text)) {
+          features.push(text)
+        }
+      }
+    })
+    if (features.length > 0) break
+  }
+
+  // 🔥 A+ 内容提取：#aplus_feature_div、#aplusBody 下的段落（Amazon Enhanced Content）
+  const aPlusItems: string[] = []
+  $('#aplus_feature_div .aplus-module p, #aplus_feature_div .aplus-v2 li, #aplusBody p, #aplus p').each((i: number, el: any) => {
+    const text = $(el).text().replace(/\s+/g, ' ').trim()
+    if (text && text.length > 20 && text.length < 400 && !aPlusItems.includes(text)) {
+      aPlusItems.push(text)
+    }
+  })
+
+  // 🔥 productDescription 模块提取（补充卖点）
+  const descriptionItems: string[] = []
+  $('#productDescription p, #productDescription_feature_div p').each((i: number, el: any) => {
+    const text = $(el).text().replace(/\s+/g, ' ').trim()
+    if (text && text.length > 20 && text.length < 600 && !descriptionItems.includes(text)) {
+      descriptionItems.push(text)
     }
   })
 
@@ -573,14 +625,39 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
     }
   }
 
+  // 🔥 最终卖点合并：feature-bullets 优先，A+ 内容补充，过滤重复
+  const allFeatures = features.slice(0, 10)
+  // 如果 feature-bullets 结果较少，补充 A+ 内容
+  if (allFeatures.length < 5 && aPlusItems.length > 0) {
+    for (const item of aPlusItems) {
+      if (!allFeatures.some(f => f.toLowerCase() === item.toLowerCase())) {
+        allFeatures.push(item)
+        if (allFeatures.length >= 10) break
+      }
+    }
+  }
+
+  const productDescriptionText = (
+    $('#feature-bullets').text().trim() ||
+    descriptionItems.slice(0, 3).join('\n') ||
+    $('#productDescription').text().trim() ||
+    null
+  )
+
+  console.log(`✅ [extractAmazonData] features: ${features.length}, aPlusItems: ${aPlusItems.length}, allFeatures: ${allFeatures.length}`)
+
   return {
     productName: productTitle || null,
     rawProductTitle: productTitle || null,
-    rawAboutThisItem: features.slice(0, 10),
-    productDescription: $('#feature-bullets').text().trim() || $('#productDescription').text().trim() || null,
+    rawAboutThisItem: allFeatures,
+    // 🔥 关键修复：添加 aboutThisItem 字段（与 stealth-scraper 一致），route.ts 兜底逻辑依赖此字段
+    aboutThisItem: allFeatures,
+    // 🔥 同时写入 features 字段，兼容老版本 scraped_data 读取逻辑
+    features: allFeatures,
+    productDescription: productDescriptionText,
     productPrice,
     productCategory: $('#wayfinding-breadcrumbs_feature_div').text().trim() || null,
-    productFeatures: features,
+    productFeatures: allFeatures,
     brandName,
     imageUrls: images,
     metaTitle: $('title').text().trim() || null,
