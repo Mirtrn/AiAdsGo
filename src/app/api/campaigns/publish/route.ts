@@ -887,20 +887,29 @@ export async function POST(request: NextRequest) {
         console.log(`[Publish] negativeKeywords长度: ${creativeForLaunchScore.negativeKeywords?.length || 0}`)
         console.log(`[Publish] negativeKeywords示例: ${creativeForLaunchScore.negativeKeywords?.slice(0, 5).join(', ') || 'NONE'}`)
 
-        // 重新计算Launch Score
-        const launchScoreResult = await calculateLaunchScore(
-          offer,
-          creativeForLaunchScore,
-          userId,
-          {
-            budgetAmount: _campaignConfig.budgetAmount,
-            maxCpcBid: _campaignConfig.maxCpcBid,
-            budgetType: _campaignConfig.budgetType,
-            finalUrl: creativeForLaunchScore.final_url,  // 🔧 使用（可能被Step 3覆盖的）Final URL
-            targetCountry: _campaignConfig.targetCountry,
-            targetLanguage: _campaignConfig.targetLanguage
-          }
-        )
+        // 重新计算Launch Score（带60秒超时保护，避免Cloudflare 524）
+        const LAUNCH_SCORE_TIMEOUT_MS = 60_000
+        const launchScoreResult = await Promise.race([
+          calculateLaunchScore(
+            offer,
+            creativeForLaunchScore,
+            userId,
+            {
+              budgetAmount: _campaignConfig.budgetAmount,
+              maxCpcBid: _campaignConfig.maxCpcBid,
+              budgetType: _campaignConfig.budgetType,
+              finalUrl: creativeForLaunchScore.final_url,  // 🔧 使用（可能被Step 3覆盖的）Final URL
+              targetCountry: _campaignConfig.targetCountry,
+              targetLanguage: _campaignConfig.targetLanguage
+            }
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('LaunchScore AI call timeout after 60s')), LAUNCH_SCORE_TIMEOUT_MS)
+          )
+        ]).catch((timeoutErr: Error) => {
+          console.warn(`⚠️ [Publish] Launch Score计算超时或失败，跳过评分: ${timeoutErr.message}`)
+          return null
+        })
 
         // 🔥 新增：调试日志 - 追踪传递给Launch Score的campaignConfig参数
         console.log(`[Publish] 传递给Launch Score的campaignConfig:`)
@@ -912,119 +921,125 @@ export async function POST(request: NextRequest) {
         console.log(`[Publish] 传递给Launch Score的negativeKeywords长度: ${creativeData.negativeKeywords.length}`)
         console.log(`[Publish] 传递给Launch Score的negativeKeywords示例: ${creativeData.negativeKeywords.slice(0, 5).join(', ')}`)
 
-        launchScore = launchScoreResult.totalScore
-        scoreAnalysis = launchScoreResult.scoreAnalysis
+        if (launchScoreResult) {
+          launchScore = launchScoreResult.totalScore
+          scoreAnalysis = launchScoreResult.scoreAnalysis
 
-        // 🔥 修复(2025-12-17): 保存Launch Score到数据库（带缓存信息）
-        try {
-          // 1. 保存到launch_scores表（带缓存哈希）
-          await createLaunchScore(userId, _offerId, scoreAnalysis, {
-            adCreativeId: primaryCreative.id,
-            contentHash,
-            campaignConfigHash
-          })
-          console.log(`✅ Launch Score已保存到launch_scores表（带缓存信息）`)
+          // 🔥 修复(2025-12-17): 保存Launch Score到数据库（带缓存信息）
+          try {
+            // 1. 保存到launch_scores表（带缓存哈希）
+            await createLaunchScore(userId, _offerId, scoreAnalysis, {
+              adCreativeId: primaryCreative.id,
+              contentHash,
+              campaignConfigHash
+            })
+            console.log(`✅ Launch Score已保存到launch_scores表（带缓存信息）`)
 
-          // 2. 更新ad_creatives表的launch_score字段
-          await db.exec(`
-            UPDATE ad_creatives
-            SET launch_score = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [launchScore, primaryCreative.id])
-          console.log(`✅ ad_creatives.launch_score已更新为${launchScore}`)
-        } catch (saveError: any) {
-          // 保存失败不阻断流程，只记录警告
-          console.warn(`⚠️ 保存Launch Score失败: ${saveError.message}`)
+            // 2. 更新ad_creatives表的launch_score字段
+            await db.exec(`
+              UPDATE ad_creatives
+              SET launch_score = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `, [launchScore, primaryCreative.id])
+            console.log(`✅ ad_creatives.launch_score已更新为${launchScore}`)
+          } catch (saveError: any) {
+            // 保存失败不阻断流程，只记录警告
+            console.warn(`⚠️ 保存Launch Score失败: ${saveError.message}`)
+          }
+        } else {
+          // AI计算超时或失败 → 跳过分数校验，直接放行，不阻断发布
+          console.warn(`⚠️ [Publish] Launch Score未能获得有效结果，跳过风险评估，继续发布`)
         }
+
+      // 🎯 从scoreAnalysis中提取各维度分数（仅在有结果时校验）
+      if (launchScoreResult && scoreAnalysis) {
+        analysis = scoreAnalysis
+
+        // 🔧 修复：确保overallRecommendations在所有路径中可用
+        overallRecommendations = scoreAnalysis.overallRecommendations || extractAllSuggestions(scoreAnalysis)
+
+        console.log(`📊 Launch Score评估结果 (v4.16): ${launchScore}分`)
+        console.log(`   - 投放可行性: ${analysis.launchViability.score}/40`)
+        console.log(`      • 品牌搜索量得分: ${analysis.launchViability.brandSearchScore}/15 (搜索量: ${analysis.launchViability.brandSearchVolume})`)
+        console.log(`      • 竞争度得分: ${analysis.launchViability.competitionScore}/15 (${analysis.launchViability.competitionLevel})`)
+        console.log(`      • 市场潜力得分: ${analysis.launchViability.marketPotentialScore || 0}/10`)
+        console.log(`   - 广告质量: ${analysis.adQuality.score}/30`)
+        console.log(`      • 广告强度: ${analysis.adQuality.adStrengthScore}/15 (${analysis.adQuality.adStrength})`)
+        console.log(`      • 标题多样性得分: ${analysis.adQuality.headlineDiversityScore}/8 (${analysis.adQuality.headlineDiversity}%)`)
+        console.log(`      • 描述质量得分: ${analysis.adQuality.descriptionQualityScore}/7`)
+        console.log(`   - 关键词策略: ${analysis.keywordStrategy.score}/20`)
+        console.log(`      • 相关性得分: ${analysis.keywordStrategy.relevanceScore}/8`)
+        console.log(`      • 匹配类型策略: ${analysis.keywordStrategy.matchTypeScore}/6`)
+        console.log(`      • 否定关键词得分: ${analysis.keywordStrategy.negativeKeywordsScore}/6`)
+        console.log(`   - 基础配置: ${analysis.basicConfig.score}/10`)
+        console.log(`      • 国家/语言得分: ${analysis.basicConfig.countryLanguageScore}/5`)
+        console.log(`      • Final URL得分: ${analysis.basicConfig.finalUrlScore}/5`)
+
+        // 阻断规则
+        const CRITICAL_THRESHOLD = 40  // 严重问题阈值
+        const WARNING_THRESHOLD = 80   // 警告阈值
+
+        if (launchScore < CRITICAL_THRESHOLD) {
+          // 强制阻断：<40分
+          console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
+
+          const allIssues = extractAllIssues(scoreAnalysis)
+          const allSuggestions = extractAllSuggestions(scoreAnalysis)
+
+          return NextResponse.json(
+            {
+              error: `投放风险过高（Launch Score: ${launchScore}分），无法发布`,
+              details: {
+                launchScore,
+                threshold: CRITICAL_THRESHOLD,
+                breakdown: {
+                  launchViability: { score: analysis.launchViability.score, max: 35 },
+                  adQuality: { score: analysis.adQuality.score, max: 30 },
+                  keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
+                  basicConfig: { score: analysis.basicConfig.score, max: 15 }
+                },
+                issues: allIssues,
+                suggestions: allSuggestions,
+                overallRecommendations
+              },
+              action: 'LAUNCH_SCORE_BLOCKED'
+            },
+            { status: 422 }
+          )
+        } else if (launchScore < WARNING_THRESHOLD && !_forcePublish) {
+          // 警告但可绕过：40-80分
+          console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
+
+          const allIssues = extractAllIssues(scoreAnalysis)
+          const allSuggestions = extractAllSuggestions(scoreAnalysis)
+
+          return NextResponse.json(
+            {
+              error: `投放风险较高（Launch Score: ${launchScore}分），建议优化`,
+              details: {
+                launchScore,
+                threshold: WARNING_THRESHOLD,
+                breakdown: {
+                  launchViability: { score: analysis.launchViability.score, max: 35 },
+                  adQuality: { score: analysis.adQuality.score, max: 30 },
+                  keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
+                  basicConfig: { score: analysis.basicConfig.score, max: 15 }
+                },
+                issues: allIssues,
+                suggestions: allSuggestions,
+                overallRecommendations,
+                canForcePublish: true
+              },
+              action: 'LAUNCH_SCORE_WARNING'
+            },
+            { status: 422 }
+          )
+        }
+
+        console.log(`✅ Launch Score评估通过: ${launchScore}分 ${_forcePublish ? '(强制发布)' : ''}`)
       }
 
-      // 🎯 从scoreAnalysis中提取各维度分数（v4.16 - 4维度智能matchType评分）
-      analysis = scoreAnalysis
-
-      // 🔧 修复：确保overallRecommendations在所有路径中可用
-      overallRecommendations = scoreAnalysis?.overallRecommendations || extractAllSuggestions(scoreAnalysis)
-
-      console.log(`📊 Launch Score评估结果 (v4.16): ${launchScore}分`)
-      console.log(`   - 投放可行性: ${analysis.launchViability.score}/40`)
-      console.log(`      • 品牌搜索量得分: ${analysis.launchViability.brandSearchScore}/15 (搜索量: ${analysis.launchViability.brandSearchVolume})`)
-      console.log(`      • 竞争度得分: ${analysis.launchViability.competitionScore}/15 (${analysis.launchViability.competitionLevel})`)
-      console.log(`      • 市场潜力得分: ${analysis.launchViability.marketPotentialScore || 0}/10`)
-      console.log(`   - 广告质量: ${analysis.adQuality.score}/30`)
-      console.log(`      • 广告强度: ${analysis.adQuality.adStrengthScore}/15 (${analysis.adQuality.adStrength})`)
-      console.log(`      • 标题多样性得分: ${analysis.adQuality.headlineDiversityScore}/8 (${analysis.adQuality.headlineDiversity}%)`)
-      console.log(`      • 描述质量得分: ${analysis.adQuality.descriptionQualityScore}/7`)
-      console.log(`   - 关键词策略: ${analysis.keywordStrategy.score}/20`)
-      console.log(`      • 相关性得分: ${analysis.keywordStrategy.relevanceScore}/8`)
-      console.log(`      • 匹配类型策略: ${analysis.keywordStrategy.matchTypeScore}/6`)
-      console.log(`      • 否定关键词得分: ${analysis.keywordStrategy.negativeKeywordsScore}/6`)
-      console.log(`   - 基础配置: ${analysis.basicConfig.score}/10`)
-      console.log(`      • 国家/语言得分: ${analysis.basicConfig.countryLanguageScore}/5`)
-      console.log(`      • Final URL得分: ${analysis.basicConfig.finalUrlScore}/5`)
-
-      // 阻断规则
-      const CRITICAL_THRESHOLD = 40  // 严重问题阈值
-      const WARNING_THRESHOLD = 80   // 警告阈值
-
-      if (launchScore < CRITICAL_THRESHOLD) {
-        // 强制阻断：<40分
-        console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
-
-        // 🎯 收集所有维度的问题和建议
-        const allIssues = extractAllIssues(scoreAnalysis)
-        const allSuggestions = extractAllSuggestions(scoreAnalysis)
-
-        return NextResponse.json(
-          {
-            error: `投放风险过高（Launch Score: ${launchScore}分），无法发布`,
-            details: {
-              launchScore,
-              threshold: CRITICAL_THRESHOLD,
-              breakdown: {
-                launchViability: { score: analysis.launchViability.score, max: 35 },
-                adQuality: { score: analysis.adQuality.score, max: 30 },
-                keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
-                basicConfig: { score: analysis.basicConfig.score, max: 15 }
-              },
-              issues: allIssues,
-              suggestions: allSuggestions,
-              overallRecommendations: overallRecommendations  // 🔧 修复：使用正确的变量
-            },
-            action: 'LAUNCH_SCORE_BLOCKED'
-          },
-          { status: 422 } // 422 Unprocessable Entity
-        )
-      } else if (launchScore < WARNING_THRESHOLD && !_forcePublish) {
-        // 警告但可绕过：40-80分
-        console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
-
-        // 🎯 收集所有维度的问题和建议
-        const allIssues = extractAllIssues(scoreAnalysis)
-        const allSuggestions = extractAllSuggestions(scoreAnalysis)
-
-        return NextResponse.json(
-          {
-            error: `投放风险较高（Launch Score: ${launchScore}分），建议优化`,
-            details: {
-              launchScore,
-              threshold: WARNING_THRESHOLD,
-              breakdown: {
-                launchViability: { score: analysis.launchViability.score, max: 35 },
-                adQuality: { score: analysis.adQuality.score, max: 30 },
-                keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
-                basicConfig: { score: analysis.basicConfig.score, max: 15 }
-              },
-              issues: allIssues,
-              suggestions: allSuggestions,
-              overallRecommendations: overallRecommendations,  // 🔧 修复：使用正确的变量
-              canForcePublish: true // 允许强制发布
-            },
-            action: 'LAUNCH_SCORE_WARNING'
-          },
-          { status: 422 }
-        )
-      }
-
-      console.log(`✅ Launch Score评估通过: ${launchScore}分 ${_forcePublish ? '(强制发布)' : ''}`)
+      } // end else (non-cached launch score calculation)
 
     } catch (error: any) {
       console.error('Launch Score评估失败:', error.message)
