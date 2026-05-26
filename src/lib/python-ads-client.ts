@@ -103,6 +103,29 @@ async function withTracking<T>(
       )
     }
 
+    // DEVELOPER_TOKEN_PROHIBITED：Developer Token 与服务账号所在 GCP 项目不匹配
+    if (errorMessage.includes('DEVELOPER_TOKEN_PROHIBITED') || errorMessage.includes('Developer token is not allowed with project')) {
+      // 尝试从错误信息中提取 GCP 项目号
+      const projectMatch = errorMessage.match(/project '?(\d+)'?/)
+      const projectHint = projectMatch ? `（GCP 项目号: ${projectMatch[1]}）` : ''
+      enhancedError = new Error(
+        `❌ Developer Token 与服务账号 GCP 项目不匹配${projectHint}:\n\n` +
+        `Developer Token 必须与服务账号所在的同一个 GCP 项目绑定。\n\n` +
+        `⚠️ 问题原因: Developer Token 关联的 GCP 项目与服务账号所在项目不同\n\n` +
+        `✅ 解决方案（任选其一）:\n` +
+        `  方案一: 在服务账号所在的 GCP 项目下申请 Developer Token\n` +
+        `    1. 访问 https://ads.google.com/aw/apicenter\n` +
+        `    2. 使用与该 GCP 项目关联的 Google 账号登录\n` +
+        `    3. 申请/查看该项目的 Developer Token\n` +
+        `    4. 将新 Developer Token 填入系统设置\n\n` +
+        `  方案二: 在已有 Developer Token 的 GCP 项目下重新创建服务账号\n` +
+        `    1. 在 Google Cloud Console 中找到 Developer Token 所属项目\n` +
+        `    2. 在该项目下创建新服务账号并授权 Google Ads\n` +
+        `    3. 下载新的 JSON 密钥并重新上传到系统\n\n` +
+        `原始错误: ${errorMessage}`
+      )
+    }
+
     // BILLING_NOT_ON_MONTHLY_INVOICING 是预期错误（账户不支持身份验证接口），
     // 调用方 fetchIdentityVerificationSnapshot 会优雅处理（返回 null），
     // 降级为 warn 避免污染 error 日志
