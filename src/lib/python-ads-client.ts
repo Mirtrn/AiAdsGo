@@ -348,6 +348,7 @@ export async function listAccessibleCustomersPython(params: {
     service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
   }, {
     headers: getPythonRequestHeaders(params.userId, params.requestId),
+    timeout: 30000, // 30秒超时，防止 Python 服务未启动时无限挂起
   })
 
   return response.data.resource_names
