@@ -1,6 +1,6 @@
 # AutoAds - AI-Powered Google Ads Automation Platform
 
-智能化的Google Ads广告投放和优化平台，通过AI技术自动生成高质量广告创意、优化投放策略。
+智能化的 Google Ads 广告投放和优化平台，通过 AI 技术自动生成高质量广告创意、深度采集产品数据、优化投放策略，并提供完整的广告生命周期管理。
 
 ---
 
@@ -20,25 +20,44 @@
 ## ✨ 功能特性
 
 ### 核心功能
-- 🤖 **AI创意生成** - 自动生成15条标题和4条描述，支持多语言
-- 🎯 **Launch Score评分** - 5维度投放评分系统（关键词、市场契合、着陆页、预算、内容）
+- 🤖 **AI 创意生成** - 自动生成 15 条标题和 4 条描述，支持多语言、多 AI 模型
+- 🎯 **Launch Score 评分** - 5 维度投放评分系统（关键词、市场契合、着陆页、预算、内容）
 - 📊 **性能追踪** - 实时监控广告系列、广告组、关键词性能
-- 🔍 **智能优化** - 基于AI的优化建议和自动化任务
-- 🛡️ **风险预警** - 预算、CPC、CTR异常自动告警
+- 🔍 **智能优化** - 基于 AI 的优化建议和自动化任务
+- 🛡️ **风险预警** - 预算、CPC、CTR 异常自动告警
 - 📈 **数据分析** - 完整的性能报表和趋势分析
+- 🏭 **策略中心** - AI 驱动的策略推荐和执行追踪
 
-### 数据采集
-- 🕷️ **智能爬虫** - Amazon Store页面深度抓取
-- 🏷️ **产品分类** - 自动提取产品分类元数据（+100%关键词多样性）
-- ⭐ **评论分析** - AI提取评论洞察和购买理由
-- 🎨 **视觉分析** - 产品图片特征提取
-- 💰 **促销识别** - 自动识别促销信息和折扣
+### 数据采集（Stealth Scraper）
+- 🕷️ **Playwright 隐身采集** - 反指纹浏览器，支持代理池自动轮换
+- 🛒 **Amazon Store 深度采集** - 分类页、产品列表、评论、热度评分
+- 🏷️ **单品详情采集** - 标题、价格、图片、A+内容、规格参数、竞品
+- ⭐ **评论 AI 分析** - 购买理由、痛点、用户画像、竞品提及提取
+- 🔗 **推广链接解析** - Playwright 真实跟随重定向（PartnerBoost / YeahPromos 等）
+- 🏪 **独立站采集** - Shopify、通用电商站数据提取
+- 🔄 **代理重试机制** - 3 次代理重试 + a-no-js 重试，提升采集成功率
 
-### Google Ads集成
-- 🔗 **API集成** - 完整的Google Ads API集成
+### Google Ads 集成
+- 🔗 **API 集成** - 完整的 Google Ads API 集成（OAuth + Service Account 双模式）
 - 📤 **批量上传** - 批量创建广告系列、广告组、关键词
-- 🔄 **自动同步** - 定时同步性能数据
-- 💰 **预算管理** - 智能预算分配和CPC调整
+- 🔄 **自动同步** - 定时同步性能数据、Search Term 报告
+- 💰 **预算管理** - 智能预算分配和 CPC 调整
+- 🏷️ **URL Swap** - Final URL 和 Final URL Suffix 批量替换
+
+### 联盟营销（Affiliate）
+- 🤝 **多平台同步** - PartnerBoost、YeahPromos 等联盟平台产品同步
+- 📦 **产品库管理** - 自动识别 ASIN、价格、佣金、有效期
+- 📊 **小时级统计** - 同步运行指标追踪
+
+### OpenClaw 智能代理
+- 🤖 **Feishu Bot** - 飞书机器人指令驱动的自动化执行平台
+- 📋 **技能系统** - 可扩展的预构建技能库（天气、广告操作等）
+- 🔒 **安全防护** - 网关守护 + 租户隔离
+
+### 多 AI 模型支持
+- 🧠 **多模型接入** - Gemini、OpenAI、LiteLLM、AiCodeCat 等
+- 🔀 **模型热切换** - 运行时切换 AI 模型，无需重启
+- 💾 **Token 追踪** - 用量统计和成本监控
 
 ---
 
@@ -47,27 +66,34 @@
 ### 前端
 - **框架**: Next.js 14+ (App Router)
 - **语言**: TypeScript
-- **UI**: React, Tailwind CSS
-- **状态管理**: React Context
-- **认证**: Supabase Auth (Google OAuth)
+- **UI**: React, Tailwind CSS, shadcn/ui
+- **状态管理**: React Context + useState
 
 ### 后端
-- **运行时**: Node.js
-- **数据库（开发）**: SQLite 3.x
-- **数据库（生产）**: PostgreSQL 14+
-- **ORM**: 原生SQL（better-sqlite3, pg）
+- **运行时**: Node.js 20+
+- **数据库（开发）**: SQLite 3.x（better-sqlite3）
+- **数据库（生产）**: PostgreSQL 16+（pg）
+- **ORM**: 原生 SQL
 - **API**: Next.js API Routes
+- **队列**: Redis（BullMQ / 自研队列）
 
-### AI集成
-- **模型**: Claude 3.5 Sonnet (Anthropic)
-- **Prompt管理**: 数据库驱动的版本化Prompt系统
-- **用途**: 创意生成、数据分析、优化建议
+### AI 集成
+- **多模型支持**: Google Gemini、OpenAI、LiteLLM（兼容 OpenAI API 协议）
+- **Prompt 管理**: 数据库驱动的版本化 Prompt 系统
+- **用途**: 创意生成、评论分析、关键词扩展、优化建议
+
+### 数据采集
+- **引擎**: Playwright（隐身模式 + 反指纹）
+- **代理**: 多代理池 + 国家维度路由（kookeey、miyaip 等）
+- **解析**: Cheerio（HTML 解析）
+- **重试**: 指数退避 + 代理轮换
 
 ### 基础设施
-- **抓取**: Puppeteer (隐身模式)
-- **缓存**: SQLite WAL模式
-- **日志**: 结构化日志系统
-- **监控**: 性能指标和错误追踪
+- **容器**: Docker + docker-compose
+- **Web 服务器**: Nginx（80 端口）
+- **缓存**: Redis
+- **日志**: 结构化日志 + 审计日志
+- **Python 辅助服务**: FastAPI（Google Ads API Python 客户端）
 
 ---
 
@@ -76,8 +102,8 @@
 ### 先决条件
 
 ```bash
-# 需要 Node.js 18+ 和 npm
-node --version  # 应 >= 18.0.0
+# 需要 Node.js 20+ 和 npm
+node --version  # 应 >= 20.0.0
 npm --version
 ```
 
@@ -86,7 +112,7 @@ npm --version
 ```bash
 # 1. 克隆项目
 git clone <repository-url>
-cd autobb
+cd autoads
 
 # 2. 安装依赖
 npm install
@@ -108,102 +134,49 @@ npm run dev
 
 ## 💾 数据库初始化
 
-AutoAds使用**双数据库架构**：
+AutoAds 使用**双数据库架构**：
 - **本地开发**: SQLite（轻量级，零配置）
-- **生产环境**: PostgreSQL（高性能，可扩展）
+- **生产环境**: PostgreSQL 16+（高性能，可扩展）
 
 ### 本地开发（SQLite）
 
-#### 首次初始化
-
 ```bash
-# 方式1：使用npm script（推荐）
+# 方式1：使用 npm script（推荐）
 npm run db:init
 
 # 方式2：手动初始化
 mkdir -p data
 sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql
-
-# 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
 npm run db:migrate
 ```
 
 #### 验证初始化
 
 ```bash
-# 运行验证脚本
 npm run validate-schema
 
 # 或手动检查
-sqlite3 data/autoads.db ".tables"  # 应显示40个表
-sqlite3 data/autoads.db "SELECT COUNT(*) FROM prompt_versions;"  # 应显示70
-```
-
-#### 重置数据库（⚠️ 删除所有数据）
-
-```bash
-npm run db:reset
+sqlite3 data/autoads.db ".tables"
+sqlite3 data/autoads.db "SELECT COUNT(*) FROM prompt_versions;"
 ```
 
 ### 生产环境（PostgreSQL）
 
-#### 创建数据库
-
 ```bash
-# 使用psql
+# 创建数据库
 createdb autoads
 
-# 或使用SQL
-psql postgres -c "CREATE DATABASE autoads;"
-```
-
-#### 初始化Schema
-
-```bash
-# 使用整合Schema初始化
+# 初始化 Schema
 psql autoads < pg-migrations/000_init_schema_consolidated.pg.sql
 
-# 可选：验证增量迁移应为空（初始化脚本已包含并写入 migration_history）
+# 运行增量迁移
 DATABASE_URL="postgresql://username:password@host:5432/autoads" npm run db:migrate
 ```
 
-#### 配置连接
-
 在 `.env.production` 中设置：
-
 ```bash
 DATABASE_URL="postgresql://username:password@host:5432/autoads"
 ```
-
-### Schema结构
-
-初始化完成后，数据库包含：
-
-- ✅ **40个业务表** - 用户、Offer、广告、性能追踪等
-- ✅ **89+个索引** - 性能优化
-- ✅ **12组AI Prompt** - 创意生成模板（70个版本历史）
-- ✅ **外键约束** - 数据完整性保护
-
-### 数据库管理工具
-
-```bash
-# SQLite管理
-sqlite3 data/autoads.db
-
-# PostgreSQL管理
-psql autoads
-
-# GUI工具（推荐）
-# - DBeaver (跨平台)
-# - TablePlus (macOS)
-# - pgAdmin (PostgreSQL专用)
-```
-
-### 详细文档
-
-完整的数据库初始化和管理指南：
-- 📖 [数据库初始化指南](./migrations/DATABASE_INITIALIZATION_GUIDE.md)
-- 📊 [迁移整合报告](./migrations/MIGRATION_CONSOLIDATION_REPORT.md)
 
 ---
 
@@ -231,78 +204,78 @@ npm run validate-schema
 ### 代码规范
 
 ```bash
-# 运行ESLint
+# 运行 ESLint
 npm run lint
 
 # 自动修复
 npm run lint:fix
-
-# 格式化代码（如果配置了Prettier）
-npm run format
 ```
-
-### 调试技巧
-
-#### 调试SQLite数据库
-
-```bash
-# 连接数据库
-sqlite3 data/autoads.db
-
-# 查看表结构
-.schema offers
-
-# 查看数据
-SELECT * FROM offers LIMIT 5;
-
-# 查看活跃Prompt
-SELECT prompt_id, version, is_active
-FROM prompt_versions
-WHERE is_active = 1;
-
-# 退出
-.quit
-```
-
-#### 调试API请求
-
-在浏览器开发者工具中：
-1. 打开Network标签
-2. 筛选XHR/Fetch请求
-3. 查看请求/响应payload
 
 ---
 
 ## 📁 项目结构
 
 ```
-autobb/
+autoads/
 ├── src/
-│   ├── app/                    # Next.js App Router页面
-│   │   ├── (app)/             # 主应用路由组
-│   │   ├── api/               # API路由
-│   │   └── auth/              # 认证页面
-│   ├── components/            # React组件
-│   ├── lib/                   # 核心业务逻辑
-│   │   ├── ad-elements-extractor.ts    # AI创意生成
-│   │   ├── offers.ts                   # Offer管理
-│   │   ├── scraper-stealth.ts          # 智能爬虫
-│   │   └── launch-score.ts             # Launch Score评分
-│   └── types/                 # TypeScript类型定义
-├── migrations/                # SQLite数据库迁移
-│   ├── 000_init_schema_consolidated.sqlite.sql  # 整合Schema
-│   ├── DATABASE_INITIALIZATION_GUIDE.md         # 初始化指南
-│   ├── MIGRATION_CONSOLIDATION_REPORT.md        # 迁移报告
-│   └── archive/              # 历史迁移文件（已归档）
-├── pg-migrations/            # PostgreSQL数据库迁移
-│   ├── 000_init_schema_consolidated.pg.sql      # 整合Schema
-│   └── archive/             # 历史迁移文件（已归档）
-├── scripts/                 # 实用脚本
-│   └── validate-db-schema.ts               # Schema验证脚本
-├── data/                    # SQLite数据库文件（.gitignore）
-│   └── autoads.db
-├── public/                  # 静态资源
-└── package.json
+│   ├── app/                          # Next.js App Router
+│   │   ├── (app)/                    # 主应用路由组（需登录）
+│   │   │   ├── dashboard/            # 仪表板
+│   │   │   ├── offers/               # Offer 管理（创建/采集/分析）
+│   │   │   ├── campaigns/            # 广告系列管理
+│   │   │   ├── creatives/            # 广告创意管理
+│   │   │   ├── creatives-dashboard/  # 创意总览
+│   │   │   ├── analytics/            # 数据分析
+│   │   │   ├── launch-score/         # Launch Score 评分
+│   │   │   ├── optimization/         # 优化任务
+│   │   │   ├── strategy-center/      # 策略中心
+│   │   │   ├── risk-alerts/          # 风险预警
+│   │   │   ├── url-swap/             # URL Swap 任务
+│   │   │   ├── sync/                 # 数据同步
+│   │   │   ├── products/             # 联盟产品库
+│   │   │   ├── google-ads-accounts/  # Google Ads 账户
+│   │   │   ├── click-farm/           # 点击农场管理
+│   │   │   ├── openclaw/             # OpenClaw 智能代理
+│   │   │   ├── admin/                # 管理员后台
+│   │   │   └── settings/             # 系统设置
+│   │   └── api/                      # API Routes
+│   ├── components/                   # React 通用组件
+│   ├── hooks/                        # React 自定义 Hooks
+│   └── lib/                          # 核心业务逻辑
+│       ├── stealth-scraper/          # Playwright 隐身采集引擎
+│       │   ├── core.ts               # 核心采集（单品、懒加载处理）
+│       │   ├── amazon-product.ts     # Amazon 单品采集
+│       │   ├── amazon-store.ts       # Amazon 店铺深度采集
+│       │   ├── browser-stealth.ts    # 隐身浏览器配置
+│       │   ├── proxy-utils.ts        # 代理重试工具
+│       │   └── types.ts              # 类型定义
+│       ├── offer-scraping-core.ts    # 采集总调度（推广链接解析）
+│       ├── scraper.ts                # HTTP 采集（Cheerio 解析）
+│       ├── review-analyzer.ts        # 评论 AI 分析
+│       ├── ad-creative-generator.ts  # AI 创意生成
+│       ├── launch-scores.ts          # Launch Score 评分
+│       ├── google-ads-api.ts         # Google Ads API 封装
+│       ├── google-ads-oauth.ts       # OAuth + Service Account 认证
+│       ├── ai-runtime-config.ts      # 多模型 AI 运行时配置
+│       ├── litellm.ts                # LiteLLM 集成
+│       ├── gemini.ts                 # Gemini 集成
+│       ├── keyword-planner.ts        # 关键词规划
+│       ├── affiliate-sync-config.ts  # 联盟同步配置
+│       ├── affiliate-products.ts     # 联盟产品管理
+│       └── proxy/                    # 代理池管理
+│           ├── fetch-proxy-ip.ts
+│           └── providers/            # 代理供应商（kookeey, miyaip）
+├── migrations/                       # SQLite 数据库迁移
+├── pg-migrations/                    # PostgreSQL 数据库迁移
+├── scripts/                          # 工具脚本
+│   ├── do_deploy.sh                  # 一键部署脚本（SSH → 服务器）
+│   └── test-*.mjs                    # 采集测试脚本
+├── python-service/                   # Python Google Ads 辅助服务（FastAPI）
+├── openclaw/                         # OpenClaw 源码
+├── openclaw-prebuilt/                # OpenClaw 预构建产物
+├── docker-compose.single.yml         # 生产环境 Docker Compose
+├── Dockerfile                        # Docker 镜像构建
+└── nginx.conf                        # Nginx 配置（80 端口）
 ```
 
 ---
@@ -315,59 +288,47 @@ autobb/
 # 数据库
 DATABASE_URL="file:./data/autoads.db"
 
-# Supabase认证
-NEXT_PUBLIC_SUPABASE_URL="your-supabase-url"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="your-supabase-anon-key"
+# JWT 认证
+JWT_SECRET="your-jwt-secret"
 
-# Google Ads API（可选）
+# Google Ads API
 GOOGLE_ADS_DEVELOPER_TOKEN="your-developer-token"
 GOOGLE_ADS_CLIENT_ID="your-client-id"
 GOOGLE_ADS_CLIENT_SECRET="your-client-secret"
+GOOGLE_ADS_REFRESH_TOKEN="your-refresh-token"
 
-# Anthropic API（AI功能）
-ANTHROPIC_API_KEY="your-anthropic-api-key"
+# AI 模型（至少配置一个）
+GOOGLE_AI_API_KEY="your-gemini-api-key"
+# OPENAI_API_KEY="your-openai-api-key"
+
+# Cloudflare Turnstile（人机验证）
+NEXT_PUBLIC_TURNSTILE_SITE_KEY="your-site-key"
+TURNSTILE_SECRET_KEY="your-secret-key"
+
+# Redis
+REDIS_URL="redis://localhost:6379"
 
 # 应用配置
 NODE_ENV="development"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+PORT=3000
 ```
 
-创建 `.env.production` 文件（生产环境）：
+生产环境额外配置（`.env`）：
 
 ```bash
-# 数据库（PostgreSQL）
 DATABASE_URL="postgresql://user:password@host:5432/autoads"
-
-# 其他配置同上，但使用生产环境的值
 NODE_ENV="production"
-NEXT_PUBLIC_APP_URL="https://your-domain.com"
+PORT=80
+HOSTNAME=0.0.0.0
+TZ=Asia/Shanghai
+NEXT_TELEMETRY_DISABLED=1
 ```
 
 ---
 
 ## 🚢 部署
 
-### Vercel部署（推荐）
-
-1. **连接GitHub仓库**
-   - 在Vercel中导入项目
-   - 选择GitHub仓库
-
-2. **配置环境变量**
-   - 在Vercel项目设置中添加所有 `.env.production` 变量
-
-3. **配置数据库**
-   - 使用Vercel Postgres或外部PostgreSQL
-   - 运行初始化脚本：
-     ```bash
-     psql $DATABASE_URL < pg-migrations/000_init_schema_consolidated.pg.sql
-     ```
-
-4. **部署**
-   - Vercel会自动构建和部署
-   - 每次push到main分支自动部署
-
-### Docker部署（生产环境）
+### Docker 部署（生产环境）
 
 > ⚠️ **【严重警告】** 生产服务器上**必须**使用 `docker-compose` 启动容器，**绝对禁止**直接使用 `docker run`！
 >
@@ -377,130 +338,92 @@ NEXT_PUBLIC_APP_URL="https://your-domain.com"
 #### ✅ 正确做法：使用部署脚本（推荐）
 
 ```bash
-# 在服务器上执行部署脚本（会自动 build + docker-compose up）
-bash /home/ubuntu/autoads/do_deploy.sh
+# 在本地执行，自动 SSH 到服务器并完成全流程部署
+bash do_deploy.sh
 ```
 
-#### ✅ 正确做法：手动全量部署
+脚本会自动完成：
+1. `docker build -t autoads:single .`
+2. 停止旧容器
+3. `docker-compose -f docker-compose.single.yml up -d`
+4. 修复 PostgreSQL 网络连通（防止容器网络隔离）
+5. 健康检查 + Python 辅助服务检查
+6. 清理旧镜像缓存
+
+#### ✅ 手动部署
 
 ```bash
 cd /home/ubuntu/autoads
+git pull origin main
+
+# 构建镜像
 sudo docker build -t autoads:single .
-sudo docker stop autoads || true
-sudo docker rm autoads || true
-# ✅ 必须用 docker-compose，端口映射为 80:80
-sudo docker-compose -f docker-compose.single.yml up -d
+
+# 停止旧容器
+sudo docker stop autoads && sudo docker rm autoads
+
+# 启动（必须用 docker-compose，端口 80:80）
+sudo docker compose -f docker-compose.single.yml up -d
+
+# 修复 PostgreSQL 网络（如果 postgres 由其他 compose project 管理）
+sudo docker network connect <postgres_network> autoads
 ```
 
-#### ✅ 正确做法：紧急热更新（已有新镜像，跳过 build）
+#### 验证部署
 
 ```bash
-cd /home/ubuntu/autoads
-sudo docker-compose -f docker-compose.single.yml up -d --no-deps autoads
+# 检查容器状态
+sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+# 期望输出：autoads   Up N minutes (healthy)   0.0.0.0:80->80/tcp
+
+# 检查 HTTP 响应
+curl -o /dev/null -w '%{http_code}' http://localhost:80/
+# 期望输出：200
 ```
 
 #### ❌ 错误做法（绝对禁止，会导致 Cloudflare 521）
 
 ```bash
-# ❌ 以下命令只绑定 3000 端口，80 端口无监听，网站崩溃！
-docker run -p 3000:3000 --env-file .env autoads:single
-docker run -p 3000:3000 -e DATABASE_URL="..." autoads
+# ❌ 只绑定 3000 端口，80 端口无监听，网站崩溃！
+docker run -p 3000:3000 autoads:single
 ```
 
-#### 验证部署是否正确
+### 本地开发
 
 ```bash
-# 检查端口映射，正确结果应包含 "0.0.0.0:80->80/tcp"
-sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-# 正确输出示例：
-# autoads   Up 2 minutes (healthy)   0.0.0.0:80->80/tcp
+npm run dev
+# 访问 http://localhost:3000
 ```
-
-### 手动部署
-
-```bash
-# 1. 构建
-npm run build
-
-# 2. 启动
-npm start
-```
-
----
-
-## 📖 文档
-
-### 部署文档
-- [Docker部署指南](./docs/deployment/DOCKER_DEPLOY_GUIDE.md) - Docker容器化部署
-- [快速开始指南](./docs/deployment/QUICK_START.md) - 项目快速启动
-- [远程部署指南](./docs/deployment/REMOTE_DEPLOY_GUIDE.md) - 远程服务器部署
-
-### 开发文档
-- [数据库初始化指南](./migrations/DATABASE_INITIALIZATION_GUIDE.md) - 完整的数据库设置和管理
-- [迁移整合报告](./migrations/MIGRATION_CONSOLIDATION_REPORT.md) - 数据库Schema历史和变更
-- [Agent开发指南](./docs/development/AGENTS.md) - AI Agent开发规范
-- [Claude使用说明](./docs/development/CLAUDE.md) - Claude AI集成说明
-
-### 配置文档
-- [SSH密钥配置示例](./docs/configuration/SSH_KEY_CONFIG_EXAMPLE.md) - SSH密钥设置
-- [SSH连接故障排查](./docs/configuration/SSH_CONNECTION_TROUBLESHOOT.md) - SSH连接问题解决
-
-### 优化文档
-- [意图优化实施](./docs/optimization/INTENT_OPTIMIZATION_IMPLEMENTATION.md) - 关键词意图优化
-- [意图优化代码清单](./docs/optimization/INTENT_OPTIMIZATION_CODE_CHECKLIST.md) - 实施检查清单
-- [意图优化影响分析](./docs/optimization/INTENT_OPTIMIZATION_BUCKET_IMPACT.md) - 功能影响评估
-- [意图优化迁移](./docs/optimization/INTENT_OPTIMIZATION_MIGRATIONS.md) - 数据库迁移说明
 
 ---
 
 ## 🧪 测试
 
 ```bash
-# 运行所有测试（如果配置了测试）
-npm test
+# 测试 Amazon 产品采集
+node scripts/test-scraper.mjs
 
-# 运行Schema验证
+# 测试推广链接解析
+node scripts/test-partnerboost-url.mjs
+
+# Schema 验证
 npm run validate-schema
-
-# 端到端测试（如果配置了）
-npm run test:e2e
 ```
 
 ---
 
-## 🤝 贡献
+## 📖 文档
 
-欢迎贡献！请遵循以下步骤：
-
-1. Fork本仓库
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建Pull Request
+- [数据库初始化指南](./migrations/DATABASE_INITIALIZATION_GUIDE.md)
+- [Docker 部署指南](./docs/deployment/DOCKER_DEPLOY_GUIDE.md)
 
 ---
 
 ## 📄 许可证
 
-[MIT License](./LICENSE) - 详见LICENSE文件
+[MIT License](./LICENSE)
 
 ---
 
-## 📞 联系方式
-
-如有问题或建议，请创建GitHub Issue。
-
----
-
-## 🙏 致谢
-
-- [Next.js](https://nextjs.org/) - React框架
-- [Anthropic](https://www.anthropic.com/) - Claude AI
-- [Google Ads API](https://developers.google.com/google-ads/api) - 广告投放
-- [Supabase](https://supabase.com/) - 认证服务
-
----
-
-**版本**: 2.0.0
-**最后更新**: 2025-12-04
+**版本**: 3.0.0  
+**最后更新**: 2026-05-27
