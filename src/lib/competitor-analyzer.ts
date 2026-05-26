@@ -690,7 +690,48 @@ export async function scrapeAmazonCompetitors(
   const competitors: CompetitorProduct[] = []
 
   try {
-    // 🔥 2025-12-13 KISS优化：快速检测竞品区域是否存在
+    // 🔥 2026-05修复：Amazon竞品区域（如"Compare with similar items"、"Customers also viewed"）
+    // 通常位于页面中下部，是懒加载内容，必须先滚动触发渲染才能检测到。
+    // 不先滚动就直接检测容器是导致竞品分析"有时抓不到"的根本原因。
+    console.log('📜 深度滚动页面触发竞品区域懒加载...')
+    try {
+      // 第一步：滚动到页面50%位置
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight * 0.5)
+      })
+      await page.waitForTimeout(1500)
+
+      // 第二步：滚动到页面80%位置（竞品区通常在此处）
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight * 0.8)
+      })
+      await page.waitForTimeout(1500)
+
+      // 第三步：尝试直接定位竞品容器并滚动到视口
+      await page.evaluate(() => {
+        const targets = [
+          '#HLCXComparisonTable',
+          '[data-component-type="comparison-table"]',
+          '[data-component-type="customers-also-viewed"]',
+          '[data-csa-c-slot-id*="sims"]',
+          '#sp_detail',
+          '#sp_detail2',
+        ]
+        for (const sel of targets) {
+          const el = document.querySelector(sel)
+          if (el) {
+            el.scrollIntoView({ behavior: 'instant', block: 'start' })
+            break
+          }
+        }
+      })
+      await page.waitForTimeout(1000)
+      console.log('✅ 竞品区域深度滚动完成')
+    } catch (scrollError) {
+      console.log('⚠️ 深度滚动失败（继续检测）:', scrollError)
+    }
+
+    // 深度滚动后再检测竞品区域
     const debugContainers = await page.evaluate(() => {
       return {
         compareTable: !!document.querySelector('[data-component-type="comparison-table"], .comparison-table, #HLCXComparisonTable'),

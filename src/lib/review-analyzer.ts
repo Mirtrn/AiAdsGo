@@ -581,7 +581,7 @@ export async function analyzeReviewsWithAI(
       const aiResponse = await generateContent({
         operationType: 'review_analysis',
         prompt: languageEnforcedPrompt,  // 🔥 使用强制语言指令的prompt
-        temperature: 0.5,  // 降低温度确保更准确的提取
+        temperature: 0.1,  // 🔥 2026-05修复：降低至0.1（原0.5），消除同一产品多次抓取时情感分布(好评率)不一致问题
         maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
       }, userId!)
 
