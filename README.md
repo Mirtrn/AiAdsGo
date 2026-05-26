@@ -55,7 +55,7 @@
 - 🔒 **安全防护** - 网关守护 + 租户隔离
 
 ### 多 AI 模型支持
-- 🧠 **多模型接入** - Gemini、OpenAI、LiteLLM、AiCodeCat 等
+- 🧠 **多模型接入** - Gemini、OpenAI、LiteLLM（兼容 OpenAI 协议的任意第三方模型）
 - 🔀 **模型热切换** - 运行时切换 AI 模型，无需重启
 - 💾 **Token 追踪** - 用量统计和成本监控
 
