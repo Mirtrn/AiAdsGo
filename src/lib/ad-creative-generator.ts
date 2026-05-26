@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+  import { getDatabase } from './db'
 import type {
   GeneratedAdCreativeData,
   HeadlineAsset,
@@ -25,7 +25,7 @@ import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-cont
 import { LANGUAGE_CODE_MAP, normalizeLanguageCode } from './language-country-codes'
 import { repairJsonText } from './ai-json'
 import { parsePrice } from './pricing-utils'
-import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols } from './google-ads-ad-text'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsSymbols, sanitizeGoogleAdsAdText } from './google-ads-ad-text'
 import { getLocalizedDkiOfficialSuffix, type DkiLocaleOptions } from './dki-localization'
 import { classifyKeywordIntent } from './keyword-intent'
 import { KEYWORD_POLICY, getRatioCappedCount, resolveNonBrandMinSearchVolumeByBrandKeywordCount } from './keyword-policy'
@@ -3436,11 +3436,13 @@ export function buildDkiKeywordHeadline(defaultText: string, maxLength = 30): st
 
   if (!normalized) return `{KeyWord:Keyword}`
 
-  if (normalized.length <= maxLength) {
+  // 使用有效长度判断（CJK字符按2计，与Google Ads计费规则一致）
+  if (getGoogleAdsTextEffectiveLength(normalized) <= maxLength) {
     return `{KeyWord:${normalized}}`
   }
 
-  return `{KeyWord:${normalized.substring(0, maxLength)}}`
+  // 超长时使用 truncateDkiDefaultText 精确按有效长度截断，而非按原始字符数截断
+  return `{KeyWord:${truncateDkiDefaultText(normalized, maxLength)}}`
 }
 
 /**
@@ -6208,19 +6210,21 @@ export function parseAIResponse(
       console.log('✅ 检测到旧格式descriptions（字符串数组）')
     }
 
-    // 验证字符长度
-    const invalidHeadlines = headlinesArray.filter((h: string) => h.length > 30)
+    // 验证字符长度（使用有效长度计算：DKI token {KeyWord:DefaultText} 只计算 DefaultText 的长度）
+    const invalidHeadlines = headlinesArray.filter((h: string) => getGoogleAdsTextEffectiveLength(h) > 30)
     if (invalidHeadlines.length > 0) {
-      console.warn(`警告: ${invalidHeadlines.length}个headline超过30字符限制`)
-      // 截断过长的headlines
-      headlinesArray = headlinesArray.map((h: string) => h.substring(0, 30))
+      console.warn(`警告: ${invalidHeadlines.length}个headline超过30字符有效长度限制`)
+      // 截断过长的headlines（保护DKI token结构）
+      headlinesArray = headlinesArray.map((h: string) =>
+        getGoogleAdsTextEffectiveLength(h) > 30 ? sanitizeGoogleAdsAdText(h, 30) : h
+      )
 
       // 同步更新metadata中的text
       if (headlinesWithMetadata) {
         headlinesWithMetadata = headlinesWithMetadata.map(h => ({
           ...h,
-          text: h.text.substring(0, 30),
-          length: Math.min(h.length || h.text.length, 30)
+          text: getGoogleAdsTextEffectiveLength(h.text) > 30 ? sanitizeGoogleAdsAdText(h.text, 30) : h.text,
+          length: Math.min(getGoogleAdsTextEffectiveLength(h.text), 30)
         }))
       }
     }
@@ -6282,10 +6286,12 @@ export function parseAIResponse(
     headlinesArray = headlinesArray.map((h: string) => sanitizePolicySensitiveText(h, 30))
     descriptionsArray = descriptionsArray.map((d: string) => sanitizePolicySensitiveText(d, 90))
 
-    // 兜底：政策净化后再次验证 headline 长度
-    const invalidHeadlinesAfterPolicy = headlinesArray.filter((h: string) => h.length > 30)
+    // 兜底：政策净化后再次验证 headline 有效长度（DKI token 只计 DefaultText）
+    const invalidHeadlinesAfterPolicy = headlinesArray.filter((h: string) => getGoogleAdsTextEffectiveLength(h) > 30)
     if (invalidHeadlinesAfterPolicy.length > 0) {
-      headlinesArray = headlinesArray.map((h: string) => h.substring(0, 30))
+      headlinesArray = headlinesArray.map((h: string) =>
+        getGoogleAdsTextEffectiveLength(h) > 30 ? sanitizeGoogleAdsAdText(h, 30) : h
+      )
     }
 
     const invalidDescriptions = descriptionsArray.filter((d: string) => d.length > 90)

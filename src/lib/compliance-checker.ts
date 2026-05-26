@@ -1,4 +1,4 @@
-import { findGoogleAdsProhibitedSymbols } from './google-ads-ad-text'
+import { findGoogleAdsProhibitedSymbols, getGoogleAdsTextEffectiveLength } from './google-ads-ad-text'
 
 /**
  * Google Ads 合规性检查规则引擎
@@ -283,16 +283,17 @@ function rule_ProhibitedSymbols(content: CreativeContent): ComplianceIssue[] {
 function rule_CharacterLength(content: CreativeContent): ComplianceIssue[] {
   const issues: ComplianceIssue[] = []
 
-  // Headline最多30字符
+  // Headline最多30字符有效长度（DKI token {KeyWord:DefaultText} 只计算 DefaultText 的长度）
   content.headlines.forEach((headline, index) => {
-    if (headline.length > 30) {
+    const effectiveLen = getGoogleAdsTextEffectiveLength(headline)
+    if (effectiveLen > 30) {
       issues.push({
         ruleId: 'R_HEADLINE_LENGTH',
         ruleName: '标题长度超限',
         severity: 'high',
         field: 'headline',
         fieldIndex: index,
-        message: `标题${index + 1}长度为${headline.length}字符，超过30字符限制`,
+        message: `标题${index + 1}有效长度为${effectiveLen}字符，超过30字符限制`,
         suggestion: `请缩短至30字符以内`,
         violatingText: headline
       })

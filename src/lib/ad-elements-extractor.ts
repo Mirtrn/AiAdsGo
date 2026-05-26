@@ -10,6 +10,7 @@
  * 5. 通过Keyword Planner查询搜索量并过滤
  */
 
+import { getGoogleAdsTextEffectiveLength } from './google-ads-ad-text'
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes } from './keyword-planner'
@@ -1241,9 +1242,9 @@ async function generateHeadlines(
       throw new Error('AI响应格式错误：缺少headlines字段')
     }
 
-    // 验证数量和长度
+    // 验证数量和长度（使用有效长度：DKI token {KeyWord:DefaultText} 只计算 DefaultText 的长度）
     const validHeadlines = parsed.headlines
-      .filter((h: string) => h && h.length <= 30)
+      .filter((h: string) => h && getGoogleAdsTextEffectiveLength(h) <= 30)
       .slice(0, 15)
 
     if (validHeadlines.length < 15) {
@@ -1576,7 +1577,7 @@ async function generateHeadlinesFromMultipleProducts(
 
     const parsed = extractJsonFromResponse(response.text)
     const validHeadlines = parsed.headlines
-      .filter((h: string) => h && h.length <= 30)
+      .filter((h: string) => h && getGoogleAdsTextEffectiveLength(h) <= 30)
       .slice(0, 15)
 
     if (validHeadlines.length < 15) {

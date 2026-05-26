@@ -1,3 +1,5 @@
+import { getGoogleAdsTextEffectiveLength } from './google-ads-ad-text'
+
 /**
  * 广告创意本地评分算法
  *
@@ -273,8 +275,8 @@ function scoreQuality(creative: AdCreative): number {
     score += 2 + Math.round(sitelinkDiversity.diversityScore * 3)
   }
 
-  // 5. 字符长度规范检查 (+5分)
-  const headlineLengthValid = creative.headline.every(h => h.length <= 30)
+  // 5. 字符长度规范检查 (+5分)（使用有效长度：DKI token 只计 DefaultText）
+  const headlineLengthValid = creative.headline.every(h => getGoogleAdsTextEffectiveLength(h) <= 30)
   const descriptionLengthValid = creative.description.every(d => d.length <= 90)
 
   if (headlineLengthValid && descriptionLengthValid) {
