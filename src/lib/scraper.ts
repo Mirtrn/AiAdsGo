@@ -468,12 +468,26 @@ export async function scrapeProductData(
 function extractAmazonData($: any, url: string): ScrapedProductData {
   // 🔍 调试：检查页面状态
   const pageTitle = $('title').text().trim()
-  const isBlocked = pageTitle.includes('Robot Check') || pageTitle.includes('Sorry!')
+  const htmlSize = $.html().length
+
+  // 🔥 增强拦截检测：
+  // 1. 明确的 bot 检测页（Robot Check / Sorry!）
+  // 2. 空壳响应页：标题仅为 "Amazon.com"，没有产品内容（HTML < 20KB）
+  // 3. Page Not Found / 404 页面
+  const isExplicitBlock = pageTitle.includes('Robot Check') || pageTitle.includes('Sorry!')
+  const isEmptyShell = (pageTitle === 'Amazon.com' || pageTitle === '') &&
+    htmlSize < 20 * 1024 &&  // < 20KB
+    $('#productTitle').length === 0 &&
+    $('#feature-bullets').length === 0
+  const isNotFound = pageTitle.includes('Page Not Found') || pageTitle.includes('404')
+  const isBlocked = isExplicitBlock || isEmptyShell || isNotFound
+
   console.log(`🔍 [extractAmazonData] 页面标题: "${pageTitle.slice(0, 60)}"`)
-  console.log(`🔍 [extractAmazonData] 是否被拦截: ${isBlocked}`)
+  console.log(`🔍 [extractAmazonData] HTML大小: ${(htmlSize / 1024).toFixed(1)}KB, 被拦截: ${isBlocked} (空壳:${isEmptyShell}, 明确:${isExplicitBlock}, 404:${isNotFound})`)
 
   if (isBlocked) {
-    console.warn('⚠️ [extractAmazonData] 页面被Amazon拦截，无法提取数据')
+    const reason = isEmptyShell ? 'Amazon静默bot拦截（空壳页）' : isNotFound ? '页面不存在(404)' : 'Amazon明确bot拦截'
+    console.warn(`⚠️ [extractAmazonData] ${reason}，无法提取数据`)
     return {
       productName: null,
       productDescription: null,
@@ -586,18 +600,22 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   const bylineHref = $bylineEl.attr('href') || $bylineEl.find('a').first().attr('href') || null
   const extractedBylineBrand = extractAmazonBrandFromByline({ bylineText: bylineRawText, bylineHref })
 
-  const dataBrand = $('[data-brand]').attr('data-brand')
-  const poBrand = $('.po-brand .a-size-base').text().trim()
+  // 🔥 修复：Amazon data-brand 属性有时带 "Brand" 前缀（如 "BrandLEVOIT"）
+  const rawDataBrand = $('[data-brand]').attr('data-brand') || null
+  const dataBrand = rawDataBrand ? rawDataBrand.replace(/^Brand\s*/i, '').trim() || null : null
+  // .po-brand 区域的品牌标签文字有时为 "BrandXXX" 或含"Brand"行头
+  const rawPoBrand = $('.po-brand .a-size-base').text().trim()
+  const poBrand = rawPoBrand.replace(/^Brand\s*/i, '').trim()
 
   console.log(`🔍 [extractAmazonData] #bylineInfo text: "${bylineRawText}"`)
   console.log(`🔍 [extractAmazonData] #bylineInfo href: "${bylineHref || '(空)'}"`)
   console.log(`🔍 [extractAmazonData] byline→brand: "${extractedBylineBrand || '(未提取)'}"`)
-  console.log(`🔍 [extractAmazonData] [data-brand]: "${dataBrand || '(空)'}"`)
-  console.log(`🔍 [extractAmazonData] .po-brand: "${poBrand}"`)
+  console.log(`🔍 [extractAmazonData] [data-brand] raw: "${rawDataBrand || '(空)'}" → cleaned: "${dataBrand || '(空)'}"`)
+  console.log(`🔍 [extractAmazonData] .po-brand raw: "${rawPoBrand}" → cleaned: "${poBrand}"`)
 
   let brandName: string | null = extractedBylineBrand ||
                   dataBrand ||
-                  poBrand.replace(/^Brand/, '') || // 备用选择器
+                  poBrand ||
                   null
 
   // Guard: avoid persisting locale boilerplate as a brand (e.g. "Besuchen").
