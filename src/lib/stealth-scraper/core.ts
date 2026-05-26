@@ -285,9 +285,11 @@ export async function scrapeUrlWithBrowser(
           '#ppd',  // 产品页面容器
         ]
 
-        // 🔧 修复: Amazon IT/DE/FR/ES 需要更长的等待时间
+        // 🔧 修复: 优先使用调用方传入的 waitForTimeout，否则按地区动态选择
+        // scrapeAmazonProduct 传入 quickTimeout=30000 以允许快速失败检测（代理慢时不至于3秒就超时）
         const isEuropeanAmazon = url.includes('amazon.it') || url.includes('amazon.de') || url.includes('amazon.fr') || url.includes('amazon.es')
-        const selectorTimeout = isEuropeanAmazon ? 8000 : 3000  // 欧洲站点8秒，其他3秒
+        const defaultSelectorTimeout = isEuropeanAmazon ? 8000 : 3000  // 欧洲站点8秒，其他3秒
+        const selectorTimeout = options.waitForTimeout || defaultSelectorTimeout
 
         let selectorFound = false
         let foundSelector = ''
@@ -457,6 +459,33 @@ export async function scrapeUrlWithBrowser(
         } else {
           console.log(`✅ feature-bullets已加载`)
         }
+
+        // 🔥 修复：继续滚动到评论区，触发评论懒加载渲染
+        // Amazon评论区（[data-hook="review"]）必须滚动到才会渲染到DOM
+        const reviewScrollResult = await page.evaluate(() => {
+          const reviewSection = document.querySelector(
+            '#customer-reviews_feature_div, #customerReviews, [data-hook="review"], #cm_cr-review_list'
+          )
+          if (reviewSection) {
+            reviewSection.scrollIntoView({ behavior: 'instant', block: 'center' })
+            return { found: true }
+          } else {
+            // 找不到评论区时滚动到页面80%位置
+            window.scrollTo(0, document.body.scrollHeight * 0.8)
+            return { found: false }
+          }
+        }).catch(() => ({ found: false }))
+
+        console.log(`🔍 评论区滚动: found=${reviewScrollResult.found}`)
+        await randomDelay(1200, 2000)  // 等待评论懒加载渲染
+
+        // 等待评论元素出现（最多5秒，代理网络可能较慢）
+        const reviewsLoaded = await page.waitForSelector('[data-hook="review"], #customer-reviews_feature_div', {
+          timeout: 5000,
+          state: 'visible'
+        }).then(() => true).catch(() => false)
+
+        console.log(`🔍 评论区加载: ${reviewsLoaded ? '✅ 已加载' : '⚠️ 未加载（可能无评论）'}`)
 
         // 滚动回顶部
         await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
@@ -651,3 +680,4 @@ export async function resolveAffiliateLink(
   // 所有重试都失败
   throw lastError || new Error('推广链接解析失败：已用尽所有代理重试')
 }
+

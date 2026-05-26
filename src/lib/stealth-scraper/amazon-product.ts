@@ -44,7 +44,7 @@ export async function scrapeAmazonProduct(
   url: string,
   customProxyUrl?: string,
   targetCountry?: string,  // 🌍 目标国家参数
-  maxProxyRetries: number = 2,  // 代理失败最多重试2次
+  maxProxyRetries: number = 3,  // 代理失败最多重试3次
   skipCompetitorExtraction: boolean = false  // 🔥 修复：跳过竞品ASIN提取（用于竞品详情页抓取，避免二级循环）
 ): Promise<AmazonProductData> {
   console.log(`🛒 抓取Amazon产品: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
@@ -91,7 +91,7 @@ export async function scrapeAmazonProduct(
         console.warn(`🌍 页面语言: ${pageLang} (目标国家: ${targetCountry})`)
 
         // 🔥 2025-12-11优化: 增加重试次数，a-no-js失败最多重试2次（使用不同代理IP）
-        const maxNoJsRetries = 2
+        const maxNoJsRetries = 3
         for (let noJsRetry = 1; noJsRetry <= maxNoJsRetries; noJsRetry++) {
           console.warn(`🔄 a-no-js重试 ${noJsRetry}/${maxNoJsRetries}，清理代理缓存并使用新IP...`)
 

@@ -471,6 +471,8 @@ export async function performScrapeAndAnalysis(
       actualUrl = offer.final_url
       resolvedFinalUrlSuffix = offer.final_url_suffix || null
     } else if (isAffiliateUrl(urlToResolve)) {
+      // 推广链接必须真实访问跟随重定向，才能拿到最终落地页
+      // url= 参数里的值不一定是最终 URL，不能通过截断参数来判断
       console.log(`🔗 检测到推广链接，开始解析: ${urlToResolve}`)
       try {
         const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')

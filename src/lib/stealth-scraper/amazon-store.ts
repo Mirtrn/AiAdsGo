@@ -89,7 +89,7 @@ export async function scrapeAmazonStore(
   url: string,
   customProxyUrl?: string,
   targetCountry?: string,
-  maxProxyRetries: number = 2
+  maxProxyRetries: number = 3
 ): Promise<AmazonStoreData> {
   console.log(`📦 抓取Amazon Store: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
@@ -1097,7 +1097,7 @@ async function batchScrapeProductDetailsComplete(
             productUrl,
             effectiveProxyUrl,
             targetCountry,
-            1,  // 热销商品抓取只重试1次
+            2,  // 热销商品抓取重试2次（批量场景平衡时间与成功率）
             true  // 跳过竞品ASIN提取（避免嵌套抓取）
           )
 
