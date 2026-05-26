@@ -264,10 +264,12 @@ export async function GET(
     const scrapedFeatures: string[] = Array.isArray(scrapedData?.features)
       ? scrapedData.features.filter((s: unknown) => typeof s === 'string' && s.trim())
       : []
-    // aboutThisItem 优先（更详细），其次 features，取前5条合并为字符串
-    const scrapedSellingPoints = (scrapedAboutThisItem.length > 0 ? scrapedAboutThisItem : scrapedFeatures)
-      .slice(0, 5)
-      .join('\n') || null
+    // aboutThisItem 优先（更详细），其次 features
+    const scrapedSource = scrapedAboutThisItem.length > 0 ? scrapedAboutThisItem : scrapedFeatures
+    // uniqueSellingPoints 兜底：前3条（简洁）
+    const scrapedSellingPoints = scrapedSource.slice(0, 3).join('\n') || null
+    // productHighlights 兜底：前5条（更全面）
+    const scrapedHighlights = scrapedSource.slice(0, 5).join('\n') || null
 
     // 🔥 修复：历史数据可能错误写入 page_type=product（实际上是店铺）
     // 规则：如果 scraped_data 体现“店铺结构”（storeName/products/deepScrapeResults），则详情页按店铺展示
@@ -305,8 +307,8 @@ export async function GET(
       preferDerivedDescriptions ? storeDerived.productHighlights : storedProductHighlights,
       storedProductHighlights,
       storeDerived.productHighlights,
-      // 🔥 兜底：从 scraped_data.aboutThisItem / features 提取
-      scrapedSellingPoints,
+      // 🔥 兜底：从 scraped_data.aboutThisItem / features 提取（前5条，更全面）
+      scrapedHighlights,
       scrapedProductDescription
     )
 
