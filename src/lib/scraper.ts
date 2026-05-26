@@ -662,7 +662,46 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
     null
   )
 
+  // ==================== 🔥 评分 & 评论数提取 ====================
+  const ratingText = $('#acrPopover').attr('title') ||
+                     $('span[data-hook="rating-out-of-text"]').text().trim() ||
+                     $('.a-icon-star span').first().text().trim() ||
+                     $('.a-icon-alt').first().text().trim() ||
+                     null
+  const rating = ratingText ? ratingText.match(/[\d.]+/)?.[0] || null : null
+
+  const reviewCountText = $('#acrCustomerReviewText').text().trim() ||
+                          $('span[data-hook="total-review-count"]').text().trim() ||
+                          $('a[href*="customerReviews"]').text().trim() ||
+                          null
+  const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
+
+  // ==================== 🔥 评论亮点 & 评论摘要 ====================
+  const reviewHighlights: string[] = []
+  $('[data-hook="lighthut-term"]').each((i: number, el: any) => {
+    const text = $(el).text().trim()
+    if (text) reviewHighlights.push(text)
+  })
+
+  // ==================== 🔥 前5条评论提取 ====================
+  const topReviews: string[] = []
+  $('[data-hook="review"]').slice(0, 5).each((i: number, el: any) => {
+    let reviewText = $(el).find('[data-hook="review-body"]').text().trim().substring(0, 300)
+    const reviewTitle = $(el).find('[data-hook="review-title"]').text().trim()
+      .replace(/^[\d.]+\s*out of 5 stars[\s\n]*/i, '').trim()
+    const reviewRating = $(el).find('.a-icon-star').text().trim()
+
+    // 过滤掉包含JavaScript代码的无效评论内容
+    if (reviewText && (reviewText.includes('function()') || reviewText.includes('P.when('))) {
+      reviewText = ''
+    }
+    if (reviewText && !reviewText.includes('function')) {
+      topReviews.push(`${reviewRating} - ${reviewTitle}: ${reviewText}`.slice(0, 400))
+    }
+  })
+
   console.log(`✅ [extractAmazonData] features: ${features.length}, aPlusItems: ${aPlusItems.length}, allFeatures: ${allFeatures.length}`)
+  console.log(`✅ [extractAmazonData] rating: ${rating || '(空)'}, reviewCount: ${reviewCount || '(空)'}, reviewHighlights: ${reviewHighlights.length}, topReviews: ${topReviews.length}`)
 
   return {
     productName: productTitle || null,
@@ -680,6 +719,11 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
     imageUrls: images,
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
+    // 🔥 新增：评分、评论数、评论摘要
+    rating: rating || undefined,
+    reviewCount: reviewCount || undefined,
+    reviewHighlights: reviewHighlights.length > 0 ? reviewHighlights : undefined,
+    topReviews: topReviews.length > 0 ? topReviews : undefined,
   }
 }
 
