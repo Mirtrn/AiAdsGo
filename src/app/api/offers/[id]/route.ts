@@ -256,6 +256,19 @@ export async function GET(
     const scrapedStoreDescription = pickNonEmptyString(normalizeTextCandidate(scrapedData?.storeDescription))
     const storeDerived = buildStoreDescriptionFromScrapedData(scrapedData)
 
+    // 🔥 从 scraped_data 的 aboutThisItem / features 提取产品卖点兜底
+    // 用于单品页 unique_selling_points / product_highlights 为空时的展示兜底
+    const scrapedAboutThisItem: string[] = Array.isArray(scrapedData?.aboutThisItem)
+      ? scrapedData.aboutThisItem.filter((s: unknown) => typeof s === 'string' && s.trim())
+      : []
+    const scrapedFeatures: string[] = Array.isArray(scrapedData?.features)
+      ? scrapedData.features.filter((s: unknown) => typeof s === 'string' && s.trim())
+      : []
+    // aboutThisItem 优先（更详细），其次 features，取前5条合并为字符串
+    const scrapedSellingPoints = (scrapedAboutThisItem.length > 0 ? scrapedAboutThisItem : scrapedFeatures)
+      .slice(0, 5)
+      .join('\n') || null
+
     // 🔥 修复：历史数据可能错误写入 page_type=product（实际上是店铺）
     // 规则：如果 scraped_data 体现“店铺结构”（storeName/products/deepScrapeResults），则详情页按店铺展示
     const pageTypeFromScrapedData = (() => {
@@ -283,13 +296,17 @@ export async function GET(
     const uniqueSellingPoints = pickNonEmptyString(
       preferDerivedDescriptions ? storeDerived.uniqueSellingPoints : storedUniqueSellingPoints,
       storedUniqueSellingPoints,
-      storeDerived.uniqueSellingPoints
+      storeDerived.uniqueSellingPoints,
+      // 🔥 兜底：从 scraped_data.aboutThisItem / features 提取（单品页无 storeDerived 时）
+      scrapedSellingPoints
     )
 
     const productHighlights = pickNonEmptyString(
       preferDerivedDescriptions ? storeDerived.productHighlights : storedProductHighlights,
       storedProductHighlights,
       storeDerived.productHighlights,
+      // 🔥 兜底：从 scraped_data.aboutThisItem / features 提取
+      scrapedSellingPoints,
       scrapedProductDescription
     )
 
