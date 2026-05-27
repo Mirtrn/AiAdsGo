@@ -72,18 +72,27 @@ function cacheProxyCredentials(proxyUrl: string, credentials: any): void {
 
 /**
  * 连接池配置
- * 🔥 2025-12-12 内存优化：
- * - 减少最大实例数：10 → 5（配合深度抓取复用Context优化）
- * - 缩短空闲时间：5分钟 → 1分钟（更快释放内存）
- * - 减少每代理实例数：5 → 2（避免同一代理过多实例）
+ * 🔥 2026-05-28 高并发优化（16GB服务器）：
+ * - maxInstances: 支持通过 PLAYWRIGHT_POOL_MAX_INSTANCES 环境变量覆盖（默认15）
+ * - maxInstancesPerProxy: 5，避免同一代理过多实例
+ * - 每个 Chromium 实例约 200-300MB，15实例 ≈ 3-4.5GB，16GB服务器完全安全
  */
+function getPoolMaxInstances(): number {
+  const envVal = process.env.PLAYWRIGHT_POOL_MAX_INSTANCES
+  if (envVal) {
+    const parsed = parseInt(envVal, 10)
+    if (!isNaN(parsed) && parsed > 0) return parsed
+  }
+  return 15  // 默认15（原来8），支持20并发offer-extraction任务
+}
+
 const POOL_CONFIG = {
-  maxInstances: 8,              // 调整：从5提升到8，减少高并发等待
-  maxInstancesPerProxy: 3,      // 🔥 放宽：避免高并发场景频繁等待超时
-  maxIdleTime: 60 * 1000,       // 🔥 内存优化：从5分钟减到1分钟
-  launchTimeout: 30000,         // 启动超时30秒
-  acquireTimeout: 180000,       // 获取实例超时（短链/慢代理可能占用更久）
-  warmupCount: 1,               // 🔥 内存优化：从2减到1
+  maxInstances: getPoolMaxInstances(),  // 🔥 支持通过 PLAYWRIGHT_POOL_MAX_INSTANCES 覆盖（默认15）
+  maxInstancesPerProxy: 5,             // 🔥 从3提升到5，避免同代理瓶颈
+  maxIdleTime: 90 * 1000,             // 🔥 从60s提升到90s，减少冷启动频率
+  launchTimeout: 30000,               // 启动超时30秒
+  acquireTimeout: 180000,             // 获取实例超时（短链/慢代理可能占用更久）
+  warmupCount: 1,                     // 内存优化：保持1
 }
 
 function formatProxyKeyForLog(proxyKey: string): string {

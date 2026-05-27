@@ -440,7 +440,12 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     progressCallback?.('fetching_proxy', 'in_progress', '正在初始化代理池...', undefined, 0)
 
     try {
-      await initializeProxyPool(userId, targetCountry)
+      // 🔥 修复(2026-05-28): 加30秒超时保护，防止代理池初始化永久挂起
+      await withTimeout(
+        initializeProxyPool(userId, targetCountry),
+        30 * 1000,
+        '代理池初始化超时（超过30秒），请检查代理服务是否正常'
+      )
 
       // 🔥 检查代理国家是否匹配目标国家
       const proxyPool = getProxyPool()
