@@ -409,42 +409,59 @@ export async function POST(request: NextRequest) {
 	    }
 
 	    // 🔍 验证2：查询Google Ads账号中真实激活的广告系列（使用命名规范关联）
-    const { queryActiveCampaigns } = await import('@/lib/active-campaigns-query')
-    let activeCampaignsResult
-    try {
-      activeCampaignsResult = await queryActiveCampaigns(
-        _offerId,
-        resolvedGoogleAdsAccountId,
-        userId
-      )
-    } catch (error: any) {
-      if (isGoogleAdsAccountPermissionDenied(error)) {
-        const requestId = extractGoogleAdsRequestId(error)
+	   const { queryActiveCampaigns } = await import('@/lib/active-campaigns-query')
+	   const ACTIVE_CAMPAIGNS_TIMEOUT_MS = 60_000
+	   let activeCampaignsResult
+	   let activeCampaignsTimedOut = false
+	   try {
+	     activeCampaignsResult = await Promise.race([
+	       queryActiveCampaigns(
+	         _offerId,
+	         resolvedGoogleAdsAccountId,
+	         userId
+	       ),
+	       new Promise<never>((_, reject) =>
+	         setTimeout(() => reject(new Error('queryActiveCampaigns timeout after 60s')), ACTIVE_CAMPAIGNS_TIMEOUT_MS)
+	       )
+	     ])
+	   } catch (error: any) {
+	     // 超时降级：跳过冲突检测，直接放行发布
+	     if (error?.message?.includes('timeout after 60s')) {
+	       console.warn(`⚠️ [Publish] queryActiveCampaigns 超时，跳过冲突检测直接发布`)
+	       activeCampaignsTimedOut = true
+	       activeCampaignsResult = {
+	         ownCampaigns: [],
+	         manualCampaigns: [],
+	         otherCampaigns: [],
+	         total: { enabled: 0, own: 0, manual: 0, other: 0 }
+	       }
+	     } else if (isGoogleAdsAccountPermissionDenied(error)) {
+	       const requestId = extractGoogleAdsRequestId(error)
 
-        try {
-          await db.exec(`
-            UPDATE google_ads_accounts
-            SET is_active = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND user_id = ?
-          `, [0, resolvedGoogleAdsAccountId, Number(userId)])
-        } catch (deactivateError: any) {
-          console.warn('标记无权限Google Ads账号为inactive失败:', deactivateError?.message || deactivateError)
-        }
+	       try {
+	         await db.exec(`
+	           UPDATE google_ads_accounts
+	           SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+	           WHERE id = ? AND user_id = ?
+	         `, [0, resolvedGoogleAdsAccountId, Number(userId)])
+	       } catch (deactivateError: any) {
+	         console.warn('标记无权限Google Ads账号为inactive失败:', deactivateError?.message || deactivateError)
+	       }
 
-        return NextResponse.json({
-          action: 'ACCOUNT_ACCESS_DENIED',
-          message: '当前Google Ads账号已无访问权限，系统已自动下线该账号。请刷新账号列表后选择可用账号重试。',
-          details: {
-            accountId: resolvedGoogleAdsAccountId,
-            customerId: String(adsAccount.customer_id || ''),
-            parentMccId: adsAccount.parent_mcc_id || null,
-            requestId: requestId || null,
-          },
-        }, { status: 422 })
-      }
-
-      throw error
-    }
+	       return NextResponse.json({
+	         action: 'ACCOUNT_ACCESS_DENIED',
+	         message: '当前Google Ads账号已无访问权限，系统已自动下线该账号。请刷新账号列表后选择可用账号重试。',
+	         details: {
+	           accountId: resolvedGoogleAdsAccountId,
+	           customerId: String(adsAccount.customer_id || ''),
+	           parentMccId: adsAccount.parent_mcc_id || null,
+	           requestId: requestId || null,
+	         },
+	       }, { status: 422 })
+	     } else {
+	       throw error
+	     }
+	   }
 
     console.log(`📊 Google Ads账号中广告系列统计:`)
     console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
