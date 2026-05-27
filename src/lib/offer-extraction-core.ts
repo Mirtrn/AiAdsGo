@@ -393,6 +393,25 @@ function shouldFallbackToRenderedIndependentProduct(data: ScrapedProductData | n
 }
 
 /**
+ * 带超时的 Promise 包装器
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+  })
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId)
+  }
+}
+
+/**
  * Offer提取核心函数
  *
  * @param options - 提取选项
@@ -532,15 +551,23 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       })
     } else {
       try {
-        resolvedData = await resolveAffiliateLink(affiliateLink, {
-          targetCountry: targetCountry,
-          skipCache: skipCache,
-          // 批量处理模式：使用快速失败策略
-          ...(batchMode ? {
-            retryConfig: BATCH_MODE_RETRY_CONFIG,  // 减少重试次数（1次）
-            timeout: 3000                           // 减少超时时间（3秒）
-          } : {}),
-        })
+        // 🔥 修复(2026-05-28): 加总超时保护，防止 resolving_link 阶段永久卡在25%
+        // 问题：resolveAffiliateLink 内部最多 4次×90s = 360s+退避 ≈ 7分钟，无外层截止
+        // 修复：普通模式最长 3 分钟必须给出结论；批量模式保持原有快速失败策略
+        const RESOLVE_TOTAL_TIMEOUT_MS = batchMode ? 10000 : 3 * 60 * 1000
+        resolvedData = await withTimeout(
+          resolveAffiliateLink(affiliateLink, {
+            targetCountry: targetCountry,
+            skipCache: skipCache,
+            // 批量处理模式：使用快速失败策略
+            ...(batchMode ? {
+              retryConfig: BATCH_MODE_RETRY_CONFIG,  // 减少重试次数（1次）
+              timeout: 3000                           // 减少超时时间（3秒）
+            } : {}),
+          }),
+          RESOLVE_TOTAL_TIMEOUT_MS,
+          `推广链接解析超时（超过${RESOLVE_TOTAL_TIMEOUT_MS / 1000}秒），请检查链接是否可正常访问后重试`
+        )
 
         trackStageProgress(progressCallback, resolvingLinkStartTime, 'resolving_link', 'completed', '推广链接解析完成', {
           currentUrl: resolvedData.finalUrl,

@@ -138,6 +138,9 @@ export class UnifiedQueueManager {
       Math.max(1, clickFarmConcurrencyCap)
     )
     const defaultUrlSwapConcurrency = getPositiveIntFromEnv('QUEUE_URL_SWAP_CONCURRENCY', 3)
+    // 🔥 修复(2026-05-28): offer-extraction 支持环境变量覆盖并发数，解决多用户队列积压卡25%问题
+    const defaultOfferExtractionConcurrency = getPositiveIntFromEnv('QUEUE_OFFER_EXTRACTION_CONCURRENCY', 5)
+    const defaultAdCreativeConcurrency = getPositiveIntFromEnv('QUEUE_AD_CREATIVE_CONCURRENCY', 3)
 
     // 合并默认配置
     this.config = {
@@ -153,9 +156,9 @@ export class UnifiedQueueManager {
         export: 2,
         'link-check': 2,
         cleanup: 1,
-        'offer-extraction': 2,      // Offer提取任务并发限制（AI密集型）
+        'offer-extraction': defaultOfferExtractionConcurrency, // 🔥 支持通过 QUEUE_OFFER_EXTRACTION_CONCURRENCY 覆盖（默认5，解决队列积压）
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
-        'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
+        'ad-creative': defaultAdCreativeConcurrency,           // 🔥 支持通过 QUEUE_AD_CREATIVE_CONCURRENCY 覆盖
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
         'click-farm-trigger': 4,    // 🆕 补点击触发任务（控制面）
         'click-farm-batch': 6,      // 🆕 补点击批次分发任务（滚动派发）
