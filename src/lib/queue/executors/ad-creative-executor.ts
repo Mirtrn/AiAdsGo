@@ -797,11 +797,19 @@ export async function executeAdCreativeGeneration(
     return finalResult
   } catch (error: any) {
     // 🛡️ Fix29: 防御性字符串化，避免 throw 非 Error 对象时 error.message 为 undefined
-    const errorMessage = typeof error?.message === 'string' && error.message
+    let errorMessage = typeof error?.message === 'string' && error.message
       ? error.message
       : typeof error === 'string' && error
         ? error
         : String(error ?? '未知错误')
+    // 将底层 BodyStreamBuffer was aborted / AbortError 转为用户可读提示
+    if (
+      error?.name === 'AbortError' ||
+      errorMessage.toLowerCase().includes('bodystreambuffer was aborted') ||
+      errorMessage.toLowerCase().includes('aborted') && errorMessage.toLowerCase().includes('stream')
+    ) {
+      errorMessage = 'AI 请求超时，请稍后重试（如持续出现请在"系统设置"中检查 AI 模型配置）'
+    }
     const errorStack = typeof error?.stack === 'string' ? error.stack : undefined
 
     console.error(`❌ 创意生成任务失败: ${task.id}:`, errorMessage)

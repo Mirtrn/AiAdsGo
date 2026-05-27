@@ -515,9 +515,17 @@ async function generateContentStreaming(
       }),
       signal: controller.signal,
     })
-  } catch (err) {
+  } catch (err: any) {
     // fetch 连接失败（含 AbortError 超时），立即清除 timer
     clearTimeout(timer)
+    // 将 AbortError / BodyStreamBuffer was aborted 转为友好提示
+    if (
+      err?.name === 'AbortError' ||
+      String(err?.message || '').toLowerCase().includes('aborted') ||
+      String(err?.message || '').toLowerCase().includes('bodystreaambuffer')
+    ) {
+      throw new Error(`AI 请求超时（>${Math.round(timeoutMs / 1000)}s），请稍后重试或切换其他模型`)
+    }
     throw err
   }
 
@@ -547,7 +555,21 @@ async function generateContentStreaming(
   let streamDone = false
   try {
     while (!streamDone) {
-      const { done, value } = await reader.read()
+      let done: boolean, value: Uint8Array | undefined
+      try {
+        const readResult = await reader.read()
+        done = readResult.done
+        value = readResult.value
+      } catch (readErr: any) {
+        // AbortController 触发时 reader.read() 会抛出 AbortError / BodyStreamBuffer was aborted
+        if (
+          readErr?.name === 'AbortError' ||
+          String(readErr?.message || '').toLowerCase().includes('aborted')
+        ) {
+          throw new Error(`AI 请求超时（>${Math.round(timeoutMs / 1000)}s），请稍后重试或切换其他模型`)
+        }
+        throw readErr
+      }
       if (done) break
       const chunk = decoder.decode(value, { stream: true })
       // 将上次残留的不完整行与本次 chunk 合并，再按换行分割
