@@ -387,9 +387,9 @@ async function ensureAdminAccount(sql: ReturnType<typeof postgres>): Promise<voi
 
   console.log('👤 检查管理员账号...');
 
-  // 检查管理员是否存在
+  // 检查管理员是否存在（兼容已有 admin 角色账号，不限用户名）
   const existingAdmin = await sql`
-    SELECT id, username, email FROM users WHERE username = 'autoads'
+    SELECT id, username, email FROM users WHERE username = 'admin' OR role = 'admin' LIMIT 1
   `;
 
   const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
@@ -404,22 +404,22 @@ async function ensureAdminAccount(sql: ReturnType<typeof postgres>): Promise<voi
         package_type, package_expires_at, must_change_password,
         is_active, created_at, updated_at
       ) VALUES (
-        'autoads', 'admin@autoads.com', ${passwordHash}, 'AutoAds Administrator', 'admin',
+        'admin', 'admin@aiadsgo.com', ${passwordHash}, 'AiAdsGo Administrator', 'admin',
         'lifetime', '2099-12-31 23:59:59', false,
         true, NOW(), NOW()
       )
     `;
 
     console.log('✅ 管理员账号创建成功');
-    console.log('   用户名: autoads');
-    console.log('   邮箱: admin@autoads.com');
+    console.log('   用户名: admin');
+    console.log('   邮箱: admin@aiadsgo.com');
   } else {
     // 重置密码
     console.log('🔄 管理员账号已存在，正在重置密码...');
 
     await sql`
       UPDATE users SET password_hash = ${passwordHash}, updated_at = NOW()
-      WHERE username = 'autoads'
+      WHERE username = 'admin' OR role = 'admin'
     `;
 
     console.log('✅ 管理员密码已重置');

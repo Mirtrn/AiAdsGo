@@ -22,7 +22,7 @@ function writeLogLine(payload: Record<string, unknown>) {
 function baseFields(): Record<string, unknown> {
   return {
     ts: new Date().toISOString(),
-    service: process.env.SERVICE_NAME || 'autoads',
+    service: process.env.SERVICE_NAME || 'aiadsgo',
     env: process.env.NODE_ENV || 'development',
     instanceId: process.env.HOSTNAME || process.env.INSTANCE_ID,
     pid: process.pid,

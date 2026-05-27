@@ -20,10 +20,10 @@ const crypto = require('crypto')
 
 // 默认管理员信息
 const DEFAULT_ADMIN = {
-  username: 'autoads',
-  email: 'admin@autoads.com',
+  username: 'AiAdsGo',
+  email: 'admin@aiadsgo.com',
   password: process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(32).toString('base64'),
-  display_name: 'AutoAds Administrator',
+  display_name: 'AiAdsGo Administrator',
   role: 'admin',
   package_type: 'lifetime',
   package_expires_at: '2099-12-31T23:59:59.000Z',
@@ -130,8 +130,9 @@ async function ensureAdminAccount(): Promise<void> {
   const isPostgres = db.type === 'postgres'
 
   try {
+    // 检测是否已有 admin 角色用户（不限用户名），避免重复创建
     const existingAdmin = await db.queryOne<{ id: number; username: string; email: string }>(
-      "SELECT id, username, email FROM users WHERE username = ?",
+      "SELECT id, username, email FROM users WHERE username = ? OR role = 'admin' LIMIT 1",
       [DEFAULT_ADMIN.username]
     )
 

@@ -87,7 +87,7 @@ async function ensureAdminAccount() {
             'admin',
             'admin@aiadsgo.com',
             passwordHash,
-            'AutoAds Administrator',
+            'AiAdsGo Administrator',
             'admin',
             'lifetime',
             '2099-12-31 23:59:59',
