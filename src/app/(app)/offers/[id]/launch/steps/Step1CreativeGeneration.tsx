@@ -453,6 +453,28 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
   }
 }
 
+/**
+ * 安全解析 HTTP 响应 JSON。
+ * 当服务端（如 502/504）返回 HTML 错误页时，直接调用 response.json() 会抛出
+ * "Unexpected token '<', <!DOCTYPE... is not valid JSON"。
+ * 此函数先读取文本，若检测到 HTML 则返回友好错误对象，避免前端崩溃。
+ */
+async function safeResponseJson(response: Response): Promise<Record<string, any>> {
+  const text = await response.text()
+  if (!text || text.trim() === '') {
+    return { error: `服务器返回空响应 (HTTP ${response.status})，请稍后重试` }
+  }
+  if (text.trimStart().startsWith('<')) {
+    // 服务端返回了 HTML（502/504 网关错误页 或 Next.js 崩溃页）
+    return { error: `服务器暂时不可用 (HTTP ${response.status})，请稍后重试` }
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { error: `服务器响应格式异常 (HTTP ${response.status})，请稍后重试` }
+  }
+}
+
 // 匹配错误信息到解决方案
 const getErrorSolution = (errorMessage: string) => {
   for (const [key, solution] of Object.entries(ERROR_SOLUTIONS)) {
@@ -750,7 +772,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       })
       if (!response.ok) return null
 
-      const task = await response.json()
+      const task = await safeResponseJson(response)
       setTaskStatus(task.status)
 
       // 任务仍在运行
@@ -1028,7 +1050,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       })
 
       if (!enqueueResponse.ok) {
-        const errorData = await enqueueResponse.json()
+        const errorData = await safeResponseJson(enqueueResponse)
 
         // 🔧 Fix26: 409 = 已有活跃任务，复用其 taskId 继续监听 SSE，避免重复生成
         if (enqueueResponse.status === 409 && errorData.code === 'TASK_ALREADY_RUNNING' && errorData.taskId) {
@@ -1148,7 +1170,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         throw new Error(errorMessage)
       }
 
-      const { taskId } = await enqueueResponse.json()
+      const enqueueData = await safeResponseJson(enqueueResponse)
+      if (!enqueueData.taskId) {
+        throw new Error(enqueueData.error || '任务创建失败，服务器响应异常')
+      }
+      const { taskId } = enqueueData
       queuedTaskId = taskId
       setCurrentTaskId(taskId)  // 🆕 保存taskId用于轮询
 
