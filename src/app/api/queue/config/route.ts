@@ -23,8 +23,8 @@ const RETRY_DELAY_MAX_MS = 60000
 
 // 默认队列配置
 const DEFAULT_QUEUE_CONFIG = {
-  globalConcurrency: 999,  // 🔥 全局并发提升至999（补点击需求）
-  perUserConcurrency: 999,  // 🔥 单用户并发提升至999（补点击需求）
+  globalConcurrency: 10,  // 降低全局并发，避免服务器CPU 100%
+  perUserConcurrency: 5,  // 降低单用户并发，避免服务器CPU 100%
   perTypeConcurrency: {
     scrape: 3,
     'ai-analysis': 2,
@@ -38,9 +38,9 @@ const DEFAULT_QUEUE_CONFIG = {
     'batch-offer-creation': 1,
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
-    'click-farm-trigger': 4, // 补点击触发任务（控制面）
-    'click-farm-batch': 6, // 补点击批次分发任务（滚动派发）
-    'click-farm': 50,  // 补点击任务并发限制（默认保守，避免小规格容器资源耗尽；可在管理台调整）
+    'click-farm-trigger': 2, // 补点击触发任务（降低并发，减少CPU压力）
+    'click-farm-batch': 3, // 补点击批次分发任务（降低并发，减少CPU压力）
+    'click-farm': 10,  // 补点击任务并发限制（保守配置，避免CPU耗尽）
     'url-swap': 3,  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
     'openclaw-strategy': 2,  // OpenClaw 策略任务并发限制
     'affiliate-product-sync': 2, // 联盟商品同步任务并发限制
