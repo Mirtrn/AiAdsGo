@@ -52,7 +52,7 @@ export const POST = withAuth(async (req, user) => {
     await db.exec(`
       INSERT INTO announcements (id, title, content, type, is_active, scheduled_at, expires_at, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ${isActiveVal}, ?, ?, ?, ${nowFunc}, ${nowFunc})
-    `, [id, title, content, type, scheduled_at || null, expires_at || null, user.id])
+    `, [id, title, content, type, scheduled_at || null, expires_at || null, user.userId])
 
     return NextResponse.json({ success: true, id })
   } catch (error: any) {
