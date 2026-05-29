@@ -3,19 +3,11 @@
  * POST /api/admin/announcements  — 创建新公告
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
-function requireAdmin(req: NextRequest) {
-  const role = req.headers.get('x-user-role')
-  if (role !== 'admin') return false
-  return true
-}
-
-export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+export const GET = withAuth(async () => {
   const db = getDatabase()
   try {
     const rows = await db.query<{
@@ -43,14 +35,10 @@ export async function GET(req: NextRequest) {
     console.error('获取公告列表失败:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+}, { requireAdmin: true })
 
-export async function POST(req: NextRequest) {
-  if (!requireAdmin(req)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+export const POST = withAuth(async (req, user) => {
   const db = getDatabase()
-  const userId = req.headers.get('x-user-id')
   try {
     const { title, content, type = 'info', scheduled_at, expires_at } = await req.json()
     if (!title || !content) {
@@ -64,11 +52,11 @@ export async function POST(req: NextRequest) {
     await db.exec(`
       INSERT INTO announcements (id, title, content, type, is_active, scheduled_at, expires_at, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ${isActiveVal}, ?, ?, ?, ${nowFunc}, ${nowFunc})
-    `, [id, title, content, type, scheduled_at || null, expires_at || null, userId ? parseInt(userId, 10) : null])
+    `, [id, title, content, type, scheduled_at || null, expires_at || null, user.id])
 
     return NextResponse.json({ success: true, id })
   } catch (error: any) {
     console.error('创建公告失败:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
+}, { requireAdmin: true })

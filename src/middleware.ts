@@ -229,6 +229,15 @@ export async function middleware(request: NextRequest) {
   // 统一生成/透传 requestId，供日志与跨服务调用关联
   const requestId = request.headers.get('x-request-id') || crypto.randomUUID()
   const requestHeaders = new Headers(request.headers)
+  // 🛡️ 安全加固：剥离客户端伪造的身份头。
+  // x-user-* 只能由本中间件在 JWT 验证通过后注入（见下方注入逻辑）。
+  // 否则在 publicPaths 放行，以及 /api/openclaw、/api/strategy-center 的 Authorization
+  // 透传旁路上，攻击者自带的 x-user-id/role/email/package 会原样进入下游路由，
+  // 而 getUserIdFromRequest()（src/lib/auth.ts）直接信任该头，可造成身份伪造/越权。
+  requestHeaders.delete('x-user-id')
+  requestHeaders.delete('x-user-email')
+  requestHeaders.delete('x-user-role')
+  requestHeaders.delete('x-user-package')
   requestHeaders.set('x-request-id', requestId)
 
   const attachRequestId = (response: NextResponse) => {
