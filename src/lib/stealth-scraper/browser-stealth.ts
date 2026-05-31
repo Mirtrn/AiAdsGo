@@ -16,6 +16,7 @@ import type { StealthBrowserResult } from './types'
 const USE_POOL = true
 
 const PROXY_URL = process.env.PROXY_URL || ''
+const ALLOW_STANDALONE_FALLBACK = process.env.PLAYWRIGHT_ALLOW_STANDALONE_FALLBACK === 'true'
 
 /**
  * User-Agent rotation pool (2024 browsers)
@@ -76,8 +77,14 @@ export async function createStealthBrowser(proxyUrl?: string, targetCountry?: st
       console.log(`🔄 [连接池] 获取Playwright实例: ${instanceId}`)
       return { browser, context, instanceId, fromPool: true }
     } catch (poolError: any) {
-      console.warn(`⚠️ 连接池获取失败，降级为独立创建: ${poolError.message}`)
-      // 降级为传统方式
+      const message = poolError?.message || String(poolError)
+      console.warn(`⚠️ 连接池获取失败: ${message}`)
+
+      if (!ALLOW_STANDALONE_FALLBACK) {
+        throw new Error(`Playwright连接池获取失败: ${message}`)
+      }
+
+      console.warn('⚠️ PLAYWRIGHT_ALLOW_STANDALONE_FALLBACK=true，降级为独立创建')
     }
   }
 

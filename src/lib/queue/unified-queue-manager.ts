@@ -137,16 +137,18 @@ export class UnifiedQueueManager {
       getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 20),
       Math.max(1, clickFarmConcurrencyCap)
     )
-    const defaultUrlSwapConcurrency = getPositiveIntFromEnv('QUEUE_URL_SWAP_CONCURRENCY', 3)
+    const defaultGlobalConcurrency = getPositiveIntFromEnv('QUEUE_GLOBAL_CONCURRENCY', 10)
+    const defaultPerUserConcurrency = getPositiveIntFromEnv('QUEUE_PER_USER_CONCURRENCY', 5)
+    const defaultUrlSwapConcurrency = getPositiveIntFromEnv('QUEUE_URL_SWAP_CONCURRENCY', 1)
     // 🔥 修复(2026-05-28): offer-extraction 支持环境变量覆盖并发数，解决多用户队列积压卡25%问题
-    const defaultOfferExtractionConcurrency = getPositiveIntFromEnv('QUEUE_OFFER_EXTRACTION_CONCURRENCY', 5)
+    const defaultOfferExtractionConcurrency = getPositiveIntFromEnv('QUEUE_OFFER_EXTRACTION_CONCURRENCY', 2)
     const defaultAdCreativeConcurrency = getPositiveIntFromEnv('QUEUE_AD_CREATIVE_CONCURRENCY', 3)
 
     // 合并默认配置
     this.config = {
       autoStartOnEnqueue: config.autoStartOnEnqueue !== false,
-      globalConcurrency: config.globalConcurrency || 999,    // 🔥 全局并发提升至999（补点击需求）
-      perUserConcurrency: config.perUserConcurrency || 999,  // 🔥 单用户并发提升至999（补点击需求）
+      globalConcurrency: config.globalConcurrency || defaultGlobalConcurrency,
+      perUserConcurrency: config.perUserConcurrency || defaultPerUserConcurrency,
       perTypeConcurrency: config.perTypeConcurrency || {
         scrape: 3,
         'ai-analysis': 2,
@@ -156,7 +158,7 @@ export class UnifiedQueueManager {
         export: 2,
         'link-check': 2,
         cleanup: 1,
-        'offer-extraction': defaultOfferExtractionConcurrency, // 🔥 支持通过 QUEUE_OFFER_EXTRACTION_CONCURRENCY 覆盖（默认5，解决队列积压）
+        'offer-extraction': defaultOfferExtractionConcurrency, // 支持通过 QUEUE_OFFER_EXTRACTION_CONCURRENCY 覆盖
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
         'ad-creative': defaultAdCreativeConcurrency,           // 🔥 支持通过 QUEUE_AD_CREATIVE_CONCURRENCY 覆盖
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
