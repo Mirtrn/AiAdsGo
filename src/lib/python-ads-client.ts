@@ -16,6 +16,43 @@ function getPythonRequestHeaders(userId: number, requestId?: string): Record<str
   }
 }
 
+function stringifyDetail(detail: unknown): string {
+  if (detail == null) return ''
+  if (typeof detail === 'string') return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
+function truncate(value: string, maxLen: number): string {
+  if (!value || value.length <= maxLen) return value
+  return value.slice(0, maxLen) + `... (truncated, len=${value.length})`
+}
+
+function sanitizePythonServiceError(error: any, endpoint: string): Error {
+  if (!error?.isAxiosError) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+
+  const status = error?.response?.status
+  const pythonRequestId = error?.response?.headers?.['x-request-id']
+  const serviceDetail = stringifyDetail(error?.response?.data?.detail) || error?.message || String(error)
+  const safeMessage =
+    `Python Ads Service 调用失败 (${endpoint})` +
+    (status ? ` [status=${status}]` : '') +
+    (pythonRequestId ? ` [x-request-id=${pythonRequestId}]` : '') +
+    `: ${truncate(serviceDetail, 4000)}`
+
+  const safeError = new Error(safeMessage)
+  ;(safeError as any).status = status
+  ;(safeError as any).code = error?.code
+  ;(safeError as any).pythonRequestId = pythonRequestId
+  ;(safeError as any).endpoint = endpoint
+  return safeError
+}
+
 /**
  * 包装 Python API 调用并自动统计
  */
@@ -51,38 +88,10 @@ async function withTracking<T>(
   } catch (error: any) {
     // 🔧 修复(2025-12-29): 改进 Developer Token 权限错误的诊断信息
     let enhancedError = error
-    const stringifyDetail = (detail: unknown): string => {
-      if (detail == null) return ''
-      if (typeof detail === 'string') return detail
-      try {
-        return JSON.stringify(detail)
-      } catch {
-        return String(detail)
-      }
-    }
-
-    const truncate = (value: string, maxLen: number): string => {
-      if (!value) return value
-      if (value.length <= maxLen) return value
-      return value.slice(0, maxLen) + `... (truncated, len=${value.length})`
-    }
 
     // 避免把 AxiosError（含 request/config/data 等敏感字段）向上抛出
     if (error?.isAxiosError) {
-      const status = error?.response?.status
-      const pythonRequestId = error?.response?.headers?.['x-request-id']
-      const serviceDetail = stringifyDetail(error?.response?.data?.detail) || error?.message || String(error)
-      const safeMessage =
-        `Python Ads Service 调用失败 (${endpoint})` +
-        (status ? ` [status=${status}]` : '') +
-        (pythonRequestId ? ` [x-request-id=${pythonRequestId}]` : '') +
-        `: ${truncate(serviceDetail, 4000)}`
-
-      const safeError = new Error(safeMessage)
-      ;(safeError as any).status = status
-      ;(safeError as any).pythonRequestId = pythonRequestId
-      ;(safeError as any).endpoint = endpoint
-      enhancedError = safeError
+      enhancedError = sanitizePythonServiceError(error, endpoint)
     }
 
     const errorMessage = enhancedError?.message || String(enhancedError)
@@ -367,14 +376,19 @@ export async function listAccessibleCustomersPython(params: {
 }): Promise<string[]> {
   const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
 
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/list-accessible-customers`, {
-    service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
-  }, {
-    headers: getPythonRequestHeaders(params.userId, params.requestId),
-    timeout: 30000, // 30秒超时，防止 Python 服务未启动时无限挂起
-  })
+  const endpoint = '/api/google-ads/list-accessible-customers'
+  try {
+    const response = await axios.post(`${PYTHON_SERVICE_URL}${endpoint}`, {
+      service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
+    }, {
+      headers: getPythonRequestHeaders(params.userId, params.requestId),
+      timeout: 60000,
+    })
 
-  return response.data.resource_names
+    return response.data.resource_names
+  } catch (error: any) {
+    throw sanitizePythonServiceError(error, endpoint)
+  }
 }
 
 /**

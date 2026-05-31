@@ -629,7 +629,7 @@ def get_language_constant_id(language_input: str) -> Optional[int]:
 
 
 @app.post("/api/keyword-planner/historical-metrics")
-async def get_keyword_historical_metrics(request: KeywordHistoricalMetricsRequest):
+def get_keyword_historical_metrics(request: KeywordHistoricalMetricsRequest):
     """查询关键词历史数据"""
     user_id = request.service_account.user_id
     try:
@@ -675,7 +675,7 @@ async def get_keyword_historical_metrics(request: KeywordHistoricalMetricsReques
 
 
 @app.post("/api/keyword-planner/ideas")
-async def get_keyword_ideas(request: KeywordIdeasRequest):
+def get_keyword_ideas(request: KeywordIdeasRequest):
     """生成关键词建议"""
     user_id = request.service_account.user_id
     try:
@@ -732,7 +732,7 @@ async def get_keyword_ideas(request: KeywordIdeasRequest):
 
 
 @app.get("/health")
-async def health_check():
+def health_check():
     return {"status": "ok"}
 
 
@@ -741,7 +741,7 @@ class ListAccessibleCustomersRequest(BaseModel):
 
 
 @app.post("/api/google-ads/list-accessible-customers")
-async def list_accessible_customers(request: ListAccessibleCustomersRequest):
+def list_accessible_customers(request: ListAccessibleCustomersRequest):
     user_id = request.service_account.user_id
     """获取可访问的客户账户列表"""
     try:
@@ -765,7 +765,7 @@ class GAQLQueryRequest(BaseModel):
 
 
 @app.post("/api/google-ads/query")
-async def execute_gaql_query(request: GAQLQueryRequest):
+def execute_gaql_query(request: GAQLQueryRequest):
     user_id = request.service_account.user_id
     """执行 GAQL 查询（用于 Performance Sync、Campaign 查询等）"""
     try:
@@ -826,7 +826,7 @@ class IdentityVerificationRequest(BaseModel):
 
 
 @app.post("/api/google-ads/identity-verification")
-async def get_identity_verification(request: IdentityVerificationRequest):
+def get_identity_verification(request: IdentityVerificationRequest):
     user_id = request.service_account.user_id
     """获取广告主身份验证信息（IdentityVerificationService）"""
     try:
@@ -859,7 +859,7 @@ class CreateCampaignBudgetRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign-budget/create")
-async def create_campaign_budget(request: CreateCampaignBudgetRequest):
+def create_campaign_budget(request: CreateCampaignBudgetRequest):
     """创建广告系列预算"""
     user_id = request.service_account.user_id
     try:
@@ -901,7 +901,7 @@ class CreateCampaignRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/create")
-async def create_campaign(request: CreateCampaignRequest):
+def create_campaign(request: CreateCampaignRequest):
     """创建搜索广告系列"""
     user_id = request.service_account.user_id
     try:
@@ -1033,7 +1033,7 @@ class CreateAdGroupRequest(BaseModel):
 
 
 @app.post("/api/google-ads/ad-group/create")
-async def create_ad_group(request: CreateAdGroupRequest):
+def create_ad_group(request: CreateAdGroupRequest):
     """创建广告组"""
     user_id = request.service_account.user_id
     try:
@@ -1200,7 +1200,7 @@ def _build_keyword_operations(client, request: "CreateKeywordsRequest", active_k
 
 
 @app.post("/api/google-ads/keywords/create")
-async def create_keywords(request: CreateKeywordsRequest):
+def create_keywords(request: CreateKeywordsRequest):
     """批量创建关键词（自动移除政策违规关键词并重试）"""
     user_id = request.service_account.user_id
     try:
@@ -1283,7 +1283,7 @@ class CreateResponsiveSearchAdRequest(BaseModel):
 
 
 @app.post("/api/google-ads/responsive-search-ad/create")
-async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
+def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
     """创建响应式搜索广告"""
     user_id = request.service_account.user_id
     try:
@@ -1417,7 +1417,7 @@ class UpdateCampaignStatusRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/update-status")
-async def update_campaign_status(request: UpdateCampaignStatusRequest):
+def update_campaign_status(request: UpdateCampaignStatusRequest):
     """更新广告系列状态"""
     user_id = request.service_account.user_id
     try:
@@ -1450,7 +1450,7 @@ class RemoveCampaignRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/remove")
-async def remove_campaign(request: RemoveCampaignRequest):
+def remove_campaign(request: RemoveCampaignRequest):
     """删除广告系列（使用 remove 操作，而不是把 status 更新为 REMOVED）"""
     user_id = request.service_account.user_id
     try:
@@ -1482,7 +1482,7 @@ class UpdateCampaignRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/update")
-async def update_campaign(request: UpdateCampaignRequest):
+def update_campaign(request: UpdateCampaignRequest):
     """更新广告系列（支持 CPC、CPA、状态更新）"""
     user_id = request.service_account.user_id
     try:
@@ -1532,7 +1532,7 @@ class UpdateAdGroupRequest(BaseModel):
 
 
 @app.post("/api/google-ads/adgroup/update")
-async def update_ad_group(request: UpdateAdGroupRequest):
+def update_ad_group(request: UpdateAdGroupRequest):
     """更新广告组（支持 CPC 出价更新）"""
     user_id = request.service_account.user_id
     try:
@@ -1568,7 +1568,7 @@ class UpdateCampaignBudgetRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/update-budget")
-async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
+def update_campaign_budget(request: UpdateCampaignBudgetRequest):
     """更新广告系列预算"""
     user_id = request.service_account.user_id
     try:
@@ -1623,7 +1623,7 @@ class UpdateCampaignFinalUrlSuffixRequest(BaseModel):
 
 
 @app.post("/api/google-ads/campaign/update-final-url-suffix")
-async def update_campaign_final_url_suffix(request: UpdateCampaignFinalUrlSuffixRequest):
+def update_campaign_final_url_suffix(request: UpdateCampaignFinalUrlSuffixRequest):
     """更新广告系列 Final URL Suffix（用于URL Swap换链接任务）"""
     user_id = request.service_account.user_id
     try:
@@ -1658,7 +1658,7 @@ class CreateCalloutExtensionsRequest(BaseModel):
 
 
 @app.post("/api/google-ads/callout-extensions/create")
-async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
+def create_callout_extensions(request: CreateCalloutExtensionsRequest):
     """创建附加宣传信息"""
     user_id = request.service_account.user_id
     try:
@@ -1735,7 +1735,7 @@ class CreateSitelinkExtensionsRequest(BaseModel):
 
 
 @app.post("/api/google-ads/sitelink-extensions/create")
-async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
+def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
     """创建附加链接"""
     user_id = request.service_account.user_id
     try:
@@ -1804,7 +1804,7 @@ class EnsureConversionGoalRequest(BaseModel):
 
 
 @app.post("/api/google-ads/conversion-goal/ensure")
-async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
+def ensure_conversion_goal(request: EnsureConversionGoalRequest):
     """确保转化目标存在"""
     user_id = request.service_account.user_id
     try:
