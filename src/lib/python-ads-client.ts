@@ -31,6 +31,166 @@ function truncate(value: string, maxLen: number): string {
   return value.slice(0, maxLen) + `... (truncated, len=${value.length})`
 }
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function getPythonRetryDelayMs(retryAttempt: number): number {
+  const baseDelayMs = parsePositiveIntEnv('PYTHON_ADS_RETRY_INITIAL_DELAY_MS', 500)
+  const maxDelayMs = parsePositiveIntEnv('PYTHON_ADS_RETRY_MAX_DELAY_MS', 5000)
+  return Math.min(baseDelayMs * Math.pow(2, Math.max(0, retryAttempt - 1)), maxDelayMs)
+}
+
+function getAxiosServiceDetail(error: any): string {
+  return stringifyDetail(error?.response?.data?.detail) || error?.message || String(error)
+}
+
+function isGoogleAdsConcurrentModification(error: any): boolean {
+  if (!error?.isAxiosError || !error?.response) return false
+  const status = Number(error.response.status || 0)
+  if (status < 500 || status >= 600) return false
+
+  const detail = getAxiosServiceDetail(error)
+  return detail.includes('CONCURRENT_MODIFICATION') || /Retry the request/i.test(detail)
+}
+
+function isPythonTransportReset(error: any): boolean {
+  if (!error?.isAxiosError || error?.response) return false
+
+  const code = String(error?.code || '').toUpperCase()
+  const message = String(error?.message || '').toLowerCase()
+  return [
+    'ECONNRESET',
+    'ECONNABORTED',
+    'ETIMEDOUT',
+    'EPIPE',
+    'ECONNREFUSED',
+  ].includes(code)
+    || message.includes('socket hang up')
+    || message.includes('timeout')
+    || message.includes('network')
+}
+
+async function withPythonTransientRetry<T>(
+  context: {
+    userId: number
+    requestId?: string
+    endpoint: string
+    customerId: string
+    operationName: string
+  },
+  fn: () => Promise<T>,
+  shouldRetry: (error: any) => boolean
+): Promise<T> {
+  const maxRetries = parsePositiveIntEnv('PYTHON_ADS_RETRY_MAX_RETRIES', 3)
+  let lastError: any
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+      if (attempt >= maxRetries || !shouldRetry(error)) {
+        throw error
+      }
+
+      const retryAttempt = attempt + 1
+      const delayMs = getPythonRetryDelayMs(retryAttempt)
+      logger.warn('python_service_transient_retry', {
+        userId: context.userId,
+        requestId: context.requestId,
+        endpoint: context.endpoint,
+        customerId: context.customerId,
+        operationName: context.operationName,
+        retryAttempt,
+        maxRetries,
+        delayMs,
+        reason: getAxiosServiceDetail(error),
+      })
+      await sleep(delayMs)
+    }
+  }
+
+  throw lastError
+}
+
+function escapeGaqlStringLiteral(value: string): string {
+  return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+function extractAdGroupResourceName(row: any): string {
+  return String(
+    row?.ad_group?.resource_name
+    || row?.ad_group?.resourceName
+    || row?.adGroup?.resource_name
+    || row?.adGroup?.resourceName
+    || ''
+  ).trim()
+}
+
+async function findExistingAdGroupResourceNamePython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  name: string
+  requestId?: string
+}): Promise<string | null> {
+  const campaignId = params.campaignResourceName.split('/').pop()?.trim() || ''
+  if (!/^\d+$/.test(campaignId)) return null
+
+  const query = `
+    SELECT
+      ad_group.id,
+      ad_group.resource_name,
+      ad_group.name,
+      ad_group.status
+    FROM ad_group
+    WHERE campaign.id = ${campaignId}
+      AND ad_group.name = '${escapeGaqlStringLiteral(params.name)}'
+      AND ad_group.status != 'REMOVED'
+    LIMIT 1
+  `
+  const attempts = parsePositiveIntEnv('PYTHON_ADS_AD_GROUP_RECOVERY_QUERY_ATTEMPTS', 2)
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (attempt > 1) {
+      await sleep(getPythonRetryDelayMs(attempt - 1))
+    }
+
+    try {
+      const response = await executeGAQLQueryPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        query,
+        requestId: params.requestId,
+      })
+      const resourceName = extractAdGroupResourceName(response?.results?.[0])
+      if (resourceName) return resourceName
+    } catch (error: any) {
+      logger.warn('python_ad_group_recovery_query_failed', {
+        userId: params.userId,
+        requestId: params.requestId,
+        customerId: params.customerId,
+        campaignResourceName: params.campaignResourceName,
+        adGroupName: params.name,
+        message: error?.message || String(error),
+      })
+      return null
+    }
+  }
+
+  return null
+}
+
 function sanitizePythonServiceError(error: any, endpoint: string): Error {
   if (!error?.isAxiosError) {
     return error instanceof Error ? error : new Error(String(error))
@@ -38,7 +198,7 @@ function sanitizePythonServiceError(error: any, endpoint: string): Error {
 
   const status = error?.response?.status
   const pythonRequestId = error?.response?.headers?.['x-request-id']
-  const serviceDetail = stringifyDetail(error?.response?.data?.detail) || error?.message || String(error)
+  const serviceDetail = getAxiosServiceDetail(error)
   const safeMessage =
     `Python Ads Service 调用失败 (${endpoint})` +
     (status ? ` [status=${status}]` : '') +
@@ -500,19 +660,65 @@ export async function createAdGroupPython(params: {
   cpcBidMicros?: number
   requestId?: string
 }): Promise<string> {
-  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/ad-group/create', params.requestId, async () => {
+  const endpoint = '/api/google-ads/ad-group/create'
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, endpoint, params.requestId, async () => {
     const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/ad-group/create`, {
-      service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
-      customer_id: params.customerId,
-      campaign_resource_name: params.campaignResourceName,
-      name: params.name,
-      status: params.status,
-      cpc_bid_micros: params.cpcBidMicros,
-    }, {
-      headers: getPythonRequestHeaders(params.userId, params.requestId),
-    })
-    return response.data.resource_name
+    const postCreateAdGroup = async () => {
+      const response = await axios.post(`${PYTHON_SERVICE_URL}${endpoint}`, {
+        service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
+        customer_id: params.customerId,
+        campaign_resource_name: params.campaignResourceName,
+        name: params.name,
+        status: params.status,
+        cpc_bid_micros: params.cpcBidMicros,
+      }, {
+        headers: getPythonRequestHeaders(params.userId, params.requestId),
+      })
+      return response.data.resource_name
+    }
+
+    try {
+      return await postCreateAdGroup()
+    } catch (error: any) {
+      if (!isPythonTransportReset(error)) {
+        throw error
+      }
+
+      logger.warn('python_ad_group_create_transport_reset', {
+        userId: params.userId,
+        requestId: params.requestId,
+        endpoint,
+        customerId: params.customerId,
+        campaignResourceName: params.campaignResourceName,
+        adGroupName: params.name,
+        code: error?.code,
+        message: error?.message || String(error),
+      })
+
+      const existingResourceName = await findExistingAdGroupResourceNamePython(params)
+      if (existingResourceName) {
+        logger.warn('python_ad_group_create_recovered_existing', {
+          userId: params.userId,
+          requestId: params.requestId,
+          endpoint,
+          customerId: params.customerId,
+          campaignResourceName: params.campaignResourceName,
+          adGroupName: params.name,
+          resourceName: existingResourceName,
+        })
+        return existingResourceName
+      }
+
+      logger.warn('python_ad_group_create_retry_after_transport_reset', {
+        userId: params.userId,
+        requestId: params.requestId,
+        endpoint,
+        customerId: params.customerId,
+        campaignResourceName: params.campaignResourceName,
+        adGroupName: params.name,
+      })
+      return await postCreateAdGroup()
+    }
   })
 }
 
@@ -542,23 +748,34 @@ export async function createKeywordsPython(params: {
   }>
   requestId?: string
 }): Promise<{ resourceNames: string[]; removedKeywords: RemovedKeywordInfo[] }> {
-  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/keywords/create', params.requestId, async () => {
+  const endpoint = '/api/google-ads/keywords/create'
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, endpoint, params.requestId, async () => {
     const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/keywords/create`, {
-      service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
-      customer_id: params.customerId,
-      ad_group_resource_name: params.adGroupResourceName,
-      keywords: params.keywords.map(kw => ({
-        text: kw.text,
-        match_type: kw.matchType,
-        status: kw.status,
-        final_url: kw.finalUrl,
-        is_negative: kw.isNegative || false,
-        negative_keyword_match_type: kw.negativeKeywordMatchType || 'EXACT',
-      })),
-    }, {
-      headers: getPythonRequestHeaders(params.userId, params.requestId),
-    })
+    const response = await withPythonTransientRetry(
+      {
+        userId: params.userId,
+        requestId: params.requestId,
+        endpoint,
+        customerId: params.customerId,
+        operationName: 'createKeywords',
+      },
+      () => axios.post(`${PYTHON_SERVICE_URL}${endpoint}`, {
+        service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
+        customer_id: params.customerId,
+        ad_group_resource_name: params.adGroupResourceName,
+        keywords: params.keywords.map(kw => ({
+          text: kw.text,
+          match_type: kw.matchType,
+          status: kw.status,
+          final_url: kw.finalUrl,
+          is_negative: kw.isNegative || false,
+          negative_keyword_match_type: kw.negativeKeywordMatchType || 'EXACT',
+        })),
+      }, {
+        headers: getPythonRequestHeaders(params.userId, params.requestId),
+      }),
+      isGoogleAdsConcurrentModification
+    )
     const resourceNames: string[] = response.data.results.map((r: any) => r.resource_name)
     const removedKeywords: RemovedKeywordInfo[] = response.data.removed_keywords || []
     return { resourceNames, removedKeywords }
