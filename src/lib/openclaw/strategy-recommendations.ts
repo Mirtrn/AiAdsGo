@@ -9,6 +9,7 @@ import { classifyKeywordIntent, recommendMatchTypeForKeyword } from '@/lib/keywo
 import { classifySearchTermFeedbackTerms } from '@/lib/search-term-feedback-hints'
 import { getQueueManagerForTaskType } from '@/lib/queue/queue-routing'
 import { containsPureBrand, getPureBrandKeywords } from '@/lib/brand-keyword-utils'
+import { mapWithConcurrency } from '@/lib/concurrency-limit'
 import {
   extractCampaignConfigKeywords,
   extractCampaignConfigNegativeKeywords,
@@ -245,6 +246,13 @@ type RecommendationDraft = {
 }
 
 const STRATEGY_KEYWORD_IDEAS_TIMEOUT_MS = 20_000
+
+function getPositiveIntFromEnv(key: string, fallback: number): number {
+  const raw = process.env[key]
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 export type StrategyRecommendationQueueTaskData = {
   userId: number
@@ -2171,52 +2179,59 @@ async function fetchOfferKeywordIdeas(params: {
     return result
   }
 
-  await Promise.all(params.offerIds.map(async (offerId) => {
-    try {
-      const payload = await fetchAutoadsJson<{
-        success?: boolean
-        keywords?: Array<{
-          text?: string
-          recommendedMatchType?: string
-          matchType?: string
-        }>
-      }>({
-        userId: params.userId,
-        path: `/api/offers/${offerId}/keyword-ideas`,
-        method: 'POST',
-        body: {},
-        timeoutMs: STRATEGY_KEYWORD_IDEAS_TIMEOUT_MS,
-      })
-
-      const brand = sanitizeKeyword(params.brandByOfferId.get(offerId) || '')
-      const seen = new Set<string>()
-      const normalized: StrategyKeywordSuggestion[] = []
-
-      for (const row of payload?.keywords || []) {
-        const text = sanitizeKeyword(String(row?.text || ''))
-        if (!text) continue
-        const key = text.toLowerCase()
-        if (seen.has(key)) continue
-        seen.add(key)
-        const intent = classifyKeywordIntent(text).intent
-        normalized.push({
-          text,
-          matchType:
-            normalizeKeywordMatchType(row?.recommendedMatchType || row?.matchType)
-            || recommendMatchTypeForKeyword({
-              keyword: text,
-              brandName: brand || undefined,
-              intent,
-            }),
+  await mapWithConcurrency(
+    params.offerIds,
+    getPositiveIntFromEnv('OPENCLAW_KEYWORD_IDEAS_CONCURRENCY', 1),
+    async (offerId) => {
+      try {
+        const payload = await fetchAutoadsJson<{
+          success?: boolean
+          keywords?: Array<{
+            text?: string
+            recommendedMatchType?: string
+            matchType?: string
+          }>
+        }>({
+          userId: params.userId,
+          path: `/api/offers/${offerId}/keyword-ideas`,
+          method: 'POST',
+          body: {
+            useUrl: false,
+            includeGoogleSuggest: false,
+          },
+          timeoutMs: STRATEGY_KEYWORD_IDEAS_TIMEOUT_MS,
         })
-      }
 
-      result.set(offerId, normalized.slice(0, 50))
-    } catch (error: any) {
-      console.warn(`[openclaw.strategy] fetch keyword ideas failed for offer ${offerId}:`, error?.message || error)
-      result.set(offerId, [])
+        const brand = sanitizeKeyword(params.brandByOfferId.get(offerId) || '')
+        const seen = new Set<string>()
+        const normalized: StrategyKeywordSuggestion[] = []
+
+        for (const row of payload?.keywords || []) {
+          const text = sanitizeKeyword(String(row?.text || ''))
+          if (!text) continue
+          const key = text.toLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          const intent = classifyKeywordIntent(text).intent
+          normalized.push({
+            text,
+            matchType:
+              normalizeKeywordMatchType(row?.recommendedMatchType || row?.matchType)
+              || recommendMatchTypeForKeyword({
+                keyword: text,
+                brandName: brand || undefined,
+                intent,
+              }),
+          })
+        }
+
+        result.set(offerId, normalized.slice(0, 50))
+      } catch (error: any) {
+        console.warn(`[openclaw.strategy] fetch keyword ideas failed for offer ${offerId}:`, error?.message || error)
+        result.set(offerId, [])
+      }
     }
-  }))
+  )
 
   return result
 }

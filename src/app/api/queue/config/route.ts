@@ -40,7 +40,7 @@ const DEFAULT_QUEUE_CONFIG = {
     'campaign-publish': 1,  // 广告系列发布并发限制
     'click-farm-trigger': 1, // 补点击触发任务（降低并发，减少CPU压力）
     'click-farm-batch': 1, // 补点击批次分发任务（降低并发，减少CPU压力）
-    'click-farm': 2,  // 补点击任务并发限制（保守配置，避免CPU耗尽）
+    'click-farm': 1,  // 补点击任务并发限制（保守配置，避免CPU耗尽）
     'url-swap': 1,  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
     'openclaw-strategy': 2,  // OpenClaw 策略任务并发限制
     'affiliate-product-sync': 2, // 联盟商品同步任务并发限制

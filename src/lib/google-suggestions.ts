@@ -4,6 +4,14 @@
  */
 
 import { getProxyConfig } from './proxy'
+import { mapWithConcurrency } from './concurrency-limit'
+
+function getPositiveIntFromEnv(key: string, fallback: number): number {
+  const raw = process.env[key]
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 /**
  * 从产品名称中提取核心词（用于生成查询变体）
@@ -320,16 +328,17 @@ export async function getBrandSearchSuggestions(params: {
 
   console.log(`🔍 批量获取品牌"${brand}"的搜索建议 (${uniqueQueries.length}个查询变体)...`)
 
-  // 并行获取所有查询的建议
-  const allSuggestions = await Promise.all(
-    uniqueQueries.map((query) =>
+  // Google Suggest 很容易对突发请求返回 403，限制并发避免拖垮主服务。
+  const allSuggestions = await mapWithConcurrency(
+    uniqueQueries,
+    getPositiveIntFromEnv('GOOGLE_SUGGEST_CONCURRENCY', 3),
+    (query) =>
       getGoogleSearchSuggestions({
         query,
         country,
         language,
         useProxy,
       })
-    )
   )
 
   // 合并去重

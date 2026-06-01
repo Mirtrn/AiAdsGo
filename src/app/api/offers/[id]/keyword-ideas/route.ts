@@ -42,6 +42,7 @@ export async function POST(
     const {
       seedKeywords = [],
       useUrl = true,
+      includeGoogleSuggest = true,
       filterOptions = {},
     } = body
 
@@ -144,32 +145,34 @@ export async function POST(
     const normalizedLanguageCode = normalizeLanguageCode(offer.target_language || 'English')
 
     console.log(`Keyword Planner siteFilterUrl: ${siteFilterUrl || '(none)'}`)
-    const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
-      // 1. 获取Google搜索下拉词（保留原始建议，后续按意图分类）
-      getBrandSearchSuggestions({
-        brand: offer.brand,
-        country: offer.target_country,
-        language: normalizedLanguageCode,
-        useProxy: true,
-        productName: offer.product_name || undefined,
-        category: offer.category || undefined,
-      }).catch((err) => {
-        console.warn('获取Google搜索建议失败，继续使用Keyword Planner:', err)
-        return []
-      }),
+    const keywordPlannerPromise = getKeywordIdeas({
+      customerId: googleAdsAccount.customerId,
+      seedKeywords: finalSeedKeywords,
+      pageUrl: siteFilterUrl,
+      targetCountry: offer.target_country,
+      targetLanguage: offer.target_language || 'English',
+      accountId: googleAdsAccount.id,
+      userId: numericUserId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId,
+    })
+    const googleSuggestPromise = includeGoogleSuggest
+      ? getBrandSearchSuggestions({
+          brand: offer.brand,
+          country: offer.target_country,
+          language: normalizedLanguageCode,
+          useProxy: true,
+          productName: offer.product_name || undefined,
+          category: offer.category || undefined,
+        }).catch((err) => {
+          console.warn('获取Google搜索建议失败，继续使用Keyword Planner:', err)
+          return []
+        })
+      : Promise.resolve([])
 
-      // 2. 调用Keyword Planner API
-      getKeywordIdeas({
-        customerId: googleAdsAccount.customerId,
-        seedKeywords: finalSeedKeywords,
-        pageUrl: siteFilterUrl,
-        targetCountry: offer.target_country,
-        targetLanguage: offer.target_language || 'English',
-        accountId: googleAdsAccount.id,
-        userId: numericUserId,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
-      }),
+    const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
+      googleSuggestPromise,
+      keywordPlannerPromise,
     ])
 
     console.log(
