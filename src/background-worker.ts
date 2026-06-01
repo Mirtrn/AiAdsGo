@@ -11,30 +11,11 @@
 
 import { getBackgroundQueueManager } from './lib/queue/unified-queue-manager'
 import { registerBackgroundExecutors } from './lib/queue/executors/background-executors'
-import type { QueueConfig } from './lib/queue/types'
-import { getDatabase } from './lib/db'
+import { loadPersistedQueueConfigFromDB } from './lib/queue/persisted-config'
 import { getQueueRoutingDiagnostics } from './lib/queue/queue-routing'
 import { logger } from './lib/structured-logger'
 import { setBackgroundWorkerHeartbeat, getBackgroundWorkerHeartbeatKey, getBackgroundWorkerHeartbeatTtlSeconds } from './lib/queue/background-worker-heartbeat'
 import { getHeapStatistics } from 'v8'
-
-async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
-  try {
-    const db = await getDatabase()
-    const row = await db.queryOne<{ value: string }>(`
-      SELECT value FROM system_settings
-      WHERE category = 'queue' AND key = 'config' AND user_id IS NULL
-      LIMIT 1
-    `)
-    if (!row?.value) return null
-
-    const parsed = JSON.parse(row.value) as Partial<QueueConfig>
-    return parsed && typeof parsed === 'object' ? parsed : null
-  } catch (error) {
-    console.warn('⚠️ Background worker: failed to load queue config from DB, using defaults/env:', error)
-    return null
-  }
-}
 
 async function main() {
   logger.info('background_worker_boot', getQueueRoutingDiagnostics())
@@ -50,7 +31,7 @@ async function main() {
     autoStartOnEnqueue: false,
   })
 
-  const dbConfig = await loadQueueConfigFromDB()
+  const dbConfig = await loadPersistedQueueConfigFromDB()
   if (dbConfig) {
     queue.updateConfig(dbConfig)
   }
@@ -87,7 +68,7 @@ async function main() {
   // 可选：定期刷新DB配置（多实例环境下避免配置漂移）
   let lastConfigJson: string | null = dbConfig ? JSON.stringify(dbConfig) : null
   const refreshTimer = setInterval(async () => {
-    const latest = await loadQueueConfigFromDB()
+    const latest = await loadPersistedQueueConfigFromDB()
     if (!latest) return
     const latestJson = JSON.stringify(latest)
     if (latestJson === lastConfigJson) return

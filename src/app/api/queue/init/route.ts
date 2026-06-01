@@ -9,8 +9,8 @@
 
 import { NextResponse } from 'next/server'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
-import { getDatabase } from '@/lib/db'
 import type { QueueConfig } from '@/lib/queue/types'
+import { loadPersistedQueueConfigFromDB, mergeQueueConfig } from '@/lib/queue/persisted-config'
 import { getUrlSwapScheduler } from '@/lib/queue/schedulers/url-swap-scheduler'
 import { getAffiliateProductSyncScheduler } from '@/lib/queue/schedulers/affiliate-product-sync-scheduler'
 
@@ -22,24 +22,6 @@ function parseOptionalInt(value: string | undefined): number | undefined {
   if (!value) return undefined
   const n = parseInt(value, 10)
   return Number.isFinite(n) ? n : undefined
-}
-
-async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
-  try {
-    const db = await getDatabase()
-    const result = await db.queryOne<{ value: string }>(`
-      SELECT value FROM system_settings
-      WHERE category = 'queue' AND key = 'config' AND user_id IS NULL
-      LIMIT 1
-    `)
-
-    if (!result?.value) return null
-    const parsed = JSON.parse(result.value) as Partial<QueueConfig>
-    return parsed && typeof parsed === 'object' ? parsed : null
-  } catch (error) {
-    console.warn('⚠️  队列初始化：读取数据库配置失败，将使用环境变量/默认值:', error)
-    return null
-  }
 }
 
 /**
@@ -62,7 +44,7 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
     try {
       console.log('🚀 开始初始化统一队列系统...')
 
-      const dbConfig = await loadQueueConfigFromDB()
+      const dbConfig = await loadPersistedQueueConfigFromDB()
       const envConfig: Partial<QueueConfig> = {
         globalConcurrency: parseOptionalInt(process.env.QUEUE_GLOBAL_CONCURRENCY),
         perUserConcurrency: parseOptionalInt(process.env.QUEUE_PER_USER_CONCURRENCY),
@@ -71,11 +53,11 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
         defaultMaxRetries: parseOptionalInt(process.env.QUEUE_MAX_RETRIES),
         retryDelay: parseOptionalInt(process.env.QUEUE_RETRY_DELAY),
       }
+      const effectiveConfig = mergeQueueConfig(envConfig, dbConfig)
 
       // 获取队列管理器实例
       const queue = getQueueManager({
-        ...envConfig,
-        ...(dbConfig || {}),
+        ...effectiveConfig,
         redisUrl: process.env.REDIS_URL,
         redisKeyPrefix:
           process.env.REDIS_KEY_PREFIX ||

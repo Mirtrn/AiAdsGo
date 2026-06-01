@@ -20,14 +20,19 @@ import { registerAllExecutors } from './executors'
 import { NODE_ENV, REDIS_PREFIX_CONFIG } from '../config'
 import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
-import { getUrlSwapScheduler } from './schedulers/url-swap-scheduler'
-import { getAffiliateProductSyncScheduler } from './schedulers/affiliate-product-sync-scheduler'
 import { getQueueRoutingDiagnostics } from './queue-routing'
+import { loadPersistedQueueConfigFromDB, mergeQueueConfig } from './persisted-config'
 import { logger } from '@/lib/structured-logger'
 
 // 🔧 修复(2025-01-01): 防止队列重复初始化
 let __queueInitialized = false
 let __queueInitPromise: Promise<UnifiedQueueManager> | null = null
+
+function parseOptionalInt(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const n = parseInt(value, 10)
+  return Number.isFinite(n) ? n : undefined
+}
 
 /**
  * 初始化统一队列系统
@@ -54,21 +59,37 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     console.log(`   - 任务队列隔离: ✅ 已启用`)
     logger.info('queue_routing_diagnostics', getQueueRoutingDiagnostics())
 
+    const startupQueueConfig: Partial<QueueConfig> = {
+      globalConcurrency: parseOptionalInt(process.env.QUEUE_GLOBAL_CONCURRENCY),
+      perUserConcurrency: parseOptionalInt(process.env.QUEUE_PER_USER_CONCURRENCY),
+      maxQueueSize: parseOptionalInt(process.env.QUEUE_MAX_SIZE),
+      taskTimeout: parseOptionalInt(process.env.QUEUE_TASK_TIMEOUT),
+      defaultMaxRetries: parseOptionalInt(process.env.QUEUE_MAX_RETRIES),
+      retryDelay: parseOptionalInt(process.env.QUEUE_RETRY_DELAY),
+    }
+    const persistedQueueConfig = await loadPersistedQueueConfigFromDB()
+    const effectiveQueueConfig = mergeQueueConfig(startupQueueConfig, persistedQueueConfig)
+
+    logger.info('queue_persisted_config_loaded', {
+      loaded: Boolean(persistedQueueConfig),
+      globalConcurrency: effectiveQueueConfig.globalConcurrency,
+      perUserConcurrency: effectiveQueueConfig.perUserConcurrency,
+      perTypeConcurrency: effectiveQueueConfig.perTypeConcurrency,
+    })
+
     // 获取队列管理器实例
     // 注意：不再在初始化时加载代理池，代理在任务执行时按需加载
     const queue = getQueueManager({
-      // 从环境变量读取配置
-      globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '999'),  // 🔥 全局并发提升至999（补点击需求）
-      perUserConcurrency: parseInt(process.env.QUEUE_PER_USER_CONCURRENCY || '999'),  // 🔥 单用户并发提升至999（补点击需求）
-      maxQueueSize: parseInt(process.env.QUEUE_MAX_SIZE || '1000'),
-      taskTimeout: parseInt(process.env.QUEUE_TASK_TIMEOUT || '600000'),  // 🔥 修复（2025-12-10）：默认10分钟（Offer提取约需5分钟）
-      defaultMaxRetries: parseInt(process.env.QUEUE_MAX_RETRIES || '3'),
-      retryDelay: parseInt(process.env.QUEUE_RETRY_DELAY || '5000'),
+      ...effectiveQueueConfig,
       redisUrl: process.env.REDIS_URL,
       redisKeyPrefix: REDIS_PREFIX_CONFIG.queue,  // 🔥 使用环境隔离的prefix
       // 代理池为空，代理在任务执行时按需从用户配置加载
       proxyPool: []
     })
+
+    if (persistedQueueConfig) {
+      queue.updateConfig(persistedQueueConfig)
+    }
 
     // 连接存储适配器（Redis优先，失败则回退内存）
     await queue.initialize()

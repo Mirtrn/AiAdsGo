@@ -112,15 +112,15 @@ export class UnifiedQueueManager {
   )
   private readonly clickFarmConcurrencyHardCap = getPositiveIntFromEnv(
     'QUEUE_CLICK_FARM_CONCURRENCY_HARD_CAP',
-    40
+    3
   )
   private readonly clickFarmBatchConcurrencyHardCap = getPositiveIntFromEnv(
     'QUEUE_CLICK_FARM_BATCH_CONCURRENCY_HARD_CAP',
-    12
+    2
   )
   private readonly clickFarmTriggerConcurrencyHardCap = getPositiveIntFromEnv(
     'QUEUE_CLICK_FARM_TRIGGER_CONCURRENCY_HARD_CAP',
-    8
+    2
   )
   private readonly skipStartupPendingRepair = getBooleanFromEnv(
     'QUEUE_SKIP_STARTUP_PENDING_REPAIR',
@@ -132,10 +132,9 @@ export class UnifiedQueueManager {
       process.env.REDIS_KEY_PREFIX ||
       `autoads:${process.env.NODE_ENV || 'development'}:queue:`
 
-    const clickFarmConcurrencyCap = getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY_HARD_CAP', 40)
     const defaultClickFarmConcurrency = Math.min(
-      getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 20),
-      Math.max(1, clickFarmConcurrencyCap)
+      getPositiveIntFromEnv('QUEUE_CLICK_FARM_CONCURRENCY', 3),
+      Math.max(1, this.clickFarmConcurrencyHardCap)
     )
     const defaultGlobalConcurrency = getPositiveIntFromEnv('QUEUE_GLOBAL_CONCURRENCY', 10)
     const defaultPerUserConcurrency = getPositiveIntFromEnv('QUEUE_PER_USER_CONCURRENCY', 5)
@@ -143,35 +142,52 @@ export class UnifiedQueueManager {
     // 🔥 修复(2026-05-28): offer-extraction 支持环境变量覆盖并发数，解决多用户队列积压卡25%问题
     const defaultOfferExtractionConcurrency = getPositiveIntFromEnv('QUEUE_OFFER_EXTRACTION_CONCURRENCY', 2)
     const defaultAdCreativeConcurrency = getPositiveIntFromEnv('QUEUE_AD_CREATIVE_CONCURRENCY', 3)
+    const defaultPerTypeConcurrency: QueueConfig['perTypeConcurrency'] = {
+      scrape: 3,
+      'ai-analysis': 2,
+      sync: 1,
+      backup: 1,
+      email: 3,
+      export: 2,
+      'link-check': 2,
+      cleanup: 1,
+      'offer-extraction': defaultOfferExtractionConcurrency, // 支持通过 QUEUE_OFFER_EXTRACTION_CONCURRENCY 覆盖
+      'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
+      'ad-creative': defaultAdCreativeConcurrency,           // 🔥 支持通过 QUEUE_AD_CREATIVE_CONCURRENCY 覆盖
+      'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
+      'click-farm-trigger': Math.min(2, this.clickFarmTriggerConcurrencyHardCap), // 🆕 补点击触发任务（控制面）
+      'click-farm-batch': Math.min(2, this.clickFarmBatchConcurrencyHardCap),     // 🆕 补点击批次分发任务（滚动派发）
+      'click-farm': defaultClickFarmConcurrency, // 🆕 支持通过 QUEUE_CLICK_FARM_CONCURRENCY 覆盖
+      'url-swap': defaultUrlSwapConcurrency,     // 支持通过 QUEUE_URL_SWAP_CONCURRENCY 覆盖
+      'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
+      'affiliate-product-sync': 2, // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
+      'openclaw-command': 3,       // 🆕 OpenClaw 指令执行任务并发限制
+      'openclaw-affiliate-sync': 2, // 🆕 OpenClaw 联盟佣金快照同步任务并发限制
+      'openclaw-report-send': 2    // 🆕 OpenClaw 报表投递任务
+    }
+    const mergedPerTypeConcurrency: QueueConfig['perTypeConcurrency'] = {
+      ...defaultPerTypeConcurrency,
+      ...(config.perTypeConcurrency || {}),
+    }
+    mergedPerTypeConcurrency['click-farm'] = Math.min(
+      clampPositiveInt(mergedPerTypeConcurrency['click-farm'], defaultClickFarmConcurrency),
+      this.clickFarmConcurrencyHardCap
+    )
+    mergedPerTypeConcurrency['click-farm-batch'] = Math.min(
+      clampPositiveInt(mergedPerTypeConcurrency['click-farm-batch'], defaultPerTypeConcurrency['click-farm-batch']),
+      this.clickFarmBatchConcurrencyHardCap
+    )
+    mergedPerTypeConcurrency['click-farm-trigger'] = Math.min(
+      clampPositiveInt(mergedPerTypeConcurrency['click-farm-trigger'], defaultPerTypeConcurrency['click-farm-trigger']),
+      this.clickFarmTriggerConcurrencyHardCap
+    )
 
     // 合并默认配置
     this.config = {
       autoStartOnEnqueue: config.autoStartOnEnqueue !== false,
       globalConcurrency: config.globalConcurrency || defaultGlobalConcurrency,
       perUserConcurrency: config.perUserConcurrency || defaultPerUserConcurrency,
-      perTypeConcurrency: config.perTypeConcurrency || {
-        scrape: 3,
-        'ai-analysis': 2,
-        sync: 1,
-        backup: 1,
-        email: 3,
-        export: 2,
-        'link-check': 2,
-        cleanup: 1,
-        'offer-extraction': defaultOfferExtractionConcurrency, // 支持通过 QUEUE_OFFER_EXTRACTION_CONCURRENCY 覆盖
-        'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
-        'ad-creative': defaultAdCreativeConcurrency,           // 🔥 支持通过 QUEUE_AD_CREATIVE_CONCURRENCY 覆盖
-        'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
-        'click-farm-trigger': 4,    // 🆕 补点击触发任务（控制面）
-        'click-farm-batch': 6,      // 🆕 补点击批次分发任务（滚动派发）
-        'click-farm': defaultClickFarmConcurrency, // 🆕 支持通过 QUEUE_CLICK_FARM_CONCURRENCY 覆盖
-        'url-swap': defaultUrlSwapConcurrency,     // 支持通过 QUEUE_URL_SWAP_CONCURRENCY 覆盖
-        'openclaw-strategy': 2,     // 🆕 OpenClaw 策略任务并发限制（默认2，避免策略批量冲击配额）
-        'affiliate-product-sync': 2, // 🆕 联盟商品同步任务并发限制（默认2，降低平台API冲击）
-        'openclaw-command': 3,       // 🆕 OpenClaw 指令执行任务并发限制
-        'openclaw-affiliate-sync': 2, // 🆕 OpenClaw 联盟佣金快照同步任务并发限制
-        'openclaw-report-send': 2    // 🆕 OpenClaw 报表投递任务并发限制
-      },
+      perTypeConcurrency: mergedPerTypeConcurrency,
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）
       defaultMaxRetries: config.defaultMaxRetries || 3,
