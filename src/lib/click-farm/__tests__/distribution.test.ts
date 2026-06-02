@@ -129,6 +129,17 @@ describe('ClickFarm Distribution', () => {
       expect(resultTotal).toBe(dailyCount);
     });
 
+    it('应该处理点击数小于活跃小时数的白天分布', () => {
+      const dailyCount = 15;
+      const result = generateDefaultDistribution(dailyCount, '06:00', '24:00');
+
+      expect(result).toHaveLength(24);
+      expect(result.reduce((sum, n) => sum + n, 0)).toBe(dailyCount);
+      expect(result.every((n) => Number.isInteger(n) && n >= 0)).toBe(true);
+      expect(result.slice(0, 6).every((n) => n === 0)).toBe(true);
+      expect(result.slice(6).filter((n) => n > 0).length).toBe(dailyCount);
+    });
+
     it('应该确保每个活跃小时至少1次点击', () => {
       const dailyCount = 100;  // 增大数字减少舍入误差
       const startTime = '00:00';

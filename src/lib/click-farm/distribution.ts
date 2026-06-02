@@ -31,6 +31,60 @@ const ECOMMERCE_DAYTIME_WEIGHTS = [
   8, 10, 14, 15, 13, 10  // 18:00-23:59 晚间黄金时段（20-21点最高峰）
 ];
 
+function getActiveHours(startHour: number, endHour: number): number[] {
+  if (endHour > startHour) {
+    return Array.from({ length: endHour - startHour }, (_, index) => startHour + index);
+  }
+
+  return [
+    ...Array.from({ length: 24 - startHour }, (_, index) => startHour + index),
+    ...Array.from({ length: endHour }, (_, index) => index),
+  ];
+}
+
+function distributeRemainderByWeight(
+  hours: number[],
+  weights: number[],
+  total: number
+): Array<{ hour: number; count: number }> {
+  if (total <= 0 || hours.length === 0) {
+    return hours.map((hour) => ({ hour, count: 0 }));
+  }
+
+  const totalWeight = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  if (totalWeight <= 0) {
+    const base = Math.floor(total / hours.length);
+    let remainder = total - base * hours.length;
+    return hours.map((hour) => ({
+      hour,
+      count: base + (remainder-- > 0 ? 1 : 0),
+    }));
+  }
+
+  const rows = hours.map((hour, index) => {
+    const exact = (Math.max(0, weights[index]) / totalWeight) * total;
+    const count = Math.floor(exact);
+    return {
+      hour,
+      count,
+      remainder: exact - count,
+      weight: weights[index],
+    };
+  });
+
+  let remainder = total - rows.reduce((sum, row) => sum + row.count, 0);
+  rows
+    .slice()
+    .sort((a, b) => (b.remainder - a.remainder) || (b.weight - a.weight) || (a.hour - b.hour))
+    .forEach((row) => {
+      if (remainder <= 0) return;
+      row.count += 1;
+      remainder -= 1;
+    });
+
+  return rows.map(({ hour, count }) => ({ hour, count }));
+}
+
 /**
  * 归一化分布曲线
  * 确保总和等于目标值，同时保持相对比例
@@ -114,65 +168,42 @@ export function generateDefaultDistribution(
   startTime: string,  // "00:00" or "06:00"
   endTime: string     // "24:00"
 ): number[] {
-  // 根据时间段选择对应的曲线
-  const weights = startTime === "00:00"
-    ? ECOMMERCE_FULL_DAY_WEIGHTS
-    : ECOMMERCE_DAYTIME_WEIGHTS;
-
   const startHour = parseInt(startTime.split(':')[0]);
   const endHour = parseInt(endTime.split(':')[0]);
-  const offset = startTime === "00:00" ? 0 : 6;
+  const activeHours = getActiveHours(startHour, endHour);
+  const activeWeights = activeHours.map((hour) => ECOMMERCE_FULL_DAY_WEIGHTS[hour] || 1);
 
   // Step 1: 初始分布，非活跃时段保持为0
   const distribution = new Array(24).fill(0);
 
-  // Step 2: 只在执行时间段内应用权重
-  let totalWeight = 0;
-  for (let hour = startHour; hour < endHour; hour++) {
-    totalWeight += weights[hour - offset];
+  if (dailyCount <= 0 || activeHours.length === 0) {
+    return distribution;
   }
 
-  // Step 3: 按权重分配点击数，确保每个活跃时段至少为1
-  for (let hour = startHour; hour < endHour; hour++) {
-    const weight = weights[hour - offset];
-    const count = Math.round((weight / totalWeight) * dailyCount);
-    distribution[hour] = Math.max(1, count);
+  // 点击数少于活跃小时数时不能强行每小时至少1次，否则会产生负数。
+  if (dailyCount < activeHours.length) {
+    activeHours
+      .map((hour, index) => ({ hour, weight: activeWeights[index] }))
+      .sort((a, b) => (b.weight - a.weight) || (a.hour - b.hour))
+      .slice(0, dailyCount)
+      .forEach(({ hour }) => {
+        distribution[hour] = 1;
+      });
+    return distribution;
   }
 
-  // Step 4: 处理舍入误差，确保总和精确
-  const currentTotal = distribution.reduce((sum, n) => sum + n, 0);
-  const diff = dailyCount - currentTotal;
-
-  if (diff !== 0) {
-    // 将差额加到最大的小时值
-    let maxHour = -1;
-    let maxValue = -1;
-    for (let hour = startHour; hour < endHour; hour++) {
-      if (distribution[hour] > maxValue) {
-        maxValue = distribution[hour];
-        maxHour = hour;
-      }
-    }
-    if (maxHour >= 0) {
-      distribution[maxHour] += diff;
-    }
+  // Step 2: 点击数足够时，活跃时段至少1次，其余按电商访问权重分配
+  for (const hour of activeHours) {
+    distribution[hour] = 1;
   }
 
-  // Step 5: 再次检查并确保总和精确（处理diff过大的情况）
-  const finalTotal = distribution.reduce((sum, n) => sum + n, 0);
-  const finalDiff = dailyCount - finalTotal;
-  if (finalDiff !== 0) {
-    let maxHour = -1;
-    let maxValue = -1;
-    for (let hour = startHour; hour < endHour; hour++) {
-      if (distribution[hour] > maxValue) {
-        maxValue = distribution[hour];
-        maxHour = hour;
-      }
-    }
-    if (maxHour >= 0) {
-      distribution[maxHour] += finalDiff;
-    }
+  const weightedExtra = distributeRemainderByWeight(
+    activeHours,
+    activeWeights,
+    dailyCount - activeHours.length
+  );
+  for (const item of weightedExtra) {
+    distribution[item.hour] += item.count;
   }
 
   return distribution;
