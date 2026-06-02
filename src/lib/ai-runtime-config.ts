@@ -7,6 +7,7 @@ import {
   OPENAI_OFFICIAL_DEFAULT,
   type AIProvider,
   AI_PROVIDER_DEFAULT,
+  normalizeAIProviderOverride,
 } from './gemini-models'
 import { getUserOnlySetting } from './settings'
 
@@ -32,14 +33,18 @@ export interface ResolvedAIConfig {
  * 三种模式都复用同一个 OpenAI-compatible 调用链（litellmAPI），
  * 只是 baseUrl / apiKey / model 不同
  */
-export async function resolveActiveAIConfig(userId: number): Promise<ResolvedAIConfig> {
+export async function resolveActiveAIConfig(
+  userId: number,
+  providerOverride?: unknown
+): Promise<ResolvedAIConfig> {
   if (!userId || userId <= 0) {
     return { type: null }
   }
 
   // 读取用户保存的 provider 类型
   const providerSetting = await getUserOnlySetting('ai', 'ai_provider', userId)
-  const provider = (providerSetting?.value as AIProvider) || AI_PROVIDER_DEFAULT
+  const savedProvider = normalizeAIProviderOverride(providerSetting?.value) || AI_PROVIDER_DEFAULT
+  const provider: AIProvider = normalizeAIProviderOverride(providerOverride) || savedProvider
 
   // ─── Gemini 官方直连 ────────────────────────────────────────────
   if (provider === 'gemini_official') {

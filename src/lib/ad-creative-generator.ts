@@ -11,6 +11,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getUserAuthType, getUserParentMccId } from './google-ads-oauth'
 import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义分类
 import { generateContent, getGeminiMode, type ResponseSchema } from './gemini'
+import type { AIProvider } from './gemini-models'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
 import { loadPrompt, interpolateTemplate } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
@@ -6558,7 +6559,7 @@ export async function generateAdCreative(
     isSyntheticCreative?: boolean  // 是否为综合创意
     syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
     // 🆕 多 AI Provider 支持：临时覆盖，优先级高于全局设置
-    aiProvider?: 'litellm'
+    aiProvider?: AIProvider
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键
@@ -7065,7 +7066,7 @@ export async function generateAdCreative(
       maxOutputTokens: 32768,  // 🔧 2026-02-01: 降低上限以减少超时
       responseSchema: AD_CREATIVE_RESPONSE_SCHEMA,
       responseMimeType: 'application/json',
-      overrideProvider: options?.aiProvider === 'litellm' ? 'litellm' : undefined,  // 🆕 临时 AI Provider 覆盖（来自前端选择）
+      overrideProvider: options?.aiProvider,  // 🆕 临时 AI Provider 覆盖（来自前端选择）
     }, userId)
   } finally {
     console.timeEnd(timerLabel)

@@ -8,7 +8,7 @@
  */
 
 import { getUserOnlySetting } from './settings'
-import { LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName } from './gemini-models'
+import { LITELLM_DEFAULT_BASE_URL, LITELLM_DEFAULT_MODEL, getLiteLLMModelDisplayName, type AIProvider } from './gemini-models'
 import { getDatabase } from './db'
 
 /**
@@ -97,6 +97,8 @@ export interface LiteLLMGenerateParams {
    * 发送给 OpenLLM / OpenAI 兼容网关。
    */
   responseMimeType?: string
+  /** 临时覆盖 AI 提供商，仅本次调用生效。 */
+  overrideProvider?: AIProvider
 }
 
 export interface LiteLLMGenerateResult {
@@ -234,12 +236,13 @@ export async function generateContent(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     operationType,
     responseMimeType,
+    overrideProvider,
   } = params
 
   // 使用 AI 运行时配置解析正确的 API key、baseUrl 和 model
   // 支持三种提供商：litellm（OpenLLM中转）、gemini_official、openai_official
   const { resolveActiveAIConfig } = await import('./ai-runtime-config')
-  const aiConfig = await resolveActiveAIConfig(userId)
+  const aiConfig = await resolveActiveAIConfig(userId, overrideProvider)
 
   if (!aiConfig.type || !aiConfig.litellmAPI) {
     throw new Error(

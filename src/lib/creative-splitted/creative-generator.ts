@@ -10,6 +10,7 @@ import type { AIConfig, AIResponse, GenerateAdCreativeOptions } from './creative
 import { generateContent } from '../gemini'
 import { resolveActiveAIConfig } from '../ai-runtime-config'
 import { recordTokenUsage, estimateTokenCost } from '../ai-token-tracker'
+import type { AIProvider } from '../gemini-models'
 
 /**
  * 获取 AI 配置
@@ -33,7 +34,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
  * 调用 AI 模型
  * 统一的 AI 调用接口
  */
-export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: 'litellm'): Promise<AIResponse> {
+export async function callAI(prompt: string, config: AIConfig, userId?: number, overrideProvider?: AIProvider): Promise<AIResponse> {
   try {
     console.log('[callAI] 开始调用 AI 模型', overrideProvider ? `(临时覆盖 provider: ${overrideProvider})` : '')
 

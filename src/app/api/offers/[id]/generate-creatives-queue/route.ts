@@ -14,6 +14,7 @@ import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 import { AD_CREATIVE_MAX_AUTO_RETRIES } from '@/lib/ad-creative-quality-loop'
+import { normalizeAIProviderOverride } from '@/lib/gemini-models'
 
 type NormalizedCreativeBucket = 'A' | 'B' | 'D'
 
@@ -51,12 +52,7 @@ export async function POST(
     aiProvider,
   } = body
   // 🆕 校验 aiProvider 合法值
-  const validAIProviders = ['litellm'] as const
-  type ValidAIProvider = typeof validAIProviders[number]
-  const normalizedAIProvider: ValidAIProvider | undefined =
-    aiProvider && validAIProviders.includes(aiProvider as ValidAIProvider)
-      ? (aiProvider as ValidAIProvider)
-      : undefined
+  const normalizedAIProvider = normalizeAIProviderOverride(aiProvider)
   const normalizedMaxRetries = Math.max(
     0,
     Math.min(

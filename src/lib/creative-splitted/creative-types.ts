@@ -6,6 +6,8 @@
  * 遵循 KISS 原则: 单一职责，清晰命名
  */
 
+import type { AIProvider } from '../gemini-models'
+
 /**
  * 意图分类（3类）
  */
@@ -57,7 +59,7 @@ export interface GenerateAdCreativeOptions {
   // 🔥 2025-12-27: 关键词质量过滤参数
   brandName?: string  // 用于过滤低质量关键词
   // 🆕 多 AI Provider 支持：临时覆盖，优先级高于用户全局设置
-  aiProvider?: 'litellm'
+  aiProvider?: AIProvider
 }
 
 /**

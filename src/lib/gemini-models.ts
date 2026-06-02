@@ -109,8 +109,17 @@ export const OPENAI_OFFICIAL_MODEL_LABELS: Record<string, string> = {
 }
 
 // ─── 统一 AI 提供商类型 ─────────────────────────────────────────
-export type AIProvider = 'litellm' | 'gemini_official' | 'openai_official'
+export const AI_PROVIDERS = ['litellm', 'gemini_official', 'openai_official'] as const
+export type AIProvider = typeof AI_PROVIDERS[number]
 export const AI_PROVIDER_DEFAULT: AIProvider = 'litellm'
+
+export function isAIProvider(value: unknown): value is AIProvider {
+  return typeof value === 'string' && (AI_PROVIDERS as readonly string[]).includes(value)
+}
+
+export function normalizeAIProviderOverride(value: unknown): AIProvider | undefined {
+  return isAIProvider(value) ? value : undefined
+}
 
 const DEPRECATED_MODEL_SET = new Set<string>(GEMINI_DEPRECATED_MODELS)
 const OFFICIAL_MODEL_SET = new Set<string>(OFFICIAL_SUPPORTED_MODELS)

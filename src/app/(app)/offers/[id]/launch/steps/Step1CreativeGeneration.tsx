@@ -20,12 +20,22 @@ import ScoreRadarChart from '@/components/charts/ScoreRadarChart'
 import { BonusScoreCard } from '@/components/BonusScoreCard'
 import { ConversionFeedbackForm } from '@/components/ConversionFeedbackForm'
 import { CreativeTypeProgress } from '@/components/CreativeTypeProgress'
+import type { AIProvider } from '@/lib/gemini-models'
 
 interface Props {
   offer: any
   onCreativeSelected: (creative: any) => void
   selectedCreative: any | null
 }
+
+type AIProviderSelection = 'default' | AIProvider
+
+const AI_PROVIDER_SELECT_OPTIONS: Array<{ value: AIProviderSelection; label: string }> = [
+  { value: 'default', label: '🌐 全局设置' },
+  { value: 'litellm', label: '🤖 OpenLLM' },
+  { value: 'gemini_official', label: '🔵 Gemini' },
+  { value: 'openai_official', label: '🟢 OpenAI' },
+]
 
 interface KeywordWithVolume {
   keyword: string
@@ -273,13 +283,13 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
   },
   'AI配置缺失': {
     title: 'AI 提供商未配置',
-    description: '当前账号尚未配置 AI 提供商。请前往设置页面，填写 OpenLLM API Key 后重试。',
+    description: '当前账号尚未配置本次选择的 AI 提供商。请前往设置页面填写对应 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
   '尚未配置任何 AI 提供商': {
     title: 'AI 提供商未配置',
-    description: '当前账号尚未配置 AI 提供商。请前往设置页面，填写 OpenLLM API Key 后重试。',
+    description: '当前账号尚未配置本次选择的 AI 提供商。请前往设置页面填写对应 API Key 后重试。',
     action: 'settings',
     actionLabel: '前往设置'
   },
@@ -713,7 +723,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
 
   // 🆕 临时 AI Provider 选择（优先级高于全局设置，留空则使用全局设置）
-  const [selectedAIProvider, setSelectedAIProvider] = useState<'default' | 'litellm'>('default')
+  const [selectedAIProvider, setSelectedAIProvider] = useState<AIProviderSelection>('default')
 
   // 🆕 SSE超时处理状态
   const [sseTimeout, setSseTimeout] = useState(false)
@@ -1437,15 +1447,18 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 <div>
                   <Select
                     value={selectedAIProvider}
-                    onValueChange={(v) => setSelectedAIProvider(v as typeof selectedAIProvider)}
+                    onValueChange={(v) => setSelectedAIProvider(v as AIProviderSelection)}
                     disabled={generating}
                   >
                     <SelectTrigger className="w-36 h-9 text-sm bg-white border-gray-200 shadow-sm">
                       <SelectValue placeholder="AI 提供商" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">🌐 全局设置</SelectItem>
-                      <SelectItem value="litellm">🤖 OpenLLM</SelectItem>
+                      {AI_PROVIDER_SELECT_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

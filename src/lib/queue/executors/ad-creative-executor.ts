@@ -20,6 +20,7 @@ import { getDatabase } from '@/lib/db'
 import { toDbJsonObjectField } from '@/lib/json-field'
 import { filterKeywordQuality } from '@/lib/keyword-quality-filter'
 import { getMinContextTokenMatchesForKeywordQualityFilter } from '@/lib/keyword-context-filter'
+import type { AIProvider } from '@/lib/gemini-models'
 import {
   AD_CREATIVE_MAX_AUTO_RETRIES,
   AD_CREATIVE_REQUIRED_MIN_SCORE,
@@ -220,7 +221,7 @@ export interface AdCreativeTaskData {
   synthetic?: boolean  // 🔧 向后兼容：旧版"综合创意"标记（KISS-3类型方案中不再生成S桶）
   bucket?: 'A' | 'B' | 'C' | 'D' | 'S'
   // 🆕 多 AI Provider 支持：前端临时覆盖，优先级高于全局设置
-  aiProvider?: 'litellm'
+  aiProvider?: AIProvider
 }
 
 /**
@@ -464,7 +465,7 @@ export async function executeAdCreativeGeneration(
               bucketIntentEn: bucketInfo?.intentEn,
               deferKeywordSupplementation: Boolean(bucketInfo?.keywords && bucketInfo.keywords.length > 0),
               // 🆕 临时 AI Provider 覆盖（来自前端选择）
-              aiProvider: (aiProvider === 'litellm' ? 'litellm' : undefined),
+              aiProvider,
             }
           )
         } finally {

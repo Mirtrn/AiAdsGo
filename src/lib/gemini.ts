@@ -6,7 +6,7 @@
  * - AI API 调用不使用代理（代理仅用于网页爬取）
  */
 
-import { getUserOnlySetting } from './settings'
+import type { AIProvider } from './gemini-models'
 
 /**
  * JSON Schema类型定义（符合OpenAPI 3.0规范）
@@ -69,7 +69,7 @@ export interface GeminiGenerateResult {
  * 统一的 AI 内容生成接口（仅 OpenLLM/LiteLLM）
  */
 export async function generateContent(
-  params: GeminiGenerateParams & { overrideProvider?: 'litellm' },
+  params: GeminiGenerateParams & { overrideProvider?: AIProvider },
   userId: number
 ): Promise<GeminiGenerateResult> {
   if (!userId || typeof userId !== 'number' || userId <= 0) {
@@ -84,12 +84,13 @@ export async function generateContent(
     timeoutMs,
     operationType,
     responseMimeType,
+    overrideProvider,
   } = params
 
-  console.log(`🔀 路由到 OpenLLM (User ${userId})`)
+  console.log(`🔀 路由到 AI 兼容调用链 (User ${userId})`)
   const { generateContent: litellmGenerate } = await import('./litellm')
   const result = await litellmGenerate(
-    { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel, responseMimeType },
+    { prompt, temperature, maxOutputTokens, timeoutMs, operationType, model: requestedModel, responseMimeType, overrideProvider },
     userId
   )
   return {

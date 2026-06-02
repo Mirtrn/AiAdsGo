@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
   const db = getDatabase()
   const userId = req.headers.get('x-user-id')
