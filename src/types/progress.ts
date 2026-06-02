@@ -62,7 +62,31 @@ export interface CompleteUpdate {
   };
 }
 
-export type SSEMessage = ProgressUpdate | ErrorUpdate | CompleteUpdate;
+export interface SubmittedUpdate {
+  type: 'submitted';
+  data: {
+    taskId: string;
+    stage: ProgressStage;
+    status: ProgressStatus;
+    progress: number;
+    message: string;
+    timestamp: number;
+  };
+}
+
+export interface DeferredUpdate {
+  type: 'deferred';
+  data: {
+    taskId: string;
+    reason: 'sse_timeout' | 'client_timeout' | 'stream_closed';
+    stage: ProgressStage;
+    status: ProgressStatus;
+    message: string;
+    timestamp: number;
+  };
+}
+
+export type SSEMessage = SubmittedUpdate | ProgressUpdate | DeferredUpdate | ErrorUpdate | CompleteUpdate;
 
 /**
  * Stage configuration with display metadata

@@ -22,6 +22,11 @@ import type {
   ProgressStatus,
   ProgressEvent,
 } from '@/types/progress'
+import {
+  OFFER_EXTRACTION_DEFERRED_MESSAGE,
+  OFFER_EXTRACTION_SUBMITTED_MESSAGE,
+  isOfferExtractionDeferredTimeout,
+} from '@/lib/offer-extraction-sse-events'
 
 interface ExtractionResult {
   finalUrl: string
@@ -145,10 +150,11 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     setIsExtracting(true)
     setCurrentMessage('创建任务中...')
 
-    // 15 分钟超时：Offer 提取包含代理预热 + 页面抓取 + AI 分析，
-    // 正常最多约 5-8 分钟，15 分钟仍未完成视为后端挂起，终止连接。
-    const EXTRACTION_TIMEOUT_MS = 15 * 60 * 1000
+    // 后端会在 15 分钟 SSE 窗口结束时发送 deferred；客户端多等一分钟，
+    // 避免与服务端定时器竞争导致误报“创建失败”。
+    const EXTRACTION_TIMEOUT_MS = 16 * 60 * 1000
     let extractionTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let submittedTaskId: string | null = null
 
     try {
       console.log('📡 Starting unified SSE extraction for:', affiliateLink)
@@ -221,6 +227,25 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
       let buffer = ''
 
       let streamCompleted = false // 标记是否收到 complete/error 事件
+      const markDeferred = (deferredTaskId?: string | null) => {
+        if (extractionTimeoutId) {
+          clearTimeout(extractionTimeoutId)
+          extractionTimeoutId = null
+        }
+        const nextTaskId = deferredTaskId || submittedTaskId
+        streamCompleted = true
+        if (nextTaskId) {
+          submittedTaskId = nextTaskId
+          setTaskId(nextTaskId)
+        }
+        setCurrentStage('resolving_link')
+        setCurrentStatus('pending')
+        setProgress(prev => Math.max(prev, 0))
+        setError(null)
+        setCurrentMessage(OFFER_EXTRACTION_DEFERRED_MESSAGE)
+        setIsExtracting(false)
+        cleanup()
+      }
 
       while (true) {
         let done: boolean, value: Uint8Array | undefined
@@ -229,7 +254,11 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
         } catch (readErr: any) {
           if (extractionTimeoutId) clearTimeout(extractionTimeoutId)
           if (readErr?.name === 'AbortError') {
-            throw new Error('创建Offer超时（超过15分钟），请稍后在列表页确认任务是否已完成。')
+            if (submittedTaskId) {
+              markDeferred(submittedTaskId)
+              break
+            }
+            throw new Error('创建Offer超时（超过16分钟），请稍后在列表页确认任务是否已完成。')
           }
           // 🔧 修复：网络读取错误给出友好提示，而非抛出原始英文错误
           throw new Error(`网络连接中断，请检查网络后重试。（${readErr?.message || 'network error'}）`)
@@ -240,8 +269,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
           console.log('✅ SSE stream completed')
           // 🔧 修复：流正常结束但未收到 complete/error 事件，视为任务仍在后台运行
           if (!streamCompleted) {
-            setIsExtracting(false)
-            setCurrentMessage('任务已提交，请稍后在列表页确认是否完成。')
+            markDeferred(submittedTaskId)
           }
           break
         }
@@ -261,9 +289,24 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
 
             console.log('📨 SSE Message:', data)
 
-            if (data.type === 'progress') {
+            if (data.type === 'submitted') {
+              const submittedData = data.data || data
+              const receivedTaskId = submittedData.taskId || submittedData.id
+              if (receivedTaskId) {
+                submittedTaskId = receivedTaskId
+                setTaskId(receivedTaskId)
+              }
+              setCurrentStage((submittedData.stage as ProgressStage) || 'resolving_link')
+              setCurrentStatus('pending')
+              setProgress(typeof submittedData.progress === 'number' ? submittedData.progress : 0)
+              setCurrentMessage(submittedData.message || OFFER_EXTRACTION_SUBMITTED_MESSAGE)
+            } else if (data.type === 'progress') {
               // 后端发送格式: {type: 'progress', data: {stage, status, message, ...}}
               const progressData = data.data || data
+              if (progressData.taskId) {
+                submittedTaskId = progressData.taskId
+                setTaskId(progressData.taskId)
+              }
               const newStage = progressData.stage as ProgressStage
               const newStatus = progressData.status || 'in_progress'
 
@@ -340,6 +383,9 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
                 error: 0,
               }
               setProgress(progressMap[progressData.stage] || 0)
+            } else if (data.type === 'deferred') {
+              const deferredData = data.data || data
+              markDeferred(deferredData.taskId || submittedTaskId)
             } else if (data.type === 'complete') {
               // 后端发送格式: {type: 'complete', data: {...result}}
               const resultData = data.data || data.result
@@ -357,11 +403,15 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
             } else if (data.type === 'error') {
               // 后端发送格式: {type: 'error', data: {message, stage, details}}
               const errorData = data.data || data.error || {}
-              streamCompleted = true
               setCurrentStage('error')
               setCurrentStatus('error')
               // 🔧 修复：后端原始英文错误消息转为中文友好提示
               const rawMsg: string = errorData.message || '任务失败'
+              if (isOfferExtractionDeferredTimeout(rawMsg) && submittedTaskId) {
+                markDeferred(errorData.details?.taskId || submittedTaskId)
+                continue
+              }
+              streamCompleted = true
               const friendlyMsg = rawMsg.toLowerCase() === 'network error'
                 ? '网络连接失败，请检查链接是否可访问后重试。'
                 : rawMsg.includes('timeout') || rawMsg.includes('超时')
@@ -382,6 +432,19 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
       // SSE失败（AbortError 由超时触发，已在上层转为友好消息抛出；
       // 只有用户手动中止时 name==='AbortError' 才静默忽略）
       if (err.name !== 'AbortError') {
+        if (submittedTaskId && (
+          err.message?.includes('创建Offer超时') ||
+          isOfferExtractionDeferredTimeout(err.message)
+        )) {
+          setTaskId(submittedTaskId)
+          setCurrentStage('resolving_link')
+          setCurrentStatus('pending')
+          setError(null)
+          setCurrentMessage(OFFER_EXTRACTION_DEFERRED_MESSAGE)
+          setIsExtracting(false)
+          cleanup()
+          return
+        }
         console.error('SSE extraction failed:', err)
         setError(err.message || '创建任务失败，请重试')
         setCurrentMessage('创建任务失败，请重试')
