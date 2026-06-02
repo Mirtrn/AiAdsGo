@@ -10,14 +10,20 @@
  * 4. 任务完成或失败后自动关闭连接
  *
  * SSE消息格式：
+ * - data: { type: 'submitted', data: { taskId, stage, status, progress, message, timestamp } }
  * - data: { type: 'progress', stage, progress, message }
  * - data: { type: 'complete', result }
+ * - data: { type: 'deferred', data: { taskId, reason, stage, status, message, timestamp } }
  * - data: { type: 'error', error }
  */
 
 import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { parseJsonField } from '@/lib/json-field'
+import {
+  createOfferExtractionDeferredEvent,
+  createOfferExtractionSubmittedEvent,
+} from '@/lib/offer-extraction-sse-events'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 900 // 15分钟，与任务最大执行时间对齐
@@ -76,6 +82,8 @@ export async function GET(
             isClosed = true
           }
         }
+
+        sendSSE(createOfferExtractionSubmittedEvent(taskId))
 
         // 轮询数据库获取进度
         const pollInterval = setInterval(async () => {
@@ -202,14 +210,7 @@ export async function GET(
           clearInterval(pollInterval)
           timeoutHandle = null
           if (!isClosed) {
-            sendSSE({
-              type: 'error',
-              data: {
-                message: 'SSE timeout',
-                stage: 'error',
-                details: {}
-              }
-            })
+            sendSSE(createOfferExtractionDeferredEvent(taskId, 'sse_timeout'))
             controller.close()
             isClosed = true
           }

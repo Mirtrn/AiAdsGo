@@ -15,8 +15,10 @@
  * - commission_payout: 佣金（兼容旧字段）
  *
  * SSE消息格式：
+ * - { type: 'submitted', data: { taskId, stage, status, progress, message, timestamp } }
  * - { type: 'progress', data: { stage, status, message, timestamp, duration, details } }
  * - { type: 'complete', data: { success, finalUrl, brand, ... } }
+ * - { type: 'deferred', data: { taskId, reason, stage, status, message, timestamp } }
  * - { type: 'error', data: { message, stage, details } }
  */
 
@@ -27,6 +29,10 @@ import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extrac
 import { normalizeOfferExtractRequestBody } from '@/lib/autoads-request-normalizers'
 import { parseJsonField } from '@/lib/json-field'
 import { normalizeOfferCommissionInput } from '@/lib/offer-monetization'
+import {
+  createOfferExtractionDeferredEvent,
+  createOfferExtractionSubmittedEvent,
+} from '@/lib/offer-extraction-sse-events'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 900 // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
@@ -222,6 +228,8 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        sendSSE(createOfferExtractionSubmittedEvent(taskId))
+
         // 轮询数据库获取进度
         const pollInterval = setInterval(async () => {
           try {
@@ -348,14 +356,7 @@ export async function POST(req: NextRequest) {
           clearInterval(pollInterval)
           timeoutHandle = null
           if (!isClosed) {
-            sendSSE({
-              type: 'error',
-              data: {
-                message: 'SSE timeout - task may still be running',
-                stage: 'error',
-                details: {}
-              }
-            })
+            sendSSE(createOfferExtractionDeferredEvent(taskId, 'sse_timeout'))
             controller.close()
             isClosed = true
           }
