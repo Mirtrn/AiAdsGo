@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 
+export const MODEL_TEST_PROMPT = 'Reply with exactly "OK". Do not include any explanation.'
+export const MODEL_TEST_MAX_OUTPUT_TOKENS = 512
+
 /**
  * POST /api/admin/ai-models/test
  * 测试指定AI模型是否可用
@@ -27,8 +30,8 @@ export async function POST(request: NextRequest) {
     const result = await generateContent(
       {
         model: model_id,
-        prompt: 'Hi',
-        maxOutputTokens: 10,
+        prompt: MODEL_TEST_PROMPT,
+        maxOutputTokens: MODEL_TEST_MAX_OUTPUT_TOKENS,
         timeoutMs: 15000,
         operationType: 'model_test',
       },

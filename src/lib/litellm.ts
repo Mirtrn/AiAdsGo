@@ -61,6 +61,49 @@ function buildTemperatureParam(endpoint: string, model: string, temperature: num
 
 const DEFAULT_TIMEOUT_MS = 150_000 // Nginx proxy_read_timeout = 180s，安全上限 150s
 
+function extractTextFromCompatibleContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (typeof item?.text === 'string') return item.text
+        if (typeof item?.content === 'string') return item.content
+        return ''
+      })
+      .join('')
+  }
+
+  return ''
+}
+
+export function extractOpenAICompatibleText(data: any): string {
+  const choice = data?.choices?.[0]
+  const messageText = extractTextFromCompatibleContent(choice?.message?.content)
+  if (messageText) return messageText
+
+  const genericText =
+    extractTextFromCompatibleContent(data?.output_text) ||
+    extractTextFromCompatibleContent(data?.text) ||
+    extractTextFromCompatibleContent(data?.content)
+
+  return genericText
+}
+
+function extractOpenAICompatibleStreamDelta(data: any): string {
+  const choice = data?.choices?.[0]
+  return (
+    extractTextFromCompatibleContent(choice?.delta?.content) ||
+    extractTextFromCompatibleContent(choice?.message?.content) ||
+    extractTextFromCompatibleContent(data?.delta) ||
+    extractTextFromCompatibleContent(data?.output_text) ||
+    extractTextFromCompatibleContent(data?.text)
+  )
+}
+
 /**
  * 从数据库获取启用的模型降级链
  * 按 sort_order 排序，is_enabled = 1
@@ -435,7 +478,8 @@ async function tryCallModel(options: {
   const data = await response.json()
 
   // OpenAI 兼容格式：choices[0].message.content
-  const text: string = data.choices?.[0]?.message?.content || ''
+  // 部分兼容网关会返回 content 数组或 output_text/text 等 fallback 字段。
+  const text = extractOpenAICompatibleText(data)
 
   if (!text || text.trim() === '') {
     throw new Error(
@@ -592,7 +636,7 @@ async function generateContentStreaming(
         try {
           const parsed = JSON.parse(jsonStr)
           // 累积文本
-          const delta = parsed.choices?.[0]?.delta?.content
+          const delta = extractOpenAICompatibleStreamDelta(parsed)
           if (delta) fullText += delta
           // 捕获模型名
           if (parsed.model) returnedModel = parsed.model
@@ -616,7 +660,7 @@ async function generateContentStreaming(
         if (jsonStr !== '[DONE]') {
           try {
             const parsed = JSON.parse(jsonStr)
-            const delta = parsed.choices?.[0]?.delta?.content
+            const delta = extractOpenAICompatibleStreamDelta(parsed)
             if (delta) fullText += delta
             if (parsed.model) returnedModel = parsed.model
             if (parsed.usage) {
