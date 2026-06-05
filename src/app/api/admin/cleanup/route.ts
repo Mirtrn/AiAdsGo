@@ -29,9 +29,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const { tables = ['scraped_products', 'ad_creatives', 'google_ads_accounts'], dryRun = false } = body
 
-    // 验证tables参数
-    const validTables = ['scraped_products', 'ad_creatives', 'google_ads_accounts']
-    const tablesToClean = tables.filter((t: string) => validTables.includes(t))
+    // 🛡️ 安全加固：表名会被直接拼入 SQL（FROM/DELETE 无法参数化）。
+    // 这里从服务端白名单常量「反向选取」，确保进入 SQL 的表名一定是字面量常量，
+    // 而非用户传入的字符串，从根上杜绝表名注入（即便上游 body 解析逻辑被改动）。
+    const ALLOWED_TABLES = ['scraped_products', 'ad_creatives', 'google_ads_accounts'] as const
+    const requested: string[] = Array.isArray(tables) ? tables : []
+    const tablesToClean = ALLOWED_TABLES.filter((t) => requested.includes(t))
 
     if (tablesToClean.length === 0) {
       return NextResponse.json(

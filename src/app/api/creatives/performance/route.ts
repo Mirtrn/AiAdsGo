@@ -68,8 +68,11 @@ export async function GET(request: NextRequest) {
 
     creativesQuery += ` ${orderBy}`
 
-    if (limit) {
-      creativesQuery += ` LIMIT ${limit}`
+    // 🛡️ 安全加固：limit 为用户可控参数，拼入 SQL 前强制夹紧为 1~1000 的整数，
+    // 避免任何形式的 LIMIT 子句注入（即便 parseInt 已提供部分防护，这里做确定性约束）。
+    if (limit !== undefined && Number.isFinite(limit)) {
+      const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)))
+      creativesQuery += ` LIMIT ${safeLimit}`
     }
 
     const creatives = await db.query(creativesQuery, [userId]) as any[]

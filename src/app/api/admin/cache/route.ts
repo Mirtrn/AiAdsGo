@@ -1,23 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth'
 import { getCachedPageData } from '@/lib/redis'
 
-// 强制动态渲染（使用了request.headers）
+// 强制动态渲染（使用了request的查询参数）
 export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/admin/cache?url=xxx&language=xxx
  * 获取Redis中的缓存数据（仅管理员）
  */
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request) => {
   try {
-    // 从中间件注入的请求头中获取用户信息
-    const userId = request.headers.get('x-user-id')
-    const userRole = request.headers.get('x-user-role')
-
-    if (!userId || userRole !== 'admin') {
-      return NextResponse.json({ error: '无权访问' }, { status: 403 })
-    }
-
     const searchParams = request.nextUrl.searchParams
     const url = searchParams.get('url')
     const language = searchParams.get('language') || 'en'
@@ -47,4 +40,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+}, { requireAdmin: true })
