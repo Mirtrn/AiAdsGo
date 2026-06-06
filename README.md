@@ -14,6 +14,8 @@
 - [项目结构](#项目结构)
 - [环境变量](#环境变量)
 - [部署](#部署)
+- [测试](#测试)
+- [文档](#文档)
 
 ---
 
@@ -39,6 +41,9 @@
 
 ### Google Ads 集成
 - 🔗 **API 集成** - 完整的 Google Ads API 集成（OAuth + Service Account 双模式）
+- 🔐 **敏感配置保护** - Google Ads API 配置区管理员口令保护，解锁状态 15 分钟自动过期
+- 🧾 **服务账号绑定** - 支持多套服务账号 JSON + MCC Customer ID 绑定，并在设置页独立保存
+- 🧭 **账号层级展示** - MCC 管理账户优先展示，L1 子账户按所属 MCC 分组排序
 - 📤 **批量上传** - 批量创建广告系列、广告组、关键词
 - 🔄 **自动同步** - 定时同步性能数据、Search Term 报告
 - 💰 **预算管理** - 智能预算分配和 CPC 调整
@@ -111,8 +116,8 @@ npm --version
 
 ```bash
 # 1. 克隆项目
-git clone <repository-url>
-cd autoads
+git clone https://github.com/mirtrn/aiadsgo.git
+cd aiadsgo
 
 # 2. 安装依赖
 npm install
@@ -199,6 +204,9 @@ npm start
 
 # 数据库验证
 npm run validate-schema
+
+# Google Ads 配置验证
+npm run verify:google-ads
 ```
 
 ### 代码规范
@@ -234,6 +242,7 @@ autoads/
 │   │   │   ├── sync/                 # 数据同步
 │   │   │   ├── products/             # 联盟产品库
 │   │   │   ├── google-ads-accounts/  # Google Ads 账户
+│   │   │   ├── google-ads/           # Google Ads 同步与账号管理
 │   │   │   ├── click-farm/           # 点击农场管理
 │   │   │   ├── openclaw/             # OpenClaw 智能代理
 │   │   │   ├── admin/                # 管理员后台
@@ -256,6 +265,7 @@ autoads/
 │       ├── launch-scores.ts          # Launch Score 评分
 │       ├── google-ads-api.ts         # Google Ads API 封装
 │       ├── google-ads-oauth.ts       # OAuth + Service Account 认证
+│       ├── google-ads-settings-ui.ts # Google Ads 设置页解锁与账号层级 UI 逻辑
 │       ├── ai-runtime-config.ts      # 多模型 AI 运行时配置
 │       ├── litellm.ts                # LiteLLM 集成
 │       ├── gemini.ts                 # Gemini 集成
@@ -296,6 +306,10 @@ GOOGLE_ADS_DEVELOPER_TOKEN="your-developer-token"
 GOOGLE_ADS_CLIENT_ID="your-client-id"
 GOOGLE_ADS_CLIENT_SECRET="your-client-secret"
 GOOGLE_ADS_REFRESH_TOKEN="your-refresh-token"
+
+# Google Ads Service Account（可在系统设置页保存多套绑定）
+# GOOGLE_ADS_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+# GOOGLE_ADS_MCC_CUSTOMER_ID="1234567890"
 
 # AI 模型（至少配置一个）
 GOOGLE_AI_API_KEY="your-gemini-api-key"
@@ -400,6 +414,12 @@ npm run dev
 ## 🧪 测试
 
 ```bash
+# 全量 Vitest 测试
+npm test
+
+# Google Ads 设置 UI helper 测试
+npx vitest run src/lib/__tests__/google-ads-settings-ui.test.ts
+
 # 测试 Amazon 产品采集
 node scripts/test-scraper.mjs
 
@@ -426,4 +446,4 @@ npm run validate-schema
 ---
 
 **版本**: 3.0.0  
-**最后更新**: 2026-05-27
+**最后更新**: 2026-06-06
