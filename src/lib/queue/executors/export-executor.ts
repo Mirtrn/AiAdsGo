@@ -71,7 +71,7 @@ async function exportOffers(userId: number, format: 'json' | 'csv'): Promise<{ d
     SELECT
       id,
       product_name,
-      product_url,
+      url AS product_url,
       affiliate_link,
       brand,
       target_country,
@@ -117,7 +117,7 @@ async function exportCampaigns(userId: number, format: 'json' | 'csv'): Promise<
       c.created_at,
       c.updated_at,
       o.product_name as offer_name,
-      o.product_url as offer_url,
+      o.url as offer_url,
       ga.customer_id as google_ads_account_id
     FROM campaigns c
     LEFT JOIN offers o ON c.offer_id = o.id

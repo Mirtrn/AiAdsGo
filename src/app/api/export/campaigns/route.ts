@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         c.created_at,
         c.updated_at,
         o.product_name as offer_name,
-        o.product_url as offer_url,
+        o.url as offer_url,
         ga.customer_id as google_ads_account_id
       FROM campaigns c
       LEFT JOIN offers o ON c.offer_id = o.id

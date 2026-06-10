@@ -350,7 +350,19 @@ export default function ClickFarmPage() {
       const response = await fetch(`/api/click-farm/tasks/${taskId}/trigger`, {
         method: 'POST',
       });
-      const result = await safeJsonParse<{ message?: string; error?: string; success?: boolean }>(response);
+      const result = await safeJsonParse<{
+        message?: string;
+        error?: string;
+        success?: boolean;
+        accepted?: boolean;
+        status?: string;
+        data?: {
+          schedulingStatus?: string;
+          status?: string;
+          clickCount?: number;
+          message?: string;
+        };
+      }>(response);
       if (!result.success) {
         throw new Error(result.userMessage || '触发任务失败');
       }
@@ -359,8 +371,16 @@ export default function ClickFarmPage() {
         throw new Error(data.error || data.message || '触发任务失败');
       }
 
-      toast.success(data.message || '任务已触发');
+      const schedulingStatus = data?.data?.schedulingStatus || data?.data?.status || data?.status;
+      const message = data?.message || data?.data?.message || '任务已触发';
+      if (data?.accepted === false || (schedulingStatus && schedulingStatus !== 'queued')) {
+        toast.info(message);
+      } else {
+        toast.success(message);
+      }
       await loadData();
+      window.setTimeout(() => { void loadData(); }, 2000);
+      window.setTimeout(() => { void loadData(); }, 7000);
     } catch (error: any) {
       toast.error(error.message || '触发任务失败');
     } finally {

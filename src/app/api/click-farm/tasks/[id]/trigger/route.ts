@@ -2,7 +2,7 @@
 // src/app/api/click-farm/tasks/[id]/trigger/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { enqueueClickFarmTriggerRequest } from '@/lib/click-farm/click-farm-scheduler-trigger';
+import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
 import { getDatabase } from '@/lib/db';
 import { getQueueManagerForTaskType } from '@/lib/queue';
 import { getQueueRoutingDiagnostics } from '@/lib/queue/queue-routing';
@@ -27,6 +27,26 @@ function getHeapUsagePercent(): number | null {
     return (heapUsed / limit) * 100;
   } catch {
     return null;
+  }
+}
+
+function buildManualTriggerMessage(result: {
+  status: 'queued' | 'skipped' | 'paused' | 'completed' | 'error';
+  clickCount?: number;
+  message?: string;
+}): string {
+  switch (result.status) {
+    case 'queued':
+      return `已调度本小时 ${result.clickCount || 0} 次点击，点击批次已入队`;
+    case 'skipped':
+      return `未创建点击批次：${result.message || '当前条件无需执行'}`;
+    case 'paused':
+      return `任务已暂停：${result.message || '调度条件不满足'}`;
+    case 'completed':
+      return result.message || '任务已完成';
+    case 'error':
+    default:
+      return result.message || '触发任务失败';
   }
 }
 
@@ -121,29 +141,29 @@ export async function POST(
       );
     }
 
-    console.log(`[API] 已设置任务 ${id} 的 next_run_at 为过去时间，准备异步触发`);
+    console.log(`[API] 已设置任务 ${id} 的 next_run_at 为过去时间，准备执行手动调度`);
 
     const requestId = request.headers.get('x-request-id') || undefined;
-    const trigger = await enqueueClickFarmTriggerRequest({
-      clickFarmTaskId: id,
-      userId: parseInt(userId, 10),
-      source: 'manual',
-      priority: 'high',
+    const scheduling = await triggerTaskScheduling(id, {
       parentRequestId: requestId,
     });
+    const message = buildManualTriggerMessage(scheduling);
+    const success = scheduling.status !== 'error';
 
     return NextResponse.json(
       {
-        success: true,
-        accepted: true,
-        message: '触发请求已入队，系统将异步调度点击批次',
+        success,
+        accepted: scheduling.status === 'queued',
+        message,
         data: {
           taskId: id,
-          queueTaskId: trigger.queueTaskId,
-          status: 'accepted',
+          status: scheduling.status,
+          schedulingStatus: scheduling.status,
+          clickCount: scheduling.clickCount || 0,
+          message: scheduling.message,
         }
       },
-      { status: 202 }
+      { status: success ? 200 : 400 }
     );
 
   } catch (error: any) {

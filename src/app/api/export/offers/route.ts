@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       SELECT
         id,
         product_name,
-        product_url,
+        url AS product_url,
         affiliate_link,
         brand,
         target_country,

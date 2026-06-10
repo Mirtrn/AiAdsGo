@@ -16,6 +16,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import {
+  requeuePendingOfferTasksForActiveUploads,
+  syncUploadRecordsFromOfferTasks,
+} from '@/lib/queue/batch-recovery'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,6 +51,16 @@ export async function GET(req: NextRequest) {
       )
     }
     const userIdNum = parseInt(userId, 10)
+
+    try {
+      await syncUploadRecordsFromOfferTasks({ userId: userIdNum })
+      const requeue = await requeuePendingOfferTasksForActiveUploads({ userId: userIdNum })
+      if (requeue.requeued > 0) {
+        console.log(`🔁 已重新入队 ${requeue.requeued} 个批量Offer pending子任务`)
+      }
+    } catch (syncError: any) {
+      console.warn('⚠️ 上传记录状态同步失败，继续返回现有记录:', syncError?.message || syncError)
+    }
 
     // 获取查询参数
     const searchParams = req.nextUrl.searchParams

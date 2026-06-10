@@ -1402,6 +1402,26 @@ export class UnifiedQueueManager {
         if (dbCleanup.cleanedCount > 0) {
           console.log(`🧹 数据库清理: ${dbCleanup.cleanedCount} 个超时任务已标记为失败`)
         }
+
+        // 3. 同步批量上传记录，避免 offer_tasks 已完成/失败但 upload_records 仍显示“处理中”
+        try {
+          const {
+            requeuePendingOfferTasksForActiveUploads,
+            syncUploadRecordsFromOfferTasks,
+          } = await import('@/lib/queue/batch-recovery')
+          const batchSync = await syncUploadRecordsFromOfferTasks()
+          if (batchSync.finalized > 0) {
+            console.log(`📦 批量上传状态同步: finalized=${batchSync.finalized}, checked=${batchSync.checked}`)
+          }
+          const pendingRequeue = await requeuePendingOfferTasksForActiveUploads()
+          if (pendingRequeue.requeued > 0 || pendingRequeue.failed > 0) {
+            console.log(
+              `🔁 批量Offer pending子任务重入队: requeued=${pendingRequeue.requeued}, failed=${pendingRequeue.failed}, checked=${pendingRequeue.checked}`
+            )
+          }
+        } catch (batchSyncError: any) {
+          console.error('❌ 批量上传状态同步失败:', batchSyncError?.message || batchSyncError)
+        }
       } catch (error: any) {
         console.error('❌ 定期健康检查失败:', error.message)
       }
